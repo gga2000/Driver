@@ -21,7 +21,10 @@ import {
   orderTicketNumber,
   parseOrderTicket,
   redeemablePoints,
+  rideReminderAt,
   rideScheduleProblem,
+  sortCargo,
+  rideSearchStartsAt,
   smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
@@ -83,8 +86,10 @@ import { activePauseWindow } from './pause.js';
 import { busyExtraMinutes } from './busy.js';
 import { SLOT_CAP_RULES, slotFull, type SlotCapRules } from './slot-cap.js';
 import { giftProblem, giftView } from './gift.js';
+import { startCodeForNewOrder } from './start-code.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
+import type { OrdersRidersPort, ResolvedRider } from './riders.js';
 
 /** A household member as placement reads them (role and limits). */
 type HouseholdMember = NonNullable<Awaited<ReturnType<OrdersHouseholdsPort['member']>>>;
@@ -155,6 +160,8 @@ export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
   /** Seconds a ride searches before the customer may cancel free or switch vehicle (city dispatch config). */
   freeCancelAfterSec?(cityId: string, vertical: Vertical): number;
+  /** LOAD-01: takes the kept quote the order names, once (false: unknown, expired or already taken). */
+  claimQuote?(quoteId: string, at: Date, tx: Tx): Promise<boolean>;
 }
 
 /** `DispatchConfig.customerFreeCancelAfterSec`'s default, when the pricing port has no city config. */
@@ -172,6 +179,8 @@ export const ORDER_JOBS = {
   offerToMerchant: 'order.offerToMerchant',
   /** Joy w4: a held household order nobody answered is cancelled free (`HOUSEHOLD_RULES.approvalWaitMin`). */
   payerTimeout: 'order.payerTimeout',
+  /** Step 4 (c10): «مشوارك بعد نص ساعة» for a ride booked for later (`rideReminderAt`). */
+  rideReminder: 'order.rideReminder',
   readyOverdue: 'merchant.readyOverdue',
   courierRelease: 'merchant.courierRelease',
 } as const;
@@ -186,6 +195,10 @@ const SYSTEM = 'system';
 /** Orders that carry the honest-delay promise (as `promisedArrival` in tracking): their ride is locked at placement. */
 const PROMISED_ORDER_TYPES: readonly OrderType[] = ['food', 'grocery_catalog'];
 const PRE_PICKUP_COURIER_STATES = ['accepted', 'en_route_to_pickup', 'arrived_pickup'];
+/** The participant ref a ride booked for someone else writes its rider under (c9/s3). */
+const RIDER_REF = 'rider';
+/** Rider names kept per reader and participant (a name never changes once the ride is placed). */
+const RIDER_NAME_CACHE_MAX = 2000;
 
 type PlaceInput = z.input<typeof PlaceOrderInput>;
 
@@ -253,6 +266,18 @@ export class OrdersService implements OnModuleInit {
     this.favourites = port;
   }
 
+  /**
+   * Ride ideas c9/s3: who rides when a ride is booked for someone else, and the name the booker gave
+   * them (identity's vault). Bound by the module; without it a ride for someone else is refused.
+   */
+  private riders: OrdersRidersPort | null = null;
+  /** Rider names already read per reader and participant, so a 3-second poll logs one vault read, not one per poll. */
+  private readonly riderNameCache = new Map<string, string>();
+
+  bindRiders(port: OrdersRidersPort): void {
+    this.riders = port;
+  }
+
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
     return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
@@ -310,9 +335,15 @@ export class OrdersService implements OnModuleInit {
     return this.view(prior.order.id, tx);
   }
 
-  private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>): Promise<Order> {
+  /** `carried`: a ride switched to the other vehicle keeps the rider it was booked for (J-D7 × c9). */
+  private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>, carried: { rider?: ResolvedRider } = {}): Promise<Order> {
     const input = { ...raw, pickup: await this.placeLink(ordererId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.dropoff) };
     const now = this.clock.now();
+    // c9/s3: a ride for someone else is a ride, with one rider (the legacy `participants` rider or this, not both).
+    if (input.rider || carried.rider) {
+      if (input.type !== 'ride' || input.participants.some((pp) => pp.role === 'rider' || pp.ref === RIDER_REF)) throw new DriverError('invalid_input');
+      if (!this.riders) throw new DriverError('internal');
+    }
     const preferredDriverId = await this.rideBooking(ordererId, input, now);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
@@ -379,6 +410,8 @@ export class OrdersService implements OnModuleInit {
           const prior = await this.replay(ordererId, input, tx);
           if (prior) return prior;
         }
+        // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
+        if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
         // (this instance's KeyedLock below, every instance's advisory lock here), so two orders placed
         // together can never both slip under the budget: the second sees the first and is held.
@@ -392,6 +425,9 @@ export class OrdersService implements OnModuleInit {
         if (p.discount && p.discount.meta.funder === 'merchant' && discount > 0) {
           if (!(await this.promotions.reserve(p.discount.promotionId, discount, tx))) throw new DriverError('deal_changed');
         }
+        // c9/s3: the rider is resolved in this unit of work, so a pseudonymous person made for a typed
+        // number is only kept with the order; their name goes to the vault once the participant exists.
+        const rider = carried.rider ?? (input.rider ? await this.resolveRider(ordererId, input.rider) : null);
         const agg = await this.repo.create(
           {
             cityId: input.cityId,
@@ -421,16 +457,25 @@ export class OrdersService implements OnModuleInit {
             minVehicleClass: caps?.minVehicleClass ?? null,
             dropoff: input.dropoff ?? null,
             promisedRideMin,
+            // s1: a ride for the night starts only with the code the rider reads out.
+            startCode: startCodeForNewOrder(input.type, input.scheduledFor ?? now),
             placedAt: now,
             heldForPayer: askPayer !== null,
             familyTable: input.familyTable ?? false,
             preferredDriverId,
+            familyPreferred: input.type === 'ride' && input.familyPreferred === true,
+            rideCargo: input.type === 'ride' ? sortCargo(input.rideCargo ?? []) : [],
           },
           newLines,
-          participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+          [
+            ...participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+            ...(rider ? [{ ref: RIDER_REF, role: 'rider' as const, personId: rider.personId, phoneHash: rider.phoneHash, label: null, note: null }] : []),
+          ],
           tx,
         );
         const order = agg.order;
+        const riderParticipant = rider ? agg.participants.find((pp) => pp.role === 'rider') : undefined;
+        if (rider && riderParticipant && this.riders) await this.riders.remember(riderParticipant.id, rider, ordererId);
         await this.emit(tx, 'order.placed', ordererId, order, {
           type: order.type,
           cityId: order.cityId,
@@ -442,9 +487,11 @@ export class OrdersService implements OnModuleInit {
           cateringRequest: caps?.catering ?? false,
           scheduledFor: order.scheduledFor?.toISOString() ?? null,
           participantCount: agg.participants.length,
+          ...(rider ? { forSomeoneElse: true } : {}),
           arrivingCallRequired: risk?.requiresArrivingCall ?? false,
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
-          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId } } : {}),
+          // Step 4 (o4): door pickup too, so ride habits can offer the same ride the same way.
+          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true, doorPickup: input.options?.doorPickup ?? false } } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -457,6 +504,12 @@ export class OrdersService implements OnModuleInit {
           await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
         } else if (merchantType && profile) {
           await this.scheduleOffer(order, profile, now, tx);
+        }
+        // Step 4 (c10): a ride booked for later reminds its rider half an hour before (a delayed job, so
+        // it survives a restart like every order timer); booked closer than that, nothing to remind.
+        const remindAt = order.type === 'ride' && order.scheduledFor ? rideReminderAt(order.scheduledFor, now) : null;
+        if (remindAt && order.scheduledFor) {
+          await this.queue.add(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
         }
         return this.view(order.id, tx);
       });
@@ -1157,15 +1210,22 @@ export class OrdersService implements OnModuleInit {
 
   /**
    * J-D7: a ride nobody took within the city's free-cancel time (180 s) may switch to the other
-   * vehicle. Only the orderer, only while it is still `placed` with no driver on its trip, and not for
-   * a ride booked for someone else (their details would not carry over). The pickup and drop-off are
-   * the trip's own, so the quote is for exactly the same journey.
+   * vehicle. Only the orderer, only while it is still `placed` with no driver on its trip. A ride booked
+   * for someone else (c9: one rider whose name the booker gave, in the vault) keeps its rider; one with
+   * any other participant does not switch. The pickup and drop-off are the trip's own, so the quote is
+   * for exactly the same journey.
    */
-  private async switchable(actorId: string, orderId: string): Promise<{ order: OrderRecord; to: RideVertical; pickup: DeliveryPoint; dropoff: DeliveryPoint; availableAt: Date }> {
+  private async switchable(
+    actorId: string,
+    orderId: string,
+  ): Promise<{ order: OrderRecord; to: RideVertical; pickup: DeliveryPoint; dropoff: DeliveryPoint; availableAt: Date; rider: ResolvedRider | null }> {
     const agg = await this.load(orderId);
     const order = agg.order;
     if (order.ordererId !== actorId) throw new DriverError('forbidden');
-    if (order.type !== 'ride' || order.state !== 'placed' || agg.participants.length > 0) throw new DriverError('ride_switch_unavailable');
+    const only = agg.participants.length === 1 ? agg.participants[0] : undefined;
+    const name = only?.role === 'rider' && only.personId ? (await this.riderNames([only.id], actorId, 'ride_switch'))[only.id] : null;
+    const rider = only?.personId && name ? { personId: only.personId, phoneHash: only.phoneHash, name } : null;
+    if (order.type !== 'ride' || order.state !== 'placed' || (agg.participants.length > 0 && !rider)) throw new DriverError('ride_switch_unavailable');
     const trip = await this.trips.activeForOrder(order.id);
     const from = trip?.vertical;
     if (!trip || trip.courierId || trip.acceptedAt || (from !== 'taxi' && from !== 'tuktuk')) throw new DriverError('ride_switch_unavailable');
@@ -1178,7 +1238,7 @@ export class OrdersService implements OnModuleInit {
     if (!p) throw new DriverError('ride_switch_unavailable');
     const pickup: DeliveryPoint = { zoneKey: p.zoneKey, ...(p.target ? { pin: p.target } : {}) };
     const dropoff: DeliveryPoint = order.dropoff ?? (d ? { zoneKey: d.zoneKey, ...(d.target ? { pin: d.target } : {}) } : pickup);
-    return { order, to: from === 'taxi' ? 'tuktuk' : 'taxi', pickup, dropoff, availableAt };
+    return { order, to: from === 'taxi' ? 'tuktuk' : 'taxi', pickup, dropoff, availableAt, rider };
   }
 
   /** `orders.rideSwitchQuote`: the other vehicle's fare for the same journey, now (nothing stored). */
@@ -1215,11 +1275,16 @@ export class OrdersService implements OnModuleInit {
       dropoff: s.dropoff,
       ...(s.order.householdOrgId ? { householdOrgId: s.order.householdOrgId } : {}),
       ...(s.order.courierNote ? { courierNote: s.order.courierNote } : {}),
+      // Ride step 3 (s6): «عوائل» carries over to the other vehicle.
+      ...(s.order.familyPreferred ? { familyPreferred: true } : {}),
+      // x5: so do the rider's bags.
+      ...(s.order.rideCargo?.length ? { rideCargo: [...s.order.rideCargo] } : {}),
       clientRequestId: input.clientRequestId,
     });
     return this.uow.run(async () => {
       await this.cancel(actorId, { orderId: s.order.id, reason: 'switched_vehicle' });
-      return this.placeOnce(actorId, next);
+      // c9: the rider and the name the booker gave them go with the ride to the other vehicle.
+      return this.placeOnce(actorId, next, s.rider ? { rider: s.rider } : {});
     });
   }
 
@@ -1277,6 +1342,67 @@ export class OrdersService implements OnModuleInit {
   async listForPerson(personId: string): Promise<Order[]> {
     const orders = await this.repo.forPerson(personId);
     return Promise.all(orders.map((o) => this.view(o.id)));
+  }
+
+  /**
+   * Ride ideas c9/s3: the orders as `accessorId` reads them, a ride he booked for someone else carrying
+   * the name he gave its rider (`Order.rider`: «مشوار ماما»). Only the booker's own rides: the rider
+   * reads the ride as his own, the driver reads the name through `riderOf`. The first read of each name
+   * is a logged vault read.
+   */
+  async withRiders(orders: Order[], accessorId: string, purpose = 'ride_rider_name'): Promise<Order[]> {
+    const riderOf = (o: Order) => (o.type === 'ride' && o.ordererId === accessorId ? o.participants.find((p) => p.role === 'rider' && p.personId) : undefined);
+    const ids = orders.flatMap((o) => riderOf(o)?.id ?? []);
+    if (ids.length === 0 || !this.riders) return orders;
+    const names = await this.riderNames(ids, accessorId, purpose);
+    return orders.map((o) => {
+      const p = riderOf(o);
+      const name = p ? names[p.id] : null;
+      return name ? { ...o, rider: { name } } : o;
+    });
+  }
+
+  /**
+   * c9/s3: the rider of a ride booked for someone else — the person and the name the booker gave them —
+   * for the driver of the ride and for notify; null for any other order. The read is logged.
+   */
+  async riderOf(orderId: string, accessorId: string, purpose: string): Promise<{ personId: string; name: string } | null> {
+    const agg = await this.repo.find(orderId);
+    if (!agg || agg.order.type !== 'ride' || !this.riders) return null;
+    const p = agg.participants.find((x) => x.role === 'rider' && x.personId);
+    if (!p?.personId) return null;
+    const name = (await this.riderNames([p.id], accessorId, purpose))[p.id];
+    return name ? { personId: p.personId, name } : null;
+  }
+
+  /**
+   * c9: the rider the choose screen picked. `recent` is the rider of one of the booker's own earlier
+   * rides («آخر من حجزتلهم»): the same person and the name he gave them then; the rest go to the port.
+   */
+  private async resolveRider(ordererId: string, input: NonNullable<z.output<typeof PlaceOrderInput>['rider']>): Promise<ResolvedRider> {
+    if (!this.riders) throw new DriverError('internal');
+    if (input.from !== 'recent') return this.riders.resolve(ordererId, input);
+    const agg = await this.repo.find(input.orderId);
+    const p = agg && agg.order.ordererId === ordererId && agg.order.type === 'ride' ? agg.participants.find((x) => x.role === 'rider' && x.personId) : undefined;
+    if (!p?.personId) throw new DriverError('ride_rider_unknown');
+    const name = (await this.riders.names([p.id], ordererId, 'ride_rider_again'))[p.id];
+    if (!name) throw new DriverError('ride_rider_unknown');
+    return { personId: p.personId, phoneHash: p.phoneHash, name };
+  }
+
+  private async riderNames(participantIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>> {
+    const key = (id: string) => `${accessorId}:${id}`;
+    const missing = [...new Set(participantIds)].filter((id) => !this.riderNameCache.has(key(id)));
+    if (missing.length > 0 && this.riders) {
+      const read = await this.riders.names(missing, accessorId, purpose);
+      for (const id of missing) {
+        const name = read[id];
+        if (!name) continue;
+        if (this.riderNameCache.size >= RIDER_NAME_CACHE_MAX) this.riderNameCache.delete(this.riderNameCache.keys().next().value as string);
+        this.riderNameCache.set(key(id), name);
+      }
+    }
+    return Object.fromEntries(participantIds.map((id) => [id, this.riderNameCache.get(key(id)) ?? null]));
   }
 
   /**
@@ -1498,6 +1624,12 @@ export class OrdersService implements OnModuleInit {
           if (order.state === 'delivered' || order.state === 'completed') await this.close(order, SYSTEM, 'auto_2h', tx);
           return;
         }
+        case ORDER_JOBS.rideReminder: {
+          // Only the booking it was set for, still waiting for its search (not cancelled, not taken).
+          if (order.type !== 'ride' || order.state !== 'placed' || !order.scheduledFor || order.scheduledFor.getTime() !== job.refMs) return;
+          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() });
+          return;
+        }
         default:
           return;
       }
@@ -1583,6 +1715,14 @@ export class OrdersService implements OnModuleInit {
    * here, > 0, in 250s, at most the cap (25,000). Cash above the total without it is refused, so every
    * credit beyond the rounding change is named and capped. Null = the hand-over may be recorded.
    */
+  /**
+   * s1 «رمز المشوار»: the code a ride must start with (trips checks the driver's against it), or null
+   * when the order needs none — day rides, every other order, unknown orders.
+   */
+  async startCodeOf(orderId: string): Promise<string | null> {
+    return (await this.repo.find(orderId))?.order.startCode ?? null;
+  }
+
   async handoverProblem(orderId: string, handover: Pick<HandoverProof, 'cashCollectedIqd' | 'changeToWalletIqd'>): Promise<'change_to_wallet_not_cash' | 'change_to_wallet_mismatch' | 'change_to_wallet_above_cap' | null> {
     const extra = handover.changeToWalletIqd;
     const collected = handover.cashCollectedIqd;
@@ -2188,6 +2328,8 @@ export function toOrderView(agg: OrderAggregate): Order {
     ...(order.heldForPayer ? { heldForPayer: true } : {}),
     ...(order.familyTable ? { familyTable: true } : {}),
     ...(order.preferredDriverId ? { preferredDriverId: order.preferredDriverId } : {}),
+    ...(order.familyPreferred ? { familyPreferred: true } : {}),
+    ...(order.rideCargo?.length ? { rideCargo: [...order.rideCargo] } : {}),
     quoteId: order.quoteId,
     paymentMethod: order.paymentMethod,
     itemsTotalIqd: order.itemsTotalIqd,

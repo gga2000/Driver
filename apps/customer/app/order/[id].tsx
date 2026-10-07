@@ -2,16 +2,26 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
+import { FOOD_RATED_TYPES, isNightAt, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
 import { newRequestKey } from '@/features/food/place-attempt';
-import { RideRoute, rideVehicleLabel, SearchStages, searchElapsedSec, useSearchNote, useSearchStage, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
-import { switchOfferDue, type RideVertical } from '@/features/ride/logic';
+import { FREE_CANCEL_H, FreeCancelChip, NameThisPlace, RideRoute, rideVehicleLabel, SEARCH_PROGRESS_H, SearchProgress, searchElapsedSec, useSearchNote, useSearchProgress, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
+import { RideNearCard, ScreenLight } from '@/features/ride/ArrivalParts';
+import { AvoidDriverSheet, DriverProfileSheet } from '@/features/ride/DriverProfileSheet';
+import { OfferedDrivers } from '@/features/ride/OfferedDrivers';
+import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type RideVertical } from '@/features/ride/logic';
+import { isBookedRide } from '@/features/ride-habits/logic';
+import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
+import { RiderFollowCard } from '@/features/ride/RiderParts';
+import { GarageLateNotice } from '@/features/ride/GarageLateNotice';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
+import { laterBaghdadDay, lostItemUntil, tripCodeOf } from '@/features/ride/safety';
+import { TRIP_CODE_H, TripCodeCard } from '@/features/ride/SafetyParts';
+import { useSimpleMode } from '@/features/simple/pref';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { SharePanel } from '@/features/share/SharePanel';
@@ -20,7 +30,7 @@ import { useGiftHeadsUp } from '@/features/gift/GiftHeadsUp';
 import { ShareCardPanel } from '@/features/share-card/ShareCardPanel';
 import type { ShareMoment } from '@/features/share-card/share-card';
 import { shareUrl } from '@/features/rajaa/share';
-import { SosControl } from '@/features/safety/SosControl';
+import { SafetyShield } from '@/features/safety/SafetyShield';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { rideAskOnLiveScreen } from '@/features/notify/prompt';
 import { ArrivalOverlay, RatingPanel, useArrivalOnce } from '@/features/track/Arrival';
@@ -57,7 +67,9 @@ const TOP_BAR = 64;
 /** The inline notification ask in the collapsed sheet (rides, joy f1): two text lines and the buttons. */
 const PUSH_ASK_H = 136;
 /** The 3-minute offer card over the map (J-D7): the camera keeps the pickup above it. */
-const SWITCH_OFFER_H = 200;
+const SWITCH_OFFER_H = 290;
+/** Simple mode's larger status line (heading, up to 3 lines) needs this much more collapsed sheet. */
+const SIMPLE_HEADER_EXTRA_H = 28;
 
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -92,7 +104,10 @@ export default function OrderRoute() {
  * Live order / ride screen (customer app spec §4): map ≈ 60 % with the gliding courier, a
  * draggable sheet (collapsed: status + ETA; expanded: timeline, courier card, order, price,
  * actions), the unreachable protocol, the arrival moment and the two-tap rating.
- * `?sheet=1|2` opens the sheet at a detent (deep links from notifications, screenshots).
+ * `?sheet=0|1|2` opens the sheet at a detent (deep links from notifications, screenshots); a
+ * searching ride opens at 1, on the drivers who were sent it. A ride in simple mode (ride idea v2):
+ * the status in the larger type, the drivers sent it as a plain list, and no other-vehicle offer,
+ * order number, share card, invite or «ما أريده مرة ثانية».
  */
 function OrderLiveScreen() {
   const theme = useTheme();
@@ -116,6 +131,12 @@ function OrderLiveScreen() {
   const offset = useMemo(() => (v ? v.serverNow.getTime() - track.dataUpdatedAt : 0), [v, track.dataUpdatedAt]);
   const now = tick + offset;
   const clock = useMemo(() => () => Date.now() + offset, [offset]);
+  // Step 4 (c10): a ride booked «بعدين» waits on «مشوارك محجوز» until its search starts (a link or an
+  // old notification may open it here first).
+  const bookedWait = v ? isBookedRide(v.order, new Date(now)) : false;
+  useEffect(() => {
+    if (bookedWait) router.replace({ pathname: '/ride/booked/[id]', params: { id } });
+  }, [bookedWait, id]);
 
   const ageSec = fix ? fix.ageSec + Math.max(0, (tick - pos.dataUpdatedAt) / 1000) : null;
   const lostMin = signalLostMinutes(ageSec);
@@ -138,7 +159,11 @@ function OrderLiveScreen() {
   const mapMinutes =
     fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
   const ride = v?.order.type === 'ride';
-  // Joy f1: rides ask for notifications inside the collapsed sheet once a driver is coming (food asked on the kitchen screen).
+  const simpleMode = useSimpleMode().on;
+  const simple = simpleMode && Boolean(ride);
+  // Ride idea s3: a ride he booked for someone else («مشوار ماما»); he follows it to the end.
+  const riderFor = ride ? (v?.order.rider?.name ?? null) : null;
+  // Joy f1 / ride idea m3: rides ask for notifications inside the collapsed sheet from the search on (food asked on the kitchen screen).
   const pushAsk = usePushAsk(rideAskOnLiveScreen(Boolean(ride), phase));
   const courierName = v?.courier?.firstName ?? null;
   // Rides (customer spec §5): the vehicle asked for, the honest search line and counter, "وصلت".
@@ -148,15 +173,27 @@ function OrderLiveScreen() {
   const searching = Boolean(ride && phase === 'searching');
   const pickupArrivedAt = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.arrivedAt ?? null) : null;
   const searchNote = useSearchNote(searching ? v : undefined, now);
-  const searchStage = useSearchStage(searching ? v : undefined, now);
+  const searchBar = useSearchProgress(searching ? v : undefined, now);
+  // Ride step 3: the night trip code to tell the driver (s1); «السايق قريب، اطلع هسة» on the open screen (d3).
+  const tripCode = tripCodeOf(v, phase);
+  // Ride idea m4: the first minute after he accepts, cancelling is still free.
+  const freeCancel = Boolean(ride && phase === 'to_pickup' && v?.trip && freeCancelLeftSec(v.trip.acceptedAt, now) !== null);
   // J-D7 / L-03: free cars around the pickup while searching, and the other vehicle at 3 minutes.
   const asked: RideVertical = v?.trip?.vertical === 'tuktuk' || (!v?.trip && memo?.vertical === 'tuktuk') ? 'tuktuk' : 'taxi';
   const ridePickupPin = ride ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.target ?? null) : null;
+  // The vehicle on its way (his, once he took it): the colour the arrived card and the screen light wear.
+  const rideVertical: RideVertical = v?.courier?.vehicleClass === 'tuktuk' || v?.trip?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi';
+  // Night rides (21:00–05:59 Baghdad): the screen light (d4) and the share card up front (t2).
+  const night = isNightAt(new Date(now));
+  const [lightFor, setLightFor] = useState<string | null>(null);
+  // Ride idea t1: the ride started when he picked the rider up (rides never set pickedUpAt).
+  const rideStartedAt = ride && phase === 'on_the_way' ? (v?.trip?.stops.find((s) => s.mine && s.type === 'pickup')?.completedAt ?? null) : null;
+  const showTrip = tripProgress({ startedAt: rideStartedAt, eta, now }) !== null;
   const nearby = useNearbyVehicles(searching ? ridePickupPin : null, asked);
   const city = useCityConfig();
   const switchAfterSec = city.data?.dispatch?.[asked]?.customerFreeCancelAfterSec ?? null;
   const [keptSearching, setKeptSearching] = useState<string | null>(null);
-  const offerDue = Boolean(searching && v && switchAfterSec !== null && switchOfferDue(searchElapsedSec(v, now), switchAfterSec, keptSearching === id));
+  const offerDue = Boolean(!simple && searching && v && switchAfterSec !== null && switchOfferDue(searchElapsedSec(v, now), switchAfterSec, keptSearching === id));
   const switchQuote = useRideSwitchQuote(id, memo?.doorPickup ?? false, offerDue);
   const switchRide = useSwitchRideVehicle();
   const switchKey = useRef<string | null>(null);
@@ -167,7 +204,7 @@ function OrderLiveScreen() {
       {
         onSuccess: (next) => {
           switchKey.current = null;
-          rideStore.remember(next.id, { vertical: to, from: memo?.from ?? t('ride.pickup_here'), to: memo?.to ?? t('track.destination_pin'), doorPickup: memo?.doorPickup ?? false, toHome: memo?.toHome ?? false });
+          rideStore.remember(next.id, { vertical: to, from: memo?.from ?? t('ride.pickup_here'), to: memo?.to ?? t('track.destination_pin'), doorPickup: memo?.doorPickup ?? false, toHome: memo?.toHome ?? false, ...(memo?.dest ? { dest: memo.dest } : {}) });
           toast.show({ message: t('ride.switch_done', { vehicle: t(to === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi') }), tone: 'success', icon: 'check' });
           void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
           router.replace({ pathname: '/order/[id]', params: { id: next.id } });
@@ -199,6 +236,9 @@ function OrderLiveScreen() {
     );
 
   const [panel, setPanel] = useState<Panel>(null);
+  // Ride ideas n5/s5: a driver's profile (one offered this ride, or the driver of it), and «ما أريده مرة ثانية».
+  const [profileFor, setProfileFor] = useState<{ offerId: string | null } | null>(null);
+  const [avoidOpen, setAvoidOpen] = useState(false);
   // Joy g1: a gift sent from this phone can still send its heads-up while the meal is on its way.
   const gift = useGift(v?.order.id);
   const giftHeadsUp = useGiftHeadsUp(v?.order.id, gift, v?.merchant?.name ?? '');
@@ -214,6 +254,7 @@ function OrderLiveScreen() {
         : null;
   // "عباس وصل" (L-02): shown at the pickup until closed; "طالع هسة" goes once per order.
   const [hereClosedFor, setHereClosedFor] = useState<string | null>(null);
+  const [hereH, setHereH] = useState(0);
   // Rides only: «طالع هسة» goes as the chat's coming-out message (food's «أني نازل» is orders.comingOut).
   const [rideComingOut, setRideComingOut] = useState<{ orderId: string; state: 'sending' | 'sent' } | null>(null);
   const [arrivalSeen, setArrivalSeen] = useState(false);
@@ -256,6 +297,23 @@ function OrderLiveScreen() {
     }
   };
   const openChat = (kind: 'customer_courier' | 'customer_merchant' | 'customer_support') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
+  // s7 «نسيت غرض بالسيارة؟»: up to 24 h after the ride, the chat with the driver opens again.
+  const lostUntil = lostItemUntil(v, now);
+  const lostBusy = useRef(false);
+  const askLostItem = async () => {
+    if (lostBusy.current) return;
+    lostBusy.current = true;
+    try {
+      await client.chat.lostItem.mutate({ orderId: id });
+      toast.show({ message: t('ride.lost_item_done'), tone: 'success', icon: 'chat' });
+      void threads.refetch();
+      openChat('customer_courier');
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'warning' });
+    } finally {
+      lostBusy.current = false;
+    }
+  };
   const reply = async (key: QuickReplyKey) => {
     try {
       await client.chat.send.mutate({ orderId: id, kind: 'customer_courier', clientId: newClientId(), quickReplyKey: key });
@@ -324,10 +382,15 @@ function OrderLiveScreen() {
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
-  const collapsed = COLLAPSED + insets.bottom + (searching && searchNote ? 22 : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0);
+  // «وصل، اطلع» is for whoever goes out to the car: not the booker of someone else's ride.
+  const showHere = Boolean(ride && !riderFor && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  // s1: the trip code sits in the collapsed sheet, except while the arrived card (which carries it) is up.
+  const sheetCode = showHere ? null : tripCode;
+  const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (showTrip ? TRIP_PROGRESS_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0) + (sheetCode ? TRIP_CODE_H : 0) + (simple ? SIMPLE_HEADER_EXTRA_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
-  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
-  const showHere = Boolean(ride && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  // The arrived card already shows him, the car and the plate: the float steps aside until it is closed.
+  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat && !showHere ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
+  const waitPerIqd = city.data?.verticals.find((x) => x.vertical === rideVertical)?.components.find((c) => c.key === 'wait')?.perUnit ?? 250;
   const sayComingOut = async () => {
     setRideComingOut({ orderId: id, state: 'sending' });
     try {
@@ -344,13 +407,14 @@ function OrderLiveScreen() {
     <CourierCard
       courier={v.courier}
       ride={ride}
-      quickReplies={courierThread?.status === 'open' ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
+      quickReplies={courierThread?.status === 'open' && !happy ? quickRepliesFor('customer', 'customer_courier', ride).slice(0, 3) : []}
       unread={courierThread?.unread ?? 0}
       canChat={Boolean(courierThread && courierThread.status !== 'not_open')}
       onReply={(k) => void reply(k)}
       onChat={() => openChat('customer_courier')}
       onCall={call}
       onShare={() => void share()}
+      {...(ride ? { onProfile: () => setProfileFor({ offerId: null }) } : {})}
     />
   ) : null;
 
@@ -362,12 +426,14 @@ function OrderLiveScreen() {
           view={v}
           fix={fix}
           stale={lostMin !== null}
-          topInset={insets.top + TOP_BAR + bannersH}
+          // f1: the «السايق وصل» card sits over the top of the map: frame the pins below it.
+          topInset={insets.top + TOP_BAR + bannersH + (showHere && hereH > 0 ? hereH + 8 : 0)}
           bottomInset={mapBottom}
           searching={searching}
           minutes={mapMinutes}
           spotlight={phase === 'unreachable'}
           nearby={searching ? { data: nearby.data, kind: asked === 'tuktuk' ? 'tuktuk' : 'car' } : null}
+          wave={searching && searchBar ? { part: searchBar.part, asked: searchBar.asked } : null}
           destinationKind={memo?.toHome ? 'home' : 'destination'}
         />
       ) : (
@@ -376,11 +442,11 @@ function OrderLiveScreen() {
 
       <TopBar
         onBannersLayout={setBannerStackH}
-        orderNo={v ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
-        // SOS on a ride with a driver (scoring & safety §3): from the match until a little after arrival.
+        orderNo={v && !simple ? t('order.number', { id: orderTicketNumber(v.order.id) }) : undefined}
+        // Ride idea t3: one safety shield (SOS, share, report) on a ride with a driver, from the match until a little after arrival.
         sos={
           ride && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way' || phase === 'arrived' || phase === 'unreachable') ? (
-            <SosControl subject={{ kind: 'order', id }} car={sosCar} onShareLocation={() => void shareMyLocation()} />
+            <SafetyShield subject={{ kind: 'order', id }} car={sosCar} onShare={() => void share()} onReport={() => setPanel('dispute')} onShareLocation={() => void shareMyLocation()} />
           ) : null
         }
       >
@@ -396,7 +462,7 @@ function OrderLiveScreen() {
         {phase === 'reassigning' ? <DegradedBanner testID="reassigning" icon="user" tone="info" title={t('track.reassigning')} body={t('track.reassigning_note')} /> : null}
         {lateMin > 0 && phase !== 'reassigning' && eta && v ? <LateBanner view={v} lateMin={lateMin} eta={eta} now={now} /> : null}
       </TopBar>
-      {v?.courier && showFloat ? (
+      {v?.courier && showFloat && !showHere ? (
         <CourierFloat
           courier={v.courier}
           ride={ride}
@@ -413,13 +479,23 @@ function OrderLiveScreen() {
         <DriverHereCard
           courier={v.courier}
           vehicle={v.courier.vehicleLabel ?? rideVehicleLabel(v, t, memo?.vertical)}
+          vertical={rideVertical}
           top={insets.top + TOP_BAR + bannersH + 8}
+          standsM={standsAwayM(fix?.pin ?? null, ridePickupPin)}
+          arrivedAt={pickupArrivedAt}
+          waitPerIqd={waitPerIqd}
+          now={now}
+          clock={clock}
+          night={night}
+          startCode={v.trip?.startCode ?? null}
+          onLight={() => setLightFor(id)}
           sent={rideComingOut?.orderId === id && rideComingOut.state === 'sent'}
           sending={rideComingOut?.orderId === id && rideComingOut.state === 'sending'}
           canReply={courierThread?.status === 'open'}
           onComingOut={() => void sayComingOut()}
           onCall={call}
           onClose={() => setHereClosedFor(id)}
+          onHeight={setHereH}
         />
       ) : null}
       {v && offerDue ? (
@@ -436,7 +512,18 @@ function OrderLiveScreen() {
         </View>
       ) : null}
       {v?.courier && reveal.show && !moments.card && !showHere ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} /> : null}
-      {v && moments.card ? (
+      {/* «قريب، اطلع هسة» is for whoever waits at the curb: on a ride for someone else that is the rider (her push). */}
+      {v?.courier && moments.card === 'ride_near' && !riderFor ? (
+        <RideNearCard
+          courier={v.courier}
+          vehicle={v.courier.vehicleLabel ?? rideVehicleLabel(v, t, memo?.vertical)}
+          top={insets.top + TOP_BAR + bannersH + 8}
+          night={night}
+          onLight={() => setLightFor(id)}
+          onClose={moments.closeCard}
+        />
+      ) : null}
+      {v && (moments.card === 'near' || moments.card === 'door') ? (
         <AlmostThereCard
           order={v.order}
           variant={moments.card}
@@ -449,17 +536,21 @@ function OrderLiveScreen() {
 
       <Sheet
         // The calm receipt (f2) opens the sheet at its middle detent: remount once it is decided.
-        key={receipt ? 'receipt' : 'live'}
+        // While a ride searches the sheet opens at its middle, on the drivers who were sent it (n3).
+        key={receipt ? 'receipt' : searching ? 'search' : 'live'}
         snapPoints={[collapsed, 0.62, 0.9]}
-        initialSnap={sheet === '2' ? 2 : sheet === '1' || receipt ? 1 : 0}
+        initialSnap={sheet === '2' ? 2 : sheet === '1' || receipt || (searching && sheet !== '0') ? 1 : 0}
         testID="track-sheet"
         header={
           v && phase ? (
             <SheetHeader
               phase={phase}
               status={statusLine(v, t, { now })}
+              simple={simple}
               pill={[
                 ride ? rideVehicleLabel(v, t, memo?.vertical) : t(`order.type.${v.order.type}` as MessageKey),
+                // s3: «تكسي · لـ ماما».
+                riderFor ? t('ride.rider_for', { name: riderFor }) : null,
                 v.merchant?.name,
                 // g1: «عزيمة لـ أمي» (the recipient's label on the order; never a number).
                 v.order.gift ? t('gift.for', { name: v.order.participants.find((p) => p.role === 'recipient')?.label ?? t('checkout.recipient_other') }) : null,
@@ -467,16 +558,25 @@ function OrderLiveScreen() {
                 .filter(Boolean)
                 .join(' · ')}
               // At the door there is no time left to show (f3): the card says what to do instead.
-              eta={atDoor ? null : eta}
+              // While searching there is no driver to time: the search bar below says where it is.
+              eta={atDoor || searching ? null : eta}
               now={now}
               lateMin={lateMin}
-              note={searching ? searchNote : null}
-              aside={searching && searchStage ? <SearchStages stage={searchStage} seconds={searchElapsedSec(v, now)} /> : ride && phase === 'at_pickup' && pickupArrivedAt ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
+              // The arrived card carries the free-wait ring (d5); once it is closed the counter sits here.
+              aside={ride && phase === 'at_pickup' && pickupArrivedAt && !showHere ? <WaitCounter arrivedAt={pickupArrivedAt} now={now} /> : undefined}
               below={
-                pushAsk.visible ? (
-                  <PushAskCard kind="ride" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
-                ) : kitchen ? (
-                  <KitchenProgress stages={kitchen} courierName={courierName} />
+                (searching && searchBar) || freeCancel || showTrip || pushAsk.visible || kitchen || sheetCode ? (
+                  <View style={{ gap: theme.space[3] }}>
+                    {sheetCode ? <TripCodeCard code={sheetCode} /> : null}
+                    {searching && searchBar ? <SearchProgress part={searchBar.part} fill={searchBar.fill} note={searchNote} seconds={searchElapsedSec(v, now)} /> : null}
+                    {showTrip ? <TripProgress orderId={id} startedAt={rideStartedAt} eta={eta} now={now} vertical={rideVertical} /> : null}
+                    {freeCancel && v.trip ? <FreeCancelChip acceptedAt={v.trip.acceptedAt} now={now} onPress={() => setPanel('cancel')} /> : null}
+                    {pushAsk.visible ? (
+                      <PushAskCard kind={searching ? 'ride_search' : 'ride'} busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} />
+                    ) : kitchen ? (
+                      <KitchenProgress stages={kitchen} courierName={courierName} />
+                    ) : null}
+                  </View>
                 ) : undefined
               }
             />
@@ -497,9 +597,18 @@ function OrderLiveScreen() {
                 <Button label={v.order.type === 'ride' ? rideArrivalCopy(t, v).rate : t('track.arrived_continue')} icon="star" fullWidth onPress={() => setRating(true)} testID="receipt-rate-button" />
               </View>
             ) : null}
+            {riderFor && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <RiderFollowCard name={riderFor} /> : null}
+            {/* x3: a taxi we booked to his الرجعة car that would bring him after the car's time. */}
+            {ride && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <GarageLateNotice orderId={id} /> : null}
+            {ride && night && v.courier && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? (
+              <NightShareCard shared={Boolean(shareLink && !shareLink.revokedAt)} onShare={() => void share()} />
+            ) : null}
             {/* Rides (C-19/C-20): who is coming — name, car, plate — comes first, before the route. */}
             {ride && v.courier && phase !== 'cancelled' ? courierCard : null}
+            {/* n3: while it searches, the drivers who were sent it take that place. */}
+            {searching ? <OfferedDrivers orderId={id} simple={simple} onProfile={(offerId) => setProfileFor({ offerId })} /> : null}
             {ride ? <RideRoute view={v} /> : null}
+            {ride && !simple && (phase === 'arrived' || phase === 'done') ? <NameThisPlace view={v} /> : null}
             {searching && canCancel ? (
               <View style={{ gap: theme.space[1] }}>
                 <Button label={t('ride.cancel_free_button')} variant="secondary" icon="x" fullWidth onPress={() => setPanel('cancel')} testID="ride-cancel-searching" />
@@ -548,8 +657,12 @@ function OrderLiveScreen() {
               {gift && !happy && phase !== 'cancelled' ? (
                 <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
               ) : null}
-              {happy && moment ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
-              {happy ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
+              {happy && moment && !simple ? <ActionRow icon="heart" label={t('sharecard.action')} onPress={() => setCardOpen(true)} testID="action-share-card" /> : null}
+              {lostUntil ? (
+                <ActionRow icon="bag" label={t('ride.lost_item_action')} hint={t(laterBaghdadDay(lostUntil, now) ? 'ride.lost_item_hint_tomorrow' : 'ride.lost_item_hint', { time: formatClock(lostUntil, { period: true, locale }) })} onPress={() => void askLostItem()} testID="action-lost-item" />
+              ) : null}
+              {ride && happy && v.courier && !simple ? <ActionRow icon="x" label={t('ride.avoid_button')} onPress={() => setAvoidOpen(true)} testID="action-avoid" /> : null}
+              {happy && !simple ? <ActionRow icon="gift" label={t('account.invite_row')} hint={t('account.invite_row_hint')} onPress={() => router.push('/invite')} testID="action-invite" /> : null}
               {supportThread && (supportThread.status === 'open' || supportThread.lastMessageAt) ? (
                 <ActionRow
                   icon="chat"
@@ -605,6 +718,25 @@ function OrderLiveScreen() {
         />
       ) : null}
       {v && rating ? <RatingPanel view={v} onDone={() => setRating(false)} /> : null}
+      {v && ride ? (
+        <DriverProfileSheet
+          orderId={id}
+          offerId={profileFor?.offerId ?? null}
+          visible={profileFor !== null}
+          now={now}
+          onClose={() => setProfileFor(null)}
+          {...(happy && profileFor?.offerId === null
+            ? {
+                onAvoid: () => {
+                  setProfileFor(null);
+                  setAvoidOpen(true);
+                },
+              }
+            : {})}
+        />
+      ) : null}
+      {v?.courier && ride ? <AvoidDriverSheet orderId={id} name={v.courier.firstName ?? t('track.driver_fallback')} visible={avoidOpen} onClose={() => setAvoidOpen(false)} /> : null}
+      {v?.courier && ride ? <ScreenLight visible={lightFor === id && (phase === 'to_pickup' || phase === 'at_pickup')} vertical={rideVertical} courier={v.courier} onClose={() => setLightFor(null)} /> : null}
       {v && moment ? <ShareCardPanel moment={moment} id={v.order.id} visible={cardOpen} onClose={() => setCardOpen(false)} /> : null}
     </View>
   );

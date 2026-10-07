@@ -47,6 +47,7 @@ import {
   type IconProps,
 } from '../ui';
 import { ChatCaseThread, useChatCaseLive } from './chat-case';
+import { ChatVoiceNote } from './voice-note';
 import { CHAT_CASE_TEXT_MAX } from '@/lib/support-chat';
 import { ChannelIcon, kindTone, SlaPill, statusTone } from './sla';
 
@@ -412,12 +413,16 @@ function ChatThread({ orderId, kind }: { orderId: string; kind: ChatThreadKind }
                   ) : null}
                 </p>
                 <p className="text-sm leading-6">
-                  {m.text ??
+                  {m.kind === 'voice' ? (
+                    <ChatVoiceNote m={m} />
+                  ) : (
+                    (m.text ??
                     (m.photoUrl
                       ? t('console.sup_photo')
                       : m.location
                         ? t('console.sup_location')
-                        : '—')}
+                        : '—'))
+                  )}
                 </p>
               </div>
             </li>

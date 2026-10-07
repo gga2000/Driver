@@ -51,10 +51,10 @@ const DOORBELL_WIDTH = 88;
 
 /**
  * Joy f1 (L-01): the ask as an inline card, never a sheet over the live map. Food: under the ring on
- * the kitchen-waiting screen («نخبرك أول ما المطعم يقبل؟»); rides: in the collapsed sheet once a driver
- * is coming («نخبرك لمن يوصل السايق؟»).
+ * the kitchen-waiting screen («نخبرك أول ما المطعم يقبل؟»); rides: in the collapsed sheet from the search
+ * on («نخبرك أول ما يقبل سايق؟» while searching, «نخبرك لمن يوصل السايق؟» once one is coming).
  */
-export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | 'ride'; busy: boolean; onAllow: () => void; onLater: () => void }) {
+export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | 'ride' | 'ride_search'; busy: boolean; onAllow: () => void; onLater: () => void }) {
   const theme = useTheme();
   const t = useT();
   return (
@@ -66,7 +66,7 @@ export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | '
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" weight={700}>
-            {t(kind === 'ride' ? 'notify.ask.ride_title' : 'notify.ask.food_title')}
+            {t(kind === 'ride' ? 'notify.ask.ride_title' : kind === 'ride_search' ? 'notify.ask.ride_search_title' : 'notify.ask.food_title')}
           </Text>
           <Text variant="footnote" color="textMuted">
             {t('notify.ask.body')}

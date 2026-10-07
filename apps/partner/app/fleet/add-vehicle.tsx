@@ -1,17 +1,22 @@
 import { router, Stack } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import type { VehicleClass } from '@driver/contracts';
+import type { VehicleClass, VehicleColour } from '@driver/contracts';
 import { Button, Stepper, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { ChoiceCard } from '@/components/ChoiceCard';
 import { Screen } from '@/components/Screen';
 import { CLASS_KEY, DEFAULT_SEATS, FLEET_CLASSES, isPlateValid, MAX_SEATS, normalizePlate } from '@/features/fleet/logic';
 import { useAddVehicle } from '@/features/fleet/queries';
+import { colourRequired, isModelValid, MODEL_MAX, modelRequired, normalizeModel } from '@/features/vehicle/logic';
+import { ColourSwatches } from '@/features/vehicle/VehicleParts';
 import { VEHICLE_ICON } from '@/features/work/logic';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 
-/** سيارة جديدة — class (bike / tuktuk / saloon / SUV / van), plate and passenger seats. */
+/**
+ * سيارة جديدة — class (bike / tuktuk / saloon / SUV / van), plate, model and colour (riders look for
+ * the car by them: ride step 3, d1) and passenger seats.
+ */
 export default function AddVehicle() {
   const theme = useTheme();
   const t = useT();
@@ -21,8 +26,12 @@ export default function AddVehicle() {
   const [vehicleClass, setClass] = useState<VehicleClass>('car');
   const [plate, setPlate] = useState('');
   const [seats, setSeats] = useState(DEFAULT_SEATS.car);
+  const [model, setModel] = useState('');
+  const [colour, setColour] = useState<VehicleColour | null>(null);
   const [touched, setTouched] = useState(false);
   const plateOk = isPlateValid(plate);
+  const modelOk = isModelValid(model, vehicleClass);
+  const colourOk = colour !== null || !colourRequired(vehicleClass);
 
   const pick = (c: VehicleClass) => {
     setClass(c);
@@ -31,9 +40,10 @@ export default function AddVehicle() {
 
   const save = async () => {
     setTouched(true);
-    if (!plateOk) return;
+    if (!plateOk || !modelOk || !colourOk) return;
+    const named = normalizeModel(model);
     try {
-      const v = await add.mutateAsync({ plate: normalizePlate(plate), vehicleClass, seats });
+      const v = await add.mutateAsync({ plate: normalizePlate(plate), vehicleClass, seats, ...(named ? { model: named } : {}), ...(colour ? { colour } : {}) });
       toast.show({ tone: 'success', message: t('partner.fleet_vehicle_added', { plate: v.plate }) });
       router.back();
     } catch (err) {
@@ -70,6 +80,33 @@ export default function AddVehicle() {
         autoCorrect={false}
         returnKeyType="done"
       />
+
+      {vehicleClass !== 'bike' ? (
+        <TextField
+          testID="fleet-model-input"
+          label={t('partner.vehicle_model_label')}
+          hint={t(modelRequired(vehicleClass) ? 'partner.vehicle_model_hint' : 'partner.vehicle_model_hint_optional')}
+          placeholder={t('partner.vehicle_model_placeholder')}
+          value={model}
+          onChangeText={setModel}
+          maxLength={MODEL_MAX}
+          error={touched && !modelOk ? t('partner.vehicle_model_short') : undefined}
+          autoCorrect={false}
+          returnKeyType="done"
+        />
+      ) : null}
+
+      {colourRequired(vehicleClass) ? (
+        <View style={{ gap: theme.space[2] }}>
+          <View style={{ gap: 2 }}>
+            <Text variant="label">{t('partner.vehicle_colour_label')}</Text>
+            <Text variant="footnote" color={touched && !colourOk ? 'dangerText' : 'textMuted'}>
+              {touched && !colourOk ? t('partner.vehicle_colour_missing') : t('partner.vehicle_colour_hint')}
+            </Text>
+          </View>
+          <ColourSwatches testID="fleet-colour" value={colour} onChange={setColour} />
+        </View>
+      ) : null}
 
       {MAX_SEATS[vehicleClass] > 0 ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>

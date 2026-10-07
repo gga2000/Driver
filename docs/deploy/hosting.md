@@ -164,6 +164,37 @@ working.) `PHONE_HASH_PEPPER` is never rotated.
   copy its DSN, `fly secrets set --config deploy/fly/api.toml SENTRY_DSN='https://…'`. Every logged
   error (with its stack), unhandled rejection and crash is sent, at most 30 a minute. Without
   `SENTRY_DSN` nothing is sent and nothing is loaded.
+- **Crash reports from the apps and the Console (optional, built 2026-10-07, off until a DSN is set)**:
+  the same approach as the server — plain `fetch` to Sentry's envelope endpoint, no Sentry SDK and no
+  native module, so it also works in Expo Go and on the web studio. The shared code is
+  `packages/contracts/src/crash-report.ts` (`@driver/contracts/crash-report`; the API's DSN parsing is
+  the same function). What is caught:
+  - phone apps (customer, partner, merchant): unhandled JS errors (React Native's `ErrorUtils` global
+    handler, chained to the previous one), unhandled promise rejections (Hermes' tracker in builds; the
+    window's `unhandledrejection` on the web), and render crashes caught by the root error boundary,
+    which shows «صار خلل بالتطبيق» with «جرّب مرة ثانية» instead of a white screen;
+  - Console: `app/error.tsx` (a page breaks, the shell stays), `app/global-error.tsx` (the layout
+    breaks) and the window's `error` / `unhandledrejection`.
+
+  **Privacy**: before anything leaves the device, messages and stacks are scrubbed of Iraqi phone
+  numbers (07xx…, +964…, also in Arabic digits), 4–6 digit codes (OTPs, PINs), emails, bearer/JWT
+  tokens and `token=` / `Authorization:` / `otp=` style values. No user, no person id (the API's
+  reporter sends none either), no request bodies, no breadcrumbs; extra fields are short plain values
+  under safe keys only. At most 10 reports a minute per device; the same error is sent once.
+
+  Setup: create one Sentry project per app (platform JavaScript / React Native / Next.js, data region
+  EU), copy each DSN and set it **at build time** (DSNs are public; they end up in the bundle):
+
+  | Variable | Where | Notes |
+  |---|---|---|
+  | `EXPO_PUBLIC_SENTRY_DSN` | expo.dev → each app → Environment variables (production, preview); GitHub variable `SENTRY_DSN` for the web builds (one Sentry project "driver" for everything; `SENTRY_DSN_CUSTOMER`, `SENTRY_DSN_PARTNER`, `SENTRY_DSN_MERCHANT` override it per app) | unset = nothing sent |
+  | `EXPO_PUBLIC_SENTRY_ENVIRONMENT` | same | default `development` under `expo start`, `production` in builds |
+  | `EXPO_PUBLIC_APP_RELEASE` | same | default `iq.driver.<app>@<app.json version>` |
+  | `NEXT_PUBLIC_SENTRY_DSN` | GitHub variable `SENTRY_DSN`, or `SENTRY_DSN_CONSOLE` to override it (the deploy workflow passes it as a Docker build argument) | unset = nothing sent |
+  | `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_APP_RELEASE` | build argument / environment | defaults `NODE_ENV`, `driver-console@<package.json version>` |
+
+  Sentry shows minified stacks for now (no source-map upload yet); the message, the screen's component
+  stack and the release are enough to find most crashes.
 - **Graceful shutdown**: on every deploy or restart the old machine gets SIGTERM and, within 25 s, stops
   taking requests, finishes the ones in flight, delivers the outbox rows still due, lets the BullMQ
   workers finish their current job, closes Redis and Postgres, and exits. Anything left is retried by

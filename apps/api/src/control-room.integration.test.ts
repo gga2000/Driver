@@ -134,6 +134,16 @@ describe.skipIf(!url)('control room repositories on Postgres (needs DATABASE_URL
     expect(await fleet.reviewVehicle(v.id, { verified: false, by: 'r1', at, note: 'اللوحة غلط' })).toMatchObject({ reviewState: 'rejected', active: false, activeDriverId: null });
     expect(await fleet.reviewVehicle(v.id, { verified: true, by: 'r1', at, note: null })).toBeNull();
 
+    // Ride step 3: model, colour and the features the car check confirmed.
+    const car = await fleet.createVehicle({ plate: `CF ${run}`, vehicleClass: 'car', ownerOrgId: fleetOrg.id, model: 'Toyota Corolla', colour: 'white' });
+    expect(car).toMatchObject({ model: 'Toyota Corolla', colour: 'white', features: [], featuresConfirmed: [] });
+    expect(await fleet.reviewVehicle(car.id, { verified: true, by: 'r1', at, note: null, features: { features: ['ac'], featuresConfirmed: ['ac'] } })).toMatchObject({ reviewState: 'verified', features: ['ac'], featuresConfirmed: ['ac'] });
+    expect((await fleet.vehiclesWithUnconfirmedFeatures(1000)).some((x) => x.id === car.id)).toBe(false);
+    expect(await fleet.setFeatures(car.id, { features: ['family', 'ac'], featuresConfirmed: ['ac'] }, at)).toMatchObject({ features: ['ac', 'family'], featuresConfirmed: ['ac'] });
+    expect((await fleet.vehiclesWithUnconfirmedFeatures(1000)).some((x) => x.id === car.id)).toBe(true);
+    // The database keeps the confirmed ones a subset of the claims.
+    await expect(fleet.setFeatures(car.id, { features: ['ac'], featuresConfirmed: ['ac', 'heating'] }, at)).rejects.toThrow();
+
     const promos = new PrismaPromotionsRepository(prisma);
     const deal = await promos.createDeal({
       cityId: 'aziziyah',

@@ -1,3 +1,4 @@
+import { FAMILY_PREFERENCE_RULES, type VehicleFeature } from '@driver/contracts';
 import type { DriverCandidate } from './policy.js';
 
 /**
@@ -84,4 +85,31 @@ export class DriverRanker {
       .map((d) => ({ ...d, score: this.score(d) }))
       .sort((a, b) => b.score - a.score || a.driverId.localeCompare(b.driverId));
   }
+}
+
+/**
+ * Stable partition: the drivers `first` picks go before everyone else, each group keeping its rank
+ * order. Used after scoring, so the weights above stay what the city configured (ride step 3).
+ */
+export function preferFirst<T extends { driverId: string }>(ranked: readonly T[], first: (driverId: string) => boolean): T[] {
+  return [...ranked.filter((d) => first(d.driverId)), ...ranked.filter((d) => !first(d.driverId))];
+}
+
+/** n6: on a hot day cars with AC, on a cold one cars with heating are offered rides first; no price change. */
+export function climateFeature(climate: 'hot' | 'cold' | null): VehicleFeature | null {
+  if (climate === 'hot') return 'ac';
+  if (climate === 'cold') return 'heating';
+  return null;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * s6 «عوائل»: the car carries the confirmed family tag, he has driven here `minDriverDays` or more, and
+ * his public rating is at least `minRating` (no rating yet = not yet).
+ */
+export function familyFit(d: { features: readonly VehicleFeature[]; rating: number | null; driverSince: Date | null }, now: Date): boolean {
+  if (!d.features.includes('family')) return false;
+  if (d.rating === null || d.rating < FAMILY_PREFERENCE_RULES.minRating) return false;
+  return d.driverSince !== null && now.getTime() - d.driverSince.getTime() >= FAMILY_PREFERENCE_RULES.minDriverDays * DAY_MS;
 }

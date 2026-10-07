@@ -37,7 +37,7 @@ describe('simulator: a 200-order Aziziyah day through the real services', () => 
   it('every invariant actually checked something on a real day', () => {
     const byName = new Map(report.invariants.map((i) => [i.name, i]));
     expect([...byName.keys()]).toEqual(INVARIANTS.map((i) => i.name));
-    for (const name of ['ledger_money_balanced', 'ledger_points_balanced', 'orders_terminal', 'trips_terminal', 'stop_completed_after_arrived', 'completed_trip_has_no_pending_stop', 'outbox_drained', 'idempotent_replays', 'fee_within_fare', 'customer_cash_rounds_to_250', 'no_offer_to_over_cap_driver', 'no_points_on_money_accounts', 'one_balanced_group_per_closed_order', 'merchant_cash_reconciles', 'points_per_food_order_capped', 'shift_guarantee_once_and_exact']) {
+    for (const name of ['ledger_money_balanced', 'ledger_points_balanced', 'orders_terminal', 'trips_terminal', 'stop_completed_after_arrived', 'completed_trip_has_no_pending_stop', 'outbox_drained', 'idempotent_replays', 'fee_within_fare', 'customer_cash_rounds_to_250', 'no_offer_to_over_cap_driver', 'no_points_on_money_accounts', 'one_balanced_group_per_closed_order', 'merchant_cash_reconciles', 'points_per_food_order_capped', 'shift_guarantee_once_and_exact', 'night_ride_starts_with_the_code']) {
       expect(byName.get(name)!.checked, name).toBeGreaterThan(0);
     }
   });

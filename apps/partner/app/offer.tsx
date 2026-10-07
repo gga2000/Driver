@@ -8,11 +8,11 @@ import type { PartnerOffer } from '@driver/contracts';
 import { CountdownButton, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
-import { isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import { cargoLine, isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
-import { startOfferAlert, stopOfferAlert } from '@/lib/alert';
+import { playNudgeChime, startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -56,6 +56,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const api = useApi();
   const answered = useRef(false);
   const ride = isRide(offer.vertical);
+  const cargo = cargoLine(offer.rideCargo ?? [], t);
   const durationMs = offer.ringSec * 1000;
   const startedAt = offer.expiresAt.getTime() - durationMs;
   const [left, setLeft] = useState(() => secondsLeft(offer.expiresAt, Date.now()));
@@ -73,6 +74,14 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.offerId]);
+  // Ride step 3: the rider nudged this offer («راكب ينتظرك») — one soft chime when it lands, not on
+  // an offer that opened already nudged (the doorbell is ringing for it anyway).
+  const nudged = Boolean(offer.nudgedAt);
+  const wasNudged = useRef(nudged);
+  useEffect(() => {
+    if (nudged && !wasNudged.current && !answered.current) playNudgeChime();
+    wasNudged.current = nudged;
+  }, [nudged]);
   useEffect(() => {
     if (offerWarnTick(left) && !answered.current) theme.haptic('warning');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -275,6 +284,57 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
             </Animated.View>
           ) : null}
 
+          {/* Ride step 3: the rider tapped «نبّه السايق» on this offer. */}
+          {nudged ? (
+            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-nudged" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.liveTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="bell" size={18} color="liveText" strokeWidth={2.4} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} color="liveText">
+                  {t('partner.offer_nudged_title')}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_nudged_body')}
+                </Text>
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {/* Ride idea x5: «عنده غراض: قنينة غاز» — so he knows there is room before he accepts. */}
+          {cargo ? (
+            <View testID="offer-cargo" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="bag" size={18} color="accentText" strokeWidth={2.4} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} color="accentText">
+                  {cargo}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_cargo_hint')}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Ride ideas c9/s3: booked for someone else — the name the booker gave, and who his calls reach. */}
+          {offer.rider ? (
+            <View testID="offer-rider" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="user" size={18} color="text" strokeWidth={2.2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="label" weight={700} numberOfLines={1}>
+                  {t('partner.offer_for_rider_title', { name: offer.rider.name })}
+                </Text>
+                <Text variant="caption" color="textMuted">
+                  {t('partner.offer_for_rider_body')}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
           {/* 3 · pickup → drop-off */}
           <RouteNodes
             gap={layout.compact ? theme.space[3] : theme.space[4]}
@@ -282,7 +342,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
               <View testID="offer-pickup">
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                   <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {offer.pickup.label ?? (ride ? t('partner.offer_rider') : pickupZone)}
+                    {offer.pickup.label ?? (ride ? (offer.rider?.name ?? t('partner.offer_rider')) : pickupZone)}
                   </Text>
                   {offer.merchant ? <PrepPill prep={offer.merchant} /> : null}
                 </View>

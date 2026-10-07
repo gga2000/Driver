@@ -40,6 +40,11 @@ export interface TripOffersPort {
   decline(tripId: string, driverId: string, opts: { othersPending: boolean }): Promise<void>;
   /** The driver's offer ran out without an answer. */
   timeout(tripId: string, driverId: string, opts: { othersPending: boolean }): Promise<void>;
+  /**
+   * The trip ids he holds in the order he works them (`jobOrder`, the order he took them): batching
+   * plans his pickups in this order, so the route it checks is the one he drives. Absent = as given.
+   */
+  jobOrder?(driverId: string): Promise<string[]>;
 }
 export const TRIP_OFFERS = Symbol('TRIP_OFFERS');
 
@@ -79,6 +84,17 @@ export interface DispatchHoldsPort {
 }
 
 export const DISPATCH_HOLDS = Symbol('DISPATCH_HOLDS');
+
+/**
+ * What a rider asked of his rides (ride step 3), from the ride-habits module (bound at runtime: that
+ * module imports this one): the drivers he keeps off his rides (s5), his favourites (s4), and for the
+ * «عوائل» first wave (s6) each driver's public rating and since when he drives here.
+ */
+export interface RiderPrefsPort {
+  avoided(personId: string): Promise<string[]>;
+  favourites(personId: string): Promise<string[]>;
+  standing(driverIds: readonly string[]): Promise<Map<string, { rating: number | null; driverSince: Date | null }>>;
+}
 
 // ───────────────────────── fakes for tests and the simulator ─────────────────────────
 
@@ -132,6 +148,13 @@ export class FakeTripOffers implements TripOffersPort {
 
   async timeout(tripId: string, driverId: string, opts: { othersPending: boolean }): Promise<void> {
     this.outcomes.push({ kind: 'timeout', tripId, driverId, othersPending: opts.othersPending });
+  }
+
+  /** Per driver, the trip ids in the order he works them (`jobOrder`); unset = as dispatch lists them. */
+  readonly jobOrders = new Map<string, string[]>();
+
+  async jobOrder(driverId: string): Promise<string[]> {
+    return this.jobOrders.get(driverId) ?? [];
   }
 
   /** Every driver ever offered this trip, in order. */

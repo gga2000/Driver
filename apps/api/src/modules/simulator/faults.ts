@@ -1,4 +1,4 @@
-import type { LedgerEvent } from '@driver/contracts';
+import { isNightAt, type LedgerEvent } from '@driver/contracts';
 import { INVARIANTS, type SimSnapshot } from './invariants.js';
 
 /**
@@ -92,6 +92,25 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const paid = s.ledger.find((e) => e.type === 'driver_incentive' && e.memo === `guarantee:${w.id}`);
     const to = paid?.toAccount ?? `driver:${driverId}`;
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'driver_incentive', amount: 2500, fromAccount: 'platform', toAccount: to, memo: `guarantee:${w.id}`, postingGroupId: `incentive:guarantee:fault:${i}` }));
+  },
+  night_ride_starts_with_the_code: (s) => {
+    // A night ride's pickup completed with no code checked (the start skipped the server's check).
+    const o = first(s.orders, 'a night ride', (x) => x.type === 'ride' && isNightAt(x.scheduledFor ?? x.placedAt));
+    const start = s.rideStarts?.find((r) => r.orderId === o.id);
+    if (start) start.startCodeChecked = false;
+    else (s.rideStarts ??= []).push({ orderId: o.id, tripId: 'fault', stopId: 'fault', startCodeChecked: false });
+  },
+  booked_ride_waits_for_its_search: (s) => {
+    // A ride booked «بعدين» broadcast as soon as it was placed (the request's start time ignored).
+    const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
+    const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
+    s.offers.push({ tripId: trip.id, driverId: 'fault', at: o.placedAt.getTime(), kind: 'dispatch.offer_sent', overCap: false, owedIqd: 0, capIqd: 75_000 });
+  },
+  scheduled_ride_dispatched_once: (s) => {
+    // Review #28: two drivers confirm the same booked ride (the first-confirm lock skipped).
+    const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
+    const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
+    (s.dispatchLog ??= []).push({ tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_a', at: 0 }, { tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_b', at: 0 });
   },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };

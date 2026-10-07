@@ -122,7 +122,7 @@ export function DemandRow({ demand }: { demand: PartnerDemand }) {
 }
 
 /** Entry card for the intercity garage board / today's khat run (wave-2 routes). */
-export function ModeCard({ icon, title, body, cta, href, testID }: { icon: IconName; title: string; body: string; cta: string; href: '/intercity' | '/khat'; testID: string }) {
+export function ModeCard({ icon, title, body, cta, href, testID }: { icon: IconName; title: string; body: string; cta: string; href: '/intercity' | '/khat' | '/booked'; testID: string }) {
   const theme = useTheme();
   return (
     <Pressable

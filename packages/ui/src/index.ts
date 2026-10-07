@@ -10,6 +10,8 @@ export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } fr
 
 // Illustration: the Aziziyah sketchbook (joy J4)
 export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
+// The Date & Saffron pictures Ali approved (services, empty and status screens).
+export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
 export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
@@ -48,6 +50,7 @@ export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from 
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
+export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
 export { SlideToConfirm, type SlideToConfirmProps, type SlideTone } from './components/SlideToConfirm';
 export { CountdownButton, type CountdownButtonProps } from './components/CountdownButton';
@@ -56,7 +59,18 @@ export { OtpInput, otpValue, type OtpInputProps } from './components/OtpInput';
 export { Screen, MAX_CONTENT_WIDTH, type ScreenProps } from './components/Screen';
 export { TabBar, type TabBarProps, type TabSpec, type TabBarNavigationProps } from './components/TabBar';
 export { PermissionPrompt, type PermissionPromptProps, type PermissionPromptPoint } from './components/PermissionPrompt';
-export { ChatThread, useMaskedCall, type ChatThreadProps, type ChatThreadQuery, type ChatT, type ChatPhotoResult } from './components/ChatThread';
+export {
+  ChatThread,
+  useMaskedCall,
+  type ChatThreadProps,
+  type ChatThreadQuery,
+  type ChatT,
+  type ChatPhotoResult,
+  type ChatVoice,
+  type ChatVoicePlayer,
+  type ChatVoiceRecorder,
+} from './components/ChatThread';
+export { MicHoldButton, VoiceNotePlayer, VoiceRecorderBar, type MicHoldButtonProps, type VoiceNotePlayerProps, type VoicePlayState, type VoiceRecorderBarProps } from './components/VoiceNote';
 export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosSheetPhase } from './components/SosButton';
 
@@ -85,6 +99,7 @@ export * from './logic/sheet';
 export * from './logic/slide';
 export * from './logic/chat';
 export * from './logic/plate';
+export * from './logic/voice-note';
 export * from './logic/sos';
 export * from './logic/photo-fallback';
 export * from './logic/voice';

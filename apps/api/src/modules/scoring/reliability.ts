@@ -64,6 +64,44 @@ function pct(x: number): string {
   return `${Math.round(x * 100)}%`;
 }
 
+/** A completed trip as the profile's on-time share reads it (ride step 3, n5). */
+export interface OnTimeTrip {
+  state: string;
+  acceptedAt: Date | null;
+  /**
+   * Minutes to the pickup he was offered the job on (his distance then, at town speed); null when not
+   * known (an older trip, a dispatcher's hand assignment).
+   */
+  promisedPickupMin: number | null;
+  stops: ReadonlyArray<{ type: string; windowEnd: Date | null; arrivedAt: Date | null }>;
+}
+
+/**
+ * The on-time share a rider sees on a driver's profile (ride step 3, n5), as a whole percent: of his
+ * completed trips' promises, how many he kept — a stop with a window (خطوط) reached by its end, and a
+ * pickup reached within the minutes he was offered it on — each with the scorecard's 3-minute grace.
+ * Null under `minTrips` completed trips or with nothing timed.
+ */
+export function onTimePercent(trips: readonly OnTimeTrip[], minTrips: number): number | null {
+  const done = trips.filter((t) => t.state === 'completed');
+  if (done.length < minTrips) return null;
+  let timed = 0;
+  let onTime = 0;
+  for (const t of done) {
+    // The offer's minutes were to his first pickup; a batch's later pickups have no promise of their own.
+    const firstPickup = t.stops.find((s) => s.type === 'pickup');
+    for (const s of t.stops) {
+      if (!s.arrivedAt) continue;
+      const promised = s === firstPickup && t.acceptedAt && t.promisedPickupMin !== null ? new Date(t.acceptedAt.getTime() + t.promisedPickupMin * 60_000) : null;
+      const due = s.windowEnd ?? promised;
+      if (!due) continue;
+      timed += 1;
+      if (s.arrivedAt.getTime() <= due.getTime() + ON_TIME_GRACE_MS) onTime += 1;
+    }
+  }
+  return timed > 0 ? Math.round((onTime / timed) * 100) : null;
+}
+
 export function reliabilityCard(input: ReliabilityInputs, now: Date): ReliabilityCard {
   const start = now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS;
   const half = now.getTime() - 7 * DAY_MS;

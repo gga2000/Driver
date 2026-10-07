@@ -5,9 +5,7 @@ import { useSos } from './useSos';
 
 /**
  * "طوارئ" on an active trip (scoring & safety §3; audit P-02): the shared 3-second-hold button and,
- * once the alert is sent, the confirmation sheet over the whole screen in the rider order (L-17):
- * the police call first, the car to read out, «فريق درايفر» watching, and — with no emergency
- * contact — "send my location to someone I trust". Renders nothing without a trip to name.
+ * once the alert is sent, the confirmation sheet (`SosModal`). Renders nothing without a trip to name.
  */
 export function SosControl({
   subject,
@@ -26,31 +24,42 @@ export function SosControl({
 }) {
   const sos = useSos(subject);
   if (!subject) return null;
-  const v = sos.view;
   return (
     <>
       <SosButton variant={variant} active={sos.active} onPressActive={sos.open} onTrigger={sos.trigger} onRelease={sos.release} style={style} />
-      <Modal visible={sos.phase !== null} transparent animationType="fade" onRequestClose={sos.close} statusBarTranslucent>
-        {sos.phase ? (
-          <SosSheet
-            layout="rider"
-            car={car}
-            {...(onShareLocation ? { onShareLocation } : {})}
-            phase={sos.phase}
-            cancelUntil={sos.cancelUntil}
-            acknowledgedBy={v?.acknowledgedBy ?? null}
-            contactName={v ? v.contactName : undefined}
-            contactNotified={v ? v.contactStatus === 'sent' || v.contactStatus === 'delivered' || v.contactStatus === 'sms' : false}
-            sharing={v?.sharing ?? true}
-            cancelling={sos.cancelling}
-            policeNumber={SAFETY_RULES.policeNumber}
-            onCancel={sos.cancel}
-            onClose={sos.close}
-            onRetry={sos.retry}
-            onCallPolice={sos.callPolice}
-          />
-        ) : null}
-      </Modal>
+      <SosModal sos={sos} car={car} onShareLocation={onShareLocation} />
     </>
+  );
+}
+
+/**
+ * The SOS confirmation over the whole screen (L-17) for a `useSos` flow: the police call first, the
+ * car to read out, «فريق درايفر» watching, and — with no emergency contact — "send my location to
+ * someone I trust". Shared by the SOS button above and the ride's safety shield (ride idea t3).
+ */
+export function SosModal({ sos, car = null, onShareLocation }: { sos: ReturnType<typeof useSos>; car?: string | null; onShareLocation?: (() => void) | undefined }) {
+  const v = sos.view;
+  return (
+    <Modal visible={sos.phase !== null} transparent animationType="fade" onRequestClose={sos.close} statusBarTranslucent>
+      {sos.phase ? (
+        <SosSheet
+          layout="rider"
+          car={car}
+          {...(onShareLocation ? { onShareLocation } : {})}
+          phase={sos.phase}
+          cancelUntil={sos.cancelUntil}
+          acknowledgedBy={v?.acknowledgedBy ?? null}
+          contactName={v ? v.contactName : undefined}
+          contactNotified={v ? v.contactStatus === 'sent' || v.contactStatus === 'delivered' || v.contactStatus === 'sms' : false}
+          sharing={v?.sharing ?? true}
+          cancelling={sos.cancelling}
+          policeNumber={SAFETY_RULES.policeNumber}
+          onCancel={sos.cancel}
+          onClose={sos.close}
+          onRetry={sos.retry}
+          onCallPolice={sos.callPolice}
+        />
+      ) : null}
+    </Modal>
   );
 }

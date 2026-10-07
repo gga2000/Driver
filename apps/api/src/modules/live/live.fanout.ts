@@ -148,6 +148,13 @@ export async function fanout(e: FanoutInput, look: FanoutLookups): Promise<Publi
         ['dispatch.board', 'trips.board', 'console.rightNow', 'dispatch.drivers'],
         { tripId: e.tripId },
       );
+    // Ride step 3 (n3): the rider's list of the drivers sent his ride (sent, seen, declined, nudged…).
+    const vertical = str(p['vertical']);
+    if (e.tripId && (vertical === 'taxi' || vertical === 'tuktuk')) {
+      const trip = await look.trip(e.tripId);
+      for (const id of trip?.orderIds ?? [])
+        out.invalidate(liveChannel.order(id), ['dispatch.myRideOffers'], { orderId: id, tripId: e.tripId });
+    }
   }
 
   // ── a trip moved: its courier, its orders' customers and kitchens, the city board ──

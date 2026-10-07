@@ -14,10 +14,20 @@ export { canBatch } from './batching.js';
 export type { BatchOrder, BatchRules, BatchVerdict } from './batching.js';
 /** Ports other modules implement (trips: offers/assign; ledger: caps; routes: departures). */
 export { TRIP_OFFERS, CAPS, DEPARTURES, DISPATCH_HOLDS, FakeTripOffers, FakeCaps, FakeDepartures } from './ports.js';
-export type { TripOffersPort, CapsPort, DeparturesPort, DispatchHoldsPort, CourierTripInput, JobExposure } from './ports.js';
+export type { TripOffersPort, CapsPort, DeparturesPort, DispatchHoldsPort, CourierTripInput, JobExposure, RiderPrefsPort } from './ports.js';
+/** Ride step 3: the car riders are told about (model, colour, confirmed features, trip count). */
+export { VEHICLE_FACTS, InMemoryVehicleFacts, PrismaVehicleFacts, parseColour, parseFeatures } from './vehicle-facts.js';
+export type { VehicleFacts, VehicleFactsPort } from './vehicle-facts.js';
+export { preferFirst, climateFeature, familyFit } from './ranker.js';
+/** Ride idea x1: «المكيّفة شغالة اليوم؟», the driver's answer for the shift. */
+export { ClimateChecks, InMemoryShiftCheckStore, SHIFT_CHECK_STORE, withoutOff } from './climate-checks.js';
+export type { OffNow, ShiftCheckRecord, ShiftCheckStore } from './climate-checks.js';
 export { TripsServiceTripOffers } from './trips.adapter.js';
 /** The offer-timer queue (the simulator drains it on its fake clock). */
-export { DISPATCH_QUEUE, FAVOURITE_OFFER_POLICY } from './offer.orchestrator.js';
+export { BOOKED_OFFER_POLICY, DISPATCH_QUEUE, FAVOURITE_OFFER_POLICY } from './offer.orchestrator.js';
+export type { BookedJobInfo, BookedRideInfo } from './offer.orchestrator.js';
+export { riderState } from './booked.js';
+export type { BookedJob, BookedJobState } from './booked.js';
 export type { TimerJob as DispatchTimerJob } from './offer.orchestrator.js';
 export { DispatchSubscribers, DISPATCH_AUTO_ASSIGN_SUBSCRIBER, DISPATCH_TRIP_SUBSCRIBER, DISPATCH_REDISPATCH_SUBSCRIBER } from './events.subscribers.js';
 export { DispatchOfferCheck } from './offer-check.js';

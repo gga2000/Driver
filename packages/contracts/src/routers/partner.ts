@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerDemandMap, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { AnswerClimateCheckInput } from '../climate-check.js';
+import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandMap, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -22,6 +23,11 @@ export const partnerRouter = router({
     .input(z.object({}).optional())
     .output(PartnerStatus)
     .mutation(({ ctx }) => ctx.partner.goOffline(ctx.actor)),
+  /** «المكيّفة شغالة اليوم؟» (ride idea x1): his answer for this shift; only ride drivers are asked. */
+  answerClimateCheck: protectedProcedure(['driver'])
+    .input(AnswerClimateCheckInput)
+    .output(PartnerStatus)
+    .mutation(({ ctx, input }) => ctx.partner.answerClimateCheck(ctx.actor, input)),
   /** The open offer for this driver (pay components, ring deadline, batch), or null. */
   currentOffer: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerOffer.nullable())
@@ -43,6 +49,15 @@ export const partnerRouter = router({
   demandMap: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerDemandMap)
     .query(({ ctx }) => ctx.partner.demandMap(ctx.actor)),
+  /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones that fit him to confirm. */
+  bookedJobs: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .output(PartnerBookedJobs)
+    .query(({ ctx }) => ctx.partner.bookedJobs(ctx.actor)),
+  /** Confirm or pass on an open booked ride; release or start his own. */
+  answerBookedJob: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .input(AnswerBookedJobInput)
+    .output(PartnerBookedJobs)
+    .mutation(({ ctx, input }) => ctx.partner.answerBookedJob(ctx.actor, input)),
   /** "انت بمنطقة X؟" after a delivery (maps program SP3): his one open question, or null. */
   zoneCheck: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(ZoneCheckPrompt.nullable())

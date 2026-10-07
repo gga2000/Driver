@@ -33,7 +33,7 @@ describe('launch control room (e2e)', () => {
   const as = (token: string) => createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${origin}/trpc`, transformer, headers: { authorization: `Bearer ${token}` } })] });
 
   /** Signs a fresh person in through identity (no per-IP OTP limit on the service path) and grants roles. */
-  async function person(roles: Array<RoleKind | { kind: RoleKind; orgId: string }> = []): Promise<{ client: Client; personId: string }> {
+  async function person(roles: Array<RoleKind | { kind: RoleKind; orgId: string }> = []): Promise<{ client: Client; personId: string; phone: string }> {
     seq += 1;
     const phone = `07719${String(seq).padStart(6, '0')}`;
     const identity = app.get(IdentityService);
@@ -42,7 +42,7 @@ describe('launch control room (e2e)', () => {
     const res = await identity.verifyOtp({ phone, code: code!, device: { fingerprint: `cr-e2e-${phone}`, platform: 'web' } });
     await identity.updateProfile({ personId: res.personId, sessionId: 'e2e' }, { name: `موظف ${seq}` });
     for (const r of roles) await identity.grantRole(SYSTEM, typeof r === 'string' ? { personId: res.personId, kind: r } : { personId: res.personId, kind: r.kind, orgId: r.orgId });
-    return { client: as(res.tokens.accessToken), personId: res.personId };
+    return { client: as(res.tokens.accessToken), personId: res.personId, phone };
   }
 
   const errOf = async (p: Promise<unknown>): Promise<{ code: string | undefined; message: string; retryAfterSec?: number }> => {
@@ -290,6 +290,44 @@ describe('launch control room (e2e)', () => {
       const audit = await admin.client.ops.controls.audit.query({ subjectKind: 'approval' });
       expect(audit.map((a) => a.action)).toEqual(expect.arrayContaining(['approval.approve', 'approval.reject']));
       expect(audit.find((a) => a.subjectId === `merchant_onboarding:${draft.onboardingId}`)?.summary_ar).toBe('فعّل فلافل أبو علي');
+    });
+
+    it('the car check confirms what the driver claims his car offers (ride step 3: n1, n2)', async () => {
+      const orgs = app.get(OrgsService);
+      const identity = app.get(IdentityService);
+      const ops = await person(['field_ops']);
+      const fleetOwner = await person();
+      const fleet = await orgs.create({ type: 'fleet', name: 'أسطول الساعدي', cityId: 'aziziyah', ownerId: fleetOwner.personId });
+      await identity.grantRole(SYSTEM, { personId: fleetOwner.personId, kind: 'fleet_owner', orgId: fleet.id });
+      const driver = await person(['driver']);
+      const car = await fleetOwner.client.fleet.addVehicle.mutate({ plate: 'واسط 61207', vehicleClass: 'car', model: 'Hyundai Elantra', colour: 'silver' });
+      expect(car).toMatchObject({ model: 'Hyundai Elantra', colour: 'silver', features: [], featuresConfirmed: [] });
+      await fleetOwner.client.fleet.addDriver.mutate({ phone: driver.phone });
+      await driver.client.fleet.respondInvite.mutate({ fleetOrgId: fleet.id, accept: true });
+      await fleetOwner.client.fleet.assignDriver.mutate({ vehicleId: car.vehicleId, driverId: driver.personId });
+      expect(await codeOf(fleetOwner.client.fleet.setMyVehicleFeatures.mutate({ features: ['ac'] }))).toBe('forbidden');
+      expect(await driver.client.fleet.setMyVehicleFeatures.mutate({ features: ['family', 'ac'] })).toMatchObject({ features: ['ac', 'family'], featuresConfirmed: [] });
+
+      // The new car's check carries its claims; ops tick what they saw.
+      const item = (await ops.client.approvals.list.query({ kind: 'fleet_vehicle' })).items.find((i) => i.refId === car.vehicleId)!;
+      expect(item.features).toEqual([
+        { feature: 'ac', confirmed: false },
+        { feature: 'family', confirmed: false },
+      ]);
+      expect(item.facts).toEqual(expect.arrayContaining([{ label_ar: 'الموديل', value: 'Hyundai Elantra' }, { label_ar: 'اللون', value: 'فضي' }]));
+      await ops.client.approvals.decide.mutate({ kind: 'fleet_vehicle', refId: car.vehicleId, decision: 'approve', confirmFeatures: ['ac'] });
+      expect(await driver.client.fleet.myVehicle.query()).toMatchObject({ features: ['ac'], featuresConfirmed: ['ac'] });
+
+      // A later claim waits in its own queue until the next check.
+      await driver.client.fleet.setMyVehicleFeatures.mutate({ features: ['ac', 'heating'] });
+      const waiting = (await ops.client.approvals.list.query({ kind: 'vehicle_features' })).items.find((i) => i.refId === car.vehicleId)!;
+      expect(waiting).toMatchObject({ kind: 'vehicle_features', title_ar: 'Hyundai Elantra · واسط 61207', subtitle_ar: 'تدفئة', submittedBy: driver.personId, ownItem: false });
+      expect(await codeOf(driver.client.approvals.decide.mutate({ kind: 'vehicle_features', refId: car.vehicleId, decision: 'approve' }))).toBe('forbidden');
+      await ops.client.approvals.decide.mutate({ kind: 'vehicle_features', refId: car.vehicleId, decision: 'approve' });
+      expect(await driver.client.fleet.myVehicle.query()).toMatchObject({ features: ['ac', 'heating'], featuresConfirmed: ['ac', 'heating'] });
+      expect((await ops.client.approvals.list.query({ kind: 'vehicle_features' })).items.some((i) => i.refId === car.vehicleId)).toBe(false);
+      const audit = await (await person(['admin'])).client.ops.controls.audit.query({ subjectKind: 'approval' });
+      expect(audit.find((a) => a.subjectId === `vehicle_features:${car.vehicleId}`)?.summary_ar).toBe('أكّد مميزات واسط 61207: مكيّفة، تدفئة');
     });
   });
 

@@ -4,6 +4,7 @@ import { RefreshControl, View } from 'react-native';
 import { Card, EmptyState, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
+import { BookedRideRow } from '@/features/orders/BookedRideRow';
 import { canReorder, sectionByDay } from '@/features/orders/history';
 import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
 import { canOrderAgain, drawsAsFood } from '@/features/orders/orders-v2';
@@ -13,6 +14,7 @@ import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
 import { pastTrips, upcomingTrips, withTrips } from '@/features/rajaa/trips';
 import { TripRow } from '@/features/rajaa/TripRow';
+import { isBookedRide } from '@/features/ride-habits/logic';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
@@ -22,7 +24,8 @@ import { useUiSwitch } from '@/lib/ui-switches';
  * طلباتي (audit C-15 / C-44): `orders.history` — what's running now pinned on top, then by day
  * ("اليوم", "أمس", "الجمعة 2/10"). Each row names the restaurant and the dishes, the time, total and
  * ticket number, a one-word status; food that reached the door has "اطلبه مرة ثانية". Detail opens
- * /order/[id]. Guests see what lives here and add their number (audit C-18).
+ * /order/[id]. Guests see what lives here and add their number (audit C-18). Rides booked «بعدين»
+ * (step 4, c10) sit with the coming trips, soonest first, with their time and a cancel.
  */
 export default function OrdersTab() {
   return useSignedIn() ? <Orders /> : <GuestGate kind="orders" />;
@@ -42,7 +45,27 @@ function Orders() {
   const bookings = useMyBookings();
   const network = useNetwork();
   const upcoming = useMemo(() => upcomingTrips(bookings.data ?? [], now), [bookings.data, now]);
-  const sections = useMemo(() => withTrips(sectionByDay(history.data ?? [], now), pastTrips(bookings.data ?? []), now), [history.data, bookings.data, now]);
+  // Coming: الرجعة seats and rides booked «بعدين», in time order.
+  const coming = useMemo(
+    () =>
+      [
+        ...(history.data ?? []).filter((r) => isBookedRide(r.order, now)).map((row) => ({ kind: 'ride' as const, at: row.order.scheduledFor?.getTime() ?? 0, row })),
+        ...upcoming.map((booking) => ({ kind: 'seat' as const, at: booking.departure.departAt.getTime(), booking })),
+      ].sort((a, b) => a.at - b.at),
+    [history.data, upcoming, now],
+  );
+  const sections = useMemo(
+    () =>
+      withTrips(
+        sectionByDay(
+          (history.data ?? []).filter((r) => !isBookedRide(r.order, now)),
+          now,
+        ),
+        pastTrips(bookings.data ?? []),
+        now,
+      ),
+    [history.data, bookings.data, now],
+  );
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
@@ -72,19 +95,23 @@ function Orders() {
         </Card>
       ) : history.isError ? (
         <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
-      ) : sections.length === 0 && upcoming.length === 0 ? (
+      ) : sections.length === 0 && coming.length === 0 ? (
         <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
       ) : (
         <>
-        {upcoming.length > 0 ? (
+        {coming.length > 0 ? (
           <View style={{ gap: theme.space[2] }} testID="orders-section-trips">
             <Text variant="label" weight={600} color="accentText" accessibilityRole="header">
               {t('orders.section_trips')}
             </Text>
             <Card elevation={0} padding={0} tone="tint">
-              {upcoming.map((b, i) => (
-                <TripRow key={b.id} booking={b} network={network.data} now={now} divider={i < upcoming.length - 1} />
-              ))}
+              {coming.map((c, i) =>
+                c.kind === 'ride' ? (
+                  <BookedRideRow key={c.row.order.id} row={c.row} now={now} divider={i < coming.length - 1} />
+                ) : (
+                  <TripRow key={c.booking.id} booking={c.booking} network={network.data} now={now} divider={i < coming.length - 1} />
+                ),
+              )}
             </Card>
           </View>
         ) : null}

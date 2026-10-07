@@ -10,11 +10,13 @@ import { formatMinuteCount } from '@driver/i18n';
 import { useNow } from '@driver/ui';
 import { chatLive, orderQuickReplies } from './live-status';
 import { useChatActions, useChatThread } from './queries';
+import { useChatVoice } from './useChatVoice';
 import { useMaskedCall } from './useMaskedCall';
 
 /**
  * One conversation of an order (customer app spec §4 "message with quick replies, masked call"):
- * the shared `ChatThread` from @driver/ui wired to this app's API, photo picker and location.
+ * the shared `ChatThread` from @driver/ui wired to this app's API, photo picker and location, and
+ * voice notes to the courier / driver and to support (ride ideas n7/n8).
  */
 export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; kind: ChatThreadKind; orderNumber?: string }) {
   const t = useT();
@@ -23,6 +25,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const thread = useChatThread(orderId, kind);
   const actions = useChatActions(orderId, kind);
   const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
+  const voice = useChatVoice(orderId, kind);
   // l7: with the courier (or driver), the header says where he is and the replies follow the moment.
   const withCourier = kind === 'customer_courier';
   const track = useTracking(withCourier ? orderId : '');
@@ -58,6 +61,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         const uploadId = await uploadPhoto(picked, (input) => client.places.photoUpload.mutate(input));
         return { uploadId, localUri: picked.uri };
       }}
+      voice={voice}
       liveStatus={liveStatus}
       orderReplies={(keys) => orderQuickReplies(keys, live)}
       // The support team needs words and photos, not his location.

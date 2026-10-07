@@ -4,6 +4,7 @@ import { DriverDocumentKind, DriverDocumentStatus, EarningsPeriod, type Earnings
 import type { Actor } from './identity-io.js';
 import { CapTier } from './ledger-rules.js';
 import { VehicleClass } from './trip.js';
+import { VehicleColour, VehicleFeature } from './vehicle-features.js';
 
 /**
  * `fleet.*` — the fleet owner's dashboard (partner spec "fleet owner dashboard (vehicles, drivers,
@@ -26,6 +27,14 @@ export const FleetVehicle = z.object({
   active: z.boolean(),
   /** Passenger seats (the vehicle's seat map; edge-case §9: saloon 4, SUV 6, van 7/11); 0 for a bike. */
   seats: z.number().int().min(0),
+  /** "Toyota Corolla"; null on vehicles added before ride step 3. */
+  model: z.string().nullable().default(null),
+  /** Body colour (the paint dot riders see beside the model); null when unknown. */
+  colour: VehicleColour.nullable().default(null),
+  /** What the driver says the car offers (`fleet.setMyVehicleFeatures`), in display order. */
+  features: z.array(VehicleFeature).default([]),
+  /** The claims ops confirmed at the car check, in display order: the only ones riders see. */
+  featuresConfirmed: z.array(VehicleFeature).default([]),
 });
 export type FleetVehicle = z.infer<typeof FleetVehicle>;
 
@@ -109,8 +118,29 @@ export const AddVehicleInput = FleetScopeInput.extend({
   vehicleClass: VehicleClass,
   /** Passenger seats; defaults by class (bike 0, tuktuk 3, car 4, SUV 6, van 7, intercity 4). */
   seats: z.number().int().min(0).max(14).optional(),
+  /** "Toyota Corolla" (ride step 3, d1): riders look for the car by model and colour. */
+  model: z.string().trim().min(2).max(40).optional(),
+  colour: VehicleColour.optional(),
 });
 export type AddVehicleInput = z.infer<typeof AddVehicleInput>;
+
+/**
+ * «مميزات سيارتك» (ride ideas n1, n2): the driver says what the car he drives offers. Each new claim
+ * waits for the ops car check (Console approvals, `vehicle_features`); a feature he takes off loses
+ * its confirmation, so riders never see something he no longer offers.
+ */
+/** What each kind of vehicle can offer: a bike nothing; a tuktuk has no AC, heater or boot. */
+export const CLASS_FEATURES: Record<VehicleClass, readonly VehicleFeature[]> = {
+  bike: [],
+  tuktuk: ['family', 'no_smoking', 'child_seat'],
+  car: VehicleFeature.options,
+  suv: VehicleFeature.options,
+  van: VehicleFeature.options,
+  intercity: VehicleFeature.options,
+};
+
+export const SetVehicleFeaturesInput = z.object({ features: z.array(VehicleFeature).max(VehicleFeature.options.length) });
+export type SetVehicleFeaturesInput = z.infer<typeof SetVehicleFeaturesInput>;
 
 /**
  * Invites a driver to the fleet by phone (the driving role itself still comes from ops review). The
@@ -148,5 +178,8 @@ export interface FleetPort {
   addVehicle(actor: Actor, input: AddVehicleInput): Promise<FleetVehicle>;
   addDriver(actor: Actor, input: AddFleetDriverInput): Promise<FleetDriver>;
   myInvites(actor: Actor): Promise<FleetInvite[]>;
+  /** The vehicle the driver is the active driver of (any fleet, or his own); null when none is registered. */
+  myVehicle(actor: Actor): Promise<FleetVehicle | null>;
+  setMyVehicleFeatures(actor: Actor, input: SetVehicleFeaturesInput): Promise<FleetVehicle>;
   respondInvite(actor: Actor, input: RespondFleetInviteInput): Promise<FleetInvite[]>;
 }

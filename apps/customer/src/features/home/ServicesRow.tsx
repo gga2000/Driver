@@ -1,5 +1,5 @@
 import { useCallback, useState, type ComponentProps, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
@@ -15,6 +15,7 @@ import { useSignedIn } from '@/lib/session';
 import { useAmbient } from './ambient';
 import { backFact, rideFact, soonNames, tripsFact, type Fact } from './service-facts';
 import { MOMENT_LEAD_MS, MOMENT_MS, nudge, starsX, steamWisp, taxiX, tuktukHop } from './tile-moments';
+import { grownTileHeight } from './tile-size';
 
 /** `trips`: Baghdad and Kut (leaving Aziziyah); `rajaa`: الرجعة, the way back (Ali, 2026-10-07). */
 export type ServiceId = 'food' | 'taxi' | 'tuktuk' | 'trips' | 'rajaa' | LaunchService;
@@ -41,11 +42,13 @@ export const SERVICES: readonly ServiceDef[] = [
 
 const def = (id: ServiceId): ServiceDef => SERVICES.find((s) => s.id === id)!;
 
-/** The bento's measures (Date & Saffron v3, at phone size). */
+/** The bento's measures (Date & Saffron v3, at phone size and normal text; `grownTileHeight` adds large text). */
 const GAP = 10;
 const SMALL_H = 96;
 const TRIP_H = 84;
 const FOOD_ART = 104;
+/** How far a tile's name or fact may shrink to fit its width (phones only; the web keeps the size). */
+const FIT_MIN = 0.8;
 /** The food drawing floats: it moves this share of the page's scroll more slowly, at most `FLOAT_MAX` px. */
 const FLOAT = 0.18;
 const FLOAT_MAX = 26;
@@ -126,6 +129,11 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
     else setTimeout(() => onPress(id), MOMENT_LEAD_MS);
   };
   const end = theme.isRTL ? -1 : 1;
+  // Large text: each row grows by what a tile's name and fact lines grow (`tile-size.ts`).
+  const { fontScale } = useWindowDimensions();
+  const tileLines = [theme.type.title.lineHeight, theme.type.footnote.lineHeight];
+  const smallH = grownTileHeight(SMALL_H, tileLines, fontScale);
+  const tripH = grownTileHeight(TRIP_H, tileLines, fontScale);
   const float = useAnimatedStyle(() => ({ transform: [{ translateY: scrollY ? Math.min(FLOAT_MAX, Math.max(-8, scrollY.value * FLOAT)) : 0 }, { rotate: '-14deg' }] }));
   const taxiIcon = useAnimatedStyle(() => ({ transform: [{ translateX: taxiX(moments.taxi.a.value, end) }] }));
   const tuktukIcon = useAnimatedStyle(() => {
@@ -147,7 +155,7 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           swatch={foodOff ? s.off : s.food}
           label={t(def('food').label)}
           fact={say(foodFact)}
-          style={{ flex: 1.12, height: SMALL_H * 2 + GAP }}
+          style={{ flex: 1.12, height: smallH * 2 + GAP }}
           onPress={() => press('food')}
         >
           {foodOff ? null : <MeshFill base={s.food.fill} mesh={s.food.mesh} clock={drift} />}
@@ -162,16 +170,16 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           <TileBody icon={def('food').icon} swatch={foodOff ? s.off : s.food} label={t(def('food').label)} fact={say(foodFact)} big />
         </Tile>
         <View style={{ flex: 1, gap: GAP }}>
-          <Tile id="taxi" swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} disabled={ridesOff} style={{ height: SMALL_H }} onPress={() => press('taxi')}>
+          <Tile id="taxi" swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('taxi')}>
             <TileBody icon={def('taxi').icon} iconStyle={taxiIcon} swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} />
           </Tile>
-          <Tile id="tuktuk" swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} disabled={ridesOff} style={{ height: SMALL_H }} onPress={() => press('tuktuk')}>
+          <Tile id="tuktuk" swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('tuktuk')}>
             <TileBody icon={def('tuktuk').icon} iconStyle={tuktukIcon} swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} />
           </Tile>
         </View>
       </View>
       <View style={{ flexDirection: 'row', gap: GAP }}>
-        <Tile id="trips" swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: TRIP_H }} onPress={() => press('trips')}>
+        <Tile id="trips" swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: tripH }} onPress={() => press('trips')}>
           {ridesOff ? null : <CornerFill base={s.trips.fill} light={s.trips.light} />}
           {ridesOff ? null : (
             // One tile wider on each side, so gliding by a whole tile never shows an edge.
@@ -181,7 +189,7 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           )}
           <TileBody icon={def('trips').icon} chipStyle={chip} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} live={facts.trips?.key === 'home.trips_next'} row />
         </Tile>
-        <Tile id="rajaa" swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: TRIP_H }} onPress={() => press('rajaa')}>
+        <Tile id="rajaa" swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: tripH }} onPress={() => press('rajaa')}>
           {ridesOff ? null : <DownFill top={s.back.light} bottom={s.back.fill} />}
           <TileBody icon={def('rajaa').icon} iconStyle={backIcon} swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} compact />
         </Tile>
@@ -303,13 +311,14 @@ function TileBody({
   const theme = useTheme();
   const sub = swatch.sub ?? swatch.on;
   const factText = fact ? (
-    <Text variant={compact ? 'caption' : 'footnote'} weight={600} color={sub} numberOfLines={1} tabular style={{ flexShrink: 1 }}>
+    // Large text: the tile grows only to the compact cap, and a long fact shrinks to its width rather than being cut.
+    <Text variant={compact ? 'caption' : 'footnote'} weight={600} color={sub} numberOfLines={1} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN} tabular style={{ flexShrink: 1 }}>
       {fact}
     </Text>
   ) : null;
   const words = (
     <View style={{ gap: live ? 4 : 0, flex: row ? 1 : undefined, flexShrink: 1, minWidth: 0, alignItems: 'flex-start' }}>
-      <Text variant={big ? 'display' : compact ? 'bodyStrong' : 'title'} face="display" color={swatch.on} numberOfLines={1}>
+      <Text variant={big ? 'display' : compact ? 'bodyStrong' : 'title'} face="display" color={swatch.on} numberOfLines={1} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN}>
         {label}
       </Text>
       {fact && live ? (

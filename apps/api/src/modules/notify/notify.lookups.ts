@@ -7,6 +7,8 @@ export interface OrderFacts {
   merchantOrgId: string | null;
   totalIqd: number;
   itemCount: number;
+  /** A ride booked for someone else (s3): the rider's account, when he has one; null otherwise. */
+  riderId?: string | null;
 }
 
 export interface BookingFacts {
@@ -61,8 +63,16 @@ export interface NotifyLookups {
   tripZones(tripId: string): Promise<{ pickup: string; dropoff: string } | null>;
   /** Joy w9: the person's safety switches and how many trusted people they have (no names or numbers). */
   safety?(personId: string): Promise<{ prefs: SafetyPrefs; contacts: number } | null>;
+  /** s2 «وصل بالسلامة»: the accounts of the person's trusted people who have the app (logged vault read). */
+  trustedAccounts?(personId: string, purpose: string): Promise<string[]>;
   /** Joy w9 auto-share: a share-trip link (full URL) on the person's booking or ride; null when it can't be made. */
   shareLink?(personId: string, subject: { bookingId: string } | { orderId: string }): Promise<string | null>;
+  /** c9/s3: the name the booker gave the rider of a ride booked for someone else (vault-logged); null otherwise. */
+  riderName?(orderId: string): Promise<string | null>;
+  /** c9: the car the driver came in — "Toyota Corolla · أبيض" (else تكسي / تكتك) — and its plate. */
+  driverCar?(tripId: string, driverId: string): Promise<{ car: string; plate: string } | null>;
+  /** s1: the start code of a night ride, which goes in the rider's SMS; null when the ride has none. */
+  startCode?(orderId: string): Promise<string | null>;
 }
 
 export const NOTIFY_LOOKUPS = Symbol('NOTIFY_LOOKUPS');

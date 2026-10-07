@@ -1,4 +1,22 @@
-import type { Actor, BookingView, DeliveryPoint, DemandPostView, IntercityBoard, IntercitySeatId, LatLng, Order, PlaceOrderInput, RoutesPort, SavedPlaceView, TravellingAs, VehicleClass } from '@driver/contracts';
+import type {
+  Actor,
+  BookedRideState,
+  BookingView,
+  ComplimentKey,
+  DeliveryPoint,
+  DemandPostView,
+  IntercityBoard,
+  IntercitySeatId,
+  LatLng,
+  Order,
+  PlaceOrderInput,
+  RoutesPort,
+  SavedPlaceView,
+  TravellingAs,
+  VehicleClass,
+  VehicleColour,
+  VehicleFeature,
+} from '@driver/contracts';
 import type { NewEvent, Aggregate } from '../events/index.js';
 
 /** A ride the rider finished, with its driver (from the trip) and his stars. */
@@ -38,6 +56,28 @@ export interface HabitsRidesPort {
   driverRating(driverId: string): Promise<{ rating: number; count: number } | null>;
   /** Travel minutes between two points (the one ETA, learned corrections included). */
   minutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<number>;
+  /** Step 4 (o4): which of these orders are rides he finished (completed or closed). */
+  finishedOrderIds(orderIds: readonly string[]): Promise<Set<string>>;
+  /**
+   * Step 4 (o4): he has a ride in hand — one searching or under way, or one booked for within an hour
+   * of `around` — so «نفس مشوار البارحة؟» stays quiet.
+   */
+  rideOn(personId: string, around: Date): Promise<boolean>;
+  /**
+   * Review #28: a ride booked for later as dispatch holds it — who confirmed it, until when drivers are
+   * asked, when the search starts. Null when dispatch has no such booking. Absent in older fakes.
+   */
+  bookedRide?(orderId: string): Promise<BookedRidePlan | null>;
+}
+
+/** A booked ride's pre-assignment (review #28), from dispatch. */
+export interface BookedRidePlan {
+  state: BookedRideState;
+  /** The confirmed driver (state `confirmed`). */
+  driverId: string | null;
+  /** Drivers are asked until then (state `looking`). */
+  confirmBy: Date | null;
+  searchAt: Date;
 }
 
 /** What ride habits read and do on الرجعة (the routes module). */
@@ -58,8 +98,9 @@ export interface HabitsRajaaPort {
 
 /** People: first names and approved photos (logged vault reads), saved places. */
 export interface HabitsPeoplePort {
-  firstNames(ids: readonly string[], accessorId: string): Promise<Record<string, string | null>>;
-  photoUrls(ids: readonly string[], accessorId: string): Promise<Record<string, string>>;
+  /** `purpose`: the vault-read purpose logged (a favourite's by default). */
+  firstNames(ids: readonly string[], accessorId: string, purpose?: string): Promise<Record<string, string | null>>;
+  photoUrls(ids: readonly string[], accessorId: string, purpose?: string): Promise<Record<string, string>>;
   places(personId: string): Promise<SavedPlaceView[]>;
 }
 
@@ -74,3 +115,61 @@ export const HABITS_EVENTS = Symbol('HABITS_EVENTS');
 
 /** The vault-read purpose of a favourite's first name and photo. */
 export const FAVOURITE_READ_PURPOSE = 'favourite_driver';
+
+// ───────────────────────── ride step 3: the offered drivers, «نبّهه», the profile ─────────────────────────
+
+/** One driver's offer of the ride, as dispatch keeps it (positions never leave dispatch). */
+export interface SearchOffer {
+  offerId: string;
+  driverId: string;
+  state: 'sent' | 'seen' | 'accepted' | 'declined' | 'timed_out' | 'withdrawn';
+  sentAt: Date;
+  expiresAt: Date;
+  nudgedAt: Date | null;
+}
+
+/** A driver's car and record as the rider is told them (confirmed features only, never a plate here). */
+export interface DriverFacts {
+  vehicleClass: VehicleClass | null;
+  model: string | null;
+  colour: VehicleColour | null;
+  features: VehicleFeature[];
+  tripCount: number;
+}
+
+/**
+ * What the offered-drivers list, «نبّهه» and the driver profile read (ride step 3): the order's parties,
+ * the ride's live search in dispatch, the driver's car, record and minutes away, and his first name and
+ * approved photo — logged vault reads with the courier card's purpose. Positions stay inside: only
+ * minutes come out.
+ */
+export interface HabitsSearchPort {
+  /** A ride order with the people who may follow it (the orderer and its rider participants); null when not a ride. */
+  ride(orderId: string): Promise<{ orderId: string; ordererId: string; riderIds: string[] } | null>;
+  /** The ride's search while it looks for a driver: the pickup and every offer; null once it has one. */
+  search(orderId: string): Promise<{ tripId: string; vertical: 'taxi' | 'tuktuk'; pickup: LatLng; offers: SearchOffer[] } | null>;
+  /** «نبّهه» through dispatch (once per driver per ride); returns when. */
+  nudge(tripId: string, offerId: string, riderId: string): Promise<Date>;
+  /** The driver's minutes to `to` from where he is now (the one ETA); null when he is offline. */
+  minutesAway(driverId: string, to: LatLng): Promise<number | null>;
+  facts(driverIds: readonly string[]): Promise<Map<string, DriverFacts>>;
+  /** The driver carrying (or who carried) the order, with the plate of the car on that trip. */
+  assigned(orderId: string): Promise<{ driverId: string; vertical: 'taxi' | 'tuktuk'; plate: string | null; vehicleClass: VehicleClass | null } | null>;
+  /** First names and approved photo refs (vault reads logged with `purpose`, the reader as accessor). */
+  cards(driverIds: readonly string[], readerId: string, purpose: string): Promise<Record<string, { firstName: string | null; photoRef: string | null }>>;
+  /** A short-lived URL for a photo ref. */
+  photoUrl(ref: string): string;
+  /** n5: since when he drives here, his on-time share (null under 20 trips) and riders' compliments. */
+  record(driverId: string): Promise<{ driverSince: Date | null; onTimePct: number | null; compliments: Array<{ key: ComplimentKey; count: number }> }>;
+  /** s6: since when each drives here (role grants only). */
+  driverSince(driverIds: readonly string[]): Promise<Record<string, Date | null>>;
+}
+
+export const HABITS_SEARCH = Symbol('HABITS_SEARCH');
+
+/** The vault-read purpose of an offered or assigned driver's first name and photo (as on the courier card). */
+export const DRIVER_CARD_PURPOSE = 'courier_card';
+/** The vault-read purpose of the rider's «ما أريده مرة ثانية» list. */
+export const AVOIDED_READ_PURPOSE = 'avoided_driver';
+/** Review #28: the driver who confirmed a rider's booked ride, read for that rider. */
+export const BOOKED_DRIVER_READ_PURPOSE = 'booked_ride_driver';

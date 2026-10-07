@@ -249,8 +249,25 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and
   `/demo/ride/advance?orderId=` (at pickup → on the trip → arrived, cash paid),
   `/demo/ride/search-age?orderId=&sec=200` (the ride reads as searching that long: the 3-minute
-  "try the other vehicle" card). `SHOTS=ride` writes
+  "try the other vehicle" card), `/demo/ride/night?orderId=` (the ride gets a night ride's trip
+  code by day: «رمز المشوار» in the sheet until the rider is in; `docs/api/ride-safety.md`). After a
+  finished ride, «نسيت غرض بالسيارة؟» reopens the driver chat for 24 h. `SHOTS=ride` writes
   `ride-*.png`.
+
+## Simple mode «الوضع البسيط» (ride idea v2, `src/features/simple/`)
+
+- Account › «الوضع البسيط» (a switch, kept on the device and through a sign-out like the language):
+  bigger text, fewer choices. Turning it on opens `/simple`.
+- `/simple` (`SimpleHome`): «هلا كاظم», the ride in progress as one big card, then four big choices —
+  «رجعني للبيت» (the phone's position → the saved البيت, straight to the fares; no saved home → «وين
+  بيتك؟»: «أني بالبيت هسة» saves the position, or the place editor on البيت), «تكسي», «تكتك», «مساعدة»
+  (`/help`). «رجّع الشاشة العادية» turns it off.
+- The choose and live ride screens read `useSimpleMode().on`: one vehicle, the trip, how he pays and
+  the button in larger type (no options sheet, details link or second vehicle); the live status in
+  larger type, the drivers sent it as a plain list, no other-vehicle offer, share card or invite.
+- Home switches with one line in `app/(tabs)/index.tsx`: `<SimpleHomeRedirect />` (from
+  `@/features/simple/SimpleHome`) anywhere in the returned tree.
+- `SHOTS=simple` writes `simple-*.png` on a fresh account with a faked phone position.
 
 ## Gifts, invitations, stickers and the share card (joy J7b)
 
@@ -286,6 +303,10 @@ API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07
   the banner on the restaurants list, checkout's «وياك · 8:05» slot (the server's time; an ordinary pre-order).
 - Demo: `POST /demo/ride-habits?personId=…` and `POST /demo/dinner?personId=…[&kind=rajaa]`;
   `SHOTS=trips` writes `trips-*.png` on a fresh account (`TRIPS_PHONE`, default 0770 456 8899).
+- **Evening-before booked rides (review #28)**: the booked screen and its home card say «سايقك محجوز: حسين»
+  (photo) once a driver confirmed, «ندوّرلك سايق، نأكدلك قبل الساعة 10 بالليل» while drivers are asked, else
+  the search time (`rideHabits.bookedRide`). Demo: `POST /demo/booked-ride?personId=…[&state=looking|confirmed]`;
+  `SHOTS=booked` (`BOOKED_PHONE`, default 0770 456 7711).
 
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
 

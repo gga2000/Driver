@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor, type RoleKind } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { NotifyService, RecordingTransport } from '../notify/index.js';
-import { ordersHarness } from '../orders/test-harness.js';
+import { HOME, KITCHEN, ordersHarness } from '../orders/test-harness.js';
 import { DevBlobStore } from '../places/index.js';
 import { DevCallBridge, ProxyCallBridge, type CallBridgePort } from './call-bridge.js';
 import { registerChatNotifications } from './chat.notify.js';
@@ -31,7 +31,7 @@ const ROLES: Record<string, Array<{ kind: RoleKind; orgId?: string }>> = {
   ops: [{ kind: 'support' }],
 };
 const NAMES: Record<string, string> = { c1: 'علي', d1: 'حيدر', d2: 'كرار' };
-const PHONES: Record<string, string> = { c1: '+9647701110009', d1: '+9647701110001', 'm-owner': '+9647701234567' };
+const PHONES: Record<string, string> = { c1: '+9647701110009', d1: '+9647701110001', 'm-owner': '+9647701234567', mum: '+9647705554433' };
 
 function setup(opts: { bridge?: CallBridgePort; counter?: WindowCounter } = {}) {
   const h = ordersHarness();
@@ -350,10 +350,185 @@ describe('ChatService — masked calls', () => {
     expect(proxy.vaultReads.filter((r) => r.purpose === 'masked_call_dev')).toEqual([]);
   });
 
+  it('a ride booked for someone else (c9): «اتصل بالراكب» rings the rider, whose messages reach the rider and the booker', async () => {
+    const { h, chat, vaultReads, ev } = setup();
+    h.people.set('07705554433', 'mum');
+    const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', fareIqd: 3000, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30', pin: HOME }, rider: { from: 'typed', name: 'ماما', phone: '07705554433' } });
+    await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    const s = await chat.requestCall(as('d1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(s).toMatchObject({ mode: 'dev_direct', dial: PHONES['mum'], counterpart: 'customer' });
+    expect(vaultReads).toContainEqual({ personId: 'mum', accessorId: 'd1', purpose: 'masked_call_dev' });
+    // The rider is a party: she calls the driver herself; the driver sees the name the booker gave.
+    expect((await chat.requestCall(as('mum'), { orderId: o.id, kind: 'customer_courier' })).dial).toBe(PHONES['d1']);
+    const thread = await chat.thread(as('d1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(thread.participants.find((p) => p.role === 'customer')?.name).toBe('ماما');
+    await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'وصلت' });
+    const sent = (await ev.repo.find({})).filter((e) => e.type === 'chat.message_sent').at(-1)!;
+    expect(sent.payload['recipientIds']).toEqual(['c1', 'mum']);
+  });
+
   it('the dev bridge refuses outside development even if it were bound', async () => {
     const bridge = new DevCallBridge({ phoneForCall: async () => '+9647701110001' }, () => 'production');
     await expect(bridge.open({ callId: 'c', orderId: 'o', callerId: 'a', calleeId: 'b' }, new Date())).rejects.toMatchObject({ code: 'call_unavailable' });
     const staging = new DevCallBridge({ phoneForCall: async () => '+9647701110001' }, () => 'staging');
     await expect(staging.open({ callId: 'c', orderId: 'o', callerId: 'a', calleeId: 'b' }, new Date())).rejects.toMatchObject({ code: 'call_unavailable' });
+  });
+});
+
+describe('ChatService — voice notes (ride ideas n7/n8)', () => {
+  /** An m4a's first box: size, `ftyp`, brand `M4A `. */
+  const M4A = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypM4A ', 'latin1'), Buffer.alloc(200)]);
+
+  /** Ticket through `chat.voiceUpload`, then the PUT the app makes. */
+  async function voice(chat: ChatService, blobs: DevBlobStore, personId: string, orderId: string, kind: 'customer_courier' | 'customer_support' = 'customer_courier') {
+    const ticket = await chat.voiceUpload(as(personId), { orderId, kind, contentType: 'audio/mp4', sizeBytes: M4A.length });
+    const url = new URL(ticket.uploadUrl, 'http://x');
+    await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'audio/mp4', bytes: M4A });
+    return ticket.uploadId;
+  }
+
+  it('sends a voice note with its length; the reader gets a signed audio URL and the push says so', async () => {
+    const { h, chat, blobs, transport } = setup();
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const id = await voice(chat, blobs, 'c1', o.id);
+    const m = await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 7 });
+    expect(m).toMatchObject({ kind: 'voice', text: null, photoUrl: null, durationSec: 7 });
+    expect(m.audioUrl).toContain(`/files/${id}?`);
+    const seen = (await chat.thread(as('d1'), { orderId: o.id, kind: 'customer_courier' })).messages[0]!;
+    expect(seen).toMatchObject({ kind: 'voice', durationSec: 7, mine: false });
+    expect(transport.sent.at(-1)).toMatchObject({ to: 'd1', title_ar: 'رسالة جديدة من الزبون', body_ar: 'دزلك رسالة صوتية' });
+    // Other kinds carry no voice fields.
+    const text = await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'سمعتك' });
+    expect(text).toMatchObject({ audioUrl: null, durationSec: null });
+  });
+
+  it('gives an upload ticket only to someone who may write in the thread now', async () => {
+    const { h, chat } = setup();
+    const placed = await h.orders.place('c1', h.foodInput());
+    const input = { orderId: placed.id, kind: 'customer_courier' as const, contentType: 'audio/webm' as const, sizeBytes: 5000 };
+    expect(await code(chat.voiceUpload(as('c1'), input))).toBe('chat_not_open');
+    expect(await code(chat.voiceUpload(as('stranger'), input))).toBe('chat_not_party');
+    // «كلّم الدعم» is open from placement: a voice note to the desk works right away.
+    await expect(chat.voiceUpload(as('c1'), { ...input, kind: 'customer_support' })).resolves.toMatchObject({ method: 'PUT', maxBytes: 5000 });
+    // The kitchen's threads stay text and photos.
+    await h.orders.merchantAccept('m-staff', { orderId: placed.id, prepMinutes: 15 });
+    expect(await code(chat.voiceUpload(as('c1'), { ...input, kind: 'customer_merchant' }))).toBe('chat_voice_unavailable');
+  });
+
+  it('accepts only the sender’s own finished voice upload, never a photo as a voice note or the other way round', async () => {
+    const { h, chat, blobs } = setup();
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const pending = await chat.voiceUpload(as('c1'), { orderId: o.id, kind: 'customer_courier', contentType: 'audio/mp4', sizeBytes: M4A.length });
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: pending.uploadId, durationSec: 3 }))).toBe('upload_invalid');
+    const id = await voice(chat, blobs, 'c1', o.id);
+    expect(await code(chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 3 }))).toBe('upload_invalid');
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), photoUploadId: id }))).toBe('upload_invalid');
+    const photo = await blobs.createUpload({ ownerId: 'c1', contentType: 'image/png', sizeBytes: 48 });
+    const url = new URL(photo.uploadUrl, 'http://x');
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
+    await blobs.receive({ id: photo.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/png', bytes: png });
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: photo.uploadId, durationSec: 3 }))).toBe('upload_invalid');
+  });
+
+  it('the file goes with the chat: deleted once the thread closes, the bubble keeps its length', async () => {
+    const { h, chat, blobs } = setup();
+    const o = await acceptedOrder(h);
+    const trip = await h.tripFor(o.id);
+    const toDriver = await voice(chat, blobs, 'c1', o.id);
+    await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: toDriver, durationSec: 12 });
+    const toDesk = await voice(chat, blobs, 'c1', o.id, 'customer_support');
+    await chat.send(as('c1'), { orderId: o.id, kind: 'customer_support', clientId: cid(), voiceUploadId: toDesk, durationSec: 4 });
+    await h.pickup(trip.id);
+    await h.dropoff(trip.id, { cashCollectedIqd: 16500 });
+
+    // Still open: nothing goes.
+    h.clock.advance(29 * MIN);
+    expect(await chat.purgeClosedVoice(10)).toBe(0);
+    expect(await blobs.getVoice(toDriver)).not.toBeNull();
+
+    // The driver chat closes at 30 minutes; the support chat stays open for 24 hours.
+    h.clock.advance(2 * MIN);
+    expect(await chat.purgeClosedVoice(10)).toBe(1);
+    expect(await blobs.getVoice(toDriver)).toBeNull();
+    expect(await blobs.getVoice(toDesk)).not.toBeNull();
+    const gone = (await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).messages[0]!;
+    expect(gone).toMatchObject({ kind: 'voice', audioUrl: null, durationSec: 12 });
+    expect(await chat.purgeClosedVoice(10)).toBe(0);
+
+    h.clock.advance(24 * 60 * MIN);
+    expect(await chat.purgeClosedVoice(1)).toBe(1);
+    expect(await blobs.getVoice(toDesk)).toBeNull();
+  });
+
+  it('walks every thread page by page: open threads never block closed ones', async () => {
+    const { h, chat, blobs } = setup();
+    const done = await acceptedOrder(h);
+    const doneTrip = await h.tripFor(done.id);
+    const running = await acceptedOrder(h);
+    await h.tripFor(running.id, { driverId: 'd2' });
+    for (const o of [running, done]) {
+      const id = await voice(chat, blobs, 'c1', o.id);
+      await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 2 });
+    }
+    await h.pickup(doneTrip.id);
+    await h.dropoff(doneTrip.id, { cashCollectedIqd: 16500 });
+    h.clock.advance(31 * MIN);
+    expect(await chat.purgeClosedVoice(1)).toBe(1);
+    const still = (await chat.thread(as('c1'), { orderId: running.id, kind: 'customer_courier' })).messages[0]!;
+    expect(still.audioUrl).not.toBeNull();
+  });
+});
+
+describe('ChatService — «نسيت غرض» after a ride (ride step 3, s7)', () => {
+  /** A day taxi ride from c1, driven by d1 to the end. */
+  async function completedRide(h: H) {
+    const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', fareIqd: 3000, pickup: { zoneKey: 'centre', pin: { lat: 32.9105, lng: 45.0665 } }, dropoff: { zoneKey: 'street_30', pin: { lat: 32.9185, lng: 45.0712 } } });
+    const t = await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    await h.pickup(t.id);
+    await h.dropoff(t.id);
+    expect((await h.trips.get(t.id)).state).toBe('completed');
+    return o;
+  }
+
+  it('reopens the driver chat until the ride’s end + 24 h, writes the line once, and lists it for the driver', async () => {
+    const { h, chat, ev } = setup();
+    const o = await completedRide(h);
+    const ended = (await h.trips.get((await h.trips.courierOf(o.id))!.tripId)).completedAt!;
+    h.clock.advance(3 * 60 * MIN);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).status).toBe('closed');
+    const res = await chat.lostItem(as('c1'), { orderId: o.id });
+    expect(res.openUntil.getTime()).toBe(ended.getTime() + 24 * 60 * MIN);
+    const view = await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' });
+    expect(view.status).toBe('open');
+    const lines = view.messages.filter((m) => m.kind === 'system');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.text).toBe('الراكب يدور على غرض نساه بالسيارة');
+    // The driver can answer, and sees it in his list.
+    await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'لگيته، أرجعه هسة' });
+    expect(await chat.lostItems(as('d1'))).toEqual([expect.objectContaining({ orderId: o.id, threadId: res.threadId })]);
+    expect(await chat.lostItems(as('d2'))).toEqual([]);
+    // Asking again: same window, no second line.
+    h.clock.advance(MIN);
+    expect((await chat.lostItem(as('c1'), { orderId: o.id })).openUntil).toEqual(res.openUntil);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).messages.filter((m) => m.kind === 'system')).toHaveLength(1);
+    expect((await ev.repo.find({})).filter((e) => e.type === 'chat.message_sent' && (e.payload as { messageKind?: string }).messageKind === 'system')).toHaveLength(1);
+    // Past the window the chat closes again and leaves the driver's list.
+    h.clock.advance(24 * 60 * MIN);
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).status).toBe('closed');
+    expect(await chat.lostItems(as('d1'))).toEqual([]);
+  });
+
+  it('only the orderer or rider, only on a completed ride, only within 24 h', async () => {
+    const { h, chat } = setup();
+    const food = await acceptedOrder(h);
+    await h.tripFor(food.id, { driverId: 'd2' });
+    expect(await code(chat.lostItem(as('c1'), { orderId: food.id }))).toBe('chat_lost_item_unavailable');
+    const o = await completedRide(h);
+    expect(await code(chat.lostItem(as('d1'), { orderId: o.id }))).toBe('chat_not_party');
+    expect(await code(chat.lostItem(as('stranger'), { orderId: o.id }))).toBe('chat_not_party');
+    h.clock.advance(24 * 60 * MIN);
+    expect(await code(chat.lostItem(as('c1'), { orderId: o.id }))).toBe('chat_lost_item_unavailable');
   });
 });
