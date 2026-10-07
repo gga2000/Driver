@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { EtaBasis, LatLng, Order, PartnerBookedAnswer, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -42,6 +42,17 @@ export interface PartnerOfferRequest {
   pickup: LatLng;
 }
 
+/** A ride booked for later as dispatch holds it (review #28). */
+export interface PartnerBookedRecord {
+  request: PartnerOfferRequest & { cashIqd?: number | undefined };
+  scheduledFor: Date;
+  confirmBy: Date;
+  startFrom: Date;
+  showBy: Date;
+  favourite: boolean;
+  held: boolean;
+}
+
 export interface PartnerCapStatus {
   tier: 'bronze' | 'silver' | 'gold';
   owedIqd: number;
@@ -72,6 +83,10 @@ export interface PartnerDeps {
     openOffer(driverId: string, cityId: string): Promise<{ offer: PartnerOfferRecord; request: PartnerOfferRequest } | null>;
     /** Zones of the city's jobs that are waiting for a driver. */
     waitingZones(cityId: string): Promise<string[]>;
+    /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones open to him. Absent in older fakes = none. */
+    bookedJobs?(driverId: string, cityId: string): Promise<{ online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] }>;
+    /** His answer on one (dispatch's rules: first confirm wins, fit, clash, start window). */
+    answerBookedJob?(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void>;
   };
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;

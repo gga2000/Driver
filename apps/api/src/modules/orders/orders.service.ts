@@ -160,6 +160,8 @@ export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
   /** Seconds a ride searches before the customer may cancel free or switch vehicle (city dispatch config). */
   freeCancelAfterSec?(cityId: string, vertical: Vertical): number;
+  /** LOAD-01: takes the kept quote the order names, once (false: unknown, expired or already taken). */
+  claimQuote?(quoteId: string, at: Date, tx: Tx): Promise<boolean>;
 }
 
 /** `DispatchConfig.customerFreeCancelAfterSec`'s default, when the pricing port has no city config. */
@@ -417,6 +419,8 @@ export class OrdersService implements OnModuleInit {
           const prior = await this.replay(ordererId, input, tx);
           if (prior) return prior;
         }
+        // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
+        if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
         // (this instance's KeyedLock below, every instance's advisory lock here), so two orders placed
         // together can never both slip under the budget: the second sees the first and is held.

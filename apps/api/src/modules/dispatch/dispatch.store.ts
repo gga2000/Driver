@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DriverError, type DispatchPolicyKind, type DispatchStatus, type LatLng, type VehicleClass, type Vertical } from '@driver/contracts';
 import type { Redis } from 'ioredis';
+import type { BookedJob } from './booked.js';
 
 /**
  * Live state of one trip's dispatch (Redis `dispatch:req:{tripId}`). Timestamps are epoch ms so
@@ -63,6 +64,12 @@ export interface DispatchRequest {
   favouriteDriverIds?: string[];
   /** s6 «عوائل»: the first wave goes to family-tagged, long-standing, well-rated drivers only. */
   familyPreferred?: boolean;
+  /** Joy J7d: the time a ride was booked for (epoch ms); null/absent = a ride for now. */
+  scheduledFor?: number | null;
+  /** Review #28: the evening-before pre-assignment of a ride booked for later; null/absent = none. */
+  booked?: BookedJob | null;
+  /** Review #28: pickup compensation on every offer of a booked ride's T−30 search (money rule; 0 = off). */
+  fallbackCompensationIqd?: number;
 }
 
 export interface PolicyOverride {
@@ -110,6 +117,8 @@ const activeKey = (cityId: string) => `dispatch:active:${cityId}`;
 const policyKey = (cityId: string) => `dispatch:policy:${cityId}`;
 const jobsKey = (driverId: string) => `dispatch:jobs:${driverId}`;
 export const lockKey = (tripId: string) => `dispatch:lock:${tripId}`;
+/** Review #28: who confirmed a booked ride (first confirm wins; the 22:00 deadline takes it as `system`). */
+export const bookedLockKey = (tripId: string) => `dispatch:booked:${tripId}`;
 export const driverLockKey = (driverId: string) => `dispatch:driver-lock:${driverId}`;
 
 /** Deletes the lock only if we still own it (a lock that expired and was re-taken is not ours). */

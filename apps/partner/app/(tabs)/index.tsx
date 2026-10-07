@@ -19,9 +19,11 @@ import { mapsUrl } from '@/features/work/logic';
 import { openNav, useNavApp } from '@/features/work/nav';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
 import { PrePromptGate } from '@/features/notify/Push';
-import { useDemandMap, useMe, useStatus } from '@/features/work/queries';
+import { useBookedJobs, useDemandMap, useMe, useStatus } from '@/features/work/queries';
+import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
 import { useLocale, useT } from '@/lib/i18n';
+import { formatWhen } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
 /** «7:42» in Baghdad time, Western digits. */
@@ -61,6 +63,9 @@ export default function Home() {
   const closePeek = useCallback(() => setPeek(false), []);
   const check = useShiftCheckDue();
   const [checking, setChecking] = useState(false);
+  // Review #28: «مشاوير باچر» for taxi and tuktuk drivers.
+  const bookedJobs = useBookedJobs(s?.modes.includes('city') ?? false);
+  const booked = bookedHome(bookedJobs.data, new Date());
 
   const state = dashState(online, !cut);
   const hint = s?.canDrive ? workHint(s.demand, s.position) : null;
@@ -142,6 +147,17 @@ export default function Home() {
               ) : null}
               {s.modes.includes('khat') ? (
                 <ModeTile testID="mode-khat" icon="seat" title={t('partner.khat_card_title')} body={t('partner.khat_card_body')} cta={t('partner.khat_card_cta')} onPress={() => router.push('/khat')} />
+              ) : null}
+              {/* Review #28: rides booked for later — his next one, or how many wait for a driver. */}
+              {booked ? (
+                <ModeTile
+                  testID="mode-booked"
+                  icon="taxi"
+                  title={t('partner.booked_title')}
+                  body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+                  cta={t('partner.booked_home_cta')}
+                  onPress={() => router.push('/booked')}
+                />
               ) : null}
               {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
 

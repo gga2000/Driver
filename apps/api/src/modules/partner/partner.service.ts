@@ -8,8 +8,11 @@ import {
   partnerModesOf,
   type Actor,
   type AnswerClimateCheckInput,
+  type AnswerBookedJobInput,
   type Order,
   type OrderRoute,
+  type PartnerBookedJob,
+  type PartnerBookedJobs,
   type PartnerDemandMap,
   type PartnerGoOnlineInput,
   type PartnerJob,
@@ -32,7 +35,7 @@ import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines } from './logic.js';
-import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
+import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
 function cargoOf(orders: readonly Order[]): RideCargo[] {
@@ -221,6 +224,58 @@ export class PartnerService implements PartnerPort {
       climate: offerClimate(request.vertical, presence?.vehicle ?? null, now),
       // o10: how many rides the rider finished before («أول مشوار له» / «ركب 12 مشوار»); rides only.
       riderTrips: orders[0]?.type === 'ride' && this.deps.orders.riderTrips ? await this.deps.orders.riderTrips(orders[0].id) : null,
+    };
+  }
+
+  /**
+   * «مشاوير باچر» (edge-case review #28): rides booked for later he confirmed, and — while he is online —
+   * the ones that fit him to confirm. Each says what an offer says: the time, the pickup and drop-off
+   * zones, the trip km and his pay. Never a door or a name.
+   */
+  async bookedJobs(actor: Actor): Promise<PartnerBookedJobs> {
+    const id = actor.personId;
+    if (!this.deps.dispatch.bookedJobs) return { online: false, mine: [], open: [] };
+    const presence = await this.deps.presence.get(id);
+    const found = await this.deps.dispatch.bookedJobs(id, presence?.cityId ?? DEFAULT_CITY);
+    const [mine, open] = await Promise.all([Promise.all(found.mine.map((r) => this.bookedView(r))), Promise.all(found.open.map((r) => this.bookedView(r)))]);
+    return { online: found.online, mine, open };
+  }
+
+  async answerBookedJob(actor: Actor, input: AnswerBookedJobInput): Promise<PartnerBookedJobs> {
+    if (!this.deps.dispatch.answerBookedJob) throw new DriverError('booked_job_not_found');
+    await this.deps.dispatch.answerBookedJob(actor.personId, input.tripId, input.answer);
+    return this.bookedJobs(actor);
+  }
+
+  private async bookedView(r: PartnerBookedRecord): Promise<PartnerBookedJob> {
+    const trip = await this.deps.trips.get(r.request.tripId);
+    const orders = await this.ordersOf(trip);
+    const pay = buildPay({
+      vertical: r.request.vertical,
+      orders,
+      feeComponents: [],
+      batchedSecond: false,
+      batchShare: this.deps.money.batchShare,
+      compensationIqd: 0,
+      take: this.deps.money.take(r.request.vertical),
+    });
+    const dropStop = trip.stops.find((s) => s.type === 'dropoff');
+    const dropPin = dropStop?.target ?? null;
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    return {
+      tripId: trip.id,
+      vertical: r.request.vertical,
+      scheduledFor: r.scheduledFor,
+      state: r.held ? 'confirmed' : 'open',
+      pickup: { zoneId: r.request.zoneId },
+      dropoff: { zoneId: r.request.dropoffZoneId ?? dropStop?.zoneKey ?? r.request.zoneId },
+      tripKm: dropPin ? kmBetween(r.request.pickup, dropPin) : null,
+      pay,
+      collectIqd: collect > 0 ? collect : null,
+      favourite: r.favourite,
+      confirmBy: r.confirmBy,
+      startFrom: r.startFrom,
+      showBy: r.showBy,
     };
   }
 

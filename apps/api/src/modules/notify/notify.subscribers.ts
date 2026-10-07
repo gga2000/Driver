@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
-import { t, type MessageKey } from '@driver/i18n';
+import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups, OrderFacts } from './notify.lookups.js';
@@ -22,6 +22,17 @@ export function itemsAr(n: number): string {
  * event id + template + person, so an at-least-once redelivery sends nothing twice.
  */
 export const NOTIFY_SUBSCRIBER = 'notify:deliveries';
+
+/** Review #28: what a booked ride's pre-assignment tells the rider and the drivers (`bookedRideRequests`). */
+export const BOOKED_RIDE_EVENTS = [
+  'dispatch.booked_offered',
+  'dispatch.booked_opened',
+  'dispatch.booked_confirmed',
+  'dispatch.booked_unconfirmed',
+  'dispatch.booked_reminder',
+  'dispatch.booked_released',
+  'dispatch.booked_cancelled',
+] as const;
 
 export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
@@ -69,6 +80,8 @@ export const NOTIFY_EVENT_TYPES = [
   // dropped (trip cancelled) or not bookable.
   ...Object.values(GARAGE_TAXI_EVENTS),
   'same_ride.due',
+  // Review #28: rides booked for later, offered to drivers the evening before.
+  ...BOOKED_RIDE_EVENTS,
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -199,7 +212,66 @@ export function dishPotEventId(localDate: string): string {
 /** Turns one event into the notifications it implies. Exported for tests. */
 export async function requestsFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const passUpdates = await passUpdatesFor(e, deps.lookups);
-  return [...passUpdates, ...(await messagesFor(e, deps))];
+  const booked = await bookedRideRequests(e, deps.lookups);
+  return [...passUpdates, ...booked, ...(await messagesFor(e, deps))];
+}
+
+/** "5 الصبح" today, "باچر 5 الصبح" another day: a booked time nobody can read as the other half of the day. */
+export function bookedWhen(at: Date, now: Date): string {
+  const hour = formatHourPart(at);
+  return cityDayDiff(at, now) === 0 ? hour : `${formatDay(at, now)} ${hour}`;
+}
+
+/**
+ * Review #28, rides booked for later. The rider: «سايقك محجوز: حسين» when a driver confirms, a calm
+ * «بعدنا ندوّرلك سايق» when nobody did by the deadline, and when the confirmed driver drops it — all
+ * order updates held through quiet hours (the template's rule). Drivers: the favourite's own offer, the
+ * best-placed fitting drivers once it opens to all (held through quiet hours), the reminder an hour
+ * before and a cancellation of a job he holds (sent at any hour). Pushes name zones and times only.
+ */
+export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookups, 'order' | 'firstName' | 'tripZones'>): Promise<NotifyRequest[]> {
+  if (!(BOOKED_RIDE_EVENTS as readonly string[]).includes(e.type)) return [];
+  const p = e.payload;
+  const base = { eventId: e.id };
+  const orderId = str(p['orderId']);
+  const at = str(p['scheduledFor']);
+  if (!orderId || !at || Number.isNaN(Date.parse(at))) return [];
+  const when = bookedWhen(new Date(at), e.occurredAt);
+  const driverId = str(p['driverId']);
+  const toRider = async (template: 'booked_ride_confirmed' | 'booked_ride_unconfirmed' | 'booked_ride_released'): Promise<NotifyRequest[]> => {
+    const order = await L.order(orderId);
+    if (!order) return [];
+    const driver = driverId ? ((await L.firstName(driverId, 'notify_booked_ride')) ?? 'السايق') : '';
+    return [{ ...base, template, to: order.customerId, orderId, params: { driver, when, orderId }, data: { orderId } }];
+  };
+  const zones = async () => (e.tripId ? await L.tripZones(e.tripId) : null) ?? { pickup: '', dropoff: '' };
+  switch (e.type) {
+    case 'dispatch.booked_confirmed':
+      return toRider('booked_ride_confirmed');
+    case 'dispatch.booked_unconfirmed':
+      return toRider('booked_ride_unconfirmed');
+    case 'dispatch.booked_released':
+      return toRider('booked_ride_released');
+    case 'dispatch.booked_offered':
+    case 'dispatch.booked_opened': {
+      const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
+      const by = str(p['confirmBy']);
+      if (ids.length === 0) return [];
+      const z = await zones();
+      const template = e.type === 'dispatch.booked_offered' ? ('partner_booked_favourite' as const) : ('partner_booked_offer' as const);
+      const params = { when, pickup: z.pickup, dropoff: z.dropoff, deadline: by && !Number.isNaN(Date.parse(by)) ? formatHourPart(new Date(by)) : '' };
+      return [...new Set(ids)].map((to) => ({ ...base, template, to, params, data: { tripId: e.tripId ?? '' } }));
+    }
+    case 'dispatch.booked_reminder': {
+      const show = str(p['showBy']);
+      if (!driverId || !show || Number.isNaN(Date.parse(show))) return [];
+      return [{ ...base, template: 'partner_booked_reminder', to: driverId, params: { when, showBy: formatHourPart(new Date(show)) }, data: { tripId: e.tripId ?? '' } }];
+    }
+    case 'dispatch.booked_cancelled':
+      return driverId ? [{ ...base, template: 'partner_booked_cancelled', to: driverId, params: { when }, data: { tripId: e.tripId ?? '' } }] : [];
+    default:
+      return [];
+  }
 }
 
 async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {

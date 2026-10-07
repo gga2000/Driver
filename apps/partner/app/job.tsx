@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LANDMARK_RULES } from '@driver/map';
@@ -48,6 +48,7 @@ import { ZoneCheckCard } from '@/features/work/ZoneCheckCard';
 import { useJobQueue } from '@/features/work/useJobQueue';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
+import { playDoneTink } from '@/lib/alert';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
 
@@ -412,6 +413,18 @@ function JobView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moment]);
   useEffect(() => () => stopSpeaking(), []);
+  // j6: the kitchen pressed «صار جاهز» (order.ready) while he is on his way or waiting: a bell and the words.
+  const prepState = job.merchant?.state ?? null;
+  const lastPrep = useRef(prepState);
+  useEffect(() => {
+    const was = lastPrep.current;
+    lastPrep.current = prepState;
+    if (prepState !== 'ready' || !was || was === 'ready' || was === 'picked_up' || stop?.type !== 'pickup' || ride) return;
+    theme.haptic('success');
+    playDoneTink();
+    speakOffer(t('partner.ready_bar_ready'), locale);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepState]);
 
   const problems: ProblemItem[] = [
     ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),

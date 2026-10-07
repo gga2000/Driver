@@ -49,7 +49,7 @@ import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
-import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The signed-in person behind a catalog read, if any. */
 function readerPerson(reader: Actor | CatalogReader): string | null {
@@ -337,6 +337,7 @@ export class CatalogRpc implements CustomerCatalogPort {
             priceIqd: view.priceIqd,
             photoUrl: view.photoUrl,
             available: view.available,
+            quickAdd: oneTap(view),
             restaurantId: card.id,
             restaurantName: card.name,
             restaurantOpen: card.open,
@@ -407,6 +408,7 @@ export class CatalogRpc implements CustomerCatalogPort {
             priceIqd: view.priceIqd,
             photoUrl: view.photoUrl,
             available: true,
+            quickAdd: oneTap(view),
             restaurantId: card.id,
             restaurantName: card.name,
             restaurantOpen: true,

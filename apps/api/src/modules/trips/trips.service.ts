@@ -16,6 +16,7 @@ import {
   type TripState,
   type VehicleClass,
   type Vertical,
+  jobOrder,
 } from '@driver/contracts';
 import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
@@ -265,13 +266,14 @@ export class TripsService implements OnModuleInit {
       if (trip.state !== 'offered') throw new DriverError('trip_state_conflict');
       // Review H: one driver, one job. Only dispatch may hand a busy driver a second trip, after its
       // own batching check (`fitsCurrentJobs` / dispatcher override); a direct accept never can.
-      if (!opts.assignedByDispatch) {
-        const holding = (await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx)).filter((t) => t.id !== tripId);
-        if (holding.length > 0) throw new DriverError('offer_conflicts_current_job');
-      }
+      const holding = (await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx)).filter((t) => t.id !== tripId);
+      if (!opts.assignedByDispatch && holding.length > 0) throw new DriverError('offer_conflicts_current_job');
       const links = (await this.repo.linksOf(tripId, tx)).filter((l) => l.detachedAt === null);
       if (!vehicleFits(input.vehicleClass, largestVehicleClass(links.map((l) => l.minVehicleClass)))) throw new DriverError('vehicle_too_small');
-      const now = this.clock.now();
+      // `jobOrder`: a batched job is taken after the ones he holds, even within the same millisecond, so
+      // the order he works them in is the order dispatch's batching check planned.
+      const latest = Math.max(0, ...holding.map((t) => t.acceptedAt?.getTime() ?? 0));
+      const now = new Date(Math.max(this.clock.now().getTime(), latest + 1));
       const accepted = await this.move(
         trip,
         'accepted',
@@ -839,9 +841,10 @@ export class TripsService implements OnModuleInit {
   }
 
   /** A driver's unfinished trips. */
+  /** His unfinished trips in the order he works them (`jobOrder`: the order he took them). */
   async forDriver(driverId: string): Promise<Trip[]> {
     const trips = await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES });
-    return Promise.all(trips.map((t) => this.view(t.id)));
+    return jobOrder(await Promise.all(trips.map((t) => this.view(t.id))));
   }
 
   /** The driver's trips completed at or after `since` (khat: a finished run still waiting for its sweep). */

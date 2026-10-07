@@ -7,6 +7,7 @@
 //   apps/partner/assets/sounds/offer-loop.wav         1.6 s seamless loop: doorbell fifth + a short rest
 //   apps/customer/assets/sounds/{accepted,picked_up,near,delivered}.wav (underscores: Android res/raw names)
 //                                                     the tracking screen's soft cues (maps program SP5b)
+//   apps/customer/assets/sounds/placed.wav            a spoon on an istikan, twice: the order is in
 //
 // The existing `offer.wav` (push notification channel sound) is left alone.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -26,6 +27,36 @@ function note(buf, { freq, at, dur, gain = 1, attack = 0.006, decay = 6 }) {
     const w = 2 * Math.PI * freq * t;
     const s = Math.sin(w) + 0.35 * Math.sin(3 * w) + 0.15 * Math.sin(5 * w) + 0.2 * Math.sin(2 * w);
     buf[start + i] += gain * env * s;
+  }
+}
+
+/**
+ * A struck glass: a short, bright strike whose partials are not whole multiples of the first (glass
+ * rings inharmonic, unlike `note`), each dying away at its own pace, over a tiny click of metal.
+ */
+function glass(buf, { freq, at, gain = 1, decay = 9 }) {
+  const start = Math.round(at * RATE);
+  // [ratio to the first partial, level, how much faster than the first it dies]
+  const partials = [
+    [1, 1, 1],
+    [1.004, 0.5, 1.1], // the glass is never quite round: a slow shimmer against the first
+    [2.32, 0.32, 1.8],
+    [3.86, 0.12, 2.6],
+  ];
+  const len = Math.min(buf.length - start, Math.round((6 / decay) * RATE));
+  let seed = 7; // seeded noise, so a re-run writes the same file
+  const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 1073741824) - 1;
+  for (let i = 0; i < len; i++) {
+    const t = i / RATE;
+    const attack = Math.min(1, t / 0.0015);
+    let s = 0;
+    for (const [ratio, level, faster] of partials) {
+      const f = freq * ratio;
+      if (f < RATE / 2) s += level * Math.exp(-decay * faster * t) * Math.sin(2 * Math.PI * f * t);
+    }
+    // The spoon's click: a few milliseconds of noise, gone before the ring takes over.
+    const click = t < 0.004 ? noise() * 0.25 * (1 - t / 0.004) : 0;
+    buf[start + i] += gain * attack * (s + click);
   }
 }
 
@@ -133,4 +164,10 @@ function save(rel, samples) {
   note(delivered, { freq: 784, at: 0.2, dur: 0.35, decay: 5 });
   note(delivered, { freq: 1047, at: 0.3, dur: 0.38, decay: 5 });
   save('apps/customer/assets/sounds/delivered.wav', finish(delivered, 0.6));
+  // The order is in: a spoon tapped twice on an istikan of tea (Ali's Yes, home effects "tink",
+  // 2026-10-07). Bright and short, the second tap a little softer; quieter than every other cue.
+  const placed = soft(0.62);
+  glass(placed, { freq: 2490, at: 0, decay: 8 });
+  glass(placed, { freq: 2490, at: 0.15, gain: 0.72, decay: 8 });
+  save('apps/customer/assets/sounds/placed.wav', finish(placed, 0.5));
 }
