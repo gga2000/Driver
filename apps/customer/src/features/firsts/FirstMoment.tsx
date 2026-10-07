@@ -42,7 +42,8 @@ function useFirstOnce(kind: FirstKind | null): boolean | null {
   return decided && decided.kind === kind ? decided.plays : null;
 }
 
-const LINE: Record<FirstKind, 'firsts.food' | 'firsts.tuktuk' | 'firsts.rajaa'> = { food: 'firsts.food', tuktuk: 'firsts.tuktuk', rajaa: 'firsts.rajaa' };
+// A الرجعة seat may be the way out too, so its line says «سفرة», not «الرجعة» (rajaa.first_seat).
+const LINE: Record<FirstKind, 'firsts.food' | 'firsts.tuktuk' | 'rajaa.first_seat'> = { food: 'firsts.food', tuktuk: 'firsts.tuktuk', rajaa: 'rajaa.first_seat' };
 const GLYPH = { food: 'food', tuktuk: 'tuktuk-fringe', rajaa: 'rajaa' } as const;
 
 /**

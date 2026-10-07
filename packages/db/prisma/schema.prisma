@@ -1819,6 +1819,15 @@ model SeatBooking {
   movedToBookingId   String?          @map("moved_to_booking_id")
   /// Joy r2: the rider's rating after the trip {stars, tags, at}; null = not rated.
   rating             Json?
+  /// x14 «كلمة عن السفرة»: the rider's one line with the rating, public on the driver's profile (no
+  /// name) unless ops hid it. Hiding keeps the text; the hide is logged as an event.
+  reviewText         String?          @map("review_text")
+  reviewAt           DateTime?        @map("review_at")
+  reviewHiddenAt     DateTime?        @map("review_hidden_at")
+  /// Staff person id who hid it.
+  reviewHiddenBy     String?          @map("review_hidden_by")
+  /// rude | personal_info | not_about_trip | untrue
+  reviewHiddenReason String?          @map("review_hidden_reason")
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -1826,6 +1835,7 @@ model SeatBooking {
 
   @@index([departureId, state])
   @@index([riderId, state])
+  @@index([reviewAt])
   @@map("seat_bookings")
   @@schema("public")
 }
@@ -1902,6 +1912,10 @@ model RideRequest {
   privateCar       Boolean          @default(true) @map("private_car")
   travellingAs     TravellingAs     @map("travelling_as")
   note             String?
+  /// y1: {trip, waitHours, returnAt, bigBags, carKind, ac} (RequestDetails)
+  details          Json             @default("{}")
+  /// y4: drivers who opened the request (ids only; the rider sees the count)
+  seenDriverIds    String[]         @default([]) @map("seen_driver_ids")
   state            RideRequestState @default(open)
   /// rider | stranded (opened by the platform at the seat price, review C-40/46)
   origin           String           @default("rider")

@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { OrderHistoryRow } from '@driver/contracts';
 import { formatWhen } from '@driver/i18n';
-import { Button, Icon, ModalSheet, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Button, ModalSheet, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { useBookedRoute } from '@/features/ride-habits/queries';
 import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { orderTitle } from './OrderRow';
+import { OrderArt, orderTitle } from './OrderRow';
 
 /**
  * A ride booked «بعدين» in طلباتي (step 4, c10), with the coming trips: when (big), from where to
@@ -59,9 +59,8 @@ export function BookedRideRow({ row, now, divider }: { row: OrderHistoryRow; now
         onPress={() => router.push({ pathname: '/ride/booked/[id]', params: { id: o.id } })}
         style={({ pressed }) => ({ flexDirection: 'row', gap: theme.space[3], padding: theme.space[4], paddingBottom: theme.space[2], backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent' })}
       >
-        <View style={{ width: 48, height: 48, borderRadius: theme.radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface }}>
-          <Icon name={memo?.vertical === 'tuktuk' ? 'tuktuk' : 'car'} size={26} color="text" strokeWidth={1.8} />
-        </View>
+        {/* o8: the service's tile colour, as in the rows below (a ride booked for later may have no trip yet: the device memo says which). */}
+        <OrderArt row={row.rideVertical ? row : { ...row, rideVertical: memo?.vertical === 'tuktuk' ? 'tuktuk' : 'taxi' }} />
         <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="title" tabular numberOfLines={1} style={{ flex: 1 }} testID={`booked-when-${o.id}`}>

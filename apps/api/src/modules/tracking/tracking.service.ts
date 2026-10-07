@@ -584,9 +584,17 @@ export class TrackingService implements TrackingPort {
         .filter((i) => i.name !== '');
       const trip = o.type === 'ride' || o.type === 'errand' || o.type === 'parcel';
       const dropoffZoneKey = trip ? ((await this.orders.aggregate(o.id)).order.dropoff?.zoneKey ?? null) : null;
-      rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey });
+      const rideVertical = o.type === 'ride' ? await this.rideVertical(o.id) : null;
+      rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey, rideVertical });
     }
     return rows;
+  }
+
+  /** A ride's vehicle (o8), from the first trip made for it — cancelled searches too; null when it never had one. */
+  private async rideVertical(orderId: string): Promise<'taxi' | 'tuktuk' | null> {
+    const first = (await this.trips.orderHistory(orderId))[0];
+    const vertical = first ? (await this.trips.get(first.tripId)).vertical : null;
+    return vertical === 'taxi' || vertical === 'tuktuk' ? vertical : null;
   }
 
   /**

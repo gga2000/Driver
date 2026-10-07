@@ -21,6 +21,8 @@ import {
   type IntercityBoard,
   type IntercityNetwork,
   type RajaaDriverCard,
+  type RajaaDriverProfile,
+  type ReviewOpsView,
   type RequestOfferDriver,
   type RequestPostView,
   type RoutesPort,
@@ -32,7 +34,8 @@ import { directionFrom } from './intercity.config.js';
 import { riderMeterMinutes } from './late-meter.js';
 import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 import { RequestBoardService } from './request-board.service.js';
-import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
+import { ROUTES_REPOSITORY, type DriverRecord, type RoutesRepository } from './routes.repository.js';
+import { driverStats, firstTripAt, publicReviews, qualityBars } from './reputation.js';
 import { MIN_MS } from './support.js';
 import { ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_RIDER_NAMES, type RiderNamesReader, type RoutesCallPort, type RoutesControlsPort, ROUTES_POINTS, type RoutesPointsReader } from './tokens.js';
 import { HOME_CITY } from './intercity.config.js';
@@ -198,7 +201,7 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async rateBooking(actor: Actor, input: In<'rateBooking'>): Promise<BookingView> {
-    return this.view(await this.departures.rate(actor.personId, input.bookingId, { stars: input.stars, tags: input.tags }), true);
+    return this.view(await this.departures.rate(actor.personId, input.bookingId, { stars: input.stars, tags: input.tags, comment: input.comment }), true);
   }
 
   async boardingPass(actor: Actor, input: In<'boardingPass'>): Promise<BoardingPass> {
@@ -291,7 +294,8 @@ export class RoutesRpc implements RoutesPort {
   /**
    * The offering drivers' cards for the rider (R-01): first names in one vault read (purpose
    * `intercity_driver_card`, the rider as accessor), and from each driver's latest departure his car
-   * and whether he did a selfie check-in today. Never a phone or a full name.
+   * and whether he did a selfie check-in today, his record (y5: rating, trips, on-time share, badges)
+   * and how many private trips he completed. Never a phone or a full name.
    */
   private async offerDrivers(records: readonly RequestRecord[], riderId: string): Promise<Map<string, RequestOfferDriver>> {
     const ids = [...new Set(records.flatMap((r) => r.offers.map((o) => o.driverId)))];
@@ -300,9 +304,11 @@ export class RoutesRpc implements RoutesPort {
     const now = this.departures.now();
     const names = this.names ? await this.names.firstNamesFor(ids, riderId, 'intercity_driver_card') : {};
     const photos = this.names?.driverPhotoUrls ? await this.names.driverPhotoUrls(ids, riderId, 'intercity_driver_card') : {};
+    const [privateTrips, viewerTrips] = await Promise.all([this.repo.privateTripCounts(ids), this.repo.bookingsOfRider(riderId, ['completed'])]);
     for (const id of ids) {
       const deps = await this.repo.listDepartures({ driverId: id });
       const latest = deps.reduce<DepartureRecord | null>((a, d) => (!a || d.announcedAt > a.announcedAt ? d : a), null);
+      const rep = await this.driverReputation(id, viewerTrips);
       const checkIn = deps.map((d) => d.selfieAt).filter((at): at is Date => at !== null && sameBaghdadDay(at, now));
       out.set(id, {
         firstName: names[id] ?? null,
@@ -310,6 +316,9 @@ export class RoutesRpc implements RoutesPort {
         // His approved main photo (Ali, 2026-10-06); none yet → the app draws the initial.
         photoUrl: photos[id] ?? null,
         vehicle: latest ? { ...latest.vehicle, layout: latest.layout } : null,
+        // y5: his record on the seats board (same numbers as his departure card), once he has run one.
+        stats: latest ? driverStats({ runs: rep.record.runs, rated: rep.record.rated, onTime: (run) => this.departures.runOnTime(run), viewerRides: rep.viewerRides, vehicle: latest.vehicle }) : null,
+        privateTrips: privateTrips[id] ?? 0,
       });
     }
     return out;
@@ -439,39 +448,108 @@ export class RoutesRpc implements RoutesPort {
   }
 
   /**
-   * Riders (audit C-19): who drives each departure — first name (vault read, purpose
-   * `intercity_driver_card`, the rider as accessor), today's selfie check-in for this run, and his
-   * approved main photo (Ali, 2026-10-06). Only departures still on the board, or ones the rider holds
-   * a seat on, are answered; any other id is left out (no error, nothing about it leaks).
+   * The departures a rider may ask about: still on the board, or one he holds (or held) a seat on.
+   * Any other id is left out — no error, so nothing about it leaks.
    */
-  async driverCards(actor: Actor, input: In<'driverCards'>): Promise<RajaaDriverCard[]> {
-    const now = this.departures.now();
+  private async visibleDepartures(riderId: string, ids: readonly string[]): Promise<DepartureRecord[]> {
     const visible: DepartureRecord[] = [];
-    for (const id of [...new Set(input.departureIds)]) {
+    for (const id of new Set(ids)) {
       const dep = await this.repo.getDeparture(id);
       if (!dep) continue;
       const onBoard = OPEN_DEPARTURE.includes(dep.state);
-      const mine = !onBoard && (await this.repo.bookingsFor(dep.id)).some((b) => b.riderId === actor.personId && (LIVE.includes(b.state) || b.state === 'completed'));
+      const mine = !onBoard && (await this.repo.bookingsFor(dep.id)).some((b) => b.riderId === riderId && (LIVE.includes(b.state) || b.state === 'completed'));
       if (onBoard || mine) visible.push(dep);
     }
-    if (visible.length === 0) return [];
+    return visible;
+  }
+
+  /** A driver's record (x12, x16) and how many of the viewer's finished trips were with him (x17). */
+  private async driverReputation(driverId: string, viewerTrips: readonly BookingRecord[]): Promise<{ record: DriverRecord; viewerRides: number }> {
+    const record = await this.repo.driverRecord(driverId);
+    const runIds = new Set(record.runs.map((d) => d.id));
+    const viewerRides = new Set(viewerTrips.filter((b) => runIds.has(b.departureId)).map((b) => b.departureId)).size;
+    return { record, viewerRides };
+  }
+
+  /**
+   * Riders (audit C-19): who drives each departure — first name (vault read, purpose
+   * `intercity_driver_card`, the rider as accessor), today's selfie check-in for this run, his approved
+   * main photo (Ali, 2026-10-06), and his record (x16: rating, trips, on-time share, the two things
+   * riders say most, badges; x17: trips the rider took with him).
+   */
+  async driverCards(actor: Actor, input: In<'driverCards'>): Promise<RajaaDriverCard[]> {
+    const visible = await this.visibleDepartures(actor.personId, input.departureIds);
+    return (await this.cardsWithRecords(actor.personId, visible)).cards;
+  }
+
+  /** Cards for visible departures, with each driver's record (read once per driver). */
+  private async cardsWithRecords(viewerId: string, visible: readonly DepartureRecord[]): Promise<{ cards: RajaaDriverCard[]; records: Map<string, DriverRecord> }> {
+    if (visible.length === 0) return { cards: [], records: new Map() };
     const driverIds = [...new Set(visible.map((d) => d.driverId))];
-    const names = this.names ? await this.names.firstNamesFor(driverIds, actor.personId, 'intercity_driver_card') : {};
-    const photos = this.names?.driverPhotoUrls ? await this.names.driverPhotoUrls(driverIds, actor.personId, 'intercity_driver_card') : {};
-    return visible.map((d) => ({
+    const [names, photos, viewerTrips] = await Promise.all([
+      this.names ? this.names.firstNamesFor(driverIds, viewerId, 'intercity_driver_card') : Promise.resolve({} as Record<string, string | null>),
+      this.names?.driverPhotoUrls ? this.names.driverPhotoUrls(driverIds, viewerId, 'intercity_driver_card') : Promise.resolve({} as Record<string, string | null>),
+      this.repo.bookingsOfRider(viewerId, ['completed']),
+    ]);
+    const reps = new Map(await Promise.all(driverIds.map(async (id) => [id, await this.driverReputation(id, viewerTrips)] as const)));
+    return {
+      cards: visible.map((d) => this.card(d, names, photos, reps.get(d.driverId)!)),
+      records: new Map([...reps].map(([id, r]) => [id, r.record])),
+    };
+  }
+
+  private card(
+    d: DepartureRecord,
+    names: Record<string, string | null>,
+    photos: Record<string, string | null>,
+    rep: { record: DriverRecord; viewerRides: number },
+  ): RajaaDriverCard {
+    return {
       departureId: d.id,
       driverId: d.driverId,
       firstName: names[d.driverId] ?? null,
-      verifiedTodayAt: d.selfieAt && sameBaghdadDay(d.selfieAt, now) ? d.selfieAt : null,
+      verifiedTodayAt: d.selfieAt && sameBaghdadDay(d.selfieAt, this.departures.now()) ? d.selfieAt : null,
       // His approved main photo (Ali, 2026-10-06); none yet → the app draws the initial.
       photoUrl: photos[d.driverId] ?? null,
-    }));
+      stats: driverStats({
+        runs: rep.record.runs,
+        rated: rep.record.rated,
+        onTime: (run) => this.departures.runOnTime(run),
+        viewerRides: rep.viewerRides,
+        vehicle: d.vehicle,
+      }),
+    };
+  }
+
+  /**
+   * «ملفه» (x12–x17): the full profile of a departure's driver — his card and record, this run's car,
+   * when he started, a bar per quality and the newest shown reviews (no names, month only). Same
+   * visibility as `driverCards`; anything else is `departure_not_found`.
+   */
+  async driverProfile(actor: Actor, input: In<'driverProfile'>): Promise<RajaaDriverProfile> {
+    const [dep] = await this.visibleDepartures(actor.personId, [input.departureId]);
+    if (!dep) throw new DriverError('departure_not_found');
+    const { cards, records } = await this.cardsWithRecords(actor.personId, [dep]);
+    const record = records.get(dep.driverId)!;
+    const { reviews, count } = publicReviews(record.rated);
+    return {
+      card: cards[0]!,
+      vehicle: { ...dep.vehicle, layout: dep.layout },
+      firstTripAt: firstTripAt(record.runs),
+      qualities: qualityBars(record.rated),
+      reviews,
+      reviewCount: count,
+    };
   }
 
   async openRequests(actor: Actor, input: In<'openRequests'>): Promise<RequestPostView[]> {
     return (await this.requests.listOpen(actor.personId, input?.cityId)).map((r) =>
       requestView(r, actor.personId),
     );
+  }
+
+  async requestSeen(actor: Actor, input: In<'requestSeen'>): Promise<RequestPostView> {
+    return requestView(await this.requests.seen(actor.personId, input.postId), actor.personId);
   }
 
   async offerOnRequest(actor: Actor, input: In<'offerOnRequest'>): Promise<RequestPostView> {
@@ -637,6 +715,52 @@ export class RoutesRpc implements RoutesPort {
     const session = await this.calls.open({ callId, orderId: alert.departureId, callerId: actor.personId, calleeId: alert.driverId }, this.departures.now());
     await this.departures.logPinAlertCall(actor.personId, alert, callId, session.mode);
     return { mode: session.mode, dial: session.dial, expiresAt: session.expiresAt };
+  }
+
+  /**
+   * Console «كلام الركاب» (x14): written reviews, newest first, each with the driver's first name (one
+   * logged vault read, purpose `review_moderation`) and the rider's id — never his name or number.
+   */
+  async reviews(actor: Actor, input: In<'reviews'>): Promise<ReviewOpsView[]> {
+    const rows = await this.repo.reviews({ limit: input.limit, ...(input.hidden === undefined ? {} : { hidden: input.hidden }), ...(input.cursor ? { before: input.cursor } : {}) });
+    return this.reviewViews(actor, rows);
+  }
+
+  async hideReview(actor: Actor, input: In<'hideReview'>): Promise<ReviewOpsView> {
+    const [view] = await this.reviewViews(actor, [await this.departures.hideReview(actor.personId, input.bookingId, input.reason)]);
+    return view!;
+  }
+
+  async unhideReview(actor: Actor, input: In<'unhideReview'>): Promise<ReviewOpsView> {
+    const [view] = await this.reviewViews(actor, [await this.departures.unhideReview(actor.personId, input.bookingId)]);
+    return view!;
+  }
+
+  private async reviewViews(actor: Actor, rows: readonly BookingRecord[]): Promise<ReviewOpsView[]> {
+    const deps = new Map<string, DepartureRecord>();
+    for (const b of rows) if (!deps.has(b.departureId)) deps.set(b.departureId, await this.departures.departure(b.departureId));
+    const driverIds = [...new Set([...deps.values()].map((d) => d.driverId))];
+    const names = this.names && driverIds.length ? await this.names.firstNamesFor(driverIds, actor.personId, 'review_moderation') : {};
+    return rows.map((b) => {
+      const dep = deps.get(b.departureId)!;
+      const review = b.review!;
+      return {
+        bookingId: b.id,
+        departureId: dep.id,
+        driverId: dep.driverId,
+        driverFirstName: names[dep.driverId] ?? null,
+        riderId: b.riderId,
+        stars: b.rating?.stars ?? 0,
+        tags: b.rating?.tags ?? [],
+        text: review.text,
+        at: review.at,
+        corridorId: dep.corridorId,
+        direction: dep.direction,
+        hiddenAt: review.hiddenAt,
+        hiddenBy: review.hiddenBy,
+        hiddenReason: review.hiddenReason,
+      };
+    });
   }
 
   // ───────────────────────── helpers ─────────────────────────

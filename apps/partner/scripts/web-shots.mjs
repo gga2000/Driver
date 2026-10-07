@@ -112,7 +112,7 @@ async function openPage(group, { prePrompt = false } = {}) {
       if (full) {
         const h = await page.evaluate(() => {
           let max = document.documentElement.scrollHeight;
-          for (const el of document.querySelectorAll('div')) {
+          for (const el of document.querySelectorAll('*')) {
             const s = getComputedStyle(el);
             if (s.overflowY === 'auto' || s.overflowY === 'scroll') max = Math.max(max, el.scrollHeight + 160);
           }

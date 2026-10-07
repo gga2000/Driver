@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type LandmarkView, type Quote, type QuoteComponent } from '@driver/contracts';
 import {
   addNoteChip,
+  paidWaitPerIqd,
   surchargeEndsInMin,
   memberSpan,
   rideNearDue,
@@ -395,5 +396,17 @@ describe('step 2 (ride ideas w2, w7, a4, m2, m4, p4)', () => {
     // A window over midnight (night 23–5): 04:50 is 10 minutes from its end.
     expect(surchargeEndsInMin([23, 5], at(4, 50))).toBe(10);
     expect(surchargeEndsInMin(null, at(4, 50))).toBeNull();
+  });
+});
+
+describe('paidWaitPerIqd (no paid wait promised until it is charged)', () => {
+  const city = { verticals: [{ vertical: 'taxi', components: [{ key: 'wait', perUnit: 250 }] }] } as unknown as Parameters<typeof paidWaitPerIqd>[0];
+  it('null while waiting is not charged, whatever the city rule says', () => {
+    expect(paidWaitPerIqd(city, 'taxi')).toBeNull();
+  });
+  it('the city rule once it is charged; null without a rule', () => {
+    expect(paidWaitPerIqd(city, 'taxi', true)).toBe(250);
+    expect(paidWaitPerIqd(city, 'tuktuk', true)).toBeNull();
+    expect(paidWaitPerIqd(undefined, 'taxi', true)).toBeNull();
   });
 });

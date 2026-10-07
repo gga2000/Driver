@@ -1,14 +1,14 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
-import type { DemandPickup, IntercityDirection, TravellingAs } from '@driver/contracts';
+import type { DemandPickup, IntercityDirection } from '@driver/contracts';
 import { formatHourRange, type MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
+import { routeLabel, seatsCount, wayKey, seatsList, windowLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
-import { clockLabel, demandWindows, endpoints, holdCountdown, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
+import { clockLabel, demandWindows, endpoints, holdCountdown, PRIMARY_CORRIDOR, RAJAA_RULES, RIDER_TRAVELLING_AS, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
 import { garageName, useBoard, useCancelDemand, useDriverCards, useMyBookings, useMyDemand, useNetwork, usePostDemand } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
@@ -47,7 +47,8 @@ export default function DemandScreen() {
 
   const [windowId, setWindowId] = useState<WindowId>('hour');
   const [seats, setSeats] = useState(1);
-  const [travellingAs, setTravellingAs] = useState<TravellingAs | null>(null);
+  // Ali dropped «منو مسافر؟» (2026-10-07); see RIDER_TRAVELLING_AS.
+  const travellingAs = RIDER_TRAVELLING_AS;
   const [garageId, setGarageId] = useState<string>('any');
 
   // Latest post on this corridor and direction that still matters (open, or claimed with a live hold).
@@ -60,11 +61,12 @@ export default function DemandScreen() {
   // R-02: who drives the car that claimed the seat (first name, today's check-in, the plate).
   const cards = useDriverCards(claimed?.b ? [claimed.b.departure.id] : []);
   // Opened from a push there is nothing to go back to: back goes to الرجعة (C-26).
-  const back = <Stack.Screen options={{ headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />;
+  const back = <Stack.Screen options={{ title: t(wayKey('demand.post_title', direction)), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />;
 
   if (mine.isPending || network.isPending) {
     return (
       <Screen edges={['bottom']}>
+        {back}
         <Skeleton height={160} radius={20} />
         <Skeleton height={220} radius={20} />
       </Screen>
@@ -157,6 +159,7 @@ export default function DemandScreen() {
           />
         }
       >
+        {back}
         <View style={{ alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[4] }}>
           <View style={{ width: 112, height: 112, borderRadius: 56, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
             {others > 0 ? (
@@ -181,7 +184,7 @@ export default function DemandScreen() {
             </Text>
             <Text variant="title">{windowLabel(t, open.windowStart, open.windowEnd, locale)}</Text>
             <Text variant="footnote" color="textMuted">
-              {seatsCount(t, open.seats)} · {travellingAsLabel(t, open.travellingAs)} · {open.garageId ? garageName(network.data, open.garageId) : t('rajaa.any_garage')}
+              {seatsCount(t, open.seats)} · {open.garageId ? garageName(network.data, open.garageId) : t('rajaa.any_garage')}
             </Text>
           </View>
         </Card>
@@ -214,16 +217,17 @@ export default function DemandScreen() {
         <Button testID="rajaa-demand-submit" size="lg" fullWidth icon="bell" label={t('rajaa.demand_submit')} disabled={!chosen || !travellingAs} loading={post.isPending} onPress={submit} />
       }
     >
+      {back}
       <View style={{ gap: theme.space[2] }}>
         <Text variant="caption" color="textMuted">
           {corridor ? routeLabel(t, corridor.cityId, direction) : ''}
         </Text>
         <Text variant="body" color="textMuted">
-          {t('rajaa.demand_intro')}
+          {t(wayKey('rajaa.demand_intro', direction))}
         </Text>
       </View>
 
-      <Section title={t('rajaa.window_q')}>
+      <Section title={t(wayKey('rajaa.window_q', direction))}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {windows.map((w) => (
             <Chip
@@ -251,15 +255,6 @@ export default function DemandScreen() {
             {seatsCount(t, seats)}
           </Text>
         </View>
-      </Section>
-
-      <Section title={t('intercity.travelling_as')} hint={t('rajaa.travelling_as_hint')}>
-        <ChipGroup
-          required
-          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
-          value={travellingAs ? [travellingAs] : []}
-          onChange={(next) => setTravellingAs((next[0] as TravellingAs | undefined) ?? null)}
-        />
       </Section>
 
       <Section title={t('rajaa.pickup_title')}>
