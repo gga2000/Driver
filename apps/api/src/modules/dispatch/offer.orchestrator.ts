@@ -549,7 +549,7 @@ export class OfferOrchestrator {
       let batchWith: string[] = [];
       let departAt: number | null = null;
       if (c.jobs.length > 0) {
-        const current = await this.batchOrders(c.jobs);
+        const current = await this.batchOrders(c.jobs, c.ranked.driverId);
         if (!current) continue;
         const verdict = canBatch(
           current,
@@ -573,10 +573,16 @@ export class OfferOrchestrator {
     await this.schedule('assign_timeout', r, expiresAt, pass);
   }
 
-  /** The courier's current orders as batching sees them; null when one of them is not batchable (e.g. a ride). */
-  private async batchOrders(tripIds: string[]): Promise<BatchOrder[] | null> {
+  /**
+   * The courier's current orders as batching sees them, in the order he works them (trips' `jobOrder`,
+   * the order he took them — the route the partner app and the simulator follow); null when one of them
+   * is not batchable (e.g. a ride).
+   */
+  private async batchOrders(tripIds: string[], driverId: string): Promise<BatchOrder[] | null> {
+    const order = (await this.trips.jobOrder?.(driverId)) ?? [];
+    const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
     const out: BatchOrder[] = [];
-    for (const id of tripIds) {
+    for (const id of [...tripIds].sort((a, b) => rank(a) - rank(b))) {
       const job = await this.store.getRequest(id);
       if (!job || job.policy !== 'auto_assign' || job.readyAt === null) return null;
       out.push({ tripId: id, pickup: job.pickup, dropoffZoneId: job.dropoffZoneId ?? job.zoneId, readyAt: new Date(job.readyAt), hot: job.hot, pickedUp: job.pickedUp });
@@ -1078,7 +1084,7 @@ export class OfferOrchestrator {
     const cfg = this.baseConfig(r.cityId, r.vertical);
     const p = await this.presence.get(driverId);
     if (jobs.length >= batchLimit(p?.vehicle ?? 'bike', cfg.maxBatch)) return false;
-    const current = await this.batchOrders(jobs);
+    const current = await this.batchOrders(jobs, driverId);
     if (!current) return false;
     const verdict = canBatch(
       current,
