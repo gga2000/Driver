@@ -21,7 +21,7 @@
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
 //                                                                         POST /demo/ops-agent
-//   chat-*   order screen chat/call/share, courier + kitchen threads, quick reply, masked call,
+//   chat-*   order screen chat/call/share, courier + kitchen + support threads, quick reply, masked call,
 //            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
 //   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door), edge zone, pin,
 //            searching, cancel preview, matched, at pickup, on the trip, arrival, rating
@@ -760,6 +760,13 @@ async function trackShots(personId) {
   await byTestId('arrival-rate').click();
   await byTestId('stars-delivery').waitFor();
   await shot('track-rating');
+  // Rate the courier: a low score asks what went wrong (optional chips).
+  await byTestId('stars-delivery-2').click();
+  await byTestId('courier-reasons').waitFor();
+  await byTestId('chip-late').click();
+  await settle(400);
+  await shot('track-rating-courier-low');
+  // A good score moves straight on to the food (the kind words come after, as compliments).
   await byTestId('stars-delivery-5').click();
   await byTestId('stars-food').waitFor();
   await settle(400);
@@ -1019,6 +1026,23 @@ async function chatShots(personId) {
   await page.goto(`${origin}/chat/${m.orderId}?kind=customer_merchant`, LOADED);
   await byTestId('chat-msg-4').waitFor({ timeout: 15_000 });
   await shot('chat-merchant-thread');
+
+  // «احجي ويا الدعم»: the row on the order screen (unread from the desk), then the support chat.
+  const sup = await seed('support');
+  await page.goto(`${origin}/order/${sup.orderId}?sheet=2`, LOADED);
+  await byTestId('action-chat-support').waitFor({ timeout: 20_000 });
+  await byTestId('action-chat-support').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(1500);
+  await shot('chat-support-row');
+  await byTestId('action-chat-support').click();
+  await byTestId('chat-screen').waitFor({ timeout: 15_000 });
+  await byTestId('chat-msg-3').waitFor({ timeout: 15_000 });
+  await shot('chat-support-thread');
+  // A fresh order: the empty support chat with its quick replies.
+  const fresh = await seed('support_empty');
+  await page.goto(`${origin}/chat/${fresh.orderId}?kind=customer_support`, LOADED);
+  await byTestId('chat-support-empty').waitFor({ timeout: 15_000 });
+  await shot('chat-support-empty');
 
   // Delivered, then 31 minutes later: read-only.
   await demoPost(`/demo/track/advance?orderId=${c.orderId}`);

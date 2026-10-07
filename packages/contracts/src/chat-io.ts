@@ -10,7 +10,10 @@ import type { Actor } from './identity-io.js';
  *
  *  - `customer_courier`  — the customer and the courier / driver carrying the order or ride;
  *  - `merchant_courier`  — the kitchen and the courier picking the order up;
- *  - `customer_merchant` — the customer and the kitchen, for questions about the order.
+ *  - `customer_merchant` — the customer and the kitchen, for questions about the order;
+ *  - `customer_support`  — the customer and our support desk about this order («كلّم الدعم»). Open
+ *    from placement until `CHAT_SUPPORT_CLOSE_AFTER_H` after the order is done; the desk answers it
+ *    from the Console case (it opens a support ticket by itself, docs/api/support-chat.md).
  *
  * Support (support, dispatcher, admin) may read and join any thread. A thread opens at accept (the
  * courier's accept for the courier threads, the kitchen's for `customer_merchant`) and closes 30
@@ -19,7 +22,7 @@ import type { Actor } from './identity-io.js';
  * server before the message is stored.
  */
 
-export const ChatThreadKind = z.enum(['customer_courier', 'merchant_courier', 'customer_merchant']);
+export const ChatThreadKind = z.enum(['customer_courier', 'merchant_courier', 'customer_merchant', 'customer_support']);
 export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 
 /** Who wrote a message (or who a participant is) inside a thread. */
@@ -38,11 +41,16 @@ export const CHAT_THREAD_PARTIES: Readonly<Record<ChatThreadKind, readonly [Chat
   customer_courier: ['customer', 'courier'],
   merchant_courier: ['merchant', 'courier'],
   customer_merchant: ['customer', 'merchant'],
+  customer_support: ['customer', 'support'],
 };
 
 export const CHAT_TEXT_MAX = 500;
 /** A thread stays readable — and writable — this long after the order or ride is done. */
 export const CHAT_CLOSE_AFTER_MIN = 30;
+/** The support chat stays writable this long after the order is done (the same-day answer rule needs room). */
+export const CHAT_SUPPORT_CLOSE_AFTER_H = 24;
+/** A customer opens at most this many new support chats (one per order) per 24 h; messages keep the normal send limit. */
+export const CHAT_SUPPORT_OPENS_PER_DAY = 5;
 /** Old poll interval of the open thread; the apps now get messages over `live.chat` (kept for older clients). */
 export const CHAT_POLL_MS = 3000;
 
@@ -75,6 +83,11 @@ export const QUICK_REPLIES = {
   customer_ring_bell: { role: 'customer', kinds: ['customer_courier'], ride: 'never' },
   customer_wait_minute: { role: 'customer', kinds: ['customer_courier'] },
   customer_how_long: { role: 'customer', kinds: ['customer_merchant'] },
+  customer_support_late: { role: 'customer', kinds: ['customer_support'] },
+  customer_support_wrong: { role: 'customer', kinds: ['customer_support'], ride: 'never' },
+  customer_support_courier: { role: 'customer', kinds: ['customer_support'], ride: 'never' },
+  customer_support_driver: { role: 'customer', kinds: ['customer_support'], ride: 'only' },
+  customer_support_money: { role: 'customer', kinds: ['customer_support'] },
   customer_have_note: { role: 'customer', kinds: ['customer_merchant'] },
   merchant_delay_5: { role: 'merchant', kinds: ['merchant_courier', 'customer_merchant'] },
   merchant_ready: { role: 'merchant', kinds: ['merchant_courier'] },
@@ -150,7 +163,7 @@ export const ChatThreadView = z.object({
   orderId: z.string(),
   kind: ChatThreadKind,
   status: ChatThreadStatus,
-  /** When it closes (completion + 30 min); null while the order is still running. */
+  /** When it closes (completion + 30 min; the support chat completion + 24 h); null while the order is still running. */
   closesAt: z.coerce.date().nullable(),
   myRole: ChatRole,
   /** The order is a ride (taxi / tuktuk): the app says "السايق" and offers the driver's replies. */
@@ -266,6 +279,7 @@ export interface ChatPort {
   threads(actor: Actor, input: ChatThreadsInput): Promise<ChatThreadSummary[]>;
   thread(actor: Actor, input: ChatThreadInput): Promise<ChatThreadView>;
   send(actor: Actor, input: ChatSendInput): Promise<ChatMessage>;
+  // (the desk's own reads and replies on `customer_support` go through `support.*`, see support-io)
   markRead(actor: Actor, input: ChatMarkReadInput): Promise<ChatMarkReadOutput>;
   requestCall(actor: Actor, input: ChatRequestCallInput): Promise<CallSession>;
 }

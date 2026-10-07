@@ -118,7 +118,8 @@ const DISPUTE_KINDS: ReadonlyArray<{ kind: DisputeKind; key: MessageKey }> = [
   { kind: 'other', key: 'dispute.reason_other' },
 ];
 
-export function DisputePanel({ view, onClose }: { view: OrderTracking; onClose: () => void }) {
+/** "بلّغ عن مشكلة": a complaint once the order reached him; before that, the order's support chat. */
+export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking; onClose: () => void; onSupport?: (() => void) | undefined }) {
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
@@ -163,8 +164,7 @@ export function DisputePanel({ view, onClose }: { view: OrderTracking; onClose: 
       ) : (
         <>
           <Text color="textMuted">{t('track.dispute_after_delivery')}</Text>
-          {/* TODO(api): support chat inside the order screen (notifications & support spec). */}
-          <Button label={t('track.support')} icon="chat" fullWidth onPress={() => toast.show({ message: t('track.support_soon'), tone: 'info' })} />
+          {onSupport ? <Button label={t('track.support')} icon="chat" fullWidth onPress={onSupport} testID="dispute-support-chat" /> : null}
         </>
       )}
       <Button label={t('action.close')} variant="ghost" fullWidth onPress={onClose} />

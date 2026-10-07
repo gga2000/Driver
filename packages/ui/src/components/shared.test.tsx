@@ -320,4 +320,24 @@ describe('ChatThread', () => {
     fireEvent.click(screen.getByTestId('chat-call'));
     expect(p.call).toHaveBeenCalled();
   });
+
+  it('the support chat is titled for the support team, invites the first message, and has no call', () => {
+    const support = view({
+      kind: 'customer_support',
+      participants: [
+        { role: 'customer', name: 'علي', you: true },
+        { role: 'support', name: null, you: false },
+      ],
+      messages: [],
+      lastSeq: 0,
+      unread: 0,
+      quickReplies: ['customer_support_late', 'customer_support_money'],
+      canCall: false,
+    });
+    setup({ kind: 'customer_support', orderNumber: '1284' }, support);
+    expect(screen.getByTestId('chat-title').textContent).toBe('chat.support_title');
+    expect(screen.getByTestId('chat-support-empty').textContent).toContain('chat.support_empty_title');
+    expect(screen.getByTestId('qr-customer_support_late')).toBeTruthy();
+    expect(screen.queryByTestId('chat-call')).toBeNull();
+  });
 });

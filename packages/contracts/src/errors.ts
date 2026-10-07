@@ -195,6 +195,8 @@ export const ERROR_TABLE = {
   tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
   tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // The two-tap rating is taken within RATING_RULES.windowHours of the order reaching the customer.
+  rating_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   // Compliments after a good rating (joy l4): rated 4–5, delivered, within a day; words from the order's own set.
   compliment_not_offered: { retryHint: 'never', status: 'CONFLICT' },
   compliment_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -231,6 +233,8 @@ export const ERROR_TABLE = {
   chat_not_open: { retryHint: 'later', status: 'CONFLICT' },
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلّم الدعم»: a customer opens at most CHAT_SUPPORT_OPENS_PER_DAY new support chats a day.
+  chat_support_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },
   share_link_invalid: { retryHint: 'never', status: 'NOT_FOUND' },
   /** "Send drivers here" for this zone went out less than 10 minutes ago. */

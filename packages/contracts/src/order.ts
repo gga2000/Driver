@@ -231,10 +231,35 @@ export type RatingTag = z.infer<typeof RatingTag>;
 
 export const RatingScore = z.number().int().min(1).max(5);
 
+/**
+ * One-tap reasons about the courier/driver himself under a low score (1–3, step 1 of the two-tap
+ * rating), kept apart from the food's: they go with his own rating (`courier_ratings`), not with the
+ * kitchen. `mishandled` is for deliveries only, `unsafe_driving` for rides only. A good score (4–5)
+ * gets no reasons here: the kind words after it are compliments (`orders.compliment`, joy l4).
+ */
+export const CourierRatingReason = z.enum(['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving']);
+export type CourierRatingReason = z.infer<typeof CourierRatingReason>;
+export const COURIER_LOW_REASONS: readonly CourierRatingReason[] = ['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving'];
+
+/** The reasons offered under a courier score: the low set for 1–3 (per order kind), none for 4–5. */
+export function courierReasonsFor(score: number, ride: boolean): CourierRatingReason[] {
+  if (score < 1 || score > 3) return [];
+  return COURIER_LOW_REASONS.filter((r) => (ride ? r !== 'mishandled' : r !== 'unsafe_driving'));
+}
+
+/**
+ * Rating rules (customer app §4 two-tap rating). A scored rating is taken until `windowHours` after
+ * the order reached the customer — the same 24 h the tip and the compliments after a good rating use,
+ * so they always follow a rating that counted. (The card's public average: `publicCourierRating`.)
+ */
+export const RATING_RULES = { windowHours: 24 } as const;
+
 export const OrderRating = z.object({
   delivery: RatingScore.nullable(),
   food: RatingScore.nullable(),
   tags: z.array(RatingTag),
+  /** The reasons given with the courier score (also on his own `courier_ratings` row); absent on older ratings. */
+  courierReasons: z.array(CourierRatingReason).optional(),
   note: z.string().nullable(),
   ratedAt: z.coerce.date(),
 });
@@ -414,6 +439,8 @@ export const RateOrderInput = OrderIdInput.extend({
   delivery: RatingScore.optional(),
   food: RatingScore.optional(),
   tags: z.array(RatingTag).max(6).optional(),
+  /** Reasons about the courier/driver (they need `delivery`); stored with his own rating. */
+  courierReasons: z.array(CourierRatingReason).max(5).optional(),
   note: z.string().trim().max(500).optional(),
 });
 export type RateOrderInput = z.infer<typeof RateOrderInput>;

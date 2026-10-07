@@ -2145,6 +2145,29 @@ model ChatMessage {
   @@schema("public")
 }
 
+/// The customer's rating of the courier/driver who carried an order (customer app §4 two-tap rating,
+/// step 1): one per order, written with the order's rating by `orders.rate`, within 24 h of the order
+/// reaching him. Ids only — no names. The driver scorecard and the customer-facing average on his card
+/// read his newest rows. No foreign keys: orders and trips are owned by their modules.
+model CourierRating {
+  id         String   @id @default(cuid())
+  orderId    String   @unique @map("order_id")
+  tripId     String   @map("trip_id")
+  driverId   String   @map("driver_id")
+  customerId String   @map("customer_id")
+  /// 1–5.
+  score      Int
+  /// `CourierRatingReason` values (late, rude, polite, careful…).
+  reasons    String[] @default([])
+  ratedAt    DateTime @map("rated_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([driverId, ratedAt])
+  @@map("courier_ratings")
+  @@schema("public")
+}
+
 /// Read receipt: the highest seq a reader has read in a thread. The reader key is the party, not the
 /// person, where a party is several people: `customer`, `merchant` (any staff member), `courier:<id>`,
 /// `support:<id>`.
