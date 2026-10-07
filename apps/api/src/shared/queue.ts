@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Queue as BullQueue, Worker as BullWorker, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
+import { runWithRequestId } from './request-context.js';
 
 export type RedisStatus = 'ok' | 'unavailable';
 
@@ -86,7 +87,8 @@ class BullMqQueue<T> implements Queue<T> {
     if (this.worker) throw new Error(`queue ${this.name} already has a processor`);
     this.worker = new BullWorker<T>(
       this.name,
-      async (job) => handler({ id: String(job.id ?? ''), name: job.name, data: job.data }),
+      // Log lines of the job carry `job-<queue>-<name>-<id>` (ids name their subject: `jobKey('order', id, …)`).
+      async (job) => runWithRequestId(`job-${this.name}-${job.name}-${String(job.id ?? '')}`, () => handler({ id: String(job.id ?? ''), name: job.name, data: job.data })),
       { connection: this.connection, prefix: this.prefix },
     );
   }
