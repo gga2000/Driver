@@ -75,6 +75,7 @@
   "partner.gm_call_rider": "اتصل بـ {name}",
   "partner.gm_meter_yours": "إلك {amount} دينار",
   "partner.gm_taxi_late": "جاي بتكسينا · يوصل {time}",
+  "partner.gm_taxi_seat": "تكسينا {time}",
   "partner.gm_taxi_held": "مقعده محجوز لحد {time}، تكسينا متأخر عليه",
   "partner.gm_pin_title": "رمز {name}",
   "partner.gm_pin_wrong": "هذا مو رمز {name}. باوع على تذكرته",

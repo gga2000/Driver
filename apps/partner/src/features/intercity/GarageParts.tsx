@@ -75,9 +75,9 @@ export function seatLook(theme: Theme, t: TFn, occ: SeatOccupant, editable: bool
   return { bg: c.surface, border: c.text, dashed: false, fg: 'textMuted', icon: 'user', title: name, sub: statusLabel(t, s, occ.booking), extra: taxiLine(t, occ.booking) };
 }
 
-/** x3: «جاي بتكسينا · يوصل 12:41» on the seat of a rider our late taxi is bringing (null otherwise). */
+/** x3: «تكسينا 12:41 ص» on the seat of a rider our late taxi is bringing (the sheet says it in full); null otherwise. */
 function taxiLine(t: TFn, b: DriverDepartureView['bookings'][number]): string | null {
-  return b.taxiDueAt ? t('partner.gm_taxi_late', { time: clockLabel(b.taxiDueAt) }) : null;
+  return b.taxiDueAt ? t('partner.gm_taxi_seat', { time: clockLabel(b.taxiDueAt) }) : null;
 }
 
 export function GarageSeatMap({

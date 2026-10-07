@@ -75,6 +75,7 @@
   "partner.gm_call_rider": "Call {name}",
   "partner.gm_meter_yours": "{amount} IQD to you",
   "partner.gm_taxi_late": "Coming in our taxi · due {time}",
+  "partner.gm_taxi_seat": "Our taxi {time}",
   "partner.gm_taxi_held": "Seat held until {time}: our taxi is late for him",
   "partner.gm_pin_title": "{name}'s PIN",
   "partner.gm_pin_wrong": "That's not {name}'s PIN. Check the ticket",

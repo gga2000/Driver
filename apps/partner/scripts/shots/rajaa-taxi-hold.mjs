@@ -8,7 +8,7 @@ export default async function run(s) {
   const p = await s.signIn('0770 111 0003');
   await p.goto(`/intercity/departure/${seed.runA}`);
   await p.wait('garage-seatmap');
-  await p.page.getByText('جاي بتكسينا').first().waitFor({ timeout: 15_000 });
+  await p.page.getByText('تكسينا ').first().waitFor({ timeout: 15_000 });
   await p.shot('taxi-late-seat', { settle: 1200 });
   await p.byTestId('gseat-rear_right').click();
   await p.wait('rider-taxi-late');
