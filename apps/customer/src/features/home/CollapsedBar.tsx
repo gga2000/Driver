@@ -14,14 +14,11 @@ import { Icon, Text, useNetwork, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { SERVICES, type ServiceId } from './ServicesRow';
 
-/** The bar's services and their share of its width: «بغداد والكوت» gets the room its two words need. */
-const PILLS: ReadonlyArray<{ id: ServiceId; flex: number }> = [
-  { id: 'food', flex: 1 },
-  { id: 'taxi', flex: 1 },
-  { id: 'tuktuk', flex: 1 },
-  { id: 'trips', flex: 1.75 },
-  { id: 'rajaa', flex: 1.25 },
-];
+/**
+ * The bar's services. Each pill starts at its own name's width and the room left is shared evenly, so
+ * «بغداد والكوت» always gets what its two words need; none is narrower than a finger (44 px).
+ */
+const PILLS: readonly ServiceId[] = ['food', 'taxi', 'tuktuk', 'trips', 'rajaa'];
 const SEARCH_H = 40;
 const PILL_H = 32;
 
@@ -122,7 +119,7 @@ export function CollapsedBar({
         </Text>
       </Pressable>
       <View style={{ flexDirection: 'row', gap: 6 }}>
-        {PILLS.map(({ id, flex }) => {
+        {PILLS.map((id) => {
           const sw = swatch(id);
           const off = sw === s.off && id !== 'food';
           const label = t(SERVICES.find((x) => x.id === id)!.label);
@@ -143,7 +140,10 @@ export function CollapsedBar({
                 onService(id);
               }}
               style={({ pressed }) => ({
-                flex,
+                flexGrow: 1,
+                flexShrink: 1,
+                flexBasis: 'auto',
+                minWidth: theme.hitTarget,
                 height: PILL_H,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -160,6 +160,9 @@ export function CollapsedBar({
                 color={sw.on}
                 numberOfLines={1}
                 compact
+                // Large text on a narrow phone: the name shrinks to fit its pill rather than being cut.
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
               >
                 {label}
               </Text>
