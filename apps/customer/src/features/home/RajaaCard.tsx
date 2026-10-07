@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
 import { Card, DepartureTime, Icon, Skeleton, Text, useTheme } from '@driver/ui';
-import { routeLabel } from '@/features/rajaa/labels';
+import { routeLabel, wayKey } from '@/features/rajaa/labels';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { bookingHref, clockLabel, PRIMARY_CORRIDOR, type LatLngLike } from '@/features/rajaa/logic';
 import { useNetwork, useRajaaHome } from '@/features/rajaa/queries';
@@ -44,6 +44,8 @@ export function RajaaCard({ hour }: { hour: number }) {
   const r = useRajaaHome(way.direction);
   // Guests see what الرجعة is; the live board (and booking) comes with their number (audit C-18).
   const guest = !useSignedIn();
+  // «سفرة» going out, «الرجعة» only on the way back (f1/n1).
+  const dir = r.trip ? r.trip.departure.direction : way.direction;
   const route = r.trip && r.tripCityId ? routeLabel(t, r.tripCityId, r.trip.departure.direction) : routeLabel(t, way.cityId, way.direction);
   // The time on the board: the rider's own departure, else the next car.
   const at = guest || r.error ? null : r.trip ? r.trip.departure.departAt : (r.next?.departAt ?? null);
@@ -52,12 +54,12 @@ export function RajaaCard({ hour }: { hour: number }) {
       ? t('rajaa.home_hold', { time: clockLabel(r.trip.heldUntil) })
       : t('rajaa.home_trip_booked')
     : r.count === 0 || !r.next
-      ? t('rajaa.home_summary_none')
+      ? t(wayKey('rajaa.home_summary_none', dir))
       : t('rajaa.home_cars', { n: r.count });
   const open = () =>
     r.trip ? router.push(bookingHref(r.trip) as never) : router.push({ pathname: '/rajaa', params: { corridor: PRIMARY_CORRIDOR, direction: way.direction } });
   return (
-    <Card testID="home-rajaa" padding={4} onPress={open} accessibilityLabel={`${t('home.rajaa_title')}: ${route}`}>
+    <Card testID="home-rajaa" padding={4} onPress={open} accessibilityLabel={`${t(wayKey('rajaa.kind', dir))}: ${route}`}>
       <View style={{ flexDirection: 'row', gap: theme.space[4], alignItems: 'center' }}>
         {at ? (
           <DepartureTime testID="home-rajaa-time" at={at} size="card" />
@@ -77,7 +79,7 @@ export function RajaaCard({ hour }: { hour: number }) {
         )}
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="caption" weight={600} color="accentText">
-            {t('home.rajaa_title')}
+            {t(wayKey('rajaa.kind', dir))}
             {r.garage ? ` · ${r.garage}` : ''}
           </Text>
           <Text variant="title">{route}</Text>

@@ -90,7 +90,7 @@ export default async function register(demo) {
       corridorId: 'aziziyah_baghdad',
       departAt: new Date(now + MIN),
       latestDepartureAt: new Date(now + 50 * MIN),
-      vehicle: { kind: 'van', layout: 7, plate: 'بغداد 88412', model: 'GMC', color: 'أبيض' },
+      vehicle: { kind: 'van', layout: 7, plate: 'بغداد 88412', modelKey: 'gmc', color: 'أبيض' },
       familyOnly: false,
     });
     const zahraa = await book('zahraa', a.id, ['front'], 'nisa', 'wallet');
@@ -124,7 +124,7 @@ export default async function register(demo) {
       corridorId: 'aziziyah_baghdad',
       departAt: new Date(Math.ceil((now + 270 * MIN) / (15 * MIN)) * 15 * MIN),
       latestDepartureAt: new Date(Math.ceil((now + 270 * MIN) / (15 * MIN)) * 15 * MIN + 30 * MIN),
-      vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 88412', model: 'Sonata', color: 'فضي' },
+      vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 88412', modelKey: 'sonata', color: 'فضي' },
       familyOnly: false,
     });
     await book('noor', b.id, ['front'], 'nisa', 'wallet');

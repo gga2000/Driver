@@ -20,7 +20,8 @@
     "lint": "eslint src gallery",
     "gallery": "vite build",
     "gallery:dev": "vite",
-    "gallery:shots": "node gallery/screenshot.mjs"
+    "gallery:shots": "node gallery/screenshot.mjs",
+    "art": "node scripts/build-art.mjs"
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",

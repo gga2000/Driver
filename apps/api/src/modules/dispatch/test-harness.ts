@@ -1,4 +1,4 @@
-import { AZIZIYAH_CENTRE, type LatLng, type VehicleClass, type Vertical } from '@driver/contracts';
+import { AZIZIYAH_CENTRE, type LatLng, type MoneyRules, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
@@ -24,7 +24,7 @@ export function north(km: number, from: LatLng = AZIZIYAH_CENTRE): LatLng {
 }
 
 /** Builds the whole dispatch stack on in-memory everything and a fake clock. Shared by the unit tests. */
-export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new ConfigService()) {
+export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new ConfigService(), opts: { rules?: MoneyRules } = {}) {
   const clock = new FakeClock(start);
   const zones = new ZoneDirectory(config);
   const geo = new InMemoryGeoIndex(() => clock.now());
@@ -40,7 +40,7 @@ export function dispatchHarness(start = '2026-10-03T09:00:00Z', config = new Con
   // x1: the drivers' «المكيّفة شغالة اليوم؟» answers take a «لا» off the confirmed tags for the shift.
   const climate = new ClimateChecks(new InMemoryShiftCheckStore(), clock);
   const facts = new InMemoryVehicleFacts(undefined, (ids) => climate.offNow(ids));
-  const orchestrator = new OfferOrchestrator(config, presence, zones, repo, store, events, trips, caps, departures, queue, clock, uow, undefined, undefined, facts);
+  const orchestrator = new OfferOrchestrator(config, presence, zones, repo, store, events, trips, caps, departures, queue, clock, uow, undefined, undefined, facts, opts.rules);
   const service = new DispatchService(config, undefined, undefined, orchestrator, presence, undefined, undefined, facts);
 
   /** Drivers whose app keeps heartbeating (every 30 s) while the clock advances. */

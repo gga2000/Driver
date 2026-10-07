@@ -28,7 +28,7 @@ function dep(over: Partial<DepartureCard> & { free?: number } = {}): DepartureCa
     fromCityId: 'baghdad',
     toCityId: 'aziziyah',
     driverId: 'drv_1',
-    vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', model: null, color: null },
+    vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', modelKey: null, model: null, color: null, ac: false, noSmoking: false, bigBags: false },
     departAt: at(30),
     latestDepartureAt: at(75),
     state: 'scheduled',

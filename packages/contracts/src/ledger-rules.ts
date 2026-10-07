@@ -203,8 +203,24 @@ export const MoneyRules = z.object({
   afterTip: z
     .object({ amountsIqd: z.array(Iqd.positive()).min(1), minRating: z.number().int().min(1).max(5), windowHours: z.number().positive() })
     .default({ amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 }),
+  /**
+   * Evening-before booked rides (edge-case review #28, adopted): when no driver confirmed a booked ride
+   * the evening before (or the confirmed one dropped it), the normal search starts 30 minutes before
+   * "with pickup compensation" — `pickupCompensationIqd` on every offer of that search, paid by the
+   * platform to the driver who takes it.
+   *
+   * **Open decision: Ali hasn't set the amount.** `enabled` is the city's switch, off by default, and the
+   * amount is 0: no offer carries it, nothing is shown in the Partner app and nothing is paid until he
+   * decides. See `bookedFallbackCompensationIqd` and docs/api/ride-habits.md.
+   */
+  bookedRideFallback: z.object({ enabled: z.boolean().default(false), pickupCompensationIqd: Iqd.nonnegative().default(0) }).default({ enabled: false, pickupCompensationIqd: 0 }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
+
+/** The pickup compensation on a booked ride's fallback search (review #28): 0 while the rule is off. */
+export function bookedFallbackCompensationIqd(rules: Pick<MoneyRules, 'bookedRideFallback'>): number {
+  return rules.bookedRideFallback.enabled ? rules.bookedRideFallback.pickupCompensationIqd : 0;
+}
 
 export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
@@ -251,6 +267,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   nightly: { hour: 2, utcOffsetMin: 180 },
   latePromise: { afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 },
   afterTip: { amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 },
+  // Review #28's pickup compensation: the amount is Ali's open decision — off and 0, nothing is paid.
+  bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

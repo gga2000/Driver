@@ -235,6 +235,14 @@ export const ERROR_TABLE = {
   // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
   climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
   avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Review #28: rides booked for later offered to drivers the evening before («مشاوير باچر»).
+  booked_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  booked_job_taken: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_closed: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_not_fit: { retryHint: 'never', status: 'FORBIDDEN' },
+  booked_job_clash: { retryHint: 'never', status: 'CONFLICT' },
+  booked_start_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  booked_start_not_ready: { retryHint: 'now', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },
@@ -335,6 +343,9 @@ export const ERROR_TABLE = {
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلمة عن السفرة» (x14): a review line with a phone number, link or @handle; ops hide/unhide
+  review_contact_info: { retryHint: 'never', status: 'BAD_REQUEST' },
+  review_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   // Menu photo service (maps k3).
   menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

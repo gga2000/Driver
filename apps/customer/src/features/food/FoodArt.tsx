@@ -37,10 +37,15 @@ export interface FoodArtProps {
    * the dish centred on its paper, a few dots), or a square dish thumbnail.
    */
   variant?: 'hero' | 'wide' | 'thumb';
+  /**
+   * A thumbnail on a coloured plate (Date & Saffron dish cards, food-type circles, restaurant rows):
+   * the plate's colour instead of the paper, and no arch window behind the dish.
+   */
+  stage?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', style }: FoodArtProps) {
+export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', stage, style }: FoodArtProps) {
   // Low-data mode (maps program q2): the drawn dish instead of downloading the photo.
   const lite = useLiteMode();
   // A merchant's own upload comes as a signed link relative to the API origin (dev storage); once it
@@ -64,7 +69,7 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
     );
   }
   return (
-    <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+    <View style={[{ width: '100%', height: '100%', backgroundColor: !hero && stage ? stage : SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
       <Svg width="100%" height="100%" viewBox={hero ? '0 0 400 220' : '0 0 200 200'} preserveAspectRatio="xMidYMid slice">
         {hero ? (
           <G>
@@ -79,7 +84,7 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
           </G>
         ) : (
           <G transform="translate(8 6) scale(0.92)">
-            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} />
+            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} window={!stage} />
           </G>
         )}
       </Svg>

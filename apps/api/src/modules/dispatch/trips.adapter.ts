@@ -4,7 +4,7 @@ import type { CreateTripInput, TripsService } from '../trips/index.js';
 import type { CourierTripInput, RideTripInput, TripOffersPort } from './ports.js';
 
 /** The slice of `TripsService` dispatch drives. */
-export type TripsForDispatch = Pick<TripsService, 'activeForOrder' | 'createForOrders' | 'offer' | 'accept' | 'decline' | 'timeout'>;
+export type TripsForDispatch = Pick<TripsService, 'activeForOrder' | 'createForOrders' | 'offer' | 'accept' | 'decline' | 'timeout' | 'forDriver'>;
 
 /**
  * `TripOffersPort` over the trips module's public service. Dispatch owns offers and timers; trips
@@ -49,6 +49,10 @@ export class TripsServiceTripOffers implements TripOffersPort {
       ],
     };
     return (await this.trips.createForOrders(trip)).id;
+  }
+
+  async jobOrder(driverId: string): Promise<string[]> {
+    return (await this.trips.forDriver(driverId)).map((t) => t.id);
   }
 
   async liveTripFor(orderId: string): Promise<string | null> {
