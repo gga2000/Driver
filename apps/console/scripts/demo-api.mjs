@@ -23,7 +23,8 @@
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
 // → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
-// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat.
+// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat. Five riders' lines
+// about two الرجعة drivers wait in «كلام الركاب» (/reviews), one of them already hidden.
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -657,6 +658,52 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
       if (rec) routesRepo.bookings.set(b.id, { ...rec, bookedAt: new Date(now - DAY_MS - 20 * 60_000) });
     }
   }
+}
+
+// كلام الركاب (Console › /reviews, x14): two finished الرجعة runs today, rated with a line each by
+// their riders through the real service; one line support already hid (it names no trip, only the
+// driver's cousin), so the «مخفية» filter has a row. The lines show on the driver's profile in the
+// customer app without the riders' names.
+{
+  const now = Date.now();
+  const admin = await person('07700000001');
+  const garage = departures.garage('mp_garage_nahdha');
+  const lines = [
+    [
+      { name: 'حسن كريم', stars: 5, tags: ['on_time', 'calm_driving'], comment: 'سايق محترم وسياقته هادئة، وصلنا قبل الوقت' },
+      { name: 'زهراء عباس', stars: 2, tags: ['late'], comment: 'تأخر نص ساعة بالكراج وما گال شي' },
+      { name: 'مرتضى فاضل', stars: 1, tags: ['fast_driving'], comment: 'هذا ابن عمي يعرف يسوق احسن من هيج سايق' },
+    ],
+    [
+      { name: 'نور الهدى', stars: 5, tags: ['clean_car', 'respectful'], comment: 'السيارة نظيفة ومبردة، والله ما حسينا بالطريق' },
+      { name: 'علي جبار', stars: 4, tags: ['respectful'], comment: 'زين، بس الأغاني صوتها عالي' },
+    ],
+  ];
+  const seatIds = ['front', 'back_left', 'back_right'];
+  let hideId = null;
+  for (const [n, group] of lines.entries()) {
+    const driverId = await person(`0781444050${n}`, ['كرار عادل', 'مرتضى سالم'][n], ['intercity_driver']);
+    const dep = await departures.announce(
+      driverId,
+      AnnounceInput.parse({ garageId: 'mp_garage_nahdha', corridorId: 'aziziyah_baghdad', departAt: new Date(now - 4 * 60_000), latestDepartureAt: new Date(now + 26 * 60_000), vehicle: { kind: 'saloon', layout: 4, plate: `بغداد ${45100 + n}` } }),
+    );
+    const booked = [];
+    for (const [i, r] of group.entries()) {
+      const rider = await person(`07715550${String(500 + n * 10 + i).padStart(3, '0')}`, r.name);
+      const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatIds[i]] }, travellingAs: 'rijal' }));
+      booked.push({ r, b: await departures.book(rider, held.id, 'cash') });
+    }
+    await departures.selfie(driverId, dep.id, 'demo/selfie.jpg');
+    await departures.driverPosition(driverId, dep.id, { lat: garage.lat, lng: garage.lng });
+    for (const { b } of booked) await departures.checkIn(driverId, dep.id, b.pin);
+    await departures.depart(driverId, dep.id);
+    await departures.arrive(driverId, dep.id);
+    for (const { r, b } of booked) {
+      await departures.rate(b.riderId, b.id, { stars: r.stars, tags: r.tags, comment: r.comment });
+      if (r.stars === 1) hideId = b.id;
+    }
+  }
+  if (hideId) await departures.hideReview(admin, hideId, 'not_about_trip');
 }
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);
