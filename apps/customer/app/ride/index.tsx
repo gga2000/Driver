@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from '
 import { Platform, Pressable, TextInput, View } from 'react-native';
 import { Chip, Icon, IconButton, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { RideHabitsStrip } from '@/features/ride-habits/Strip';
 import { isRideVertical, searchSpots, tooClose, type Spot } from '@/features/ride/logic';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
@@ -176,6 +177,9 @@ export default function RideWhereTo() {
         </View>
       ) : (
         <>
+          {/* Joy J7d: regular trips asking now, the last good driver, «رحلاتي الثابتة». */}
+          <RideHabitsStrip kind="ride" />
+
           {sources.saved.length > 0 ? (
             <Section title={t('ride.saved_title')}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>

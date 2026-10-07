@@ -102,6 +102,7 @@ function harness(
     online?: boolean;
     trips?: Trip[];
     offerTrip?: Trip | null;
+    offerPolicy?: string;
     cap?: Partial<PartnerCapStatus>;
     gate?: PartnerOnlineGate;
     now?: Date;
@@ -133,7 +134,7 @@ function harness(
       openOffer: async () =>
         offerTrip
           ? {
-              offer: { id: 'do_1', tripId: offerTrip.id, wave: 1, state: 'sent', distanceKm: 0.8, compensationIqd: 0, sentAt: NOW, seenAt: null, expiresAt: new Date(NOW.getTime() + 15_000) },
+              offer: { id: 'do_1', tripId: offerTrip.id, wave: 1, state: 'sent', distanceKm: 0.8, compensationIqd: 0, sentAt: NOW, seenAt: null, expiresAt: new Date(NOW.getTime() + 15_000), ...(opts.offerPolicy ? { policy: opts.offerPolicy } : {}) },
               request: { tripId: offerTrip.id, vertical: 'food', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
             }
           : null,
@@ -294,6 +295,12 @@ describe('PartnerService', () => {
       collectIqd: 15_500,
     });
     expect(offer!.tripKm).toBeGreaterThan(2);
+  });
+
+  it('joy l9: a ride the rider booked asking for him says so — and nothing else about who', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
+    expect((await harness({ online: true, offerTrip: t, offerPolicy: 'favourite' }).currentOffer(actor))!.favourite).toBe(true);
+    expect((await harness({ online: true, offerTrip: t }).currentOffer(actor))!.favourite).toBe(false);
   });
 
   it("an offer names zones, never the customer's exact door (review 2026-10-04 #13)", async () => {

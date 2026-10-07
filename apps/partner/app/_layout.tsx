@@ -10,6 +10,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
 import { useJobPositions } from '@/features/work/useJobPositions';
+import { useBackgroundLocation } from '@/features/work/useBackgroundLocation';
 import { keepScreenOn } from '@/features/work/logic';
 import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { useJobQueueRunner } from '@/features/work/useJobQueue';
@@ -138,6 +139,8 @@ function OfferWatcher() {
   const offer = useCurrentOffer(online);
   // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
   useJobPositions(Boolean(status.data?.activeTripId));
+  // Online or on a job with the app in the background: the OS location service keeps both going.
+  useBackgroundLocation(status.data);
   // Online or on a job: the screen stays on (P-01) — a phone in a mount must not lock between offers.
   useKeepAwakeWhile(keepScreenOn(status.data));
   // Job taps saved offline are replayed in order as soon as the network is back (P-09).

@@ -5,6 +5,7 @@ import { orderTicketNumber, type OrderHistoryRow } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { formatClock, Icon, StatusPill, Text, toneFor, useTheme, type IconName, type StatusTone } from '@driver/ui';
 import { HERO, monogram } from '@/features/home/RestaurantRail';
+import { isBookedRide } from '@/features/ride-habits/logic';
 import type { TFn } from '@/lib/i18n';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -86,7 +87,7 @@ export function OrderRow({ row, now, showDay, divider, action }: { row: OrderHis
         testID={`order-${o.id}`}
         accessibilityRole="button"
         accessibilityLabel={[title, summary, t(`orders.short.${status}` as MessageKey), meta].filter(Boolean).join('، ')}
-        onPress={() => router.push({ pathname: '/order/[id]', params: { id: o.id } })}
+        onPress={() => router.push({ pathname: isBookedRide(o, now) ? '/ride/booked/[id]' : '/order/[id]', params: { id: o.id } })}
         style={({ pressed }) => ({ flexDirection: 'row', gap: theme.space[3], padding: theme.space[4], paddingBottom: action ? theme.space[2] : theme.space[4], backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent' })}
       >
         <OrderArt row={row} />

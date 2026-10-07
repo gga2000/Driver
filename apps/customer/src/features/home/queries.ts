@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { TERMINAL_ORDER_STATES, type Order, type OrderState, type RestaurantCard } from '@driver/contracts';
 import { CITY_ID, useDeliverTo } from '@/features/food/queries';
+import { isBookedRide } from '@/features/ride-habits/logic';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { favouriteIds, toSummary, type RestaurantSummary } from './restaurant-summary';
@@ -24,14 +25,17 @@ export function useMyOrders() {
   });
 }
 
-/** Most recent order still in progress, for the pinned pill. Polls while one is active. */
+/**
+ * Most recent order still in progress, for the pinned pill. Polls while one is active. A ride booked
+ * for later (joy J7d) is not "in progress" until its search starts: it has its own card.
+ */
 export function useActiveOrder() {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({
     ...api.orders.mine.queryOptions(),
     enabled: signedIn,
-    select: (orders: Order[]) => orders.filter(isActiveOrder).sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())[0] ?? null,
+    select: (orders: Order[]) => orders.filter((o) => isActiveOrder(o) && !isBookedRide(o, new Date())).sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())[0] ?? null,
     refetchInterval: (q) => (q.state.data?.some(isActiveOrder) ? 15_000 : false),
   });
 }
@@ -67,5 +71,16 @@ export function useRestaurants() {
       const fav = favouriteIds(cards, ordered);
       return cards.map((c) => toSummary(c, fav.has(c.id)));
     },
+  });
+}
+
+/** Joy J7d: the soonest ride booked for later whose search hasn't started yet, for its home card. */
+export function useBookedRide() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.orders.mine.queryOptions(),
+    enabled: signedIn,
+    select: (orders: Order[]) => orders.filter((o) => isBookedRide(o, new Date())).sort((a, b) => (a.scheduledFor?.getTime() ?? 0) - (b.scheduledFor?.getTime() ?? 0))[0] ?? null,
   });
 }

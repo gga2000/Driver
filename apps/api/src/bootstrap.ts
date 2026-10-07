@@ -21,6 +21,8 @@ export function corsOriginFromEnv(env: Record<string, string | undefined> = proc
 
 export async function createApp(opts: { logger?: LoggerService } = {}): Promise<NestExpressApplication> {
   // rawBody: webhook signatures (WhatsApp `X-Hub-Signature-256`) are computed over the exact bytes.
+  // Express 5 parses query strings with the "simple" parser (flat keys, no `a[b]=` nesting); tRPC reads
+  // its `input` from the URL itself and the plain routes (webhook, uploads) only use flat keys.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: opts.logger ?? ['error', 'warn', 'log'], rawBody: true });
   app.enableCors({ origin: corsOriginFromEnv() });
   // Per-IP OTP limits need the client's address: behind a load balancer set TRUST_PROXY (hop count,

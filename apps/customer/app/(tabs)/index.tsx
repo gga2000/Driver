@@ -11,7 +11,9 @@ import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
 import { nightHome } from '@/features/home/night';
 import { HomeHeader } from '@/features/home/HomeHeader';
-import { useActiveOrder, usePicks, useRestaurants } from '@/features/home/queries';
+import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
+import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
+import { useDinnerChance } from '@/features/ride-habits/queries';
 import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
 import { DaypartBand } from '@/features/home/DaypartBand';
 import { useUsuals } from '@/features/home/habit-queries';
@@ -57,6 +59,9 @@ export default function Home() {
   const active = useActiveOrder();
   const restaurants = useRestaurants();
   const rajaaTrip = useActiveBooking();
+  // Joy J7d: a ride booked for later (its own card), and «عشاك يوصل وياك» while a ride home is on.
+  const booked = useBookedRide();
+  const dinner = useDinnerChance(Boolean(active.data?.type === 'ride' || rajaaTrip.data));
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
@@ -139,6 +144,8 @@ export default function Home() {
       <ServicesRow onPress={onService} />
 
       {cards.includes('active') && active.data ? <ActiveOrderPill order={active.data} /> : null}
+      {dinner.data ? <DinnerCard chance={dinner.data} now={now} testID="home-dinner" /> : null}
+      {booked.data ? <BookedRideCard order={booked.data} now={now} /> : null}
       {cards.includes('rajaa_trip') || cards.includes('rajaa') ? <RajaaCard hour={dp.hour} /> : null}
       {cards.includes('friday') && friday ? <FridayCard ahead={friday} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
       {cards.includes('usual') && usual ? <UsualCard usual={usual} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}

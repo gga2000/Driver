@@ -4,6 +4,8 @@ import { RefreshControl, View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
 import { Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { useFavourites } from '@/features/ride-habits/queries';
+import { RideHabitsStrip } from '@/features/ride-habits/Strip';
 import { SectionHeader } from '@/components/SectionHeader';
 import { CorridorPicker, DemandBanner, TravellerAsk, TravellerChip, TripPill } from '@/features/rajaa/BoardParts';
 import { foldBoard, seatFit } from '@/features/rajaa/fit';
@@ -49,6 +51,9 @@ export default function RajaaBoard() {
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
+  // Joy l9: the rider's favourite الرجعة drivers wear «سايقك المفضل» on their cars.
+  const favs = useFavourites();
+  const favDrivers = useMemo(() => new Set((favs.data ?? []).filter((f) => f.kinds.includes('intercity')).map((f) => f.driverId)), [favs.data]);
   const [refreshing, setRefreshing] = useState(false);
 
   // Auto-suggest the direction once, from the last known position (web: none → default).
@@ -142,6 +147,9 @@ export default function RajaaBoard() {
 
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
 
+      {/* Joy r5: a regular الرجعة asking now, and «رحلاتي الثابتة». */}
+      <RideHabitsStrip kind="rajaa" />
+
       {board.isPending || network.isPending ? (
         <View style={{ gap: theme.space[3] }}>
           <Skeleton height={20} width="40%" />
@@ -195,6 +203,7 @@ export default function RajaaBoard() {
                     now={now}
                     driver={drivers.data?.get(d.id)}
                     fit={travellingAs ? seatFit(d) : undefined}
+                    favourite={favDrivers.has(d.driverId)}
                     onPress={() => router.push({ pathname: '/rajaa/departure/[id]', params: { id: d.id, corridor: corridorId, direction } })}
                   />
                 ))

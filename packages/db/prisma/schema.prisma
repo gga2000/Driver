@@ -1071,6 +1071,8 @@ model Order {
   gift               Boolean       @default(false)
   /// «عزيمة»: the sender paid from his wallet and asked that prices stay off the ticket and out of the courier's mouth.
   giftHidePrices     Boolean       @default(false) @map("gift_hide_prices")
+  /// Joy l9: a ride booked for later asked for this favourite driver; he gets the job alone for a minute first.
+  preferredDriverId  String?       @map("preferred_driver_id")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -2217,6 +2219,79 @@ model Referral {
   @@schema("public")
 }
 
+/// Joy l9 «سايقي المفضل»: a rider's favourite drivers (ids only; names and photos are read from the
+/// vault, logged). Added only from his own finished ride or الرجعة trip rated 4–5. The driver never sees
+/// this list; a scheduled ride or الرجعة booking may ask for one.
+model FavouriteDriver {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  driverId  String   @map("driver_id")
+  /// What he drove for this rider: taxi | tuktuk | intercity.
+  kinds     String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  regularTrips RegularTrip[]
+
+  @@unique([personId, driverId])
+  @@index([driverId])
+  @@map("favourite_drivers")
+  @@schema("public")
+}
+
+/// Joy r5: a ride or a الرجعة the rider takes every week. Each occurrence is asked about (the evening
+/// before or that morning) and booked only when he taps «أكدها»; prices are the server's at that moment.
+model RegularTrip {
+  id            String    @id @default(cuid())
+  personId      String    @map("person_id")
+  /// ride | rajaa
+  kind          String
+  /// Baghdad weekdays, 0 = Sunday … 6 = Saturday.
+  days          Int[]
+  /// Minutes since Baghdad midnight.
+  timeMin       Int       @map("time_min")
+  /// evening (20:00 the day before) | morning (08:00 that day)
+  remind        String
+  /// cash | wallet
+  paymentMethod String    @default("cash") @map("payment_method")
+  favouriteId   String?   @map("favourite_id")
+  active        Boolean   @default(true)
+  /// The plan: a ride's points, vehicle and door pickup, or a الرجعة corridor, direction, garage and seat rule.
+  plan          Json
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  favourite   FavouriteDriver?        @relation(fields: [favouriteId], references: [id], onDelete: SetNull)
+  occurrences RegularTripOccurrence[]
+
+  @@index([personId])
+  @@index([active])
+  @@map("regular_trips")
+  @@schema("public")
+}
+
+/// Joy r5: what the rider decided for one day of a regular trip (unique per trip and Baghdad date).
+model RegularTripOccurrence {
+  id            String   @id @default(cuid())
+  regularTripId String   @map("regular_trip_id")
+  /// Baghdad date, YYYY-MM-DD.
+  date          String
+  /// confirmed | skipped
+  state         String
+  orderId       String?  @map("order_id")
+  bookingId     String?  @map("booking_id")
+  demandId      String?  @map("demand_id")
+  decidedAt     DateTime @map("decided_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  regularTrip RegularTrip @relation(fields: [regularTripId], references: [id], onDelete: Cascade)
+
+  @@unique([regularTripId, date])
+  @@map("regular_trip_occurrences")
+  @@schema("public")
+}
+
 /// Share-trip link (signed token = id + HMAC). Expiry is derived from the trip (completion + 30 min,
 /// 24 h cap); `revoked_at` ends it early.
 model ShareLink {
@@ -2891,6 +2966,8 @@ model NotifyPreference {
   marketing        Boolean  @default(false)
   /// «قدر اليوم» (joy h2): a followed dish is today's pot. On by default (following is the opt-in).
   dishPots         Boolean  @default(true) @map("dish_pots")
+  /// Joy r5: «تأكد رحلتك؟» for his own regular trips. On by default (saving the trip is the opt-in).
+  regularTrips     Boolean  @default(true) @map("regular_trips")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

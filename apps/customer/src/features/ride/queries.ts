@@ -53,9 +53,10 @@ export type QuoteGrid = Record<RideVertical, { door: Quote | undefined; street: 
  * locks the fare with, so every price on the choose screen is the price charged. Four tiny pure
  * computations on the server; re-asked each minute so night/peak flip on time.
  */
-export function useRideQuotes(pickup: Spot | null, dropoff: Spot | null) {
+export function useRideQuotes(pickup: Spot | null, dropoff: Spot | null, bookedAt: Date | null = null) {
   const api = useApi();
-  const at = quoteMinute();
+  // A ride booked for later (joy J7d) is quoted for its own time (night and peak follow it).
+  const at = bookedAt ?? quoteMinute();
   const minute = at.getTime();
   const combos = useMemo(
     () => (pickup && dropoff ? RIDE_VERTICALS.flatMap((vertical) => [true, false].map((doorPickup) => ({ vertical, doorPickup, input: rideQuoteRequest({ vertical, pickup: spotPoint(pickup), dropoff: spotPoint(dropoff), doorPickup, at: new Date(minute) }) }))) : []),

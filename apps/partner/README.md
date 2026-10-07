@@ -179,8 +179,11 @@ through the dispatcher override, the tuktuk ride through the real wave-1 broadca
 
 ## Known gaps (wave 1)
 
-- Background location and a real heartbeat endpoint: presence is refreshed by re-sending
-  `partner.goOnline` every 30 s while the app is open.
+- Background location is built (`src/lib/background-location.native.ts`, maps program SP1 f2): while
+  online or on a job with the app in the background, an expo-location task with Android's foreground
+  service ("درايفر يتابع موقعك أثناء الشغل") re-sends `partner.goOnline` every 30 s and reports job fixes.
+  It asks for "allow all the time" after a disclosure; declined means on-screen updates only, as before.
+  Not yet tried on a real phone (needs a development build); the web build has no background task.
 - SOS is a stub button (decision 3 in docs/research/ui-ux-audit/README.md: built before launch).
   (Call and chat are live: see "Chat and masked calls" below.)
 - Offers, the job, gate and cash are pushed over `live.partner`; queries keep a 60-s safety refetch
@@ -284,6 +287,14 @@ When a customer sends a meal to someone else as a gift, the job card says so (`G
 `src/features/work/gift.ts`): «هدية» on the drop-off; when the sender paid from his wallet and hid the
 prices, «هدية · لا تذكر السعر» (nothing to collect) and, at the kitchen, «هدية · خلي المطعم ما يحط
 الوصل بالكيس». From `PartnerJobStop.gift`. Demo: `POST /demo/job?who=courier&step=to_dropoff&gift=1`.
+
+## «الزبون طلبك إنت» — a favourite's offer (joy l9)
+
+A rider who kept a driver as a favourite may ask for him on a ride booked for later. When its search starts
+(15 minutes before) the offer rings for him alone for a minute and says «الزبون طلبك إنت» (`offer-favourite`
+in `app/offer.tsx`, from `PartnerOffer.favourite`); then the normal waves. Nothing else about who favourited
+him is shown. Demo: `POST /demo/offer?who=tuktuk&kind=favourite`; `SHOTS=favourite` (`scripts/shots/97-favourite.mjs`).
+`docs/api/ride-habits.md`.
 
 ## «كلام الزبائن» — compliments (joy l4)
 

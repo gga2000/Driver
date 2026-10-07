@@ -271,6 +271,22 @@ API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07
 - `SHOTS=gift` writes `gift-*.png` (checkout gift, kitchen heads-up, invite, invite landing as a
   guest, stickers, share card sheet) and saves the share cards the web renders (`gift-card-*.png`).
 
+## Ride habits (joy J7d, `src/features/ride-habits/`, `docs/api/ride-habits.md`)
+
+- **Booked for later**: the choose screen's «وكتها» (هسة / a quarter hour today, tomorrow or the day after,
+  20 minutes to 7 days ahead, priced by the server for that time) with «سايقك المفضل» chips; the ride waits
+  on `/ride/booked/[id]` (and its home card) until the search starts 15 minutes before, then opens the live
+  screen. Free to cancel until a driver accepts.
+- **«رحلاتي الثابتة»** (`app/regular/*`, account, ride and الرجعة tabs): a weekly ride or الرجعة; each day is
+  asked about the evening before or that morning («تأكد رحلتك؟», switch in notifications) and booked only
+  on «أكدها» — the server's fare, a seat on one of that day's cars, or «نحجزلك أول ما تنعلن سيارة».
+- **«سواقي المفضلين»** (`app/drivers.tsx`): from a ride or الرجعة rated 4–5 («خليه سايقك المفضل؟» on the
+  ride tab, the heart on the pass); photo, rating, trips together; «سايقك» on his cars on the board.
+- **«عشاك يوصل وياك»**: while a ride home (or a seat to Aziziyah) is on — the card on home and on the pass,
+  the banner on the restaurants list, checkout's «وياك · 8:05» slot (the server's time; an ordinary pre-order).
+- Demo: `POST /demo/ride-habits?personId=…` and `POST /demo/dinner?personId=…[&kind=rajaa]`;
+  `SHOTS=trips` writes `trips-*.png` on a fresh account (`TRIPS_PHONE`, default 0770 456 8899).
+
 ## Live order screen (`app/order/[id].tsx`, `src/features/track/`)
 
 - Reads `orders.track` (own order + trip summary + courier card, every 4 s while live) and

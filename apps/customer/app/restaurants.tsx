@@ -9,6 +9,7 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { activeFilterCount, applyList, cuisineOptions, hasFreeDelivery, hasRatings, type ListFilters, type ListSort } from '@/features/food/list';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
 import { useRestaurants } from '@/features/home/queries';
+import { DinnerBanner } from '@/features/ride-habits/Cards';
 import { useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
 
@@ -62,6 +63,8 @@ export default function Restaurants() {
           ) : null}
         </View>
         <SearchField testID="restaurants-search" placeholder={t('search.placeholder')} onPress={() => router.push('/search')} accessibilityLabel={t('search.a11y_open')} />
+        {/* Joy r6: choosing dinner for the ride home — checkout times it with the arrival. */}
+        <DinnerBanner />
       </View>
 
       <View style={{ gap: theme.space[3] }}>

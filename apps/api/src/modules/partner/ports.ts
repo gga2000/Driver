@@ -28,6 +28,8 @@ export interface PartnerOfferRecord {
   sentAt: Date;
   seenAt: Date | null;
   expiresAt: Date;
+  /** How dispatch offered it (`favourite`: the rider's own driver, alone for a minute — joy l9). */
+  policy?: string;
 }
 
 export interface PartnerOfferRequest {

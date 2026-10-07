@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useCountFrom } from './EarningsParts';
 import { Glyph } from './Glyph';
-import { dayMonth, METRIC_DESC, METRIC_NAME, METRIC_PREVIEW, metricFormat, metricPos, nextTierProgress, observation } from './logic';
+import { dayMonth, METRIC_DESC, METRIC_NAME, METRIC_PREVIEW, metricFormat, metricPos, nextTierProgress, observation, TIER_STEPS, tierTrackShare } from './logic';
 
 type Tier = 'bronze' | 'silver' | 'gold';
 
@@ -86,16 +86,11 @@ export function ScoreHero({ card }: { card: ScorecardView }) {
   );
 }
 
-/** Bronze < 70 · Silver 70–84 · Gold ≥ 85: three steps with their cash caps and a marker at his index. */
+/** Bronze < 70 · Silver 70–84 · Gold ≥ 85: three equal steps (so each cap reads whole under its own step) with their cash caps and a marker at his index. */
 function TierLadder({ tier, index }: { tier: Tier; index: number }) {
   const theme = useTheme();
   const t = useT();
   const caps = AZIZIYAH_MONEY_RULES.caps.byRole.courier;
-  const steps: { tier: Tier; from: number; to: number }[] = [
-    { tier: 'bronze', from: 0, to: 70 },
-    { tier: 'silver', from: 70, to: 85 },
-    { tier: 'gold', from: 85, to: 100 },
-  ];
   const pop = useSharedValue(theme.reduceMotion ? 1 : 0);
   useEffect(() => {
     if (!theme.reduceMotion) pop.value = withDelay(500, withTiming(1, { duration: 360, easing: Easing.out(Easing.back(2)) }));
@@ -104,14 +99,14 @@ function TierLadder({ tier, index }: { tier: Tier; index: number }) {
   return (
     <View style={{ marginTop: theme.space[5], gap: theme.space[2] }}>
       <View style={{ height: 10, flexDirection: 'row', gap: 3 }}>
-        {steps.map((s) => (
-          <View key={s.tier} style={{ flex: s.to - s.from, borderRadius: 5, backgroundColor: s.tier === tier ? MEDAL[s.tier].ring : withAlpha(MEDAL[s.tier].ring, 0.28) }} />
+        {TIER_STEPS.map((s) => (
+          <View key={s.tier} style={{ flex: 1, borderRadius: 5, backgroundColor: s.tier === tier ? MEDAL[s.tier].ring : withAlpha(MEDAL[s.tier].ring, 0.28) }} />
         ))}
-        <Animated.View style={[{ position: 'absolute', top: -5, start: `${Math.max(2, Math.min(98, index))}%`, width: 20, height: 20, marginStart: -10, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 3, borderColor: theme.colors.text }, pos]} />
+        <Animated.View style={[{ position: 'absolute', top: -5, start: `${Math.max(2, Math.min(98, tierTrackShare(index) * 100))}%`, width: 20, height: 20, marginStart: -10, borderRadius: 10, backgroundColor: theme.colors.surface, borderWidth: 3, borderColor: theme.colors.text }, pos]} />
       </View>
       <View style={{ flexDirection: 'row', gap: 3 }}>
-        {steps.map((s) => (
-          <View key={s.tier} style={{ flex: s.to - s.from, alignItems: 'center' }}>
+        {TIER_STEPS.map((s) => (
+          <View key={s.tier} style={{ flex: 1, alignItems: 'center' }}>
             <Text variant="caption" weight={s.tier === tier ? 700 : 500} color={s.tier === tier ? 'text' : 'textMuted'} numberOfLines={1}>
               {t(`partner.tier_${s.tier}`)}
             </Text>

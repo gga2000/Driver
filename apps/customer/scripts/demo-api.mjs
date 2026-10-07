@@ -25,6 +25,8 @@
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
+//   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
+//                                                                     a booked ride, «عشاك يوصل وياك»
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -1593,6 +1595,163 @@ const rajaa = await (async () => {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
   });
+
+  // ───────────────────────── joy J7d: ride habits ─────────────────────────
+  //   POST /demo/ride-habits?personId=…   → {regularRideId, rideDate, regularRajaaId, rajaaDate, bookedOrderId, rajaaBookingId}
+  // Home and الدائرة saved (when missing); two taxi rides finished today, both rated 5 — حسين علي kept as
+  // a favourite, مصطفى جاسم offered as «خليه سايقك المفضل؟»; a الرجعة from Kut with جاسم rated 5 and kept,
+  // whose next car to Kut leaves the Gate 1 garage in about 75 minutes; two regular trips asking now —
+  // البيت ← الدائرة every day about 3 hours from now (with حسين), Aziziyah → Kut about an hour from now
+  // (with جاسم) — and the work trip's next day already booked (a ride for later, حسين asked first).
+  //   POST /demo/dinner?personId=…[&kind=rajaa]   → {orderId} | {bookingId}
+  // «عشاك يوصل وياك»: a taxi from الدائرة to البيت on the trip now (home and checkout offer dinner), or
+  // with kind=rajaa a seat from Kut to Aziziyah leaving in 30 minutes (its pass offers dinner).
+  {
+    const { RideHabitsService } = await load('modules/ride-habits/index.js');
+    const { DeparturesService: J7Departures, RoutesRpc: J7Routes } = await load('modules/routes/index.js');
+    const { SavedPlacesService: J7Places } = await load('modules/places/index.js');
+    const habits = app.get(RideHabitsService);
+    const j7deps = app.get(J7Departures);
+    const j7routes = app.get(J7Routes);
+    const j7places = app.get(J7Places);
+    const WORK = { lat: 32.9139, lng: 45.0603 };
+    const MIN = 60_000;
+    const MIN5 = 5 * MIN;
+    const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
+    const actor = (personId) => ({ personId, sessionId: 'demo' });
+    const at5 = (ms) => new Date(Math.ceil(ms / MIN5) * MIN5);
+    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+    const point = (p) => ({ zoneKey: p.zoneId, pin: p.pin, placeId: p.id });
+    /** Baghdad minutes since midnight of an instant. */
+    const minuteOfDay = (d) => {
+      const local = new Date(d.getTime() + 3 * 3_600_000);
+      return local.getUTCHours() * 60 + local.getUTCMinutes();
+    };
+    const nextDate = (date) => new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+    async function homeAndWork(personId) {
+      const mine = await j7places.mine(personId);
+      const home = mine.find((p) => p.label === 'home') ?? (await j7places.save(personId, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: HOME, photoIds: [], shareWithHousehold: false, clientRef: 'demo-j7d-home' }));
+      const work = mine.find((p) => p.label === 'work') ?? (await j7places.save(personId, { cityId: 'aziziyah', label: 'work', name: 'الدائرة', pin: WORK, photoIds: [], shareWithHousehold: false, clientRef: 'demo-j7d-work' }));
+      return { home, work };
+    }
+
+    /** A ride with that demo driver, driven to the end and rated. */
+    async function finishedRide(personId, driverName, from, to, stars) {
+      const d = (await ensureDrivers()).find((x) => x.def.name === driverName && !x.tripId);
+      if (!d) throw new Error(`demo driver ${driverName} is busy`);
+      const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: d.def.vehicle === 'tuktuk' ? 'tuktuk' : 'taxi', pickup: point(from), dropoff: point(to), paymentMethod: 'cash' });
+      const trip = await trips.activeForOrder(ride.id);
+      const { offerId } = await dispatch.override(dispatcher, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true });
+      await acceptOffer(d, offerId);
+      for (let i = 0; i < 3; i += 1) await advanceRide(ride.id);
+      await orders.rate(personId, { orderId: ride.id, delivery: stars });
+      return ride.id;
+    }
+
+    let j7seq = 0;
+    /** A named الرجعة driver with an approved photo (a fresh one per call: runs may not overlap). */
+    async function namedRajaaDriver(name) {
+      j7seq += 1;
+      const phone = `07716${String(770000 + j7seq).padStart(6, '0')}`;
+      await identity.requestOtp({ phone, purpose: 'login' });
+      const { code } = await identity.devLastOtp(phone);
+      const id = (await identity.verifyOtp({ phone, code })).personId;
+      await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'intercity_driver' });
+      await identity.setName({ personId: id, sessionId: 'demo' }, name);
+      await giveMainPhoto(id, `rajaa:j7d:${j7seq}`);
+      return id;
+    }
+
+    /** A whole Kut → Aziziyah trip with that driver, arrived and rated 5. */
+    async function rajaaTripDone(personId, driverId) {
+      const departAt = at5(Date.now() + 10 * MIN);
+      const dep = await j7deps.announce(driverId, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+      const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await j7deps.book(personId, held.id, 'cash');
+      await j7deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+      for (const seatId of ['front', 'back_left', 'back_middle']) await j7deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
+      await j7deps.checkIn(driverId, dep.id, booked.pin);
+      await j7deps.depart(driverId, dep.id);
+      await j7deps.arrive(driverId, dep.id);
+      await j7routes.rateBooking(actor(personId), { bookingId: booked.id, stars: 5, tags: [] });
+      return booked.id;
+    }
+
+    app.use('/demo/ride-habits', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/ride-habits?personId=…' });
+        const a = actor(personId);
+        const { home, work } = await homeAndWork(personId);
+        const first = await finishedRide(personId, 'حسين علي', home, work, 5);
+        await habits.favourite(a, { orderId: first, on: true });
+        await finishedRide(personId, 'مصطفى جاسم', work, home, 5);
+        const jasim = await namedRajaaDriver('جاسم محمد');
+        const rajaaBookingId = await rajaaTripDone(personId, jasim);
+        const favs = await habits.favourite(a, { bookingId: rajaaBookingId, on: true });
+        const next = at5(Date.now() + 75 * MIN);
+        await j7deps.announce(jasim, { garageId: 'mp_garage_bab1', corridorId: 'aziziyah_kut', departAt: next, latestDepartureAt: new Date(next.getTime() + 30 * MIN), vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+        const favTaxi = favs.find((f) => f.kinds.includes('taxi')) ?? null;
+        const favRajaa = favs.find((f) => f.kinds.includes('intercity')) ?? null;
+        const everyDay = [0, 1, 2, 3, 4, 5, 6];
+        const rideTrip = await habits.regularSave(a, {
+          days: everyDay,
+          timeMin: minuteOfDay(at5(Date.now() + 3 * 3_600_000)),
+          remind: 'evening',
+          paymentMethod: 'cash',
+          favouriteId: favTaxi?.id ?? null,
+          active: true,
+          plan: { kind: 'ride', rideVertical: 'taxi', pickup: { ...point(home), label: home.name }, dropoff: { ...point(work), label: work.name }, doorPickup: false },
+        });
+        const rajaaTrip = await habits.regularSave(a, {
+          days: everyDay,
+          timeMin: minuteOfDay(at5(Date.now() + 60 * MIN)),
+          remind: 'evening',
+          paymentMethod: 'cash',
+          favouriteId: favRajaa?.id ?? null,
+          active: true,
+          plan: { kind: 'rajaa', corridorId: 'aziziyah_kut', direction: 'from_aziziyah', garageId: 'mp_garage_bab1', travellingAs: 'rijal' },
+        });
+        // The work trip's next day, booked already: a ride for later with حسين asked first.
+        const bookDate = nextDate(rideTrip.next.date);
+        const occ = await habits.occurrence(a, { id: rideTrip.id, date: bookDate });
+        const booked = await habits.confirm(a, { id: rideTrip.id, date: bookDate, fareIqd: occ.ride.fareIqd, clientRequestId: `demo-j7d-${Date.now().toString(36)}` });
+        json(res, 200, { regularRideId: rideTrip.id, rideDate: rideTrip.next.date, regularRajaaId: rajaaTrip.id, rajaaDate: rajaaTrip.next.date, bookedOrderId: booked.occurrence.orderId, rajaaBookingId });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+
+    app.use('/demo/dinner', async (req, res) => {
+      try {
+        const url = new URL(req.url ?? '/', 'http://x');
+        const personId = url.searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/dinner?personId=…[&kind=rajaa]' });
+        const { home, work } = await homeAndWork(personId);
+        if (url.searchParams.get('kind') === 'rajaa') {
+          const driverId = await namedRajaaDriver('ليث حسن');
+          const departAt = at5(Date.now() + 30 * MIN);
+          const dep = await j7deps.announce(driverId, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('60412 واسط', 'كامري', 'بيضاء'), familyOnly: false });
+          const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+          const booked = await j7deps.book(personId, held.id, 'cash');
+          return json(res, 200, { bookingId: booked.id });
+        }
+        // Not the two drivers /demo/ride-habits rides with, so both hooks can run in any order.
+        const d = (await ensureDrivers()).find((x) => !x.tripId && x.def.vehicle === 'car' && !['حسين علي', 'مصطفى جاسم'].includes(x.def.name));
+        if (!d) throw new Error('no free demo taxi');
+        const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', pickup: point(work), dropoff: point(home), paymentMethod: 'cash' });
+        const trip = await trips.activeForOrder(ride.id);
+        const { offerId } = await dispatch.override(dispatcher, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true });
+        await acceptOffer(d, offerId);
+        await advanceRide(ride.id); // at the pickup
+        await advanceRide(ride.id); // on the trip, driving home
+        json(res, 200, { orderId: ride.id });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+  }
 }
 
 // ───────────────────────── joy J7b: gifts and invitations ─────────────────────────

@@ -27,6 +27,7 @@ import {
   rangeLabel,
   shortRef,
   startOfLocalDay,
+  tierTrackShare,
 } from './logic';
 
 const t = createT('ar-IQ');
@@ -157,6 +158,17 @@ describe('scorecard', () => {
     expect(nextTierProgress(81, 40)).toEqual({ key: 'partner.score_next_gold', points: 4 });
     expect(nextTierProgress(90, 40)).toEqual({ key: 'partner.score_gold_trips', points: 0 });
     expect(nextTierProgress(90, 140)).toBeNull();
+  });
+
+  it('puts the index on a track of three equal tier steps', () => {
+    expect(tierTrackShare(0)).toBe(0);
+    expect(tierTrackShare(35)).toBeCloseTo(1 / 6);
+    expect(tierTrackShare(70)).toBeCloseTo(1 / 3);
+    expect(tierTrackShare(77.5)).toBeCloseTo(1 / 2);
+    expect(tierTrackShare(85)).toBeCloseTo(2 / 3);
+    expect(tierTrackShare(100)).toBe(1);
+    expect(tierTrackShare(-5)).toBe(0);
+    expect(tierTrackShare(120)).toBe(1);
   });
 
   it('counts month one: day n of 30 and the days until day 31', () => {
