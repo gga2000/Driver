@@ -4,10 +4,11 @@ import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, wi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
+import { Avatar, Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
+import { apiPhoto } from '@/lib/photo';
 import { amountParam, iqd } from '@/lib/money';
 import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
@@ -21,6 +22,7 @@ import { ChangeCreditStrip } from './ChangeCredited';
 import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { disputeKindFor, lowReasons, ratingBranch } from './rating-logic';
+import { ComplimentCard } from './Compliments';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
@@ -105,6 +107,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
         </View>
+        {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
+        {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}
         <FirstMoment kind={first} />
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
         {ride ? (
@@ -134,6 +138,21 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onLater} />
       </View>
     </Animated.View>
+  );
+}
+
+/** «حيدر وصّلك طلبك» with his approved photo (or his initial) under the delivered title. */
+function ArrivedWith({ courier }: { courier: NonNullable<OrderTracking['courier']> }) {
+  const theme = useTheme();
+  const t = useT();
+  const name = courier.firstName ?? t('track.courier_fallback');
+  return (
+    <View testID="arrival-courier" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2], paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+      <Avatar name={name} uri={apiPhoto(courier.photoUrl) ?? undefined} size={40} />
+      <Text variant="label" weight={600}>
+        {t('track.arrived_courier', { name })}
+      </Text>
+    </View>
   );
 }
 
@@ -363,6 +382,8 @@ export function RatingPanel({ view, onDone }: { view: OrderTracking; onDone: () 
             </View>
           ) : null}
           <PointsEarned points={view.pointsEarned} />
+          {/* Joy l4: kind words for him first, then the tip offer exactly as before (rating → tip). */}
+          <ComplimentCard orderId={view.order.id} name={name} enabled={!complained && goodRating} />
           <TipOffer orderId={view.order.id} name={name} enabled={!complained && goodRating} />
         </View>
       )}
