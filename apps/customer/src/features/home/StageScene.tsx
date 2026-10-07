@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react';
-import { View } from 'react-native';
+import { I18nManager, Platform, View } from 'react-native';
 import Animated, { FadeIn, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import { Ink, Shape, SKETCH as K, Steam, circleD, ellipseD, useMotionPresets, useTheme } from '@driver/ui';
@@ -54,11 +54,21 @@ export function StageScene({ stage, clock, plate, arrived }: { stage: LiveStage;
   );
 }
 
+/**
+ * The pictures aren't mirrored, so their parts sit at spots measured from the physical left. Native RTL
+ * reads `left` as the start side (the right) and `right` as the end side (the left), so there the same
+ * spot is written as `right`; the web keeps `left` as the left.
+ */
+const SWAPPED = Platform.OS !== 'web' && I18nManager.isRTL && I18nManager.doLeftAndRightSwapInRTL;
+function fromLeft(x: number): { left: number } | { right: number } {
+  return SWAPPED ? { right: x } : { left: x };
+}
+
 /** One moving part: an SVG cut to `box` of the picture's square, so its transform turns and scales it about its own middle. */
 function Part({ box, style, children }: { box: Box; style?: MotionStyle; children: ReactNode }) {
   const [x, y, w, h] = box;
   return (
-    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: x, top: y, width: w, height: h }, style]}>
+    <Animated.View pointerEvents="none" style={[{ position: 'absolute', ...fromLeft(x), top: y, width: w, height: h }, style]}>
       <Svg width={w} height={h} viewBox={`${x} ${y} ${w} ${h}`}>
         {children}
       </Svg>
@@ -168,7 +178,7 @@ function SlipStamped({ clock, arrived }: { clock: Clock; arrived: boolean }) {
         <Circle cx={32} cy={36} r={10} fill="none" stroke={K.saffron} strokeWidth={2} />
       </Part>
       {/* The stamp lands (once, when the kitchen says yes), then presses again now and then. */}
-      <Animated.View entering={arrived ? presets.pop(theme.motion.duration.deliberate) : undefined} style={{ position: 'absolute', left: 21, top: 25, width: 22, height: 22 }}>
+      <Animated.View entering={arrived ? presets.pop(theme.motion.duration.deliberate) : undefined} style={{ position: 'absolute', ...fromLeft(21), top: 25, width: 22, height: 22 }}>
         <Animated.View style={stamp}>
           <Svg width={22} height={22} viewBox="21 25 22 22">
             <Shape d={circleD(32, 36, 9)} fill={K.saffron} w={W} />
@@ -285,7 +295,7 @@ function Sparkle({ x, y, size, period, at, clock }: { x: number; y: number; size
     return { opacity: 0.3 + 0.7 * k, transform: [{ scale: 0.65 + 0.35 * k }] };
   });
   return (
-    <Animated.View style={[{ position: 'absolute', left: x, top: y, width: size, height: size }, twinkle]}>
+    <Animated.View style={[{ position: 'absolute', ...fromLeft(x), top: y, width: size, height: size }, twinkle]}>
       <Svg width={size} height={size} viewBox="0 0 10 10">
         <Path d={STAR_D} fill={K.fried} />
       </Svg>
