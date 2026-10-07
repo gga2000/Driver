@@ -8,6 +8,7 @@ import { Avatar, Button, Chip, DepartureTime, Icon, IconButton, SlideToConfirm, 
 import { childrenCount } from '@/features/intercity/labels';
 import { clockLabel } from '@/features/intercity/logic';
 import { zoneName } from '@/features/work/logic';
+import { CALLS_LIVE } from '@/features/chat/calls';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { canReportAbsent, childAction, deliveredShare, lookPauseLeft, runChips, type KhatPlace } from './logic';
@@ -343,7 +344,7 @@ function ChildRow({
           ) : null}
         </View>
         {onCall ? (
-          <IconButton testID={`khat-call-${stop.stopId}`} icon="phone" variant="tonal" size={44} accessibilityLabel={t('partner.kh2_call_guardian', { name })} onPress={onCall} disabled={calling} />
+          <IconButton testID={`khat-call-${stop.stopId}`} icon="phone" variant="tonal" size={44} accessibilityLabel={CALLS_LIVE ? t('partner.kh2_call_guardian', { name }) : `${t('partner.kh2_call_guardian', { name })} · ${t('soon.badge')}`} onPress={onCall} disabled={calling} style={CALLS_LIVE ? undefined : { opacity: 0.45 }} />
         ) : null}
         {action === 'tap_in' || action === 'tap_out' ? (
           <TapButton kind={action} emphasise={emphasise} busy={busy} onPress={onTap} testID={`khat-tap-${stop.stopId}`} />

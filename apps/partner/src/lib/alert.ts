@@ -90,6 +90,23 @@ export function playNudgeChime(): void {
   buzz(NUDGE_VIBRATION);
 }
 
+/** A chat message on the job (partner redesign o15): two quick high pips, unlike offer and nudge. */
+export const CHAT_VIBRATION = [0, 80, 80, 80];
+export function playChatPing(): void {
+  const c = audio();
+  if (c) {
+    try {
+      if (c.state === 'suspended') void c.resume?.();
+      const t = c.currentTime + 0.01;
+      tone(c, 1568, t, 0.09, 0.3);
+      tone(c, 1568, t + 0.15, 0.12, 0.3);
+    } catch {
+      /* audio blocked until the first tap: the badge still shows it */
+    }
+  }
+  buzz(CHAT_VIBRATION);
+}
+
 function buzz(pattern: number[]) {
   const nav = (globalThis as { navigator?: { vibrate?: (p: number[] | number) => boolean } }).navigator;
   try {

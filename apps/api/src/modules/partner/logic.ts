@@ -1,6 +1,8 @@
-import { CAP_WARN_SHARE } from '@driver/contracts';
+import { AZIZIYAH_LANDMARKS, CAP_WARN_SHARE, climateShiftAt } from '@driver/contracts';
 import type {
+  ClimateFeature,
   ErrorCode,
+  LatLng,
   Order,
   PartnerDemand,
   PartnerMerchantPrep,
@@ -9,6 +11,7 @@ import type {
   PartnerPayComponent,
   PartnerPayKey,
   QuoteComponent,
+  VehicleClass,
   Vertical,
 } from '@driver/contracts';
 
@@ -211,4 +214,33 @@ export function gateAllowsHeartbeat(gate: PartnerOnlineGate, alreadyOnline: bool
   if (gate.canGoOnline) return true;
   const localHour = new Date(now.getTime() + offsetMin * 60_000).getUTCHours();
   return alreadyOnline && localHour < MIDNIGHT_GRACE_UNTIL_HOUR && gate.reasons.every((r) => r.code === 'checkin_required');
+}
+
+/** o7: how far a landmark may be from a stop and still name it («يم …»). */
+export const OFFER_LANDMARK_MAX_KM = 0.6;
+
+/**
+ * Partner redesign o7: the town landmark nearest a stop (garages and meeting points, public places
+ * only), its Arabic name; null when none is within `OFFER_LANDMARK_MAX_KM`.
+ */
+export function nearestLandmark(at: LatLng | null, landmarks: readonly { name_ar: string; lat: number; lng: number }[] = AZIZIYAH_LANDMARKS): string | null {
+  if (!at) return null;
+  let best: { name: string; km: number } | null = null;
+  for (const l of landmarks) {
+    const d = kmBetween(at, l);
+    if (d <= OFFER_LANDMARK_MAX_KM && (!best || d < best.km)) best = { name: l.name_ar, km: d };
+  }
+  return best?.name ?? null;
+}
+
+/** o12: the vehicles a taxi rider expects AC (heating) in. */
+const CLIMATE_VEHICLES: ReadonlySet<VehicleClass> = new Set(['car', 'suv', 'van']);
+
+/**
+ * Partner redesign o12: the climate a taxi slip names on a hot (cold) day, the same shifts ride idea x1
+ * routes by; null for other services, other vehicles and mild days.
+ */
+export function offerClimate(vertical: Vertical, vehicle: VehicleClass | null, at: Date): ClimateFeature | null {
+  if (vertical !== 'taxi' || !vehicle || !CLIMATE_VEHICLES.has(vehicle)) return null;
+  return climateShiftAt(at)?.feature ?? null;
 }

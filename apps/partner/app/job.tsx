@@ -8,6 +8,8 @@ import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, Sl
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
+import { CALLS_LIVE } from '@/features/chat/calls';
+import { useChatPing } from '@/features/chat/useChatPing';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
@@ -365,11 +367,18 @@ function JobView({
   const threads = useChatThreads(orderId, Boolean(orderId));
   const customerThread = threadOf(threads.data, 'customer_courier');
   const kitchenThread = threadOf(threads.data, 'merchant_courier');
+  useChatPing(threads.data);
   const atKitchen = !ride && stop?.type === 'pickup' && Boolean(kitchenThread);
   const customerCall = useMaskedCall(orderId, 'customer_courier', ride);
   const kitchenCall = useMaskedCall(orderId, 'merchant_courier', ride);
-  const call = () => void (atKitchen ? kitchenCall.call() : customerCall.call());
   const openChat = (kind: 'customer_courier' | 'merchant_courier') => router.push({ pathname: '/chat/[orderId]', params: { orderId, kind } });
+  // G0-10 «Chat first»: no calls at launch — the greyed button says so and opens the chat instead.
+  const callSoon = () => {
+    toast.show({ message: t('partner.call_soon_toast'), tone: 'info', icon: 'chat' });
+    if (atKitchen && kitchenThread) openChat('merchant_courier');
+    else if (customerThread) openChat('customer_courier');
+  };
+  const call = () => (CALLS_LIVE ? void (atKitchen ? kitchenCall.call() : customerCall.call()) : callSoon());
   // Maps program d3: his navigation app; the first time, he picks it.
   const navigate = (app: NavApp) => {
     if (stop?.pin) void openNav(app, stop.pin).catch(() => void Linking.openURL(mapsUrl(stop.pin!)).catch(() => undefined));
@@ -529,11 +538,11 @@ function JobView({
               ) : null}
 
               {/* Maps program f6, a5: the saved place's door photos and note, and "call first" on a first visit. */}
-              {stop.type === 'dropoff' && stop.door ? <DoorCard door={stop.door} arrived={stop.state === 'arrived'} onCall={() => void customerCall.call()} stopId={stop.stopId} /> : null}
+              {stop.type === 'dropoff' && stop.door ? <DoorCard door={stop.door} arrived={stop.state === 'arrived'} onCall={() => (CALLS_LIVE ? void customerCall.call() : customerThread ? openChat('customer_courier') : callSoon())} callsLive={CALLS_LIVE} stopId={stop.stopId} /> : null}
 
               <View style={{ flexDirection: 'row', gap: theme.space[3] }}>
                 {/* c9: on a ride booked for someone else the call goes to the rider, and says so. */}
-                <QuickAction icon="phone" label={ride && stop.rider ? t('partner.call_rider') : t('partner.call')} onPress={call} disabled={!orderId} testID="job-call" />
+                <QuickAction icon="phone" label={ride && stop.rider ? t('partner.call_rider') : t('partner.call')} onPress={call} disabled={!orderId} soon={CALLS_LIVE ? undefined : t('soon.badge')} testID="job-call" />
                 <QuickAction icon="chat" label={ride ? t('partner.message') : t('chat.role.customer')} badge={customerThread?.unread ?? 0} onPress={() => openChat('customer_courier')} disabled={!customerThread} testID="job-chat" />
                 {kitchenThread ? <QuickAction icon="bag" label={t('partner.message_merchant')} badge={kitchenThread.unread} onPress={() => openChat('merchant_courier')} testID="job-chat-merchant" /> : null}
                 <QuickAction icon="map-pin" label={t('partner.open_maps')} onPress={openMaps} testID="job-maps" />
@@ -687,6 +696,7 @@ function QuickAction({
   testID,
   badge = 0,
   disabled,
+  soon,
 }: {
   icon: IconName;
   label: string;
@@ -694,25 +704,34 @@ function QuickAction({
   testID: string;
   badge?: number;
   disabled?: boolean;
+  /** Greyed with this tag («قريباً») but still tappable: it says why and offers another way. */
+  soon?: string;
 }) {
   const theme = useTheme();
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={badge > 0 ? `${label} · ${badge}` : label}
+      accessibilityLabel={badge > 0 ? `${label} · ${badge}` : soon ? `${label} · ${soon}` : label}
       accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={{ flex: 1, alignItems: 'center', gap: 4, paddingVertical: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken, opacity: disabled ? 0.5 : 1 }}
     >
       <View>
-        <Icon name={icon} size={22} color="text" strokeWidth={2} />
+        <Icon name={icon} size={22} color={soon ? 'textMuted' : 'text'} strokeWidth={2} />
         {badge > 0 ? <Badge count={badge} style={{ position: 'absolute', top: -8, end: -14 }} /> : null}
       </View>
-      <Text variant="caption" weight={600}>
+      <Text variant="caption" weight={600} color={soon ? 'textMuted' : 'text'}>
         {label}
       </Text>
+      {soon ? (
+        <View style={{ position: 'absolute', top: 4, end: 4, borderRadius: 999, paddingHorizontal: 6, backgroundColor: theme.colors.surface }}>
+          <Text variant="caption" weight={700} color="textMuted" style={{ fontSize: 10, lineHeight: 16 }}>
+            {soon}
+          </Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }

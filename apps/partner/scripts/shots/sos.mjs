@@ -77,7 +77,7 @@ export default async function run(s) {
   const tk = await s.signIn('0770 111 0002');
   await s.demoPost('/demo/offer?who=tuktuk&kind=ride');
   await tk.wait('offer', 15_000);
-  await tk.byTestId('offer-accept').click();
+  await tk.hold('offer-accept');
   await tk.page.waitForTimeout(1200);
   await tk.goto('/job');
   await tk.wait('job-action');

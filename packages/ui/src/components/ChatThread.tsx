@@ -93,6 +93,11 @@ export interface ChatThreadProps {
   /** Masked call (see `useMaskedCall`). */
   call: () => void;
   calling: boolean;
+  /**
+   * Calls not live yet (G0-10 «Chat first»): the header's call shows greyed with this tag («قريباً»);
+   * a tap still runs `call`, which says why. Absent = the normal call button.
+   */
+  callSoon?: string;
   onBack: () => void;
   /** The API error's copy in this locale, or `fallback`. */
   errorMessage: (err: unknown, fallback: string) => string;
@@ -131,6 +136,7 @@ export function ChatThread({
   refresh,
   call,
   calling,
+  callSoon,
   onBack,
   errorMessage,
   errorCode,
@@ -420,7 +426,22 @@ export function ChatThread({
                 <Skeleton width={140} height={20} />
               )}
             </View>
-            {v?.canCall ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" /> : null}
+            {v?.canCall && callSoon ? (
+              <Pressable
+                testID="chat-call"
+                accessibilityRole="button"
+                accessibilityLabel={`${t('chat.call')} · ${callSoon}`}
+                onPress={call}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: theme.hitTarget, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}
+              >
+                <Icon name="phone" size={18} color="textMuted" strokeWidth={2} />
+                <Text variant="caption" weight={700} color="textMuted">
+                  {callSoon}
+                </Text>
+              </Pressable>
+            ) : v?.canCall ? (
+              <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" />
+            ) : null}
           </View>
         </View>
 

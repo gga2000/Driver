@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Switch, View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
 import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
@@ -9,6 +9,7 @@ import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
 import { unregisterPush } from '@/features/notify/Push';
 import { navAppName, NavChooser } from '@/features/work/JobSheets';
+import { setSpeakOffers, useSpeakOffers } from '@/features/offer/speak';
 import { setNavApp, useNavApp } from '@/features/work/nav';
 import { useMe, useStatus } from '@/features/work/queries';
 import { mainPhotoStatus } from '@/features/account/logic';
@@ -40,6 +41,7 @@ interface HubRow {
 export default function Account() {
   const theme = useTheme();
   const nav = useNavApp();
+  const speak = useSpeakOffers();
   const [choosingNav, setChoosingNav] = useState(false);
   const t = useT();
   const me = useMe().data;
@@ -154,6 +156,25 @@ export default function Account() {
             subtitle={t('partner.test_sound_sub')}
             chevron={false}
             trailing={<Button testID="test-sound-play" label={t('partner.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void testSound()} />}
+            divider
+          />
+          {/* o4: the order read aloud as it lands, on by default. */}
+          <ListRow
+            testID="speak-offers"
+            leading="volume"
+            title={t('partner.speak_setting')}
+            subtitle={t('partner.speak_setting_sub')}
+            chevron={false}
+            trailing={
+              <Switch
+                testID="speak-offers-switch"
+                value={speak.on}
+                onValueChange={(v) => void setSpeakOffers(v)}
+                accessibilityLabel={t('partner.speak_setting')}
+                trackColor={{ false: theme.colors.borderStrong, true: theme.colors.accent }}
+                thumbColor={theme.colors.surface}
+              />
+            }
             divider
           />
           {/* Maps program d3: Google Maps or Waze for "الخريطة". */}

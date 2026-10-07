@@ -12,7 +12,7 @@ import { PhotoStrip, PhotoViewer } from './PlacePhotos';
  * couriers' arrivals agree (the stop's pin is then that door). The photo opens full screen
  * by itself once when he arrives (the moment he is looking for the door), and on a tap any time.
  */
-export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor; arrived: boolean; onCall: () => void; stopId: string }) {
+export function DoorCard({ door, arrived, onCall, callsLive = true, stopId }: { door: PartnerDoor; arrived: boolean; onCall: () => void; /** G0-10: with calls off, the first-visit line asks for a message instead. */ callsLive?: boolean; stopId: string }) {
   const theme = useTheme();
   const t = useT();
   const [open, setOpen] = useState<number | null>(null);
@@ -28,16 +28,16 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
     <View style={{ gap: theme.space[3] }} testID="job-door">
       {door.firstVisit && !arrived ? (
         <View testID="job-first-visit" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-          <Icon name="phone" size={20} color="warningText" />
+          <Icon name={callsLive ? 'phone' : 'chat'} size={20} color="warningText" />
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="label" weight={700} color="warningText">
               {t('partner.door_first_visit')}
             </Text>
             <Text variant="caption" color="textMuted">
-              {t('partner.door_first_visit_hint')}
+              {t(callsLive ? 'partner.door_first_visit_hint' : 'partner.door_first_visit_hint_chat')}
             </Text>
           </View>
-          <Button label={t('partner.call')} size="sm" variant="secondary" onPress={onCall} testID="job-first-visit-call" />
+          <Button label={t(callsLive ? 'partner.call' : 'partner.message_short')} icon={callsLive ? undefined : 'chat'} size="sm" variant="secondary" onPress={onCall} testID="job-first-visit-call" />
         </View>
       ) : null}
 

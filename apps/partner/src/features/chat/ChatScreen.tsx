@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import type { ChatThreadKind } from '@driver/contracts';
-import { ChatThread } from '@driver/ui';
+import { ChatThread, useToast } from '@driver/ui';
 import { absoluteUrl, pickPhoto, uploadPhoto } from '@/features/account/photo';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
+import { CALLS_LIVE } from './calls';
 import { useChatActions, useChatThread } from './queries';
 import { useChatVoice } from './useChatVoice';
 import { useMaskedCall } from './useMaskedCall';
@@ -23,6 +24,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
   const actions = useChatActions(orderId, kind);
   const { call, busy } = useMaskedCall(orderId, kind, thread.data?.ride ?? false);
   const voice = useChatVoice(orderId, kind);
+  const toast = useToast();
   return (
     <ChatThread
       orderId={orderId}
@@ -34,8 +36,10 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       send={(input) => actions.send.mutateAsync(input)}
       markRead={(seq) => actions.markRead.mutate({ orderId, kind, seq })}
       refresh={actions.refresh}
-      call={() => void call()}
+      // G0-10 «Chat first»: the call shows greyed «قريباً»; a tap says the chat is the way for now.
+      call={() => (CALLS_LIVE ? void call() : toast.show({ message: t('partner.call_soon_toast'), tone: 'info', icon: 'chat' }))}
       calling={busy}
+      callSoon={CALLS_LIVE ? undefined : t('soon.badge')}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/job'))}
       errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)}
       errorCode={apiErrorCode}
