@@ -131,7 +131,10 @@ const wait: ComponentRule = {
   label_en: 'Waiting',
   driverShareRule: 'driver_full',
   visibility: 'shown',
-  perUnit: 250, // IQD per minute (3 free, then 250/5 min — the free window is applied by the trips module)
+  // IQD per paid minute after the 3 free ones (the engine bills perUnit × waitMinutes). Nothing charges
+  // waiting yet (every caller passes waitMinutes: 0) and the customer app promises no paid wait until
+  // Ali sets the number (price sheet #30).
+  perUnit: 250,
 };
 const rideNight: ComponentRule = {
   key: 'night',
