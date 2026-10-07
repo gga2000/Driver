@@ -140,7 +140,9 @@ describe('request board: the detailed request (y1), «شافوا طلبك» (y4)
     const o = (await h.requests.get(r.id))!.offers[0]!;
     h.wallet.set('r1', 20_000);
     await h.requests.pick('r1', r.id, o.id);
-    await h.requests.seen('d3', r.id);
+    // Once matched, a driver who never offered can't read it; one who offered still can, and isn't recounted.
+    expect(await code(h.requests.seen('d3', r.id))).toBe('request_not_found');
+    expect((await h.requests.seen('d2', r.id)).state).toBe('matched');
     expect((await h.requests.get(r.id))!.seenDriverIds).toEqual(['d1', 'd2']);
   });
 

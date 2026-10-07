@@ -39,7 +39,7 @@ All of it is computed on the server (`apps/api/src/modules/routes/reputation.ts`
 - `routes.rate({ bookingId, stars, tags, comment? })` — `comment` trimmed, ≤ 140, refused with
   `review_contact_info` when it holds 7+ digits (Arabic-Indic too), a link or an @handle. Emits `seat.rated`.
 - Support and admin (`REVIEW_MODERATION_ROLES`): `routes.ops.reviews({ hidden?, limit, cursor })` newest
-  first (the writer's first name is read from the vault, purpose `review_moderation`);
+  first (the rated driver's first name is read from the vault, purpose `review_moderation`; the rider who wrote it is never named);
   `routes.ops.hideReview({ bookingId, reason })` with reason `rude | personal_info | not_about_trip | untrue`
   and `routes.ops.unhideReview({ bookingId })`. Hiding keeps the text; both emit `review.hidden` /
   `review.unhidden`. Console page: «كلام الركاب» (`/reviews`).

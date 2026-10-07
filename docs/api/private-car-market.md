@@ -22,6 +22,10 @@ rows from before read as one way.
 `requestBoard.seen({postId})` (drivers): the partner app calls it when a driver opens a request.
 Counted once per driver while the request is open; an offer counts too. Stored as ids in
 `ride_requests.seen_driver_ids`. Only the rider's view has `seenBy`; a driver's view says 0.
+Once the request is no longer open, only a driver who offered on it may read it; anyone else gets
+`request_not_found`. Like every request write, `seen` runs under the routes writer (in-process mutex
+plus the transaction's advisory lock, taken before the read), so it cannot write «open» back over a
+pick; `routes.integration.test.ts` races it against a pick from a second writer.
 
 ## Offer cards (y5)
 Each offer's `driver` (rider's view only) now also carries `stats` (the same record as on his seat
