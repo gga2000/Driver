@@ -482,6 +482,17 @@ describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
     const w = await world();
     expect(await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا'], limit: 3 })).toEqual([]);
   });
+
+  it('says which dishes a card can add in one tap: none of their option groups asks for a choice', async () => {
+    const w = await world();
+    const khalid = w.byKey('khalid');
+    const picks = await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب', 'كبد'], limit: 12 });
+    // «كباب بالكيلو» asks half a kilo or a kilo; «وجبة كبد» has nothing to choose.
+    expect(picks.find((d) => d.id === khalid.itemIds.get('kebab_kilo'))).toMatchObject({ quickAdd: false });
+    expect(picks.find((d) => d.id === khalid.itemIds.get('liver_plate'))).toMatchObject({ quickAdd: true });
+    const found = await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب بالكيلو' });
+    expect(found.dishes.find((d) => d.id === khalid.itemIds.get('kebab_kilo'))).toMatchObject({ quickAdd: false });
+  });
 });
 
 describe('search.unmet (joy h4: what the town asks for that nobody serves yet)', () => {

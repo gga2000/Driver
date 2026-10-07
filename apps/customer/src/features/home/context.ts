@@ -3,9 +3,10 @@
  * shows — the order or ride in progress, a booked الرجعة seat (both, in the rare case of both) —
  * and only when nothing is, ONE card: «غدا الجمعة» when a Friday usual can be booked (joy s3), else
  * «طلبك المعتاد؟» when a usual fits the hour, else "اطلبه مرة ثانية" for the last delivered meal,
- * otherwise the الرجعة board (cars leaving for Aziziyah).
+ * otherwise none: the Baghdad/Kut and الرجعة tiles above already show the next cars (Date & Saffron,
+ * Ali 2026-10-06: no second الرجعة card under its tile).
  */
-export type HomeContext = 'active' | 'rajaa_trip' | 'friday' | 'usual' | 'reorder' | 'rajaa';
+export type HomeContext = 'active' | 'rajaa_trip' | 'friday' | 'usual' | 'reorder';
 
 export function homeContext(input: { active: boolean; rajaaTrip: boolean; reorder: boolean; friday?: boolean; usual?: boolean }): HomeContext[] {
   const now: HomeContext[] = [];
@@ -14,5 +15,5 @@ export function homeContext(input: { active: boolean; rajaaTrip: boolean; reorde
   if (now.length > 0) return now;
   if (input.friday) return ['friday'];
   if (input.usual) return ['usual'];
-  return [input.reorder ? 'reorder' : 'rajaa'];
+  return input.reorder ? ['reorder'] : [];
 }
