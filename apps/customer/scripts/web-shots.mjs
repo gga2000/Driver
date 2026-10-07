@@ -56,11 +56,11 @@
 //            time picked), the summary and «احجز لـ …», «مشوارك محجوز» with the reminder, the booked rides
 //            in طلباتي and the free cancel, the «نفس مشوار البارحة» switch, and the push's link landing
 //            on choose with both ends filled           POST /demo/ride-habits, /demo/same-ride
-//   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
-//            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 //   rajaa-taxi-* taxi ideas x2/x3/x4: the dev preview of the الرجعة taxi cards in every state (one shot per
 //            card, plus the page), the live cards on the demo's seats, and the late notice on the live
 //            ride screen of a taxi to a car                                POST /demo/rajaa-taxi
+//   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
+//            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
