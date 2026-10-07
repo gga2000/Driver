@@ -18,3 +18,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009090000 | scheduled_timers | lane B | #13 |
 | 20261009091000 | quote retention index | lane B | #13 |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
+| 20261010081000 | gift_recipient_vault | lane A | W1 small-fixes PR |
