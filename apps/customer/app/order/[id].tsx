@@ -15,6 +15,7 @@ import { freeCancelLeftSec, standsAwayM, switchOfferDue, tripProgress, type Ride
 import { isBookedRide } from '@/features/ride-habits/logic';
 import { NightShareCard, TRIP_PROGRESS_H, TripProgress } from '@/features/ride/TripParts';
 import { RiderFollowCard } from '@/features/ride/RiderParts';
+import { GarageLateNotice } from '@/features/ride/GarageLateNotice';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
@@ -575,6 +576,8 @@ export default function OrderLiveScreen() {
               </View>
             ) : null}
             {riderFor && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <RiderFollowCard name={riderFor} /> : null}
+            {/* x3: a taxi we booked to his الرجعة car that would bring him after the car's time. */}
+            {ride && (phase === 'searching' || phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? <GarageLateNotice orderId={id} /> : null}
             {ride && night && v.courier && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way') ? (
               <NightShareCard shared={Boolean(shareLink && !shareLink.revokedAt)} onShare={() => void share()} />
             ) : null}

@@ -39,6 +39,7 @@ export * from './catalog-io.js';
 export * from './habits-io.js';
 export * from './ride-habits-io.js';
 export * from './phone-booking-io.js';
+export * from './garage-taxi-io.js';
 export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';

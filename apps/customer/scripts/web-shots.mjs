@@ -58,6 +58,9 @@
 //            on choose with both ends filled           POST /demo/ride-habits, /demo/same-ride
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
+//   rajaa-taxi-* taxi ideas x2/x3/x4: the dev preview of the الرجعة taxi cards in every state (one shot per
+//            card, plus the page), the live cards on the demo's seats, and the late notice on the live
+//            ride screen of a taxi to a car                                POST /demo/rajaa-taxi
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -125,14 +128,15 @@ const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PRE
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
-// Taxi/tuktuk step 4: booked rides (c10) and the simple mode (v2); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple'];
+// Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
-/** Whether a flow runs / a file is written: by its group, the name's first segment. */
+/** Whether a flow runs / a file is written: by its group, the longest group name the file name starts with. */
 const wants = (group) => groups.has(group);
-const wanted = (name) => wants(name.split('-')[0]);
+const groupOf = (name) => known.filter((g) => name === g || name.startsWith(`${g}-`)).sort((a, b) => b.length - a.length)[0] ?? name.split('-')[0];
+const wanted = (name) => wants(groupOf(name));
 const shot = async (name) => {
   if (!wanted(name)) return;
   await settle();
@@ -260,6 +264,7 @@ try {
   if (wants('later')) await laterShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
+  if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
   if (wants('season')) await seasonShots(khalid);
   if (wants('family')) await familyShots(personId);
   if (wants('habits')) await habitsShots();
@@ -297,6 +302,59 @@ async function asOtherAccount(flow) {
     await page.goto(`${origin}/`, LOADED);
     await byTestId('home').waitFor({ timeout: 20_000 });
   }
+}
+
+/**
+ * Taxi ideas x2/x3/x4 (docs/api/rajaa-taxi.md): the dev-only preview route with every card state on
+ * sample data, one element shot per card; then the same route with the demo's seats (the live cards),
+ * and the live ride screen of the taxi that would bring him late to his car (the x3 notice).
+ */
+async function rajaaTaxiShots(personId) {
+  if (!personId) throw new Error('rajaa-taxi: no person');
+  const seed = await demoPost(`/demo/rajaa-taxi?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const cardShot = async (name, id) => {
+    if (!wanted(name)) return;
+    const el = byTestId(id);
+    await el.scrollIntoViewIfNeeded();
+    await settle(400);
+    const file = join(outDir, `${name}.png`);
+    await el.screenshot({ path: file });
+    console.log(file);
+  };
+  await page.goto(`${origin}/ride/garage-preview`, LOADED);
+  await byTestId('garage-preview').waitFor({ timeout: 20_000 });
+  await byTestId('pv-x4-error').waitFor({ timeout: 10_000 });
+  await shot('rajaa-taxi-preview');
+  await fullShot('rajaa-taxi-preview-full');
+  const states = {
+    x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
+    x3: ['not-told', 'told'],
+    x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
+  };
+  for (const [idea, keys] of Object.entries(states)) for (const key of keys) await cardShot(`rajaa-taxi-${idea}-${key}`, `pv-${idea}-${key}`);
+
+  // The live cards on the demo server's seats.
+  const q = Object.entries({ out: seed.outboundBookingId, ret: seed.returnBookingId, armed: seed.armedBookingId, placed: seed.placedBookingId, late: seed.lateOrderId })
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  await page.goto(`${origin}/ride/garage-preview?${q}`, LOADED);
+  await byTestId('garage-preview').waitFor({ timeout: 20_000 });
+  for (const id of ['live-x2-body', 'live-x4-body', 'live-x4-armed-body', 'live-x4-placed', 'live-x3']) {
+    await byTestId(id).waitFor({ timeout: 15_000 }).catch(() => errors.push(`rajaa-taxi: ${id} not shown`));
+  }
+  await cardShot('rajaa-taxi-live-x2', 'pv-live-x2');
+  await cardShot('rajaa-taxi-live-x4-off', 'pv-live-x4');
+  await cardShot('rajaa-taxi-live-x4-armed', 'pv-live-x4-armed');
+  await cardShot('rajaa-taxi-live-x4-placed', 'pv-live-x4-placed');
+  await cardShot('rajaa-taxi-live-x3', 'pv-live-x3');
+
+  // x3 where it lives: the taxi's own live screen.
+  await page.goto(`${origin}/order/${seed.lateOrderId}`, LOADED);
+  await byTestId('garage-late-notice').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: late notice not on the order screen'));
+  await byTestId('garage-late-notice').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('rajaa-taxi-order-late');
+  await fullShot('rajaa-taxi-order-late-full');
 }
 
 /**

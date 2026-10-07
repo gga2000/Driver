@@ -164,6 +164,11 @@ export const NotifyTemplateId = z.enum([
   'month_ready',
   'regular_trip_reminder',
   'ride_booked_reminder',
+  'garage_taxi_late',
+  'rajaa_rider_taxi_late',
+  'garage_taxi_placed',
+  'garage_taxi_dropped',
+  'garage_taxi_failed',
   'same_ride_offer',
   'same_ride_after_weekend',
 ]);
@@ -640,6 +645,52 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.ride_booked.title', body: 'push.ride_booked.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Taxi idea x3: the taxi we sent to his الرجعة car is running late — he hears the minutes and that
+  // the car's driver was told. His own trip, now: sent in quiet hours too.
+  garage_taxi_late: {
+    id: 'garage_taxi_late',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_late.title', body: 'push.garage_taxi_late.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x3, the الرجعة driver's side: his rider on seat X is coming in our taxi, N minutes late; opens the departure.
+  rajaa_rider_taxi_late: {
+    id: 'rajaa_rider_taxi_late',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.rajaa_rider_taxi_late.title', body: 'push.rajaa_rider_taxi_late.body', androidChannel: 'orders', deepLink: 'driver-partner://intercity/departure/{departureId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4 / n10: the car is ~10 minutes from the Aziziyah garage and the server booked his waiting taxi.
+  garage_taxi_placed: {
+    id: 'garage_taxi_placed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_placed.title', body: 'push.garage_taxi_placed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4: the trip was cancelled, so the armed taxi was dropped (nothing was booked, nothing to pay).
+  garage_taxi_dropped: {
+    id: 'garage_taxi_dropped',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_dropped.title', body: 'push.garage_taxi_dropped.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // x4: the server could not book it (a cash limit, the city paused…): he books it himself, one tap.
+  garage_taxi_failed: {
+    id: 'garage_taxi_failed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.garage_taxi_failed.title', body: 'push.garage_taxi_failed.body', androidChannel: 'orders', deepLink: 'driver://ride' },
     primary: ['push'],
     quietHours: 'send',
   },

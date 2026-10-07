@@ -156,6 +156,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="ride/again" options={{ headerShown: false }} />
         {/* Joy J7d: a ride booked for later waits here until its search starts; regular trips; favourite drivers. */}
         <Stack.Screen name="ride/booked/[id]" options={{ title: t('habits.booked_title'), headerLeft: () => <HeaderBack fallback="/orders" /> }} />
+        {/* Taxi ideas x2/x3/x4: the الرجعة taxi cards in every state (dev only, EXPO_PUBLIC_DEV_TOOLS). */}
+        <Stack.Screen name="ride/garage-preview" options={{ title: t('gtaxi.preview_title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
         <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
