@@ -36,7 +36,7 @@ const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l
  * overlay (drawn from the same values) never drifts from the tiles, including during follow
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, onFail }: BaseMapProps & { onFail: () => void }) {
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, onFail }: BaseMapProps & { onFail: () => void }) {
   const api = useApi();
   const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
   const zonesRef = useRef(zonesQuery.data);
@@ -139,7 +139,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
       {/* MapLibre has no glyphs until the PMTiles basemap lands: neighbourhood names come from SVG. */}
       <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
       {/* Landmarks (maps b3) over the tiles and under every pin the screen draws. */}
-      <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
+      <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(landmarkNameZoom !== undefined ? { nameZoom: landmarkNameZoom } : {})} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
     </View>
   );
 }

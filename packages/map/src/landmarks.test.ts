@@ -42,6 +42,23 @@ describe('landmark zoom rules (maps program b3)', () => {
     expect(placeLandmarks(items, view({ zoom: 16 }))[0]?.name).toBe('جامع');
   });
 
+  it("the partner job map's own name zoom: names from 15, still none in lite mode, collisions unchanged", () => {
+    const items = [lm('a', 200, 300, 'mosque', 'جامع زاكور'), lm('b', 230, 268, 'school', 'مدرسة زاكور الابتدائية')];
+    const driver = view({ zoom: 15.2, nameZoom: LANDMARK_RULES.driverNameZoom });
+    expect(LANDMARK_RULES.driverNameZoom).toBe(15);
+    expect(landmarkNamesVisible(15.2, false, LANDMARK_RULES.driverNameZoom)).toBe(true);
+    expect(landmarkNamesVisible(15.2, true, LANDMARK_RULES.driverNameZoom)).toBe(false);
+    expect(placeLandmarks(items, view({ zoom: 15.2 })).map((p) => p.name)).toEqual([null, null]);
+    // The mosque's name is placed; the school's would hit the mosque's badge, so it goes alone.
+    expect(placeLandmarks(items, driver).map((p) => [p.id, p.name])).toEqual([
+      ['a', 'جامع زاكور'],
+      ['b', null],
+    ]);
+    expect(placeLandmarks(items, view({ zoom: 16.2, lite: true, nameZoom: LANDMARK_RULES.driverNameZoom })).every((p) => p.name === null)).toBe(true);
+    // The keep-out boxes still hold: a landmark under the door pin is left out.
+    expect(placeLandmarks([lm('c', 200, 300, 'mosque', 'جامع')], { ...driver, obstacles: [{ at: at(200, 300) }] })).toEqual([]);
+  });
+
   it('lite mode: at most a few, the important ones, no names', () => {
     const items = [...Array.from({ length: 10 }, (_, i) => lm(`o${i}`, 30 + (i % 5) * 70, 80 + Math.floor(i / 5) * 120)), lm('m', 200, 450, 'mosque')];
     const placed = placeLandmarks(items, view({ lite: true, zoom: 17 }));

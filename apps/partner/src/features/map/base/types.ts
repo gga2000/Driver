@@ -23,4 +23,6 @@ export interface BaseMapProps {
   /** Bands covered by the screen's own bars (top bar, sheet), px: landmarks are not drawn half-hidden under them. */
   coveredTop?: number;
   coveredBottom?: number;
+  /** Zoom landmark names show from on this map (default `LANDMARK_RULES.nameZoom`). */
+  landmarkNameZoom?: number;
 }

@@ -10,6 +10,11 @@ import type { GeoPoint } from './project.js';
 export const LANDMARK_RULES = {
   minZoom: 15,
   nameZoom: 16,
+  /**
+   * Names on the partner job map (Ali 2026-10-07: drivers need them more than anyone): it never zooms
+   * past 15.4 and is short and wide, so names show from where its icons do.
+   */
+  driverNameZoom: 15,
   /** Low-data mode (`useLiteMode`): later, fewer, no names — the map is the drawn town, keep it calm. */
   liteMinZoom: 16,
   liteMax: 6,
@@ -73,6 +78,8 @@ export interface LandmarkCamera {
   obstacles: readonly LabelObstacle[];
   /** Other words already on the map (the zone names): landmarks keep off them too. */
   blocked?: readonly ScreenRect[];
+  /** This map's name threshold (default `LANDMARK_RULES.nameZoom`; the partner job map uses `driverNameZoom`). */
+  nameZoom?: number;
 }
 
 /** The first zoom landmarks show at. */
@@ -85,9 +92,9 @@ export function landmarksVisible(zoom: number, lite: boolean): boolean {
   return zoom >= landmarkMinZoom(lite);
 }
 
-/** Whether names are drawn under the badges at this zoom. */
-export function landmarkNamesVisible(zoom: number, lite: boolean): boolean {
-  return !lite && zoom >= LANDMARK_RULES.nameZoom;
+/** Whether names are drawn under the badges at this zoom (`nameZoom`: a map's own threshold). Never in lite mode. */
+export function landmarkNamesVisible(zoom: number, lite: boolean, nameZoom: number = LANDMARK_RULES.nameZoom): boolean {
+  return !lite && zoom >= nameZoom;
 }
 
 /** The box a marker keeps clear of landmarks: around and above its anchor (pins rise), a little under. */
@@ -119,7 +126,7 @@ export function landmarkNameRect(x: number, y: number, name: string): ScreenRect
  */
 export function placeLandmarks(items: readonly LandmarkPoint[], view: LandmarkCamera): PlacedLandmark[] {
   if (!landmarksVisible(view.zoom, view.lite) || view.size.w <= 0 || view.size.h <= 0) return [];
-  const names = landmarkNamesVisible(view.zoom, view.lite);
+  const names = landmarkNamesVisible(view.zoom, view.lite, view.nameZoom);
   const cap = view.lite ? LANDMARK_RULES.liteMax : LANDMARK_RULES.max;
   const pad = LANDMARK_RULES.spacingPx;
   const cx = view.size.w / 2;

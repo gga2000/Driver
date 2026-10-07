@@ -61,8 +61,9 @@ output: { changed: false, etag, maxAgeS }
 
 Pure rules in `@driver/map` (`placeLandmarks`, `LANDMARK_RULES`, `LANDMARK_PRIORITY`):
 
-- icons from zoom 15, names from 16; **lite mode** (`useLiteMode`): from 16, at most 6, no names; at most
-  40 on a screen;
+- icons from zoom 15, names from 16 — except the partner job map, which never zooms past 15.4: names
+  from 15 there (`LANDMARK_RULES.driverNameZoom`, Ali 2026-10-07: drivers need them most); **lite mode** (`useLiteMode`): from 16, at most 6, no names; at most
+  40 on a screen; lite mode never shows names, on any map;
 - greedy by category — mosque, bridge, market, school, clinic, fuel, garage, other — then nearest the
   middle of the screen, then id;
 - a badge never touches a marker's keep-out box (our pins' name pills rise ~70 px over the tip, about

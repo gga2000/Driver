@@ -31,6 +31,8 @@ export interface LandmarkLayerProps {
   /** Bands the screen covers with its own bars, px (top bar, sheet). */
   coveredTop?: number;
   coveredBottom?: number;
+  /** Zoom names show from on this map (the job map: `LANDMARK_RULES.driverNameZoom`). */
+  nameZoom?: number;
 }
 
 /**
@@ -40,7 +42,7 @@ export interface LandmarkLayerProps {
  * zone layer; under every pin, route and marker because the base map draws it. Decorative: hidden
  * from screen readers like the zone names (the pins carry the meaning).
  */
-export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avoid = NO_OBSTACLES, opacity, coveredTop = 0, coveredBottom = 0 }: LandmarkLayerProps) {
+export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avoid = NO_OBSTACLES, opacity, coveredTop = 0, coveredBottom = 0, nameZoom }: LandmarkLayerProps) {
   const lite = useLiteMode();
   const landmarks = useLandmarks();
   const zoneNames = useZoneNames(drawn, size, avoid);
@@ -50,8 +52,8 @@ export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avo
       { left: 0, right: size.w, top: 0, bottom: coveredTop },
       { left: 0, right: size.w, top: size.h - coveredBottom, bottom: size.h },
     ];
-    return placeLandmarks(landmarks, { zoom: drawn.zoom, size, lite, obstacles: avoid, blocked: [...zoneNames.map((n) => labelBox(n)), ...bars], project: (p) => project(p.lat, p.lng, drawn, size) });
-  }, [landmarks, drawn, size, lite, avoid, zoneNames, coveredTop, coveredBottom]);
+    return placeLandmarks(landmarks, { zoom: drawn.zoom, size, lite, obstacles: avoid, blocked: [...zoneNames.map((n) => labelBox(n)), ...bars], ...(nameZoom !== undefined ? { nameZoom } : {}), project: (p) => project(p.lat, p.lng, drawn, size) });
+  }, [landmarks, drawn, size, lite, avoid, zoneNames, coveredTop, coveredBottom, nameZoom]);
 
   const style = useAnimatedStyle(() => {
     const live = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
