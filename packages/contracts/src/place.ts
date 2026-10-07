@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LatLng } from './common.js';
+import { LandmarkCategory } from './landmarks.js';
 
 export const PlacePhoto = z.object({
   id: z.string(),
@@ -21,6 +22,10 @@ export const Place = z.object({
   ownerId: z.string().optional(),
   sharedWith: z.array(z.string()).default([]),
   landmark: z.boolean().default(false),
+  /** A landmark's icon on the map (maps program b3); absent: derived from its name (`landmarkCategoryOf`). */
+  landmarkCategory: LandmarkCategory.optional(),
+  /** A landmark row's review state; absent counts as approved (what a save writes). Only approved ones are shown. */
+  landmarkState: z.enum(['proposed', 'approved', 'rejected']).optional(),
 });
 export type Place = z.infer<typeof Place>;
 

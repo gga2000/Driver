@@ -29,8 +29,12 @@ import {
   ZoneForPinInput,
   ZoneForPinOutput,
 } from '../account-io.js';
+import { LANDMARK_FEED_RULES, LandmarkFeed, LandmarkFeedInput } from '../landmarks.js';
 import { RequestTopUpInput, TopUpStatusInput, TopUpView } from '../topup-io.js';
-import { protectedProcedure, router } from '../trpc.js';
+import { protectedProcedure, publicProcedure, router } from '../trpc.js';
+
+/** The feed a context without the port answers: nothing to draw, stable so a phone keeps it. */
+const NO_LANDMARKS_ETAG = 'none';
 
 const Ok = z.object({ ok: z.literal(true) });
 
@@ -70,6 +74,19 @@ export const placesRouter = router({
     .input(RiderLandmarksInput)
     .output(z.array(LandmarkView))
     .query(async ({ ctx, input }) => (ctx.places.landmarks ? ctx.places.landmarks(input) : [])),
+  /**
+   * The map's landmark layer (maps program b3): approved landmarks only, cached (etag in the input,
+   * `changed: false` when the phone's copy is current). Public: the share page has no session, and the
+   * items are city knowledge with no owner, note or zone.
+   */
+  landmarkFeed: publicProcedure
+    .input(LandmarkFeedInput)
+    .output(LandmarkFeed)
+    .query(({ ctx, input }) => {
+      if (ctx.places.landmarkFeed) return ctx.places.landmarkFeed(input);
+      const maxAgeS = LANDMARK_FEED_RULES.maxAgeS;
+      return input.etag === NO_LANDMARKS_ETAG ? { changed: false as const, etag: NO_LANDMARKS_ETAG, maxAgeS } : { changed: true as const, etag: NO_LANDMARKS_ETAG, maxAgeS, landmarks: [] };
+    }),
   /** "قرب شنو؟" (maps a2): landmarks within 500 m of a pin being saved, nearest first, at most 5. */
   landmarksNear: protectedProcedure()
     .input(LandmarksNearInput)

@@ -2,15 +2,31 @@
 
 import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapGeoJSONFeature, type StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { AZIZIYAH_ZONES, type DemandLevel } from '@driver/contracts';
+import { AZIZIYAH_ZONES, LANDMARK_FEED_RULES, type DemandLevel, type LandmarkCategory } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useQuery } from '@tanstack/react-query';
-import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, buildPlacedZonesGeoJSON, buildZonesGeoJSON, GARAGES, labelDigits, LAYER, MAP_COLORS, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import {
+  AZIZIYAH_BOUNDS,
+  AZIZIYAH_MAX_BOUNDS,
+  buildMapStyle,
+  buildPlacedZonesGeoJSON,
+  buildZonesGeoJSON,
+  GARAGES,
+  glyphSvgMarkup,
+  labelDigits,
+  LANDMARK_PRIORITY,
+  LANDMARK_RULES,
+  landmarkGlyph,
+  LAYER,
+  MAP_COLORS,
+  MAP_COLORS_LIGHT,
+  SOURCE,
+} from '@driver/map';
 import { useTRPC } from '@/lib/trpc';
 import { MARKER_SHAPES } from '@/lib/marker-shapes';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LiveGeoJSON, OrderTag } from '@/lib/live-map';
-import { around, placeLabels, stackTags, type Box, type LabelIn } from '@/lib/map-labels';
+import { around, overlaps, placeLabels, stackTags, type Box, type LabelIn } from '@/lib/map-labels';
 import { ZonesSvg } from './zones-svg';
 import { FLEET_RULES, glideAt, isQuiet, type LngLatTuple } from '@/lib/fleet-motion';
 
@@ -115,8 +131,16 @@ interface LabelEntry {
   marker: maplibregl.Marker;
   el: HTMLDivElement;
   lngLat: [number, number];
-  kind: 'zone' | 'garage' | 'driver';
+  kind: 'zone' | 'garage' | 'driver' | 'landmark';
   size: { w: number; h: number } | null;
+}
+/** A landmark badge (maps program b3): drawn on its spot, its name a `landmark` label beside it. */
+interface LandmarkEntry {
+  marker: maplibregl.Marker;
+  el: HTMLDivElement;
+  lngLat: [number, number];
+  category: LandmarkCategory;
+  shown: boolean;
 }
 
 /**
@@ -130,6 +154,7 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
   const { live, selected, fitKey, focus, theme, orders, routes = 'focus', focusTripId, candidates, picked, followId } = props;
   const trpc = useTRPC();
   const zonesQuery = useQuery(trpc.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const landmarksQuery = useQuery(trpc.places.landmarkFeed.queryOptions({ cityId: 'aziziyah' }, { staleTime: LANDMARK_FEED_RULES.maxAgeS * 1000 }));
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const cb = useRef(props);
@@ -137,6 +162,7 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
   const pinsRef = useRef(new Map<string, PinEntry>());
   const ordersRef = useRef(new Map<string, TagEntry>());
   const labelsRef = useRef(new Map<string, LabelEntry>());
+  const landmarksRef = useRef(new Map<string, LandmarkEntry>());
   const layoutRef = useRef<() => void>(() => undefined);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -209,9 +235,25 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
         o.more.hidden = !(shown && more > 0);
         if (shown) obstacles.push(tagBoxes.get(key)!);
       }
+      // Landmark badges (maps program b3) from zoom 15, never on a driver or an order tag: the most
+      // useful first (mosque, bridge, market…); a badge shown becomes an obstacle for every name.
+      const showLandmarks = zoom >= LANDMARK_RULES.minZoom;
+      const badges: Box[] = [];
+      const byPriority = [...landmarksRef.current].sort(([a, x], [b, y]) => LANDMARK_PRIORITY[y.category] - LANDMARK_PRIORITY[x.category] || a.localeCompare(b));
+      for (const [, lm] of byPriority) {
+        const pt = m.project(lm.lngLat);
+        const box = around(pt.x, pt.y, LANDMARK_RULES.iconPx);
+        const inView = pt.x >= 0 && pt.y >= 0 && pt.x <= w && pt.y <= h;
+        lm.shown = showLandmarks && inView && !obstacles.some((o) => overlaps(o, box, LANDMARK_RULES.spacingPx)) && !badges.some((b) => overlaps(b, box, LANDMARK_RULES.spacingPx));
+        if (lm.shown) {
+          delete lm.el.dataset['hidden'];
+          badges.push(box);
+        } else lm.el.dataset['hidden'] = '';
+      }
+      obstacles.push(...badges);
       const want: LabelIn[] = [];
       for (const [key, l] of labelsRef.current) {
-        if (l.kind === 'zone' && zoom < ZONE_LABEL_ZOOM) {
+        if ((l.kind === 'zone' && zoom < ZONE_LABEL_ZOOM) || (l.kind === 'landmark' && (zoom < LANDMARK_RULES.nameZoom || !landmarksRef.current.get(key.slice('landmark:'.length))?.shown))) {
           l.el.dataset['hidden'] = '';
           continue;
         }
@@ -226,8 +268,8 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
           y: pt.y,
           w: l.size.w,
           h: l.size.h,
-          priority: l.kind === 'driver' ? 6 : l.kind === 'garage' ? 3 : 1,
-          gap: l.kind === 'zone' ? 2 : l.kind === 'garage' ? 9 : 15,
+          priority: l.kind === 'driver' ? 6 : l.kind === 'garage' ? 3 : l.kind === 'landmark' ? 2 : 1,
+          gap: l.kind === 'zone' ? 2 : l.kind === 'garage' ? 9 : l.kind === 'landmark' ? LANDMARK_RULES.iconPx / 2 + 2 : 15,
         });
       }
       const placed = placeLabels(want, obstacles, { w, h });
@@ -284,8 +326,11 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
 
     const pins = pinsRef.current;
     const tags = ordersRef.current;
+    const landmarks = landmarksRef.current;
     return () => {
       if (raf) cancelAnimationFrame(raf);
+      for (const lm of landmarks.values()) lm.marker.remove();
+      landmarks.clear();
       for (const store of [pins, tags]) {
         for (const p of store.values()) p.marker.remove();
         store.clear();
@@ -318,6 +363,47 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
     }
     layoutRef.current();
   }, [ready, zonesQuery.data]);
+
+  // ── landmarks (maps program b3): a badge on each spot, the name as a placed label; garages are the
+  // garage layer's already ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const feed = landmarksQuery.data;
+    if (!map || !ready || !feed?.changed) return;
+    const store = landmarksRef.current;
+    for (const lm of store.values()) lm.marker.remove();
+    store.clear();
+    for (const [key, label] of labelsRef.current) {
+      if (label.kind === 'landmark') {
+        label.marker.remove();
+        labelsRef.current.delete(key);
+      }
+    }
+    // Markers paint in DOM order: landmarks go right after the map canvas, under every driver and tag.
+    const canvas = map.getCanvas();
+    const behind = (el: HTMLElement) => canvas.parentElement?.insertBefore(el, canvas.nextSibling);
+    for (const l of feed.landmarks) {
+      if (l.category === 'garage') continue;
+      const lngLat: [number, number] = [l.pin.lng, l.pin.lat];
+      const badge = document.createElement('div');
+      badge.className = 'ops-landmark';
+      badge.dataset['category'] = l.category;
+      badge.dataset['hidden'] = '';
+      badge.setAttribute('aria-hidden', 'true');
+      badge.innerHTML = `<svg viewBox="0 0 24 24">${glyphSvgMarkup(landmarkGlyph(l.category))}</svg>`;
+      store.set(l.id, { marker: new maplibregl.Marker({ element: badge }).setLngLat(lngLat).addTo(map), el: badge, lngLat, category: l.category, shown: false });
+      behind(badge);
+      const name = document.createElement('div');
+      name.className = 'ops-label';
+      name.dataset['kind'] = 'landmark';
+      name.dataset['hidden'] = '';
+      name.textContent = labelDigits(l.name_ar);
+      name.setAttribute('aria-hidden', 'true');
+      labelsRef.current.set(`landmark:${l.id}`, { marker: new maplibregl.Marker({ element: name, anchor: 'top-left' }).setLngLat(lngLat).addTo(map), el: name, lngLat, kind: 'landmark', size: null });
+      behind(name);
+    }
+    layoutRef.current();
+  }, [ready, landmarksQuery.data]);
 
   // ── busy zones (maps program o5): a fill over the zones, from the shapes on the map ──
   const heat = props.heat;

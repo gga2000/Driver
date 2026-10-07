@@ -10,6 +10,7 @@ const lm = (id: string, name_ar: string, name_en: string, distanceM: number): La
   pin: { lat: 32.9098, lng: 45.0628 },
   zoneId: 'street_30',
   kind: 'meeting_point',
+  category: 'other',
   aliases_ar: [],
   photoUrl: null,
   distanceM,

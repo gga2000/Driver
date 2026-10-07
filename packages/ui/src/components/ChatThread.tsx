@@ -163,9 +163,12 @@ export function ChatThread({
     }
   };
 
-  const counterpart = v ? (v.participants.find((p) => !p.you && p.role !== 'support') ?? null) : null;
+  // «كلّم الدعم»: the other side is our support team, not a person of the order.
+  const supportChat = kind === 'customer_support';
+  const counterpart = v ? (v.participants.find((p) => !p.you && (supportChat || p.role !== 'support')) ?? null) : null;
   const counterpartLabel = counterpart ? t(roleKey(counterpart.role, ride)) : '';
-  const title = counterpart?.name ?? counterpartLabel;
+  const title = supportChat ? t('chat.support_title') : (counterpart?.name ?? counterpartLabel);
+  const orderLabel = t('order.number', { id: orderNumber ?? orderId.replace(/^ord_/, '').slice(-6).toUpperCase() });
   const open = v?.status === 'open';
 
   return (
@@ -199,7 +202,7 @@ export function ChatThread({
                     </Pressable>
                   ) : (
                     <Text variant="caption" color="textMuted" numberOfLines={1}>
-                      {t('chat.subtitle', { role: counterpartLabel, order: t('order.number', { id: orderNumber ?? orderId.replace(/^ord_/, '').slice(-6).toUpperCase() }) })}
+                      {supportChat ? orderLabel : t('chat.subtitle', { role: counterpartLabel, order: orderLabel })}
                     </Text>
                   )}
                 </>
@@ -229,8 +232,12 @@ export function ChatThread({
               <Skeleton width="55%" height={44} radius={18} />
             </View>
           ) : rows.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center' }}>
-              <EmptyState icon="chat" title={t('chat.empty_title')} body={open ? t('chat.empty_body') : undefined} />
+            <View style={{ flex: 1, justifyContent: 'center' }} testID={supportChat ? 'chat-support-empty' : undefined}>
+              <EmptyState
+                icon="chat"
+                title={t(supportChat ? 'chat.support_empty_title' : 'chat.empty_title')}
+                body={open ? t(supportChat ? 'chat.support_empty_body' : 'chat.empty_body') : undefined}
+              />
             </View>
           ) : (
             rows.map((row) => <Row key={row.key} row={row} t={t} photoUri={photoUri} onRetry={(p) => void send(p.body, { text: p.text, localPhotoUri: p.localPhotoUri }, p.clientId)} />)

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Platform, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
-import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, labelsClearOf, MAP_COLORS_LIGHT, obstaclesOnScreen, ZONE_LABEL_FONT_PX, type LabelObstacle } from '@driver/map';
+import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, labelsClearOf, MAP_COLORS_LIGHT, obstaclesOnScreen, ZONE_LABEL_FONT_PX, type LabelObstacle, type PlacedLabel } from '@driver/map';
 import { layerTransform, pathD, project, type Camera, type Size } from '../geo';
 import type { CameraValues } from './types';
 import { useApi } from '@/lib/api';
@@ -27,6 +27,34 @@ export interface ZoneLayerProps {
   avoid?: readonly LabelObstacle[];
 }
 
+/** The zone outlines and their centres: the live placements once loaded, the built-in ones before. */
+function useZoneShapes() {
+  const api = useApi();
+  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zones = useMemo(() => (liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES), [liveZones.data]);
+  const centroids = useMemo(() => (liveZones.data ? buildPlacedZoneCentroidsGeoJSON(liveZones.data) : CENTROIDS), [liveZones.data]);
+  return { zones, centroids };
+}
+
+/** Zone names show from this zoom (they crowd the town below it). */
+const ZONE_NAME_ZOOM = 13.5;
+
+/**
+ * The zone names drawn for a camera, already clear of the markers (`labelsClearOf`). The landmark
+ * layer asks for the same list to keep its badges off the names (maps program b3).
+ */
+export function useZoneNames(drawn: Camera, size: Size, avoid: readonly LabelObstacle[], enabled = true): Array<PlacedLabel & { id: string }> {
+  const { centroids } = useZoneShapes();
+  return useMemo(() => {
+    if (!enabled || drawn.zoom < ZONE_NAME_ZOOM) return [];
+    const placed = centroids.features.map((f) => {
+      const [lng, lat] = f.geometry.coordinates as [number, number];
+      return { id: f.properties.id, name: f.properties.name_ar, ...project(lat, lng, drawn, size) };
+    });
+    return labelsClearOf(placed, obstaclesOnScreen(avoid, size, (p) => project(p.lat, p.lng, drawn, size)));
+  }, [drawn, size, enabled, centroids, avoid]);
+}
+
 /**
  * The 34 Aziziyah zones drawn in SVG for the camera `drawn`, carried to the live camera with one
  * transform on the UI thread (pan, zoom, follow animations), and redrawn crisp when the camera
@@ -34,10 +62,7 @@ export interface ZoneLayerProps {
  * MapLibre.
  */
 export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = true, labels = true, opacity, avoid = NO_OBSTACLES }: ZoneLayerProps) {
-  const api = useApi();
-  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
-  const zones = useMemo(() => liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES, [liveZones.data]);
-  const centroids = useMemo(() => liveZones.data ? buildPlacedZoneCentroidsGeoJSON(liveZones.data) : CENTROIDS, [liveZones.data]);
+  const { zones } = useZoneShapes();
   const shapes = useMemo(
     () =>
       zones.features.map((f) => ({
@@ -47,14 +72,7 @@ export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = tru
       })),
     [drawn, size, zones],
   );
-  const names = useMemo(() => {
-    if (!labels || drawn.zoom < 13.5) return [];
-    const placed = centroids.features.map((f) => {
-      const [lng, lat] = f.geometry.coordinates as [number, number];
-      return { id: f.properties.id, name: f.properties.name_ar, ...project(lat, lng, drawn, size) };
-    });
-    return labelsClearOf(placed, obstaclesOnScreen(avoid, size, (p) => project(p.lat, p.lng, drawn, size)));
-  }, [drawn, size, labels, centroids, avoid]);
+  const names = useZoneNames(drawn, size, avoid, labels);
 
   const style = useAnimatedStyle(() => {
     const live = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };

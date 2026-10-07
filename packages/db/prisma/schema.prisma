@@ -591,6 +591,9 @@ model Place {
   confidence         Float                                 @default(0.5)
   landmark           Boolean                               @default(false)
   landmarkState      String?                               @map("landmark_state")
+  /// Maps program b3: the landmark's icon (mosque, school, market, clinic, fuel, bridge, garage, other;
+  /// CHECK in the migration). NULL = derived from the name (`landmarkCategoryOf`).
+  landmarkCategory   String?                               @map("landmark_category")
   /// Household sharing (opt-in): org ids that may use this place.
   shares             String[]                              @default([])
   /// Domain §7: a far arrival tap flags for review; never moves the pin.
@@ -2153,6 +2156,29 @@ model ChatMessage {
   @@unique([threadId, seq])
   @@unique([threadId, senderId, clientId])
   @@map("chat_messages")
+  @@schema("public")
+}
+
+/// The customer's rating of the courier/driver who carried an order (customer app §4 two-tap rating,
+/// step 1): one per order, written with the order's rating by `orders.rate`, within 24 h of the order
+/// reaching him. Ids only — no names. The driver scorecard and the customer-facing average on his card
+/// read his newest rows. No foreign keys: orders and trips are owned by their modules.
+model CourierRating {
+  id         String   @id @default(cuid())
+  orderId    String   @unique @map("order_id")
+  tripId     String   @map("trip_id")
+  driverId   String   @map("driver_id")
+  customerId String   @map("customer_id")
+  /// 1–5.
+  score      Int
+  /// `CourierRatingReason` values (late, rude, polite, careful…).
+  reasons    String[] @default([])
+  ratedAt    DateTime @map("rated_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([driverId, ratedAt])
+  @@map("courier_ratings")
   @@schema("public")
 }
 

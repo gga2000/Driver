@@ -61,9 +61,8 @@ export default async function register(demo) {
   async function savedHome() {
     if (home) return home;
     const doorPhotoId = await storedPhoto(buyer(), doorPng());
-    // «قرب X» on the door card (maps a2) when a landmark is within 500 m. Today none is: the seeded
-    // garages and meeting points are all ~2.5 km from الزكور, so the home has no landmark (the API
-    // would refuse a far one) until field ops approve one nearby — then the demo picks it up.
+    // «قرب X» on the door card (maps a2): the nearest landmark within 500 m — the demo landmarks
+    // (15-landmarks.mjs) put زاكور's mosque about 90 m away; without one the home has none.
     const [landmark] = await places.landmarksNear(CITY, HOMES.zakur.pin);
     const saved = await places.save(buyer(), { cityId: CITY, label: 'home', name: 'البيت', pin: HOMES.zakur.pin, note: 'بيت طابقين، الباب الأخضر جوه الدربونة الثانية', photoIds: [doorPhotoId], shareWithHousehold: false, ...(landmark ? { landmarkId: landmark.id } : {}), clientRef: 'demo-home' });
     home = { ...HOMES.zakur, placeId: saved.id };

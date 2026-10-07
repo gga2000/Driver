@@ -79,6 +79,17 @@ describe('customer account API (e2e)', () => {
     expect(await errCode(ali.client.places.update.mutate({ placeId: saved.id, landmarkId: 'lm_mp_jami_kabir' }))).toBe('place_landmark_invalid');
   });
 
+  it('landmark feed (maps b3): read without a session, then "unchanged" for the same etag; no saved home in it', async () => {
+    const ali = await signIn('07713330006');
+    await ali.client.places.save.mutate({ cityId: 'aziziyah', label: 'home', name: 'بيت علي', pin: STREET_30, photoIds: [], shareWithHousehold: false });
+    const first = await anon().places.landmarkFeed.query({});
+    expect(first.changed).toBe(true);
+    const items = first.changed ? first.landmarks : [];
+    expect(items.find((l) => l.id === 'lm_garage_bab1')).toEqual({ id: 'lm_garage_bab1', name_ar: 'كراج البوابة 1', category: 'garage', pin: { lat: 32.9032, lng: 45.0578 }, photoUrl: null });
+    expect(items.map((l) => l.name_ar)).not.toContain('بيت علي');
+    expect(await anon().places.landmarkFeed.query({ etag: first.etag })).toEqual({ changed: false, etag: first.etag, maxAgeS: first.maxAgeS });
+  });
+
   it('profile: updateProfile writes the vault; me reads it back', async () => {
     const ali = await signIn('07713330003');
     const me = await ali.client.identity.updateProfile.mutate({ name: 'علي', emergencyContact: { name: 'أمي', phone: '07801112233' } });

@@ -22,7 +22,7 @@
 //   - POST /demo/rajaa/claim|offers|topup|rode|outbound?personId=…            الرجعة boards (seeded at start; rode = «سافرت وياه قبل»)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
-//   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
+//   - POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
@@ -53,6 +53,11 @@ const orders = app.get(OrdersService);
 const controls = app.get(ControlsService);
 
 const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
+{
+  const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
+  await seedDemoLandmarks(app.get(PlacesService));
+}
 // Demo restaurants stay open around the clock so screens and shots work at any hour
 // (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
 if (process.env.DEMO_HOURS !== 'real') {
@@ -1514,14 +1519,16 @@ const rajaa = await (async () => {
 
 // ───────────────────────── chat, masked call, share-trip demo (/chat, /share) ─────────────────────────
 //
-//   POST /demo/chat?personId=<id>&scenario=courier|merchant|ride   → {orderId, …}
+//   POST /demo/chat?personId=<id>&scenario=courier|merchant|ride|support|support_empty   → {orderId, …}
 //   POST /demo/chat/clock?minutes=<n>                               → shifts the chat module's clock
 //
 // `courier`: an order on the way (the track demo's courier) with a conversation already going —
 // a quick reply, the customer's gate note, a number the courier typed (masked by the server), a
 // location pin, one unread. `merchant`: the same with the kitchen (a staff member of مطعم خالد)
 // asking about a swapped item. `ride`: a taxi ride with a moving car, a share-trip link already
-// made → {token, path}. `/demo/chat/clock?minutes=31` lets a screenshot show a closed thread
+// made → {token, path}. `support`: an order on the way where he asked the support desk about the delay
+// and زينب (support) answered (one unread); `support_empty`: an order on the way, support chat unused.
+// `/demo/chat/clock?minutes=31` lets a screenshot show a closed thread
 // (minutes=0 resets); it only moves the chat module's clock.
 {
   const { ChatService } = await load('modules/chat/index.js');
@@ -1544,6 +1551,18 @@ const rajaa = await (async () => {
     await identity.setName({ personId: staffId, sessionId: 'demo' }, 'سيف');
     await identity.grantRole({ personId: 'system:demo' }, { personId: staffId, kind: 'merchant_staff', orgId: khalid.orgId });
     return staffId;
+  }
+
+  let deskId = null;
+  async function supportAgent() {
+    if (deskId) return deskId;
+    const phone = '07700000093';
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code } = await identity.devLastOtp(phone);
+    deskId = (await identity.verifyOtp({ phone, code })).personId;
+    await identity.setName({ personId: deskId, sessionId: 'demo' }, 'زينب');
+    await identity.grantRole({ personId: 'system:demo' }, { personId: deskId, kind: 'support' });
+    return deskId;
   }
 
   async function driverWithCar(at) {
@@ -1582,6 +1601,15 @@ const rajaa = await (async () => {
       return { orderId: ride.id, tripId: trip.id, driverId, token: link.token, path: link.path };
     }
     const { orderId, tripId, courierId } = await scenario(personId, 'on_the_way');
+    if (name === 'support_empty') return { orderId, tripId, courierId };
+    if (name === 'support') {
+      // «احجي ويا الدعم»: he asked the desk about the late order; زينب (support) answered.
+      const desk = await supportAgent();
+      await chat.send(as(personId), { orderId, kind: 'customer_support', clientId: cid(), quickReplyKey: 'customer_support_late' });
+      await chat.send(as(personId), { orderId, kind: 'customer_support', clientId: cid(), text: 'صارله ساعة إلا ربع والدليفري بعده بالطريق' });
+      await chat.send(as(desk), { orderId, kind: 'customer_support', clientId: cid(), text: 'هلا بيك، شفت طلبك. الدليفري علق بزحمة الجسر ويوصلك خلال 10 دقايق، وآسفين على التأخير' });
+      return { orderId, tripId, courierId, supportId: desk };
+    }
     if (name === 'merchant') {
       const staff = await kitchenStaff();
       await chat.send(as(personId), { orderId, kind: 'customer_merchant', clientId: cid(), quickReplyKey: 'customer_have_note' });
@@ -1610,7 +1638,7 @@ const rajaa = await (async () => {
       }
       const personId = url.searchParams.get('personId');
       const name = url.searchParams.get('scenario') ?? 'courier';
-      if (!personId || !['courier', 'merchant', 'ride'].includes(name)) return json(res, 400, { error: 'POST /demo/chat?personId=…&scenario=courier|merchant|ride' });
+      if (!personId || !['courier', 'merchant', 'ride', 'support', 'support_empty'].includes(name)) return json(res, 400, { error: 'POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty' });
       json(res, 200, { scenario: name, ...(await chatScenario(personId, name)) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });

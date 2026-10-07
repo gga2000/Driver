@@ -86,6 +86,8 @@ export interface OpsRepository {
   photosIn(state: LandmarkPhotoRecord['state'], limit: number, tx?: Tx): Promise<LandmarkPhotoRecord[]>;
   /** Approved photos of one target (the "compare" pane). */
   approvedPhotosOf(targetId: string, tx?: Tx): Promise<LandmarkPhotoRecord[]>;
+  /** The newest approved photo's upload id per target that has one (the map's landmark feed, maps program b3). */
+  latestApprovedUploads(targetIds: readonly string[], tx?: Tx): Promise<Map<string, string>>;
   photo(id: string, tx?: Tx): Promise<LandmarkPhotoRecord | null>;
   /** Applies the decision only while the photo is still `proposed`; null when it was decided already. */
   decidePhoto(id: string, patch: { state: 'approved' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<LandmarkPhotoRecord | null>;
@@ -176,6 +178,14 @@ export class InMemoryOpsRepository implements OpsRepository {
 
   async approvedPhotosOf(targetId: string): Promise<LandmarkPhotoRecord[]> {
     return this.photos.filter((p) => p.state === 'approved' && p.targetId === targetId).map((p) => ({ ...p, localNames: [...p.localNames] }));
+  }
+
+  async latestApprovedUploads(targetIds: readonly string[]): Promise<Map<string, string>> {
+    const ids = new Set(targetIds);
+    const newest = this.photos.filter((p) => p.state === 'approved' && ids.has(p.targetId)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
+    const out = new Map<string, string>();
+    for (const p of newest) if (!out.has(p.targetId)) out.set(p.targetId, p.uploadId);
+    return out;
   }
 
   async photo(id: string): Promise<LandmarkPhotoRecord | null> {
@@ -298,6 +308,17 @@ export class PrismaOpsRepository implements OpsRepository {
 
   async approvedPhotosOf(targetId: string, tx?: Tx): Promise<LandmarkPhotoRecord[]> {
     return (await this.db(tx).landmarkPhoto.findMany({ where: { state: 'approved', targetId }, orderBy: { createdAt: 'desc' }, take: 6 })).map(photoFrom);
+  }
+
+  async latestApprovedUploads(targetIds: readonly string[], tx?: Tx): Promise<Map<string, string>> {
+    if (targetIds.length === 0) return new Map();
+    const rows = await this.db(tx).landmarkPhoto.findMany({
+      where: { state: 'approved', targetId: { in: [...targetIds] } },
+      orderBy: [{ targetId: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      distinct: ['targetId'],
+      select: { targetId: true, uploadId: true },
+    });
+    return new Map(rows.map((r) => [r.targetId, r.uploadId]));
   }
 
   async photo(id: string, tx?: Tx): Promise<LandmarkPhotoRecord | null> {

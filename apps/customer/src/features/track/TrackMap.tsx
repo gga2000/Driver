@@ -138,16 +138,16 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} accessibilityLabel={t('track.map_label')} testID="track-map">
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} />
+          <BaseMap drawn={camera.drawn} cam={cam} size={size} onUserGestureStart={camera.stopFollowing} onUserCamera={camera.setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} />
           {/* No straight line across the river without a road route (joy f19): a heading arrow instead. */}
           <RouteLine cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} onRoad={motion.onRoad} start={startSV} waypoints={waypointsSV} color={theme.colors.accent} straight={false} />
           <HeadingArrow cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} waypoints={waypointsSV} color={theme.colors.accent} visible={!motion.onRoad} />
           {searching && nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {searching && ridePickup ? <RadarPulse cam={cam} size={sizeSV} at={ridePickup} testID="ride-radar" /> : null}
-          {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} side={sideOf(ridePickup, t('ride.pickup_here'))} testID="pin-pickup" /> : null}
+          {ridePickup ? <PlacePin cam={cam} size={sizeSV} at={ridePickup} kind="pickup" label={t('ride.pickup_here')} {...sideOf(ridePickup, t('ride.pickup_here'))} testID="pin-pickup" /> : null}
           {kitchen && prepProgress !== null ? <PrepRing cam={cam} size={sizeSV} at={kitchen} progress={prepProgress} testID="prep-ring" /> : null}
-          {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={kitchenLabel} side={sideOf(kitchen, kitchenLabel)} testID="pin-kitchen" /> : null}
-          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind={view.order.type === 'ride' ? destinationKind : 'home'} label={homeLabel} side={sideOf(home, homeLabel)} testID="pin-home" /> : null}
+          {kitchen && !pickedUp ? <PlacePin cam={cam} size={sizeSV} at={kitchen} kind="kitchen" label={kitchenLabel} {...sideOf(kitchen, kitchenLabel)} testID="pin-kitchen" /> : null}
+          {home ? <PlacePin cam={cam} size={sizeSV} at={home} kind={view.order.type === 'ride' ? destinationKind : 'home'} label={homeLabel} {...sideOf(home, homeLabel)} testID="pin-home" /> : null}
           <CourierMarker cam={cam} size={sizeSV} glide={motion.glide} progress={motion.progress} path={motion.path} kind={vehicle} stale={stale} minutes={minutes} spotlight={spotlight} testID="courier-marker" />
         </>
       ) : null}

@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LANDMARK_RULES } from '@driver/map';
 import type { HandoverProof, PartnerJob, PartnerJobStop, ZoneCheckAnswer } from '@driver/contracts';
 import { Badge, Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, type IconName } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
@@ -373,6 +374,8 @@ function JobView({
           topInset={92}
           bottomInset={64}
           maxZoom={15.4}
+          /* Drivers give directions by landmarks: names from the map's own closest zoom (Ali 2026-10-07). */
+          landmarkNameZoom={LANDMARK_RULES.driverNameZoom}
           testID="job-map"
         />
         <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>

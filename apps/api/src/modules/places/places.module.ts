@@ -3,6 +3,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule } from '../events/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
+import { LandmarkFeedService } from './landmark-feed.js';
 import { objectStorageFromEnv, OBJECT_STORAGE, type ObjectStoragePort } from './object-storage.js';
 import { InMemoryPlacesRepository, PLACES_REPOSITORY, PrismaPlacesRepository, PrismaSavedPlacesRepository, type PlacesRepository } from './places.repository.js';
 import { PlacesRpc } from './places.rpc.js';
@@ -66,8 +67,9 @@ import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords
     // Saved places name their landmark from the same list "وين رايح؟" searches (maps program a2).
     { provide: LEARNED_LANDMARKS, useExisting: PlacesService },
     SavedPlacesService,
+    LandmarkFeedService,
     PlacesRpc,
   ],
-  exports: [PlacesService, SavedPlacesService, PlacesRpc, BLOB_STORE],
+  exports: [PlacesService, SavedPlacesService, LandmarkFeedService, PlacesRpc, BLOB_STORE],
 })
 export class PlacesModule {}

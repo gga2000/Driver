@@ -6,3 +6,5 @@ export * from './style.js';
 export * from './polyline.js';
 export * from './project.js';
 export * from './labels.js';
+export * from './landmarks.js';
+export * from './landmark-icons.js';

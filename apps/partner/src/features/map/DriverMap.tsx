@@ -43,6 +43,8 @@ export interface DriverMapProps {
   soloZoom?: number;
   /** Closest zoom when framing several points (two pins on the same street stay readable). */
   maxZoom?: number;
+  /** Landmark names from this zoom (the job map: `LANDMARK_RULES.driverNameZoom`); default the shared rule. */
+  landmarkNameZoom?: number;
   testID?: string;
 }
 
@@ -51,7 +53,7 @@ export interface DriverMapProps {
  * plus the driver's puck, job pins and a dashed route, all projected from one camera held in
  * shared values so overlays never drift from the tiles.
  */
-export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, testID = 'driver-map' }: DriverMapProps) {
+export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, landmarkNameZoom, testID = 'driver-map' }: DriverMapProps) {
   const roadPoints = useMemo(() => (road ? decodePolyline(road) : null), [road]);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const sizeSV = useSharedValue<Size>({ w: 1, h: 1 });
@@ -64,9 +66,15 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
 
   const focus = useMemo(() => [...(self ? [self] : []), ...pins.map((p) => p.at)], [self, pins]);
   const focusKey = focus.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|');
-  // Zone names keep clear of the puck and every pin (QA 2026-10-07); keyed like the camera.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const labelAvoid = useMemo(() => focus.map((at) => ({ at })), [focusKey]);
+  // Zone names and landmarks keep clear of the puck and every pin (QA 2026-10-07); keyed like the
+  // camera. Each says how wide it really is (his disc, the pin's name pill), so a landmark's name
+  // beside them on this short map is not dropped for a wider default box.
+  const labelsKey = pins.map((p) => p.label).join('|');
+  const labelAvoid = useMemo(
+    () => [...(self ? [{ at: self, halfW: DISC / 2 + AVOID_PAD }] : []), ...pins.map((p) => ({ at: p.at, halfW: pinLayout(p.label).width / 2 + AVOID_PAD }))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [focusKey, labelsKey],
+  );
 
   useEffect(() => {
     if (size.w === 0) return;
@@ -113,7 +121,7 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} />
+          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(landmarkNameZoom !== undefined ? { landmarkNameZoom } : {})} />
           {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} /> : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
@@ -212,6 +220,8 @@ const PIN_W = 150;
 const PIN_H = 66;
 /** His disc on the puck. */
 const DISC = 40;
+/** Room kept around the disc and the pills for landmarks, px. */
+const AVOID_PAD = 4;
 /** The pin's name pill, its stem and the tip dot (which tucks 3 px under the stem). */
 const PILL_H = 30;
 const STEM = 10;
