@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Queue as BullQueue, Worker as BullWorker, type JobsOptions } from 'bullmq';
 import { Redis } from 'ioredis';
+import { runsJobs, type ProcessRole } from './process-role.js';
 
 export type RedisStatus = 'ok' | 'unavailable';
 
@@ -65,6 +66,7 @@ class BullMqQueue<T> implements Queue<T> {
     readonly name: string,
     private readonly connection: Redis,
     private readonly prefix: string,
+    private readonly role: ProcessRole,
   ) {
     this.queue = new BullQueue<T>(name, { connection, prefix });
   }
@@ -82,8 +84,10 @@ class BullMqQueue<T> implements Queue<T> {
     await this.queue.add(name as never, data as never, jobOpts);
   }
 
+  /** Attaches the worker. In a `web` process (DRIVER_ROLE) this is a no-op: the `worker` machines run the jobs. */
   process(handler: JobHandler<T>): void {
     if (this.worker) throw new Error(`queue ${this.name} already has a processor`);
+    if (!runsJobs(this.role)) return;
     this.worker = new BullWorker<T>(
       this.name,
       async (job) => handler({ id: String(job.id ?? ''), name: job.name, data: job.data }),
@@ -99,7 +103,8 @@ class BullMqQueue<T> implements Queue<T> {
 
 /**
  * Creates BullMQ queues on one shared ioredis connection. `status()` is what `health.ping`
- * reports; it never throws and never blocks boot when Redis is down.
+ * reports; it never throws and never blocks boot when Redis is down. With `role = 'web'`
+ * (DRIVER_ROLE, src/shared/process-role.ts) its queues only enqueue; no worker is attached.
  */
 @Injectable()
 export class BullMqQueueFactory implements QueueFactory, OnModuleDestroy {
@@ -112,6 +117,7 @@ export class BullMqQueueFactory implements QueueFactory, OnModuleDestroy {
   constructor(
     private readonly redisUrl: string | undefined = process.env['REDIS_URL'],
     private readonly prefix = 'driver',
+    readonly role: ProcessRole = 'all',
   ) {}
 
   get configured(): boolean {
@@ -131,7 +137,7 @@ export class BullMqQueueFactory implements QueueFactory, OnModuleDestroy {
   queue<T>(name: string): Queue<T> {
     const existing = this.queues.get(name);
     if (existing) return existing as Queue<T>;
-    const q = new BullMqQueue<T>(name, this.redis(), this.prefix);
+    const q = new BullMqQueue<T>(name, this.redis(), this.prefix, this.role);
     this.queues.set(name, q as Queue<unknown>);
     return q;
   }

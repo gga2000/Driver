@@ -2,26 +2,27 @@
 
 For whoever is on call (at launch: Ali). Short steps; each links to the page with the detail. Setup of
 each piece: [supabase.md](supabase.md), [hosting.md](hosting.md), [web.md](web.md),
-[console.md](console.md), [mobile.md](mobile.md).
+[console.md](console.md), [mobile.md](mobile.md), [staging.md](staging.md).
 
 ## Environments
 
-| | **dev** (laptop) | **staging** (optional) | **prod** |
+| | **dev** (laptop) | **staging** ([staging.md](staging.md)) | **prod** |
 | --- | --- | --- | --- |
-| Database | Docker `postgis/postgis:16-3.4` (`pnpm db:up`) | a second Supabase project, Free plan, Frankfurt | Supabase Pro, Frankfurt (`driver-prod`) |
+| Database | Docker `postgis/postgis:16-3.4` (`pnpm db:up`) | a second Supabase project `driver-staging`, Small, Frankfurt | Supabase Pro, Frankfurt (`driver-prod`) |
 | `DATABASE_URL` / `DIRECT_URL` | one local URL | its own pooler strings | transaction pooler :6543 / session pooler :5432 |
-| Redis | Docker `redis:7-alpine` | `driver-redis-staging` on Fly, or none | `driver-redis` on Fly (volume, AOF) |
-| API | `pnpm dev:api` (:3000) | Fly app `driver-api-staging` (same toml, `--app`) | Fly app `driver-api`, fra |
-| Seed | `pnpm db:seed` (demo restaurant + demo dispatcher +9647700000001) | setup script with `--dev-seed` | setup script, production profile + your admin phone |
+| Redis | Docker `redis:7-alpine` | `driver-redis-staging` on Fly (same toml, `--app`) | `driver-redis` on Fly (volume, AOF) |
+| API | `pnpm dev:api` (:3000) | Fly app `driver-api-staging` (same toml and sizes, `--app`) | Fly app `driver-api`, fra |
+| Seed | `pnpm db:seed` (demo restaurant + demo dispatcher +9647700000001) | setup script with `--dev-seed`; load-test data from `scripts/load/` | setup script, production profile + your admin phone |
 | SMS | `fake` (codes in the terminal) | `fake` | `fake` until the provider exists, then `gateway` |
 | Photos | memory / `UPLOADS_DIR` | Supabase Storage of the staging project | Supabase Storage `uploads` |
 | Web apps | `pnpm --filter @driver/customer web` | Pages preview branches | Cloudflare Pages `driver-customer`, `driver-merchant` |
 | Mobile | Expo Go / dev build | EAS `preview` profile (APK) + channel `preview` | EAS `production` profile + channel `production` |
-| Secrets | `.env` (dummies) | Fly secrets of the staging app | Fly secrets, GitHub secrets |
+| Secrets | `.env` (dummies) | Fly secrets of the staging app, GitHub environment `staging` | Fly secrets, GitHub secrets |
 | Logs | terminal, pretty | Fly, JSON | Fly, JSON (+ Sentry) |
 
-Staging is not required at launch. When a change touches money, dispatch or migrations, run it there
-first: deploy the same commit to the staging apps (`flyctl deploy … --app driver-api-staging`).
+Staging runs at production sizes for the launch load tests and the game day; it is stopped between
+them. When a change touches money, dispatch or migrations, run it there first: Actions → Deploy →
+environment `staging`.
 
 ## Deploy
 
@@ -134,7 +135,7 @@ What exists today, from the narrowest to the widest:
 | One restaurant overwhelmed / closed | **Busy mode** (+10 min prep, 60 min) or **close early** with a reason | merchant app (owner/staff) — `merchant.setBusy`, `merchant.setOpen` |
 | A courier, driver or staff member must stop working | revoke the role (`identity.revokeRole`, admin only) | Console / API — the person keeps the account, loses the job |
 | Per-zone / per-vertical throttles and a status banner to every app | the launch playbook's kill switches (`docs/specs/2026-10-03-launch-playbook.md`) | being built with the Console ops tools — use them once merged |
-| Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count 0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count 1 --config deploy/fly/api.toml` |
+| Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count app=0 worker=0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count app=2 worker=1 --config deploy/fly/api.toml` |
 | A bad mobile update | `eas update:roll-back-to-embedded --channel production` | Expo |
 
 Stopping the API is safe for data: orders already placed stay in the database, outbox rows wait, and

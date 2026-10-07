@@ -1,6 +1,9 @@
 # Driver (درايفر) — production deploy (docs/deploy/runbook.md).
 #
 # Runs on a version tag (git tag v1.2.3 && git push --tags) or by hand (Actions → Deploy → Run workflow).
+# A tag always deploys production. By hand you pick the GitHub environment: `production` or `staging`
+# (docs/deploy/staging.md). Each environment holds its own secrets and variables below, so staging has
+# its own database, Fly apps and Pages projects and can never touch production's.
 # Order: migrate the database (DIRECT_URL) → deploy the API to Fly → smoke it → deploy the Console and
 # the web apps. Every part checks its own secrets first and SKIPS (green, with a notice) when they are
 # not configured yet, so this workflow is safe to merge before any account exists.
@@ -22,6 +25,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      environment:
+        description: Where to deploy (each GitHub environment has its own secrets and variables)
+        type: choice
+        options: [production, staging]
+        default: production
       target:
         description: What to deploy
         type: choice
@@ -33,7 +41,7 @@ on:
         default: false
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ inputs.environment || 'production' }}
   cancel-in-progress: false
 
 permissions:
@@ -51,6 +59,7 @@ jobs:
   plan:
     name: plan (which parts are configured)
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
     outputs:
       db: ${{ steps.p.outputs.db }}
       api: ${{ steps.p.outputs.api }}
@@ -58,6 +67,27 @@ jobs:
       console: ${{ steps.p.outputs.console }}
       migrate: ${{ steps.p.outputs.migrate }}
     steps:
+      # GitHub falls back to repository-level secrets and variables when an environment lacks one, so a
+      # half-configured staging could deploy with production's database. Staging must name itself.
+      - name: Staging never reaches production
+        if: ${{ (inputs.environment || 'production') == 'staging' }}
+        env:
+          DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+          DATABASE_REF: ${{ vars.DATABASE_REF }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          FLY_API_APP: ${{ vars.FLY_API_APP }}
+          FLY_CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
+          API_URL: ${{ vars.API_PUBLIC_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$FLY_API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [ -z "$FLY_CONSOLE_APP" ] || [[ "$FLY_CONSOLE_APP" == *-staging ]] || fail "FLY_CONSOLE_APP must end in -staging"
+          [ -z "$API_URL" ] || [[ "$API_URL" == *staging* ]] || fail "API_PUBLIC_URL must be the staging API"
+          if [ -n "$DIRECT_URL" ]; then
+            [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref) on the staging environment"
+            [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database (set it on the staging environment)"
+          fi
       - id: p
         env:
           TARGET: ${{ inputs.target || 'all' }}
@@ -78,7 +108,7 @@ jobs:
             echo "db=$HAS_DB"; echo "migrate=$migrate"; echo "api=$api"; echo "web=$web"; echo "console=$console"
           } >> "$GITHUB_OUTPUT"
           {
-            echo "### Deploy plan (target: $TARGET)"
+            echo "### Deploy plan (${{ inputs.environment || 'production' }}, target: $TARGET)"
             echo "| part | runs | why not |"
             echo "| --- | --- | --- |"
             echo "| migrate database | $migrate | $([ "$HAS_DB" = true ] || echo 'secret DIRECT_URL not set')$([ "$SKIP_MIGRATE" = true ] && echo 'skip_migrate chosen') |"
@@ -93,7 +123,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.migrate == 'true'
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 15
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
@@ -120,7 +150,7 @@ jobs:
     needs: [plan, migrate]
     if: ${{ !cancelled() && needs.plan.outputs.api == 'true' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -146,7 +176,7 @@ jobs:
     needs: [plan, api]
     if: ${{ !cancelled() && needs.plan.outputs.console == 'true' && needs.api.result != 'failure' }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -163,7 +193,7 @@ jobs:
     needs: [plan, api]
     if: ${{ !cancelled() && needs.plan.outputs.web == 'true' && needs.api.result != 'failure' }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false

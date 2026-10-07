@@ -2,7 +2,7 @@
 
 **Decision: the API and its Redis run on Fly.io in `fra` (Frankfurt); the database is Supabase in
 Frankfurt (`eu-central-1`); the web apps are static files on Cloudflare Pages ([web.md](web.md)).**
-About **$6/month** for API + Redis at launch. Files: `apps/api/Dockerfile`, `deploy/fly/api.toml`,
+About **$124/month** at launch sizes (table below). Files: `apps/api/Dockerfile`, `deploy/fly/api.toml`,
 `deploy/fly/redis.toml`, `deploy/fly/redis/Dockerfile`, `.github/workflows/deploy.yml`.
 
 ## Why Fly (and not Railway or Render)
@@ -13,7 +13,7 @@ About **$6/month** for API + Redis at launch. Files: `apps/api/Dockerfile`, `dep
 | Latency to Iraq | Frankfurt ≈ 60–80 ms | Amsterdam ≈ 70–90 ms | Frankfurt ≈ 60–80 ms |
 | API cost at launch | 1 × shared-cpu-1x 512 MB ≈ **$3–4** | Hobby $5 minimum + usage ≈ $8–12 | Starter web $7 |
 | Redis | own Redis machine + 1 GB volume ≈ **$2** (or Upstash) | Redis service, usage-based ≈ $1–3 | Key Value Starter **$10** (the free one keeps nothing on restart) |
-| Total, API + Redis | **≈ $6** | ≈ $10–15 | ≈ $17 |
+| Total, API + Redis (first, ~100 orders a day sizing) | **≈ $6** | ≈ $10–15 | ≈ $17 |
 | SSE / WebSockets | yes (plain HTTP proxy, no request time limit) | yes | yes |
 | Zero-downtime deploy with one instance | yes (`bluegreen`) | yes | yes |
 | Ease for a non-coder | CLI first; the GitHub workflow does the deploys | easiest dashboard | easy dashboard |
@@ -27,34 +27,80 @@ Frankfurt is the fallback: same Dockerfile, ~$11/month more.
 ## What runs where
 
 ```
-phones / browsers ──HTTPS──▶ Fly proxy (fra) ──▶ driver-api  (1 machine, 512 MB, always on)
-                                                   │  HTTP API (tRPC), SSE, /files, /uploads
-                                                   │  BullMQ workers in the same process: outbox, dispatch
-                                                   │  waves, order timers, routes scheduler, nightly close
-                                                   ├──▶ driver-redis.internal:6379  (Fly private network)
+phones / browsers ──HTTPS──▶ Fly proxy (fra) ──▶ driver-api, process group `app` (2 machines, always on)
+                                                   │  DRIVER_ROLE=web: HTTP API (tRPC), SSE, /files, /uploads.
+                                                   │  Enqueues jobs, runs none.
+                                                   │
+                                                 driver-api, process group `worker` (1 machine, no public traffic)
+                                                   │  DRIVER_ROLE=worker: outbox, dispatch waves, order and trip
+                                                   │  timers, notify, routes scheduler, nightly close, purges
+                                                   │
+                                                   ├──▶ driver-redis.internal:6379  (Fly private network; jobs and live fan-out)
                                                    └──▶ Supabase Postgres (Supavisor :6543) + Storage (S3)
 ```
 
-**One process does both web and workers.** At ~100 orders a day the workers are idle most of the time,
-and BullMQ, the outbox (`SKIP LOCKED`) and the dispatch locks (Redis / advisory locks) are all safe with
-several processes, so scaling is "add a machine": `flyctl scale count 2 --config deploy/fly/api.toml`.
-A separate worker process only pays off when the queues slow the HTTP side down (thousands of orders a
-day); that needs a small code switch (`DRIVER_ROLE=web|worker`) that does not exist yet.
+## Web and worker machines (launch sizes)
 
-The machine never sleeps (`auto_stop_machines = "off"`): the timers live in it.
+Measured in the launch load test (plan 7.1): one shared-CPU machine runs out of CPU credit within
+11–38 minutes at the launch-night peak, and on six weeks of data it runs out of memory. So the API runs
+as two **process groups** from one image and one `deploy/fly/api.toml`:
+
+| Group | Machines | Size | `DRIVER_ROLE` | Heap cap | Does |
+| --- | --- | --- | --- | --- | --- |
+| `app` | 2 (min 2 running) | performance-1x: 1 dedicated vCPU, 2 GB | `web` | 1,536 MB | requests and streams; one can die at 1× load and the other carries it |
+| `worker` | 1 | shared-cpu-2x, 1 GB | `worker` | 768 MB | every background job and sweep |
+
+`DRIVER_ROLE` (`apps/api/src/shared/process-role.ts`): `web` attaches no BullMQ worker and runs no
+sweep; `worker` runs them and serves only its health check; `all` (the default) does both, as before.
+`web` and `worker` need `REDIS_URL` (they hand jobs to each other through Redis) and refuse to boot
+without it. Each group's command in the toml sets its role and its heap cap (75 % of the machine), so
+an overload fails fast and restarts instead of swapping.
+
+Set the counts once per app (and after `fly scale count 0`):
+
+```bash
+fly scale count app=2 worker=1 --config deploy/fly/api.toml
+```
+
+**Back to one process** (the switch-off in plan 7.6): `fly scale count app=2 worker=0`, then set the
+`app` command to `DRIVER_ROLE=all` (edit `[processes]` and deploy). Jobs are safe across the switch:
+BullMQ keeps them in Redis until a process with workers attaches.
+
+BullMQ, the outbox (`SKIP LOCKED`) and the dispatch locks are safe with several processes, so more
+capacity is "add a machine": `fly scale count app=3 --config deploy/fly/api.toml` (the plan's fallback
+if the 2× load test fails is 3–4 `app` machines).
+
+### Monthly cost at launch sizes
+
+Fly list prices for Frankfurt (`fra` is about 15 % over the US base), October 2026, 30 days always on:
+
+| Part | Size | ≈ $/month |
+| --- | --- | --- |
+| API `app` | 2 × performance-1x 2 GB | 76 |
+| API `worker` | 1 × shared-cpu-2x 1 GB | 8.5 |
+| Redis | shared-cpu-1x 256 MB + 1 GB volume | 2.7 |
+| Road routing (OSRM) | shared-cpu-1x 1 GB | 6.6 |
+| Supabase | Pro plan $25 + Small compute $15, less the $10 compute credit | 30 |
+| **Production total** | | **≈ 124** |
+| Fallback: each extra `app` machine | performance-1x 2 GB | +38 |
+| Staging (only while testing) | same sizes, billed by the hour; stopped between tests | ≈ 5–25 |
+
+Check the current prices on <https://fly.io/docs/about/pricing/> and <https://supabase.com/pricing>
+before turning it on.
 
 ## Realtime (SSE) on Fly — for the realtime work
 
 - Fly's proxy passes Server-Sent Events and WebSockets through unchanged, with no time limit per
   request. It closes a connection that sends nothing for about a minute: **send a comment line
   (`: ping`) at least every 30 s** on every stream.
-- `[http_service.concurrency]` counts **connections** (soft 800 / hard 1000 per machine), so open
-  streams are what fill a machine; raise `memory` before raising the limits.
+- `[http_service.concurrency]` counts **connections** (soft 300 / hard 400 per `app` machine, to be
+  calibrated by the load test), so open streams are what fill a machine. Overload is answered inside
+  the process with a 503 and `Retry-After` for requests, never by refusing a stream.
 - On deploy or shutdown, open streams get 10 s and are then closed (`src/shutdown.ts`); `EventSource`
   reconnects by itself, to the new machine. Send `retry:` and use `Last-Event-ID` if missed events
   matter.
-- With two machines, a stream and the event that should reach it may be on different machines: fan out
-  through Redis pub/sub, not process memory.
+- With two machines, a stream and the event that should reach it may be on different machines: live
+  events fan out through Redis pub/sub (`RedisLiveBus`), never process memory.
 
 ## One-time setup (about 20 minutes)
 
@@ -86,8 +132,9 @@ fly secrets set --config deploy/fly/api.toml --stage \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
 
-# 4. First deploy (later deploys come from GitHub, runbook.md)
+# 4. First deploy (later deploys come from GitHub, runbook.md), then the machine counts
 fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only
+fly scale count app=2 worker=1 --config deploy/fly/api.toml
 
 # 5. Check: both must say "ok"
 curl -s https://driver-api.fly.dev/trpc/health.ping
@@ -115,7 +162,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `PORT` | no | `3000` (toml) |
 | `DATABASE_URL` | **yes** | Supabase transaction pooler, port 6543 |
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
-| `DATABASE_POOL_MAX` | no | `10` (toml) |
+| `DATABASE_POOL_MAX` | no | `10` (toml), per process: 3 processes use 30 of Small compute's 400 pooled clients |
+| `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
@@ -206,7 +254,7 @@ adds up to millions of commands a month: choose a **fixed-price** Upstash plan i
 
 | Load | Change | Cost |
 | --- | --- | --- |
-| ~100 orders/day (launch) | as above | API $3–4 + Redis $2 |
-| ~1,000/day, several towns | `memory = "1gb"` and/or `fly scale count 2` (two machines = no single point of failure) | +$4–8 |
-| Database busy | Supabase compute Micro → Small | +~$15 |
+| Launch night (≈ 225 active orders, 112 streams; plan 7.1) | the launch sizes above | ≈ $124 in all |
+| 2× load test fails, or a second town | `fly scale count app=3` or 4 | +$38 per machine |
+| Database CPU > 60 % at 2× | Supabase compute Small → Medium | +~$45 |
 | Thousands of SSE streams | more machines; Redis pub/sub fan-out | per machine |
