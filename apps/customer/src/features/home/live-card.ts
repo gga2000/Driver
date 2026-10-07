@@ -1,4 +1,5 @@
 import type { Order } from '@driver/contracts';
+import type { LiveStagePalette } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
 
 /** Segments on the home live-order card's progress bar (discovery §6: "▰▰▰▱ دا يتحضّر"). */
@@ -62,4 +63,62 @@ export function liveProgress(o: LiveOrder & Pick<Order, 'pickedUpAt'>, eta: Date
   const to = eta ? eta.getTime() : null;
   const share = from !== null && to !== null && to > from ? (now - from) / (to - from) : 0.5;
   return (LIVE_SEGMENTS - 1 + Math.min(ON_THE_WAY_MAX, Math.max(ON_THE_WAY_MIN, share))) / LIVE_SEGMENTS;
+}
+
+/**
+ * Where the order is, as the card shows it (Ali, 2026-10-07: each stage looks different). Food: sent
+ * to the restaurant, the kitchen said yes, cooking, ready, on the way. A ride: looking for a driver,
+ * the driver coming, on the trip.
+ */
+export type LiveStage = 'sent' | 'accepted' | 'cooking' | 'ready' | 'onTheWay' | 'searching' | 'driverComing' | 'onTrip';
+
+export function liveStage(o: LiveOrder): LiveStage {
+  if (o.type === 'ride') return o.state === 'placed' ? 'searching' : o.state === 'matched' ? 'driverComing' : 'onTrip';
+  switch (o.state) {
+    case 'placed':
+      return 'sent';
+    case 'merchant_accepted':
+      return 'accepted';
+    case 'preparing':
+      return 'cooking';
+    case 'ready':
+      return 'ready';
+    default:
+      return 'onTheWay';
+  }
+}
+
+/** Which of the card's colour looks (`theme.liveStages`) a stage wears: a ride borrows the food looks. */
+export const STAGE_LOOK: Record<LiveStage, keyof LiveStagePalette> = {
+  sent: 'sent',
+  accepted: 'accepted',
+  cooking: 'cooking',
+  ready: 'ready',
+  onTheWay: 'onTheWay',
+  searching: 'sent',
+  driverComing: 'accepted',
+  onTrip: 'onTheWay',
+};
+
+const STAGE_TITLE: Record<LiveStage, MessageKey> = {
+  sent: 'home.stage.sent',
+  accepted: 'home.stage.accepted',
+  cooking: 'home.stage.cooking',
+  ready: 'home.stage.ready',
+  onTheWay: 'home.stage.on_the_way',
+  searching: 'home.stage.searching',
+  driverComing: 'home.stage.driver_coming',
+  onTrip: 'home.stage.on_trip',
+};
+
+/** The stage's title on the card: «وصل للمطعم», «المطعم قبل», «دا يتحضّر», «طلبك جاهز», «بالطريق إلك». */
+export function stageTitleKey(stage: LiveStage): MessageKey {
+  return STAGE_TITLE[stage];
+}
+
+/** The word over the arrival time: the food «يوصل»; the driver «يوصلك» (to the pickup); on the trip «توصل». */
+export function stageEtaKey(stage: LiveStage): MessageKey {
+  if (stage === 'driverComing' || stage === 'searching') return 'home.stage.eta_pickup';
+  if (stage === 'onTrip') return 'home.stage.eta_trip';
+  return 'home.stage.eta_food';
 }

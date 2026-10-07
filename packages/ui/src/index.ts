@@ -9,7 +9,7 @@ export { ICONS, ICON_NAMES, MIRRORED, type IconName } from './icons/paths';
 export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } from './icons/GlyphShapes';
 
 // Illustration: the Aziziyah sketchbook (joy J4)
-export { SKETCH } from './art/kit';
+export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
 export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
