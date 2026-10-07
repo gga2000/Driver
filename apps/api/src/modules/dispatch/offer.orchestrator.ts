@@ -281,6 +281,7 @@ export class OfferOrchestrator {
       startAt: job.startAt?.getTime() ?? null,
       preferDriverIds: job.preferDriverIds ? [...job.preferDriverIds] : [],
       riderId: job.riderId ?? null,
+      orderId: job.orderId ?? null,
       familyPreferred: job.familyPreferred ?? false,
       // s5 / s4: read once when the search is asked for; a rider's ride never reaches a driver he avoids.
       ...(await this.riderLists(job)),
@@ -492,7 +493,8 @@ export class OfferOrchestrator {
     if (r.status !== 'searching' && r.status !== 'rebroadcast') return;
     await this.expireOpen(r, () => true);
     r.customerMayCancelFree = true;
-    await this.emit('dispatch.free_cancel_available', r, { afterSec: Math.round((this.now() - (r.searchStartedAt ?? r.createdAt)) / 1000) });
+    // NTF-04: carries the order so the rider hears «ما لگينا سايق هسة» with his choices.
+    await this.emit('dispatch.free_cancel_available', r, { afterSec: Math.round((this.now() - (r.searchStartedAt ?? r.createdAt)) / 1000), ...(r.orderId ? { orderId: r.orderId } : {}) });
     await this.needsDispatcher(r, 'no_acceptance');
   }
 
@@ -1440,6 +1442,8 @@ export class OfferOrchestrator {
           // Review #28: T−30 — the confirmed driver's trip starts, or the fallback search does.
           if (r.booked && isHeld(r.booked)) return this.onBookedShowTime(r);
           if (r.booked && (r.booked.state === 'waiting' || r.booked.state === 'offered')) r.booked = bookedStep(r.booked, { kind: 'deadline' }, this.now());
+          // NTF-05: the rider who booked yesterday hears that the search for his driver started now.
+          if (r.orderId && r.scheduledFor) await this.emit('dispatch.booked_search_started', r, { orderId: r.orderId, scheduledFor: new Date(r.scheduledFor).toISOString() });
           return this.beginBroadcast(r, this.baseConfig(r.cityId, r.vertical));
         case 'favourite_end':
           return this.onFavouriteEnd(r);

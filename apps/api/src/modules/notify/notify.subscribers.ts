@@ -32,6 +32,8 @@ export const BOOKED_RIDE_EVENTS = [
   'dispatch.booked_reminder',
   'dispatch.booked_released',
   'dispatch.booked_cancelled',
+  // NTF-05: T−30, the search for its driver started.
+  'dispatch.booked_search_started',
 ] as const;
 
 export const NOTIFY_EVENT_TYPES = [
@@ -46,6 +48,9 @@ export const NOTIFY_EVENT_TYPES = [
   'stop.driver_near',
   'order.completed',
   'order.matched',
+  // NTF-04: a ride's bad turns — the driver who took it cancelled, or no driver took it in time.
+  'order.driver_cancelled',
+  'dispatch.free_cancel_available',
   'stop.arrived',
   'merchant.paid_by_courier',
   'menu_photos.shot',
@@ -238,7 +243,7 @@ export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookup
   if (!orderId || !at || Number.isNaN(Date.parse(at))) return [];
   const when = bookedWhen(new Date(at), e.occurredAt);
   const driverId = str(p['driverId']);
-  const toRider = async (template: 'booked_ride_confirmed' | 'booked_ride_unconfirmed' | 'booked_ride_released'): Promise<NotifyRequest[]> => {
+  const toRider = async (template: 'booked_ride_confirmed' | 'booked_ride_unconfirmed' | 'booked_ride_released' | 'booked_ride_searching'): Promise<NotifyRequest[]> => {
     const order = await L.order(orderId);
     if (!order) return [];
     const driver = driverId ? ((await L.firstName(driverId, 'notify_booked_ride')) ?? 'السايق') : '';
@@ -252,6 +257,8 @@ export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookup
       return toRider('booked_ride_unconfirmed');
     case 'dispatch.booked_released':
       return toRider('booked_ride_released');
+    case 'dispatch.booked_search_started':
+      return toRider('booked_ride_searching');
     case 'dispatch.booked_offered':
     case 'dispatch.booked_opened': {
       const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
@@ -368,6 +375,19 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       // w9: a night ride (21:00–06:00 Baghdad, `isNightAt`) is shared with the trusted people when the rider asked.
       const shared = e.type === 'order.matched' && isNightAt(e.occurredAt) ? await sharedWithPeople(deps, e, order.customerId, { orderId: order.id }, 'autoShareNight', 'مشوار بالليل') : [];
       return [own, ...rider, ...shared];
+    }
+    case 'order.driver_cancelled':
+    case 'dispatch.free_cancel_available': {
+      // NTF-04: «حيدر لغى المشوار، دا ندورلك سايق ثاني» / «ما لگينا سايق هسة: انتظر، الغي ببلاش، أو احجز
+      // لوقت ثاني». The orderer, and the rider of a ride booked for someone else. No credit is promised:
+      // nothing posts the driver-cancel credit to the wallet yet.
+      const orderId = e.orderId ?? str(p['orderId']);
+      const order = orderId ? await L.order(orderId) : null;
+      if (!order || order.type !== 'ride') return [];
+      const cancelled = e.type === 'order.driver_cancelled';
+      const driver = cancelled ? ((await L.firstName(e.actorId, 'notify_ride_driver_cancelled')) ?? 'السايق') : '';
+      const template = cancelled ? ('ride_driver_cancelled' as const) : ('ride_no_driver' as const);
+      return [...new Set([order.customerId, order.riderId].filter((x): x is string => Boolean(x)))].map((to) => ({ ...base, template, to, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } }));
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);
