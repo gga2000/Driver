@@ -2,7 +2,8 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, SearchField, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, SearchField, Skeleton, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -37,7 +38,7 @@ export function MenuScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;

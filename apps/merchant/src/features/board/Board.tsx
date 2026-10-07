@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
-import { agoText, ModalSheet, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme, useToast } from '@driver/ui';
+import { agoText, ModalSheet, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
+import { COUNTER } from '@/lib/counter';
 import { testChime } from '@/lib/alert-sound';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -70,14 +72,16 @@ function EmptyColumn({ column }: { column: BoardColumn }) {
 function ColumnHeader({ column, count }: { column: BoardColumn; count: number }) {
   const theme = useTheme();
   const t = useT();
-  const hot = column === 'new' && count > 0;
+  // One job per colour: the new lane's count is dark saffron, the cooking lane's date brown, ready green.
+  const badge = column === 'new' ? COUNTER.newBadge : column === 'preparing' ? COUNTER.date : COUNTER.ready;
+  const quiet = count === 0;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingBottom: theme.space[3] }}>
-      <Text variant="title" weight={700}>
+      <Text variant="title" style={[theme.face('display'), { color: COUNTER.date }]}>
         {t(COLUMN_LABEL[column])}
       </Text>
-      <View style={{ minWidth: 30, height: 26, paddingHorizontal: 8, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: hot ? theme.colors.accent : theme.colors.surfaceSunken }}>
-        <Text variant="label" weight={700} tabular color={hot ? 'onAccent' : 'textMuted'}>
+      <View style={{ minWidth: 30, height: 28, paddingHorizontal: 8, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: quiet ? theme.colors.surfaceSunken : badge }}>
+        <Text variant="label" tabular style={[theme.face('display'), { color: quiet ? theme.colors.textMuted : COUNTER.onDate }]}>
           {String(count)}
         </Text>
       </View>
@@ -104,7 +108,7 @@ export function Board() {
   const t = useT();
   const dates = useDates();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const prefs = usePrefs();
   const { wide } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
@@ -466,7 +470,7 @@ export function Board() {
                 borderRadius: theme.radius['2xl'],
                 paddingHorizontal: theme.space[3],
                 paddingTop: theme.space[3],
-                backgroundColor: c === 'new' && cols.new.length > 0 ? theme.colors.accentTint : theme.colors.surfaceSunken,
+                backgroundColor: c === 'new' ? COUNTER.laneNew : c === 'preparing' ? COUNTER.laneCooking : COUNTER.laneReady,
               }}
             >
               <View style={{ paddingHorizontal: theme.space[1] }}>
@@ -476,7 +480,7 @@ export function Board() {
               <ScrollView
                 ref={c === 'new' ? newScroll : undefined}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ gap: c === 'new' && rush ? theme.space[3] : theme.space[4], paddingBottom: theme.space[6], paddingHorizontal: 3, paddingTop: 3 }}
+                contentContainerStyle={{ gap: c === 'new' && rush ? theme.space[3] : theme.space[5], paddingBottom: theme.space[6], paddingHorizontal: 3, paddingTop: 9 }}
                 showsVerticalScrollIndicator={false}
               >
                 {loading ? skeleton : cols[c].length === 0 ? <EmptyColumn column={c} /> : cols[c].map(card)}
@@ -494,7 +498,7 @@ export function Board() {
               options={COLUMNS.map((c) => ({ value: c, label: `${t(COLUMN_LABEL[c])} · ${cols[c].length}` }))}
             />
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[4], padding: theme.space[4], paddingBottom: theme.space[10] }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], padding: theme.space[4], paddingBottom: theme.space[10] }}>
             {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : null}
             {loading ? skeleton : cols[segment].length === 0 ? <EmptyColumn column={segment} /> : cols[segment].map(card)}
           </ScrollView>

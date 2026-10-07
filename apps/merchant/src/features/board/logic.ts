@@ -85,10 +85,10 @@ export function courierLine(c: BoardCourier, now: number): { key: TKey; params?:
     case 'on_the_way':
       // About to walk in (maps program SP7a): the card turns green with the chime.
       if (arriving(c)) return c.firstName ? { key: 'merchant.courier.arriving', params: { name: c.firstName }, tone: 'success', live: true } : { key: 'merchant.courier.arriving_anon', tone: 'success', live: true };
-      if (c.etaMinutes === null) return { key: 'merchant.courier.on_the_way_no_eta', tone: 'info', live: true };
+      if (c.etaMinutes === null) return { key: 'merchant.courier.on_the_way_no_eta', tone: 'neutral', live: true };
       return c.firstName
-        ? { key: 'merchant.courier.on_the_way_named', params: { name: c.firstName, minutes: c.etaMinutes }, tone: 'info', live: true }
-        : { key: 'merchant.courier.on_the_way', params: { minutes: c.etaMinutes }, tone: 'info', live: true };
+        ? { key: 'merchant.courier.on_the_way_named', params: { name: c.firstName, minutes: c.etaMinutes }, tone: 'neutral', live: true }
+        : { key: 'merchant.courier.on_the_way', params: { minutes: c.etaMinutes }, tone: 'neutral', live: true };
     case 'arrived': {
       const waited = c.arrivedAt ? minutesBetween(c.arrivedAt, now) : 0;
       if (waited >= 3) return { key: 'merchant.courier.arrived_waiting', params: { minutes: waited }, tone: 'warning', live: true };

@@ -69,7 +69,7 @@ const TONE_BG: Record<StatusTone, 'surfaceSunken' | 'accentTint' | 'successTint'
   success: 'successTint',
   warning: 'warningTint',
   danger: 'dangerTint',
-  info: 'infoTint',
+  info: 'surfaceSunken', // no blue on the counter
 };
 export const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warningText' | 'dangerText' | 'infoText'> = {
   neutral: 'text',
@@ -77,7 +77,7 @@ export const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' |
   success: 'successText',
   warning: 'warningText',
   danger: 'dangerText',
-  info: 'infoText',
+  info: 'text',
 };
 const TONE_DOT: Record<StatusTone, 'textMuted' | 'accent' | 'success' | 'warning' | 'danger' | 'info'> = {
   neutral: 'textMuted',
@@ -85,7 +85,7 @@ const TONE_DOT: Record<StatusTone, 'textMuted' | 'accent' | 'success' | 'warning
   success: 'success',
   warning: 'warning',
   danger: 'danger',
-  info: 'info',
+  info: 'textMuted',
 };
 
 /** A pill: a tag when `onPress` is absent, a small button when present (min 36 px tall). */

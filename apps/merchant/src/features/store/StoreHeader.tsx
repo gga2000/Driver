@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { isValidElement, useState, type ReactNode } from 'react';
+import { createContext, isValidElement, useContext, useState, type ReactNode } from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
 import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
 import { Button, ModalSheet, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
@@ -10,6 +10,7 @@ import { balanceState, moneyPill } from '@/features/money/logic';
 import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 import { color as palette } from '@driver/design-tokens';
+import { COUNTER } from '@/lib/counter';
 import { chipsFitInline } from './header-fit';
 
 export interface StoreHeaderProps {
@@ -34,7 +35,7 @@ const TONE_BG: Record<StatusTone, 'surfaceSunken' | 'accentTint' | 'successTint'
   success: 'successTint',
   warning: 'warningTint',
   danger: 'dangerTint',
-  info: 'infoTint',
+  info: 'surfaceSunken', // no blue on the counter
 };
 const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warningText' | 'dangerText' | 'infoText'> = {
   neutral: 'text',
@@ -42,8 +43,21 @@ const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warni
   success: 'successText',
   warning: 'warningText',
   danger: 'dangerText',
-  info: 'infoText',
+  info: 'text',
 };
+
+/**
+ * True inside the date-brown status bar (the counter, redesign step 1): chips there draw for a dark
+ * ground. The phone's "…" sheet sits outside it, so the same chips draw light there.
+ */
+const OnBar = createContext(false);
+
+/** Chip colours on the date bar: neutral chips lift on `dateRaised`, busy mode is gold, the rest keep their tints. */
+function barChip(tone: StatusTone): { bg: string; fg: string; edge: string } | null {
+  if (tone === 'neutral') return { bg: COUNTER.dateRaised, fg: COUNTER.onDate, edge: COUNTER.dateEdge };
+  if (tone === 'warning') return { bg: COUNTER.busy, fg: COUNTER.onBusy, edge: COUNTER.busy };
+  return null;
+}
 
 /**
  * A tappable status chip (40 px tall: easy to hit with a wet finger). Never wider than its row: on a
@@ -52,6 +66,7 @@ const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warni
  */
 export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: MIconName; label: string; tone: StatusTone; onPress: () => void; testID: string; dot?: boolean }) {
   const theme = useTheme();
+  const bar = useContext(OnBar) ? barChip(tone) : null;
   return (
     <Pressable hitSlop={2}
       testID={testID}
@@ -62,20 +77,20 @@ export function HeaderChip({ icon, label, tone, onPress, testID, dot }: { icon: 
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[2],
-        minHeight: 40,
+        minHeight: 44,
         maxWidth: '100%',
         paddingVertical: 2,
         paddingHorizontal: theme.space[3],
         borderRadius: theme.radius.pill,
-        backgroundColor: theme.colors[TONE_BG[tone]],
+        backgroundColor: bar ? bar.bg : theme.colors[TONE_BG[tone]],
         borderWidth: tone === 'neutral' ? 1 : 0,
-        borderColor: theme.colors.border,
+        borderColor: bar ? bar.edge : theme.colors.border,
         opacity: pressed ? 0.8 : 1,
       })}
     >
       {dot ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors[tone === 'danger' ? 'danger' : tone === 'success' ? 'success' : 'warning'] }} /> : null}
-      <MIcon name={icon} size={18} color={TONE_FG[tone]} strokeWidth={2} />
-      <Text variant="label" weight={600} color={TONE_FG[tone]} numberOfLines={2} tabular style={{ flexShrink: 1 }}>
+      <MIcon name={icon} size={18} color={bar ? bar.fg : TONE_FG[tone]} strokeWidth={2} />
+      <Text variant="label" weight={600} color={bar ? bar.fg : TONE_FG[tone]} numberOfLines={2} tabular style={{ flexShrink: 1 }}>
         {label}
       </Text>
     </Pressable>
@@ -88,7 +103,9 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
   const t = useT();
   const paused = status.pause !== null && status.closed === null;
   const open = status.open;
-  const color = open ? theme.colors.success : paused ? theme.colors.warning : theme.colors.danger;
+  // On the date bar: solid green open, solid red closed, gold during a pause; the words stay readable in the sun.
+  const color = open ? COUNTER.ready : paused ? COUNTER.busy : COUNTER.late;
+  const ink = paused ? COUNTER.onBusy : COUNTER.onDate;
   const label = open ? t('merchant.status.open') : paused ? t('merchant.status.paused', { time: status.pause!.until }) : t('merchant.status.closed');
   return (
     <Pressable hitSlop={2}
@@ -102,20 +119,20 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[2],
-        height: compact ? 44 : 40,
+        height: 44,
         paddingStart: theme.space[3],
-        paddingEnd: compact ? theme.space[3] : 4,
+        paddingEnd: compact ? theme.space[3] : 6,
         borderRadius: theme.radius.pill,
-        backgroundColor: withAlpha(color, 0.12),
+        backgroundColor: color,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      {compact ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} /> : null}
-      <Text variant="label" weight={700} style={{ color }} numberOfLines={1}>
+      {compact ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ink }} /> : null}
+      <Text variant="label" weight={700} style={{ color: ink }} numberOfLines={1}>
         {label}
       </Text>
       {compact ? null : (
-        <View style={{ width: 52, height: 32, borderRadius: 16, backgroundColor: color, padding: 3, alignItems: open ? 'flex-start' : 'flex-end' }}>
+        <View style={{ width: 52, height: 32, borderRadius: 16, backgroundColor: withAlpha(COUNTER.date, 0.35), padding: 3, alignItems: open ? 'flex-start' : 'flex-end' }}>
           <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: palette.neutral[0] }} />
         </View>
       )}
@@ -233,8 +250,9 @@ function WideBar({ name, openSwitch, chips, money }: { name: ReactNode; openSwit
     <View
       testID="store-header"
       onLayout={(e) => setRow(Math.floor(e.nativeEvent.layout.width))}
-      style={{ gap: theme.space[2], paddingHorizontal: padding, paddingVertical: theme.space[3], borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}
+      style={{ gap: theme.space[2], paddingHorizontal: padding, paddingVertical: theme.space[3], backgroundColor: COUNTER.date }}
     >
+      <OnBar.Provider value={true}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap }}>
         <View onLayout={measureFixed('name')} style={{ maxWidth: WIDE_NAME_MAX, flexShrink: 0 }}>
           {name}
@@ -258,6 +276,7 @@ function WideBar({ name, openSwitch, chips, money }: { name: ReactNode; openSwit
           {wrapped}
         </View>
       )}
+      </OnBar.Provider>
     </View>
   );
 }
@@ -364,15 +383,15 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
 
   const name = (
     <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-      <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
-        <MIcon name="store" size={22} color="accentText" />
+      <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
+        <MIcon name="store" size={22} color={COUNTER.busy} />
       </View>
       <View style={{ flexShrink: 1 }}>
-        <Text variant="title" weight={700} numberOfLines={1}>
+        <Text variant="title" numberOfLines={1} style={[theme.face('display'), { color: COUNTER.onDate }]}>
           {storeName}
         </Text>
         {status?.closed ? (
-          <Text variant="caption" color="dangerText" numberOfLines={1}>
+          <Text variant="caption" numberOfLines={1} style={{ color: COUNTER.onDateLate }}>
             {`${t(`merchant.close_reason.${status.closed.reason}` as const)} · ${clock12(status.closed.at)}`}
           </Text>
         ) : null}
@@ -391,22 +410,23 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
   const busyOn = Boolean(status?.busy.on && status.busy.until);
   const needsLook = busyOn || chip === 'disconnected';
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+    <View style={{ backgroundColor: COUNTER.date }}>
+      <OnBar.Provider value={true}>
       <View testID="store-header-row" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 56, paddingHorizontal: theme.space[4] }}>
         <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
-            <MIcon name="store" size={20} color="accentText" />
+          <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
+            <MIcon name="store" size={20} color={COUNTER.busy} />
           </View>
           <View style={{ flexShrink: 1 }}>
-            <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ lineHeight: 24 }}>
+            <Text variant="bodyStrong" numberOfLines={1} style={[theme.face('display'), { lineHeight: 24, color: COUNTER.onDate }]}>
               {storeName}
             </Text>
             {busyOn && status?.busy.until ? (
-              <Text variant="caption" color="warningText" weight={600} numberOfLines={1} tabular style={{ lineHeight: 16 }}>
+              <Text variant="caption" weight={600} numberOfLines={1} tabular style={{ lineHeight: 16, color: COUNTER.busy }}>
                 {t('merchant.busy.chip_on', { minutes: minutesLeft(status.busy.until, now) })}
               </Text>
             ) : status?.closed ? (
-              <Text variant="caption" color="dangerText" numberOfLines={1} style={{ lineHeight: 16 }}>
+              <Text variant="caption" numberOfLines={1} style={{ lineHeight: 16, color: COUNTER.onDateLate }}>
                 {t(`merchant.close_reason.${status.closed.reason}` as const)}
               </Text>
             ) : null}
@@ -418,10 +438,10 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
           accessibilityRole="button"
           accessibilityLabel={t('merchant.header.more')}
           onPress={() => setMenu(true)}
-          style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfaceSunken : 'transparent' })}
+          style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? COUNTER.dateRaised : 'transparent' })}
         >
-          <MIcon name="more" size={24} color="text" strokeWidth={2.4} />
-          {needsLook ? <View style={{ position: 'absolute', top: 8, end: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: chip === 'disconnected' ? theme.colors.danger : theme.colors.warning, borderWidth: 1.5, borderColor: theme.colors.bg }} /> : null}
+          <MIcon name="more" size={24} color={COUNTER.onDate} strokeWidth={2.4} />
+          {needsLook ? <View style={{ position: 'absolute', top: 8, end: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: chip === 'disconnected' ? COUNTER.onDateLate : COUNTER.busy, borderWidth: 1.5, borderColor: COUNTER.date }} /> : null}
         </Pressable>
       </View>
       {(alerts ?? []).length > 0 ? (
@@ -430,6 +450,7 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
           {alerts}
         </View>
       ) : null}
+      </OnBar.Provider>
       <ModalSheet visible={menu} onClose={() => setMenu(false)} title={storeName} testID="header-menu">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>{chips.slice((alerts ?? []).length)}</View>
         {money}

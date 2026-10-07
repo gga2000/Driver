@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { MerchantDispute } from '@driver/contracts';
-import { Button, EmptyState, ModalSheet, Skeleton, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
+import { Button, EmptyState, ModalSheet, Skeleton, Text, TextField, useTheme, type StatusTone } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Panel, Tag } from '@/components/Panel';
 import { apiErrorMessage } from '@/lib/api';
@@ -130,7 +131,7 @@ function DisputeSheet({ merchantOrgId, dispute: d, now, onClose }: { merchantOrg
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
-  const toast = useToast();
+  const toast = useCounterToast();
   const respond = useRespondDispute();
   const ticket = usePhotoTicket();
   const clock = disputeClock(d, now);

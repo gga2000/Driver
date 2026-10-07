@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { HoursShift } from '@driver/contracts';
-import { Button, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { EntryTile } from '@/components/EntryTile';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
@@ -43,7 +44,7 @@ export default function Hours() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const dates = useDates();
   const { store } = useCurrentStore();
   const status = useStoreStatus(store?.orgId ?? null);

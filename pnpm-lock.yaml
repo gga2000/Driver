@@ -386,6 +386,9 @@ importers:
       '@driver/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@expo-google-fonts/alexandria':
+        specifier: 0.4.2
+        version: 0.4.2
       '@expo-google-fonts/ibm-plex-sans-arabic':
         specifier: 0.4.2
         version: 0.4.2

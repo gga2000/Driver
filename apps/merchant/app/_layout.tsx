@@ -56,13 +56,13 @@ export default function RootLayout() {
     document.documentElement.lang = locale === 'en' ? 'en' : 'ar';
     document.documentElement.dir = locale === 'en' ? 'ltr' : 'rtl';
     document.body.style.backgroundColor = chrome.colors.bg;
-    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمطاعم';
+    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمحلات';
   }, [locale]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider theme="light" fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
+        <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
           <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
             <ApiProvider>
               <StatusBar style="dark" />

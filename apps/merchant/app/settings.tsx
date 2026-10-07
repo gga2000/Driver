@@ -1,5 +1,6 @@
 import { Pressable, Switch, View } from 'react-native';
-import { Button, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { EntryTile } from '@/components/EntryTile';
 import { Page } from '@/components/Page';
 import { testChime } from '@/lib/alert-sound';
@@ -26,7 +27,7 @@ export default function Settings() {
   const theme = useTheme();
   const t = useT();
   const p = usePrefs();
-  const toast = useToast();
+  const toast = useCounterToast();
   const test = async () => {
     const ok = await testChime();
     if (!ok) toast.show({ message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });

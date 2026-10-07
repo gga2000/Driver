@@ -2,7 +2,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
 import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
-import { Button, ChipGroup, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, ChipGroup, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -48,7 +49,7 @@ export function ItemEditor() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const params = useLocalSearchParams<{ id?: string; category?: string }>();
   const { store } = useCurrentStore();

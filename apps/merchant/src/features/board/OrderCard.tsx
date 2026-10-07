@@ -4,6 +4,8 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import type { BoardGroup, BoardOrder } from '@driver/contracts';
 import { Button, CountdownRing, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
+import { COUNTER } from '@/lib/counter';
+import { TornEdge } from './TornEdge';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { iqd } from '@/lib/money';
@@ -82,10 +84,10 @@ function Line({ qty, name, modifiers, note, out }: { qty: number; name: string; 
   return (
     <View style={{ gap: 2, opacity: out ? 0.5 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-        <Text variant="title" weight={700} color="accentText" tabular style={{ minWidth: 30 }}>
+        <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }]}>
           {`${qty}×`}
         </Text>
-        <Text variant="bodyStrong" style={{ flex: 1, fontSize: 16, textDecorationLine: out ? 'line-through' : 'none' }}>
+        <Text variant="bodyStrong" weight={700} style={{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: out ? 'line-through' : 'none' }}>
           {name}
         </Text>
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
@@ -114,8 +116,8 @@ function GroupHeader({ g, several }: { g: BoardGroup; several: boolean }) {
   return (
     <View style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: g.kind === 'orderer' ? theme.colors.text : theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="caption" weight={700} style={{ color: g.kind === 'orderer' ? theme.colors.bg : theme.colors.onAccent, lineHeight: 18 }}>
+        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: g.kind === 'orderer' ? COUNTER.date : COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
+          <Text variant="caption" weight={700} style={{ color: COUNTER.onDate, lineHeight: 18 }}>
             {name.slice(0, 1)}
           </Text>
         </View>
@@ -166,7 +168,7 @@ export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLin
     <View style={{ gap: theme.space[3] }}>
       {blocks}
       {hidden > 0 ? (
-        <Text variant="footnote" color="accentText" weight={600}>
+        <Text variant="footnote" weight={700} style={{ color: COUNTER.qty }}>
           {t('merchant.card.more_items', { count: hidden })}
         </Text>
       ) : null}
@@ -306,10 +308,10 @@ export function OrderCard(props: OrderCardProps) {
           accessibilityRole="button"
           accessibilityLabel={t('merchant.rush.expand_a11y', { number: order.number })}
           style={({ pressed }) => ({
-            backgroundColor: theme.colors.surface,
+            backgroundColor: COUNTER.paper,
             borderRadius: theme.radius.xl,
             borderWidth: 1,
-            borderColor: hot ? theme.colors.danger : theme.colors.border,
+            borderColor: hot ? COUNTER.late : theme.colors.border,
             padding: theme.space[3],
             gap: theme.space[2],
             opacity: pressed ? 0.96 : 1,
@@ -320,7 +322,7 @@ export function OrderCard(props: OrderCardProps) {
               <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
-              <Text weight={700} tabular style={{ fontSize: 24, lineHeight: 32 }}>
+              <Text tabular style={[theme.face('display'), { fontSize: 24, lineHeight: 32, color: COUNTER.date }]}>
                 {t('merchant.card.number', { number: order.number })}
               </Text>
               <Text variant="footnote" color="textMuted" tabular numberOfLines={1}>
@@ -333,7 +335,7 @@ export function OrderCard(props: OrderCardProps) {
             {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
             <PaymentPill order={order} />
             {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
-            {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
+            {order.scheduledFor ? <StatusPill tone="neutral" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           </View>
           {order.partial ? <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} /> : acceptButtons('md')}
         </Pressable>
@@ -349,10 +351,16 @@ export function OrderCard(props: OrderCardProps) {
         accessibilityRole="button"
         accessibilityLabel={t('merchant.detail.title', { number: order.number })}
         style={({ pressed }) => ({
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.radius.xl,
-          borderWidth: 1,
-          borderColor: order.late || hot ? theme.colors.danger : theme.colors.border,
+          // Paper ticket (redesign step 1): cream paper, a torn top edge, square top corners. A late
+          // order turns red all over (tint + thick outline), not just its pill.
+          backgroundColor: order.late ? COUNTER.lateWash : COUNTER.paper,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+          borderBottomLeftRadius: theme.radius.xl,
+          borderBottomRightRadius: theme.radius.xl,
+          borderWidth: order.late ? 3 : 1,
+          borderTopWidth: order.late ? 3 : 0,
+          borderColor: order.late || hot ? COUNTER.late : theme.colors.border,
           padding: theme.space[4],
           gap: theme.space[3],
           shadowColor: isNew ? theme.colors.accent : theme.colors.shadow,
@@ -363,13 +371,14 @@ export function OrderCard(props: OrderCardProps) {
           opacity: pressed ? 0.96 : 1,
         })}
       >
+        {order.late ? null : <TornEdge color={COUNTER.paper} />}
         {/* Header: big number + time; the accept ring on new orders. The number never breaks («#5427»
             in one piece): its block is never narrower than the number, and when the time pill does not
             fit beside it, the pill wraps under it. On a narrow tablet board (three columns under
             1000 px) the number steps down a size. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', columnGap: theme.space[3], rowGap: theme.space[2] }}>
           <View testID={`card-number-${order.number}`} style={{ flex: 1, minWidth: numberMinWidth(numberLabel, numberType.size), gap: 2 }}>
-            <Text variant={tight ? 'amount' : 'numeralSm'} weight={700} tabular numberOfLines={1} style={{ letterSpacing: 0.5 }}>
+            <Text variant={tight ? 'amount' : 'numeralSm'} tabular numberOfLines={1} style={[theme.face('display'), { letterSpacing: 0.5, color: COUNTER.date }]}>
               {numberLabel}
             </Text>
             <Text variant="footnote" color="textMuted" tabular>
@@ -393,8 +402,8 @@ export function OrderCard(props: OrderCardProps) {
           {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
           <PaymentPill order={order} />
           {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
-          {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
-          {order.catering ? <StatusPill tone="info" label={t('merchant.card.catering')} /> : null}
+          {order.scheduledFor ? <StatusPill tone="neutral" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
+          {order.catering ? <StatusPill tone="neutral" label={t('merchant.card.catering')} /> : null}
         </View>
 
         <View style={{ height: 1, backgroundColor: theme.colors.border }} />

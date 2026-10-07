@@ -78,7 +78,8 @@ export default {
     await shot('reject');
     await byTestId('reject-sheet-close').click();
 
-    // Busy mode on: the sheet, then the board with the countdown chip.
+    // Busy mode on: the sheet, then the board with the countdown chip (on a phone it lives in "…").
+    if (phone) await byTestId('header-more').click();
     await byTestId('busy-chip').click();
     await byTestId('busy-sheet').waitFor();
     await shot('busy-sheet');
@@ -117,7 +118,8 @@ export default {
     await page.waitForTimeout(300);
     if (await byTestId('order-detail-close').isVisible().catch(() => false)) await byTestId('order-detail-close').click();
 
-    // Cash balance and "اطلب فلوسك".
+    // Cash balance and "اطلب فلوسك" (on a phone it lives in "…" too).
+    if (phone) await byTestId('header-more').click();
     await byTestId('request-money').scrollIntoViewIfNeeded();
     await byTestId('request-money').click();
     await byTestId('cash-sheet').waitFor();

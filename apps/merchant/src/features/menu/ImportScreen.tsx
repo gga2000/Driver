@@ -2,7 +2,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import type { MenuImportJob } from '@driver/contracts';
-import { Button, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Skeleton, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -28,7 +29,7 @@ export function ImportScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const params = useLocalSearchParams<{ job?: string }>();
   const jobId = typeof params.job === 'string' && params.job ? params.job : null;
@@ -325,8 +326,8 @@ export function ImportScreen() {
   return (
     <Page title={t('merchant.import.title')} subtitle={t('merchant.import.photos_count', { count: photos.length })} back testID="menu-import-screen" maxWidth={wide ? 1240 : 760}>
       {steps}
-      <View style={{ flexDirection: 'row', gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: j.ocr === 'done' ? theme.colors.successTint : theme.colors.infoTint }}>
-        <Glyph name={j.ocr === 'done' ? 'sparkle' : 'info'} size={20} color={j.ocr === 'done' ? 'successText' : 'infoText'} />
+      <View style={{ flexDirection: 'row', gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: j.ocr === 'done' ? theme.colors.successTint : theme.colors.surfaceSunken }}>
+        <Glyph name={j.ocr === 'done' ? 'sparkle' : 'info'} size={20} color={j.ocr === 'done' ? 'successText' : 'textMuted'} />
         <Text variant="footnote" color="text" style={{ flex: 1 }}>
           {ocrNote}
         </Text>

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { MerchantDaySummary } from '@driver/contracts';
-import { Button, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { useDates } from '@/lib/dates';
 import { useLocale, useT } from '@/lib/i18n';
@@ -28,7 +29,7 @@ export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummar
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const dates = useDates();
   const [sharing, setSharing] = useState(false);
   const facts = dayFacts(summary);

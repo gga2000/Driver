@@ -65,7 +65,7 @@ describe('board logic', () => {
   it('courier line: searching, on the way with name and minutes, arrived, waiting turns warning', () => {
     expect(courierLine(courier, T0)).toBeNull();
     expect(courierLine({ ...courier, state: 'searching' }, T0)).toMatchObject({ key: 'merchant.courier.searching', tone: 'neutral' });
-    expect(courierLine({ ...courier, state: 'on_the_way', etaMinutes: 4 }, T0)).toEqual({ key: 'merchant.courier.on_the_way', params: { minutes: 4 }, tone: 'info', live: true });
+    expect(courierLine({ ...courier, state: 'on_the_way', etaMinutes: 4 }, T0)).toEqual({ key: 'merchant.courier.on_the_way', params: { minutes: 4 }, tone: 'neutral', live: true });
     expect(courierLine({ ...courier, state: 'on_the_way', etaMinutes: 4, firstName: 'حيدر' }, T0)).toMatchObject({ key: 'merchant.courier.on_the_way_named', params: { name: 'حيدر', minutes: 4 } });
     expect(courierLine({ ...courier, state: 'arrived', arrivedAt: at(-1) }, T0)).toMatchObject({ key: 'merchant.courier.arrived', tone: 'success' });
     expect(courierLine({ ...courier, state: 'arrived', arrivedAt: at(-6) }, T0)).toMatchObject({ key: 'merchant.courier.arrived_waiting', params: { minutes: 6 }, tone: 'warning' });

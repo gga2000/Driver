@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ActivityIndicator, Image, Platform, View } from 'react-native';
 import { PICKUP_SPOT_RULES, pickupDraft, type PickupDraft } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, Skeleton, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
 import { GlyphButton, Panel, PanelTitle } from '@/features/menu/parts';
@@ -26,7 +27,7 @@ export function PickupSpotScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const spot = usePickupSpot(storeId);
@@ -108,8 +109,8 @@ export function PickupSpotScreen() {
       </Text>
       {!editable ? (
         <View testID="pickup-read-only" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: theme.colors.infoTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-          <Glyph name="info" size={20} color="infoText" strokeWidth={2} />
-          <Text variant="label" color="infoText" style={{ flex: 1 }}>
+          <Glyph name="info" size={20} color="textMuted" strokeWidth={2} />
+          <Text variant="label" color="textMuted" style={{ flex: 1 }}>
             {t('merchant.pickup.read_only')}
           </Text>
         </View>

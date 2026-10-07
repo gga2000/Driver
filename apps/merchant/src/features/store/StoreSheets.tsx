@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { EarlyCloseReason, type MerchantBalanceView, type StoreStatusView } from '@driver/contracts';
-import { Button, ModalSheet, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, ModalSheet, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
@@ -23,7 +24,7 @@ export function CloseStoreSheet({ status, visible, onClose }: { status: StoreSta
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { setOpen } = useStoreSwitches();
   const [reason, setReason] = useState<EarlyCloseReason | null>(null);
   const [note, setNote] = useState('');
@@ -94,7 +95,7 @@ export function BusySheet({ status, visible, onClose, now }: { status: StoreStat
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { setBusy } = useStoreSwitches();
   if (!visible) return null;
   const on = status.busy.on;
@@ -161,7 +162,7 @@ export function CashSheet({ merchantOrgId, balance, visible, onClose }: { mercha
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const request = useRequestSettlement();
   if (!visible) return null;
   const amount = balance?.balanceIqd ?? 0;
