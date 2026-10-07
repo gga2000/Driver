@@ -846,6 +846,20 @@ async function rajaaShots(personId) {
   await shot('rajaa-pass');
   await fullShot('rajaa-pass-full');
 
+  // Leaving Aziziyah from a gate, paid from the wallet (t4, t6): when to leave home, the late bar.
+  if (personId) {
+    const out = await demoPost(`/demo/rajaa/outbound?personId=${encodeURIComponent(personId)}`);
+    if (out?.bookingId) {
+      await page.goto(`${origin}/rajaa/pass/${out.bookingId}`, LOADED);
+      await byTestId('rajaa-ticket').waitFor({ timeout: 15_000 });
+      await settle(1200);
+      await fullShot('rajaa-pass-out-full');
+      await byTestId('rajaa-leave-home').evaluate((el) => el.scrollIntoView({ block: 'start' })).catch(() => errors.push('leave-home card not shown on the outbound pass'));
+      await settle(300);
+      await shot('rajaa-pass-out-leave');
+    }
+  }
+
   // Going out (f1, f3, n1, n2): the board reads «العزيزية ← بغداد» and «نبّهني», never «الرجعة».
   await page.goto(`${origin}/rajaa?corridor=aziziyah_baghdad&direction=from_aziziyah`, LOADED);
   await byTestId('rajaa-board').waitFor({ timeout: 15_000 });

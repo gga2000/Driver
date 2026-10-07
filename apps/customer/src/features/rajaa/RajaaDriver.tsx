@@ -3,7 +3,7 @@ import { View, type StyleProp, type ViewStyle } from 'react-native';
 import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { DriverChip, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
-import { DriverRecord } from './DriverRecord';
+import { DriverRecord, DriverRecordLine } from './DriverRecord';
 import { vehicleDesc } from './labels';
 import { apiPhoto } from '@/lib/photo';
 
@@ -27,8 +27,8 @@ export function RajaaDriver({
   /** The car: a departure's, or (request board) the offering driver's latest one; null when unknown. */
   dep: { vehicle: DepartureCard['vehicle'] | null };
   card: (Pick<RajaaDriverCard, 'firstName' | 'verifiedTodayAt' | 'photoUrl'> & Partial<Pick<RajaaDriverCard, 'stats'>>) | null | undefined;
-  /** Show his record and «ملفه» for this departure (needs the card's stats). */
-  record?: { departureId: string };
+  /** Show his record and «ملفه» for this departure (needs the card's stats); `line` keeps it to one line (the pass, t1). */
+  record?: { departureId: string; line?: boolean };
   size?: 'md' | 'lg';
   eyebrow?: boolean;
   /** Beside the card (the request board: nothing; kept for rows that need an action). */
@@ -57,9 +57,13 @@ export function RajaaDriver({
   );
   if (!record || !card?.stats) return chip;
   return (
-    <View style={[{ gap: theme.space[4] }, style]}>
+    <View style={[{ gap: record.line ? theme.space[2] : theme.space[4] }, style]}>
       {chip}
-      <DriverRecord stats={card.stats} departureId={record.departureId} driverName={name} {...(testID ? { testID: `${testID}-record` } : {})} />
+      {record.line ? (
+        <DriverRecordLine stats={card.stats} departureId={record.departureId} driverName={name} {...(testID ? { testID: `${testID}-record` } : {})} />
+      ) : (
+        <DriverRecord stats={card.stats} departureId={record.departureId} driverName={name} {...(testID ? { testID: `${testID}-record` } : {})} />
+      )}
     </View>
   );
 }

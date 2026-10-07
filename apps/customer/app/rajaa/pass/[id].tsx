@@ -1,10 +1,11 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
-import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
-import { passPhase } from '@/features/rajaa/pass';
+import { lateStages, passPhase } from '@/features/rajaa/pass';
+import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
 import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
@@ -21,6 +22,7 @@ import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 import { amountParam, iqd } from '@/lib/money';
 
 const MIN = 60_000;
@@ -76,6 +78,7 @@ export default function BoardingPassScreen() {
   // Joy l9 / r6: the favourite heart after a good rating; dinner timed to the arrival home.
   const favs = useFavourites();
   const dinner = useDinnerChance(live && b?.departure.direction === 'to_aziziyah');
+  const prof = useProfile();
 
   if (booking.isPending) {
     return (
@@ -106,6 +109,10 @@ export default function BoardingPassScreen() {
 
   const carKm = p?.car ? haversineM(p.car, p.myStop) / 1000 : null;
   const carAgeS = p?.car ? Math.max(0, Math.round((now.getTime() - p.car.at.getTime()) / 1000)) : null;
+  // t4: leaving Aziziyah from a garage, when to leave home (the saved place, never asked for here).
+  const homePlace = selectedPlace(prof);
+  const homePin = b.departure.direction === 'from_aziziyah' && b.pickup.kind === 'garage' && homePlace ? (deliveryPointOf(homePlace).pin ?? null) : null;
+  const garagePin = network.data?.garages.find((g) => g.id === b.departure.garageId) ?? null;
 
   const onImHere = async () => {
     const at = await currentLocation();
@@ -197,7 +204,6 @@ export default function BoardingPassScreen() {
           </Text>
         </View>
       ) : null}
-      <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
       {/* The ticket. */}
       <Card padding={0} elevation={2} testID="rajaa-ticket">
         <View style={{ padding: theme.space[5], gap: theme.space[2] }}>
@@ -232,23 +238,15 @@ export default function BoardingPassScreen() {
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
         <Perforation />
-        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow record={{ departureId: b.departure.id }} testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
+        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow record={{ departureId: b.departure.id, line: true }} testID="rajaa-pass-driver" style={{ padding: theme.space[5], paddingBottom: theme.space[3] }} />
         {b.pickup.status === 'pending' ? (
           <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
             <StatusPill tone="warning" icon="clock" label={t('intercity.pickup_pending')} />
           </View>
         ) : null}
-      </Card>
-
-      {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
-      {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
-
-      {/* Live car from T−30 (the car only, never other riders' stops). */}
-      <Card padding={4} elevation={0} testID="rajaa-live-car">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p?.car ? theme.colors.successTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="car" size={22} color={p?.car ? 'successText' : 'textMuted'} />
-          </View>
+        {/* The car's state, on the ticket (t1): from T−30 where it is (the car only, never other riders' stops). */}
+        <View testID="rajaa-live-car" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], marginHorizontal: theme.space[5], marginBottom: theme.space[5], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }}>
+          <Icon name="car" size={20} color={p?.car ? 'successText' : 'textMuted'} />
           <View style={{ flex: 1, gap: 2 }}>
             {!p?.boardingOpen ? (
               <Text variant="footnote" color="textMuted">
@@ -273,45 +271,35 @@ export default function BoardingPassScreen() {
         </View>
       </Card>
 
-      {/* Grace and the late meter, stated before anyone is late. */}
+      {/* t2: the first-trip sticker comes after the pass, never pushing it down. */}
+      <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
+
+      {homePin && garagePin && b.state === 'booked' ? <LeaveHomeCard home={homePin} garage={garagePin} departAt={b.departure.departAt} now={now} /> : null}
+
+      {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
+      {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
+
+      {/* Grace and the late meter as a bar with its times (t6), stated before anyone is late. */}
       <Card padding={4} elevation={0} testID="rajaa-grace">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
-          {prepaid ? (
-            <CountdownRing
-              mode="late"
-              size={92}
-              strokeWidth={7}
-              startedAt={b.departure.departAt.getTime()}
-              config={{
-                graceMs,
-                stepMs: RAJAA_RULES.meterBlockMin * MIN,
-                stepAmount: RAJAA_RULES.riderLateToDriverPerBlockIqd,
-                forfeitMs: RAJAA_RULES.meterCapMin * MIN,
-              }}
-            />
-          ) : (
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="clock" size={26} color="warningText" />
-            </View>
-          )}
-          <View style={{ flex: 1, gap: theme.space[1] }}>
-            <Text variant="footnote">
-              {prepaid
-                ? t('rajaa.grace_prepaid', {
-                    amount: amountParam(RAJAA_RULES.riderLateToDriverPerBlockIqd),
-                    each: amountParam(RAJAA_RULES.riderLateToEachRiderPerBlockIqd),
-                  })
-                : t('rajaa.grace_cash')}
+        <View style={{ gap: theme.space[3] }}>
+          <LateBar
+            stages={lateStages(b.departure.departAt, prepaid, graceMs, RAJAA_RULES.meterCapMin)}
+            prepaid={prepaid}
+            now={now}
+            a11y={
+              prepaid
+                ? t('rajaa.grace_prepaid', { amount: amountParam(RAJAA_RULES.riderLateToDriverPerBlockIqd), each: amountParam(RAJAA_RULES.riderLateToEachRiderPerBlockIqd) })
+                : t('rajaa.grace_cash')
+            }
+          />
+          {p?.meterMinutes ? (
+            <Text variant="caption" color="warningText" weight={600}>
+              {t('rajaa.meter_running')}: {t('unit.minutes', { n: p.meterMinutes })}
             </Text>
-            <Text variant="caption" color="textMuted">
-              {t('rajaa.driver_late_note', { amount: amountParam(RAJAA_RULES.driverLateToEachRiderPerBlockIqd) })}
-            </Text>
-            {p?.meterMinutes ? (
-              <Text variant="caption" color="warningText" weight={600}>
-                {t('rajaa.meter_running')}: {t('unit.minutes', { n: p.meterMinutes })}
-              </Text>
-            ) : null}
-          </View>
+          ) : null}
+          <Text variant="caption" color="textMuted">
+            {t('rajaa.driver_late_note', { amount: amountParam(RAJAA_RULES.driverLateToEachRiderPerBlockIqd) })}
+          </Text>
         </View>
       </Card>
 

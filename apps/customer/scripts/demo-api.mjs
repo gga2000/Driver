@@ -19,7 +19,7 @@
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
 //   - POST /demo/usuals?personId=…, /demo/pot?key=…&item=…             joy J7a: usuals, «غدا الجمعة», «قدر اليوم» (pots + stories seeded)
-//   - POST /demo/rajaa/claim|offers|topup|rode?personId=…            الرجعة boards (seeded at start; rode = «سافرت وياه قبل»)
+//   - POST /demo/rajaa/claim|offers|topup|rode|outbound?personId=…            الرجعة boards (seeded at start; rode = «سافرت وياه قبل»)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
@@ -1020,6 +1020,33 @@ const rajaa = await (async () => {
       const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
       const booked = await deps.book(personId, held.id, 'cash');
       await deps.checkIn(driverId, dep.id, booked.pin);
+      json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/outbound?personId=… — a wallet-paid seat on a car leaving bab 1 for Baghdad in
+  // 45 minutes, from the garage: the pass then shows when to leave home (t4) and the three-stage late
+  // bar (t6). Tops the wallet up by the fare first, like a rider who keeps credit.
+  let outboundSeq = 0;
+  app.use('/demo/rajaa/outbound', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/outbound?personId=…' });
+      const departAt = new Date(Math.ceil((Date.now() + 45 * MIN) / MIN) * MIN);
+      const driverId = `drv_OUT${(++outboundSeq).toString(36).toUpperCase()}`;
+      const dep = await deps.announce(driverId, {
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt,
+        latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
+        vehicle: { ...saloon('63410 واسط', 'كورولا', 'بيضاء'), ac: true },
+        familyOnly: false,
+      });
+      await ledger.record({ type: 'adjustment', amount: 10_000, fromAccount: 'bank', toAccount: `customer:${personId}`, occurredAt: new Date(), memo: 'demo top-up' });
+      const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await deps.book(personId, held.id, 'wallet');
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
