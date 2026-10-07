@@ -5,7 +5,7 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { Linking, Platform, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
+import { CrashBoundary, getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
@@ -17,6 +17,7 @@ import { useCurrentStore } from '@/features/store/queries';
 import { ApiProvider } from '@/lib/api';
 import { SystemBanner } from '@/components/SystemBanner';
 import { SUPPORT_PHONE } from '@/lib/env';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { useLocale, useT } from '@/lib/i18n';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
@@ -27,6 +28,8 @@ import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('light');
@@ -63,19 +66,32 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
-          <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SheetDefaults>
-                <SystemBanner />
-                <RootNavigator />
-              </SheetDefaults>
-            </ApiProvider>
-          </ToastProvider>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a frozen tablet. */}
+          <CrashScreenBoundary locale={locale}>
+            <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
+              <ApiProvider>
+                <StatusBar style="dark" />
+                {/* Launch status banner from the Console (system.banner), above every screen. */}
+                <SheetDefaults>
+                  <SystemBanner />
+                  <RootNavigator />
+                </SheetDefaults>
+              </ApiProvider>
+            </ToastProvider>
+          </CrashScreenBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/** The root error boundary with the merchant app's own copy (apps/merchant/locales). */
+function CrashScreenBoundary({ locale, children }: { locale: ReturnType<typeof useLocale>; children: ReactNode }) {
+  const t = useT();
+  return (
+    <CrashBoundary reporter={crashReporter} locale={locale} title={t('merchant.crash.title')} body={t('merchant.crash.body')} retryLabel={t('merchant.crash.retry')}>
+      {children}
+    </CrashBoundary>
   );
 }
 
