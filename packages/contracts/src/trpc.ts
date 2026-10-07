@@ -177,6 +177,31 @@ export const publicProcedure = t.procedure.use(async ({ next }) => {
 });
 
 /**
+ * The caller's live roles, read once per HTTP request (CON-21): the Console batches several calls
+ * into one request, and each used to cost up to one query per allowed role. Keyed by the request's
+ * decoded token object, so the cache dies with the request and a revoked or frozen role still takes
+ * effect on the very next request.
+ */
+const rolesThisRequest = new WeakMap<object, Promise<ReadonlySet<RoleKind>>>();
+
+async function allowedFor(ctx: AppContext, personId: string, roles: readonly RoleKind[]): Promise<boolean> {
+  const identity = ctx.identity;
+  if (!identity.activeRoles || !ctx.auth) {
+    for (const kind of roles) if (await identity.hasRole(personId, kind)) return true;
+    return false;
+  }
+  let held = rolesThisRequest.get(ctx.auth);
+  if (!held) {
+    held = identity.activeRoles(personId).then((r) => new Set(r));
+    rolesThisRequest.set(ctx.auth, held);
+    // A failed read is not remembered: the next call in the batch asks again.
+    held.catch(() => rolesThisRequest.delete(ctx.auth!));
+  }
+  const set = await held;
+  return roles.some((k) => set.has(k));
+}
+
+/**
  * Requires a valid access token; with `roles`, requires at least one of them (live lookup, so a
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
@@ -184,16 +209,7 @@ export function protectedProcedure(roles?: readonly RoleKind[]) {
   return publicProcedure.use(async ({ ctx, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
-    if (roles && roles.length > 0) {
-      let allowed = false;
-      for (const kind of roles) {
-        if (await ctx.identity.hasRole(actor.personId, kind)) {
-          allowed = true;
-          break;
-        }
-      }
-      if (!allowed) throw toTrpcError(new DriverError('forbidden'));
-    }
+    if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
     return next({ ctx: { ...ctx, actor } });
   });
 }

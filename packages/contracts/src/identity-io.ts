@@ -162,6 +162,8 @@ export interface IdentityPort {
   me(actor: Actor): Promise<MeView>;
   updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView>;
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
+  /** Live (unfrozen) role kinds in one read; the role gate uses it so a check is one query, not one per role. */
+  activeRoles?(personId: string): Promise<RoleKind[]>;
   grantRole(actor: Actor, input: z.infer<typeof GrantRoleInput>): Promise<RoleGrant>;
   revokeRole(actor: Actor, input: z.infer<typeof RevokeRoleInput>): Promise<void>;
   linkGuardian(actor: Actor, input: z.infer<typeof LinkGuardianInput>): Promise<GuardianLinkView>;
