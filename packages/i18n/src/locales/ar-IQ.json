@@ -3842,6 +3842,7 @@
   "partner.gift_hidden": "هدية · لا تذكر السعر",
   "partner.gift_hidden_hint": "المدفوع من التطبيق، سلّمها ويه ابتسامة",
   "partner.gift_pickup_hidden": "هدية · خلي المطعم ما يحط الوصل بالكيس",
+  "partner.job_recipient": "سلّمه لـ{name}",
   "cashchange.door_paid_label": "الزبون دفع:",
   "cashchange.door_said": "گال",
   "cashchange.door_other": "غير",

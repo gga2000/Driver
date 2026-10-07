@@ -7,8 +7,10 @@ import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
 import { CatalogService } from './modules/catalog/index.js';
 import { IdentityService } from './modules/identity/index.js';
+import { PrismaIdentityRepository } from './modules/identity/identity.repository.js';
 import { OrdersService } from './modules/orders/index.js';
 import { HouseholdsRpc } from './modules/orgs/index.js';
+import { PartnerService } from './modules/partner/index.js';
 import { SavedPlacesService } from './modules/places/index.js';
 import { PricingService } from './modules/pricing/index.js';
 import { SafetyService } from './modules/safety/index.js';
@@ -18,7 +20,7 @@ import { PrismaService } from './shared/db/prisma.service.js';
 
 /**
  * Server correctness on a real Postgres, through the app's own wiring (AppModule): an SOS is never
- * refused (FLOW-08); double taps are idempotent (RDB-04) and make one household (RDB-05). Skipped without DATABASE_URL.
+ * refused (FLOW-08); double taps are idempotent (RDB-04) and make one household (RDB-05); a gift recipient's name lives in the vault (SEC-14). Skipped without DATABASE_URL.
  */
 const url = process.env['DATABASE_URL'];
 const KITCHEN = { lat: 32.9105, lng: 45.0665 };
@@ -139,4 +141,45 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
     expect(a!.id).toBe(b!.id);
     expect(await db.orgMember.count({ where: { personId: payer, role: 'payer', org: { type: 'household' } } })).toBe(1);
   }, 30_000);
+
+  it('SEC-14: a gift recipient’s name lives in the vault; the courier card shows it through a logged read', async () => {
+    clock.set(DAY);
+    const orders = app.get(OrdersService);
+    const gift = await orders.place(people.customer, {
+      cityId: 'aziziyah',
+      type: 'food',
+      merchantOrgId: khalid.orgId,
+      lines: [{ catalogItemId: `${khalid.orgId}_pepsi`, qty: 1 }],
+      dropoff: { zoneKey: 'street_30', pin: STREET_30 },
+      participants: [{ ref: 'recipient', role: 'recipient', label: 'أم زينب', phone: phone(9) }],
+      gift: { hidePrices: false },
+    });
+    const recipient = gift.participants.find((p) => p.role === 'recipient')!;
+    // Public schema: no name. Vault: the name, given by the orderer.
+    expect((await db.participant.findUniqueOrThrow({ where: { id: recipient.id } })).label).toBeNull();
+    const vault = new PrismaIdentityRepository(app.get(PrismaService));
+    expect(await vault.readParticipantIdentities([recipient.id])).toEqual([{ participantId: recipient.id, personId: people.customer, givenById: people.customer, name: 'أم زينب' }]);
+    // A courier carries it: his job card names whom to hand it to.
+    const trip = await app.get(TripsService).createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'food',
+      orders: [{ orderId: gift.id }],
+      stops: [
+        { orderId: gift.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: gift.id, type: 'dropoff', zoneKey: 'street_30', target: STREET_30 },
+      ],
+    });
+    await db.trip.update({ where: { id: trip.id }, data: { courierId: people.driver, acceptedAt: clock.now(), state: 'en_route_to_pickup' } });
+    const job = await app.get(PartnerService).activeJob(as(people.driver));
+    const drop = job!.stops.find((st) => st.type === 'dropoff')!;
+    expect(drop.recipient).toEqual({ name: 'أم زينب' });
+    expect(job!.stops.find((st) => st.type === 'pickup')!.recipient ?? null).toBeNull();
+    // The courier's read is in the vault access log (subject: the orderer, who named a recipient with no account).
+    const logs = (await vault.vaultAccessLogs(people.customer)).filter((l) => l.accessorId === people.driver && l.purpose === 'partner_recipient');
+    expect(logs.map((l) => l.fieldsRead)).toEqual([['participant_name']]);
+    // The orderer reads his own order with the name; the plain view has none.
+    const [mine] = await orders.withRiders([await orders.get(gift.id)], people.customer);
+    expect(mine!.participants.find((p) => p.role === 'recipient')!.label).toBe('أم زينب');
+    expect((await orders.get(gift.id)).participants.find((p) => p.role === 'recipient')!.label).toBeNull();
+  }, 60_000);
 });

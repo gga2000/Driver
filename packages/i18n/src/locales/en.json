@@ -3842,6 +3842,7 @@
   "partner.gift_hidden": "A gift · do not mention the price",
   "partner.gift_hidden_hint": "Paid in the app: hand it over with a smile",
   "partner.gift_pickup_hidden": "A gift · ask the kitchen to keep the receipt out of the bag",
+  "partner.job_recipient": "Hand it to {name}",
   "cashchange.door_paid_label": "Customer paid:",
   "cashchange.door_said": "Said",
   "cashchange.door_other": "Other",
