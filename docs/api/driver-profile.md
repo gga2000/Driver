@@ -6,12 +6,12 @@ that support can hide. Badge rules are the ones below until Ali changes them (as
 
 ## What riders see
 
-| Where | What |
-|---|---|
-| Board tile | ★ rating · trips (or «سايق جديد»), the car on its own line, «سافرت وياه قبل» when the rider rode with him and he is not a favourite |
-| Seat sheet and boarding pass («سايقك») | rating with its count, trips, on-time share; «الركاب يگولون: …» (the two tags riders tick most); badges; «ملفه» |
+| Where                                  | What                                                                                                                                                                                                                                                      |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Board tile                             | ★ rating · trips (or «سايق جديد»), the car on its own line, «سافرت وياه قبل» when the rider rode with him and he is not a favourite                                                                                                                       |
+| Seat sheet and boarding pass («سايقك») | rating with its count, trips, on-time share; «الركاب يگولون: …» (the two tags riders tick most); badges; «ملفه»                                                                                                                                           |
 | «ملفه» (`/rajaa/driver/[departureId]`) | photo and first name, checked today, «ويا درايفر من …», rode before; the same strip; badges with how each is earned; a bar per quality; his car as painted for the seat picker, plate as it looks; the newest 20 lines riders wrote, month only, no names |
-| After arriving («وصلت بالسلامة») | an optional line (140 characters) under the stars; phone numbers, links and @handles are refused in the field and on the server |
+| After arriving («وصلت بالسلامة»)       | an optional line (140 characters) under the stars; phone numbers, links and @handles are refused in the field and on the server                                                                                                                           |
 
 Numbers stay hidden until enough riders stand behind them: the rating after **3 ratings**, the on-time
 share after **3 judged runs** («جديد» until then, never a dash).
