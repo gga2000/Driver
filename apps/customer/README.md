@@ -252,6 +252,21 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   "try the other vehicle" card). `SHOTS=ride` writes
   `ride-*.png`.
 
+## Simple mode «الوضع البسيط» (ride idea v2, `src/features/simple/`)
+
+- Account › «الوضع البسيط» (a switch, kept on the device and through a sign-out like the language):
+  bigger text, fewer choices. Turning it on opens `/simple`.
+- `/simple` (`SimpleHome`): «هلا كاظم», the ride in progress as one big card, then four big choices —
+  «رجعني للبيت» (the phone's position → the saved البيت, straight to the fares; no saved home → «وين
+  بيتك؟»: «أني بالبيت هسة» saves the position, or the place editor on البيت), «تكسي», «تكتك», «مساعدة»
+  (`/help`). «رجّع الشاشة العادية» turns it off.
+- The choose and live ride screens read `useSimpleMode().on`: one vehicle, the trip, how he pays and
+  the button in larger type (no options sheet, details link or second vehicle); the live status in
+  larger type, the drivers sent it as a plain list, no other-vehicle offer, share card or invite.
+- Home switches with one line in `app/(tabs)/index.tsx`: `<SimpleHomeRedirect />` (from
+  `@/features/simple/SimpleHome`) anywhere in the returned tree.
+- `SHOTS=simple` writes `simple-*.png` on a fresh account with a faked phone position.
+
 ## Gifts, invitations, stickers and the share card (joy J7b)
 
 API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07-j7b-generosity.md`.

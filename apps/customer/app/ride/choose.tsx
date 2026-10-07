@@ -17,6 +17,7 @@ import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { useSimpleMode } from '@/features/simple/pref';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -28,7 +29,9 @@ import { color as palette } from '@driver/design-tokens';
  * the fare with) and the clock you get there, one row for how you pay, where he picks you up and the
  * note (its sheet holds door pickup or "أطلع للشارع" with its price difference, cash or wallet, and
  * the note), the night / peak line when it applies, and «السعر مثبّت» under the button. Requests with the quoted fare; a fare that moved in between is
- * re-quoted and explained (`price_changed`), never charged silently.
+ * re-quoted and explained (`price_changed`), never charged silently. In simple mode (ride idea v2) it
+ * is the trip, the one vehicle he chose with its price in the larger type, how he pays, and the button:
+ * no second vehicle, no options sheet, no details link.
  */
 export default function RideChoose() {
   const theme = useTheme();
@@ -41,6 +44,7 @@ export default function RideChoose() {
   const qc = useQueryClient();
   const ride = useRideStore();
   const { defaultPickup } = useRideSpots();
+  const simple = useSimpleMode().on;
   const d = ride.draft;
   const pickup = d.pickup ?? defaultPickup;
   const dropoff = d.dropoff;
@@ -184,20 +188,26 @@ export default function RideChoose() {
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: theme.space[4], paddingTop: theme.space[3], gap: theme.space[3], width: '100%', maxWidth: 560, alignSelf: 'center' }} testID="ride-choose-body">
           <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, marginBottom: -theme.space[1] }} />
-          <RouteSummary pickup={pickup} dropoff={dropoff} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {simple ? (
+            <Text variant="heading" accessibilityRole="header">
+              {t('simple.choose_title')}
+            </Text>
+          ) : null}
+          <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
 
           {surcharges.map((s) => (
             <SurchargeBanner key={s.key} s={s} city={city.data ?? undefined} vertical={vertical} />
           ))}
 
           <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup">
-            {RIDE_VERTICALS.map((v, i) => {
+            {(simple ? [vertical] : RIDE_VERTICALS).map((v, i) => {
               const near = nearby[v].data?.nearestMinutes ?? null;
               const trip = estimate?.[v].minutes ?? null;
               return (
                 <VehicleCard
                   key={v}
                   index={i}
+                  simple={simple}
                   vertical={v}
                   quote={quotes.grid[v][mode]}
                   loading={quotes.loading}
@@ -220,13 +230,22 @@ export default function RideChoose() {
             ) : null}
           </View>
 
-          <OptionsRow
-            when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
-            payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null].filter(Boolean).join(' · ')}
-            pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
-            note={d.note}
-            onPress={() => setOptionsOpen(true)}
-          />
+          {simple ? (
+            <View testID="ride-simple-pay" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 48 }}>
+              <Icon name={d.payment === 'wallet' ? 'wallet' : 'cash'} size={24} color="textMuted" strokeWidth={2} />
+              <Text variant="title" weight={500} style={{ flex: 1 }}>
+                {t(d.payment === 'wallet' ? 'simple.pay_wallet' : 'simple.pay_cash')}
+              </Text>
+            </View>
+          ) : (
+            <OptionsRow
+              when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
+              payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null].filter(Boolean).join(' · ')}
+              pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
+              note={d.note}
+              onPress={() => setOptionsOpen(true)}
+            />
+          )}
         </ScrollView>
 
         <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>

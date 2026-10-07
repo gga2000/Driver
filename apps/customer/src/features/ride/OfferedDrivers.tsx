@@ -13,9 +13,11 @@ import { useNudgeOffer, useRideOffers } from './driver-queries';
  * Ride ideas n3/n4 (screen E): while the ride searches, the drivers who were sent it, nearest first —
  * photo, ★ rating, the car with its colour, minutes away and the car's tags — each with «نبّهه», a soft
  * chime and «راكب ينتظرك» on his phone. Once per driver, only drivers who were sent this ride; the first
- * to accept takes it. Drivers who passed or whose offer ran out stay listed, quietly.
+ * to accept takes it. Drivers who passed or whose offer ran out stay listed, quietly. Simple mode (ride
+ * idea v2): the same list, read-only — photo, name, ★, the car and minutes in the larger type, without
+ * the tags, «نبّهه» or the profile.
  */
-export function OfferedDrivers({ orderId, onProfile }: { orderId: string; onProfile: (offerId: string) => void }) {
+export function OfferedDrivers({ orderId, onProfile, simple = false }: { orderId: string; onProfile: (offerId: string) => void; simple?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const offers = useRideOffers(orderId, true);
@@ -39,7 +41,7 @@ export function OfferedDrivers({ orderId, onProfile }: { orderId: string; onProf
         </Text>
       </View>
       {list.map((o) => (
-        <OfferRow key={o.offerId} orderId={orderId} offer={o} onProfile={() => onProfile(o.offerId)} />
+        <OfferRow key={o.offerId} orderId={orderId} offer={o} simple={simple} onProfile={() => onProfile(o.offerId)} />
       ))}
       <Text variant="caption" color="textMuted" testID="ride-offers-note">
         {t('ride.offers_note')}
@@ -48,7 +50,7 @@ export function OfferedDrivers({ orderId, onProfile }: { orderId: string; onProf
   );
 }
 
-function OfferRow({ orderId, offer, onProfile }: { orderId: string; offer: RideOfferCard; onProfile: () => void }) {
+function OfferRow({ orderId, offer, simple, onProfile }: { orderId: string; offer: RideOfferCard; simple: boolean; onProfile: () => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -85,8 +87,9 @@ function OfferRow({ orderId, offer, onProfile }: { orderId: string; offer: RideO
       }}
     >
       <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('ride.profile_open', { name })}
+        accessibilityRole={simple ? undefined : 'button'}
+        accessibilityLabel={simple ? undefined : t('ride.profile_open', { name })}
+        disabled={simple}
         onPress={onProfile}
         testID={`ride-offer-open-${offer.offerId}`}
         style={({ pressed }) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], opacity: pressed ? 0.7 : 1 })}
@@ -101,7 +104,7 @@ function OfferRow({ orderId, offer, onProfile }: { orderId: string; offer: RideO
         </View>
         <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-            <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>
+            <Text variant={simple ? 'title' : 'bodyStrong'} weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>
               {name}
             </Text>
             <Icon name="star" size={13} color="star" filled fillColor="star" />
@@ -112,15 +115,15 @@ function OfferRow({ orderId, offer, onProfile }: { orderId: string; offer: RideO
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <CarLine model={offer.vehicleModel} colour={offer.vehicleColour} fallback={t(offer.vehicleClass === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi')} />
             {live && offer.minutesAway !== null ? (
-              <Text variant="footnote" color="textMuted" tabular>
+              <Text variant={simple ? 'body' : 'footnote'} color="textMuted" tabular>
                 {`· ${t('ride.offer_minutes', { n: offer.minutesAway })}`}
               </Text>
             ) : null}
           </View>
-          <FeatureTags features={offer.features} max={3} testID={`ride-offer-tags-${offer.offerId}`} />
+          {simple ? null : <FeatureTags features={offer.features} max={3} testID={`ride-offer-tags-${offer.offerId}`} />}
         </View>
       </Pressable>
-      {live ? (
+      {simple && live ? null : live ? (
         nudged ? (
           <View testID={`ride-nudged-${offer.offerId}`} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: theme.space[2] }}>
             <Icon name="check" size={16} color="successText" strokeWidth={2.4} />
