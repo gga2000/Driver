@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import { DriverError } from '@driver/contracts';
-import { MIN_SECRET_LENGTH, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
+import { MIN_SECRET_LENGTH, REFRESH_REUSE_GRACE_SEC, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { otpRateLimitsFromEnv } from './rate-limit.js';
 import { harness, PEPPER } from './test-harness.js';
@@ -226,7 +226,8 @@ describe('sessions', () => {
     const next = await h.service.refresh(tokens.refreshToken);
     expect(next.refreshToken).not.toBe(tokens.refreshToken);
     expect((await h.actorFor(next.accessToken)).sessionId).toBe(actor.sessionId);
-    // Reusing the rotated token is treated as theft: the session is gone, for both holders.
+    // Reusing the rotated token after the reuse grace is theft: the session is gone, for both holders.
+    h.clock.advanceSeconds(REFRESH_REUSE_GRACE_SEC + 1);
     await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused');
     await expectCode(h.service.refresh(next.refreshToken), 'refresh_reused');
     await expectCode(h.service.verifyAccessToken(next.accessToken), 'session_expired');
@@ -236,11 +237,49 @@ describe('sessions', () => {
     const h = harness();
     const { tokens } = await h.login(PHONE);
     const thief = await h.service.refresh(tokens.refreshToken); // the thief rotates first
+    h.clock.advanceSeconds(REFRESH_REUSE_GRACE_SEC + 1);
     await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused'); // the owner's old token
     await expectCode(h.service.refresh(thief.refreshToken), 'refresh_reused');
     await expectCode(h.service.verifyAccessToken(thief.accessToken), 'session_expired');
     // Only the token just retired is remembered; an unknown token is simply invalid.
     await expectCode(h.service.refresh('not-a-token'), 'token_invalid');
+  });
+
+  it('SEC-09: a refresh whose answer was lost, retried with the old token by the same phone inside the grace, keeps the session', async () => {
+    const h = harness();
+    const { tokens, actor } = await h.login(PHONE, DEV_A);
+    const lost = await h.service.refresh(tokens.refreshToken, DEV_A); // the answer never reaches the phone
+    h.clock.advanceSeconds(65);
+    const retried = await h.service.refresh(tokens.refreshToken, DEV_A);
+    expect((await h.actorFor(retried.accessToken)).sessionId).toBe(actor.sessionId);
+    // The pair the lost answer carried is dead; the retried one rotates on as usual.
+    await expectCode(h.service.refresh(lost.refreshToken), 'token_invalid');
+    h.clock.advanceSeconds(60);
+    await expect(h.service.refresh(retried.refreshToken, DEV_A)).resolves.toBeTruthy();
+  });
+
+  it('SEC-09: the grace never helps another device, nor a retry after it ends, and does not slide', async () => {
+    const other = harness();
+    const a = await other.login(PHONE, DEV_A);
+    await other.service.refresh(a.tokens.refreshToken, DEV_A);
+    await expectCode(other.service.refresh(a.tokens.refreshToken, DEV_B), 'refresh_reused');
+    await expectCode(other.service.verifyAccessToken(a.tokens.accessToken), 'session_expired');
+
+    const late = harness();
+    const b = await late.login(PHONE, DEV_A);
+    await late.service.refresh(b.tokens.refreshToken, DEV_A);
+    late.clock.advanceSeconds(60);
+    await late.service.refresh(b.tokens.refreshToken, DEV_A); // inside: fine
+    late.clock.advanceSeconds(61); // 121 s after the first rotation
+    await expectCode(late.service.refresh(b.tokens.refreshToken, DEV_A), 'refresh_reused');
+  });
+
+  it('SEC-18: two refreshes racing with one token: one rotates, the other is the grace retry, never two live tokens', async () => {
+    const h = harness();
+    const { tokens } = await h.login(PHONE, DEV_A);
+    const [x, y] = await Promise.all([h.service.refresh(tokens.refreshToken, DEV_A), h.service.refresh(tokens.refreshToken, DEV_A)]);
+    const live = await Promise.all([x, y].map((p) => h.service.refresh(p.refreshToken, DEV_A).then(() => 'ok', (e: unknown) => (e instanceof DriverError ? e.code : 'err'))));
+    expect(live.filter((r) => r === 'ok')).toHaveLength(1);
   });
 
   it('access tokens expire by the clock and logout kills the session', async () => {

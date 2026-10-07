@@ -207,7 +207,7 @@ export class IdentityService implements IdentityPort {
         const d = await this.registerDevice(s.personId, device, now, false, tx);
         await this.freezeForReverification(s.personId, now, 'new_device', tx);
         return { deviceId: d.id };
-      });
+      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null));
       await this.checkIdle(session.personId, now, tx);
       return tokens;
     });
