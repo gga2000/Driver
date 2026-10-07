@@ -36,7 +36,7 @@
       ["expo-notifications", { "defaultChannel": "orders", "sounds": ["./assets/sounds/accepted.wav", "./assets/sounds/picked_up.wav", "./assets/sounds/near.wav", "./assets/sounds/delivered.wav"] }],
       "expo-font",
       "expo-secure-store",
-      ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": false }],
+      ["expo-audio", { "microphonePermission": "درايفر يحتاج المايك حتى تدز رسالة صوتية للسايق أو للدعم. يشتغل بس وانت ضاغط عليه", "recordAudioAndroid": true, "enableBackgroundPlayback": false }],
       "expo-asset",
       "expo-status-bar",
       "expo-sharing",

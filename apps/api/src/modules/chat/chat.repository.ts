@@ -21,11 +21,23 @@ export interface ChatMessageRecord {
   body: string | null;
   quickReplyKey: string | null;
   photoRef: string | null;
+  /** A voice note's upload id; null on other kinds and once the file went with the closed chat. */
+  voiceRef: string | null;
+  durationSec: number | null;
   lat: number | null;
   lng: number | null;
   masked: boolean;
   clientId: string;
   createdAt: Date;
+}
+
+/** A thread that still holds voice-note files (the voice retention reads these). */
+export interface ChatVoiceThread {
+  threadId: string;
+  orderId: string;
+  kind: ChatThreadKind;
+  /** The messages whose file is still stored. */
+  voices: Array<{ messageId: string; voiceRef: string }>;
 }
 
 export type NewChatMessage = Omit<ChatMessageRecord, 'id' | 'seq' | 'threadId'>;
@@ -48,6 +60,10 @@ export interface ChatRepository {
   readSeqs(threadId: string, tx?: Tx): Promise<Map<string, number>>;
   /** Raises the reader's read seq (never lowers it); returns the stored value. */
   markRead(threadId: string, readerKey: string, seq: number, tx: Tx): Promise<number>;
+  /** Threads with stored voice files, by thread id after `afterThreadId`, at most `limit` threads. */
+  threadsWithVoice(opts: { afterThreadId?: string; limit: number }): Promise<ChatVoiceThread[]>;
+  /** The voice file of this message is gone: forget its ref (the bubble then says so). */
+  clearVoice(messageId: string): Promise<void>;
 }
 
 export const CHAT_REPOSITORY = Symbol('CHAT_REPOSITORY');
@@ -114,6 +130,24 @@ export class InMemoryChatRepository implements ChatRepository {
     this.reads.set(threadId, m);
     return next;
   }
+
+  async threadsWithVoice(opts: { afterThreadId?: string; limit: number }): Promise<ChatVoiceThread[]> {
+    const out: ChatVoiceThread[] = [];
+    for (const t of [...this.threads.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+      if (opts.afterThreadId !== undefined && t.id <= opts.afterThreadId) continue;
+      const voices = (this.msgs.get(t.id) ?? []).filter((m) => m.voiceRef !== null).map((m) => ({ messageId: m.id, voiceRef: m.voiceRef! }));
+      if (voices.length) out.push({ threadId: t.id, orderId: t.orderId, kind: t.kind, voices });
+      if (out.length >= opts.limit) break;
+    }
+    return out;
+  }
+
+  async clearVoice(messageId: string): Promise<void> {
+    for (const list of this.msgs.values()) {
+      const m = list.find((x) => x.id === messageId);
+      if (m) m.voiceRef = null;
+    }
+  }
 }
 
 // ───────────────────────── Prisma ─────────────────────────
@@ -132,6 +166,8 @@ const messageOf = (r: MessageRow): ChatMessageRecord => ({
   body: r.body,
   quickReplyKey: r.quickReplyKey,
   photoRef: r.photoRef,
+  voiceRef: r.voiceRef,
+  durationSec: r.durationSec,
   lat: r.lat,
   lng: r.lng,
   masked: r.masked,
@@ -149,6 +185,8 @@ const MESSAGE_SELECT = {
   body: true,
   quickReplyKey: true,
   photoRef: true,
+  voiceRef: true,
+  durationSec: true,
   lat: true,
   lng: true,
   masked: true,
@@ -220,5 +258,32 @@ export class PrismaChatRepository implements ChatRepository {
     if (cur && cur.readSeq >= seq) return cur.readSeq;
     const r = await db.chatRead.upsert({ where: { threadId_readerKey: { threadId, readerKey } }, create: { threadId, readerKey, readSeq: seq }, update: { readSeq: seq } });
     return r.readSeq;
+  }
+
+  async threadsWithVoice(opts: { afterThreadId?: string; limit: number }): Promise<ChatVoiceThread[]> {
+    const db = this.db();
+    const ids = await db.chatMessage.findMany({
+      where: { voiceRef: { not: null }, ...(opts.afterThreadId !== undefined ? { threadId: { gt: opts.afterThreadId } } : {}) },
+      distinct: ['threadId'],
+      orderBy: { threadId: 'asc' },
+      take: opts.limit,
+      select: { threadId: true },
+    });
+    if (ids.length === 0) return [];
+    const threadIds = ids.map((r) => r.threadId);
+    const [threads, voices] = await Promise.all([
+      db.chatThread.findMany({ where: { id: { in: threadIds } }, select: { id: true, orderId: true, kind: true } }),
+      db.chatMessage.findMany({ where: { threadId: { in: threadIds }, voiceRef: { not: null } }, select: { id: true, threadId: true, voiceRef: true } }),
+    ]);
+    const byId = new Map(threads.map((t) => [t.id, t]));
+    return threadIds.flatMap((id) => {
+      const t = byId.get(id);
+      if (!t) return [];
+      return [{ threadId: id, orderId: t.orderId, kind: t.kind as ChatThreadKind, voices: voices.filter((v) => v.threadId === id).map((v) => ({ messageId: v.id, voiceRef: v.voiceRef! })) }];
+    });
+  }
+
+  async clearVoice(messageId: string): Promise<void> {
+    await this.db().chatMessage.updateMany({ where: { id: messageId }, data: { voiceRef: null } });
   }
 }

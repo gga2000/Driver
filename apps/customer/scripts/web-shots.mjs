@@ -22,7 +22,8 @@
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
 //                                                                         POST /demo/ops-agent
 //   chat-*   order screen chat/call/share, courier + kitchen + support threads, quick reply, masked call,
-//            closed thread, ride share sheet, public share page (live + ended)  POST /demo/chat
+//            closed thread, ride share sheet, public share page (live + ended), and voice notes in the
+//            ride chat (the driver's note, the mic explainer, recording, sent + his reply)  POST /demo/chat
 //   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door, family driver), edge
 //            zone, pin, searching with the drivers sent it («نبّهه», a profile), cancel preview, matched,
 //            a minute away, the screen light and safety shield (a night tab), the arrived card, on the
@@ -87,7 +88,8 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
+// A fake microphone (a steady tone) so the chat's voice notes record headless.
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, locale: 'ar-IQ' });
 const errors = [];
 page.on('console', (m) => {
@@ -1091,6 +1093,43 @@ async function chatShots(personId) {
   await guest.screenshot({ path: join(outDir, 'chat-share-ended.png') });
   console.log(join(outDir, 'chat-share-ended.png'));
   await guest.close();
+
+  // Voice notes (ride ideas n7/n8) in the ride's chat: the driver's note, then he holds the mic.
+  // The fake microphone counts as already allowed; report "not asked yet" so the first hold shows our
+  // explanation, as on a first visit (the browser's own prompt then answers yes).
+  await page.addInitScript(() => {
+    const perms = globalThis.navigator.permissions;
+    const query = perms.query.bind(perms);
+    perms.query = (d) => (d?.name === 'microphone' ? Promise.resolve({ state: 'prompt' }) : query(d));
+  });
+  await page.goto(`${origin}/chat/${r.orderId}?kind=customer_courier`, LOADED);
+  await byTestId('chat-msg-2').waitFor({ timeout: 15_000 });
+  await shot('chat-voice-thread');
+  const mic = await byTestId('chat-mic').boundingBox();
+  if (!mic) throw new Error('chat-mic not on screen');
+  const [mx, my] = [mic.x + mic.width / 2, mic.y + mic.height / 2];
+  // The first hold explains before the browser asks.
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  await page.mouse.up();
+  await byTestId('chat-mic-prompt').waitFor({ timeout: 10_000 });
+  await shot('chat-voice-mic-prompt');
+  await page.getByText('اسمح بالمايك').click();
+  await byTestId('chat-mic-prompt').waitFor({ state: 'hidden', timeout: 10_000 });
+  await page.waitForTimeout(1500);
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  await byTestId('chat-voice-recording').waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(3200);
+  // Half way to the cancel line (towards the right in Arabic): the hint follows the finger.
+  await page.mouse.move(mx + 40, my, { steps: 4 });
+  await shot('chat-voice-recording');
+  await page.mouse.move(mx, my, { steps: 4 });
+  await page.mouse.up();
+  // His note goes up and the demo driver answers with one 2.5 s later.
+  await byTestId('chat-msg-3').waitFor({ timeout: 20_000 });
+  await byTestId('chat-msg-4').waitFor({ timeout: 20_000 });
+  await shot('chat-voice-sent');
 }
 
 /**

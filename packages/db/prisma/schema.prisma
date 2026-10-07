@@ -2142,6 +2142,10 @@ model ChatMessage {
   body          String?
   quickReplyKey String?  @map("quick_reply_key")
   photoRef      String?  @map("photo_ref")
+  /// A voice note's upload id (ride ideas n7/n8); set back to null when the file goes with the closed chat.
+  voiceRef      String?  @map("voice_ref")
+  /// A voice note's length in whole seconds (1–60).
+  durationSec   Int?     @map("duration_sec")
   lat           Float?
   lng           Float?
   masked        Boolean  @default(false)
@@ -2151,6 +2155,7 @@ model ChatMessage {
 
   @@unique([threadId, seq])
   @@unique([threadId, senderId, clientId])
+  @@index([voiceRef])
   @@map("chat_messages")
   @@schema("public")
 }

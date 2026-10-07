@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CHAT_TEXT_MAX, quickReplyText, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
+import { CHAT_TEXT_MAX, quickReplyText, voiceAllowedIn, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
 import type { Locale, MessageKey } from '@driver/i18n';
 import { formatClock, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
 import { usePhotoFallback } from '../logic/photo-fallback';
-import { chatRows, lastSeqOf, newClientId, pinUrl, roleKey, telUrl, type ChatRow, type PendingMessage, type SendBody } from '../logic/chat';
+import { chatRows, lastSeqOf, newClientId, pendingKind, pinUrl, roleKey, telUrl, type ChatRow, type PendingMessage, type SendBody } from '../logic/chat';
+import { VOICE_MIN_MS, voiceAtLimit, voiceDurationSec, voiceSlideCancels, voiceSlideProgress, type MicPermission, type VoiceClip } from '../logic/voice-note';
 import { withAlpha } from '../theme/color';
 import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
 import { Chip } from './Chip';
 import { EmptyState } from './EmptyState';
 import { IconButton } from './IconButton';
+import { PermissionPrompt } from './PermissionPrompt';
 import { Skeleton } from './Skeleton';
 import { Text } from './Text';
 import { TextField } from './TextField';
 import { useToast } from './Toast';
+import { MicHoldButton, VoiceNotePlayer, VoiceRecorderBar, type VoicePlayState } from './VoiceNote';
 
 const COLUMN = 640;
 
@@ -34,6 +37,44 @@ export interface ChatThreadQuery {
 
 /** A picked and uploaded photo, or why there is none. */
 export type ChatPhotoResult = { uploadId: string; localUri: string } | 'denied' | null;
+
+/** The app's microphone (expo-audio on phones, MediaRecorder in the browser). */
+export interface ChatVoiceRecorder {
+  /** The permission as it stands, without asking. */
+  permission: () => Promise<MicPermission>;
+  /** The OS (or browser) prompt. */
+  requestPermission: () => Promise<MicPermission>;
+  /** The phone's settings for this app; absent in the browser. */
+  openSettings?: () => void;
+  /** Opens the mic and starts; false when it could not. */
+  start: () => Promise<boolean>;
+  /** Stops and hands over the recording (null when nothing usable came out). */
+  stop: () => Promise<VoiceClip | null>;
+  /** Stops and throws the recording away. */
+  cancel: () => Promise<void>;
+  /** Live length of the running recording. */
+  elapsedMs: number;
+}
+
+/** One player for the whole thread: starting a note stops the one playing. */
+export interface ChatVoicePlayer {
+  /** The message (or pending client id) the player holds. */
+  activeId: string | null;
+  state: VoicePlayState;
+  positionSec: number;
+  toggle: (id: string, uri: string) => void;
+  stop: () => void;
+}
+
+/** Voice notes (ride ideas n7/n8): offered in the customer ↔ courier / driver and support chats. */
+export interface ChatVoice {
+  recorder: ChatVoiceRecorder;
+  player: ChatVoicePlayer;
+  /** `chat.voiceUpload` and the PUT; resolves with the upload id. */
+  upload: (clip: VoiceClip) => Promise<string>;
+  /** Absolute URL of a voice note. */
+  audioUri: (url: string) => string;
+}
 
 export interface ChatThreadProps {
   orderId: string;
@@ -66,7 +107,11 @@ export interface ChatThreadProps {
   liveStatus?: { text: string; onPress?: () => void } | null;
   /** Joy l7: the server's quick replies reordered for the moment (at the door «طالع هسة» first). */
   orderReplies?: (keys: readonly QuickReplyKey[]) => QuickReplyKey[];
+  /** Hold-to-record voice notes; omit to leave them out (the kitchen). Shown only where `voiceAllowedIn(kind)`. */
+  voice?: ChatVoice;
 }
+
+type RecordPhase = 'idle' | 'starting' | 'recording';
 
 /**
  * One conversation of an order, the same screen in all three apps (S-05): bubbles in RTL (mine on
@@ -94,6 +139,7 @@ export function ChatThread({
   currentLocation,
   liveStatus,
   orderReplies,
+  voice: voiceProp,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
@@ -103,6 +149,12 @@ export function ChatThread({
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const [attaching, setAttaching] = useState(false);
   const scroll = useRef<ScrollView>(null);
+  const voice = voiceProp && voiceAllowedIn(kind) ? voiceProp : null;
+  // Recording state: the ref is what the gesture handlers read (they fire faster than renders).
+  const [rec, setRec] = useState<{ phase: RecordPhase; locked: boolean; slide: number }>({ phase: 'idle', locked: false, slide: 0 });
+  const recRef = useRef({ phase: 'idle' as RecordPhase, locked: false, released: false, aborted: false, granted: false });
+  const [micPrompt, setMicPrompt] = useState<'ask' | 'denied' | null>(null);
+  const [micAsking, setMicAsking] = useState(false);
 
   const messages = useMemo(() => v?.messages ?? [], [v]);
   const lastSeq = lastSeqOf(messages);
@@ -114,8 +166,8 @@ export function ChatThread({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastSeq, v?.myReadSeq]);
 
-  const send = async (body: SendBody, preview: { text: string | null; localPhotoUri?: string | null }, clientId = newClientId()) => {
-    const p: PendingMessage = { clientId, body, text: preview.text, localPhotoUri: preview.localPhotoUri ?? null, status: 'sending', createdAt: new Date() };
+  const send = async (body: SendBody, preview: { text: string | null; localPhotoUri?: string | null; voice?: PendingMessage['voice'] }, clientId = newClientId()) => {
+    const p: PendingMessage = { clientId, body, text: preview.text, localPhotoUri: preview.localPhotoUri ?? null, voice: preview.voice ?? null, status: 'sending', createdAt: new Date() };
     setPending((cur) => [...cur.filter((x) => x.clientId !== clientId), p]);
     try {
       await sendRequest({ orderId, kind, clientId, ...body });
@@ -161,6 +213,164 @@ export function ChatThread({
     } finally {
       setAttaching(false);
     }
+  };
+
+  // ───────────── voice notes: hold to record, release to send, slide to cancel ─────────────
+
+  const setPhase = (phase: RecordPhase, locked = false) => {
+    recRef.current.phase = phase;
+    recRef.current.locked = locked;
+    setRec({ phase, locked, slide: 0 });
+  };
+
+  /** Upload, then send; a failed upload stays as a red bubble that uploads again on a tap. */
+  const sendVoice = async (clip: VoiceClip, clientId = newClientId()) => {
+    if (!voice) return;
+    const v = { clip, durationSec: voiceDurationSec(clip.durationMs) };
+    setPending((cur) => [...cur.filter((x) => x.clientId !== clientId), { clientId, body: null, text: null, localPhotoUri: null, voice: v, status: 'sending', createdAt: new Date() }]);
+    let uploadId: string;
+    try {
+      uploadId = await voice.upload(clip);
+    } catch {
+      setPending((cur) => cur.map((x) => (x.clientId === clientId ? { ...x, status: 'failed' } : x)));
+      toast.show({ message: t('chat.voice.upload_failed'), tone: 'warning', icon: 'mic' });
+      return;
+    }
+    await send({ voiceUploadId: uploadId, durationSec: v.durationSec }, { text: null, voice: v }, clientId);
+  };
+
+  const startRecording = async (locked: boolean) => {
+    if (!voice || recRef.current.phase !== 'idle') return;
+    recRef.current.released = false;
+    recRef.current.aborted = false;
+    setPhase('starting', locked);
+    if (!recRef.current.granted) {
+      const perm = await voice.recorder.permission().catch((): MicPermission => 'undetermined');
+      if (perm !== 'granted') {
+        // The first hold explains before the OS asks; a refusal says where to turn it on.
+        setPhase('idle');
+        setMicPrompt(perm === 'denied' ? 'denied' : 'ask');
+        return;
+      }
+      recRef.current.granted = true;
+    }
+    voice.player.stop();
+    const ok = await voice.recorder.start().catch(() => false);
+    if (!ok) {
+      setPhase('idle');
+      toast.show({ message: t('chat.voice.record_failed'), tone: 'warning', icon: 'mic' });
+      return;
+    }
+    if (recRef.current.released || recRef.current.aborted) {
+      // Let go (or slid away) before the mic even opened: a tap, not a note.
+      await voice.recorder.cancel().catch(() => undefined);
+      setPhase('idle');
+      if (recRef.current.released) toast.show({ message: t('chat.voice.hold_hint'), tone: 'info', icon: 'mic' });
+      return;
+    }
+    theme.haptic('light');
+    setPhase('recording', locked);
+  };
+
+  const finishRecording = async (reason: 'release' | 'limit') => {
+    if (!voice || recRef.current.phase !== 'recording') return;
+    setPhase('idle');
+    const clip = await voice.recorder.stop().catch(() => null);
+    if (!clip) {
+      toast.show({ message: t('chat.voice.record_failed'), tone: 'warning', icon: 'mic' });
+      return;
+    }
+    if (clip.durationMs < VOICE_MIN_MS) {
+      toast.show({ message: t('chat.voice.hold_hint'), tone: 'info', icon: 'mic' });
+      return;
+    }
+    if (reason === 'limit') toast.show({ message: t('chat.voice.max_reached'), tone: 'info', icon: 'mic' });
+    void sendVoice(clip);
+  };
+
+  const discardRecording = async (say: boolean) => {
+    if (!voice || recRef.current.phase !== 'recording') return;
+    setPhase('idle');
+    theme.haptic('light');
+    await voice.recorder.cancel().catch(() => undefined);
+    if (say) toast.show({ message: t('chat.voice.cancelled'), tone: 'info', icon: 'trash' });
+  };
+
+  const onHoldMove = (dx: number) => {
+    const r = recRef.current;
+    if (r.locked) return;
+    if (r.phase === 'starting' && voiceSlideCancels(dx, theme.isRTL)) r.aborted = true;
+    if (r.phase !== 'recording') return;
+    if (voiceSlideCancels(dx, theme.isRTL)) void discardRecording(true);
+    else setRec((cur) => ({ ...cur, slide: voiceSlideProgress(dx, theme.isRTL) }));
+  };
+
+  const onHoldEnd = () => {
+    const r = recRef.current;
+    if (r.locked) return;
+    if (r.phase === 'starting') r.released = true;
+    else void finishRecording('release');
+  };
+
+  const onHoldAbort = () => {
+    const r = recRef.current;
+    if (r.locked) return;
+    if (r.phase === 'starting') r.aborted = true;
+    else void discardRecording(false);
+  };
+
+  const onMicActivate = () => {
+    if (recRef.current.phase === 'idle') void startRecording(true);
+    else if (recRef.current.locked) void finishRecording('release');
+  };
+
+  const askMic = async () => {
+    if (!voice || micAsking) return;
+    if (micPrompt === 'denied' && voice.recorder.openSettings) {
+      voice.recorder.openSettings();
+      setMicPrompt(null);
+      return;
+    }
+    setMicAsking(true);
+    const perm = await voice.recorder.requestPermission().catch((): MicPermission => 'denied');
+    setMicAsking(false);
+    if (perm === 'granted') {
+      recRef.current.granted = true;
+      setMicPrompt(null);
+      toast.show({ message: t('chat.voice.hold_hint'), tone: 'info', icon: 'mic' });
+    } else setMicPrompt('denied');
+  };
+
+  // One minute is the cap: the note stops and goes by itself.
+  const elapsedMs = voice?.recorder.elapsedMs ?? 0;
+  useEffect(() => {
+    if (rec.phase === 'recording' && voiceAtLimit(elapsedMs)) void finishRecording('limit');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elapsedMs, rec.phase]);
+
+  // Leaving the screen mid-recording throws the recording away.
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  useEffect(
+    () => () => {
+      if (recRef.current.phase !== 'idle') void voiceRef.current?.recorder.cancel().catch(() => undefined);
+    },
+    [],
+  );
+
+  const voiceNote = (id: string, uri: string | null, durationSec: number) => {
+    const active = voiceProp && voiceProp.player.activeId === id ? voiceProp.player : null;
+    return (
+      <VoiceNotePlayer
+        durationSec={durationSec}
+        available={uri !== null}
+        state={active?.state ?? 'idle'}
+        positionSec={active?.positionSec ?? 0}
+        onToggle={voiceProp && uri ? () => voiceProp.player.toggle(id, uri) : undefined}
+        t={t}
+        testID={`chat-voice-${id}`}
+      />
+    );
   };
 
   // «كلّم الدعم»: the other side is our support team, not a person of the order.
@@ -240,7 +450,20 @@ export function ChatThread({
               />
             </View>
           ) : (
-            rows.map((row) => <Row key={row.key} row={row} t={t} photoUri={photoUri} onRetry={(p) => void send(p.body, { text: p.text, localPhotoUri: p.localPhotoUri }, p.clientId)} />)
+            rows.map((row) => (
+              <Row
+                key={row.key}
+                row={row}
+                t={t}
+                photoUri={photoUri}
+                audioUri={(url) => (voiceProp ? voiceProp.audioUri(url) : url)}
+                voiceNote={voiceNote}
+                onRetry={(p) => {
+                  if (p.voice && !p.body) void sendVoice(p.voice.clip, p.clientId);
+                  else if (p.body) void send(p.body, { text: p.text, localPhotoUri: p.localPhotoUri, voice: p.voice }, p.clientId);
+                }}
+              />
+            ))
           )}
           {v?.closesAt && open ? (
             <Text variant="caption" color="textMuted" style={{ textAlign: 'center', marginTop: theme.space[2] }} testID="chat-closes-at">
@@ -266,33 +489,58 @@ export function ChatThread({
                   </ScrollView>
                 ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[2] }}>
-                  <IconButton icon="camera" variant="plain" accessibilityLabel={t('chat.attach_photo')} onPress={() => void sendPhoto()} disabled={attaching} testID="chat-photo" />
-                  {currentLocation ? (
-                    <IconButton icon="map-pin" variant="plain" accessibilityLabel={t('chat.attach_location')} onPress={() => void sendLocation()} disabled={attaching} testID="chat-location" />
-                  ) : null}
-                  <TextField
-                    style={{ flex: 1 }}
-                    value={draft}
-                    onChangeText={setDraft}
-                    placeholder={t('chat.placeholder')}
-                    maxLength={CHAT_TEXT_MAX}
-                    // Web: a single-line input keeps the placeholder centred; Enter sends.
-                    multiline={Platform.OS !== 'web'}
-                    returnKeyType="send"
-                    blurOnSubmit={false}
-                    onSubmitEditing={sendText}
-                    onKeyPress={(e) => {
-                      // Web: Enter sends, Shift+Enter breaks the line.
-                      const ne = e.nativeEvent as { key?: string; shiftKey?: boolean };
-                      if (Platform.OS === 'web' && ne.key === 'Enter' && !ne.shiftKey) {
-                        (e as unknown as { preventDefault?: () => void }).preventDefault?.();
-                        sendText();
-                      }
-                    }}
-                    pill
-                    testID="chat-input"
-                  />
-                  <IconButton icon="send" variant="accent" accessibilityLabel={t('chat.send')} onPress={sendText} disabled={!draft.trim()} testID="chat-send" />
+                  {rec.phase === 'recording' ? (
+                    <VoiceRecorderBar
+                      elapsedMs={elapsedMs}
+                      slide={rec.slide}
+                      locked={rec.locked}
+                      onDiscard={() => void discardRecording(true)}
+                      onSend={() => void finishRecording('release')}
+                      t={t}
+                    />
+                  ) : (
+                    <>
+                      <IconButton icon="camera" variant="plain" accessibilityLabel={t('chat.attach_photo')} onPress={() => void sendPhoto()} disabled={attaching} testID="chat-photo" />
+                      {currentLocation ? (
+                        <IconButton icon="map-pin" variant="plain" accessibilityLabel={t('chat.attach_location')} onPress={() => void sendLocation()} disabled={attaching} testID="chat-location" />
+                      ) : null}
+                      <TextField
+                        style={{ flex: 1 }}
+                        value={draft}
+                        onChangeText={setDraft}
+                        placeholder={t('chat.placeholder')}
+                        maxLength={CHAT_TEXT_MAX}
+                        // Web: a single-line input keeps the placeholder centred; Enter sends.
+                        multiline={Platform.OS !== 'web'}
+                        returnKeyType="send"
+                        blurOnSubmit={false}
+                        onSubmitEditing={sendText}
+                        onKeyPress={(e) => {
+                          // Web: Enter sends, Shift+Enter breaks the line.
+                          const ne = e.nativeEvent as { key?: string; shiftKey?: boolean };
+                          if (Platform.OS === 'web' && ne.key === 'Enter' && !ne.shiftKey) {
+                            (e as unknown as { preventDefault?: () => void }).preventDefault?.();
+                            sendText();
+                          }
+                        }}
+                        pill
+                        testID="chat-input"
+                      />
+                    </>
+                  )}
+                  {voice && (rec.phase !== 'idle' || !draft.trim()) ? (
+                    <MicHoldButton
+                      recording={rec.phase === 'recording'}
+                      onHoldStart={() => void startRecording(false)}
+                      onHoldMove={onHoldMove}
+                      onHoldEnd={onHoldEnd}
+                      onHoldAbort={onHoldAbort}
+                      onActivate={onMicActivate}
+                      t={t}
+                    />
+                  ) : (
+                    <IconButton icon="send" variant="accent" accessibilityLabel={t('chat.send')} onPress={sendText} disabled={!draft.trim()} testID="chat-send" />
+                  )}
                 </View>
                 {draft.length > CHAT_TEXT_MAX - 80 ? (
                   <Text variant="caption" color={draft.length >= CHAT_TEXT_MAX ? 'dangerText' : 'textMuted'} tabular style={{ textAlign: 'center' }}>
@@ -304,6 +552,20 @@ export function ChatThread({
           </View>
         </View>
       </KeyboardAvoidingView>
+      {voice ? (
+        <PermissionPrompt
+          visible={micPrompt !== null}
+          icon={micPrompt === 'denied' ? 'mic-off' : 'mic'}
+          title={t(micPrompt === 'denied' ? 'chat.voice.mic_denied_title' : 'chat.voice.mic_title')}
+          body={t(micPrompt === 'denied' ? 'chat.voice.mic_denied_body' : 'chat.voice.mic_body')}
+          allowLabel={t(micPrompt === 'denied' ? (voice.recorder.openSettings ? 'chat.voice.open_settings' : 'action.retry') : 'chat.voice.mic_allow')}
+          laterLabel={t('chat.voice.not_now')}
+          onAllow={() => void askMic()}
+          onLater={() => setMicPrompt(null)}
+          busy={micAsking}
+          testID="chat-mic-prompt"
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -320,7 +582,22 @@ function Banner({ icon, text, testID }: { icon: IconName; text: string; testID: 
   );
 }
 
-function Row({ row, t, photoUri, onRetry }: { row: ChatRow; t: ChatT; photoUri: (url: string) => string; onRetry: (p: PendingMessage) => void }) {
+function Row({
+  row,
+  t,
+  photoUri,
+  audioUri,
+  voiceNote,
+  onRetry,
+}: {
+  row: ChatRow;
+  t: ChatT;
+  photoUri: (url: string) => string;
+  audioUri: (url: string) => string;
+  /** The player of a voice note (`uri` null: the file went with the closed chat). */
+  voiceNote: (id: string, uri: string | null, durationSec: number) => ReactNode;
+  onRetry: (p: PendingMessage) => void;
+}) {
   const theme = useTheme();
   if (row.type === 'day') {
     return (
@@ -335,7 +612,16 @@ function Row({ row, t, photoUri, onRetry }: { row: ChatRow; t: ChatT; photoUri: 
     const p = row.pending;
     return (
       <Pressable disabled={p.status !== 'failed'} onPress={() => onRetry(p)} accessibilityRole={p.status === 'failed' ? 'button' : undefined} testID={`chat-pending-${p.status}`}>
-        <Bubble t={t} mine kind={'photoUploadId' in p.body ? 'photo' : 'location' in p.body ? 'location' : 'text'} text={p.text} photo={p.localPhotoUri} location={'location' in p.body ? p.body.location : null} senderLabel={null}>
+        <Bubble
+          t={t}
+          mine
+          kind={pendingKind(p)}
+          text={p.text}
+          photo={p.localPhotoUri}
+          location={p.body && 'location' in p.body ? p.body.location : null}
+          voice={p.voice ? voiceNote(p.clientId, p.voice.clip.uri, p.voice.durationSec) : null}
+          senderLabel={null}
+        >
           <Meta mine time={p.createdAt} state={p.status === 'failed' ? 'failed' : 'sending'} t={t} />
         </Bubble>
       </Pressable>
@@ -345,7 +631,16 @@ function Row({ row, t, photoUri, onRetry }: { row: ChatRow; t: ChatT; photoUri: 
   const senderLabel = !m.mine && m.senderRole === 'support' ? t('chat.role.support') : null;
   return (
     <View testID={`chat-msg-${m.seq}`}>
-      <Bubble t={t} mine={m.mine} kind={m.kind} text={m.text} photo={m.photoUrl ? photoUri(m.photoUrl) : null} location={m.location} senderLabel={senderLabel}>
+      <Bubble
+        t={t}
+        mine={m.mine}
+        kind={m.kind}
+        text={m.text}
+        photo={m.photoUrl ? photoUri(m.photoUrl) : null}
+        location={m.location}
+        voice={m.kind === 'voice' ? voiceNote(m.id, m.audioUrl ? audioUri(m.audioUrl) : null, m.durationSec ?? 1) : null}
+        senderLabel={senderLabel}
+      >
         <Meta mine={m.mine} time={m.createdAt} state={m.mine ? (m.read ? 'read' : 'sent') : null} t={t} />
       </Bubble>
       {m.masked ? (
@@ -367,6 +662,7 @@ function Bubble({
   text,
   photo,
   location,
+  voice,
   senderLabel,
   children,
 }: {
@@ -376,6 +672,8 @@ function Bubble({
   text: string | null;
   photo: string | null;
   location: { lat: number; lng: number } | null;
+  /** A voice note's player. */
+  voice: ReactNode;
   senderLabel: string | null;
   children: ReactNode;
 }) {
@@ -407,7 +705,9 @@ function Bubble({
           {senderLabel}
         </Text>
       ) : null}
-      {kind === 'photo' && shown.uri ? (
+      {kind === 'voice' ? (
+        voice
+      ) : kind === 'photo' && shown.uri ? (
         <Image source={{ uri: shown.uri }} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
       ) : kind === 'location' && location ? (
         <Pressable onPress={() => void Linking.openURL(pinUrl(location)).catch(() => undefined)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingVertical: 2 }}>

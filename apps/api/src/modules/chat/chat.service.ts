@@ -9,6 +9,7 @@ import {
   DriverError,
   quickRepliesFor,
   quickReplyText,
+  voiceAllowedIn,
   type Actor,
   type CallSession,
   type ChatMarkReadInput,
@@ -25,18 +26,20 @@ import {
   type ChatThreadStatus,
   type ChatThreadSummary,
   type ChatThreadView,
+  type ChatVoiceUploadInput,
   type Order,
   type OrderState,
   type RoleKind,
   type Trip,
   type TripState,
+  type VoiceUploadTicket,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { CALL_BRIDGE, type CallBridgePort } from './call-bridge.js';
-import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord } from './chat.repository.js';
+import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type ChatThreadRecord, type ChatVoiceThread } from './chat.repository.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { maskIraqiPhones } from './mask.js';
 import { SharedSlidingWindowLimiter } from './rate-limit.js';
@@ -222,6 +225,19 @@ export class ChatService implements ChatPort {
     return this.sendAs(actor.personId, ctx, role, input);
   }
 
+  /**
+   * A signed upload for a voice note (ride ideas n7/n8), in the customer ↔ courier and support chats:
+   * only for someone who may write in the thread right now, so nobody fills storage through a closed or foreign chat. The bytes are checked on
+   * arrival (an audio container of the declared type, at most `VOICE_RULES.maxBytes`).
+   */
+  async voiceUpload(actor: Actor, input: ChatVoiceUploadInput): Promise<VoiceUploadTicket> {
+    if (!voiceAllowedIn(input.kind)) throw new DriverError('chat_voice_unavailable');
+    const ctx = await this.context(input.orderId);
+    const role = await this.roleIn(actor.personId, ctx, input.kind);
+    if (!(input.kind === 'customer_support' && role === 'support')) this.assertOpen(this.status(ctx, input.kind, this.clock.now()));
+    return this.blobs.createUpload({ ownerId: actor.personId, contentType: input.contentType, sizeBytes: input.sizeBytes });
+  }
+
   private async sendAs(personId: string, ctx: OrderContext, role: ChatRole, input: ChatSendInput): Promise<ChatMessage> {
     const actor = { personId };
     const now = this.clock.now();
@@ -236,6 +252,7 @@ export class ChatService implements ChatPort {
     let masked = false;
     let kind: ChatMessage['kind'];
     let photoRef: string | null = null;
+    let voiceRef: string | null = null;
     if (input.text !== undefined) {
       const m = maskIraqiPhones(input.text.trim());
       body = m.text;
@@ -250,6 +267,12 @@ export class ChatService implements ChatPort {
       if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored') throw new DriverError('upload_invalid');
       photoRef = blob.id;
       kind = 'photo';
+    } else if (input.voiceUploadId !== undefined) {
+      if (!voiceAllowedIn(input.kind)) throw new DriverError('chat_voice_unavailable');
+      const blob = await this.blobs.getVoice(input.voiceUploadId);
+      if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored') throw new DriverError('upload_invalid');
+      voiceRef = blob.id;
+      kind = 'voice';
     } else {
       kind = 'location';
     }
@@ -266,6 +289,8 @@ export class ChatService implements ChatPort {
           body,
           quickReplyKey: input.quickReplyKey ?? null,
           photoRef,
+          voiceRef,
+          durationSec: voiceRef ? (input.durationSec ?? null) : null,
           lat: input.location?.lat ?? null,
           lng: input.location?.lng ?? null,
           masked,
@@ -341,6 +366,42 @@ export class ChatService implements ChatPort {
       await log(`refused:${err instanceof DriverError ? err.code : 'error'}`, null);
       throw err;
     }
+  }
+
+  // ───────────────────────── retention ─────────────────────────
+
+  /**
+   * Voice notes go with the chat (ride ideas n7/n8): every file of a thread that is closed now is
+   * deleted and its message keeps only its length (the bubble says the note is gone). Threads are
+   * walked in id order, `batch` at a time, so open ones never block the rest. Returns the files deleted.
+   */
+  async purgeClosedVoice(batch: number): Promise<number> {
+    const now = this.clock.now();
+    let deleted = 0;
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.repo.threadsWithVoice({ ...(after !== undefined ? { afterThreadId: after } : {}), limit: batch });
+      for (const t of page) deleted += await this.purgeVoiceIfClosed(t, now);
+      if (page.length < batch) return deleted;
+      after = page[page.length - 1]!.threadId;
+    }
+  }
+
+  private async purgeVoiceIfClosed(t: ChatVoiceThread, now: Date): Promise<number> {
+    let ctx: OrderContext;
+    try {
+      ctx = await this.context(t.orderId);
+    } catch (err) {
+      // An order that cannot be read is skipped this round, never purged on a guess.
+      this.logger.warn(`voice retention: order ${t.orderId} unreadable: ${(err as Error).message}`);
+      return 0;
+    }
+    if (this.status(ctx, t.kind, now) !== 'closed') return 0;
+    for (const v of t.voices) {
+      await this.blobs.remove(v.voiceRef);
+      await this.repo.clearVoice(v.messageId);
+    }
+    return t.voices.length;
   }
 
   // ───────────────────────── rules ─────────────────────────
@@ -455,6 +516,8 @@ export class ChatService implements ChatPort {
       text: m.body,
       quickReplyKey: (m.quickReplyKey as ChatMessage['quickReplyKey']) ?? null,
       photoUrl: m.photoRef ? this.blobs.readUrl(m.photoRef) : null,
+      audioUrl: m.voiceRef ? this.blobs.readUrl(m.voiceRef) : null,
+      durationSec: m.kind === 'voice' ? m.durationSec : null,
       location: m.lat !== null && m.lng !== null ? { lat: m.lat, lng: m.lng } : null,
       masked: m.masked,
       createdAt: m.createdAt,

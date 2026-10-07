@@ -34,6 +34,7 @@ import { useTRPC } from '@/lib/trpc';
 import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
+import { ChatVoiceNote } from './support/voice-note';
 import {
   Avatar,
   Button,
@@ -731,7 +732,7 @@ function Chats({ orderId }: { orderId: string }) {
                     <span className="num"> · {formatClock(m.createdAt)}</span>
                     {m.masked ? <span className="text-warn"> · {t('console.sup_masked')}</span> : null}
                   </p>
-                  <p className="text-sm leading-6">{m.text ?? (m.photoUrl ? t('console.sup_photo') : m.location ? t('console.sup_location') : '—')}</p>
+                  <p className="text-sm leading-6">{m.kind === 'voice' ? <ChatVoiceNote m={m} /> : (m.text ?? (m.photoUrl ? t('console.sup_photo') : m.location ? t('console.sup_location') : '—'))}</p>
                 </div>
               </li>
             );

@@ -45,6 +45,9 @@ import {
   ToastProvider,
   useTheme,
   useToast,
+  VoiceNotePlayer,
+  VoiceRecorderBar,
+  MicHoldButton,
   type PriceItem,
   type SeatId,
   type SeatInfo,
@@ -982,6 +985,31 @@ function ConfirmSection() {
   );
 }
 
+/* ───────────────────────── voice notes ───────────────────────── */
+
+/** Voice notes in the chat (ride ideas n7/n8): the player's states, the recorder bar, the mic. */
+function VoiceSection() {
+  const theme = useTheme();
+  const [playing, setPlaying] = useState(false);
+  const [slide, setSlide] = useState(0);
+  return (
+    <Section title="الرسائل الصوتية" note="اضغط مطوّل على المايك وسجّل، فلّت حتى تدز، واسحب لليمين حتى تلغي. المشغّل زر واحد وخط تقدّم والثواني، بدون موجات.">
+      <Panel gap={4}>
+        <VoiceNotePlayer durationSec={12} available t={t} state={playing ? 'playing' : 'idle'} positionSec={playing ? 5 : 0} onToggle={() => setPlaying((p) => !p)} />
+        <VoiceNotePlayer durationSec={8} available t={t} state="loading" positionSec={0} />
+        <VoiceNotePlayer durationSec={8} available={false} t={t} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <VoiceRecorderBar elapsedMs={7_400} slide={slide} t={t} />
+          <MicHoldButton recording onHoldStart={() => undefined} onHoldMove={(dx) => setSlide(Math.max(0, Math.min(1, dx / 96)))} onHoldEnd={() => setSlide(0)} onHoldAbort={() => setSlide(0)} onActivate={() => undefined} t={t} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <VoiceRecorderBar elapsedMs={21_000} slide={0} locked t={t} onDiscard={() => undefined} onSend={() => undefined} />
+        </View>
+      </Panel>
+    </Section>
+  );
+}
+
 /* ───────────────────────── SOS ───────────────────────── */
 
 function SosSection() {
@@ -1103,6 +1131,7 @@ function Page() {
           <StatesSection />
           <TimersSection />
           <ConfirmSection />
+          <VoiceSection />
           <SosSection />
           <TypeSection />
           <IconsSection />

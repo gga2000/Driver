@@ -357,3 +357,109 @@ describe('ChatService — masked calls', () => {
     await expect(staging.open({ callId: 'c', orderId: 'o', callerId: 'a', calleeId: 'b' }, new Date())).rejects.toMatchObject({ code: 'call_unavailable' });
   });
 });
+
+describe('ChatService — voice notes (ride ideas n7/n8)', () => {
+  /** An m4a's first box: size, `ftyp`, brand `M4A `. */
+  const M4A = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypM4A ', 'latin1'), Buffer.alloc(200)]);
+
+  /** Ticket through `chat.voiceUpload`, then the PUT the app makes. */
+  async function voice(chat: ChatService, blobs: DevBlobStore, personId: string, orderId: string, kind: 'customer_courier' | 'customer_support' = 'customer_courier') {
+    const ticket = await chat.voiceUpload(as(personId), { orderId, kind, contentType: 'audio/mp4', sizeBytes: M4A.length });
+    const url = new URL(ticket.uploadUrl, 'http://x');
+    await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'audio/mp4', bytes: M4A });
+    return ticket.uploadId;
+  }
+
+  it('sends a voice note with its length; the reader gets a signed audio URL and the push says so', async () => {
+    const { h, chat, blobs, transport } = setup();
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const id = await voice(chat, blobs, 'c1', o.id);
+    const m = await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 7 });
+    expect(m).toMatchObject({ kind: 'voice', text: null, photoUrl: null, durationSec: 7 });
+    expect(m.audioUrl).toContain(`/files/${id}?`);
+    const seen = (await chat.thread(as('d1'), { orderId: o.id, kind: 'customer_courier' })).messages[0]!;
+    expect(seen).toMatchObject({ kind: 'voice', durationSec: 7, mine: false });
+    expect(transport.sent.at(-1)).toMatchObject({ to: 'd1', title_ar: 'رسالة جديدة من الزبون', body_ar: 'دزلك رسالة صوتية' });
+    // Other kinds carry no voice fields.
+    const text = await chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'سمعتك' });
+    expect(text).toMatchObject({ audioUrl: null, durationSec: null });
+  });
+
+  it('gives an upload ticket only to someone who may write in the thread now', async () => {
+    const { h, chat } = setup();
+    const placed = await h.orders.place('c1', h.foodInput());
+    const input = { orderId: placed.id, kind: 'customer_courier' as const, contentType: 'audio/webm' as const, sizeBytes: 5000 };
+    expect(await code(chat.voiceUpload(as('c1'), input))).toBe('chat_not_open');
+    expect(await code(chat.voiceUpload(as('stranger'), input))).toBe('chat_not_party');
+    // «كلّم الدعم» is open from placement: a voice note to the desk works right away.
+    await expect(chat.voiceUpload(as('c1'), { ...input, kind: 'customer_support' })).resolves.toMatchObject({ method: 'PUT', maxBytes: 5000 });
+    // The kitchen's threads stay text and photos.
+    await h.orders.merchantAccept('m-staff', { orderId: placed.id, prepMinutes: 15 });
+    expect(await code(chat.voiceUpload(as('c1'), { ...input, kind: 'customer_merchant' }))).toBe('chat_voice_unavailable');
+  });
+
+  it('accepts only the sender’s own finished voice upload, never a photo as a voice note or the other way round', async () => {
+    const { h, chat, blobs } = setup();
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const pending = await chat.voiceUpload(as('c1'), { orderId: o.id, kind: 'customer_courier', contentType: 'audio/mp4', sizeBytes: M4A.length });
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: pending.uploadId, durationSec: 3 }))).toBe('upload_invalid');
+    const id = await voice(chat, blobs, 'c1', o.id);
+    expect(await code(chat.send(as('d1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 3 }))).toBe('upload_invalid');
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), photoUploadId: id }))).toBe('upload_invalid');
+    const photo = await blobs.createUpload({ ownerId: 'c1', contentType: 'image/png', sizeBytes: 48 });
+    const url = new URL(photo.uploadUrl, 'http://x');
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
+    await blobs.receive({ id: photo.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/png', bytes: png });
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: photo.uploadId, durationSec: 3 }))).toBe('upload_invalid');
+  });
+
+  it('the file goes with the chat: deleted once the thread closes, the bubble keeps its length', async () => {
+    const { h, chat, blobs } = setup();
+    const o = await acceptedOrder(h);
+    const trip = await h.tripFor(o.id);
+    const toDriver = await voice(chat, blobs, 'c1', o.id);
+    await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: toDriver, durationSec: 12 });
+    const toDesk = await voice(chat, blobs, 'c1', o.id, 'customer_support');
+    await chat.send(as('c1'), { orderId: o.id, kind: 'customer_support', clientId: cid(), voiceUploadId: toDesk, durationSec: 4 });
+    await h.pickup(trip.id);
+    await h.dropoff(trip.id, { cashCollectedIqd: 16500 });
+
+    // Still open: nothing goes.
+    h.clock.advance(29 * MIN);
+    expect(await chat.purgeClosedVoice(10)).toBe(0);
+    expect(await blobs.getVoice(toDriver)).not.toBeNull();
+
+    // The driver chat closes at 30 minutes; the support chat stays open for 24 hours.
+    h.clock.advance(2 * MIN);
+    expect(await chat.purgeClosedVoice(10)).toBe(1);
+    expect(await blobs.getVoice(toDriver)).toBeNull();
+    expect(await blobs.getVoice(toDesk)).not.toBeNull();
+    const gone = (await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).messages[0]!;
+    expect(gone).toMatchObject({ kind: 'voice', audioUrl: null, durationSec: 12 });
+    expect(await chat.purgeClosedVoice(10)).toBe(0);
+
+    h.clock.advance(24 * 60 * MIN);
+    expect(await chat.purgeClosedVoice(1)).toBe(1);
+    expect(await blobs.getVoice(toDesk)).toBeNull();
+  });
+
+  it('walks every thread page by page: open threads never block closed ones', async () => {
+    const { h, chat, blobs } = setup();
+    const done = await acceptedOrder(h);
+    const doneTrip = await h.tripFor(done.id);
+    const running = await acceptedOrder(h);
+    await h.tripFor(running.id, { driverId: 'd2' });
+    for (const o of [running, done]) {
+      const id = await voice(chat, blobs, 'c1', o.id);
+      await chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: id, durationSec: 2 });
+    }
+    await h.pickup(doneTrip.id);
+    await h.dropoff(doneTrip.id, { cashCollectedIqd: 16500 });
+    h.clock.advance(31 * MIN);
+    expect(await chat.purgeClosedVoice(1)).toBe(1);
+    const still = (await chat.thread(as('c1'), { orderId: running.id, kind: 'customer_courier' })).messages[0]!;
+    expect(still.audioUrl).not.toBeNull();
+  });
+});
