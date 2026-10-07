@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
+import type { MessageKey as Key } from '@driver/i18n';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
@@ -17,7 +18,12 @@ import {
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { BestThree } from '@/features/doors/BestThree';
+import { cravingPicks, cravingRow, doorCravings, usualOrder } from '@/features/doors/cravings';
+import { CravingRow } from '@/features/doors/CravingRow';
+import { DoorActionCard } from '@/features/doors/DoorActionCard';
 import { useDoorFactText } from '@/features/doors/DoorTile';
+import { useCravings } from '@/features/doors/queries';
+import { TraySheet, type TrayMode } from '@/features/doors/TraySheet';
 import {
   bestThree,
   DOOR_ART,
@@ -33,7 +39,13 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { cuisineOptions } from '@/features/food/list';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
 import { useRestaurants } from '@/features/home/queries';
+import { itemsSummary } from '@/features/orders/reorder';
+import { useReorderFlow } from '@/features/orders/ReorderSheet';
+import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
+import { UnmetAsk } from '@/features/search/UnmetAsk';
+import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 
 const ART = 112;
 
@@ -42,7 +54,12 @@ const ART = 112;
  * what it serves and its live fact. Then, calmly: «أحسن 3 هسة» with reasons and «قارن بيناتهم» when there
  * are more than three to choose from (else just the open ones, plainly); «الباقي»; ice cream shops too
  * far to arrive frozen named in one line (melt guard); closed shops behind their shutters with when they
- * open. Sorting and the one question («شنو بخاطرك؟») only appear once a door has more than 8 open (k6).
+ * open. Sorting and the one question only appear once a door has more than 8 open (k6).
+ *
+ * Step 3 (2026-10-07): «شنو بخاطرك؟» pictures of the things behind the door (d5, k9, s6, j2) — pick one
+ * and the three best shops for it show with that dish and its price; «قهوتك المعتادة» on the coffee
+ * door (q1); «اختارلي» on the meals door (k10) and «ضيوف جايين؟» on the sweets door (s2); the cold
+ * door says «توصل باردة» (j3); an empty door asks whether to tell the shops (d3, f2).
  */
 export default function DoorScreen() {
   const theme = useTheme();
@@ -55,6 +72,14 @@ export default function DoorScreen() {
   const [slow, restartSlow] = useLoadTimeout(restaurants.isPending);
   const [refreshing, setRefreshing] = useState(false);
   const [cuisine, setCuisine] = useState<string | null>(null);
+  const [craving, setCraving] = useState<string | null>(null);
+  const [tray, setTray] = useState<TrayMode | null>(null);
+  const season = useSeason();
+  const kinds = useMemo(() => doorCravings(door, appNow(), season), [door, season]);
+  const cravings = useCravings(kinds);
+  const history = useOrderHistory();
+  const me = useMyPersonId();
+  const reorder = useReorderFlow();
   const list = restaurants.data;
   const shops = useMemo(() => doorShops(list ?? [], door), [list, door]);
   const tools = showTools(shops.open.length);
@@ -62,8 +87,14 @@ export default function DoorScreen() {
     () => (tools && cuisine ? shops.open.filter((r) => r.tags.includes(cuisine)) : shops.open),
     [shops.open, tools, cuisine],
   );
-  const picks = useMemo(() => (showBest(open.length) ? bestThree(open) : []), [open]);
+  const row = useMemo(() => cravingRow(kinds, cravings.data ?? [], list ?? [], door), [kinds, cravings.data, list, door]);
+  const chosen = row.find((c) => c.kind.key === craving) ?? null;
+  const dishPicks = useMemo(() => (chosen ? cravingPicks(chosen, shops.open) : []), [chosen, shops.open]);
+  const picks = useMemo(() => (chosen ? dishPicks : showBest(open.length) ? bestThree(open) : []), [chosen, dishPicks, open]);
   const rest = open.filter((r) => !picks.some((p) => p.shop.id === r.id));
+  const usual = door === 'cafe' ? usualOrder(history.data ?? [], list ?? [], door, me) : null;
+  const cold = door === 'cold';
+  const chosenName = chosen ? t(`food.craving.${chosen.kind.key}` as Key) : '';
   const fact = list ? say(doorFact(list, door)) : null;
   const name = t(`food.door.${door}`);
   const retry = () => {
@@ -160,9 +191,37 @@ export default function DoorScreen() {
           </View>
         </Card>
       ) : shops.open.length + shops.closed.length + shops.melted.length === 0 ? (
-        <EmptyState icon="bag" title={t('food.empty_door')} body={t('food.empty_door_hint')} />
+        <View style={{ gap: theme.space[4] }}>
+          <EmptyState icon="bag" title={t('food.empty_door')} body={t('food.empty_door_hint')} />
+          <UnmetAsk query={name} />
+        </View>
       ) : (
         <>
+          {usual ? (
+            <DoorActionCard
+              testID="door-usual"
+              art={DOOR_ART[door]}
+              swatch={s}
+              title={t('food.usual_title')}
+              body={t('food.usual_from', { items: itemsSummary(usual.items, 2), shop: usual.merchantName ?? '' })}
+              action={
+                <Button
+                  testID="door-usual-again"
+                  size="sm"
+                  label={t('food.usual_again')}
+                  loading={reorder.busyOrderId === usual.order.id}
+                  onPress={() => void reorder.start(usual)}
+                />
+              }
+            />
+          ) : null}
+
+          {door === 'meal' && shops.open.length > 0 ? (
+            <DoorActionCard testID="door-pick-for-me" art="tray" swatch={s} title={t('tray.title_meal')} body={t('food.pick_for_me_hint')} onPress={() => setTray('meal')} />
+          ) : null}
+
+          <CravingRow row={row} selected={chosen?.kind.key ?? null} onSelect={setCraving} swatch={s} />
+
           {/* k5/k6: one question, only when there is a crowd to narrow. */}
           {tools ? (
             <ScrollView
@@ -184,13 +243,27 @@ export default function DoorScreen() {
             </ScrollView>
           ) : null}
 
-          {picks.length > 0 ? <BestThree picks={picks} /> : null}
+          {chosen ? (
+            <BestThree
+              picks={dishPicks}
+              title={dishPicks.length >= 3 ? t('food.craving_best', { name: chosenName }) : t('food.craving_where', { name: chosenName })}
+              action={{ label: t('food.craving_clear'), onPress: () => setCraving(null) }}
+              testID="craving-best"
+              cold={cold}
+            />
+          ) : picks.length > 0 ? (
+            <BestThree picks={picks} cold={cold} />
+          ) : null}
+
+          {door === 'sweet' && shops.open.length > 0 ? (
+            <DoorActionCard testID="door-guests" art="baklava" swatch={s} title={t('food.guests_title')} body={t('food.guests_hint')} onPress={() => setTray('guests')} />
+          ) : null}
 
           {rest.length > 0 ? (
             <View style={{ gap: theme.space[3] }} testID="door-open">
               <SectionHeader big title={picks.length > 0 ? t('food.rest') : t('food.open_now')} />
               {rest.map((r) => (
-                <RestaurantRow key={r.id} r={r} />
+                <RestaurantRow key={r.id} r={r} cold={cold} />
               ))}
             </View>
           ) : null}
@@ -241,6 +314,8 @@ export default function DoorScreen() {
           ) : null}
         </>
       )}
+      {tray ? <TraySheet mode={tray} shops={shops.open} visible onClose={() => setTray(null)} /> : null}
+      {reorder.sheet}
     </Screen>
   );
 }

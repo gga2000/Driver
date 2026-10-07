@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import Svg, { G } from 'react-native-svg';
 import type { FoodDoor } from '@driver/contracts';
 import { lift } from '@driver/design-tokens';
@@ -47,6 +47,12 @@ export function DoorTile({
   const t = useT();
   const say = useDoorFactText();
   const press = usePressScale();
+  // The door swings (Ali's Yes on p2): pressed, its drawing steps forward out of the doorway; let go,
+  // it settles back. Nothing moves when the phone asks for less motion.
+  const step = useSharedValue(0);
+  const stepStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -6 * step.value }, { scale: 1 + 0.08 * step.value }],
+  }));
   const s = doorSwatch(theme, door);
   const quiet = fact !== null && fact.kind !== 'open';
   const name = t(`food.door.${door}`);
@@ -76,8 +82,14 @@ export function DoorTile({
         testID={testID ?? `door-${door}`}
         accessibilityRole="button"
         accessibilityLabel={line ? t('food.door_a11y', { door: name, fact: line }) : name}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
+        onPressIn={() => {
+          press.onPressIn();
+          if (!theme.reduceMotion) step.value = withSpring(1, theme.motion.spring.press);
+        }}
+        onPressOut={() => {
+          press.onPressOut();
+          step.value = withSpring(0, theme.motion.spring.press);
+        }}
         onPress={() => {
           theme.haptic('selection');
           router.push({ pathname: '/food/[door]', params: { door } });
@@ -112,23 +124,26 @@ export function DoorTile({
             backgroundColor: s.inner,
           }}
         />
-        <View
+        <Animated.View
           pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: height * 0.1,
-            alignSelf: 'center',
-            width: ART,
-            height: ART,
-            opacity: quiet ? 0.55 : 1,
-          }}
+          style={[
+            {
+              position: 'absolute',
+              top: height * 0.1,
+              alignSelf: 'center',
+              width: ART,
+              height: ART,
+              opacity: quiet ? 0.55 : 1,
+            },
+            stepStyle,
+          ]}
         >
           <Svg width={ART} height={ART} viewBox="0 0 200 200">
             <G transform="translate(8 6) scale(0.92)">
               <DishDrawing kind={DOOR_ART[door]} look={0} line={4.5} window={false} />
             </G>
           </Svg>
-        </View>
+        </Animated.View>
         <Text variant="title" weight={700} align="center" numberOfLines={1} style={{ color: s.on }}>
           {name}
         </Text>

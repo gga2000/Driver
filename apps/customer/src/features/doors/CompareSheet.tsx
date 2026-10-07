@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
+import type { CatalogSearchDish } from '@driver/contracts';
 import { Button, DishDrawing, Icon, ModalSheet, stageOf, Text, useTheme } from '@driver/ui';
 import { kitchenLook, motifForKitchen } from '@/features/food/food-art';
 import { useT } from '@/lib/i18n';
@@ -21,7 +22,7 @@ export function CompareSheet({
   visible,
   onClose,
 }: {
-  picks: readonly ShopPick[];
+  picks: ReadonlyArray<ShopPick & { dish?: CatalogSearchDish }>;
   visible: boolean;
   onClose: () => void;
 }) {
@@ -120,6 +121,14 @@ export function CompareSheet({
             </View>
           ))}
         </View>
+        {rows.every((r) => r.priceIqd !== null) && picks[0]?.dish
+          ? row(
+              picks.every((p) => p.dish?.kiloIqd) ? t('food.compare_kilo') : t('food.compare_price', { name: picks[0].dish.name }),
+              best.price,
+              (i) => t('unit.iqd', { amount: amountParam(rows[i]!.priceIqd ?? 0) }),
+              'price',
+            )
+          : null}
         {row(
           t('food.compare_rating'),
           best.rating,
@@ -180,7 +189,8 @@ export function CompareSheet({
               accessibilityLabel={`${t('food.compare_open')} ${r.name}`}
               onPress={() => {
                 onClose();
-                router.push({ pathname: '/restaurant/[id]', params: { id: r.id } });
+                const dish = picks.find((p) => p.shop.id === r.id)?.dish;
+                router.push({ pathname: '/restaurant/[id]', params: dish ? { id: r.id, item: dish.id } : { id: r.id } });
               }}
               style={{ flex: 1 }}
             />

@@ -144,6 +144,8 @@ export function showBest(openCount: number): boolean {
 /** One line per shop for the side-by-side compare (idea k2). */
 export interface CompareRow {
   id: string;
+  /** For a craving's three: what its dish costs (per kilo when every one is sold by weight); else null. */
+  priceIqd: number | null;
   name: string;
   rating: number | null;
   ratingCount: number;
@@ -152,9 +154,12 @@ export interface CompareRow {
   minOrderIqd: number;
 }
 
-export function compareRows(picks: readonly ShopPick[]): CompareRow[] {
-  return picks.map(({ shop: r }) => ({
+export function compareRows(picks: ReadonlyArray<ShopPick & { dish?: { priceIqd: number; kiloIqd?: number | null } }>): CompareRow[] {
+  // Like for like: kilo prices only when all three sell it by the kilo.
+  const kilo = picks.length > 0 && picks.every((p) => p.dish?.kiloIqd);
+  return picks.map(({ shop: r, dish }) => ({
     id: r.id,
+    priceIqd: dish ? (kilo ? (dish.kiloIqd ?? null) : dish.priceIqd) : null,
     name: r.name,
     rating: r.rating,
     ratingCount: r.ratingCount,
@@ -166,6 +171,7 @@ export function compareRows(picks: readonly ShopPick[]): CompareRow[] {
 
 /** Which compare cell is the best of its row (drawn in the accent): the highest rating, the shortest time, the smallest fee and minimum. */
 export function bestCells(rows: readonly CompareRow[]): {
+  price: string | null;
   rating: string | null;
   minutes: string | null;
   fee: string | null;
@@ -182,6 +188,10 @@ export function bestCells(rows: readonly CompareRow[]): {
     return known.filter((v) => v[1] === best[1]).length > 1 ? null : best[0];
   };
   return {
+    price: pick(
+      rows.map((r) => [r.id, r.priceIqd]),
+      (a, b) => a < b,
+    ),
     rating: pick(
       rows.map((r) => [r.id, r.rating]),
       (a, b) => a > b,

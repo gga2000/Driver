@@ -2,17 +2,23 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { MenuItem, RestaurantCard } from '@driver/contracts';
+import { doorOf, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
 import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
-import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
+import { tasteStore, useTaste, withTaste } from '@/features/doors/taste';
+import { roleOf } from '@/features/doors/tray';
+import { cartMerchantOf, itemCount, itemsTotal, ME, type CartModifier } from '@/features/food/cart';
 import { CartBar } from '@/features/food/CartBar';
 import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
+import { AfterMeal } from '@/features/doors/AfterMeal';
+import { DrinkGrid } from '@/features/doors/DrinkGrid';
 import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
+import { temperatureOf, type Temperature } from '@/features/food/food-art';
+import { canQuickAdd, chosenModifiers, defaultSelection } from '@/features/food/modifiers';
 import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
@@ -87,6 +93,40 @@ export default function RestaurantScreen() {
     return m;
   }, [cart, mine]);
   const closed = restaurant ? !restaurant.open : false;
+  // q2: the person's usual sugar and cardamom, filled into one-tap adds too.
+  const taste = useTaste();
+  // m5: «ساخن» / «بارد» only on a menu that has both (a kebab place's بيبسي needs no label).
+  const temps = useMemo(() => {
+    const m = new Map<string, Temperature>();
+    for (const c of categories) for (const i of c.items) {
+      const tp = temperatureOf(i.name, c.name);
+      if (tp) m.set(i.id, tp);
+    }
+    const kinds = new Set(m.values());
+    return kinds.size > 1 ? m : new Map<string, Temperature>();
+  }, [categories]);
+  // m1: a café or juice bar opens on its drinks as pictures.
+  const drinkShop = restaurant ? doorOf(restaurant.tags) === 'cafe' || doorOf(restaurant.tags) === 'cold' : false;
+  const gridItems = useMemo(() => {
+    if (!drinkShop) return [];
+    const all = categories.flatMap((c) => c.items).filter((i) => i.available);
+    const first = popular.length >= 3 ? popular : all;
+    return first.slice(0, 6);
+  }, [drinkShop, categories, popular]);
+  // s7: after a meal goes in, one quiet «وياها كنافة؟» when this same kitchen makes a sweet.
+  const sweet = useMemo(() => {
+    for (const c of categories) for (const i of c.items) if (roleOf(i, c.name) === 'sweet' && i.available && canQuickAdd(i)) return i;
+    return null;
+  }, [categories]);
+  const mainIds = useMemo(() => new Set(categories.flatMap((c) => c.items.filter((i) => roleOf(i, c.name) === 'main').map((i) => i.id))), [categories]);
+  const [afterMeal, setAfterMeal] = useState<MenuItem | null>(null);
+  const offeredSweet = useRef(false);
+  const maybeOfferSweet = (added: MenuItem) => {
+    if (offeredSweet.current || !sweet || doorOf(restaurant?.tags ?? []) !== 'meal' || !mainIds.has(added.id)) return;
+    if (cartStore.getSnapshot().cart.lines.some((l) => l.itemId === sweet.id)) return;
+    offeredSweet.current = true;
+    setAfterMeal(sweet);
+  };
   const openedFromSearch = useRef(false);
   useEffect(() => {
     if (!itemParam || openedFromSearch.current || categories.length === 0) return;
@@ -107,21 +147,27 @@ export default function RestaurantScreen() {
   };
 
   const onAdded = () => {
+    if (open) maybeOfferSweet(open);
     setOpen(null);
     theme.haptic('light');
     // The living bar answers the add (o1, F-03): no toast over it; it announces the add to screen readers.
     land();
   };
 
-  const quickAdd = (item: MenuItem, from: Rect | null) => {
+  const quickAdd = (item: MenuItem, from: Rect | null, chosen?: CartModifier[]) => {
     if (!merchant) return;
-    const res = cartStore.add(merchant, { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers: [], qty: 1, note: null, personId: ME });
+    // A one-tap tea or coffee comes the way this person takes it (q2); a picked weight comes as picked (s1).
+    const usual = withTaste(item, defaultSelection(item), taste).selection;
+    const modifiers = chosen ?? chosenModifiers(item, usual);
+    const res = cartStore.add(merchant, { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers, qty: 1, note: null, personId: ME });
     if (!res.ok) {
       // Another kitchen's cart: the sheet asks before starting a new one.
       setOpen(item);
       return;
     }
     theme.haptic('light');
+    if (!chosen) tasteStore.learn(item, usual);
+    maybeOfferSweet(item);
     if (from && flyRef.current) flyRef.current.fly(from, { ...(artById.get(item.id) ?? artOf(item)), photoUrl: item.photoUrl });
     else land();
   };
@@ -207,7 +253,7 @@ export default function RestaurantScreen() {
           </View>
           <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', paddingHorizontal: theme.space[5], marginTop: -40 }}>
             <Card elevation={2} padding={4} testID="restaurant-facts">
-              {restaurant ? <Facts r={restaurant} /> : <FactsSkeleton />}
+              {restaurant ? <Facts r={restaurant} knownFor={story ? null : (popular[0]?.name ?? null)} /> : <FactsSkeleton />}
             </Card>
             {story ? <KitchenStory story={story} knownFor={popular[0]?.name ?? null} /> : null}
           </View>
@@ -261,7 +307,16 @@ export default function RestaurantScreen() {
           {menu.data?.pot && potItem && restaurant ? (
             <PotBanner pot={menu.data.pot} item={potItem} art={artById.get(potItem.id)} restaurant={restaurant.name} merchantOrgId={restaurant.id} onOpen={() => setOpen(potItem)} />
           ) : null}
-          {popular.length > 0 ? (
+          {gridItems.length > 0 ? (
+            <DrinkGrid
+              title={popular.length >= 3 ? t('restaurant.popular_title') : t('restaurant.top_drinks')}
+              items={gridItems}
+              art={(i) => artById.get(i.id)}
+              counts={counts}
+              onOpen={(i) => setOpen(i)}
+              onQuickAdd={(i, from) => quickAdd(i, from)}
+            />
+          ) : popular.length > 0 ? (
             <View style={{ paddingTop: theme.space[5] }} testID="section-popular">
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                 <Icon name="star" size={18} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
@@ -277,7 +332,9 @@ export default function RestaurantScreen() {
                   inCart={counts.get(item.id) ?? 0}
                   onOpen={() => setOpen(item)}
                   onQuickAdd={(from) => quickAdd(item, from)}
+                  onQuickAddWith={(mods, from) => quickAdd(item, from, mods)}
                   onDecrement={() => removeOne(item)}
+                  temperature={temps.get(item.id) ?? null}
                 />
               ))}
             </View>
@@ -297,7 +354,9 @@ export default function RestaurantScreen() {
                       inCart={counts.get(item.id) ?? 0}
                       onOpen={() => setOpen(item)}
                       onQuickAdd={(from) => quickAdd(item, from)}
+                      onQuickAddWith={(mods, from) => quickAdd(item, from, mods)}
                       onDecrement={() => removeOne(item)}
+                      temperature={temps.get(item.id) ?? null}
                     />
                   ))}
                 </View>
@@ -307,7 +366,18 @@ export default function RestaurantScreen() {
 
       {barVisible ? (
         <View style={{ position: 'absolute', bottom: insets.bottom + theme.space[4], start: 0, end: 0, alignItems: 'center', paddingHorizontal: theme.space[5] }} pointerEvents="box-none">
-          <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH - 40 }}>
+          <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH - 40, gap: theme.space[2] }}>
+            {afterMeal ? (
+              <AfterMeal
+                item={afterMeal}
+                art={artById.get(afterMeal.id)}
+                onAdd={() => {
+                  quickAdd(afterMeal, null);
+                  setAfterMeal(null);
+                }}
+                onDismiss={() => setAfterMeal(null)}
+              />
+            ) : null}
             <CartBar count={itemCount(cart)} totalIqd={itemsTotal(cart)} thumbs={thumbs} bubbleRef={bubbleRef} pulseKey={landings} onPress={() => router.push('/cart')} />
           </View>
         </View>
@@ -320,7 +390,12 @@ export default function RestaurantScreen() {
   );
 }
 
-function Facts({ r }: { r: RestaurantCard }) {
+/**
+ * The facts card (m3): the name, then one line — what the kitchen is known for when the town's orders
+ * say it, else its cuisine — the rating and the door time, and delivery and the minimum together on one
+ * «التفاصيل» line instead of a row of chips. Deals and busy mode as before.
+ */
+function Facts({ r, knownFor }: { r: RestaurantCard; knownFor: string | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -333,8 +408,8 @@ function Facts({ r }: { r: RestaurantCard }) {
           <Text variant="heading" accessibilityRole="header" numberOfLines={2}>
             {r.name}
           </Text>
-          <Text variant="footnote" color="textMuted">
-            {r.cuisine}
+          <Text variant="footnote" color={knownFor ? 'accentText' : 'textMuted'} weight={knownFor ? 600 : 400} testID="restaurant-known-for">
+            {knownFor ? t('restaurant.known_for', { dish: knownFor }) : r.cuisine}
           </Text>
         </View>
         <StatusPill size="sm" dot tone={r.open ? 'success' : 'neutral'} label={r.open ? t('restaurant.open') : t('restaurant.closed')} />
@@ -353,18 +428,20 @@ function Facts({ r }: { r: RestaurantCard }) {
           </Text>
         </View>
       </View>
-      <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>
-        <Fact icon="bike" label={fee} highlight={r.deliveryFeeIqd === 0} testID="restaurant-fee" />
-        {/* J-D6: below the minimum is a choice with the server's small-order fee, said up front. */}
-        <Fact
-          icon="bag"
-          label={
-            r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
+      {/* m3: delivery and the minimum on one line (J-D6: the small-order fee still said up front). */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }} testID="restaurant-details">
+        <Icon name="bike" size={16} color={r.deliveryFeeIqd === 0 ? 'successText' : 'textMuted'} />
+        <Text variant="footnote" color="textMuted" tabular style={{ flex: 1 }}>
+          <Text variant="footnote" weight={600} color={r.deliveryFeeIqd === 0 ? 'successText' : 'text'} testID="restaurant-fee">
+            {fee}
+          </Text>
+          {' · '}
+          <Text variant="footnote" color="textMuted" testID="restaurant-min">
+            {r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
               ? t('restaurant.small_order_note', { amount: amountParam(r.minOrderIqd), fee: amountParam(r.smallOrderFeeIqd ?? 0) })
-              : t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })
-          }
-          testID="restaurant-min"
-        />
+              : t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })}
+          </Text>
+        </Text>
       </View>
       {/* The restaurant's live deals; the best one is applied by the server at checkout. */}
       <DealBadges deals={r.deals ?? []} testID="restaurant-deals" />
@@ -378,29 +455,6 @@ function Facts({ r }: { r: RestaurantCard }) {
           {t('restaurant.busy')}
         </Text>
       ) : null}
-    </View>
-  );
-}
-
-function Fact({ icon, label, highlight, testID }: { icon: 'bike' | 'bag'; label: string; highlight?: boolean; testID?: string }) {
-  const theme = useTheme();
-  return (
-    <View
-      testID={testID}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: theme.space[3],
-        paddingVertical: 6,
-        borderRadius: theme.radius.pill,
-        backgroundColor: highlight ? theme.colors.successTint : theme.colors.surfaceSunken,
-      }}
-    >
-      <Icon name={icon} size={16} color={highlight ? 'successText' : 'text'} />
-      <Text variant="caption" weight={600} color={highlight ? 'successText' : 'text'} tabular>
-        {label}
-      </Text>
     </View>
   );
 }

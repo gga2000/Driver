@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
-import { ART_LOOKS, artOf, dishArt, kitchenLook, motifForCuisine, motifForDish, motifForKitchen, sameDrawing } from './food-art';
+import { ART_LOOKS, artOf, dishArt, kitchenLook, motifForCuisine, motifForDish, motifForKitchen, sameDrawing, temperatureOf } from './food-art';
 
 describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
   it('drinks: water is a bottle, laban and شنينة a glass, soft drinks a can, tea an istikan', () => {
@@ -110,14 +110,29 @@ describe('cuisine words get a dish circle (joy b6)', () => {
 
 describe('food doors pictures (bugs b3, b4)', () => {
   it('coffee is a cup, not the tea glass; ice cream is a cone, not the sweets tray', () => {
-    expect(motifForDish('قهوة عربية')).toBe('coffee');
-    expect(motifForDish('لاتيه مثلج')).toBe('coffee');
+    expect(motifForDish('كابتشينو')).toBe('coffee');
+    expect(motifForDish('نسكافيه بالحليب')).toBe('coffee');
     expect(motifForDish('چاي كرك')).toBe('tea');
     expect(motifForDish('كوب آيس كريم قيمر')).toBe('icecream');
     expect(motifForDish('دوندرمة بالفستق')).toBe('icecream');
-    expect(motifForDish('كليچة تمر')).toBe('sweet');
-    expect(motifForDish('موز بالحليب')).toBe('juice');
+    expect(motifForDish('كنافة نابلسية')).toBe('sweet');
+    expect(motifForDish('عصير برتقال')).toBe('juice');
     expect(motifForDish('شي جديد', 'قهوة')).toBe('coffee');
+  });
+  it('the things people pick by picture have their own drawing (idea o4)', () => {
+    expect(motifForDish('قهوة عربية')).toBe('dallah');
+    expect(motifForDish('لاتيه مثلج')).toBe('iced');
+    expect(motifForDish('بقلاوة')).toBe('baklava');
+    expect(motifForDish('زلابية')).toBe('zalabia');
+    expect(motifForDish('كليچة تمر')).toBe('kleicha');
+    expect(motifForDish('كيك شوكولاتة')).toBe('cake');
+    expect(motifForDish('عصير رمان')).toBe('pomegranate');
+    expect(motifForDish('ليمون بالنعناع')).toBe('lemonade');
+    expect(motifForDish('موهيتو')).toBe('lemonade');
+    expect(motifForDish('موز بالحليب')).toBe('bananamilk');
+    expect(motifForDish('كوكتيل فواكه')).toBe('cocktail');
+    // Lime tea is still tea.
+    expect(motifForDish('چاي ليمون (نومي بصرة)')).toBe('tea');
   });
   it('a shop is drawn by what it is, never the rice fallback', () => {
     expect(motifForKitchen(['coffee', 'cake'], 'قهوة · چاي · كيك')).toBe('coffee');
@@ -132,5 +147,16 @@ describe('food doors pictures (bugs b3, b4)', () => {
     expect(motifForKitchen(['shawarma', 'falafel'], 'شاورما · فلافل · مناقيش')).toBe('shawarma');
     expect(motifForKitchen(['breakfast', 'pacha', 'rice', 'stew'], 'باچة · ريوگ · تمن ومرق')).toBe('pacha');
     expect(motifForKitchen(['grill'])).toBe('kebab');
+  });
+});
+
+describe('hot and cold marks (m5)', () => {
+  it('a latte can be either; tea is hot, juice and iced drinks cold, food is neither', () => {
+    expect(temperatureOf('كابتشينو')).toBe('hot');
+    expect(temperatureOf('چاي كرك')).toBe('hot');
+    expect(temperatureOf('لاتيه مثلج')).toBe('cold');
+    expect(temperatureOf('عصير رمان')).toBe('cold');
+    expect(temperatureOf('كوب آيس كريم قيمر')).toBeNull();
+    expect(temperatureOf('كباب')).toBeNull();
   });
 });

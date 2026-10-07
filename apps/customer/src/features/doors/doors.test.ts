@@ -145,6 +145,19 @@ describe('compare (k2)', () => {
     expect(best.minutes).toBe('b');
     expect(best.fee).toBeNull();
     expect(best.minOrder).toBeNull();
+    expect(best.price).toBeNull();
+  });
+
+  it('for a craving, compares the dish price, by the kilo only when all three sell it that way', () => {
+    const picks = bestThree([shop('a', { rating: 4.8 }), shop('b', { rating: 4.2 }), shop('c', { rating: 4.0 })]);
+    const withDish = (kilo: Array<number | null>) => picks.map((p, i) => ({ ...p, dish: { priceIqd: [3000, 2500, 4000][i]!, kiloIqd: kilo[i] ?? null } }));
+    const plain = compareRows(withDish([null, null, null]));
+    expect(plain.map((r) => r.priceIqd)).toEqual([3000, 2500, 4000]);
+    expect(bestCells(plain).price).toBe(picks[1]!.shop.id);
+    const kilos = compareRows(withDish([20000, 18000, 24000]));
+    expect(kilos.map((r) => r.priceIqd)).toEqual([20000, 18000, 24000]);
+    // One sold by the piece: compare the menu price, not a kilo against a piece.
+    expect(compareRows(withDish([20000, null, 24000])).map((r) => r.priceIqd)).toEqual([3000, 2500, 4000]);
   });
 });
 
