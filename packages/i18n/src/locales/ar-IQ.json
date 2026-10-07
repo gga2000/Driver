@@ -7074,7 +7074,6 @@
   "partner.booked_released_toast": "تركته، ونلگيله سايق ثاني",
   "partner.booked_passed_toast": "ما راح يطلعلك بعد",
   "partner.booked_started_toast": "يلا، الزبون بانتظارك",
-  "partner.booked_collect": "تستلم كاش {amount} دينار",
   "partner.booked_km": "{km} كم",
   "partner.booked_home_mine": "عندك مشوار محجوز {when}",
   "partner.booked_home_open": "مشاوير تنتظر سايق: {n}",

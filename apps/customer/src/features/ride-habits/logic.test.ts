@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FavouriteDriverView } from '@driver/contracts';
-import { askingNow, corridorCity, daysLabel, defaultRemind, dinnerLine, favouritesFor, DAY_HOURS, firstSlot, hourOptions, hoursByPart, isBookedRide, minuteOptions, morningAllowed, occurrenceAction, pickerDay, scheduleAt, scheduleOk, settleChoice, toggleDay } from './logic';
+import { askingNow, bookedLine, corridorCity, daysLabel, defaultRemind, dinnerLine, favouritesFor, DAY_HOURS, firstSlot, hourOptions, hoursByPart, isBookedRide, minuteOptions, morningAllowed, occurrenceAction, pickerDay, scheduleAt, scheduleOk, settleChoice, toggleDay } from './logic';
 
 // Wednesday 7 Oct 2026, 22:50 Baghdad.
 const NOW = new Date('2026-10-07T19:50:00Z');
@@ -54,6 +54,22 @@ describe('booking a ride for later', () => {
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T04:01:00Z'))).toBe(false);
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: null }, NOW)).toBe(false);
     expect(isBookedRide({ type: 'food', state: 'placed', scheduledFor: at }, NOW)).toBe(false);
+  });
+});
+
+describe('a booked ride’s driver (review #28)', () => {
+  const at = new Date('2026-10-08T02:00:00Z');
+  const base = { orderId: 'o1', searchAt: new Date('2026-10-08T01:30:00Z') };
+  it('confirmed: his name and face', () => {
+    expect(bookedLine({ ...base, state: 'confirmed', confirmBy: null, driver: { firstName: 'حسين', photoUrl: '/p.jpg' } }, { scheduledFor: at })).toEqual({ kind: 'confirmed', name: 'حسين', photoUrl: '/p.jpg' });
+  });
+  it('looking: until the deadline', () => {
+    expect(bookedLine({ ...base, state: 'looking', confirmBy: new Date('2026-10-07T19:00:00Z'), driver: null }, { scheduledFor: at })).toEqual({ kind: 'looking', until: new Date('2026-10-07T19:00:00Z') });
+  });
+  it('later, or before the server answers: the search time, 30 minutes before', () => {
+    expect(bookedLine({ ...base, state: 'later', confirmBy: null, driver: null }, { scheduledFor: at })).toEqual({ kind: 'later', searchAt: base.searchAt });
+    expect(bookedLine(undefined, { scheduledFor: at })).toEqual({ kind: 'later', searchAt: base.searchAt });
+    expect(bookedLine(undefined, { scheduledFor: null })).toBeNull();
   });
 });
 

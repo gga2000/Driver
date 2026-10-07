@@ -7074,7 +7074,6 @@
   "partner.booked_released_toast": "Dropped; we'll find the rider another driver",
   "partner.booked_passed_toast": "You won't see it again",
   "partner.booked_started_toast": "Off you go, the rider is waiting",
-  "partner.booked_collect": "Collect {amount} دينار cash",
   "partner.booked_km": "{km} km",
   "partner.booked_home_mine": "You have a booked ride {when}",
   "partner.booked_home_open": "Rides waiting for a driver: {n}",
