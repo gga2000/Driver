@@ -138,3 +138,9 @@ export function useAccountMutations() {
     submitCheckIn: useMutation(api.driverAccount.submitCheckIn.mutationOptions()),
   };
 }
+
+/** «هيج يشوفك الزبون» (partner redesign r4): the profile riders open, of himself. */
+export function usePublicProfile() {
+  const api = useApi();
+  return useQuery({ ...api.driverAccount.publicProfile.queryOptions(), enabled: useEnabled(), staleTime: 60_000 });
+}

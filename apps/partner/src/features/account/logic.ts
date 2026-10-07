@@ -510,3 +510,15 @@ export function mainPhotoNote(view: MainPhotoView | undefined): MessageKey {
   if (view?.state === 'rejected' && view.approved) return 'partner.mainphoto_rejected_keep';
   return view?.approved ? 'partner.mainphoto_customers_see' : 'partner.mainphoto_customers_see_initial';
 }
+
+/**
+ * Partner redesign r4: «يسوق ويانا من 3 أشهر» on his public page — the same rule the rider's profile
+ * uses (whole 30.44-day months; a year from 12). Null without a start date.
+ */
+export function memberSpan(since: Date | null, now: number): { unit: 'new' | 'months' | 'years'; n: number } | null {
+  if (!since) return null;
+  const months = Math.floor((now - since.getTime()) / (30.44 * 86_400_000));
+  if (months < 1) return { unit: 'new', n: 0 };
+  if (months < 12) return { unit: 'months', n: months };
+  return { unit: 'years', n: Math.floor(months / 12) };
+}

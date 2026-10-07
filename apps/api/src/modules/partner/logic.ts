@@ -1,8 +1,8 @@
-import { AZIZIYAH_LANDMARKS, CAP_WARN_SHARE, climateShiftAt } from '@driver/contracts';
+import { CAP_WARN_SHARE, climateShiftAt } from '@driver/contracts';
+import { nearestLandmark, STOP_LANDMARK_MAX_KM } from '../../shared/landmarks.js';
 import type {
   ClimateFeature,
   ErrorCode,
-  LatLng,
   Order,
   PartnerDemand,
   PartnerMerchantPrep,
@@ -217,21 +217,13 @@ export function gateAllowsHeartbeat(gate: PartnerOnlineGate, alreadyOnline: bool
 }
 
 /** o7: how far a landmark may be from a stop and still name it («يم …»). */
-export const OFFER_LANDMARK_MAX_KM = 0.6;
+export const OFFER_LANDMARK_MAX_KM = STOP_LANDMARK_MAX_KM;
 
 /**
  * Partner redesign o7: the town landmark nearest a stop (garages and meeting points, public places
  * only), its Arabic name; null when none is within `OFFER_LANDMARK_MAX_KM`.
  */
-export function nearestLandmark(at: LatLng | null, landmarks: readonly { name_ar: string; lat: number; lng: number }[] = AZIZIYAH_LANDMARKS): string | null {
-  if (!at) return null;
-  let best: { name: string; km: number } | null = null;
-  for (const l of landmarks) {
-    const d = kmBetween(at, l);
-    if (d <= OFFER_LANDMARK_MAX_KM && (!best || d < best.km)) best = { name: l.name_ar, km: d };
-  }
-  return best?.name ?? null;
-}
+export { nearestLandmark };
 
 /** o12: the vehicles a taxi rider expects AC (heating) in. */
 const CLIMATE_VEHICLES: ReadonlySet<VehicleClass> = new Set(['car', 'suv', 'van']);

@@ -114,6 +114,8 @@ export default function Account() {
       ))}
 
       <Card elevation={0} padding={0}>
+        {/* r4: the page a rider opens on his photo, as they see it. */}
+        <ListRow testID="hub-seen" leading="star" title={t('partner.seen_title')} subtitle={t('partner.seen_row_sub')} onPress={() => router.push('/seen')} divider />
         <ListRow
           testID="hub-photo"
           leading="user"

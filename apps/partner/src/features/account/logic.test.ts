@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DriverDocumentView, EarningsJobLine, MainPhotoView } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import {
+  memberSpan,
   breakdownRows,
   capTone,
   cashTruth,
@@ -242,5 +243,15 @@ describe('main photo (Ali, 2026-10-06)', () => {
     expect(mainPhotoNote(view('rejected', { approved, latest: latest('rejected', 'x') }))).toBe('partner.mainphoto_rejected_keep');
     expect(mainPhotoNote(view('approved', { approved }))).toBe('partner.mainphoto_customers_see');
     expect(mainPhotoNote(view('none'))).toBe('partner.mainphoto_customers_see_initial');
+  });
+});
+
+describe('r4: how long he has driven here', () => {
+  const now = Date.UTC(2026, 9, 7);
+  it('says new, months, then years, and nothing without a date', () => {
+    expect(memberSpan(new Date(now - 10 * 86_400_000), now)).toEqual({ unit: 'new', n: 0 });
+    expect(memberSpan(new Date(now - 95 * 86_400_000), now)).toEqual({ unit: 'months', n: 3 });
+    expect(memberSpan(new Date(now - 800 * 86_400_000), now)).toEqual({ unit: 'years', n: 2 });
+    expect(memberSpan(null, now)).toBeNull();
   });
 });

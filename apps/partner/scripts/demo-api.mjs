@@ -32,7 +32,7 @@ app.use('/demo', demoRouter);
 await app.init();
 
 const { IdentityService } = await load('modules/identity/index.js');
-const { DispatchService } = await load('modules/dispatch/index.js');
+const { DispatchService, VEHICLE_FACTS } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
@@ -51,6 +51,8 @@ const services = {
   ledger: app.get(LedgerService),
   vehicles: app.get(COURIER_VEHICLES),
   fleetRepo: app.get(FLEET_REPOSITORY),
+  // The car facts riders see on a driver's profile (ride step 3; partner r4 «هيج يشوفك الزبون»).
+  facts: app.get(VEHICLE_FACTS),
 };
 const SYSTEM = { personId: 'system:demo', sessionId: 'demo' };
 const CITY = 'aziziyah';
@@ -97,6 +99,7 @@ const demo = {
       const registered = plate ?? 'واسط 00000';
       // The courier card's registry (customers see confirmed features only).
       services.vehicles.register?.(personId, { vehicleClass: vehicle, plate: registered, model: car.model ?? null, colour: car.colour ?? null, features: car.confirmed ?? [] });
+      services.facts.register?.(personId, { vehicleClass: vehicle, model: car.model ?? null, colour: car.colour ?? null, confirmedFeatures: car.confirmed ?? [] });
       // The registry itself (fleet.myVehicle, «مميزات سيارتك»): his own car, unless a fleet's vehicle has the plate.
       if (plate && !(await services.fleetRepo.vehicleByPlate(plate))) {
         const v = await services.fleetRepo.createVehicle({ plate, vehicleClass: vehicle, ownerOrgId: null, model: car.model ?? null, colour: car.colour ?? null });

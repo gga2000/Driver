@@ -102,6 +102,16 @@ export function faceStyle(face: BrandFace, mode: FontMode): Pick<TextStyle, 'fon
   return fontStyle(700, mode);
 }
 
+/** The light / dark avatar tones (accent, info, success, warning, in `identity`'s hash order) from a palette. */
+function semanticIdentity(c: ThemeColors): readonly IdentityColor[] {
+  return [
+    { fill: c.accentTint, on: c.accentText },
+    { fill: c.infoTint, on: c.infoText },
+    { fill: c.successTint, on: c.successText },
+    { fill: c.warningTint, on: c.warningText },
+  ];
+}
+
 export function createTheme(
   name: ThemeName = 'light',
   opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler; colors?: ThemeColors } = {},
@@ -112,7 +122,9 @@ export function createTheme(
     name,
     scheme: scheme[name],
     colors: opts.colors ?? themes[name],
-    identity: identity[name],
+    // An app palette (the Partner's sun / ember) recolours the four semantic avatar tones too, so a
+    // monogram never falls back to the base palette's blue info tint.
+    identity: opts.colors && (name === 'light' || name === 'dark') ? semanticIdentity(opts.colors) : identity[name],
     services: services[name],
     decor: decor[name],
     liveStages: liveStages[name],

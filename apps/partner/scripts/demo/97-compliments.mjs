@@ -4,6 +4,9 @@
 //                               4 hours — so «كلام الزبائن» (account hub) and the shift summary's
 //                               «قالوا عنك بهالشفت» both show them
 //
+//   who=tuktuk   0770 111 0002  6 riders' words (مؤدب، السيارة نظيفة، سياقته هادئة), so his public page
+//                               (partner r4 «هيج يشوفك الزبون») shows what riders say about him
+//
 //   POST /demo/compliments?who=…[&keys=fast,polite]   one more customer's words now (default: سريع، الأكل وصل حار)
 //
 // Stored through the orders module's compliments repository (the same table the customer app writes
@@ -31,12 +34,15 @@ export default async function register(demo) {
   const { ORDER_COMPLIMENTS_REPOSITORY } = await demo.load('modules/orders/index.js');
   const repo = demo.app.get(ORDER_COMPLIMENTS_REPOSITORY);
   let seq = 0;
-  const add = (courierId, keys, at) => {
+  const add = (courierId, keys, at, orderType = 'food') => {
     seq += 1;
-    return repo.create({ orderId: `demo_cmp_${seq}_${courierId.slice(-4)}`, courierId, customerId: `demo-fan-${seq}`, orderType: 'food', keys, createdAt: at });
+    return repo.create({ orderId: `demo_cmp_${seq}_${courierId.slice(-4)}`, courierId, customerId: `demo-fan-${seq}`, orderType, keys, createdAt: at });
   };
   const courier = demo.people.get('courier');
   if (courier) for (const p of PAST) await add(courier.personId, p.keys, new Date(Date.now() - p.h * HOUR));
+  const tuktuk = demo.people.get('tuktuk');
+  const RIDES = [['polite', 'smooth_ride'], ['clean_car'], ['polite'], ['polite', 'clean_car'], ['smooth_ride'], ['polite']];
+  if (tuktuk) for (const [i, keys] of RIDES.entries()) await add(tuktuk.personId, keys, new Date(Date.now() - (6 + i * 30) * HOUR), 'ride');
 
   demo.route('/demo/compliments', async ({ res, query }) => {
     const { personId } = demo.who({ who: query.who ?? 'courier', personId: query.personId });
