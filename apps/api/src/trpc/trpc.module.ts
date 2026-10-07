@@ -121,7 +121,7 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.quote(req) },
+      pricing: { quote: (req) => this.pricing.keepQuote(req) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
