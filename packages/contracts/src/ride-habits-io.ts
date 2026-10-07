@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { DeliveryPoint, Iqd } from './common.js';
+import { DeliveryPoint, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js';
+import { haversineM } from './tracking.js';
 
 /**
  * J7d ride habits (joy r5, r6, l9): regular trips that ask before they book, dinner timed to the ride
@@ -9,8 +10,20 @@ import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js'
  * prices, times) is the server's; the pure rules below are shared so the apps can explain them.
  */
 export const RIDE_HABIT_RULES = {
-  /** A ride booked for later: at least this far ahead, at most this many days, the search starts this early. */
-  schedule: { minLeadMin: 20, maxAheadDays: 7, searchLeadMin: 15, stepMin: 15 },
+  /**
+   * A ride booked for later: at least this far ahead, at most this many days, on a 5-minute grid (the
+   * app offers the quarters), the search starts this early. Step 4 (c10): the rider is reminded
+   * `reminderLeadMin` before the ride time (a quarter before the search starts) — only when that is at
+   * least `reminderMinGapMin` after he booked; a ride booked closer needs no reminder.
+   */
+  schedule: { minLeadMin: 20, maxAheadDays: 7, gridMin: 5, searchLeadMin: 15, stepMin: 15, reminderLeadMin: 30, reminderMinGapMin: 30 },
+  /**
+   * Step 4 (o4) «نفس مشوار البارحة؟»: the same pickup and drop-off (each within `radiusM`) at about the
+   * same time (±`windowMin`) on `needed` of the last `lookbackDays` working days (Sunday–Thursday, the
+   * latest of them included). One gentle push `pushBeforeMin` before that time, at most one a day; the
+   * job still sends it up to `lastCallMin` before the time, never later.
+   */
+  sameRide: { radiusM: 200, windowMin: 20, lookbackDays: 4, needed: 3, roundMin: 5, pushBeforeMin: 10, lastCallMin: 3, workDays: [0, 1, 2, 3, 4] },
   /** l9: the favourite rings alone this long before the normal waves; at most this many per person. */
   favourite: { offerWindowSec: 60, maxPerPerson: 20, goodStars: 4, recentHours: 24 },
   /**
@@ -63,16 +76,133 @@ export function shiftDate(date: CalendarDate, n: number): CalendarDate {
 // ───────────────────────── scheduled rides ─────────────────────────
 
 /** Why a ride can't be booked for that time; null when it can (`ride_schedule_invalid`). */
-export function rideScheduleProblem(scheduledFor: Date, now: Date): 'too_soon' | 'too_far' | null {
+export function rideScheduleProblem(scheduledFor: Date, now: Date): 'too_soon' | 'too_far' | 'off_grid' | null {
   const ahead = scheduledFor.getTime() - now.getTime();
   if (ahead < RIDE_HABIT_RULES.schedule.minLeadMin * 60_000) return 'too_soon';
   if (ahead > RIDE_HABIT_RULES.schedule.maxAheadDays * DAY_MS) return 'too_far';
+  if (scheduledFor.getTime() % (RIDE_HABIT_RULES.schedule.gridMin * 60_000) !== 0) return 'off_grid';
   return null;
 }
 
 /** When dispatch starts looking for a driver for a ride booked for `scheduledFor`. */
 export function rideSearchStartsAt(scheduledFor: Date): Date {
   return new Date(scheduledFor.getTime() - RIDE_HABIT_RULES.schedule.searchLeadMin * 60_000);
+}
+
+/**
+ * Step 4 (c10): when the rider of a ride booked at `placedAt` for `scheduledFor` gets «مشوارك بعد نص
+ * ساعة» — half an hour before, a quarter before the search starts; null when he booked so close that
+ * the reminder would come within half an hour of booking.
+ */
+export function rideReminderAt(scheduledFor: Date, placedAt: Date): Date | null {
+  const s = RIDE_HABIT_RULES.schedule;
+  const at = new Date(scheduledFor.getTime() - s.reminderLeadMin * 60_000);
+  return at.getTime() - placedAt.getTime() >= s.reminderMinGapMin * 60_000 ? at : null;
+}
+
+// ───────────────────────── «نفس مشوار البارحة؟» (step 4, o4) ─────────────────────────
+
+/** One ride the rider took: where from and to, how, and the time he wanted it (booked time, else placed). */
+export interface RideFootprint {
+  orderId: string;
+  vertical: 'taxi' | 'tuktuk';
+  doorPickup: boolean;
+  pickup: { zoneKey: string; pin: LatLng; placeId?: string | undefined };
+  dropoff: { zoneKey: string; pin: LatLng; placeId?: string | undefined };
+  at: Date;
+}
+
+/** A ride he takes most working days at about the same time: what to offer and when. */
+export interface SameRideHabit {
+  vertical: 'taxi' | 'tuktuk';
+  doorPickup: boolean;
+  pickup: RideFootprint['pickup'];
+  dropoff: RideFootprint['dropoff'];
+  /** Minutes since Baghdad midnight: the middle of his times, rounded to 5 minutes. */
+  timeMin: number;
+  /** The working days he made it (newest first); the first is the last working day before today. */
+  dates: CalendarDate[];
+}
+
+/** The working days (Sunday–Thursday) before `today`, newest first. */
+export function workDaysBefore(today: CalendarDate, n: number): CalendarDate[] {
+  const out: CalendarDate[] = [];
+  const work = RIDE_HABIT_RULES.sameRide.workDays as readonly number[];
+  for (let d = shiftDate(today, -1); out.length < n; d = shiftDate(d, -1)) if (work.includes(baghdadWeekday(atLocal(d, 12 * 60)))) out.push(d);
+  return out;
+}
+
+/** Whether `date` is a working day (the habit is about school and work). */
+export function isWorkDay(date: CalendarDate): boolean {
+  return (RIDE_HABIT_RULES.sameRide.workDays as readonly number[]).includes(baghdadWeekday(atLocal(date, 12 * 60)));
+}
+
+/** Whether two rides are «the same ride»: both ends within 200 m, and the time within ±20 minutes. */
+export function sameRide(a: Pick<RideFootprint, 'pickup' | 'dropoff' | 'at'>, b: Pick<RideFootprint, 'pickup' | 'dropoff' | 'at'>): boolean {
+  const r = RIDE_HABIT_RULES.sameRide;
+  return haversineM(a.pickup.pin, b.pickup.pin) <= r.radiusM && haversineM(a.dropoff.pin, b.dropoff.pin) <= r.radiusM && Math.abs(baghdadMinuteOfDay(a.at) - baghdadMinuteOfDay(b.at)) <= r.windowMin;
+}
+
+/**
+ * The habits a rider has on `today` from his finished rides: a ride from the last working day that he
+ * also made on at least two of the three working days before it (3 of the last 4, the latest included),
+ * on a working day only. Each ride counts toward one habit; the newest ride of the habit says vehicle,
+ * door pickup and the exact points. Soonest first.
+ */
+export function sameRideHabits(rides: readonly RideFootprint[], today: CalendarDate): SameRideHabit[] {
+  const r = RIDE_HABIT_RULES.sameRide;
+  if (!isWorkDay(today)) return [];
+  const days = workDaysBefore(today, r.lookbackDays);
+  const inWindow = rides.filter((x) => days.includes(baghdadDate(x.at))).sort((a, b) => b.at.getTime() - a.at.getTime());
+  const used = new Set<string>();
+  const out: SameRideHabit[] = [];
+  for (const anchor of inWindow) {
+    if (used.has(anchor.orderId) || baghdadDate(anchor.at) !== days[0]) continue;
+    // One ride per day: the closest in time to the anchor's.
+    const perDay = new Map<CalendarDate, RideFootprint>();
+    for (const x of inWindow) {
+      if (used.has(x.orderId) || !sameRide(anchor, x)) continue;
+      const d = baghdadDate(x.at);
+      const had = perDay.get(d);
+      const gap = (y: RideFootprint) => Math.abs(baghdadMinuteOfDay(y.at) - baghdadMinuteOfDay(anchor.at));
+      if (!had || gap(x) < gap(had)) perDay.set(d, x);
+    }
+    if (perDay.size < r.needed) continue;
+    const picked = [...perDay.values()];
+    for (const x of picked) used.add(x.orderId);
+    const minutes = picked.map((x) => baghdadMinuteOfDay(x.at)).sort((a, b) => a - b);
+    const mid = minutes.length % 2 === 1 ? minutes[(minutes.length - 1) / 2]! : (minutes[minutes.length / 2 - 1]! + minutes[minutes.length / 2]!) / 2;
+    out.push({
+      vertical: anchor.vertical,
+      doorPickup: anchor.doorPickup,
+      pickup: anchor.pickup,
+      dropoff: anchor.dropoff,
+      timeMin: Math.round(mid / r.roundMin) * r.roundMin,
+      dates: days.filter((d) => perDay.has(d)),
+    });
+  }
+  return out.sort((a, b) => a.timeMin - b.timeMin);
+}
+
+/** When the push for a habit goes on `today` (10 minutes before), and the last moment it still may. */
+export function sameRidePushWindow(h: Pick<SameRideHabit, 'timeMin'>, today: CalendarDate): { from: Date; until: Date; at: Date } {
+  const r = RIDE_HABIT_RULES.sameRide;
+  const at = atLocal(today, h.timeMin);
+  return { from: new Date(at.getTime() - r.pushBeforeMin * 60_000), until: new Date(at.getTime() - r.lastCallMin * 60_000), at };
+}
+
+/** `lat,lng,zone[,placeId]`: one end of the ride in the push's deep link. */
+export function encodeRideEnd(p: RideFootprint['pickup']): string {
+  return [p.pin.lat.toFixed(6), p.pin.lng.toFixed(6), p.zoneKey, ...(p.placeId ? [p.placeId] : [])].join(',');
+}
+
+/** The end back from the deep link; null when it is not one of ours. */
+export function decodeRideEnd(raw: unknown): RideFootprint['pickup'] | null {
+  if (typeof raw !== 'string') return null;
+  const [lat, lng, zoneKey, placeId] = raw.split(',');
+  const pin = LatLng.safeParse({ lat: Number(lat), lng: Number(lng) });
+  if (!pin.success || !zoneKey || !/^[a-z0-9_]{1,64}$/.test(zoneKey)) return null;
+  return { zoneKey, pin: pin.data, ...(placeId && /^[A-Za-z0-9_-]{1,64}$/.test(placeId) ? { placeId } : {}) };
 }
 
 // ───────────────────────── favourites (l9) ─────────────────────────

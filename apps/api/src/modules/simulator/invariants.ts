@@ -1,4 +1,4 @@
-import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, latePromiseTerms, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
+import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
@@ -458,6 +458,23 @@ export const INVARIANTS: readonly Definition[] = [
             );
           }
         }
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'booked_ride_waits_for_its_search',
+    description: 'a ride booked «بعدين» reaches no driver before its search starts (15 min before its time)',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !o.scheduledFor) continue;
+        checked += 1;
+        const startsAt = rideSearchStartsAt(o.scheduledFor).getTime();
+        const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
+        const early = s.offers.filter((x) => trips.has(x.tripId) && x.at < startsAt);
+        if (early.length > 0) bad.push(`${o.id}: ${early.length} offer(s) from ${new Date(Math.min(...early.map((x) => x.at))).toISOString()}, search starts ${new Date(startsAt).toISOString()}`);
       }
       return { checked, bad };
     },

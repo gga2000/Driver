@@ -13,9 +13,10 @@ the server's at booking, cancellation fees as before, nothing extra for asking f
 
 | Rule | Value |
 |---|---|
-| How far ahead | 20 minutes – 7 days, else `ride_schedule_invalid` |
+| How far ahead | 20 minutes – 7 days, on the 5-minute grid (step 4), else `ride_schedule_invalid` |
 | Price | the server's quote for that time (`serverFees(..., at: scheduledFor)`); the fare sent must match (`price_changed`) |
 | Search | dispatch builds the trip at placement and holds the request («مجدول» on the board) until **15 minutes before**, then the smart broadcast as for any ride |
+| Reminder | a push half an hour before (step 4, c10) — see `ride-later-same-ride.md` |
 | Cancel | free while no driver accepted (state `placed`), as for any ride |
 
 `Order.scheduledFor` is set; the customer app shows such a ride on «مشوارك محجوز» (`/ride/booked/[id]`)
@@ -89,8 +90,8 @@ time is fixed at placement (a later ride delay doesn't move it).
 
 ## Apps
 
-- Customer: «وكتها» on the choose screen (هسة / اليوم · باچر · عقب باچر, the hour «7 الصبح», the quarter)
-  and «سايقك المفضل» chips; «مشوارك محجوز» (`/ride/booked/[id]`) and its home card; «رحلاتي الثابتة»
+- Customer: «وكتها» on the choose screen («هسة / بعدين»; «بعدين» opens the day + time picker of step 4 —
+  `ride-later-same-ride.md`) and «سايقك المفضل» chips; «مشوارك محجوز» (`/ride/booked/[id]`) and its home card; «رحلاتي الثابتة»
   (`/regular`, `/regular/edit`, `/regular/[id]?date=`); «سواقي المفضلين» (`/drivers`); «خليه سايقك
   المفضل؟» on the ride tab; the heart on a rated الرجعة pass; «سايقك» on his cars on the board; the dinner
   card on home and on the الرجعة pass, the restaurants banner and checkout's «وياك · 8:05» / «بعد وصولك ·
@@ -102,5 +103,5 @@ time is fixed at placement (a later ride delay doesn't move it).
 Customer (`apps/customer/scripts/demo-api.mjs`): `POST /demo/ride-habits?personId=…` (two taxi rides
 finished and rated 5 today — حسين kept, مصطفى offered; a الرجعة from Kut with جاسم rated 5 and kept, his next
 car to Kut in ~75 min; two regular trips asking now; the work trip's next day booked with حسين asked first)
-and `POST /demo/dinner?personId=…[&kind=rajaa]`. `SHOTS=trips` in `scripts/web-shots.mjs`.
+and `POST /demo/dinner?personId=…[&kind=rajaa]`. `SHOTS=trips` in `scripts/web-shots.mjs` (step 4: `SHOTS=later`).
 Partner: `POST /demo/offer?who=tuktuk&kind=favourite`, `SHOTS=favourite`.

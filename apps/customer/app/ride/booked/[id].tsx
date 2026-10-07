@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 import { View } from 'react-native';
+import { rideReminderAt } from '@driver/contracts';
 import { formatClock, formatDay } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useNow, useTheme, useToast } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
@@ -19,7 +20,8 @@ import { useSignedIn } from '@/lib/session';
 
 /**
  * «مشوارك محجوز» (joy J7d): a ride booked for later until its search starts 15 minutes before — when,
- * from where to where, the fare the server fixed, the favourite asked first, and a free cancel. Then
+ * from where to where, the fare the server fixed, the favourite asked first, the reminder half an hour
+ * before (step 4, c10), and a free cancel. Then
  * the order opens the live ride screen like any ride. «خليها رحلة ثابتة» saves it as a regular trip.
  */
 export default function BookedRidePage() {
@@ -63,6 +65,7 @@ function BookedRide() {
 
   const fav = o?.preferredDriverId ? (favs.data ?? []).find((f) => f.driverId === o.preferredDriverId) : null;
   const starts = o ? searchStartsAt(o) : null;
+  const remindAt = o?.scheduledFor ? rideReminderAt(o.scheduledFor, o.placedAt) : null;
   const cancelled = o?.state === 'customer_cancelled' || o?.state === 'platform_cancelled';
   const vertical = memo?.vertical ?? 'taxi';
   const ends = id ? bookedMemory.get(id) : null;
@@ -129,6 +132,15 @@ function BookedRide() {
               <Icon name="clock" size={18} color="liveText" />
               <Text variant="body" style={{ flex: 1 }} testID="booked-search">
                 {t('habits.booked_search', { time: formatClock(starts) })}
+              </Text>
+            </View>
+          ) : null}
+
+          {!cancelled && remindAt && remindAt.getTime() > now.getTime() ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+              <Icon name="bell" size={18} color="liveText" />
+              <Text variant="body" style={{ flex: 1 }} testID="booked-reminder">
+                {t('habits.booked_reminder', { time: formatClock(remindAt) })}
               </Text>
             </View>
           ) : null}

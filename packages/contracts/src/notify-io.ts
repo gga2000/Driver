@@ -83,10 +83,15 @@ export const NotifyPreferences = z.object({
    * opt-in; this switch silences the pushes (the app still asks). Never 23:00–08:00, never on a quiet day.
    */
   regularTrips: z.boolean(),
+  /**
+   * Step 4 (o4): «نفس مشوار البارحة؟» — a ride he took on most of the last working days, offered ten
+   * minutes before his usual time. On by default, at most one a day; this switch silences it.
+   */
+  sameRide: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -103,7 +108,7 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
@@ -151,6 +156,9 @@ export const NotifyTemplateId = z.enum([
   'household_approval',
   'month_ready',
   'regular_trip_reminder',
+  'ride_booked_reminder',
+  'same_ride_offer',
+  'same_ride_after_weekend',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -543,6 +551,35 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'defer',
   },
+  // Step 4 (c10): half an hour before a ride booked for later, a quarter before the search starts. His
+  // own booking at the hour he chose, so it goes in quiet hours too (a 6:30 reminder for a 7:00 ride).
+  ride_booked_reminder: {
+    id: 'ride_booked_reminder',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_booked.title', body: 'push.ride_booked.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Step 4 (o4): «نفس مشوار البارحة؟» ten minutes before his usual time — the hour he rides at, so not
+  // held for quiet hours; its own switch, one a day by its event key. The link opens choose filled in.
+  same_ride_offer: {
+    id: 'same_ride_offer',
+    category: 'same_ride',
+    app: 'customer',
+    push: { title: 'push.same_ride.title', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // The same on Sunday: his last working day was Thursday («نفس مشوار الخميس؟»).
+  same_ride_after_weekend: {
+    id: 'same_ride_after_weekend',
+    category: 'same_ride',
+    app: 'customer',
+    push: { title: 'push.same_ride.title_weekend', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
 };
 
 /** Categories a preference can switch off, and which switch. */
@@ -550,6 +587,7 @@ export function preferenceFor(category: NotifyCategory, channel: NotifyChannel):
   if (category === 'marketing') return 'marketing';
   if (category === 'dish_pot') return 'dishPots';
   if (category === 'regular_trip') return 'regularTrips';
+  if (category === 'same_ride') return 'sameRide';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

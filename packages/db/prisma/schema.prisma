@@ -2295,6 +2295,32 @@ model RegularTripOccurrence {
   @@schema("public")
 }
 
+/// Step 4 (o4): every ride a rider booked, where from and to and the time he wanted it, so «نفس مشوار
+/// البارحة؟» can see the ride he takes most working days (ids and points only; names live in the vault).
+model RideFootprint {
+  id          String   @id @default(cuid())
+  /// The ride's order (one footprint each).
+  orderId     String   @unique @map("order_id")
+  personId    String   @map("person_id")
+  /// taxi | tuktuk
+  vertical    String
+  doorPickup  Boolean  @default(false) @map("door_pickup")
+  /// The pickup and drop-off as booked: zone, pin and saved-place link.
+  pickup      Json
+  dropoff     Json
+  /// The time he wanted it: the booked time of a ride for later, else when he asked.
+  at          DateTime
+  /// Minutes since Baghdad midnight of `at` (the job reads one slice of the day).
+  minuteOfDay Int      @map("minute_of_day")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([minuteOfDay, at])
+  @@index([personId, at])
+  @@map("ride_footprints")
+  @@schema("public")
+}
+
 /// Share-trip link (signed token = id + HMAC). Expiry is derived from the trip (completion + 30 min,
 /// 24 h cap); `revoked_at` ends it early.
 model ShareLink {
@@ -2971,6 +2997,8 @@ model NotifyPreference {
   dishPots         Boolean  @default(true) @map("dish_pots")
   /// Joy r5: «تأكد رحلتك؟» for his own regular trips. On by default (saving the trip is the opt-in).
   regularTrips     Boolean  @default(true) @map("regular_trips")
+  /// Step 4 (o4): «نفس مشوار البارحة؟» for a ride he takes most working days. On by default, one a day.
+  sameRide         Boolean  @default(true) @map("same_ride")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

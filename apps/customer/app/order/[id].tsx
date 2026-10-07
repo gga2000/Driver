@@ -9,6 +9,7 @@ import { newClientId, threadOf } from '@/features/chat/logic';
 import { newRequestKey } from '@/features/food/place-attempt';
 import { RideRoute, rideVehicleLabel, SearchStages, searchElapsedSec, useSearchNote, useSearchStage, WaitCounter, WaitNote } from '@/features/ride/LiveParts';
 import { switchOfferDue, type RideVertical } from '@/features/ride/logic';
+import { isBookedRide } from '@/features/ride-habits/logic';
 import { useCityConfig, useConfirmRideArrived, useNearbyVehicles, useRideSwitchQuote, useSwitchRideVehicle } from '@/features/ride/queries';
 import { rideStore, useRideMemo } from '@/features/ride/store';
 import { SwitchOfferCard } from '@/features/ride/SwitchOffer';
@@ -94,6 +95,12 @@ export default function OrderLiveScreen() {
   const offset = useMemo(() => (v ? v.serverNow.getTime() - track.dataUpdatedAt : 0), [v, track.dataUpdatedAt]);
   const now = tick + offset;
   const clock = useMemo(() => () => Date.now() + offset, [offset]);
+  // Step 4 (c10): a ride booked «بعدين» waits on «مشوارك محجوز» until its search starts (a link or an
+  // old notification may open it here first).
+  const bookedWait = v ? isBookedRide(v.order, new Date(now)) : false;
+  useEffect(() => {
+    if (bookedWait) router.replace({ pathname: '/ride/booked/[id]', params: { id } });
+  }, [bookedWait, id]);
 
   const ageSec = fix ? fix.ageSec + Math.max(0, (tick - pos.dataUpdatedAt) / 1000) : null;
   const lostMin = signalLostMinutes(ageSec);

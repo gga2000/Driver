@@ -93,6 +93,12 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const to = paid?.toAccount ?? `driver:${driverId}`;
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'driver_incentive', amount: 2500, fromAccount: 'platform', toAccount: to, memo: `guarantee:${w.id}`, postingGroupId: `incentive:guarantee:fault:${i}` }));
   },
+  booked_ride_waits_for_its_search: (s) => {
+    // A ride booked «بعدين» broadcast as soon as it was placed (the request's start time ignored).
+    const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
+    const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
+    s.offers.push({ tripId: trip.id, driverId: 'fault', at: o.placedAt.getTime(), kind: 'dispatch.offer_sent', overCap: false, owedIqd: 0, capIqd: 75_000 });
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 

@@ -147,6 +147,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="ride/index" options={{ headerShown: false }} />
         <Stack.Screen name="ride/pin" options={{ headerShown: false }} />
         <Stack.Screen name="ride/choose" options={{ headerShown: false }} />
+        {/* Step 4 o4: «نفس مشوار البارحة؟» fills the booking, then opens choose. */}
+        <Stack.Screen name="ride/again" options={{ headerShown: false }} />
         {/* Joy J7d: a ride booked for later waits here until its search starts; regular trips; favourite drivers. */}
         <Stack.Screen name="ride/booked/[id]" options={{ title: t('habits.booked_title'), headerLeft: () => <HeaderBack fallback="/orders" /> }} />
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />

@@ -1,4 +1,4 @@
-import { Module, type OnModuleInit } from '@nestjs/common';
+import { Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { publicCourierRating, type IntercityDirection, type LatLng, type Order, type Trip } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
@@ -13,12 +13,16 @@ import { EtaService, RoutingModule } from '../routing/index.js';
 import { TrackingModule, TrackingService, tripsOrdersRatings } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { FAVOURITE_READ_PURPOSE, HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
+import { registerFootprints } from './footprints.subscriber.js';
 import { RegularTripJob } from './regular-trip.job.js';
 import { InMemoryRideHabitsRepository, PrismaRideHabitsRepository, RIDE_HABITS_REPOSITORY, type RideHabitsRepository } from './ride-habits.repository.js';
 import { RideHabitsService } from './ride-habits.service.js';
+import { SameRideJob } from './same-ride.job.js';
 
 const FINISHED = new Set<Order['state']>(['completed', 'closed']);
 const MIN = 60_000;
+/** A ride booked for within this many minutes of a habit's time is that day's ride already (o4). */
+const RIDE_ON_BOOKED_MIN = 60;
 
 /** The ride's finished driver and stars, read from its trip (`courierOf`). */
 async function finished(trips: TripsService, o: Order): Promise<FinishedRide | null> {
@@ -97,6 +101,17 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
         kitchen: (merchantOrgId) => orders.kitchenTiming(merchantOrgId),
         minutes: async (from, to, vehicle) => (await eta.minutes(from, to, vehicle)).minutes,
         driverRating: async (driverId) => publicCourierRating(await scores.courierScores(driverId)),
+        finishedOrderIds: async (ids) => {
+          const found = await Promise.all(ids.map((id) => orders.get(id).catch(() => null)));
+          return new Set(found.filter((o): o is Order => o !== null && o.type === 'ride' && FINISHED.has(o.state)).map((o) => o.id));
+        },
+        rideOn: async (personId, around) =>
+          (await orders.listForPerson(personId)).some(
+            (o) =>
+              o.ordererId === personId &&
+              o.type === 'ride' &&
+              (o.state === 'matched' || (o.state === 'placed' && (!o.scheduledFor || Math.abs(o.scheduledFor.getTime() - around.getTime()) <= RIDE_ON_BOOKED_MIN * MIN))),
+          ),
         };
       },
       inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK],
@@ -133,17 +148,29 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
     { provide: HABITS_EVENTS, useFactory: (events: EventsService): HabitsEventsPort => ({ emit: (event, aggregate) => events.emit(undefined, event, aggregate) }), inject: [EventsService] },
     RideHabitsService,
     RegularTripJob,
+    SameRideJob,
   ],
-  exports: [RideHabitsService, RegularTripJob],
+  exports: [RideHabitsService, RegularTripJob, SameRideJob],
 })
-export class RideHabitsModule implements OnModuleInit {
+export class RideHabitsModule implements OnModuleInit, OnModuleDestroy {
+  private unsubscribe: (() => void) | undefined;
+
   constructor(
     private readonly orders: OrdersService,
     private readonly habits: RideHabitsService,
+    private readonly events: EventsService,
   ) {}
 
-  /** Orders asks this module who a booked ride's favourite is (joy l9). */
+  /**
+   * Orders asks this module who a booked ride's favourite is (joy l9); every placed ride leaves its
+   * footprint for «نفس مشوار البارحة؟» (step 4, o4).
+   */
   onModuleInit(): void {
     this.orders.bindFavourites({ driverFor: (personId, favouriteId) => this.habits.driverFor(personId, favouriteId) });
+    this.unsubscribe = registerFootprints(this.events, this.habits);
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribe?.();
   }
 }

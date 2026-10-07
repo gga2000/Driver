@@ -27,6 +27,7 @@
 //   - POST /demo/gift?personId=…, /demo/invite?personId=…            «عزيمة» gift order, friends who took the invite (J7b)
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
 //                                                                     a booked ride, «عشاك يوصل وياك»
+//   - POST /demo/same-ride?personId=…                                 step 4 o4: the «نفس مشوار البارحة؟» link
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
 import { join } from 'node:path';
@@ -1723,6 +1724,21 @@ const rajaa = await (async () => {
         const occ = await habits.occurrence(a, { id: rideTrip.id, date: bookDate });
         const booked = await habits.confirm(a, { id: rideTrip.id, date: bookDate, fareIqd: occ.ride.fareIqd, clientRequestId: `demo-j7d-${Date.now().toString(36)}` });
         json(res, 200, { regularRideId: rideTrip.id, rideDate: rideTrip.next.date, regularRajaaId: rajaaTrip.id, rajaaDate: rajaaTrip.next.date, bookedOrderId: booked.occurrence.orderId, rajaaBookingId });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+
+    // Step 4 o4: POST /demo/same-ride?personId=… → {deepLink}: the link «نفس مشوار البارحة؟» carries for
+    // البيت ← الدائرة by taxi (what the push opens: the choose screen with both ends and the vehicle).
+    app.use('/demo/same-ride', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/same-ride?personId=…' });
+        const { encodeRideEnd } = await import('@driver/contracts');
+        const { home, work } = await homeAndWork(personId);
+        const deepLink = `driver://ride/again?from=${encodeRideEnd(point(home))}&to=${encodeRideEnd(point(work))}&v=taxi&door=0`;
+        json(res, 200, { deepLink });
       } catch (err) {
         json(res, 500, { error: String(err?.stack ?? err) });
       }
