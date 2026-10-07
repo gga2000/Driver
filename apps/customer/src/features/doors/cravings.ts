@@ -32,7 +32,7 @@ const MEAL_DAY: readonly CravingKind[] = [
 /** Breakfast: the morning things first, then what is cooking already. */
 const MEAL_MORNING: readonly CravingKind[] = [
   K('pacha', 'pacha', 'باچة', 'باجة'),
-  K('qaimar', 'bread', 'كاهي', 'قيمر', 'كيمر'),
+  K('qaimar', 'breakfast', 'كاهي', 'قيمر', 'كيمر'),
   K('tashreeb', 'soup', 'تشريب', 'عدس', 'شوربة'),
   K('falafel', 'falafel', 'فلافل'),
   K('eggs', 'plate', 'بيض', 'مخلمة'),

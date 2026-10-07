@@ -47,7 +47,9 @@ describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
     expect(motifForDish('لفة فلافل')).toBe('falafel');
     expect(motifForDish('طماطة مشوية')).toBe('salad');
     expect(motifForDish('شيش طاووق')).toBe('chicken');
-    expect(motifForDish('كاهي وقيمر')).toBe('bread');
+    expect(motifForDish('كاهي وقيمر')).toBe('breakfast');
+    expect(motifForDish('برياني دجاج')).toBe('biryani');
+    expect(motifForDish('لحم بعجين')).toBe('manakish');
   });
 
   it('an unknown name falls back to its menu section, then a plate', () => {
@@ -94,14 +96,14 @@ describe('cuisine words get a dish circle (joy b6)', () => {
     expect(motifForCuisine('كبد')).toBe('liver');
     expect(motifForCuisine('تمن ومرق')).toBe('rice');
     expect(motifForCuisine('شاورما')).toBe('shawarma');
-    expect(motifForCuisine('مناقيش')).toBe('bread');
+    expect(motifForCuisine('مناقيش')).toBe('manakish');
     expect(motifForCuisine('فلافل')).toBe('falafel');
   });
   it('knows the kitchen words a dish name would not use', () => {
-    expect(motifForCuisine('فطور')).toBe('tea');
+    expect(motifForCuisine('فطور')).toBe('breakfast');
     expect(motifForCuisine('حلويات')).toBe('sweet');
     expect(motifForCuisine('مشويات')).toBe('kebab');
-    expect(motifForCuisine('معجنات')).toBe('bread');
+    expect(motifForCuisine('معجنات')).toBe('manakish');
   });
   it('falls back to a plate for a word it does not know', () => {
     expect(motifForCuisine('برغر')).toBe('plate');

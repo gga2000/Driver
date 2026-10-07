@@ -47,14 +47,17 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/كيلو|صينية|سفرة|مشكّل|مشكل/, 'tray'],
   [/وجبة كباب|صحن كباب/, 'plate'],
   [/شوربة|عدس|تشريب/, 'soup'],
-  [/تمن|برياني|قوزي|مقلوبة|مرق|قيمة/, 'rice'],
+  [/برياني/, 'biryani'],
+  [/تمن|قوزي|مقلوبة|مرق|قيمة/, 'rice'],
   [/سلطة|جاجيك|فتوش|تبولة/, 'salad'],
   [/كبد|معلاك|قلوب/, 'liver'],
   [/طماطة مشوية|طماطم مشوي/, 'salad'],
   [/دجاج|طاووق|فروج|مسحب/, 'chicken'],
   [/تكة|تكه/, 'tikka'],
   [/كباب|مشوي|شيش/, 'kebab'],
-  [/صمون|خبز|منقوشة|مناقيش|كاهي|عجين|قيمر|كيمر/, 'bread'],
+  [/بيض|مخلمة|كاهي|قيمر|كيمر|ريوك|ريوگ/, 'breakfast'],
+  [/منقوشة|مناقيش|لحم بعجين|فطيرة|فطاير/, 'manakish'],
+  [/صمون|خبز|عجين/, 'bread'],
 ];
 
 /** Menu-section fallbacks for names the rules don't know. */
@@ -72,7 +75,9 @@ const BY_SECTION: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/فلافل/, 'falafel'],
   [/مقبلات|سلط/, 'salad'],
   [/شوربة/, 'soup'],
-  [/خبز|معجنات|مناقيش/, 'bread'],
+  [/ريوك|ريوگ|فطور/, 'breakfast'],
+  [/معجنات|مناقيش/, 'manakish'],
+  [/خبز/, 'bread'],
   [/مشويات|لفات/, 'kebab'],
 ];
 
@@ -87,12 +92,12 @@ export function motifForDish(name: string, section?: string): Motif {
 
 /** Kitchen words on home's cuisine circles that no dish name uses. */
 const BY_CUISINE: ReadonlyArray<readonly [RegExp, Motif]> = [
-  [/فطور|ريوك|ريوگ/, 'tea'],
+  [/فطور|ريوك|ريوگ/, 'breakfast'],
   [/قهوة|كافيه|كوفي/, 'coffee'],
   [/آيس كريم|ايس كريم|دوندرمة/, 'icecream'],
   [/حلويات/, 'sweet'],
   [/مشويات/, 'kebab'],
-  [/معجنات/, 'bread'],
+  [/معجنات/, 'manakish'],
   [/عصائر/, 'juice'],
 ];
 
@@ -122,7 +127,7 @@ export function motifForKitchen(tags: readonly string[], cuisine?: string): Moti
   }
   if (tags.includes('shawarma')) return 'shawarma';
   if (tags.includes('pacha')) return 'pacha';
-  if (tags.includes('breakfast')) return 'tea';
+  if (tags.includes('breakfast')) return 'breakfast';
   if (tags.includes('grill') || tags.includes('kebab')) return 'kebab';
   if (tags.includes('falafel')) return 'falafel';
   if (tags.includes('chicken')) return 'chicken';
