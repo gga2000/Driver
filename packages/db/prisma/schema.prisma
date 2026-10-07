@@ -438,22 +438,28 @@ model ParticipantIdentity {
 
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
 model VaultAccessLog {
-  id         String   @id @default(cuid())
-  personId   String   @map("person_id")
-  accessorId String   @map("accessor_id")
-  purpose    String
+  id           String   @id @default(cuid())
+  personId     String   @map("person_id")
+  /// The person who read, when the reader is a person (accessorKind 'person'); null otherwise.
+  accessorId   String?  @map("accessor_id")
+  /// 'person', or the kind of a synthetic reader: 'system' (system:notify, system:safety…), 'share_link', 'sos_link'…
+  accessorKind String   @default("person") @map("accessor_kind")
+  /// A synthetic reader's id as the code names it ("system:notify", "share:<linkId>"); null for a person.
+  accessorRef  String?  @map("accessor_ref")
+  purpose      String
   /// Which columns were read, e.g. ["phone_e164","name"].
-  fieldsRead String[] @default([]) @map("fields_read")
+  fieldsRead   String[] @default([]) @map("fields_read")
   /// Set when the read was a child's identity (vault.child_identities.id); personId is then the guardian.
-  childRef   String?  @map("child_ref")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  childRef     String?  @map("child_ref")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  subject  Person @relation("VaultSubject", fields: [personId], references: [id])
-  accessor Person @relation("VaultAccessor", fields: [accessorId], references: [id])
+  subject  Person  @relation("VaultSubject", fields: [personId], references: [id])
+  accessor Person? @relation("VaultAccessor", fields: [accessorId], references: [id], onDelete: Restrict)
 
   @@index([personId, createdAt])
   @@index([accessorId, createdAt])
+  @@index([accessorRef, createdAt])
   @@map("vault_access_logs")
   @@schema("identity_vault")
 }
