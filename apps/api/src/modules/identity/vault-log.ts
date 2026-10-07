@@ -47,6 +47,8 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'phone_booking_caller',
   'phone_booking_list',
   'ops_cash_round',
+  'finance_cash_desk',
+  'approvals_queue',
 ]);
 
 /** The stable code an alert matches on (plan §7.4: alert when the count is above 0). */

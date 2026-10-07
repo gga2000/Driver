@@ -268,7 +268,9 @@ let savepointSeq = 0;
 /**
  * Runs `fn` inside a SAVEPOINT of `tx`: on failure the savepoint is rolled back (the transaction stays
  * usable, so the caller's own writes still commit) and the error is rethrown. A JS try/catch alone is
- * not enough: a failed statement aborts the whole Postgres transaction (25P02).
+ * not enough: a failed statement aborts the whole Postgres transaction (25P02). Only log writes are
+ * queued: don't run other queries in parallel (`Promise.all`) on a transaction that reads the vault, or
+ * one could land inside the savepoint and be rolled back with a failed log write.
  */
 async function inSavepoint<T>(tx: Tx, fn: () => Promise<T>): Promise<T> {
   const key = tx as object;

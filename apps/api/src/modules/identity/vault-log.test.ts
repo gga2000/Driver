@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { vaultLogFailsClosed, vaultLogRow } from './identity.repository.js';
 import { harness } from './test-harness.js';
@@ -14,6 +16,32 @@ describe('vault access log: accessors and failures', () => {
     // The row a synthetic reader writes never names a person in accessor_id (the foreign key to people).
     expect(vaultLogRow({ personId: 'p1', accessorId: 'system:khat', purpose: 'khat_sweep_page', fieldsRead: ['name'] })).toMatchObject({ accessorId: null, accessorKind: 'system', accessorRef: 'system:khat' });
     expect(vaultLogRow({ personId: 'p1', accessorId: 'p2', purpose: 'chat_thread', fieldsRead: ['name'] })).toMatchObject({ accessorId: 'p2', accessorKind: 'person', accessorRef: null });
+  });
+
+  it('every vault purpose a staff module uses fails closed, or is named as allowed open', () => {
+    // Purposes that may stay fail-open, each with why: none of them shows personal data on a staff screen.
+    const allowedOpen: Record<string, string> = {
+      merchant_onboarding: 'ensurePersonByPhone: makes the person from the phone the staff typed, returns only an id',
+      phone_booking: 'ensurePersonByPhone: makes the caller from the phone the staff typed, returns only an id',
+      phone_booking_sms: "system:notify reads the driver's name for the caller's SMS, no staff screen",
+    };
+    const readers = 'names\\.of|firstNamesFor|displayNamesFor|vaultRefsFor|invitePhoneHints|ensurePersonByPhone|phonesFor|phoneFor';
+    // Up to two levels of nested parentheses inside the call, e.g. `names.of(items.map((i) => i.by), …)`.
+    const call = new RegExp(`(?:${readers})\\((?:[^()]|\\((?:[^()]|\\([^()]*\\))*\\))*?'([a-z_]+)'`, 'g');
+    const constant = /export const [A-Z_]+_PURPOSE = '([a-z_]+)'/g;
+    const purposes = new Set<string>();
+    for (const mod of ['console', 'control-room', 'controls', 'ops', 'support', 'phone-booking']) {
+      const dir = join(import.meta.dirname, '..', mod);
+      for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
+        const src = readFileSync(join(dir, f), 'utf8');
+        for (const m of src.matchAll(call)) purposes.add(m[1]!);
+        for (const m of src.matchAll(constant)) purposes.add(m[1]!);
+      }
+    }
+    // The scan really finds the Console's reads (a regex that matches nothing would pass silently).
+    expect([...purposes]).toEqual(expect.arrayContaining(['approvals_queue', 'finance_cash_desk', 'console_names', 'support_case', 'phone_booking_list', 'document_review']));
+    for (const p of purposes) expect(STAFF_READ_PURPOSES.has(p) || p in allowedOpen, p).toBe(true);
+    for (const p of Object.keys(allowedOpen)) expect(STAFF_READ_PURPOSES.has(p), p).toBe(false);
   });
 
   it('only Console staff purposes fail closed (or an explicit failClosed)', () => {
