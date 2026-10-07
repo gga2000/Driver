@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
-import { DriverError } from '@driver/contracts';
+import { DriverError, OTP_TTL_SEC } from '@driver/contracts';
 import { MIN_SECRET_LENGTH, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { otpRateLimitsFromEnv } from './rate-limit.js';
@@ -142,16 +142,23 @@ describe('OTP login', () => {
     expect(await h.service.hasRole(actor.personId, 'guardian')).toBe(false);
   });
 
-  it('codes expire after 3 minutes and resend is refused inside 30 seconds', async () => {
+  it('codes expire after 5 minutes (THIN-21) and resend is refused inside 30 seconds', async () => {
     const h = harness();
     await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
     const code = h.sms.lastCodeFor('+9647712345678')!;
     await expectCode(h.service.requestOtp({ phone: PHONE, purpose: 'login' }), 'otp_resend_too_soon');
     h.clock.advanceSeconds(31);
     await expect(h.service.requestOtp({ phone: PHONE, purpose: 'login' })).resolves.toBeTruthy();
-    h.clock.advanceSeconds(180);
+    h.clock.advanceSeconds(OTP_TTL_SEC);
     await expectCode(h.service.verifyOtp({ phone: PHONE, code }), 'otp_expired');
     expect(h.sms.sentTo('+9647712345678')).toHaveLength(2);
+  });
+
+  it('a code still works 4 minutes 50 seconds after it was sent (THIN-21)', async () => {
+    const h = harness();
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    h.clock.advanceSeconds(OTP_TTL_SEC - 10);
+    await expect(h.service.verifyOtp({ phone: PHONE, code: h.sms.lastCodeFor('+9647712345678')! })).resolves.toMatchObject({ isNew: true });
   });
 
   it('M2 follow-up: requestOtp is rate-limited per IP (10/hour) with retryAfterSec', async () => {
