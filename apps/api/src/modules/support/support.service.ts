@@ -1,11 +1,16 @@
-import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Inject, Injectable, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import {
+  CHAT_TEXT_MAX,
+  ChatMessageSentPayload,
   DisputeKind,
   DriverError,
   TERMINAL_ORDER_STATES,
   type Actor,
   type CannedResponse,
+  type ChatMessage,
   type ChatThreadKind,
+  type ChatThreadView,
   type EventLogEntry,
   type FaultParty,
   type LedgerLineView,
@@ -19,6 +24,7 @@ import {
   type SupportListInput,
   type SupportPort,
   type TicketCase,
+  type TicketChatReadInput,
   type TicketEntry,
   type TicketEscalateInput,
   type TicketFaultInput,
@@ -42,10 +48,26 @@ import { LedgerService, SupportCreditService, type SupportCreditFunder } from '.
 import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { TripsService } from '../trips/index.js';
-import { CANNED_RESPONSES, DISPUTE_SUBJECT_AR, HOSTILE_WORDS, KIND_AR, STATUS_AR, SUGGESTED_BY_DISPUTE } from './canned.js';
+import { CANNED_RESPONSES, CHAT_SUBJECT_AR, DISPUTE_SUBJECT_AR, HOSTILE_WORDS, KIND_AR, STATUS_AR, SUGGESTED_BY_DISPUTE, chatReopenedAr, chatSubjectAr } from './canned.js';
 import { SUPPORT_REPOSITORY, type EntryRecord, type SupportRepository, type TicketRecord } from './support.repository.js';
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * The order's support chat as the desk uses it (the chat module's `ChatService`): read it as the desk,
+ * answer into it, mark it read. The `support.*` router has already admitted the desk roles.
+ */
+export interface SupportChatPort {
+  deskThread(personId: string, orderId: string): Promise<ChatThreadView>;
+  deskReply(personId: string, orderId: string, text: string, clientId: string): Promise<ChatMessage>;
+  deskMarkRead(orderId: string, seq: number): Promise<void>;
+}
+export const SUPPORT_CHAT = Symbol('SUPPORT_CHAT');
+
+/** One support case per order's chat: the customer's first message opens it, later ones reopen it. */
+export function supportChatKey(orderId: string): string {
+  return `support_chat:${orderId}`;
+}
 const DAY_MS = 24 * HOUR_MS;
 
 /** Refund limits (edge-case review 101, O.144–148; support spec §2 escalation to Ali above 25,000). */
@@ -135,6 +157,7 @@ export function customerOrderStats(orders: readonly Pick<Order, 'ordererId' | 's
   };
 }
 
+/** The order's own chats the desk may read (read-only tabs); the support chat has its own place (`supportChat`). */
 function chatKindsFor(order: Order | null): ChatThreadKind[] {
   if (!order) return [];
   if (order.type === 'ride') return ['customer_courier'];
@@ -169,9 +192,13 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     private readonly staff: StaffNames,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    // «كلّم الدعم» (before-launch §6): the order's support chat; absent in tests that don't need it.
+    @Optional() @Inject(SUPPORT_CHAT) private readonly chat?: SupportChatPort,
   ) {}
 
   onModuleInit(): void {
+    // The customer's message in the order's support chat opens (or reopens) its case; the desk's moves it on.
+    this.unsubscribe.push(this.events.subscribe('support:chat', ['chat.message_sent'], (e, ctx) => this.onChatMessage(e, ctx.tx)));
     // A customer dispute (or the unreachable protocol's default dispute) opens a ticket by itself.
     this.unsubscribe.push(this.events.subscribe('support:disputes', ['order.disputed'], (e, ctx) => this.onDispute(e, ctx.tx)));
     // Offline contradictions open an incident for a human (quarantined late replays included).
@@ -255,6 +282,58 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       },
       tx,
     );
+  }
+
+  /**
+   * A message in an order's support chat (`customer_support`). From the customer: the first opens a
+   * `chat` case (a question, SLA same day), a later one on a resolved case reopens it with a fresh SLA,
+   * and on a case waiting for him puts it back to open. From the desk: the first answer, waiting.
+   */
+  private async onChatMessage(e: PublishedEvent, tx: Tx): Promise<void> {
+    const parsed = ChatMessageSentPayload.safeParse(e.payload);
+    if (!parsed.success || parsed.data.kind !== 'customer_support') return;
+    const p = parsed.data;
+    const key = supportChatKey(p.orderId);
+    const now = e.occurredAt;
+    const ticket = await this.repo.bySourceKey(key, tx);
+    if (p.senderRole === 'support') {
+      if (!ticket || ticket.status === 'resolved') return;
+      await this.repo.update(
+        ticket.id,
+        { lastActivityAt: now, firstResponseAt: ticket.firstResponseAt ?? now, assigneeId: ticket.assigneeId ?? e.actorId, status: ticket.status === 'open' ? 'waiting' : ticket.status },
+        tx,
+      );
+      return;
+    }
+    if (p.senderRole !== 'customer') return;
+    const said = p.preview ?? (p.messageKind === 'photo' ? 'صورة' : p.messageKind === 'location' ? 'لوكيشن' : '');
+    if (!ticket) {
+      const order = await this.orders.get(p.orderId).catch(() => null);
+      const courier = await this.trips.courierOf(p.orderId).catch(() => null);
+      await this.create(
+        {
+          cityId: order?.cityId ?? 'aziziyah',
+          kind: 'question',
+          channel: 'chat',
+          subject: said ? chatSubjectAr(said) : CHAT_SUBJECT_AR,
+          note: said || CHAT_SUBJECT_AR,
+          orderId: p.orderId,
+          tripId: courier?.tripId ?? null,
+          customerId: order?.ordererId ?? e.actorId,
+          openedById: e.actorId,
+          sourceKey: key,
+          openedMeta: { messageId: p.messageId },
+        },
+        tx,
+      );
+      return;
+    }
+    if (ticket.status === 'resolved') {
+      await this.repo.addEntry({ ticketId: ticket.id, actorId: e.actorId, kind: 'reopen', text: chatReopenedAr(said), amountIqd: null, meta: { messageId: p.messageId }, idempotencyKey: `chat_reopen:${p.messageId}`, at: now }, tx);
+      await this.repo.update(ticket.id, { status: 'open', resolvedAt: null, resolution: null, reopenCount: ticket.reopenCount + 1, slaDueAt: slaDueAt(now), lastActivityAt: now }, tx);
+      return;
+    }
+    await this.repo.update(ticket.id, { lastActivityAt: now, ...(ticket.status === 'waiting' ? { status: 'open' as const } : {}) }, tx);
   }
 
   private async onPositionSuspect(e: PublishedEvent, tx: Tx): Promise<void> {
@@ -614,9 +693,11 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const ledger = ticket.orderId ? (await this.ledger.eventsForOrder(ticket.orderId)).map((e) => this.ledgerLine(e)) : [];
     const disputeKind = DisputeKind.safeParse(timeline.find((e) => e.type === 'order.disputed')?.payload['kind']);
     const disputes30d = ticket.customerId ? (await this.repo.forCustomer(ticket.customerId, new Date(this.clock.now().getTime() - 30 * DAY_MS))).filter((t) => t.kind === 'dispute').length : 0;
+    const chat = order && this.chat ? await this.chat.deskThread(actor.personId, order.id).catch(() => null) : null;
     return {
       ticket: summary!,
       entries,
+      supportChat: chat && chat.threadId ? chat : null,
       order: order ? await this.orderView(order) : null,
       timeline: timeline.map(toLog),
       ledger,
@@ -669,10 +750,18 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     if (ticket.status === 'resolved') throw new DriverError('ticket_closed');
     const now = this.clock.now();
     const driverPay = input.internal ? {} : await this.driverPayPayload(ticket);
+    // A chat case: the answer goes into the order's support chat (pushed to him by the chat module).
+    const inChat = !input.internal && ticket.channel === 'chat' && ticket.orderId !== null && this.chat !== undefined;
+    let chatMessageId: string | null = null;
+    if (inChat) {
+      if (input.text.length > CHAT_TEXT_MAX) throw new DriverError('invalid_input');
+      chatMessageId = (await this.chat!.deskReply(actor.personId, ticket.orderId!, input.text, `desk-${randomUUID()}`)).id;
+    }
     await this.uow.run(async (tx) => {
-      await this.repo.addEntry({ ticketId: ticket.id, actorId: actor.personId, kind: input.internal ? 'note' : 'reply', text: input.text, amountIqd: null, meta: input.cannedKey ? { cannedKey: input.cannedKey } : {}, idempotencyKey: null, at: now }, tx);
+      const meta: Record<string, unknown> = { ...(input.cannedKey ? { cannedKey: input.cannedKey } : {}), ...(chatMessageId ? { chatMessageId } : {}) };
+      await this.repo.addEntry({ ticketId: ticket.id, actorId: actor.personId, kind: input.internal ? 'note' : 'reply', text: input.text, amountIqd: null, meta, idempotencyKey: null, at: now }, tx);
       await this.touch(ticket, actor, input.internal ? {} : { firstResponseAt: ticket.firstResponseAt ?? now, status: ticket.status === 'open' ? 'waiting' : ticket.status }, tx);
-      if (!input.internal) {
+      if (!input.internal && !inChat) {
         // The customer gets the answer through notify (push / WhatsApp per the channel policy).
         await this.events.emit(
           tx,
@@ -683,6 +772,12 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       await this.audits.record({ cityId: ticket.cityId, actorId: actor.personId, action: input.internal ? 'ticket.note' : 'ticket.reply', subjectKind: 'ticket', subjectId: ticket.id, summaryAr: `${input.internal ? 'ملاحظة' : 'رد'}: ${input.text.slice(0, 80)}` }, tx);
     });
     return this.get(actor, { ticketId: ticket.id });
+  }
+
+  async chatRead(_actor: Actor, input: TicketChatReadInput): Promise<{ ok: true }> {
+    const ticket = await this.load(input.ticketId);
+    if (ticket.orderId && this.chat) await this.chat.deskMarkRead(ticket.orderId, input.seq);
+    return { ok: true };
   }
 
   async refund(actor: Actor, input: z.output<typeof TicketRefundInput>): Promise<TicketCase> {

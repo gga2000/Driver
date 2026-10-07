@@ -244,7 +244,7 @@ export class DriverAccountService implements DriverAccountPort {
     const dayNumber = Math.floor((now.getTime() - firstActiveAt.getTime()) / DAY_MS) + 1;
     const visibleFrom = new Date(firstActiveAt.getTime() + OBSERVATION_DAYS * DAY_MS);
     const observation = dayNumber <= OBSERVATION_DAYS;
-    const ratings = await this.deliveryRatings(trips);
+    const ratings = await this.deliveryRatings(driverId);
     const card = reliabilityCard(
       {
         events,
@@ -274,24 +274,12 @@ export class DriverAccountService implements DriverAccountPort {
     };
   }
 
-  /** Delivery scores customers gave on his trips' orders, newest trips first, enough for the last 50. */
-  private async deliveryRatings(trips: Awaited<ReturnType<TripsService['forDriver']>>): Promise<Array<{ score: number; at: Date }>> {
-    const out: Array<{ score: number; at: Date }> = [];
-    const ordered = [...trips].sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
-    for (const t of ordered) {
-      if (out.length >= 50) break;
-      if (t.state !== 'completed') continue;
-      for (const link of t.orders) {
-        try {
-          const order = await this.orders.get(link.orderId);
-          const score = order.rating?.delivery;
-          if (score) out.push({ score, at: order.rating!.ratedAt });
-        } catch {
-          // an order the orders module no longer knows contributes nothing
-        }
-      }
-    }
-    return out;
+  /**
+   * The scores customers gave him as their courier/driver (`courier_ratings`, rate the courier — one row
+   * per order, attributed to the driver who carried it), newest first, the last 50.
+   */
+  private async deliveryRatings(driverId: string): Promise<Array<{ score: number; at: Date }>> {
+    return (await this.orders.courierRatings(driverId, 50)).map((r) => ({ score: r.score, at: r.at }));
   }
 
   // ───────────────────────── documents ─────────────────────────

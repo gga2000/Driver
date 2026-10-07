@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { disputeKindFor, lowReasons, ratingBranch, tipCard } from './rating-logic';
+import { courierReasons, disputeKindFor, keepFitting, lowReasons, ratingBranch, tipCard } from './rating-logic';
 
 describe('rating branches (C-12)', () => {
   it('asks what went wrong when either score is 3 or less', () => {
@@ -13,18 +13,47 @@ describe('rating branches (C-12)', () => {
     expect(ratingBranch(5, 0)).toBe('thanks');
   });
 
-  it('offers kitchen and courier reasons on food, driver reasons on rides', () => {
-    expect(lowReasons('food')).toEqual(['cold', 'missing_item', 'late', 'rude']);
-    expect(lowReasons('ride')).toEqual(['late', 'rude']);
+  it('asks about the food only when the food got 1–3; the courier’s reasons live on step 1', () => {
+    expect(lowReasons('food', 2)).toEqual(['cold', 'missing_item']);
+    expect(lowReasons('food', 5)).toEqual([]);
+    expect(lowReasons('food', null)).toEqual([]);
+    expect(lowReasons('ride', null)).toEqual([]);
   });
 
   it('opens the complaint that matches the reasons', () => {
     expect(disputeKindFor(['cold', 'missing_item'], 'food')).toBe('missing_item');
     expect(disputeKindFor(['late'], 'food')).toBe('cold_or_late');
     expect(disputeKindFor(['cold'], 'food')).toBe('cold_or_late');
-    expect(disputeKindFor(['rude'], 'food')).toBe('other');
+    expect(disputeKindFor([], 'food', ['late'])).toBe('cold_or_late');
+    expect(disputeKindFor([], 'food', ['rude'])).toBe('other');
     expect(disputeKindFor([], 'food')).toBe('other');
-    expect(disputeKindFor(['late'], 'ride')).toBe('other');
+    expect(disputeKindFor(['late'], 'ride', ['late'])).toBe('other');
+  });
+});
+
+describe('rate the courier (step 1 reasons)', () => {
+  it('offers what went wrong under 1–3 and what was good under 4–5, per delivery or ride', () => {
+    expect(courierReasons(2, 'food')).toEqual(['late', 'rude', 'mishandled', 'hard_to_reach']);
+    expect(courierReasons(5, 'food')).toEqual(['polite', 'fast', 'careful', 'found_us']);
+    expect(courierReasons(1, 'ride')).toEqual(['late', 'rude', 'hard_to_reach', 'unsafe_driving']);
+    expect(courierReasons(4, 'ride')).toEqual(['polite', 'fast', 'found_us', 'safe_driving']);
+    expect(courierReasons(0, 'food')).toEqual([]);
+  });
+
+  it('changing the stars drops the reasons that no longer fit', () => {
+    expect(keepFitting(['late', 'rude'], 5, 'food')).toEqual([]);
+    expect(keepFitting(['polite', 'careful'], 4, 'food')).toEqual(['polite', 'careful']);
+    expect(keepFitting(['careful'], 4, 'ride')).toEqual([]);
+  });
+
+  it('every reason has Iraqi words in both languages', () => {
+    const ar = createT('ar-IQ');
+    const en = createT('en');
+    for (const r of [...courierReasons(1, 'food'), ...courierReasons(5, 'food'), ...courierReasons(1, 'ride'), ...courierReasons(5, 'ride')]) {
+      expect(ar(`rating.courier.${r}` as never)).not.toContain('rating.courier');
+      expect(en(`rating.courier.${r}` as never)).not.toContain('rating.courier');
+    }
+    expect(ar('rating.courier_good_q', { name: 'عباس' })).toBe('شنو عجبك بـ عباس؟');
   });
 });
 

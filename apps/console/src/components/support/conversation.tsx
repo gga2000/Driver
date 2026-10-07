@@ -217,7 +217,23 @@ export function Thread({
 }) {
   return (
     <ol className="mx-auto flex max-w-3xl flex-col gap-4">
-      {entries.map((e) => {
+      {entries.map((e) => (
+        <EntryItem key={e.id} e={e} customerName={customerName} customerId={customerId} />
+      ))}
+    </ol>
+  );
+}
+
+/** One line of a case's history: the customer's opening, our reply, an internal note, or an action. */
+export function EntryItem({
+  e,
+  customerName,
+  customerId,
+}: {
+  e: TicketEntry;
+  customerName: string | null;
+  customerId: string | null;
+}) {
         if (e.kind === 'opened') {
           const byStaff = customerId !== null && e.actorId !== customerId && e.actorName;
           return (
@@ -312,9 +328,6 @@ export function Thread({
             <span aria-hidden className="h-px flex-1 bg-line" />
           </li>
         );
-      })}
-    </ol>
-  );
 }
 
 // ───────────────────────── order chats (read only) ─────────────────────────

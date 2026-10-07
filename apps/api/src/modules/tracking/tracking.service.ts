@@ -48,6 +48,8 @@ export interface TrackingOrdersPort {
   listForPerson(personId: string): Promise<Order[]>;
   /** The city's live orders (Console at-risk list). Optional for fakes. */
   listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
+  /** The courier's average from customers' ratings (null until enough). Optional for fakes. */
+  courierRatingSummary?(driverId: string): Promise<{ avg: number; count: number } | null>;
 }
 export interface TrackingTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
@@ -605,14 +607,15 @@ export class TrackingService implements TrackingPort {
       this.cards.set(key, who);
     }
     const vehicle = await this.vehicles.forCourier(courierId, trip.vehicleId);
+    // Rate the courier (before-launch §6): his real average once he has enough ratings, read fresh.
+    const rated = this.orders.courierRatingSummary ? await this.orders.courierRatingSummary(courierId).catch(() => null) : null;
     return {
       firstName: who.firstName,
       vehicleClass: vehicle?.vehicleClass ?? defaultVehicle(trip.vertical),
       plate: vehicle?.plate ?? null,
       vehicleLabel: vehicle?.label ?? null,
-      // TODO(scoring): customer-facing courier rating; the scoring module keeps internal scores only.
-      rating: null,
-      ratingCount: 0,
+      rating: rated?.avg ?? null,
+      ratingCount: rated?.count ?? 0,
       verifiedTodayAt: who.lastVerifiedAt && sameBaghdadDay(who.lastVerifiedAt, now) ? who.lastVerifiedAt : null,
       // Only the approved main photo, signed when the card is built (the cache keeps the ref, not the URL).
       photoUrl: who.photoRef && this.photos ? this.photos.readUrl(who.photoRef) : null,

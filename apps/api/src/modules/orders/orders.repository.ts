@@ -1,4 +1,4 @@
-import type { AppliedDiscount, DeliveryPoint, OrderRating, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
+import type { AppliedDiscount, CourierRatingReason, DeliveryPoint, OrderRating, OrderState, OrderType, ParticipantRole, PaymentMethod, RefundState, VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -193,6 +193,23 @@ export interface OrdersRepository {
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
   countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
+  /** Rate the courier: stores the order's one courier rating (unique per order; a second insert throws). */
+  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord>;
+  courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null>;
+  /** A driver's newest courier ratings (ratedAt descending), at most `limit`. */
+  courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]>;
+}
+
+/** `courier_ratings`: what the orderer gave the courier/driver who carried the order (customer app §4). */
+export interface CourierRatingRecord {
+  id: string;
+  orderId: string;
+  tripId: string;
+  driverId: string;
+  customerId: string;
+  score: number;
+  reasons: CourierRatingReason[];
+  ratedAt: Date;
 }
 
 /** Delivered orders to one drop-off zone (null: the order carried no zone). */
@@ -295,7 +312,7 @@ function orderFromRow(r: any): OrderRecord {
 
 function ratingFromJson(v: any): OrderRating | null {
   if (!v || typeof v !== 'object') return null;
-  return { delivery: v.delivery ?? null, food: v.food ?? null, tags: Array.isArray(v.tags) ? v.tags : [], note: v.note ?? null, ratedAt: new Date(v.ratedAt) };
+  return { delivery: v.delivery ?? null, food: v.food ?? null, tags: Array.isArray(v.tags) ? v.tags : [], courierReasons: Array.isArray(v.courierReasons) ? v.courierReasons : [], note: v.note ?? null, ratedAt: new Date(v.ratedAt) };
 }
 
 function lineFromRow(r: any): OrderLineRecord {
@@ -481,6 +498,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number> {
     return this.db(tx).order.count({ where: { cityId, placedAt: { gte: since } } });
   }
+
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord> {
+    return courierRatingFrom(await this.db(tx).courierRating.create({ data: { ...row, reasons: [...row.reasons] } }));
+  }
+
+  async courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null> {
+    const r = await this.db(tx).courierRating.findUnique({ where: { orderId } });
+    return r ? courierRatingFrom(r) : null;
+  }
+
+  async courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]> {
+    const rows = await this.db(tx).courierRating.findMany({ where: { driverId }, orderBy: [{ ratedAt: 'desc' }, { id: 'desc' }], take: limit });
+    return rows.map(courierRatingFrom);
+  }
+}
+
+function courierRatingFrom(r: { id: string; orderId: string; tripId: string; driverId: string; customerId: string; score: number; reasons: string[]; ratedAt: Date }): CourierRatingRecord {
+  return { id: r.id, orderId: r.orderId, tripId: r.tripId, driverId: r.driverId, customerId: r.customerId, score: r.score, reasons: r.reasons as CourierRatingReason[], ratedAt: r.ratedAt };
 }
 
 // ───────────────────────── In-memory twin ─────────────────────────
@@ -652,5 +687,27 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   async countPlacedSince(cityId: string, since: Date): Promise<number> {
     return [...this.orders.values()].filter((o) => o.cityId === cityId && o.placedAt >= since).length;
+  }
+
+  readonly courierRatings = new Map<string, CourierRatingRecord>();
+
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord> {
+    if (this.courierRatings.has(row.orderId)) throw new Error('unique violation: courier_ratings.order_id');
+    const rec = { ...row, reasons: [...row.reasons], id: `cr_${this.courierRatings.size + 1}` };
+    this.courierRatings.set(row.orderId, rec);
+    return { ...rec, reasons: [...rec.reasons] };
+  }
+
+  async courierRatingOf(orderId: string): Promise<CourierRatingRecord | null> {
+    const r = this.courierRatings.get(orderId);
+    return r ? { ...r, reasons: [...r.reasons] } : null;
+  }
+
+  async courierRatingsOf(driverId: string, limit: number): Promise<CourierRatingRecord[]> {
+    return [...this.courierRatings.values()]
+      .filter((r) => r.driverId === driverId)
+      .sort((a, b) => b.ratedAt.getTime() - a.ratedAt.getTime() || b.id.localeCompare(a.id))
+      .slice(0, limit)
+      .map((r) => ({ ...r, reasons: [...r.reasons] }));
   }
 }

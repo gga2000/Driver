@@ -39,7 +39,13 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   const tripsFake = { forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId) } as unknown as TripsService;
   /** Orders placed per Baghdad hour on the day `placedPerHour` is asked about (tomorrow's busy window). */
   const hourly: { counts: number[]; asked: Array<{ from: Date; to: Date }> } = { counts: new Array<number>(24).fill(0), asked: [] };
+  const courierRatings: Array<{ driverId: string; orderId: string; score: number; reasons: string[]; at: Date }> = [];
   const ordersFake = {
+    courierRatings: async (driverId: string, limit: number) =>
+      courierRatings
+        .filter((r) => r.driverId === driverId)
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .slice(0, limit),
     get: async (orderId: string) => {
       const o = orders.get(orderId);
       if (!o) throw new Error('order not found');
@@ -62,7 +68,7 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
     return actor;
   }
-  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
+  return { id, clock, ledger, ev, blobs, repo, trips, orders, courierRatings, service, person, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
 describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
@@ -160,12 +166,14 @@ describe('driverAccount.scorecard', () => {
     expect(card.index).not.toBeNull();
   });
 
-  it('reads delivery ratings from the orders on his completed trips', async () => {
+  it('reads the courier ratings customers gave him (his own rows, not the food score)', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
     await h.ev.events.emit(undefined, { actorId: d.personId, type: 'trip.accepted', occurredAt: new Date(h.clock.now().getTime() - 40 * DAY) }, { name: 'trip', id: 't0' });
     h.trips.push({ id: 't1', courierId: d.personId, state: 'completed', acceptedAt: h.clock.now(), completedAt: h.clock.now(), stops: [], orders: [{ orderId: 'o1', attachedAt: h.clock.now(), detachedAt: null, reason: null, minVehicleClass: null }] } as unknown as Trip);
-    h.orders.set('o1', { id: 'o1', rating: { delivery: 4, food: 5, tags: [], note: null, ratedAt: h.clock.now() } } as unknown as Order);
+    h.courierRatings.push({ driverId: d.personId, orderId: 'o1', score: 4, reasons: [], at: h.clock.now() });
+    // Someone else's rating never counts for him.
+    h.courierRatings.push({ driverId: 'p_other', orderId: 'o2', score: 1, reasons: ['rude'], at: h.clock.now() });
     const rating = (await h.service.scorecard(d, {})).metrics.find((m) => m.key === 'rating')!;
     expect(rating.value).toBe(4);
     expect(rating.display).toBe('4.0');

@@ -220,10 +220,38 @@ export type RatingTag = z.infer<typeof RatingTag>;
 
 export const RatingScore = z.number().int().min(1).max(5);
 
+/**
+ * One-tap reasons about the courier/driver himself (step 1 of the two-tap rating), kept apart from
+ * the food's: they go with his own rating (`courier_ratings`), not with the kitchen. The low set shows
+ * under 1–3 stars, the good set under 4–5; `unsafe_driving` / `safe_driving` are for rides only.
+ */
+export const CourierRatingReason = z.enum(['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving', 'polite', 'fast', 'careful', 'found_us', 'safe_driving']);
+export type CourierRatingReason = z.infer<typeof CourierRatingReason>;
+export const COURIER_LOW_REASONS: readonly CourierRatingReason[] = ['late', 'rude', 'mishandled', 'hard_to_reach', 'unsafe_driving'];
+export const COURIER_GOOD_REASONS: readonly CourierRatingReason[] = ['polite', 'fast', 'careful', 'found_us', 'safe_driving'];
+const RIDE_ONLY_REASONS: readonly CourierRatingReason[] = ['unsafe_driving', 'safe_driving'];
+const DELIVERY_ONLY_REASONS: readonly CourierRatingReason[] = ['mishandled', 'careful'];
+
+/** The reasons offered under a courier score: the low set for 1–3, the good set for 4–5, per order kind. */
+export function courierReasonsFor(score: number, ride: boolean): CourierRatingReason[] {
+  const set = score <= 3 ? COURIER_LOW_REASONS : COURIER_GOOD_REASONS;
+  return set.filter((r) => (ride ? !DELIVERY_ONLY_REASONS.includes(r) : !RIDE_ONLY_REASONS.includes(r)));
+}
+
+/**
+ * Rating rules (customer app §4 two-tap rating). A scored rating is taken until `windowHours` after
+ * the order reached the customer — the same 24 h the tip after a good rating uses, so the tip prompt
+ * always follows a rating that counted. The courier's average shows on his card from `minCountShown`
+ * ratings, over his newest `averageOf`.
+ */
+export const RATING_RULES = { windowHours: 24, minCountShown: 5, averageOf: 50 } as const;
+
 export const OrderRating = z.object({
   delivery: RatingScore.nullable(),
   food: RatingScore.nullable(),
   tags: z.array(RatingTag),
+  /** The reasons given with the courier score (also on his own `courier_ratings` row); absent on older ratings. */
+  courierReasons: z.array(CourierRatingReason).optional(),
   note: z.string().nullable(),
   ratedAt: z.coerce.date(),
 });
@@ -401,6 +429,8 @@ export const RateOrderInput = OrderIdInput.extend({
   delivery: RatingScore.optional(),
   food: RatingScore.optional(),
   tags: z.array(RatingTag).max(6).optional(),
+  /** Reasons about the courier/driver (they need `delivery`); stored with his own rating. */
+  courierReasons: z.array(CourierRatingReason).max(5).optional(),
   note: z.string().trim().max(500).optional(),
 });
 export type RateOrderInput = z.infer<typeof RateOrderInput>;

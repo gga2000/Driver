@@ -54,3 +54,14 @@ export const STATUS_AR: Record<TicketStatus, string> = { open: 'مفتوحة', w
 
 /** Words that rank a ticket up as hostile in tone (support spec §3 queue by urgency). */
 export const HOSTILE_WORDS: readonly string[] = ['نصاب', 'نصب', 'حرامي', 'سرقة', 'فضيحة', 'شرطة', 'محكمة', 'غش', 'احتيال', 'أفضحكم', 'تهديد'];
+
+/** A case opened from the order's support chat («كلّم الدعم»): its subject in the queue. */
+export const CHAT_SUBJECT_AR = 'محادثة من الطلب';
+export function chatSubjectAr(firstMessage: string): string {
+  const clipped = firstMessage.length > 60 ? `${firstMessage.slice(0, 59)}…` : firstMessage;
+  return `${CHAT_SUBJECT_AR}: ${clipped}`;
+}
+/** The line a reopened chat case shows: the customer wrote again after it was solved. */
+export function chatReopenedAr(said: string): string {
+  return said ? `الزبون كتب من جديد: ${said}` : 'الزبون كتب من جديد بالمحادثة';
+}

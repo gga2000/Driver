@@ -1,8 +1,10 @@
-import type { DisputeKind, OrderType, RatingTag, TipOffer } from '@driver/contracts';
+import { courierReasonsFor, type CourierRatingReason, type DisputeKind, type OrderType, type RatingTag, type TipOffer } from '@driver/contracts';
 
 /**
- * Low-rating recovery (audit C-12) as plain data. After the stars: 1–3 on either score asks what
- * went wrong (one-tap reasons stored as rating tags) and offers to open a complaint on the spot;
+ * The rating as plain data. Step 1 rates the courier/driver himself (before-launch §6): under his
+ * stars, optional one-tap reasons — what went wrong for 1–3, what was good for 4–5 — that go with his
+ * own rating. Low-rating recovery (audit C-12): 1–3 on either score offers to open a complaint on
+ * the spot (a low food score first asks what was wrong with the food, stored as rating tags);
  * 4–5 thanks, then asks «تحب تكرم عباس؟» (Ali, 2026-10-06): the tip after a good rating, from the
  * wallet, every rule on the server (`orders.tipOptions` / `orders.tip`, docs/api/tips.md).
  */
@@ -18,18 +20,30 @@ export function ratingBranch(delivery: number, food: number | null): RatingBranc
   return scores.length > 0 && Math.min(...scores) <= LOW_SCORE ? 'recover' : 'thanks';
 }
 
-/** The reasons offered: food orders get the kitchen and courier problems, rides the driver ones. */
-export function lowReasons(type: OrderType): readonly RatingTag[] {
-  if (type === 'ride') return ['late', 'rude'];
-  return ['cold', 'missing_item', 'late', 'rude'];
+/** The courier's own reasons under his score (the server takes exactly these). */
+export function courierReasons(score: number, type: OrderType): CourierRatingReason[] {
+  if (score <= 0) return [];
+  return courierReasonsFor(score, type === 'ride');
 }
 
-/** The complaint a set of reasons opens: missing first (it has a refund path), then cold/late, else other. */
-export function disputeKindFor(tags: readonly RatingTag[], type: OrderType): DisputeKind {
+/** The food's reasons on the recovery step: only a kitchen order whose food got 1–3 (the courier's are on step 1). */
+export function lowReasons(type: OrderType, food: number | null): readonly RatingTag[] {
+  if (type === 'ride' || food === null || food <= 0 || food > LOW_SCORE) return [];
+  return ['cold', 'missing_item'];
+}
+
+/** The complaint a set of reasons opens: missing first (it has a refund path), then cold or a late courier, else other. */
+export function disputeKindFor(tags: readonly RatingTag[], type: OrderType, courier: readonly CourierRatingReason[] = []): DisputeKind {
   if (type === 'ride') return 'other';
   if (tags.includes('missing_item')) return 'missing_item';
-  if (tags.includes('cold') || tags.includes('late')) return 'cold_or_late';
+  if (tags.includes('cold') || tags.includes('late') || courier.includes('late')) return 'cold_or_late';
   return 'other';
+}
+
+/** Drops the reasons that no longer fit after the stars changed (a 2 turned into a 5 keeps none of the low ones). */
+export function keepFitting(picked: readonly CourierRatingReason[], score: number, type: OrderType): CourierRatingReason[] {
+  const offered = courierReasons(score, type);
+  return picked.filter((r) => offered.includes(r));
 }
 
 /**

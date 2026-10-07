@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   CHAT_CLOSE_AFTER_MIN,
+  CHAT_SUPPORT_CLOSE_AFTER_H,
+  CHAT_SUPPORT_OPENS_PER_DAY,
   CHAT_THREAD_PARTIES,
   ChatMessageSentPayload,
   DriverError,
@@ -67,11 +69,11 @@ export const CHAT_IDENTITY = Symbol('CHAT_IDENTITY');
 export const CHAT_STORES = Symbol('CHAT_STORES');
 
 /** Limits: sends per person per minute; masked calls per person per 10 minutes. */
-export const CHAT_RULES = { sendsPerMinute: 20, callsPer10Min: 5, pageSize: 200 } as const;
+export const CHAT_RULES = { sendsPerMinute: 20, callsPer10Min: 5, pageSize: 200, supportOpensPerDay: CHAT_SUPPORT_OPENS_PER_DAY } as const;
 
 const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
 const SUPPORT_ROLES: readonly RoleKind[] = ['support', 'dispatcher', 'admin'];
-const ALL_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'merchant_courier', 'customer_merchant'];
+const ALL_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'merchant_courier', 'customer_merchant', 'customer_support'];
 
 /** Order states in which the order is over (delivered, done, or ended without delivery). */
 const DONE_ORDER_STATES: ReadonlySet<OrderState> = new Set(['delivered', 'closed', 'completed', 'merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded', 'failed', 'disputed']);
@@ -102,6 +104,8 @@ export class ChatService implements ChatPort {
   private readonly logger = new Logger(ChatService.name);
   private readonly sendLimiter: SharedSlidingWindowLimiter;
   private readonly callLimiter: SharedSlidingWindowLimiter;
+  /** New support chats per customer per 24 h (one per order; spam would flood the desk's queue). */
+  private readonly supportOpenLimiter: SharedSlidingWindowLimiter;
   /** First names per order and reader, so a 3-second poll logs one vault read, not one per poll. */
   private readonly names = new Map<string, Record<string, string | null>>();
 
@@ -122,6 +126,7 @@ export class ChatService implements ChatPort {
     const shared = counter ?? new InMemoryWindowCounter(clock);
     this.sendLimiter = new SharedSlidingWindowLimiter(shared, 'send', CHAT_RULES.sendsPerMinute, 60_000);
     this.callLimiter = new SharedSlidingWindowLimiter(shared, 'call', CHAT_RULES.callsPer10Min, 10 * 60_000);
+    this.supportOpenLimiter = new SharedSlidingWindowLimiter(shared, 'support_open', CHAT_RULES.supportOpensPerDay, 24 * 3_600_000, 'chat_support_limit');
   }
 
   // ───────────────────────── reads ─────────────────────────
@@ -145,7 +150,7 @@ export class ChatService implements ChatPort {
         counterpart: counterpartOf(kind, role),
         unread,
         lastMessageAt: thread ? await this.repo.lastMessageAt(thread.id) : null,
-        canCall: status === 'open' && role !== 'support',
+        canCall: canCallIn(kind, role, status),
       });
     }
     if (out.length === 0) throw new DriverError('chat_not_party');
@@ -155,11 +160,38 @@ export class ChatService implements ChatPort {
   async thread(actor: Actor, input: ChatThreadInput): Promise<ChatThreadView> {
     const ctx = await this.context(input.orderId);
     const role = await this.roleIn(actor.personId, ctx, input.kind);
+    return this.viewAs(actor.personId, ctx, role, input);
+  }
+
+  /**
+   * The order's support chat as the desk sees it (the support case in the Console). The caller is the
+   * `support.*` router, which already admitted the desk roles (finance included), so no party check.
+   */
+  async deskThread(personId: string, orderId: string): Promise<ChatThreadView> {
+    const ctx = await this.context(orderId);
+    return this.viewAs(personId, ctx, 'support', { orderId, kind: 'customer_support' });
+  }
+
+  /** The desk's answer on the order's support chat (`support.reply` on a chat case); a retry with the same `clientId` stores it once. */
+  async deskReply(personId: string, orderId: string, text: string, clientId: string): Promise<ChatMessage> {
+    const ctx = await this.context(orderId);
+    return this.sendAs(personId, ctx, 'support', { orderId, kind: 'customer_support', clientId, text });
+  }
+
+  /** The desk has read the support chat up to `seq` (the customer's «شافها» tick). */
+  async deskMarkRead(orderId: string, seq: number): Promise<void> {
+    const thread = await this.repo.findThread(orderId, 'customer_support');
+    if (!thread) return;
+    await this.uow.run((tx) => this.repo.markRead(thread.id, 'support', Math.min(seq, thread.lastSeq), tx));
+  }
+
+  private async viewAs(personId: string, ctx: OrderContext, role: ChatRole, input: ChatThreadInput): Promise<ChatThreadView> {
+    const actor = { personId };
     const now = this.clock.now();
     const status = this.status(ctx, input.kind, now);
     const thread = await this.repo.findThread(ctx.order.id, input.kind);
     const reads = thread ? await this.repo.readSeqs(thread.id) : new Map<string, number>();
-    const myKey = readerKey(role, actor.personId);
+    const myKey = readerKey(role, actor.personId, input.kind);
     const myReadSeq = reads.get(myKey) ?? 0;
     const otherRead = this.counterpartReadSeq(input.kind, role, ctx, reads);
     const records = thread ? await this.repo.messages(thread.id, { ...(input.afterSeq !== undefined ? { afterSeq: input.afterSeq } : {}), limit: CHAT_RULES.pageSize }) : [];
@@ -168,7 +200,7 @@ export class ChatService implements ChatPort {
       orderId: ctx.order.id,
       kind: input.kind,
       status,
-      closesAt: ctx.doneAt ? closesAt(ctx.doneAt) : null,
+      closesAt: ctx.doneAt ? closesAt(ctx.doneAt, input.kind) : null,
       myRole: role,
       ride: ctx.ride,
       participants: await this.participants(actor.personId, ctx, input.kind, role),
@@ -177,7 +209,7 @@ export class ChatService implements ChatPort {
       myReadSeq,
       unread: thread ? await this.repo.countUnread(thread.id, myReadSeq, role) : 0,
       quickReplies: status === 'open' && role !== 'support' ? quickRepliesFor(role, input.kind, ctx.ride) : [],
-      canCall: status === 'open' && role !== 'support',
+      canCall: canCallIn(input.kind, role, status),
       serverNow: now,
     };
   }
@@ -187,9 +219,18 @@ export class ChatService implements ChatPort {
   async send(actor: Actor, input: ChatSendInput): Promise<ChatMessage> {
     const ctx = await this.context(input.orderId);
     const role = await this.roleIn(actor.personId, ctx, input.kind);
+    return this.sendAs(actor.personId, ctx, role, input);
+  }
+
+  private async sendAs(personId: string, ctx: OrderContext, role: ChatRole, input: ChatSendInput): Promise<ChatMessage> {
+    const actor = { personId };
     const now = this.clock.now();
-    this.assertOpen(this.status(ctx, input.kind, now));
+    // The desk always has the last word on a support chat, even after it closed for the customer.
+    if (!(input.kind === 'customer_support' && role === 'support')) this.assertOpen(this.status(ctx, input.kind, now));
     await this.sendLimiter.hit(actor.personId);
+    if (input.kind === 'customer_support' && role === 'customer' && !(await this.repo.findThread(ctx.order.id, input.kind))) {
+      await this.supportOpenLimiter.hit(actor.personId);
+    }
 
     let body: string | null = null;
     let masked = false;
@@ -235,7 +276,7 @@ export class ChatService implements ChatPort {
       );
       if (inserted) {
         // The sender has obviously read everything up to their own message.
-        await this.repo.markRead(thread.id, readerKey(role, actor.personId), message.seq, tx);
+        await this.repo.markRead(thread.id, readerKey(role, actor.personId, input.kind), message.seq, tx);
         const payload = ChatMessageSentPayload.parse({
           threadId: thread.id,
           orderId: ctx.order.id,
@@ -265,7 +306,7 @@ export class ChatService implements ChatPort {
     const thread = await this.repo.findThread(ctx.order.id, input.kind);
     if (!thread) return { myReadSeq: 0, unread: 0 };
     const seq = Math.min(input.seq, thread.lastSeq);
-    const myReadSeq = await this.uow.run((tx) => this.repo.markRead(thread.id, readerKey(role, actor.personId), seq, tx));
+    const myReadSeq = await this.uow.run((tx) => this.repo.markRead(thread.id, readerKey(role, actor.personId, input.kind), seq, tx));
     return { myReadSeq, unread: await this.repo.countUnread(thread.id, myReadSeq, role) };
   }
 
@@ -288,7 +329,7 @@ export class ChatService implements ChatPort {
       );
     };
     try {
-      if (role === 'support') throw new DriverError('chat_not_party');
+      if (role === 'support' || input.kind === 'customer_support') throw new DriverError('chat_not_party');
       this.assertOpen(this.status(ctx, input.kind, now));
       await this.callLimiter.hit(actor.personId);
       const calleeId = await this.calleeOf(ctx, counterpart);
@@ -334,7 +375,9 @@ export class ChatService implements ChatPort {
   }
 
   private status(ctx: OrderContext, kind: ChatThreadKind, now: Date): ChatThreadStatus {
-    if (ctx.doneAt && now.getTime() >= closesAt(ctx.doneAt).getTime()) return 'closed';
+    if (ctx.doneAt && now.getTime() >= closesAt(ctx.doneAt, kind).getTime()) return 'closed';
+    // «كلّم الدعم» works from the moment the order is placed.
+    if (kind === 'customer_support') return 'open';
     const opened = kind === 'customer_merchant' ? (ctx.order.merchantOrgId ? ctx.order.acceptedAt : null) : ctx.courierAcceptedAt;
     return opened ? 'open' : 'not_open';
   }
@@ -378,11 +421,13 @@ export class ChatService implements ChatPort {
 
   private async unreadOf(thread: ChatThreadRecord, role: ChatRole, personId: string): Promise<number> {
     const reads = await this.repo.readSeqs(thread.id);
-    return this.repo.countUnread(thread.id, reads.get(readerKey(role, personId)) ?? 0, role);
+    return this.repo.countUnread(thread.id, reads.get(readerKey(role, personId, thread.kind as ChatThreadKind)) ?? 0, role);
   }
 
   /** What the other party has read (for my read receipts); support reads count for neither party. */
   private counterpartReadSeq(kind: ChatThreadKind, role: ChatRole, ctx: OrderContext, reads: Map<string, number>): number {
+    // The support chat has two readers: the customer side and the desk (any agent).
+    if (kind === 'customer_support') return reads.get(role === 'customer' ? 'support' : 'customer') ?? 0;
     const keyOf = (r: ChatRole): string | null => (r === 'courier' ? (ctx.courierId ? `courier:${ctx.courierId}` : null) : r);
     if (role === 'support') {
       return Math.max(...CHAT_THREAD_PARTIES[kind].map((r) => reads.get(keyOf(r) ?? '') ?? 0));
@@ -463,8 +508,14 @@ export class ChatService implements ChatPort {
 
 // ───────────────────────── helpers ─────────────────────────
 
-export function closesAt(doneAt: Date): Date {
+export function closesAt(doneAt: Date, kind?: ChatThreadKind): Date {
+  if (kind === 'customer_support') return new Date(doneAt.getTime() + CHAT_SUPPORT_CLOSE_AFTER_H * 3_600_000);
   return new Date(doneAt.getTime() + CHAT_CLOSE_AFTER_MIN * 60_000);
+}
+
+/** Masked calls only between the order's own parties, never on the support chat (calls are postponed, before-launch §3). */
+function canCallIn(kind: ChatThreadKind, role: ChatRole, status: ChatThreadStatus): boolean {
+  return status === 'open' && role !== 'support' && kind !== 'customer_support';
 }
 
 /** The other party of the pair; for support, the pair's first party. */
@@ -475,8 +526,9 @@ export function counterpartOf(kind: ChatThreadKind, role: ChatRole): ChatRole {
   return a;
 }
 
-/** Read receipts belong to the party: the customer side and the kitchen are one reader each. */
-export function readerKey(role: ChatRole, personId: string): string {
+/** Read receipts belong to the party: the customer side, the kitchen and (on a support chat) the desk are one reader each. */
+export function readerKey(role: ChatRole, personId: string, kind?: ChatThreadKind): string {
   if (role === 'customer' || role === 'merchant') return role;
+  if (role === 'support' && kind === 'customer_support') return 'support';
   return `${role}:${personId}`;
 }

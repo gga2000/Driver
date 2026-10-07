@@ -195,6 +195,8 @@ export const ERROR_TABLE = {
   tip_already_given: { retryHint: 'never', status: 'CONFLICT' },
   tip_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   tip_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // The two-tap rating is taken within RATING_RULES.windowHours of the order reaching the customer.
+  rating_window_closed: { retryHint: 'never', status: 'CONFLICT' },
   // «عزيمة» (joy g1): a gift goes to someone else; hidden prices only when the sender pays from his wallet.
   gift_needs_recipient: { retryHint: 'never', status: 'BAD_REQUEST' },
   gift_hidden_prices_need_wallet: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -219,6 +221,8 @@ export const ERROR_TABLE = {
   chat_not_open: { retryHint: 'later', status: 'CONFLICT' },
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلّم الدعم»: a customer opens at most CHAT_SUPPORT_OPENS_PER_DAY new support chats a day.
+  chat_support_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   call_unavailable: { retryHint: 'later', status: 'CONFLICT' },
   share_link_invalid: { retryHint: 'never', status: 'NOT_FOUND' },
   /** "Send drivers here" for this zone went out less than 10 minutes ago. */
