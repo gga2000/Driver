@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DeliveryPoint, Iqd, LatLng } from './common.js';
+import type { BookedRideInput, BookedRideStatus } from './booked-rides.js';
 import type { DriverProfile, DriverProfileInput, MyRideOffers, MyRideOffersInput, NudgeOfferInput, NudgeOfferResult } from './dispatch-io.js';
 import type { Actor } from './identity-io.js';
 import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js';
@@ -13,11 +14,13 @@ import { haversineM } from './tracking.js';
 export const RIDE_HABIT_RULES = {
   /**
    * A ride booked for later: at least this far ahead, at most this many days, on a 5-minute grid (the
-   * app offers the quarters), the search starts this early. Step 4 (c10): the rider is reminded
-   * `reminderLeadMin` before the ride time (a quarter before the search starts) — only when that is at
-   * least `reminderMinGapMin` after he booked; a ride booked closer needs no reminder.
+   * app offers the quarters). With no driver confirmed the evening before (review #28, `booked-rides.ts`)
+   * the search starts `searchLeadMin` early — T−30 — which is also when a confirmed driver must be on his
+   * way, or the job is released. Step 4 (c10): the rider is reminded `reminderLeadMin` before the ride
+   * time — only when that is at least `reminderMinGapMin` after he booked; a ride booked closer needs no
+   * reminder.
    */
-  schedule: { minLeadMin: 20, maxAheadDays: 7, gridMin: 5, searchLeadMin: 15, stepMin: 15, reminderLeadMin: 30, reminderMinGapMin: 30 },
+  schedule: { minLeadMin: 20, maxAheadDays: 7, gridMin: 5, searchLeadMin: 30, stepMin: 15, reminderLeadMin: 30, reminderMinGapMin: 30 },
   /**
    * Step 4 (o4) «نفس مشوار البارحة؟»: the same pickup and drop-off (each within `radiusM`) at about the
    * same time (±`windowMin`) on `needed` of the last `lookbackDays` working days (Sunday–Thursday, the
@@ -531,4 +534,6 @@ export interface RideHabitsPort {
   nudgeOffer(actor: Actor, input: NudgeOfferInput): Promise<NudgeOfferResult>;
   /** n5: an offered or the assigned driver's profile (`tracking.driverProfile`). */
   driverProfile(actor: Actor, input: DriverProfileInput): Promise<DriverProfile>;
+  /** Review #28: a ride booked for later — confirmed driver, or when we tell him. */
+  bookedRide(actor: Actor, input: BookedRideInput): Promise<BookedRideStatus>;
 }

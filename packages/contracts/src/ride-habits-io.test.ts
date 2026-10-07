@@ -43,8 +43,8 @@ describe('rideScheduleProblem', () => {
     expect(rideScheduleProblem(at(7 * 24 * 60), WED_18)).toBeNull();
     expect(rideScheduleProblem(at(7 * 24 * 60 + 1), WED_18)).toBe('too_far');
   });
-  it('starts the search 15 minutes before', () => {
-    expect(rideSearchStartsAt(new Date('2026-10-08T04:30:00Z')).toISOString()).toBe('2026-10-08T04:15:00.000Z');
+  it('starts the search 30 minutes before when no driver is confirmed (review #28)', () => {
+    expect(rideSearchStartsAt(new Date('2026-10-08T04:30:00Z')).toISOString()).toBe('2026-10-08T04:00:00.000Z');
   });
   it('takes the 5-minute grid only', () => {
     expect(rideScheduleProblem(new Date('2026-10-08T04:35:00Z'), WED_18)).toBeNull();

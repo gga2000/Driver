@@ -235,6 +235,14 @@ export const ERROR_TABLE = {
   // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
   climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
   avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Review #28: rides booked for later offered to drivers the evening before («مشاوير باچر»).
+  booked_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  booked_job_taken: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_closed: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_not_fit: { retryHint: 'never', status: 'FORBIDDEN' },
+  booked_job_clash: { retryHint: 'never', status: 'CONFLICT' },
+  booked_start_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  booked_start_not_ready: { retryHint: 'now', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },

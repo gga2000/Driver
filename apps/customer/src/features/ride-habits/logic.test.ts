@@ -47,10 +47,11 @@ describe('booking a ride for later', () => {
     expect(settleChoice(NOW, { day: 0, hour: 7, minute: 30 })).toEqual({ day: 0, hour: 23, minute: 15 });
     expect(settleChoice(NOW, { day: 1, hour: 7, minute: 30 })).toEqual({ day: 1, hour: 7, minute: 30 });
   });
-  it('a booked ride waits on its own screen until 15 minutes before', () => {
+  it('a booked ride waits on its own screen until 30 minutes before', () => {
     const at = new Date('2026-10-08T04:30:00Z');
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, NOW)).toBe(true);
-    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T04:16:00Z'))).toBe(false);
+    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T03:59:00Z'))).toBe(true);
+    expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: at }, new Date('2026-10-08T04:01:00Z'))).toBe(false);
     expect(isBookedRide({ type: 'ride', state: 'placed', scheduledFor: null }, NOW)).toBe(false);
     expect(isBookedRide({ type: 'food', state: 'placed', scheduledFor: at }, NOW)).toBe(false);
   });
