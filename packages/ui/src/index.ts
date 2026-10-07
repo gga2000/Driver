@@ -13,7 +13,8 @@ export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingPro
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
 // Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.
-export { CornerFill, DotHalo, DownFill, MeshFill, StarPattern, SkyBackdrop } from './art/decor';
+export { CornerFill, DotHalo, DownFill, MeshFill, StarPattern, STAR_TILE, SkyBackdrop } from './art/decor';
+export { TeaGlass, type TeaGlassProps } from './art/tea';
 
 // Motion
 export { usePressScale, useSelectSpring, usePulse, AnimatedPressable } from './motion/motion';

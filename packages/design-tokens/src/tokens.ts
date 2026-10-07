@@ -582,6 +582,8 @@ export interface HomeDecor {
   stages: readonly string[];
   /** The paper grain over the page (drawn at a few per cent). */
   grain: string;
+  /** Home's pull to refresh: an istikan filling with tea (`tea`), its glass line, gold rim and steam. */
+  teaGlass: { tea: string; glass: string; rim: string; shine: string; steam: string };
 }
 
 const decorDay: HomeDecor = {
@@ -590,6 +592,7 @@ const decorDay: HomeDecor = {
   wash: { dawn: '#FFD9B8', noon: '#DDEFF7', sunset: '#F7C3C0', late: '#DCD6F2' },
   stages: ['#FFE5BD', '#FFD6CF', '#D6EEF0', '#EFE3F5', '#E6F0D2', '#FBEBC8'],
   grain: '#5A3819',
+  teaGlass: { tea: '#B4471A', glass: '#2A170C', rim: '#E0A526', shine: '#FFFFFF', steam: '#B9A288' },
 };
 
 const decorNight: HomeDecor = {
@@ -598,6 +601,7 @@ const decorNight: HomeDecor = {
   wash: { dawn: '#5A3A2A', noon: '#2A3A44', sunset: '#5A2A2E', late: '#463A8C' },
   stages: ['#4A3218', '#4A2A26', '#1E3A3E', '#3A2C42', '#2E3A22', '#463A1E'],
   grain: '#000000',
+  teaGlass: { tea: '#D0602A', glass: '#F7EADB', rim: '#FFC155', shine: '#FFFFFF', steam: '#8A7560' },
 };
 
 export const decor: Record<ThemeName, HomeDecor> = { light: decorDay, dark: decorNight, istikan: decorDay, istikanNight: decorNight };

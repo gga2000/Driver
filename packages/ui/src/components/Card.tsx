@@ -21,7 +21,8 @@ export interface CardProps {
 
 export function Card({ children, elevation = 1, padding = 4, tone = 'surface', lift = false, onPress, accessibilityLabel, style, testID }: CardProps) {
   const theme = useTheme();
-  const press = usePressScale(0.985);
+  // Home's lifted cards sink a little deeper, like the service tiles (Date & Saffron "press").
+  const press = usePressScale(lift ? 0.97 : 0.985);
   const e = theme.elevation[elevation];
   const bg = tone === 'sunken' ? theme.colors.surfaceSunken : tone === 'tint' ? theme.colors.accentTint : theme.colors.surface;
   const base: ViewStyle = {

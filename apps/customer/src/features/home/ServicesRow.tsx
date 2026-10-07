@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
-import Svg, { G } from 'react-native-svg';
+import { useCallback, type ComponentProps, type ReactNode } from 'react';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Svg, { G, Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceSwatch } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
-import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, StarPattern, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, STAR_TILE, StarPattern, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
@@ -12,6 +13,7 @@ import { useT } from '@/lib/i18n';
 import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { backFact, rideFact, soonNames, tripsFact, type Fact } from './service-facts';
+import { MOMENT_LEAD_MS, MOMENT_MS, nudge, starsX, steamWisp, taxiX, tuktukHop } from './tile-moments';
 
 /** `trips`: Baghdad and Kut (leaving Aziziyah); `rajaa`: الرجعة, the way back (Ali, 2026-10-07). */
 export type ServiceId = 'food' | 'taxi' | 'tuktuk' | 'trips' | 'rajaa' | LaunchService;
@@ -43,6 +45,21 @@ const GAP = 10;
 const SMALL_H = 96;
 const TRIP_H = 84;
 const FOOD_ART = 104;
+/** The food drawing floats: it moves this share of the page's scroll more slowly, at most `FLOAT_MAX` px. */
+const FLOAT = 0.18;
+const FLOAT_MAX = 26;
+
+/** A tile's moment (`tile-moments.ts`): its progress, and `play` to run it from the start. */
+function useMoment() {
+  const theme = useTheme();
+  const a = useSharedValue(0);
+  const play = useCallback(() => {
+    if (theme.reduceMotion) return;
+    a.value = 0;
+    a.value = withTiming(1, { duration: MOMENT_MS, easing: Easing.linear });
+  }, [a, theme.reduceMotion]);
+  return { a, play };
+}
 
 /** Where home asks for the nearest free car: the deliver-to place's pin, else its zone's centre. */
 export function homePin(place: SavedPlace | null): LatLng | null {
@@ -67,7 +84,7 @@ function useNextCar(direction: IntercityDirection, enabled: boolean) {
  * colours, no blue). Each tile glows in its own colour and shows one live fact from the server. Offline the ride tiles turn grey and say they need the internet; with every
  * kitchen closed the food tile goes quiet. The coming-soon services are in `ComingSoonStrip` at the end.
  */
-export function ServicesRow({ onPress, foodFact, foodOff }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean }) {
+export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean; scrollY?: SharedValue<number> }) {
   const theme = useTheme();
   const t = useT();
   const s = theme.services;
@@ -86,10 +103,25 @@ export function ServicesRow({ onPress, foodFact, foodOff }: { onPress: (id: Serv
     rajaa: backFact({ online, signedIn, ...back }),
   };
   const say = (f: Fact | null) => (f ? t(f.key, f.params) : null);
-  const press = (id: ServiceId) => {
+  const moments = { food: useMoment(), taxi: useMoment(), tuktuk: useMoment(), trips: useMoment(), rajaa: useMoment() };
+  // The tile plays its moment, then the next screen opens over it (at once under reduced motion).
+  const press = (id: keyof typeof moments) => {
     theme.haptic('selection');
-    onPress(id);
+    moments[id].play();
+    if (theme.reduceMotion) onPress(id);
+    else setTimeout(() => onPress(id), MOMENT_LEAD_MS);
   };
+  const end = theme.isRTL ? -1 : 1;
+  const float = useAnimatedStyle(() => ({ transform: [{ translateY: scrollY ? Math.min(FLOAT_MAX, Math.max(-8, scrollY.value * FLOAT)) : 0 }, { rotate: '-14deg' }] }));
+  const taxiIcon = useAnimatedStyle(() => ({ transform: [{ translateX: taxiX(moments.taxi.a.value, end) }] }));
+  const tuktukIcon = useAnimatedStyle(() => {
+    const h = tuktukHop(moments.tuktuk.a.value);
+    return { transform: [{ translateY: h.y }, { rotate: `${h.rotate}deg` }] };
+  });
+  // الرجعة's arrow points to the start side (it is mirrored in RTL), and nudges that way.
+  const backIcon = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.rajaa.a.value, -end, 10) }] }));
+  const stars = useAnimatedStyle(() => ({ transform: [{ translateX: starsX(moments.trips.a.value, end, STAR_TILE) }] }));
+  const chip = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.trips.a.value, end, 8) }] }));
 
   return (
     <View testID="home-services" style={{ gap: GAP }}>
@@ -105,33 +137,39 @@ export function ServicesRow({ onPress, foodFact, foodOff }: { onPress: (id: Serv
           onPress={() => press('food')}
         >
           {foodOff ? null : <MeshFill base={s.food.fill} mesh={s.food.mesh} />}
-          <View pointerEvents="none" style={{ position: 'absolute', top: -10, end: -14, width: FOOD_ART, height: FOOD_ART, transform: [{ rotate: '-14deg' }], opacity: foodOff ? 0.45 : 1 }}>
+          <Animated.View pointerEvents="none" testID="service-food-art" style={[{ position: 'absolute', top: -10, end: -14, width: FOOD_ART, height: FOOD_ART, opacity: foodOff ? 0.45 : 1 }, float]}>
             <Svg width={FOOD_ART} height={FOOD_ART} viewBox="0 0 200 200">
               <G transform="translate(8 6) scale(0.92)">
                 <DishDrawing kind="shawarma" look={0} line={4.5} window={false} />
               </G>
             </Svg>
-          </View>
+            <Steam a={moments.food.a} color={withAlpha(s.food.on, 0.6)} />
+          </Animated.View>
           <TileBody icon={def('food').icon} swatch={foodOff ? s.off : s.food} label={t(def('food').label)} fact={say(foodFact)} big />
         </Tile>
         <View style={{ flex: 1, gap: GAP }}>
           <Tile id="taxi" swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} disabled={ridesOff} style={{ height: SMALL_H }} onPress={() => press('taxi')}>
-            <TileBody icon={def('taxi').icon} swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} />
+            <TileBody icon={def('taxi').icon} iconStyle={taxiIcon} swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} />
           </Tile>
           <Tile id="tuktuk" swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} disabled={ridesOff} style={{ height: SMALL_H }} onPress={() => press('tuktuk')}>
-            <TileBody icon={def('tuktuk').icon} swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} />
+            <TileBody icon={def('tuktuk').icon} iconStyle={tuktukIcon} swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} />
           </Tile>
         </View>
       </View>
       <View style={{ flexDirection: 'row', gap: GAP }}>
         <Tile id="trips" swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: TRIP_H }} onPress={() => press('trips')}>
           {ridesOff ? null : <CornerFill base={s.trips.fill} light={s.trips.light} />}
-          {ridesOff ? null : <StarPattern color={s.trips.pattern} />}
-          <TileBody icon={def('trips').icon} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} live={facts.trips?.key === 'home.trips_next'} row />
+          {ridesOff ? null : (
+            // One tile wider on each side, so gliding by a whole tile never shows an edge.
+            <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, bottom: 0, start: -STAR_TILE, end: -STAR_TILE }, stars]}>
+              <StarPattern color={s.trips.pattern} />
+            </Animated.View>
+          )}
+          <TileBody icon={def('trips').icon} chipStyle={chip} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} live={facts.trips?.key === 'home.trips_next'} row />
         </Tile>
         <Tile id="rajaa" swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: TRIP_H }} onPress={() => press('rajaa')}>
           {ridesOff ? null : <DownFill top={s.back.light} bottom={s.back.fill} />}
-          <TileBody icon={def('rajaa').icon} swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} compact />
+          <TileBody icon={def('rajaa').icon} iconStyle={backIcon} swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} compact />
         </Tile>
       </View>
     </View>
@@ -160,9 +198,15 @@ function Tile({
 }) {
   const theme = useTheme();
   const g = lift.glowOffset;
-  const glow = disabled || swatch === theme.services.off ? undefined : `${g.x}px ${g.y}px ${g.blur}px ${g.spread}px ${withAlpha(swatch.glow, lift.glowAlpha)}`;
+  const glow = disabled || swatch === theme.services.off || theme.scheme !== 'light' ? undefined : `${g.x}px ${g.y}px ${g.blur}px ${g.spread}px ${withAlpha(swatch.glow, lift.glowAlpha)}`;
+  // The soft spring press (Ali's Yes, "press"): the tile sinks and its glow tightens under it, then
+  // both spring back with one small overshoot when the finger lifts.
+  const p = useSharedValue(0);
+  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * p.value }] }));
+  const halo = useAnimatedStyle(() => ({ opacity: 1 - 0.4 * p.value, transform: [{ scale: 1 - 0.06 * p.value }] }));
   return (
-    <View style={[{ borderRadius: theme.radius.tile, boxShadow: theme.scheme === 'light' ? glow : undefined }, style]}>
+    <Animated.View style={[{ borderRadius: theme.radius.tile }, style, sink]}>
+      {glow ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: theme.radius.tile, backgroundColor: swatch.fill, boxShadow: glow }, halo]} /> : null}
       <Pressable
         testID={`service-${id}`}
         accessibilityRole="button"
@@ -170,17 +214,46 @@ function Tile({
         accessibilityState={{ disabled: !!disabled }}
         disabled={disabled}
         onPress={onPress}
-        style={({ pressed }) => ({
-          flex: 1,
-          borderRadius: theme.radius.tile,
-          backgroundColor: swatch.fill,
-          overflow: 'hidden',
-          transform: [{ scale: pressed ? 0.97 : 1 }],
-        })}
+        onPressIn={() => {
+          if (!theme.reduceMotion) p.value = withSpring(1, theme.motion.spring.press);
+        }}
+        onPressOut={() => {
+          p.value = withSpring(0, theme.motion.spring.select);
+        }}
+        style={{ flex: 1, borderRadius: theme.radius.tile, backgroundColor: swatch.fill, overflow: 'hidden' }}
       >
         {children}
       </Pressable>
-    </View>
+    </Animated.View>
+  );
+}
+
+type AnimatedViewStyle = ComponentProps<typeof Animated.View>['style'];
+
+/** Three curls of steam over the food tile's dish (its moment): drawn on the dish's own 200 grid. */
+const STEAM_D = ['M78 70c-9-11 9-15 0-27', 'M100 64c-9-11 9-15 0-27', 'M122 70c-9-11 9-15 0-27'] as const;
+
+function Steam({ a, color }: { a: SharedValue<number>; color: string }) {
+  return (
+    <>
+      {STEAM_D.map((d, i) => (
+        <SteamCurl key={d} d={d} i={i} a={a} color={color} />
+      ))}
+    </>
+  );
+}
+
+function SteamCurl({ d, i, a, color }: { d: string; i: number; a: SharedValue<number>; color: string }) {
+  const style = useAnimatedStyle(() => {
+    const w = steamWisp(a.value, i);
+    return { opacity: w.opacity, transform: [{ translateY: w.y }] };
+  });
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, style]}>
+      <Svg width="100%" height="100%" viewBox="0 0 200 200">
+        <Path d={d} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round" />
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -190,6 +263,8 @@ function Tile({
  */
 function TileBody({
   icon,
+  iconStyle,
+  chipStyle,
   swatch,
   label,
   fact,
@@ -199,6 +274,10 @@ function TileBody({
   compact,
 }: {
   icon: IconName;
+  /** The icon's part in the tile's moment. */
+  iconStyle?: AnimatedViewStyle;
+  /** The live chip's part in the tile's moment. */
+  chipStyle?: AnimatedViewStyle;
   swatch: ServiceSwatch;
   label: string;
   fact: string | null;
@@ -220,10 +299,10 @@ function TileBody({
         {label}
       </Text>
       {fact && live ? (
-        <View testID="service-live" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.md, backgroundColor: withAlpha(sub, 0.16) }}>
+        <Animated.View testID="service-live" style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.md, backgroundColor: withAlpha(sub, 0.16) }, chipStyle]}>
           <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: sub, boxShadow: `0px 0px 0px 3px ${withAlpha(sub, 0.3)}` }} />
           {factText}
-        </View>
+        </Animated.View>
       ) : fact ? (
         factText
       ) : (
@@ -240,7 +319,9 @@ function TileBody({
   }
   return (
     <View style={{ flex: 1, justifyContent: 'space-between', padding: compact ? 10 : big ? theme.space[4] : theme.space[3] }}>
-      <Icon name={icon} size={big ? 28 : compact ? 18 : 24} color={swatch.on} strokeWidth={1.9} />
+      <Animated.View style={[{ alignSelf: 'flex-start' }, iconStyle]}>
+        <Icon name={icon} size={big ? 28 : compact ? 18 : 24} color={swatch.on} strokeWidth={1.9} />
+      </Animated.View>
       {words}
     </View>
   );
