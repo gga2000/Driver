@@ -42,7 +42,7 @@ import { IdentityService } from '../identity/index.js';
 import { LedgerFacade } from '../ledger/index.js';
 import { OrderComplimentsService, OrdersService } from '../orders/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
-import { nudgesFor, OBSERVATION_DAYS, reliabilityCard } from '../scoring/index.js';
+import { deliveryRatings, nudgesFor, OBSERVATION_DAYS, reliabilityCard, RELIABILITY_WINDOW_DAYS } from '../scoring/index.js';
 import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
 import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, type DriverAccountRepository } from './driver-account.repository.js';
@@ -238,16 +238,18 @@ export class DriverAccountService implements DriverAccountPort {
 
   async scorecardFor(driverId: string, backOffice = false): Promise<ScorecardView> {
     const now = this.clock.now();
-    const [events, trips, cash] = await Promise.all([
+    // His finished trips of the window (completed, or cancelled after accepting): a trip accepted in
+    // the window ends in it too. `forDriver` would give only the unfinished ones.
+    const [events, trips, ratings, cash] = await Promise.all([
       this.events.forActor(driverId),
-      this.trips.forDriver(driverId),
+      this.trips.endedForDriver(driverId, new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS)),
+      deliveryRatings({ trips: this.trips, orders: this.orders }, driverId, now),
       this.ledger.driverLedger({ driverId, from: new Date(now.getTime() - 15 * DAY_MS) }).then((v) => v.cash.lines),
     ]);
     const firstActiveAt = events.length > 0 ? new Date(Math.min(...events.map((e) => e.occurredAt.getTime()))) : now;
     const dayNumber = Math.floor((now.getTime() - firstActiveAt.getTime()) / DAY_MS) + 1;
     const visibleFrom = new Date(firstActiveAt.getTime() + OBSERVATION_DAYS * DAY_MS);
     const observation = dayNumber <= OBSERVATION_DAYS;
-    const ratings = await this.deliveryRatings(driverId);
     const card = reliabilityCard(
       {
         events,
@@ -269,20 +271,12 @@ export class DriverAccountService implements DriverAccountPort {
       index: show ? card.index : null,
       tier: show ? (observation ? 'bronze' : card.tier) : null,
       completedTrips: card.completedTrips,
-      windowDays: 14,
+      windowDays: RELIABILITY_WINDOW_DAYS,
       metrics: show ? card.metrics : [],
       nudges,
       // Scoring §1: consequences the following Sunday, never the same day; none in month 1.
       consequencesFrom: !observation && nudges.length > 0 ? nextLocalSunday(now) : null,
     };
-  }
-
-  /**
-   * The scores customers gave him as their courier/driver (`courier_ratings`, rate the courier — one row
-   * per order, attributed to the driver who carried it), newest first, the last 50.
-   */
-  private async deliveryRatings(driverId: string): Promise<Array<{ score: number; at: Date }>> {
-    return (await this.orders.courierRatings(driverId, 50)).map((r) => ({ score: r.score, at: r.at }));
   }
 
   // ───────────────────────── documents ─────────────────────────

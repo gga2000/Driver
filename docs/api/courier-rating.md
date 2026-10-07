@@ -3,8 +3,7 @@
 Closes the before-launch gap "customers can't rate the courier yet" (`docs/before-launch.md` §6),
 following the customer app spec's two-tap rating ("delivery and food separately",
 `docs/specs/2026-10-03-customer-app.md` §4). The delivery score already existed on the order; now it is
-also the courier's own rating (`courier_ratings`), with one-tap reasons under a low score, and it feeds
-his scorecard. The average on his card (joy l2) and the compliments after a good rating (joy l4) were
+also stored as the courier's own rating (`courier_ratings`), with one-tap reasons under a low score. The average on his card (joy l2) and the compliments after a good rating (joy l4) were
 built alongside and are unchanged.
 
 ## Rules
@@ -31,10 +30,10 @@ built alongside and are unchanged.
 - The plain "close early" call (no scores) is not a rating and is still accepted after the window.
 
 ## Where it shows
-- Partner scorecard (`driverAccount.scorecard`): the `rating` metric now reads his own
-  `courier_ratings` rows (newest 50) instead of walking his trips' orders.
-- Customer courier card (`orders.track` → `courier.rating`, `ratingCount`): unchanged from joy l2 — the
-  same delivery scores, read through the tracking module's ratings port.
+- Partner scorecard (`driverAccount.scorecard`) and the customer courier card (`orders.track` →
+  `courier.rating`, `ratingCount`): unchanged — both read the same delivery scores through
+  `scoring/deliveryRatings` (his completed trips' orders), so they never disagree. `courier_ratings`
+  keeps the reasons for support (`orders.courierRatings`).
 - Customer app (`apps/customer/src/features/track/Arrival.tsx`, `rating-logic.ts`): step 1 is the
   courier — his stars; 1–3 asks «شنو اللي ما عجبك بـ عباس؟» with the chips («اختياري، يساعدنا نخلي
   التوصيل أحسن») and «كمّل» / «دز التقييم», 4–5 moves straight on; step 2 the food (kitchen orders).
@@ -47,5 +46,4 @@ built alongside and are unchanged.
 
 ## Tests
 `apps/api/src/modules/orders/courier-rating.test.ts` (row, once per order, only the orderer, the
-window, the reasons, his own rows), `apps/api/src/modules/driver-account/driver-account.service.test.ts`
-(scorecard reads his rows), `apps/customer/src/features/track/rating-logic.test.ts`.
+window, the reasons, his own rows), `apps/customer/src/features/track/rating-logic.test.ts`.
