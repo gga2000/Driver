@@ -44,6 +44,7 @@ export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
+export { QueryBoundary, queryPhase, type QueryBoundaryProps, type QueryLike, type QueryStateCopy } from './components/QueryBoundary';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
 export { SlideToConfirm, type SlideToConfirmProps, type SlideTone } from './components/SlideToConfirm';

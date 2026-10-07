@@ -17,7 +17,8 @@ export interface RetryStateProps {
   onRetry?: () => void;
   /** Override the title / body (e.g. "النت ضعيف. نحاول نرجع نجيب المنيو"). */
   title?: string;
-  body?: string;
+  /** `null` for no body line (a title that already says it all). */
+  body?: string | null;
   retryLabel?: string;
   /** A second, quieter way out ("اتصل بالدعم"). */
   secondary?: { label: string; onPress: () => void; icon?: IconName };
@@ -55,9 +56,11 @@ export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, 
       <Text variant="title" align="center">
         {title ?? defTitle}
       </Text>
-      <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 320 }}>
-        {body ?? defBody}
-      </Text>
+      {body === null ? null : (
+        <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 320 }}>
+          {body ?? defBody}
+        </Text>
+      )}
       {onRetry ? <Button testID={`${testID}-retry`} label={retryLabel ?? tr('action.retry')} icon="refresh" onPress={onRetry} variant="secondary" style={{ alignSelf: 'center', marginTop: theme.space[2] }} /> : null}
       {secondary ? <Button label={secondary.label} icon={secondary.icon} onPress={secondary.onPress} variant="ghost" style={{ alignSelf: 'center' }} /> : null}
     </View>
