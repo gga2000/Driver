@@ -6,6 +6,7 @@ import { merchantHeartbeats, merchantStep } from './actors/merchant.js';
 import {
   CITY,
   guarded,
+  type DispatchMoment,
   type DrainableQueue,
   type DriverRun,
   type DoorCashRecord,
@@ -28,6 +29,9 @@ import { simCustomerName, simDriverName, simOwnerName } from './names.js';
 const SIM_ACTOR = { personId: 'system:simulator' };
 export const OBSERVER_SUBSCRIBER = 'simulator:observer';
 const OFFER_EVENTS = ['dispatch.wave_sent', 'dispatch.offer_sent', 'dispatch.rebroadcast', 'dispatch.override'];
+/** Review #28: what `scheduled_ride_dispatched_once` replays per trip. */
+const DISPATCH_LOG_EVENTS = ['dispatch.requested', 'dispatch.assigned', 'dispatch.booked_confirmed', 'dispatch.booked_released', 'dispatch.booked_cancelled'];
+const DISPATCH_LOG_SUBSCRIBER = 'simulator:dispatch-log';
 
 export interface EngineOptions {
   world: World;
@@ -70,6 +74,10 @@ export class Simulation implements SimContext {
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
   readonly offers: ObservedOffer[] = [];
+
+  readonly dispatchLog: DispatchMoment[] = [];
+
+  private unsubscribeLog: (() => void) | null = null;
   readonly refusals = new Map<string, number>();
   readonly errors: Array<{ where: string; message: string }> = [];
   readonly speed: number;
@@ -183,11 +191,17 @@ export class Simulation implements SimContext {
         this.offers.push({ tripId: e.tripId ?? e.aggregateId, driverId, at: this.t, kind: e.type, overCap: st.overCap, owedIqd: st.owedIqd, capIqd: st.capIqd });
       }
     });
+    this.unsubscribeLog = this.s.events.subscribe(DISPATCH_LOG_SUBSCRIBER, DISPATCH_LOG_EVENTS, async (e) => {
+      const driverId = (e.payload as { driverId?: unknown }).driverId;
+      this.dispatchLog.push({ tripId: e.tripId ?? e.aggregateId, type: e.type, driverId: typeof driverId === 'string' ? driverId : null, at: this.t });
+    });
   }
 
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribeLog?.();
+    this.unsubscribeLog = null;
   }
 
   /** A cash top-up at an agent (wallet spec §9): `credit_issued` from the bank into the customer's wallet. */
@@ -462,6 +476,7 @@ export class Simulation implements SimContext {
       quarantined,
       outbox: await this.s.events.outboxStats(),
       offers: [...this.offers],
+      dispatchLog: [...this.dispatchLog],
       replays: [...this.replays],
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],

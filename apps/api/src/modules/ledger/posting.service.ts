@@ -175,8 +175,9 @@ export class PostingService {
    * referrer's side counts against his monthly cap. Idempotent (`referral:<referee>`).
    */
   async referral(refereeId: string, referrerId: string | undefined, at: Date): Promise<RecordAllResult | null> {
-    if (!referrerId || referrerId === refereeId) return null;
     const r = this.rules.referral;
+    // THIN-18 / M-5: the invite amounts are not approved yet, so nothing pays while the switch is off.
+    if (!r.enabled || !referrerId || referrerId === refereeId) return null;
     if (await this.ledger.hasGroup(`referral:${refereeId}`)) return null;
     const qualifying = await this.ledger.cashOrders(refereeId, r.minOrderIqd);
     if (qualifying.length < r.unlockOnQualifyingOrder) return null;

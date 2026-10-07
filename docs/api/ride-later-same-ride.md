@@ -15,7 +15,7 @@ changes**: the fare is the server's quote for the ride's time, cancelling follow
 | Window | 20 minutes – 7 days ahead | `schedule.minLeadMin`, `maxAheadDays` |
 | Slots | on the 5-minute grid, else `ride_schedule_invalid` (`off_grid`); the app offers quarters | `schedule.gridMin`, `rideScheduleProblem` |
 | Price | `pricing.quote(..., at: scheduledFor)` — the time-of-day rules of that time; the fare sent must match | orders service |
-| Search | the dispatch request waits («مجدول») until **15 minutes before**, then the normal broadcast | `schedule.searchLeadMin`, `rideSearchStartsAt` |
+| Search | the dispatch request waits («مجدول») until **30 minutes before** (the T−30 fallback of review #28, when no driver confirmed it the evening before — `ride-habits.md`), then the normal broadcast | `schedule.searchLeadMin`, `rideSearchStartsAt` |
 | Reminder | a push **30 minutes before** — only when booked at least 30 minutes before that | `schedule.reminderLeadMin`, `reminderMinGapMin`, `rideReminderAt` |
 | Cancel | free while no driver accepted (state `placed`), as for any ride; nothing new | `orders.cancel` |
 
@@ -83,7 +83,7 @@ until he taps. A link that does not parse opens «وين رايح؟».
 
 About 10 % of the rides that are not cancelled are booked 30–90 minutes ahead (on the 5-minute grid,
 quoted for that time). Invariant `booked_ride_waits_for_its_search`: no driver is offered a booked ride
-before its search starts (15 minutes before its time).
+before its search starts (30 minutes before its time).
 
 ## Tests
 

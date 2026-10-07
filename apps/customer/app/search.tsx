@@ -1,8 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
-import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
-import { Button, Card, Chip, Icon, ListRow, SearchField, Text, useTheme } from '@driver/ui';
+import { doorOrder, type CatalogSearchDish, type LaunchService } from '@driver/contracts';
+import { Button, Card, Icon, ListRow, SearchField, Text, useTheme } from '@driver/ui';
 import { countKey } from '@/lib/plural';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
@@ -12,20 +12,19 @@ import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/Restaurant
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { usePicks, useRestaurants } from '@/features/home/queries';
 import { toSummary } from '@/features/home/restaurant-summary';
-import { bandTitleKey, bandWords, daypart } from '@/features/home/daypart';
-import { DaypartBand } from '@/features/home/DaypartBand';
-import { FoodArt, motifForCuisine } from '@/features/food/FoodArt';
+import { BestThree } from '@/features/doors/BestThree';
+import { DoorChips } from '@/features/doors/DoorChips';
+import { bestThree } from '@/features/doors/doors';
 import { DishResult } from '@/features/search/DishResult';
+import { doorResultShops, DoorResults } from '@/features/search/DoorResults';
 import { searchIntents } from '@/features/search/intents';
 import { kitchensForMeal, MealResults } from '@/features/search/MealResults';
-import { popularTerms, SEARCH_DEBOUNCE_MS } from '@/features/search/logic';
+import { SEARCH_DEBOUNCE_MS } from '@/features/search/logic';
 import { searchRecents, useSearchRecents } from '@/features/search/recents';
 import { ServiceResults } from '@/features/search/ServiceResults';
 import { UnmetAsk } from '@/features/search/UnmetAsk';
-import { useViewedRestaurants } from '@/features/search/viewed';
 import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
-import { useSeason } from '@/lib/use-season';
 
 function useDebounced(value: string, ms: number): string {
   const [v, setV] = useState(value);
@@ -37,14 +36,20 @@ function useDebounced(value: string, ms: number): string {
 }
 
 const NO_WORDS: readonly string[] = [];
+/** Dishes listed before «كل الأكلات (n)» opens the rest (f4: the shops come first). */
+const DISHES_SHOWN = 4;
+/** Shops listed by name before «شوف باقي المحلات». */
+const SHOPS_SHOWN = 3;
 
 /**
- * دوّر (audit C-01, joy h4 «one box for the whole town»): the home bar opens this full screen. Empty:
- * recent searches and what the town's kitchens actually serve. Typing: first what the words mean
- * beyond food («بغداد» → الرجعة, «تكسي للسوق» → a ride there, «سوق» → coming soon; `intents.ts`), then
- * a meal word's dishes («فطور»), then kitchens and dishes from `catalog.search` (Arabic-folded on the
- * server). Closed kitchens are listed and marked, still openable. Nothing at all → it says so, offers
- * the full list and asks whether to tell the kitchens (`search.unmet`). Public, like home.
+ * دوّر (audit C-01, joy h4 «one box for the whole town»): the home bar opens this full screen. Empty
+ * (f3, calm): what you searched before and the four food doors, nothing else. Typing: first what the
+ * words mean beyond food («بغداد» → الرجعة, «تكسي للسوق» → a ride there, «سوق» → coming soon;
+ * `intents.ts`), then a door word's best shops («قهوة», «حلويات», «آيس كريم»; f1), a meal word's dishes
+ * («فطور»), then `catalog.search` (Arabic-folded on the server): when a dish is served by several shops,
+ * «أحسن 3» of them with their reasons first (f4), then the shops by name and the dishes, both short with
+ * a way to the rest. Nothing at all → it says so plainly, offers the full list and asks whether to tell
+ * the shops (`search.unmet`; f2: no unrelated suggestions). Public, like home.
  */
 export default function Search() {
   const theme = useTheme();
@@ -53,27 +58,40 @@ export default function Search() {
   const { q } = useLocalSearchParams<{ q?: string }>();
   const [query, setQuery] = useState(typeof q === 'string' ? q : '');
   const [soon, setSoon] = useState<LaunchService | null>(null);
+  const [allDishes, setAllDishes] = useState(false);
+  const [allShops, setAllShops] = useState(false);
   const debounced = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const results = useCatalogSearch(debounced);
   const recents = useSearchRecents();
   const restaurants = useRestaurants();
-  const popular = useMemo(() => popularTerms((restaurants.data ?? []).map((r) => r.cuisine)), [restaurants.data]);
-  // The start screen (D-24): what I opened before, and dishes for this hour from kitchens open now.
-  const viewed = useViewedRestaurants();
-  const dp = useMemo(() => daypart(appNow()), []);
-  const quiet = useSeason().quiet;
-  const dayPicks = usePicks(bandWords(dp));
+  const order = useMemo(() => doorOrder(appNow()), []);
   const typed = query.trim().length > 0;
   const data = typed ? results.data : undefined;
   const settling = typed && (debounced.trim() !== query.trim() || results.isFetching);
+  useEffect(() => {
+    setAllDishes(false);
+    setAllShops(false);
+  }, [debounced]);
 
   // What the words mean beyond food, from the folded text alone (no request).
   const intents = useMemo(() => (typed ? searchIntents(debounced) : []), [typed, debounced]);
   const meal = intents.find((i) => i.kind === 'meal');
+  const doors = useMemo(() => intents.flatMap((i) => (i.kind === 'door' ? [i] : [])), [intents]);
   const mealPicks = usePicks(meal?.kind === 'meal' ? meal.words : NO_WORDS, 6);
   const mealKitchens = useMemo(() => (meal?.kind === 'meal' ? kitchensForMeal(restaurants.data ?? [], meal.tags) : []), [meal, restaurants.data]);
   const mealDishes = meal ? (mealPicks.data ?? []) : [];
   const answeredBeyondFood = intents.some((i) => i.kind !== 'meal') || mealDishes.length > 0 || mealKitchens.length > 0;
+
+  // f4: a dish served by more than one open shop → the best three of those shops, each with its reason.
+  const dishPicks = useMemo(() => {
+    if (!data || doors.length > 0) return [];
+    const ids = new Set(data.dishes.filter((d) => d.restaurantOpen).map((d) => d.restaurantId));
+    if (ids.size < 2) return [];
+    return bestThree((restaurants.data ?? []).filter((r) => r.open && ids.has(r.id)));
+  }, [data, doors.length, restaurants.data]);
+  // Shops already shown under a door or in the three are not listed again by name.
+  const shown = new Set([...dishPicks.map((p) => p.shop.id), ...doors.flatMap((i) => bestThree(doorResultShops(restaurants.data ?? [], i.door, i.iceCream).open).map((p) => p.shop.id))]);
+  const shops = (data?.restaurants ?? []).filter((c) => !shown.has(c.id));
 
   const remember = () => {
     if (query.trim()) searchRecents.add(query);
@@ -82,14 +100,6 @@ export default function Search() {
     remember();
     router.push({ pathname: '/restaurant/[id]', params: { id: d.restaurantId, item: d.id } });
   };
-
-  const chips = (terms: readonly string[], testPrefix: string, centered = false) => (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2], justifyContent: centered ? 'center' : 'flex-start' }}>
-      {terms.map((term) => (
-        <Chip key={term} testID={`${testPrefix}-${term}`} role="button" label={term} onPress={() => setQuery(term)} />
-      ))}
-    </View>
-  );
 
   const catalog = !data && results.isError ? (
     <Card elevation={0} padding={4} testID="search-error">
@@ -126,30 +136,36 @@ export default function Search() {
         </View>
         <UnmetAsk key={debounced} query={debounced} />
         <Button testID="search-see-all" variant="ghost" icon="bag" label={t('search.see_all_restaurants')} onPress={() => router.push('/restaurants')} style={{ alignSelf: 'center' }} />
-        {popular.length ? <View style={{ alignSelf: 'stretch', alignItems: 'center' }}>{chips(popular.slice(0, 6), 'try', true)}</View> : null}
       </View>
     )
-  ) : (
+  ) : shops.length === 0 && data.dishes.length === 0 && dishPicks.length === 0 ? null : (
     <View style={{ gap: theme.space[6], opacity: settling ? 0.6 : 1 }} testID="search-results" accessibilityLiveRegion="polite">
       <Text variant="label" color="textMuted" tabular>
         {t(countKey('search.results_count', data.restaurants.length + data.dishes.length), { n: data.restaurants.length + data.dishes.length })}
       </Text>
-      {data.restaurants.length ? (
+      {dishPicks.length > 0 ? <BestThree picks={dishPicks} title={t('search.best_for', { query: debounced.trim() })} onOpen={remember} testID="search-best" /> : null}
+      {shops.length ? (
         <View style={{ gap: theme.space[3] }} testID="search-restaurants">
           <SectionHeader title={t('search.section_restaurants')} />
-          {data.restaurants.map((c) => (
+          {(allShops ? shops : shops.slice(0, SHOPS_SHOWN)).map((c) => (
             <RestaurantRow key={c.id} r={toSummary(c, false)} testID={`search-restaurant-${c.id}`} onOpen={remember} />
           ))}
+          {!allShops && shops.length > SHOPS_SHOWN ? (
+            <Button testID="search-more-shops" variant="ghost" label={t('search.more_shops', { n: shops.length - SHOPS_SHOWN })} onPress={() => setAllShops(true)} style={{ alignSelf: 'center' }} />
+          ) : null}
         </View>
       ) : null}
       {data.dishes.length ? (
         <View style={{ gap: theme.space[3] }} testID="search-dishes">
           <SectionHeader title={t('search.section_dishes')} />
           <Card elevation={0} padding={0}>
-            {data.dishes.map((d, i) => (
-              <DishResult key={d.id} d={d} divider={i < data.dishes.length - 1} onPress={() => openDish(d)} />
+            {(allDishes ? data.dishes : data.dishes.slice(0, DISHES_SHOWN)).map((d, i, list) => (
+              <DishResult key={d.id} d={d} divider={i < list.length - 1} onPress={() => openDish(d)} />
             ))}
           </Card>
+          {!allDishes && data.dishes.length > DISHES_SHOWN ? (
+            <Button testID="search-all-dishes" variant="ghost" label={t('search.all_dishes', { n: data.dishes.length })} onPress={() => setAllDishes(true)} style={{ alignSelf: 'center' }} />
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -191,43 +207,17 @@ export default function Search() {
               </Text>
             </View>
           )}
-          {viewed.length ? (
-            <View style={{ gap: theme.space[2] }} testID="search-viewed">
-              <SectionHeader title={t('search.viewed')} />
-              <Card elevation={0} padding={0}>
-                {viewed.map((r, i) => {
-                  const now = restaurants.data?.find((x) => x.id === r.id);
-                  return (
-                    <ListRow
-                      key={r.id}
-                      testID={`viewed-${i}`}
-                      leading={
-                        <View style={{ width: 40, height: 40, borderRadius: theme.radius.md, overflow: 'hidden' }}>
-                          <FoodArt motif={motifForCuisine(now?.cuisine ?? r.name)} />
-                        </View>
-                      }
-                      title={r.name}
-                      {...(now ? { subtitle: now.cuisine } : {})}
-                      chevron
-                      onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: r.id } })}
-                      divider={i < viewed.length - 1}
-                    />
-                  );
-                })}
-              </Card>
-            </View>
-          ) : null}
-          <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={dayPicks.data} testID="search-daypart" />
-          {popular.length ? (
-            <View style={{ gap: theme.space[3] }} testID="search-popular">
-              <Text variant="title">{t('search.popular')}</Text>
-              {chips(popular, 'popular')}
-            </View>
-          ) : null}
+          <View style={{ gap: theme.space[3] }}>
+            <SectionHeader big title={t('home.cravings')} />
+            <DoorChips order={order} testID="search-doors" />
+          </View>
         </View>
       ) : (
         <View style={{ gap: theme.space[6] }}>
           <ServiceResults intents={intents} onSoon={setSoon} onPick={remember} />
+          {doors.map((i) => (
+            <DoorResults key={i.door} door={i.door} iceCream={i.iceCream} all={restaurants.data ?? []} onOpen={remember} />
+          ))}
           {meal?.kind === 'meal' ? <MealResults meal={meal.meal} dishes={mealDishes} kitchens={mealKitchens} onDish={openDish} onKitchen={remember} /> : null}
           {catalog}
         </View>

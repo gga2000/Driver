@@ -1,3 +1,4 @@
+import { doorOf, onlyIceCream } from '@driver/contracts';
 import type { DishKind } from '@driver/ui';
 
 /**
@@ -11,15 +12,29 @@ export type Motif = DishKind;
 
 /** Name rules, first match wins (drinks before food words: «ليمون بالنعناع» is a drink, «لفة كبد» a wrap). */
 const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
-  [/چاي|شاي|قهوة|استكان/, 'tea'],
+  // Food doors (2026-10-07): coffee is a café cup, not the tea glass; ice cream before the sweets words.
+  // Their own pictures (idea o4) before the general coffee, juice and sweets words.
+  [/مثلج|آيس لاتيه|ايس لاتيه|آيسد|ايسد|فرابيه|فرابتشينو/, 'iced'],
+  [/قهوة عربية|قهوة عربي|قهوة مرة|قهوة مره|دلة/, 'dallah'],
+  [/قهوة|كوفي|لاتيه|كابتشينو|كابوتشينو|اسبريسو|إسبريسو|موكا|نسكافيه|نسكفي/, 'coffee'],
+  [/چاي|شاي|استكان/, 'tea'],
+  [/آيس كريم|ايس كريم|أيس كريم|ايسكريم|آيسكريم|دوندرمة|دندرمة|بوظة|جيلاتي|ميلك شيك/, 'icecream'],
+  [/رمان/, 'pomegranate'],
+  [/كوكتيل/, 'cocktail'],
+  [/موز بالحليب|موز وحليب|موز بحليب|حليب بالموز/, 'bananamilk'],
+  [/ليمون بالنعناع|ليمون ونعناع|ليمون نعناع|موهيتو|ليموناضة|لیمونادة|ليمونادة/, 'lemonade'],
+  [/بقلاوة|بقلاوه/, 'baklava'],
+  [/زلابية|زلابيا|زلابيه/, 'zalabia'],
+  [/كليچة|كليجة|كليچه|كليجه/, 'kleicha'],
+  [/كيك|كعكة|كعكه|تورتة|تورته/, 'cake'],
   [/ماي|مياه/, 'water'],
   [/لبن|شنينة|عيران/, 'laban'],
   [/بيبسي|ببسي|كولا|سفن|ميرندا|غازي/, 'can'],
-  [/عصير|ليمون|برتقال/, 'juice'],
+  [/عصير|ليمون|برتقال|رمان|موهيتو|كوكتيل|موز بالحليب/, 'juice'],
   [/فلافل/, 'falafel'],
   [/لفة|سندويش|ساندويج/, 'wrap'],
   [/شاورما|صاج/, 'shawarma'],
-  [/كنافة|زلابية|بقلاوة|حلو|كيك|مهلبي/, 'sweet'],
+  [/كنافة|زلابية|زلابيا|بقلاوة|حلو|كيك|مهلبي|كليچة|كليجة|بسبوسة/, 'sweet'],
   [/طرشي|مخلل|عمبة/, 'pickles'],
   // J4: the Iraqi dishes that now have their own drawing, before the general words they contain.
   [/باچة|باجة|پاچة|پاجة/, 'pacha'],
@@ -32,25 +47,37 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/كيلو|صينية|سفرة|مشكّل|مشكل/, 'tray'],
   [/وجبة كباب|صحن كباب/, 'plate'],
   [/شوربة|عدس|تشريب/, 'soup'],
-  [/تمن|برياني|قوزي|مقلوبة|مرق|قيمة/, 'rice'],
+  [/برياني/, 'biryani'],
+  [/تمن|قوزي|مقلوبة|مرق|قيمة/, 'rice'],
   [/سلطة|جاجيك|فتوش|تبولة/, 'salad'],
   [/كبد|معلاك|قلوب/, 'liver'],
   [/طماطة مشوية|طماطم مشوي/, 'salad'],
   [/دجاج|طاووق|فروج|مسحب/, 'chicken'],
   [/تكة|تكه/, 'tikka'],
   [/كباب|مشوي|شيش/, 'kebab'],
-  [/صمون|خبز|منقوشة|مناقيش|كاهي|عجين|قيمر|كيمر/, 'bread'],
+  [/بيض|مخلمة|كاهي|قيمر|كيمر|ريوك|ريوگ/, 'breakfast'],
+  [/منقوشة|مناقيش|لحم بعجين|فطيرة|فطاير/, 'manakish'],
+  [/صمون|خبز|عجين/, 'bread'],
 ];
 
 /** Menu-section fallbacks for names the rules don't know. */
 const BY_SECTION: ReadonlyArray<readonly [RegExp, Motif]> = [
+  [/قهوة/, 'coffee'],
+  [/چاي|شاي/, 'tea'],
+  [/آيس كريم|ايس كريم|ميلك شيك/, 'icecream'],
+  [/عصير|بارد/, 'juice'],
+  [/كليچة|كليجة/, 'kleicha'],
+  [/كيك/, 'cake'],
+  [/كنافة/, 'sweet'],
   [/مشروب/, 'can'],
   [/حلو/, 'sweet'],
   [/شاورما/, 'shawarma'],
   [/فلافل/, 'falafel'],
   [/مقبلات|سلط/, 'salad'],
   [/شوربة/, 'soup'],
-  [/خبز|معجنات|مناقيش/, 'bread'],
+  [/ريوك|ريوگ|فطور/, 'breakfast'],
+  [/معجنات|مناقيش/, 'manakish'],
+  [/خبز/, 'bread'],
   [/مشويات|لفات/, 'kebab'],
 ];
 
@@ -65,10 +92,12 @@ export function motifForDish(name: string, section?: string): Motif {
 
 /** Kitchen words on home's cuisine circles that no dish name uses. */
 const BY_CUISINE: ReadonlyArray<readonly [RegExp, Motif]> = [
-  [/فطور|ريوك|ريوگ/, 'tea'],
+  [/فطور|ريوك|ريوگ/, 'breakfast'],
+  [/قهوة|كافيه|كوفي/, 'coffee'],
+  [/آيس كريم|ايس كريم|دوندرمة/, 'icecream'],
   [/حلويات/, 'sweet'],
   [/مشويات/, 'kebab'],
-  [/معجنات/, 'bread'],
+  [/معجنات/, 'manakish'],
   [/عصائر/, 'juice'],
 ];
 
@@ -78,14 +107,32 @@ export function motifForCuisine(word: string): Motif {
   return motifForDish(word);
 }
 
-/** A kitchen's hero scene, from its cuisine tags. */
-export function motifForKitchen(tags: readonly string[]): Motif {
+/**
+ * A kitchen's picture (row, rail and menu hero alike), bugs b3/b4 of the food doors review: a café is a
+ * coffee cup, a juice bar a glass, a sweets shop its tray and an ice cream shop a cone, never the rice
+ * fallback. A restaurant shows the first word of its own cuisine line («كباب · تكة» → kebab), so two
+ * grill kitchens differ: «مشويات» is the mixed-grill tray, not another kebab plate. Tags decide when the
+ * line names nothing drawable.
+ */
+export function motifForKitchen(tags: readonly string[], cuisine?: string): Motif {
+  const door = doorOf(tags);
+  if (door === 'cafe') return 'coffee';
+  if (door === 'cold') return 'juice';
+  if (door === 'sweet') return onlyIceCream(tags) ? 'icecream' : 'sweet';
+  const first = cuisine?.split(/[·،,]/)[0]?.trim();
+  if (first) {
+    if (/مشويات|مشاوي/.test(first)) return 'tray';
+    const m = motifForCuisine(first);
+    if (m !== 'plate') return m;
+  }
   if (tags.includes('shawarma')) return 'shawarma';
   if (tags.includes('pacha')) return 'pacha';
-  if (tags.includes('breakfast')) return 'tea';
+  if (tags.includes('breakfast')) return 'breakfast';
   if (tags.includes('grill') || tags.includes('kebab')) return 'kebab';
   if (tags.includes('falafel')) return 'falafel';
-  return 'rice';
+  if (tags.includes('chicken')) return 'chicken';
+  if (tags.includes('rice') || tags.includes('stew')) return 'rice';
+  return 'plate';
 }
 
 export interface DishArt {
@@ -127,4 +174,17 @@ export function dishArt(rows: ReadonlyArray<{ id: string; name: string; category
     out.push(prev && sameDrawing(prev, art) ? { motif: art.motif, look: (art.look + 1) % ART_LOOKS } : art);
   }
   return out;
+}
+
+/** Hot or cold, for the marks on a café's drinks (food doors m5): «ساخن» / «بارد». Null = not a drink. */
+export type Temperature = 'hot' | 'cold';
+const HOT: ReadonlySet<Motif> = new Set(['tea', 'coffee', 'dallah']);
+const COLD: ReadonlySet<Motif> = new Set(['iced', 'juice', 'pomegranate', 'lemonade', 'bananamilk', 'cocktail', 'laban', 'can', 'water']);
+
+export function temperatureOf(name: string, section?: string): Temperature | null {
+  if (/مثلج|بارد|ثلج|آيس|ايس|فرابيه|فرابتشينو|سموذي|ميلك شيك/.test(name) && !/آيس كريم|ايس كريم/.test(name)) return 'cold';
+  const m = motifForDish(name, section);
+  if (HOT.has(m)) return 'hot';
+  if (COLD.has(m)) return 'cold';
+  return null;
 }

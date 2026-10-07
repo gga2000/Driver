@@ -288,7 +288,7 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
             <Card key={r.id} padding={0} style={{ overflow: 'hidden' }} testID={`suggest-${r.id}`}>
               <View style={{ flexDirection: 'row' }}>
                 <View style={{ width: 104 }}>
-                  <FoodArt motif={motifForKitchen(r.tags)} photoUrl={r.photoUrl} />
+                  <FoodArt motif={motifForKitchen(r.tags, r.cuisine)} photoUrl={r.photoUrl} />
                 </View>
                 <View style={{ flex: 1, padding: theme.space[3], gap: 4 }}>
                   <Text variant="bodyStrong">{r.name}</Text>

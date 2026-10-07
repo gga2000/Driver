@@ -171,6 +171,13 @@ export const NotifyTemplateId = z.enum([
   'garage_taxi_failed',
   'same_ride_offer',
   'same_ride_after_weekend',
+  'booked_ride_confirmed',
+  'booked_ride_unconfirmed',
+  'booked_ride_released',
+  'partner_booked_offer',
+  'partner_booked_favourite',
+  'partner_booked_reminder',
+  'partner_booked_cancelled',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -710,6 +717,68 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'same_ride',
     app: 'customer',
     push: { title: 'push.same_ride.title_weekend', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Review #28, the rider of a ride booked for later: «سايقك محجوز: حسين» when a driver confirms; at the
+  // deadline with nobody, a calm «نلگيلك سايق قبل وكتك»; when the confirmed one drops it. Good news or no
+  // news yet: held through quiet hours, never waking him.
+  booked_ride_confirmed: {
+    id: 'booked_ride_confirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_confirmed.title', body: 'push.booked_confirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  booked_ride_unconfirmed: {
+    id: 'booked_ride_unconfirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_unconfirmed.title', body: 'push.booked_unconfirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  booked_ride_released: {
+    id: 'booked_ride_released',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_released.title', body: 'push.booked_released.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Review #28, drivers: a booked ride open to confirm in «مشاوير باچر» (the favourite's own, or the best
+  // placed fitting drivers once it opens to all) — held through quiet hours like any nice news; the
+  // reminder an hour before and a cancellation of a job he holds go out at any hour (he committed to it).
+  partner_booked_offer: {
+    id: 'partner_booked_offer',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_offer.title', body: 'push.partner_booked_offer.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_favourite: {
+    id: 'partner_booked_favourite',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_favourite.title', body: 'push.partner_booked_favourite.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_reminder: {
+    id: 'partner_booked_reminder',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_reminder.title', body: 'push.partner_booked_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  partner_booked_cancelled: {
+    id: 'partner_booked_cancelled',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
     primary: ['push'],
     quietHours: 'send',
   },

@@ -1,7 +1,9 @@
 # CI
 
-`.github/workflows/ci.yml` runs one job, **verify**, on every pull request and on every push to `main`
-(plan `docs/plans/2026-10-02-milestone-2-platform-core.md`, Step 9). It runs against real service
+`.github/workflows/ci.yml` runs two jobs on every pull request and on every push to `main`; their names
+are the required checks. **`ci`** (job id `verify`; plan `docs/plans/2026-10-02-milestone-2-platform-core.md`,
+Step 9) is described first. **`e2e-postgres`**, the built API on Postgres, is
+[further down](#e2e-postgres-the-built-api-on-postgres). Both run against real service
 containers, the same images `docker-compose.yml` starts on a laptop:
 
 | Service  | Image                    | URL in CI                                                     |
@@ -13,7 +15,7 @@ containers, the same images `docker-compose.yml` starts on a laptop:
 The job sets `JWT_SECRET`, `JWT_KID` and `PHONE_HASH_PEPPER` to dummy values and `SMS_PROVIDER=fake`. No
 real secret is used anywhere in CI.
 
-## What the job does, in order
+## What `ci` does, in order
 
 | #   | Step              | Command                                                                                                                  | Fails when                                                        |
 | --- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -74,7 +76,7 @@ drivers moving.
 
 ## Reading a failure
 
-Open the PR's **Checks** tab, choose **CI / verify**, and expand the first red step. Everything after it is
+Open the PR's **Checks** tab, choose **CI / ci**, and expand the first red step. Everything after it is
 skipped.
 
 - **Install.** If the error mentions `ERR_PNPM_OUTDATED_LOCKFILE`, run `pnpm install` and commit
@@ -148,6 +150,77 @@ export PRISMA_SCHEMA_ENGINE_BINARY=/bin/true
 With these set, `pnpm db:migrate` and `pnpm db:drift` still exit 0 but **do nothing**, because the schema
 engine is `/bin/true`. Never set them in CI, and never trust a migration or drift result produced with
 them.
+
+## e2e-postgres: the built API on Postgres
+
+Everything above runs the services on in-memory repositories or repository by repository, so a foreign
+key or an aborted transaction that only Postgres enforces never shows (CRIT2-04). This job does: it
+migrates and seeds a fresh database (`SEED_ADMIN_PHONE=07700000099` adds an admin), builds the API,
+starts `apps/api/dist/main.js` with `NODE_ENV=test`, `LOG_FORMAT=json`, Postgres and Redis (stdout →
+`api.log`), and runs `node scripts/e2e/realdb-core.mjs`, a plain tRPC client that drives five flows, each
+as new people with its own `x-request-id` prefix:
+
+| Flow     | Prefix        | What it does                                                                                                                 |
+| -------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `signin` | `e2e-signin-` | `requestOtp` → `devLastOtp` (`SMS_PROVIDER=fake`) → `verifyOtp` → `me`                                                       |
+| `food`   | `e2e-food-`   | مطعم خالد (seeded) open all day via its new owner, `orders.quote` → `orders.place` (cash)                                    |
+| `sos`    | `e2e-sos-`    | emergency contact set, a taxi ride placed, `safety.sos`, `safety.status`                                                     |
+| `ride`   | `e2e-ride-`   | `pricing.quote` → `orders.place` with the quote id, as the app sends it                                                      |
+| `share`  | `e2e-share-`  | a ride, `tracking.createShareLink`, the admin forces it on a new driver (`dispatch.override`), he accepts, `tracking.shared` |
+
+The API stamps the request id on every log line of a call (`apps/api/src/shared/request-context.ts`),
+logs every failed Prisma query under the `Prisma` context (`shared/db/prisma-error-log.ts`), and tags
+background work with `outbox-<row id>` or `job-<queue>-<name>-<job id>`. After the flows the script waits
+for the outbox and the notification sends to make their first attempt, then collects, from the part
+of `api.log` written during the run and from the database:
+
+- `prisma`: a failed query; `error`: any `level: error` line (a tRPC 5xx, the outbox giving up);
+  `subscr`: "subscriber … failed" (an outbox retry);
+- `deliv`: `subscriber_deliveries` rows with `last_error` set or `attempts > 1`; `sends`:
+  `notify_deliveries` rows retried (`reason` `retry:…`) or `failed`.
+
+Each one is attributed to a flow by its request-id prefix or, for background work, by the flow's
+subject ids (people, orders, trips, incidents) found in the line or in the outbox / notify row it
+names. A flow **fails** on any attributed problem, an HTTP 5xx or an unexpected result.
+
+### The known-failures ratchet
+
+`scripts/e2e/known-failures.json` maps an issue id to the flow (or flows) it breaks today:
+
+```json
+{ "CRIT2-01": "sos", "CRIT2-02": "share", "LOAD-01": "ride", "LOAD-02": ["food", "share"] }
+```
+
+- a failing flow that is listed shows `known (<issues>)` and does not fail the job;
+- a failing flow that is not listed shows `FAIL`;
+- a listed flow that **passes** shows `FAIL: passes now — remove <issue> from known-failures.json`:
+  the PR that fixes it removes the entry, so the list only shrinks;
+- a problem no flow owns (the `(none)` row) fails the job, as does an entry naming an unknown flow.
+
+### Reading it
+
+The last lines of the step are a table, one row per flow (`checks`, `unexp`ected results, `5xx`, then
+the problem counts above, then the verdict), then each failing flow's problems, then
+`realdb-core: GREEN|RED`. The full `api.log` is the `e2e-postgres-api-log` artifact on failure; search it
+for the request id shown in brackets (`[e2e-sos-<run>-8]`) to see that call's lines.
+
+### Running it locally
+
+With the services up and the variables exported as in "Running the same thing locally" above:
+
+```bash
+SEED_ADMIN_PHONE=07700000099 pnpm db:seed
+pnpm turbo run build --filter='./packages/*' --filter=@driver/api
+NODE_ENV=test LOG_FORMAT=json PORT=3999 SMS_PROVIDER=fake \
+  OTP_RATE_LIMIT_PER_IP_HOUR=10000 OTP_RATE_LIMIT_PER_DEVICE_HOUR=10000 \
+  node apps/api/dist/main.js >> api.log 2>&1 &
+E2E_API_LOG=api.log node scripts/e2e/realdb-core.mjs     # FLOWS=sos,share to run some only
+kill %1
+```
+
+Each run makes new people, so it can be repeated on the same database; problems about rows an earlier
+run left behind (its retries) are counted as "from an earlier run" and not judged. Start the API with
+`>>` (append), not `>`, if anything else writes to the same log.
 
 ## Deploy and backup workflows
 

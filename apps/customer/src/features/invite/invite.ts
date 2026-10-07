@@ -24,6 +24,8 @@ export function pointsWorthIqd(rule: InviteRule): number {
  * friend on the landing page reads the same rule from his side («إلك و200 لصديقك»، «ثاني طلب كاش إلك»).
  */
 export function ruleLines(rule: InviteRule, side: 'inviter' | 'friend' = 'inviter'): Copy[] {
+  // THIN-18: while the invite reward is switched off on the server, no line promises points.
+  if (!rule.rewardsOn) return [];
   const friend = side === 'friend';
   const second = rule.unlockOnOrder === 2;
   const lines: Copy[] = [
@@ -39,6 +41,7 @@ export function ruleLines(rule: InviteRule, side: 'inviter' | 'friend' = 'invite
 
 /** The WhatsApp text in the sender's name: a treat, not a recruitment pitch. */
 export function inviteMessage(input: { url: string; code: string; rule: InviteRule }): Copy {
+  if (!input.rule.rewardsOn) return { key: 'invite.message_plain', params: { url: input.url, code: input.code } };
   return { key: 'invite.message', params: { url: input.url, code: input.code, points: amountParam(input.rule.pointsPerSide), amount: amountParam(pointsWorthIqd(input.rule)) } };
 }
 

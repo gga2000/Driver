@@ -1,4 +1,4 @@
-import { tenderOptions, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
+import { jobOrder, tenderOptions, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
 import type { ActionKind, DriverAction, DriverRun, DriverTrip, ReplayRecord, SimContext } from '../context.js';
 import { CITY } from '../context.js';
@@ -201,7 +201,15 @@ function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
   };
   const here = pickups.find(readyHere);
   if (here) return here;
-  if (pickups.length > 0) return pickups.reduce((first, o) => (o.trip.acceptedT < first.trip.acceptedT || (o.trip.acceptedT === first.trip.acceptedT && o.stop.seq < first.stop.seq) ? o : first));
+  if (pickups.length > 0) {
+    // The jobs in the order the server says he works them (`jobOrder`, the route batching checked).
+    const order = jobOrder([...d.trips.values()].map((t) => t.view)).map((t) => t.id);
+    return pickups.reduce((first, o) => {
+      const a = order.indexOf(o.trip.tripId);
+      const b = order.indexOf(first.trip.tripId);
+      return a < b || (a === b && o.stop.seq < first.stop.seq) ? o : first;
+    });
+  }
   return open.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
 }
 
