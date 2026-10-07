@@ -77,8 +77,9 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   // «أول مرة» (joy g8): the first meal delivered or the first tuktuk ride, once in a lifetime.
   const firsts = useOrderFirsts();
   const first = firstKindForOrder(view.order.id, firsts.data);
-  // Ride idea g2: the first night ride and the 10th, 25th… ride earn a sticker from the pack.
-  const sticker = ride ? rideStickerFor(view.order.id, firsts.data) : null;
+  // Ride idea g2: the first night ride and the 10th, 25th… ride earn a sticker from the pack. One moment
+  // per arrival: on a ride that is also a «أول مرة», the first wins (the sticker stays in the pack).
+  const sticker = ride && !first ? rideStickerFor(view.order.id, firsts.data) : null;
   // On a quiet day (mourning, set in the Console) the moment is calm: no burst, no bounce, no success buzz.
   const celebrate = today.celebrations && !theme.reduceMotion;
   useEffect(() => {

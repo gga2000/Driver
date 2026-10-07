@@ -1479,6 +1479,7 @@ const rajaa = await (async () => {
 //   POST /demo/ride?acceptMs=0[&nudgeAcceptMs=4000]  hold every offer: the rider watches the drivers it was
 //                                     sent to (dispatch.myRideOffers: sent → شافه after 1.5 s), and a driver he
 //                                     nudges («نبّهه») accepts nudgeAcceptMs after the nudge (0 = never)
+//   (/demo/ride/accept re-sends the ride to the nearest free driver when every held offer ran out)
 //   POST /demo/ride/nudges?orderId=…  the drivers sent that ride and which were nudged (what each one's
 //                                     partner app shows as «راكب ينتظرك»)
 //   POST /demo/ride/night?orderId=…   the ride gets a night ride's 4-digit trip code (s1) by day: the live
@@ -1663,6 +1664,17 @@ const rajaa = await (async () => {
         for (const d of await ensureDrivers()) {
           const open = await dispatch.openOffer(d.id, 'aziziyah');
           if (open && open.request.tripId === trip.id) return json(res, 200, { orderId: await acceptOffer(d, open.offer.id) });
+        }
+        // Every driver it was sent to let it run out (offers held for the shots): the dispatcher sends it
+        // again to the nearest free driver of that vehicle, the way the Console's manual assign does, and he takes it.
+        const search = await dispatch.searchOf(trip.id);
+        if (search) {
+          const want = search.request.vertical === 'tuktuk' ? 'tuktuk' : 'car';
+          const free = drivers.filter((d) => !d.tripId && d.def.vehicle === want).sort((a, b) => metres(a.pos, trip.stops[0].target) - metres(b.pos, trip.stops[0].target))[0];
+          if (free) {
+            const { offerId } = await dispatch.override({ personId: 'system:demo', sessionId: 'demo' }, { tripId: trip.id, driverId: free.id, reason: 'demo: held offers ran out', force: true });
+            return json(res, 200, { orderId: await acceptOffer(free, offerId) });
+          }
         }
         return json(res, 409, { error: 'no open offer for that ride yet' });
       }

@@ -1504,9 +1504,14 @@ async function rideShots() {
   await shot('ride-driver-here');
   await nightShot(`/order/${orderId}`, 'ride-driver-here-night', 'driver-here-ring');
 
-  // Ride step 3 (s1): the same ride as if placed at night — «رمز المشوار» in the collapsed sheet.
+  // Ride step 3 (s1): the same ride as if placed at night — «رمز المشوار» on the arrived card, and in the
+  // collapsed sheet once that card is closed.
   await demoPost(`/demo/ride/night?orderId=${orderId}`);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('driver-here').waitFor({ timeout: 15_000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
+  await shot('ride-driver-here-code');
+  await byTestId('driver-here-close').click().catch(() => errors.push('arrived card would not close'));
   if (await byTestId('ride-trip-code').waitFor({ timeout: 15_000 }).then(() => true, () => false)) {
     await page.waitForTimeout(1500);
     await shot('ride-trip-code');
@@ -1536,7 +1541,11 @@ async function rideShots() {
     const patch = (v) => {
       if (Array.isArray(v)) return v.forEach(patch);
       if (!v || typeof v !== 'object') return;
-      if ('tuktukOrderId' in v && 'rideMilestone' in v) v.rideMilestone = { orderId, count: 10 };
+      if ('tuktukOrderId' in v && 'rideMilestone' in v) {
+        v.rideMilestone = { orderId, count: 10 };
+        // His 10th ride can't also be his first tuktuk: that moment would win over the sticker.
+        if (v.tuktukOrderId === orderId) v.tuktukOrderId = null;
+      }
       Object.values(v).forEach(patch);
     };
     const body = await res.json().catch(() => null);

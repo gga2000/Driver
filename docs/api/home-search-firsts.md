@@ -39,4 +39,5 @@ taxi or tuktuk ride **booked** at night (Baghdad 21:00–05:59, `isNightAt`), an
 `{ orderId, count }` is the latest finished ride whose count is in `RIDE_STICKER_MILESTONES` (10, 25,
 50, 100), both by when the rides reached the person (`ride-milestones.ts`). That ride's arrival screen
 offers a sticker from the pack — «وصلت بالسلامة» for the night ride, «جاي بالطريق» for a milestone
-(a milestone wins when one ride is both) — with «أرسله» to send it on WhatsApp. Never on a quiet day.
+(a milestone wins when one ride is both; a «أول مرة» on the same ride wins over both, one moment per
+arrival) — with «أرسله» to send it on WhatsApp. Never on a quiet day.
