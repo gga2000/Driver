@@ -9,6 +9,8 @@ import type { Actor } from './identity-io.js';
  * a month for the inviter. The apps only say these numbers; the ledger posts them.
  */
 export const InviteRule = z.object({
+  /** `MoneyRules.referral.enabled`: false = invites pay nothing yet, so the apps show no reward. */
+  rewardsOn: z.boolean(),
   pointsPerSide: z.number().int().positive(),
   /** What one point is worth when spent (100 points = 1,000 دينار → 10). */
   pointValueIqd: Iqd.positive(),
@@ -90,6 +92,8 @@ export type ClaimInviteOutput = z.infer<typeof ClaimInviteOutput>;
 
 export interface ReferralsPort {
   mine(actor: Actor): Promise<InviteView>;
+  /** The rule alone (public, no code is made): lets a screen hide the reward while it is switched off. */
+  rule(): Promise<InviteRule>;
   preview(input: InvitePreviewInput): Promise<InvitePreview>;
   /**
    * The friend accepts: once per person, never his own code, and only before his first order
