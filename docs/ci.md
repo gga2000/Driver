@@ -19,6 +19,7 @@ real secret is used anywhere in CI.
 
 | #   | Step              | Command                                                                                                                  | Fails when                                                        |
 | --- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| 0   | Migration times   | `node scripts/ci/check-migrations.mjs --base origin/<base>` (pull requests only)                                       | a new migration reuses a timestamp or is older than the base's newest ([below](#migration-timestamps)) |
 | 1   | Install           | `pnpm install --frozen-lockfile` (pnpm via corepack, store cached on `pnpm-lock.yaml`)                                   | the lockfile is out of date                                       |
 | 2   | Build packages    | `pnpm turbo run build --filter='./packages/*'`                                                                           | `prisma generate` or `tsc` fails in a package                     |
 | 3   | Migrate           | `pnpm db:migrate` (`prisma migrate deploy`)                                                                              | a migration's SQL fails on a fresh PostGIS database               |
@@ -27,7 +28,7 @@ real secret is used anywhere in CI.
 | 6   | Seed              | `pnpm db:seed`                                                                                                           | the seed throws (constraint, missing city, …)                     |
 | 7   | Lint              | `pnpm lint`                                                                                                              | ESLint, including the module-boundary and vault-isolation rules   |
 | 8   | Typecheck         | `pnpm typecheck`                                                                                                         | `tsc --noEmit` / `prisma validate`                                |
-| 9   | Unit tests        | `pnpm test`                                                                                                              | any unit test                                                     |
+| 9   | Unit tests        | `pnpm test` (turbo, then `pnpm test:scripts`: the node tests in `scripts/ci/` and `scripts/`)                           | any unit test, including the locale key-parity test               |
 | 10  | Integration tests | `pnpm test:integration`                                                                                                  | any integration test, **or** `DATABASE_URL` / `REDIS_URL` missing |
 | 11  | Build apps        | `pnpm turbo run build --filter=@driver/api --filter=@driver/console`                                                     | API `tsc` or `next build`                                         |
 | 12  | API smoke         | starts `apps/api/dist/main.js` on :3999, curls `/trpc/health.ping`                                                       | no answer in 20 s, or `db` / `redis` not `"ok"`                   |
@@ -221,6 +222,60 @@ kill %1
 Each run makes new people, so it can be repeated on the same database; problems about rows an earlier
 run left behind (its retries) are counted as "from an earlier run" and not judged. Start the API with
 `>>` (append), not `>`, if anything else writes to the same log.
+
+## Merge safety: review-gate, freeze, migrations, locale files
+
+### review-gate
+
+A third required check, in its own workflow (`.github/workflows/review-gate.yml`, logic in
+`scripts/ci/review-gate.mjs`). Every thread pushes as the same GitHub user, so GitHub's own "approving
+review" can never come from a different person; this label stands in for it.
+
+- A PR that changes money modules (`apps/api/src/modules/{ledger,orders,routes,topups,referrals}`),
+  sign-in (`modules/identity`), any migration, `schema.prisma`, `modules/notify/providers` or
+  `src/trpc/trpc.module.ts` (or the gate's own files) needs a label **`reviewed:<head sha>`**: the full
+  commit id of the PR's current head, or its first 7 or more characters.
+- **Only the reviewer thread sets that label**, after reviewing that exact commit; the author never
+  does. A new push changes the head, so the old label stops matching and the check goes red until
+  someone reviews again and adds a new label. Old `reviewed:` labels can stay; only the current head counts.
+- Adding or removing a label re-runs the check, so there is no need to push again.
+- A failure lists the files that need review and the exact label to add.
+
+### Freeze
+
+A PR labelled **`freeze`** may only gain commits whose message starts with `fix:`, `test:` or
+`rebase:` (a scope like `fix(api):` is fine); merge commits ("Merge …") are allowed. The freeze time
+comes from a label `freeze:<ISO time>` (for example `freeze:2026-10-07T20:27:00Z`), or else from
+`scripts/ci/freeze.json`, keyed by PR number. A commit counts as "after the freeze" by its author
+date, so rebasing older work does not trip it. A `freeze` label with no time anywhere fails.
+
+### Migration timestamps
+
+Before creating a migration, add a line to [`docs/launch/migrations.md`](launch/migrations.md) with a
+timestamp later than every line there. Step 0 of `ci` then fails a pull request when a migration
+folder it **adds** shares its 14-digit timestamp with any other migration, or is older than the newest
+migration already on the base branch. Older migrations that already share a timestamp on `main` are
+history and are not reported. The fix is always the same: rename the new folder to a later timestamp
+and update its line in the ledger. On a push to `main` the step is skipped. Locally:
+`node scripts/ci/check-migrations.mjs` (against `origin/main`, or `--base <ref>`).
+
+### Locale files
+
+`packages/i18n/src/locales/ar-IQ.json` and `en.json` are edited by many PRs at once, so git merges
+them with a JSON-aware driver (`.gitattributes` → `scripts/i18n-merge.mjs`) instead of line by line:
+
+- it keeps every key either side added, and drops a key one side deleted while the other left it alone;
+- when both sides changed the same key to different values (or one edited what the other deleted) it
+  stops, lists the keys, and leaves `<<<<<<<` markers around them to resolve by hand;
+- it keeps the files' existing order. They are grouped by feature, **not sorted**, so the plan's
+  "sorted" check is skipped. Our side's order is kept, and each key only the other side added goes
+  right after the key it follows on that side, so a merge adds only the lines each side added.
+
+Git uses the driver only where it is configured. The repo's SessionStart hook (`.claude/settings.json`)
+sets it up in every Claude session; by hand:
+`git config merge.i18n-json.driver "node scripts/i18n-merge.mjs %O %A %B"`. GitHub's merge button does
+not run it, so rebase locally when locale files conflict. Key parity between the two files is checked by
+the existing test in `packages/i18n/src/index.test.ts`, part of `pnpm test`.
 
 ## Deploy and backup workflows
 

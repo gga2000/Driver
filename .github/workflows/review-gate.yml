@@ -1,0 +1,38 @@
+# review-gate: a required check. A PR that touches money, sign-in, vault, migrations, notify
+# providers or trpc.module.ts needs the label `reviewed:<head sha>` from the reviewer thread, and a PR
+# labelled `freeze` may only gain fix:/test:/rebase: commits. Rules and how to read a failure:
+# docs/ci.md § review-gate. Logic: scripts/ci/review-gate.mjs.
+name: review-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled, reopened]
+
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  review-gate:
+    name: review-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Review label and freeze rules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/review-gate.mjs
