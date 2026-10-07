@@ -117,14 +117,14 @@ launch date if it slips (launch plan §9.1); the dates are in `docs/launch/can-d
 | The 7 test phones (plan 6.2) | Phone tests of push, location and the apps | First phone session Mon 26 Oct |
 | GitHub branch protection on `main` (D-17) | Every gate's checks are enforced by it | Before the build cut, Fri 13 Nov |
 
-**The 15 money questions M-1 … M-15** (launch plan §5.1, decision card §5.0). Each money rule stays
+**The money questions M-1 … M-15** (launch plan §5.1, decision card §5.0). Each money rule stays
 **switched off** until Ali answers it; the code is built behind its switch. The ones that gate the
 closed test or launch: M-1 dispute outcomes, M-2 free cancel when we fail, M-3 unpaid cancel fees,
 M-4 cash-order caps, M-5 invite rewards (paying today without approval), M-6 wallet balance on
 deletion, M-7 closed-loop wallet, M-8 household wallet hidden, M-10 courier lost the food, M-14 no
-courier on his own order, M-15 driver-cancel credit (500 دينار to the customer's wallet, taken from
-the driver; recommended yes) (all by Mon 2 Nov). After launch: M-12, M-13 (D+14). Before seats open:
-M-9, M-11.
+courier on his own order (all by Mon 2 Nov). After launch: M-12, M-13 (D+14). Before seats open:
+M-9, M-11. **M-15 decided by Ali on 2026-10-07: yes**: when the driver cancels, the rider gets 500
+دينار in the wallet, taken from the driver.
 
 ## 6. Small known gaps, fix when convenient
 
