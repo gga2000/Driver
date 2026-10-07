@@ -975,6 +975,9 @@ export type RajaaDriverProfile = z.infer<typeof RajaaDriverProfile>;
 export const DriverProfileInput = z.object({ departureId: z.string().min(1) });
 export type DriverProfileInput = z.infer<typeof DriverProfileInput>;
 
+/** Who reads and hides riders' written reviews (Console «كلام الركاب»). */
+export const REVIEW_MODERATION_ROLES = ['support', 'admin'] as const;
+
 /** Why ops hid a review (Console). */
 export const ReviewHideReason = z.enum(['rude', 'personal_info', 'not_about_trip', 'untrue']);
 export type ReviewHideReason = z.infer<typeof ReviewHideReason>;
@@ -984,8 +987,8 @@ export const ReviewsOpsInput = z.object({
   /** Only hidden ones, only shown ones, or both (default). */
   hidden: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
-  /** Older than this (paging). */
-  before: z.coerce.date().optional(),
+  /** Paging: reviews written before this (the last row's `at`); tRPC's infinite-query cursor. */
+  cursor: z.coerce.date().nullish(),
 });
 export type ReviewsOpsInput = z.input<typeof ReviewsOpsInput>;
 

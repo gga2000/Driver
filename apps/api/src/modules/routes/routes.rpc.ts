@@ -712,7 +712,7 @@ export class RoutesRpc implements RoutesPort {
    * logged vault read, purpose `review_moderation`) and the rider's id — never his name or number.
    */
   async reviews(actor: Actor, input: In<'reviews'>): Promise<ReviewOpsView[]> {
-    const rows = await this.repo.reviews({ limit: input.limit, ...(input.hidden === undefined ? {} : { hidden: input.hidden }), ...(input.before ? { before: input.before } : {}) });
+    const rows = await this.repo.reviews({ limit: input.limit, ...(input.hidden === undefined ? {} : { hidden: input.hidden }), ...(input.cursor ? { before: input.cursor } : {}) });
     return this.reviewViews(actor, rows);
   }
 

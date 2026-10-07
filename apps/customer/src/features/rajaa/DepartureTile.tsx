@@ -101,13 +101,16 @@ export function DepartureTile({
                 <StatusPill testID={`departure-rode-${dep.id}`} size="sm" tone="success" icon="check" label={rode} />
               ) : null}
             </View>
-            {/* His record (x16) before the car: «4.9 · 120 سفرة · صالون · النترا». */}
+            {/* His record (x16) on its own line, «★ 4.9 · 120 سفرة», then the car, so neither gets cut. */}
             <View testID={`departure-record-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
               {record?.rating ? <Icon name="star" size={12} color="accent" filled fillColor="accent" /> : null}
               <Text variant="caption" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
-                {[record?.rating, record?.text, vehicleDesc(t, dep.vehicle)].filter(Boolean).join(' · ')}
+                {[record?.rating, record?.text].filter(Boolean).join(' · ')}
               </Text>
             </View>
+            <Text variant="caption" color="textMuted" numberOfLines={1}>
+              {vehicleDesc(t, dep.vehicle)}
+            </Text>
           </View>
           <PlateChip plate={dep.vehicle.plate} accessibilityLabel={t('driver.plate')} />
         </View>

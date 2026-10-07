@@ -19,7 +19,7 @@
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
 //   - POST /demo/history?personId=…                                 طلباتي: three past delivered orders
 //   - POST /demo/usuals?personId=…, /demo/pot?key=…&item=…             joy J7a: usuals, «غدا الجمعة», «قدر اليوم» (pots + stories seeded)
-//   - POST /demo/rajaa/claim|offers|topup?personId=…                 الرجعة boards (seeded at start)
+//   - POST /demo/rajaa/claim|offers|topup|rode?personId=…            الرجعة boards (seeded at start; rode = «سافرت وياه قبل»)
 //   - POST /demo/account?personId=…                                  places, wallet, household
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride, /demo/chat/clock   chat + share-trip
@@ -769,12 +769,121 @@ const rajaa = await (async () => {
   // A listed model draws the driver's own car under the seats (Ali, 2026-10-07); anything else is `other` by name.
   const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, ...demoModel(model), color });
 
+  // ── The drivers' records (x12–x17): finished runs back-dated over the past months, rated by their
+  // riders, some with a line. Each run goes through the real service (announce → book → check in →
+  // depart → arrive → rate); only the dates are moved back afterwards (in-memory repository only).
+  const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+  const routesRepo = app.get(ROUTES_REPOSITORY);
+  const DAY = 86_400_000;
+  const shiftDates = (o, ms, keys) => {
+    for (const k of keys) if (o?.[k] instanceof Date) o[k] = new Date(o[k].getTime() - ms);
+  };
+  /** One finished run `daysAgo`; `lateMin` moves his garage check-in after the announced time. */
+  async function pastRun(driverId, { daysAgo, garageId, corridorId = 'aziziyah_baghdad', vehicle, groups, walkUps, walkUpAs = 'rijal', lateMin = 0 }) {
+    const g = deps.garage(garageId);
+    const dep = await deps.announce(driverId, { garageId, corridorId, departAt: new Date(Date.now() - 4 * MIN), latestDepartureAt: new Date(Date.now() + 26 * MIN), vehicle, familyOnly: false });
+    const booked = [];
+    for (const grp of groups) {
+      const held = await deps.hold(grp.rider ?? rider(), { departureId: dep.id, selection: { kind: 'seats', seatIds: grp.seats }, travellingAs: grp.as, pickup: { kind: 'garage' }, largeBags: false });
+      booked.push({ grp, b: await deps.book(held.riderId, held.id, 'cash') });
+    }
+    for (const seatId of walkUps) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: walkUpAs });
+    await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+    await deps.driverPosition(driverId, dep.id, { lat: g.lat, lng: g.lng });
+    for (const { b } of booked) await deps.checkIn(driverId, dep.id, b.pin);
+    await deps.depart(driverId, dep.id);
+    await deps.arrive(driverId, dep.id);
+    for (const { grp, b } of booked) if (grp.stars) await deps.rate(b.riderId, b.id, { stars: grp.stars, tags: grp.tags ?? [], ...(grp.text ? { comment: grp.text } : {}) });
+    const ms = daysAgo * DAY;
+    const d = routesRepo.departures?.get(dep.id);
+    if (d) {
+      shiftDates(d, ms, ['departAt', 'latestDepartureAt', 'announcedAt', 'boardingAt', 'departedAt', 'arrivedAt', 'closedAt', 'createdAt', 'selfieAt']);
+      if (d.driverCheckIn) d.driverCheckIn = { ...d.driverCheckIn, at: new Date(d.departAt.getTime() + lateMin * MIN) };
+      d.trail = [];
+      d.lastPosition = null;
+    }
+    for (const { b } of booked) {
+      const r = routesRepo.bookings?.get(b.id);
+      if (!r) continue;
+      shiftDates(r, ms, ['createdAt', 'bookedAt', 'checkedInAt', 'completedAt', 'heldUntil']);
+      if (r.rating) r.rating = { ...r.rating, at: new Date(r.rating.at.getTime() - ms) };
+      if (r.review) r.review = { ...r.review, at: new Date(r.review.at.getTime() - ms) };
+    }
+    return dep;
+  }
+  const GOOD = [['on_time', 'calm_driving'], ['clean_car', 'respectful'], ['on_time', 'respectful', 'clean_car'], ['calm_driving'], ['on_time']];
+  const ALI_LINES = [
+    'سايق محترم وسياقته هادئة، وصلنا قبل الوقت',
+    'السيارة نظيفة ومبردة، والله ما حسينا بالطريق',
+    'ينتظر الراكب وما يستعجل، الله يحفظه',
+    'شغّل القرآن طول الطريق وكان هادئ',
+    'ساعدني بالجناط ونزلني يم الكراج بالضبط',
+    'أفضل سايق للنهضة، كل مرة أحجز وياه',
+    'بس تأخر شوية بالسيطرة، مو ذنبه',
+    'سيارة جديدة ومريحة',
+  ];
+  // علي حسن (the النترا on the board): 24 runs, two of three riders rate each, 8 lines → «سايق مميز».
+  for (let i = 0; i < 24; i += 1) {
+    const daysAgo = 3 + i * 6;
+    const stars = i === 6 || i % 5 === 2 ? 4 : 5;
+    await pastRun(D.drv_7K2Q, {
+      daysAgo,
+      garageId: 'mp_garage_nahdha',
+      vehicle: saloon('12345 بغداد', 'النترا', 'بيضاء'),
+      lateMin: i === 6 ? 14 : 0,
+      groups: [
+        { seats: ['back_left'], as: 'rijal', stars, tags: GOOD[i % GOOD.length], ...(i % 3 === 0 && ALI_LINES[i / 3] ? { text: ALI_LINES[i / 3] } : {}) },
+        { seats: ['back_right'], as: 'rijal', stars: 5, tags: GOOD[(i + 2) % GOOD.length] },
+        { seats: ['front'], as: 'rijal' },
+      ],
+      walkUps: ['back_middle'],
+    });
+  }
+  // كرار عادل (the جمسي): families and women in the middle and back rows → «العوائل ترتاحله».
+  for (let i = 0; i < 6; i += 1) {
+    await pastRun(D.drv_4M9T, {
+      daysAgo: 5 + i * 9,
+      garageId: 'mp_garage_nahdha',
+      vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', modelKey: 'gmc', color: 'رصاصي' },
+      groups: [
+        { seats: ['middle_left', 'middle_middle', 'middle_right'], as: 'aila', stars: 5, tags: ['respectful', 'calm_driving'], ...(i === 0 ? { text: 'كنا عائلة ويا أطفال، صبر علينا ووقف وين ما ردنا' } : {}) },
+        { seats: ['rear_left', 'rear_middle', 'rear_right'], as: 'nisa', stars: i === 3 ? 4 : 5, tags: ['clean_car', 'respectful'], ...(i === 2 ? { text: 'محترم كلش، نرتاح نسافر وياه' } : {}) },
+      ],
+      walkUps: ['front'],
+    });
+  }
+  // مرتضى سالم (the النترا from البوابة 1): a few runs, a mixed record, no badge yet.
+  for (let i = 0; i < 4; i += 1) {
+    await pastRun(D.drv_5R1D, {
+      daysAgo: 4 + i * 11,
+      garageId: 'mp_garage_bab1',
+      vehicle: saloon('51234 واسط', 'النترا', 'بيضاء'),
+      lateMin: i === 1 ? 12 : 0,
+      groups: [
+        { seats: ['back_left'], as: 'rijal', stars: i === 1 ? 3 : i === 0 ? 4 : 5, tags: i === 1 ? ['late'] : ['on_time', 'clean_car'], ...(i === 0 ? { text: 'زين، بس الأغاني صوتها عالي' } : {}) },
+        { seats: ['back_right'], as: 'rijal', stars: 4, tags: ['respectful'] },
+      ],
+      walkUps: ['front', 'back_middle'],
+    });
+  }
+  // مصطفى جاسم (the سوناتا): one run, two ratings → «جديد» until a third.
+  await pastRun(D.drv_2X8P, {
+    daysAgo: 2,
+    garageId: 'mp_garage_nahdha',
+    vehicle: saloon('77821 بغداد', 'سوناتا', 'فضية'),
+    groups: [
+      { seats: ['back_left'], as: 'rijal', stars: 5, tags: ['on_time'] },
+      { seats: ['back_right'], as: 'rijal', stars: 5, tags: ['calm_driving'] },
+    ],
+    walkUps: ['front', 'back_middle'],
+  });
+
   // Baghdad side — كراج النهضة → العزيزية.
-  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: saloon('12345 بغداد', 'النترا', 'بيضاء') });
+  const d1 = await announce(D.drv_7K2Q, { garageId: 'mp_garage_nahdha', inMin: 20, latestMin: 40, vehicle: { ...saloon('12345 بغداد', 'النترا', 'بيضاء'), noSmoking: true } });
   await seat(d1, ['front'], 'rijal');
   await seat(d1, ['back_left'], 'rijal');
   await seat(d1, ['back_right'], 'rijal');
-  const d2 = await announce(D.drv_4M9T, { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', modelKey: 'gmc', color: 'رصاصي' } });
+  const d2 = await announce(D.drv_4M9T, { garageId: 'mp_garage_nahdha', inMin: 50, latestMin: 60, vehicle: { kind: 'van', layout: 7, plate: '45678 بغداد', modelKey: 'gmc', color: 'رصاصي', bigBags: true } });
   await seat(d2, ['middle_left', 'middle_middle'], 'nisa');
   await seat(d2, ['rear_left'], 'rijal');
   await deps.markWalkUp(D.drv_4M9T, d2.id, { seatId: 'rear_right', travellingAs: 'rijal' });
@@ -937,6 +1046,21 @@ const rajaa = await (async () => {
       await deps.depart(driverId, dep.id);
       await deps.arrive(driverId, dep.id);
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/rode?personId=… — «سافرت وياه قبل» (x17): two of علي حسن's past runs become this
+  // person's (the front seat nobody rated), so his tile, seat sheet and profile say they rode with him.
+  app.use('/demo/rajaa/rode', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/rode?personId=…' });
+      const aliRuns = new Set([...routesRepo.departures.values()].filter((d) => d.driverId === D.drv_7K2Q && ['arrived', 'closed'].includes(d.state)).map((d) => d.id));
+      const seats = [...routesRepo.bookings.values()].filter((b) => aliRuns.has(b.departureId) && b.state === 'completed' && !b.rating && b.seatIds.includes('front'));
+      for (const b of seats.slice(0, 2)) b.riderId = personId;
+      json(res, 200, { rides: Math.min(2, seats.length) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

@@ -47,6 +47,7 @@ import {
   RajaaDriverProfile,
   DriverProfileInput,
   ReviewsOpsInput,
+  REVIEW_MODERATION_ROLES,
   ReviewOpsView,
   HideReviewInput,
   UnhideReviewInput,
@@ -60,8 +61,6 @@ import { protectedProcedure, router } from '../trpc.js';
 export const INTERCITY_DRIVER_ROLES: readonly RoleKind[] = ['intercity_driver'];
 /** Ops roles that watch garages and act on any departure. */
 export const INTERCITY_OPS_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
-/** Who reads and hides riders' written reviews (Console «كلام الركاب»). */
-export const REVIEW_MODERATION_ROLES: readonly RoleKind[] = ['support', 'admin'];
 
 /**
  * الرجعة (customer spec §2): garages, departures, seats, the demand board and the request board.

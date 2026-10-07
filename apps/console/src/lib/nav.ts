@@ -1,4 +1,4 @@
-import { PICKUP_SPOT_CONSOLE_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -26,6 +26,7 @@ export type IconName =
   | 'wall'
   | 'zones'
   | 'stores'
+  | 'reviews'
   | 'safety'
   | 'system';
 
@@ -65,6 +66,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      // What riders write about الرجعة drivers (x14, Ali 2026-10-07): support and admins hide a bad line.
+      { href: '/reviews', key: 'console.nav_reviews', icon: 'reviews', roles: REVIEW_MODERATION_ROLES, jump: 'v' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',

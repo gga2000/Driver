@@ -107,7 +107,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -129,7 +129,8 @@ const fullShot = async (name) => {
   if (!wanted(name)) return;
   const h = await page.evaluate(() => {
     let max = document.documentElement.scrollHeight;
-    for (const el of document.querySelectorAll('div')) {
+    // Any element: React Native Web renders a screen's ScrollView as <main> on SDK 57.
+    for (const el of document.querySelectorAll('*')) {
       const s = getComputedStyle(el);
       if (s.overflowY === 'auto' || s.overflowY === 'scroll') max = Math.max(max, el.scrollHeight + 160);
     }
@@ -236,6 +237,7 @@ try {
   if (wants('food')) await foodFlow(khalid);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
@@ -856,6 +858,56 @@ async function rajaaShots(personId) {
   await shot('rajaa-home');
 }
 
+/** The الرجعة driver's record (x12–x17): tile, seat sheet, «ملفه», and the one-line review. */
+async function driverShots(personId) {
+  if (personId) await demoPost(`/demo/rajaa/rode?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
+  await firstCar.waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('driver-board');
+
+  await firstCar.click();
+  await byTestId('rajaa-departure-driver-record').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver record not shown on the seat screen'));
+  await byTestId('rajaa-departure-driver-record').scrollIntoViewIfNeeded().catch(() => {});
+  await settle();
+  await shot('driver-seat-record');
+
+  await byTestId('rajaa-departure-driver-record-open').click();
+  await byTestId('driver-profile').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('driver-profile');
+  await fullShot('driver-profile-full');
+
+  // A new driver (أحمد, the تاهو: no trips yet): «جديد» instead of a rating, no bars, no reviews yet.
+  await page.goto(`${origin}/rajaa`, LOADED);
+  await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').first().waitFor({ timeout: 15_000 });
+  const tiles = await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
+  const newId = tiles[2]?.replace(/^departure-/, '');
+  await page.goto(`${origin}/rajaa/driver/${newId}`, LOADED);
+  await byTestId('driver-profile-qualities-wait').waitFor({ timeout: 15_000 }).catch(() => errors.push('new driver profile not shown'));
+  await settle();
+  await fullShot('driver-profile-new');
+
+  if (!personId) return;
+  const trip = await demoPost(`/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/rajaa/pass/${trip.bookingId}`, LOADED);
+  await byTestId('rajaa-safe-arrival').waitFor({ timeout: 15_000 });
+  await byTestId('rate-star-5').click();
+  await page.locator('[data-testid="rajaa-review-input"]').fill('رقمه 07701234567 اذا تحتاجونه');
+  await byTestId('rajaa-review-input').scrollIntoViewIfNeeded();
+  await settle();
+  await shot('driver-review-refused');
+  await page.locator('[data-testid="rajaa-review-input"]').fill('سايق محترم ووصلنا قبل الوقت');
+  await settle();
+  await shot('driver-review-typed');
+  await byTestId('rajaa-rate-send').click();
+  await byTestId('rajaa-safe-review').waitFor({ timeout: 15_000 }).catch(() => errors.push('sent review not shown'));
+  await byTestId('rajaa-safe-review').scrollIntoViewIfNeeded().catch(() => {});
+  await settle();
+  await shot('driver-review-sent');
+}
+
 /**
  * Merchant deals at checkout: two live deals on مطعم خالد (20 % off the menu, free delivery over 15,000).
  * The restaurant shows both badges; the cart and checkout show the one the server applied.
@@ -888,7 +940,7 @@ async function dealsShots(khalid) {
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await page.evaluate(() => {
     // Scroll to the price breakdown so the deal line is in view.
-    for (const el of document.querySelectorAll('div')) {
+    for (const el of document.querySelectorAll('*')) {
       const st = getComputedStyle(el);
       if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
     }
