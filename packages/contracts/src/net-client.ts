@@ -28,6 +28,11 @@ export const NET_RULES = {
   backBannerMs: 3_000,
   /** While the API can't be reached it is probed this often ("نحاول كل 5 ثواني"). */
   probeEveryMs: 5_000,
+  /**
+   * While the device says "no network" the API is still probed this often: Android can say offline on a
+   * captive or unvalidated Wi-Fi while data works (audit CORE-14), and a real answer beats its word.
+   */
+  offlineProbeEveryMs: 15_000,
   /** Requests in a row with no response before the API counts as unreachable. */
   failuresBeforeUnreachable: 2,
   /** A skeleton turns into an error with a retry after this long. */
@@ -118,6 +123,7 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
       backAt: state === 'online' && wasDown && downFor >= rules.bannerDelayMs ? at : state === 'online' ? null : snap.backAt,
     };
     if (state === 'unreachable') schedule(rules.probeEveryMs);
+    else if (state === 'offline') schedule(rules.offlineProbeEveryMs);
     else cancel();
     emit();
   };
@@ -147,7 +153,7 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
       )
       .finally(() => {
         probing = false;
-        if (snap.state === 'unreachable' && probeTimer === null) schedule(rules.probeEveryMs);
+        if (probeTimer === null && snap.state !== 'online') schedule(snap.state === 'offline' ? rules.offlineProbeEveryMs : rules.probeEveryMs);
       });
   };
 
@@ -185,7 +191,6 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
     reportResponse: onAnswer,
     reportNetworkError: onSilence,
     retryNow() {
-      if (snap.state === 'offline') return;
       cancel();
       runProbe();
     },

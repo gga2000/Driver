@@ -85,17 +85,32 @@ describe('network monitor', () => {
     expect(h.state()).toBe('online');
   });
 
-  it('retryNow probes at once while unreachable, never while offline', async () => {
-    const h = harness([true]);
+  it('retryNow probes at once, even while the device says offline (a real answer wins)', async () => {
+    const h = harness([true, true]);
     h.monitor.reportNetworkError();
     h.monitor.reportNetworkError();
     h.monitor.retryNow();
     await vi.advanceTimersByTimeAsync(0);
     expect(h.state()).toBe('online');
     h.monitor.setDeviceOnline(false);
-    const calls = h.probe.mock.calls.length;
     h.monitor.retryNow();
-    expect(h.probe).toHaveBeenCalledTimes(calls);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.state()).toBe('online');
+  });
+
+  it('keeps checking the API while the device says offline, so a wrong "no internet" ends on its own (CORE-14)', async () => {
+    const h = harness([false, true]);
+    h.monitor.setDeviceOnline(false);
+    await vi.advanceTimersByTimeAsync(NET_RULES.offlineProbeEveryMs - 1);
+    expect(h.probe).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.probe).toHaveBeenCalledTimes(1);
+    expect(h.state()).toBe('offline');
+    await vi.advanceTimersByTimeAsync(NET_RULES.offlineProbeEveryMs);
+    expect(h.probe).toHaveBeenCalledTimes(2);
+    expect(h.state()).toBe('online');
+    await vi.advanceTimersByTimeAsync(NET_RULES.offlineProbeEveryMs * 3);
+    expect(h.probe).toHaveBeenCalledTimes(2);
   });
 
   it('notifies on every state change only', () => {
