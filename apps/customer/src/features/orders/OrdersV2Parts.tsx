@@ -12,7 +12,7 @@ import { roadDots } from '@/features/track/track-v2';
 import { RoadDots } from '@/features/track/TrackParts';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { dayKey, shortStatus } from './history';
+import { dayKey, isRunning, shortStatus } from './history';
 import { dayLabel, orderTitle } from './OrderRow';
 import { rowDish, rowOpens, rowWord } from './orders-v2';
 import { itemsSummary } from './reorder';
@@ -23,8 +23,10 @@ import { itemsSummary } from './reorder';
  * one shows its dish (o1) and a saffron «اطلبه مرة ثانية» (o3), and opens as its receipt (o7).
  */
 
-/** The dish on its cream plate (o1): the merchant's photo when there is one, else the drawn dish. */
-export function DishThumb({ row, size = 56 }: { row: OrderHistoryRow; size?: number }) {
+/** The dish on its cream plate (o1): the drawn dish for the order's first dish, as on its live screen. */
+const THUMB = 56;
+
+export function DishThumb({ row, size = THUMB }: { row: OrderHistoryRow; size?: number }) {
   const theme = useTheme();
   return (
     <View style={{ width: size, height: size, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.accentTint }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -49,12 +51,11 @@ export function AgainPill({ onPress, loading, testID, label }: { onPress: () => 
         theme.haptic('light');
         onPress();
       }}
-      hitSlop={{ top: 4, bottom: 4 }}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[1],
-        minHeight: 36,
+        minHeight: 44,
         paddingHorizontal: theme.space[3],
         borderRadius: theme.radius.pill,
         backgroundColor: theme.colors.accentTint,
@@ -87,13 +88,13 @@ export function FoodOrderRow({ row, divider, again }: { row: OrderHistoryRow; di
   const opens = rowOpens(o);
   const open = () => router.push({ pathname: '/order/[id]', params: opens === 'receipt' ? { id: o.id, view: 'receipt' } : { id: o.id } });
   return (
-    <View testID={`order-${o.id}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3], padding: theme.space[4], borderBottomWidth: divider ? 1 : 0, borderColor: theme.colors.border }}>
+    <View testID={`order-${o.id}`} style={{ padding: theme.space[4], gap: theme.space[2], borderBottomWidth: divider ? 1 : 0, borderColor: theme.colors.border }}>
       <Pressable
         testID={`order-open-${o.id}`}
         accessibilityRole="button"
         accessibilityLabel={[title, summary, word ? t(`orders.short.${word}` as MessageKey) : null, meta, opens === 'receipt' ? t('orders2.receipt_hint') : null].filter(Boolean).join('، ')}
         onPress={open}
-        style={({ pressed }) => ({ flex: 1, flexDirection: 'row', gap: theme.space[3], opacity: pressed ? 0.7 : 1, minWidth: 0 })}
+        style={({ pressed }) => ({ flexDirection: 'row', gap: theme.space[3], opacity: pressed ? 0.7 : 1, minWidth: 0 })}
       >
         <DishThumb row={row} />
         <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
@@ -111,13 +112,14 @@ export function FoodOrderRow({ row, divider, again }: { row: OrderHistoryRow; di
           <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
             {meta}
           </Text>
-          {again ? (
-            <View style={{ marginTop: theme.space[2] }}>
-              <AgainPill testID={`reorder-${o.id}`} loading={again.loading} onPress={again.onPress} />
-            </View>
-          ) : null}
         </View>
       </Pressable>
+      {/* Its own button beside the row (not inside it), so screen readers reach it. */}
+      {again ? (
+        <View style={{ paddingStart: THUMB + theme.space[3] }}>
+          <AgainPill testID={`reorder-${o.id}`} loading={again.loading} onPress={again.onPress} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -141,7 +143,10 @@ export function LiveOrderCard({ row }: { row: OrderHistoryRow }) {
     void refetch();
   }, [row.order.state, refetch]);
   const stage = liveStage(o);
-  const eta = v ? (liveEta(v, null, new Date(tick)) ?? v.promisedAt) : null;
+  // A time only while it runs and is still ahead (late: the live screen says so), never for a booked order's minutes.
+  const booked = o.scheduledFor ? o.scheduledFor.getTime() > tick : false;
+  const ahead = v && isRunning(o) && !booked ? (liveEta(v, null, new Date(tick)) ?? v.promisedAt) : null;
+  const eta = ahead && ahead.getTime() > tick ? ahead : null;
   const name = orderTitle(t, row, locale);
   const status = t(`orders.short.${shortStatus(o)}` as MessageKey);
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - tick) / 60_000)) : null;
