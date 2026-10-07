@@ -60,27 +60,31 @@ Spec: `docs/specs/2026-10-05-maps-world-class.md` §5.2 b3 (Ali approved on the 
    mode (`useLiteMode`) from 16 and at most 6, no names; at most 40. Greedy placement by category
    priority (mosque, bridge, market, school, clinic, fuel, garage, other), then nearest the middle:
    an icon that would touch a marker's keep-out box (pins' pills rise ~70 px, so a box above and around
-   each marker; the centre pin its own narrow box), a zone name, or a placed landmark is dropped; a name
-   that would is dropped alone, the icon stays.
+   each marker; the centre pin its own narrow box), a zone name, the bars the screen covers (top bar,
+   sheet: `coveredTop` / `coveredBottom` on the base map, added after the first screenshots showed a
+   badge half under the share page's sheet), or a placed landmark is dropped; a name that would is
+   dropped alone, the icon stays.
 8. **No tap** for now (the spec makes it optional; nothing on these screens needs it yet).
 9. **Demo**: `seedDemoLandmarks()` (places module) adds a handful of approved landmark places with
    categories around the centre, شارع 30 and زاكور, idempotent by name; the customer, partner and
-   Console demo APIs call it.
+   Console demo APIs call it. Around the demo home: mosque and market ~100 m north and south (the
+   customer's tall door camera at zoom ~17), clinic and school ~150 m west and east (the courier's
+   wide, short job map at 15.4).
 10. **Copy**: no new strings (names come from data, the layer is decorative and hidden from screen
     readers, like the zone names).
 
 ## Tasks
 
-- [ ] Contracts: `LandmarkCategory`, `landmarkCategoryOf`, `LANDMARK_FEED_RULES`, feed schemas, `Place`
+- [x] Contracts: `LandmarkCategory`, `landmarkCategoryOf`, `LANDMARK_FEED_RULES`, feed schemas, `Place`
       `landmarkCategory`/`landmarkState`, `LandmarkView.category`, `PlacesPort.landmarkFeed`, router; tests.
-- [ ] DB: schema field + migration.
-- [ ] API: repository (approved filter, category column), `LandmarkFeedService` (+ pure build/etag),
+- [x] DB: schema field + migration.
+- [x] API: repository (approved filter, category column), `LandmarkFeedService` (+ pure build/etag),
       ops photo source + invalidation, demo seeder; tests (approved only, etag, not-modified, photos,
       router public read).
-- [ ] Map package: `landmarks.ts` (rules, priority, placement, feed merge) and `landmark-icons.ts`; tests.
-- [ ] UI: `GlyphShapes`; test.
-- [ ] Customer + partner: `useLandmarkFeed`, `LandmarkLayer`, wired into both bases.
-- [ ] Console: landmark markers on the live map.
-- [ ] Demo seeding in the three demo APIs.
-- [ ] `docs/api/landmarks.md`.
-- [ ] typecheck, lint, tests; screenshots (customer live map, place editor, share page, partner map).
+- [x] Map package: `landmarks.ts` (rules, priority, placement, feed merge) and `landmark-icons.ts`; tests.
+- [x] UI: `GlyphShapes`; test.
+- [x] Customer + partner: `useLandmarkFeed`, `LandmarkLayer`, wired into both bases.
+- [x] Console: landmark markers on the live map.
+- [x] Demo seeding in the three demo APIs.
+- [x] `docs/api/landmarks.md`.
+- [x] typecheck, lint, tests; screenshots (customer live map, place editor, share page, partner map).
