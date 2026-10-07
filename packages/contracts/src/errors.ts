@@ -354,6 +354,11 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
+  money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
+  open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
+  cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
+  prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

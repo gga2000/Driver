@@ -8,6 +8,7 @@ export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
 export * from './order.js';
+export * from './order-staff-io.js';
 export * from './order-tip.js';
 export * from './order-compliment.js';
 export * from './rajaa-pass-push.js';
