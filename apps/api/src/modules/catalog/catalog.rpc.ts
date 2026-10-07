@@ -52,7 +52,7 @@ import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
-import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, localTwelveHour, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The signed-in person behind a catalog read, if any. */
 function readerPerson(reader: Actor | CatalogReader): string | null {
@@ -110,6 +110,8 @@ export interface StorefrontMerchants {
     busy?: boolean;
     /** Closed by hand from the Merchant app (early close). */
     closed?: boolean;
+    /** A quick pause from the Merchant app reopens by itself at this time; absent = until reopened by hand. */
+    reopensAt?: Date;
     /** One of the store's holiday closures (Merchant app hours): closed for the day, shown as hours. */
     holiday?: boolean;
   }>;
@@ -566,7 +568,7 @@ export class CatalogRpc implements CustomerCatalogPort {
   }
 
   private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {
-    const { location, pauseWindows: pauses, busy: merchantBusy, closed, holiday } = await this.merchants.profile(s.orgId, s.cityId, now);
+    const { location, pauseWindows: pauses, busy: merchantBusy, closed, reopensAt, holiday } = await this.merchants.profile(s.orgId, s.cityId, now);
     const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff) : null);
@@ -574,7 +576,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const state = holiday
       ? { open: false, closedReason: 'hours' as const, opensAt: null }
       : closed
-        ? { open: false, closedReason: 'paused' as const, opensAt: null }
+        ? { open: false, closedReason: 'paused' as const, opensAt: reopensAt ? localTwelveHour(reopensAt, this.merchants.timeZone) : null }
         : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,
@@ -596,7 +598,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       open: state.open,
       closedReason: state.closedReason,
       opensAt: state.opensAt,
-      opensInMin: holiday || closed || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      opensInMin: holiday || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, s.hours, pauses, state.closedReason),
       busy,
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),

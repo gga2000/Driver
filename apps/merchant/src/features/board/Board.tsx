@@ -646,7 +646,7 @@ export function Board() {
         }}
       />
       <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
-      {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} onClose={() => setSheet(null)} /> : null}
+      {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} lengths onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
       <ModalSheet visible={sheet === 'missed'} onClose={closeMissed} title={t('merchant.missed.sheet_title')} testID="missed-sheet">

@@ -2,21 +2,23 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { SegmentedControl, useTheme } from '@driver/ui';
-import { OwnerOnly } from '@/components/OwnerOnly';
 import { Page } from '@/components/Page';
+import { DayStrip } from '@/features/day/DayStrip';
+import { useDaySummary } from '@/features/day/queries';
+import { InsightsPanel } from '@/features/insights/InsightsPanel';
 import { DisputesView } from '@/features/money/DisputesView';
 import { StatementView } from '@/features/money/StatementView';
 import { TodayView } from '@/features/money/TodayView';
 import { waitingCount, weekAnchor } from '@/features/money/logic';
 import { useCashAccount, useDisputes, useMoneyToday, useStatement } from '@/features/money/queries';
-import { useCurrentStore } from '@/features/store/queries';
+import { useCurrentStore, useStoreStatus } from '@/features/store/queries';
 import { localParts } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
 import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 
-type Tab = 'today' | 'statement' | 'disputes';
-const TABS: readonly Tab[] = ['today', 'statement', 'disputes'];
+type Tab = 'today' | 'statement' | 'disputes' | 'insights';
+const TABS: readonly Tab[] = ['today', 'statement', 'disputes', 'insights'];
 
 function useNow(ms = 30_000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -27,8 +29,12 @@ function useNow(ms = 30_000): number {
   return now;
 }
 
-/** الفلوس (owners only): اليوم · كشف الأسبوع · الشكاوى. `?tab=` deep-links a tab. */
-export default function MoneyScreen() {
+/**
+ * «يومك» (counter step 5, f1 f2 g1): the day so far on top, then for the owner his money as it works
+ * today (اليوم · كشف الأسبوع · الشكاوى) and the numbers (الأرقام); staff see the day and the numbers,
+ * never money. `?tab=` deep-links a tab (`/insights` opens الأرقام).
+ */
+export default function DayScreen() {
   const theme = useTheme();
   const t = useT();
   const dates = useDates();
@@ -45,8 +51,8 @@ export default function MoneyScreen() {
   const cash = useCashAccount(orgId, canSeeMoney && tab === 'today');
   const statement = useStatement(orgId, weekOf, canSeeMoney && tab === 'statement');
   const disputes = useDisputes(orgId, canSeeMoney);
-
-  if (store && !canSeeMoney) return <OwnerOnly title={t('merchant.nav.money')} testID="money" />;
+  const status = useStoreStatus(orgId);
+  const summary = useDaySummary(orgId, status.data ? String(status.data.open) : '');
 
   const waiting = disputes.data ? waitingCount(disputes.data, now) : 0;
   const select = (v: Tab) => {
@@ -54,19 +60,27 @@ export default function MoneyScreen() {
     router.setParams({ tab: v });
   };
   return (
-    <Page title={t('merchant.nav.money')} subtitle={store ? `${store.name} · ${dates.dow(localParts(now).dow)} ${dates.dayMonth(now)}` : undefined} testID="money" maxWidth={1160}>
-      <View style={{ alignSelf: wide ? 'flex-start' : 'stretch', minWidth: wide ? 520 : undefined }}>
-        <SegmentedControl<Tab>
-          options={[
-            { value: 'today', label: t('merchant.money.tab_today') },
-            { value: 'statement', label: t('merchant.money.tab_statement') },
-            { value: 'disputes', label: waiting > 0 ? t('merchant.money.tab_disputes_count', { count: waiting }) : t('merchant.money.tab_disputes') },
-          ]}
-          value={tab}
-          onChange={select}
-        />
-      </View>
-      {!orgId ? null : tab === 'today' ? (
+    <Page title={t('merchant.nav.day')} subtitle={store ? `${store.name} · ${dates.dow(localParts(now).dow)} ${dates.dayMonth(now)}` : undefined} testID="money" maxWidth={1160}>
+      <DayStrip summary={summary.data} waiting={waiting} wide={wide} {...(canSeeMoney ? { onWaiting: () => select('disputes') } : {})} />
+      {store && !canSeeMoney ? (
+        <InsightsPanel merchantOrgId={orgId} owner={false} wide={wide} />
+      ) : (
+        <View style={{ alignSelf: wide ? 'flex-start' : 'stretch', minWidth: wide ? 640 : undefined }}>
+          <SegmentedControl<Tab>
+            options={[
+              { value: 'today', label: t('merchant.money.tab_today') },
+              { value: 'statement', label: t('merchant.dayscreen.tab_week') },
+              { value: 'disputes', label: waiting > 0 ? t('merchant.money.tab_disputes_count', { count: waiting }) : t('merchant.money.tab_disputes') },
+              { value: 'insights', label: t('merchant.dayscreen.tab_numbers') },
+            ]}
+            value={tab}
+            onChange={select}
+          />
+        </View>
+      )}
+      {!orgId || !canSeeMoney ? null : tab === 'insights' ? (
+        <InsightsPanel merchantOrgId={orgId} owner wide={wide} />
+      ) : tab === 'today' ? (
         <TodayView merchantOrgId={orgId} today={today.data} cash={cash.data} now={now} wide={wide} onStatement={() => select('statement')} />
       ) : tab === 'statement' ? (
         <StatementView statement={statement.data} storeName={store?.name ?? ''} back={back} onBack={() => setBack((b) => b + 1)} onForward={() => setBack((b) => Math.max(0, b - 1))} now={now} wide={wide} />

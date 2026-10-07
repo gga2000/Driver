@@ -42,6 +42,11 @@ export const COUNTER = {
   sand: '#F3E7D6',
   /** Quantities on a ticket: date brown, never saffron (saffron means "new"). */
   qty: '#7A3F06',
+  /** «الكبنك» on المحل (step 5): the rolling shutter's warm steel, its grooves, and the lit shop behind it. */
+  shutter: '#B8A690',
+  shutterGroove: '#8F7D68',
+  shutterBox: '#6E5B47',
+  glow: '#FFE2A8',
 } as const;
 
 export type CounterColor = keyof typeof COUNTER;

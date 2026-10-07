@@ -8,6 +8,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12, minutesLeft } from '@/lib/time';
+import { endOfDayClose, OTHER_LENGTHS } from '@/features/shop/pauses';
 import { useRequestSettlement, useStoreSwitches } from './queries';
 
 const CLOSE_ICON: Record<EarlyCloseReason, MIconName> = {
@@ -19,18 +20,29 @@ const CLOSE_ICON: Record<EarlyCloseReason, MIconName> = {
   other: 'chat',
 };
 
-/** Close early with a reason (edge-case decisions: early-close reason). */
-export function CloseStoreSheet({ status, visible, onClose }: { status: StoreStatusView; visible: boolean; onClose: () => void }) {
+/** Says what closing did: back by itself at a time, «عاشت إيدك» at the end of the day (j4), or just closed. */
+export function closedToast(t: ReturnType<typeof useT>, reason: EarlyCloseReason, minutes: number | null, now: number): string {
+  if (minutes !== null) return t('merchant.shop.paused_toast', { time: clock12(now + minutes * 60_000) });
+  return endOfDayClose(reason, minutes, now) ? t('merchant.shop.thanks_toast') : t('merchant.status.closed_toast');
+}
+
+/**
+ * Close with a reason (edge-case decisions: early-close reason). From المحل (`lengths`) it also asks for
+ * how long («نص ساعة · ساعة · ساعتين · لحد ما أفتحه»): the server opens the shop again by itself.
+ */
+export function CloseStoreSheet({ status, visible, onClose, lengths = false }: { status: StoreStatusView; visible: boolean; onClose: () => void; lengths?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useCounterToast();
   const { setOpen } = useStoreSwitches();
   const [reason, setReason] = useState<EarlyCloseReason | null>(null);
+  const [length, setLength] = useState<number | null>(null);
   const [note, setNote] = useState('');
   useEffect(() => {
     if (visible) {
       setReason(null);
+      setLength(null);
       setNote('');
     }
   }, [visible]);
@@ -38,8 +50,8 @@ export function CloseStoreSheet({ status, visible, onClose }: { status: StoreSta
   const submit = async () => {
     if (!reason) return;
     try {
-      await setOpen.mutateAsync({ merchantOrgId: status.merchantOrgId, open: false, reason, ...(note.trim() ? { note: note.trim() } : {}) });
-      toast.show({ message: t('merchant.status.closed_toast'), tone: 'neutral', icon: 'clock' });
+      await setOpen.mutateAsync({ merchantOrgId: status.merchantOrgId, open: false, reason, ...(note.trim() ? { note: note.trim() } : {}), ...(length !== null ? { pauseMinutes: length } : {}) });
+      toast.show({ message: closedToast(t, reason, length, Date.now()), tone: 'neutral', icon: 'clock' });
       onClose();
     } catch (err) {
       toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
@@ -85,6 +97,28 @@ export function CloseStoreSheet({ status, visible, onClose }: { status: StoreSta
           );
         })}
       </View>
+      {lengths ? (
+        <>
+          <Text variant="title">{t('merchant.shop.length_q')}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {OTHER_LENGTHS.map((m) => {
+              const selected = length === m;
+              return (
+                <Pressable
+                  key={m ?? 'hand'}
+                  testID={`close-length-${m ?? 'hand'}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setLength(m)}
+                  style={{ flexBasis: '47%', flexGrow: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[3], borderRadius: theme.radius.lg, borderWidth: selected ? 2 : 1, borderColor: selected ? theme.colors.text : theme.colors.border, backgroundColor: selected ? theme.colors.surfaceSunken : theme.colors.surface }}
+                >
+                  <Text variant="bodyStrong">{m === null ? t('merchant.shop.length_hand') : m < 60 ? t('merchant.common.minutes', { minutes: m }) : m === 60 ? t('merchant.shop.length_hour') : t('merchant.shop.length_two_hours')}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
       <TextField value={note} onChangeText={setNote} placeholder={t('merchant.status.close_note')} maxLength={200} />
     </ModalSheet>
   );

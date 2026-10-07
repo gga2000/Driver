@@ -111,7 +111,7 @@ function RootNavigator() {
   const segments = useSegments();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_MIN_WIDTH;
-  const { access, store, canSeeMoney } = useCurrentStore();
+  const { access, store } = useCurrentStore();
   const signedIn = status === 'signedIn';
   const ready = status !== 'loading' && p.loaded && (!signedIn || access !== 'loading');
 
@@ -128,7 +128,8 @@ function RootNavigator() {
 
   const section = sectionOf(segments);
   const showNav = signedIn && access === 'ready' && section !== null;
-  const items = NAV_ITEMS.filter((i) => i.section !== 'money' || canSeeMoney);
+  // Everyone gets the four tabs: staff see «يومك» without money (counter step 5).
+  const items = NAV_ITEMS;
   const board = useBoard(showNav && store ? store.orgId : null);
   // M-10: the same number as the جديد column and the banner.
   const newCount = countNew(board.data?.orders ?? []);

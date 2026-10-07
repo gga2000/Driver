@@ -121,7 +121,8 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
   // On the date bar: solid green open, solid red closed, gold during a pause; the words stay readable in the sun.
   const color = open ? COUNTER.ready : paused ? COUNTER.busy : COUNTER.late;
   const ink = paused ? COUNTER.onBusy : COUNTER.onDate;
-  const label = open ? t('merchant.status.open') : paused ? t('merchant.status.paused', { time: status.pause!.until }) : t('merchant.status.closed');
+  // A quick pause from المحل says when it opens again by itself (step 5): «مسدود · يرجع 1:15».
+  const label = open ? t('merchant.status.open') : paused ? t('merchant.status.paused', { time: status.pause!.until }) : status.closed?.until ? t('merchant.shop.closed_until', { time: clock12(status.closed.until) }) : t('merchant.status.closed');
   return (
     <Pressable hitSlop={2}
       testID="store-open-toggle"

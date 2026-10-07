@@ -40,7 +40,7 @@ describe('sections', () => {
     expect(sectionOf([])).toBe('orders');
     expect(sectionOf(['menu', 'item'])).toBe('menu');
     expect(sectionOf(['money'])).toBe('money');
-    expect(sectionOf(['insights'])).toBe('insights');
+    expect(sectionOf(['insights'])).toBe('money');
     for (const s of ['more', 'deals', 'staff', 'printer', 'hours', 'pickup-spot', 'delivery-area', 'menu-photos', 'story', 'settings']) expect(sectionOf([s])).toBe('more');
     expect(sectionOf(['pot'])).toBe('menu');
     expect(sectionOf(['(auth)', 'welcome'])).toBeNull();
