@@ -96,6 +96,42 @@ describe('fleet', () => {
   });
 });
 
+describe('invite with a car (partner redesign f5)', () => {
+  it('the car picked with the invite waits on it, shows on both sides, and becomes his when he accepts', async () => {
+    const h = await setup();
+    const car = await h.fleet.addVehicle(h.owner, { plate: 'واسط 4410', vehicleClass: 'car', model: 'Toyota Corolla', colour: 'white' });
+    await expect(h.fleet.addDriver(h.owner, { phone: '07700000070', vehicleId: 'not_ours' })).rejects.toMatchObject({ code: 'vehicle_not_found' });
+    const invited = await h.fleet.addDriver(h.owner, { phone: '07700000070', vehicleId: car.vehicleId });
+    expect(invited).toMatchObject({ pending: true, vehicleId: null, plannedVehicleId: car.vehicleId });
+    const driver = (await h.id.login('07700000070')).actor;
+    expect((await h.fleet.myInvites(driver))[0]!.plannedVehicle).toEqual({ plate: 'واسط 4410', vehicleClass: 'car', model: 'Toyota Corolla', colour: 'white' });
+    // Nothing is assigned before his yes.
+    expect((await h.fleet.vehicles(h.owner, {}))[0]!.activeDriverId).toBeNull();
+    await h.fleet.respondInvite(driver, { fleetOrgId: 'fleet_1', accept: true });
+    expect((await h.fleet.vehicles(h.owner, {}))[0]!.activeDriverId).toBe(driver.personId);
+    expect((await h.fleet.drivers(h.owner, {}))[0]).toMatchObject({ pending: false, vehicleId: car.vehicleId });
+    expect((await h.fleet.myInvites(driver))[0]!.plannedVehicle).toBeNull();
+    expect((await h.ev.events.forActor(driver.personId)).map((e) => e.type)).toEqual(expect.arrayContaining(['fleet.driver_accepted', 'fleet.vehicle_assigned']));
+  });
+
+  it('a car someone else drives by then is left alone; a declined invite assigns nothing', async () => {
+    const h = await setup();
+    const car = await h.fleet.addVehicle(h.owner, { plate: 'واسط 4411', vehicleClass: 'car' });
+    await h.fleet.addDriver(h.owner, { phone: '07700000071', vehicleId: car.vehicleId });
+    await h.fleet.addDriver(h.owner, { phone: '07700000072', vehicleId: car.vehicleId });
+    const first = (await h.id.login('07700000071')).actor;
+    const second = (await h.id.login('07700000072')).actor;
+    await h.fleet.respondInvite(first, { fleetOrgId: 'fleet_1', accept: true });
+    await h.fleet.respondInvite(second, { fleetOrgId: 'fleet_1', accept: true });
+    expect((await h.fleet.vehicles(h.owner, {}))[0]!.activeDriverId).toBe(first.personId);
+
+    const other = await h.fleet.addVehicle(h.owner, { plate: 'واسط 4412', vehicleClass: 'car' });
+    await h.fleet.addDriver(h.owner, { phone: '07700000073', vehicleId: other.vehicleId });
+    await h.fleet.respondInvite((await h.id.login('07700000073')).actor, { fleetOrgId: 'fleet_1', accept: false });
+    expect((await h.fleet.vehicles(h.owner, {})).find((v) => v.vehicleId === other.vehicleId)!.activeDriverId).toBeNull();
+  });
+});
+
 describe('fleet consent (review 2026-10-04 #2)', () => {
   it("the driver's invite card names the owner (first name) and the fleet", async () => {
     const h = await setup();
@@ -134,6 +170,7 @@ describe('fleet consent (review 2026-10-04 #2)', () => {
         invitedByName: 'سجاد',
         fleetName: 'أسطول الربيعي',
         accepted: false,
+        plannedVehicle: null,
       },
     ]);
   });
@@ -175,6 +212,7 @@ describe('fleet consent (review 2026-10-04 #2)', () => {
         invitedByName: null,
         fleetName: null,
         accepted: false,
+        plannedVehicle: null,
       },
     ]);
     await h.fleet.respondInvite(courier, { fleetOrgId: 'fleet_1', accept: true });

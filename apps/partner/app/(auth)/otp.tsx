@@ -89,7 +89,7 @@ export default function OtpEntry() {
 
   return (
     <Screen>
-      <AuthHeader title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
+      <AuthHeader step={2} title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
 
       <View style={{ gap: theme.space[3] }}>
         <OtpInput

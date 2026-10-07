@@ -219,7 +219,8 @@ export default function Home() {
         onLater={() => setChecking(false)}
       />
       {/* Offers ring with the app closed only with notifications on: ask here, before he goes online. */}
-      <PrePromptGate active={Boolean(s?.canDrive)} />
+      {/* f4: asked when it is needed — once he is working, so no offer is missed — not on first sight. */}
+      <PrePromptGate active={Boolean(s?.canDrive) && online} />
     </View>
   );
 }

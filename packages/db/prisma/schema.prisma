@@ -2824,15 +2824,17 @@ model KhatSweepAlert {
 
 /// A driver working for a fleet org (partner spec: fleet owner dashboard). Vehicles stay in `vehicles`.
 model FleetDriver {
-  id         String    @id @default(cuid())
-  fleetOrgId String    @map("fleet_org_id")
-  personId   String    @map("person_id")
-  addedById  String    @map("added_by_id")
+  id               String    @id @default(cuid())
+  fleetOrgId       String    @map("fleet_org_id")
+  personId         String    @map("person_id")
+  addedById        String    @map("added_by_id")
   /// Review 2026-10-04: the driver's own yes to the fleet; null = invited, the owner sees nothing yet.
-  acceptedAt DateTime? @map("accepted_at")
-  removedAt  DateTime? @map("removed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  acceptedAt       DateTime? @map("accepted_at")
+  removedAt        DateTime? @map("removed_at")
+  /// Partner redesign f5: the car the owner picked with the invite; assigned when he accepts (if still free).
+  plannedVehicleId String?   @map("planned_vehicle_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@unique([fleetOrgId, personId])
   @@index([personId])

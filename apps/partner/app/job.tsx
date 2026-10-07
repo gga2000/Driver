@@ -4,7 +4,7 @@ import { Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LANDMARK_RULES } from '@driver/map';
 import type { HandoverProof, PartnerJob, PartnerJobStop, ZoneCheckAnswer } from '@driver/contracts';
-import { Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Button, Icon, IconButton, RetryState, retryKindFor, Skeleton, SlideToConfirm, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast, withAlpha } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
@@ -40,7 +40,7 @@ import {
   zoneName,
 } from '@/features/work/logic';
 import { tenderLine } from '@/features/work/cash-door';
-import { giftNote } from '@/features/work/gift';
+import { giftNote, type GiftNote } from '@/features/work/gift';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines } from '@/features/work/OfferParts';
 import { useActiveJob, useAnswerZoneCheck, useJobRoute, useRefreshWork, useStatus, useTripActions, useZoneCheck } from '@/features/work/queries';
@@ -525,6 +525,8 @@ function JobView({
               {/* j6: the kitchen's time, live, until he has the food. */}
               {stop.type === 'pickup' && !ride && job.merchant ? <ReadyBar prep={job.merchant} /> : null}
 
+              {/* f3: a gift and the customer's wallet top-up are one ink card (the top-up confirms with a slide). */}
+              <DoorExtras gift={giftNote(stop)} topUp={topUp} />
               <JobNotes job={job} stop={stop} ride={ride} />
 
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
@@ -542,8 +544,6 @@ function JobView({
                   omitLandmark={Boolean(hint?.landmark)}
                 />
               ) : null}
-
-              {topUp ? <TopUpEntry /> : null}
 
               {multi ? <StopList job={job} ride={ride} saved={saved} /> : null}
 
@@ -616,14 +616,11 @@ const SPOKEN = new Set<string>();
 function JobNotes({ job, stop, ride }: { job: PartnerJob; stop: PartnerJobStop; ride: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const gift = giftNote(stop);
   const tender = stop.type === 'dropoff' && stop.collectIqd > 0 ? tenderLine(stop.collectIqd, stop.tenderIqd ?? null) : null;
   const cargo = cargoLine(job.rideCargo ?? [], t);
   const accent = { bg: theme.colors.accentTint, ink: theme.colors.accentText };
   return (
     <>
-      {/* «عزيمة» (joy g1): «هدية · لا تذكر السعر» at the door, «خلي المطعم ما يحط الوصل بالكيس» at the kitchen. */}
-      {gift ? <SlipNote testID="job-gift" icon="gift" title={t(gift.key)} body={gift.hint ? t(gift.hint) : null} {...accent} /> : null}
       {/* "الخردة علينا": the note the customer said at checkout and the change to bring. */}
       {tender ? (
         <SlipNote
@@ -649,48 +646,59 @@ function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 
   return s.label ?? (ride ? (s.rider?.name ?? t('partner.offer_rider')) : zoneName(s.zoneId, locale, t));
 }
 
-/** "الزبون يريد يشحن محفظته" — opens the top-up desk (code pad → amount → confirm; counts on his cap). */
-function TopUpEntry() {
+/**
+ * Partner redesign f3: what is special about this door, on one ink card — «عزيمة» (joy g1: «هدية · لا
+ * تذكر السعر» at the door, the receipt out of the bag at the kitchen) and «الزبون يريد يشحن محفظته»,
+ * which opens the top-up desk (code → amount → slide to confirm; it counts on his cash cap).
+ */
+function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) {
   const theme = useTheme();
   const t = useT();
+  if (!gift && !topUp) return null;
+  const cream = theme.colors.bg;
+  const soft = withAlpha(cream, 0.7);
   return (
-    <Pressable
-      testID="job-topup-entry"
-      accessibilityRole="button"
-      onPress={() => router.push('/job-topup')}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: theme.space[3],
-        padding: theme.space[3],
-        borderRadius: theme.radius.lg,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
-      })}
-    >
-      <View
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: theme.colors.accentTint,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="wallet" size={20} color="accentText" strokeWidth={2.2} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text variant="label" weight={600}>
-          {t('partner.job_topup_entry')}
-        </Text>
-        <Text variant="caption" color="textMuted">
-          {t('partner.job_topup_entry_sub')}
-        </Text>
-      </View>
-      <Icon name="chevron-forward" size={18} color="textMuted" />
-    </Pressable>
+    <View testID="job-extras" style={{ backgroundColor: theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden' }}>
+      {gift ? (
+        <View testID="job-gift" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[4] }}>
+          <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="gift" size={20} color={theme.colors.onAccent} strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" weight={700} color={cream}>
+              {t(gift.key)}
+            </Text>
+            {gift.hint ? (
+              <Text variant="caption" color={soft}>
+                {t(gift.hint)}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+      {gift && topUp ? <View style={{ height: 1, marginHorizontal: theme.space[4], backgroundColor: withAlpha(cream, 0.14) }} /> : null}
+      {topUp ? (
+        <Pressable
+          testID="job-topup-entry"
+          accessibilityRole="button"
+          onPress={() => router.push('/job-topup')}
+          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[4], minHeight: 64, backgroundColor: pressed ? withAlpha(cream, 0.08) : 'transparent' })}
+        >
+          <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: withAlpha(cream, 0.12), alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="wallet" size={20} color={cream} strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" weight={700} color={cream}>
+              {t('partner.job_topup_entry')}
+            </Text>
+            <Text variant="caption" color={soft}>
+              {t('partner.job_topup_entry_sub')}
+            </Text>
+          </View>
+          <Icon name="chevron-forward" size={18} color={soft} strokeWidth={2.2} />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 

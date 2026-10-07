@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Button, TextField, useTheme } from '@driver/ui';
+import { Button, Icon, Text, TextField, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { AuthHeader } from '@/features/auth/AuthHeader';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
@@ -53,7 +53,7 @@ export default function PhoneEntry() {
         />
       }
     >
-      <AuthHeader title={t('onboarding.phone_label')} subtitle={t('onboarding.phone_hint')} />
+      <AuthHeader step={1} title={t('onboarding.phone_label')} subtitle={t('onboarding.phone_hint')} />
       <View style={{ gap: theme.space[2] }}>
         <TextField
           testID="phone-input"
@@ -73,6 +73,13 @@ export default function PhoneEntry() {
           accessibilityLabel={t('onboarding.phone_label')}
           error={showInvalid ? t('error.phone_invalid') : serverError}
         />
+        {/* G0-10 "Chat first": numbers stay hidden both ways. */}
+        <View testID="phone-private" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[1] }}>
+          <Icon name="shield" size={16} color="successText" strokeWidth={2.2} />
+          <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
+            {t('partner.f4_private')}
+          </Text>
+        </View>
       </View>
     </Screen>
   );

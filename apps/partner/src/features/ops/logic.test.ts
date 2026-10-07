@@ -8,8 +8,10 @@ import {
   canConfirmCash,
   dueOf,
   emptyDraft,
+  failedCount,
   nearestZone,
   onboardingInput,
+  uploadingCount,
   parseAmount,
   photosKey,
   pressKey,
@@ -122,6 +124,22 @@ describe('merchant onboarding wizard', () => {
       menuPhotoUploadIds: ['up_1'],
       settlementMode: 'nightly_courier',
     });
+  });
+
+  it('f8: the door photo is optional, waits only while uploading, and is sent once it is up', () => {
+    const d = { ...emptyDraft(), name: 'فرن الأمير', contactName: 'أبو علي', contactPhone: '0780 000 0123', zoneKey: 'hashimi' };
+    d.shopPhoto = { uri: 'blob:door', uploadId: null };
+    expect(stepReady('location', d)).toBe(false);
+    d.shopPhoto = { uri: 'blob:door', uploadId: null, failed: true };
+    expect(stepReady('location', d)).toBe(true);
+    expect(onboardingInput(d)).not.toHaveProperty('shopPhotoUploadId');
+    d.shopPhoto = { uri: 'blob:door', uploadId: 'up_door' };
+    expect(onboardingInput(d)).toMatchObject({ shopPhotoUploadId: 'up_door' });
+    // A menu page that didn't send holds the step until it is sent again or removed.
+    d.menuPhotos = [{ uri: 'blob:1', uploadId: 'up_1' }, { uri: 'blob:2', uploadId: null, failed: true }];
+    expect(failedCount(d.menuPhotos)).toBe(1);
+    expect(uploadingCount(d.menuPhotos)).toBe(0);
+    expect(stepReady('menu', d)).toBe(false);
   });
 
   it('refuses a bad phone number', () => {

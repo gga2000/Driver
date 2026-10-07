@@ -75,6 +75,20 @@ export interface FleetDriverRecord {
   acceptedAt: Date | null;
   removedAt: Date | null;
   createdAt: Date;
+  /**
+   * The car the owner picked when he invited him (f5): it becomes his car the moment he accepts, if
+   * it is still free. Cleared once the invite is answered. Absent on older rows.
+   */
+  plannedVehicleId?: string | null;
+}
+
+/** An invite: the owner may pick the car with it (null: none; absent: keep what an earlier invite picked). */
+export interface NewFleetDriver {
+  fleetOrgId: string;
+  personId: string;
+  addedById: string;
+  at: Date;
+  plannedVehicleId?: string | null | undefined;
 }
 
 export interface FleetRepository {
@@ -89,11 +103,17 @@ export interface FleetRepository {
   /** Sets the vehicle's active driver (null unassigns); the driver leaves any other vehicle of the fleet. */
   setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord>;
   drivers(fleetOrgId: string, tx?: Tx): Promise<FleetDriverRecord[]>;
-  /** Idempotent: an existing live link is returned; a removed one comes back as a new, pending invite. */
-  addDriver(input: { fleetOrgId: string; personId: string; addedById: string; at: Date }, tx?: Tx): Promise<FleetDriverRecord>;
+  /**
+   * Idempotent: an existing live link is returned; a removed one comes back as a new, pending invite.
+   * A pending invite takes the car picked with it (`plannedVehicleId`); an accepted link keeps none.
+   */
+  addDriver(input: NewFleetDriver, tx?: Tx): Promise<FleetDriverRecord>;
   /** A driver's live links (pending invites and accepted fleets). */
   linksOf(personId: string, tx?: Tx): Promise<FleetDriverRecord[]>;
-  /** Accepts (acceptedAt = at) or ends (removedAt = at) a live link; null when there is none. */
+  /**
+   * Accepts (acceptedAt = at) or ends (removedAt = at) a live link; null when there is none. The
+   * planned car is cleared on the row and handed back on the result, for the service to assign.
+   */
   answerLink(input: { fleetOrgId: string; personId: string; accept: boolean; at: Date }, tx?: Tx): Promise<FleetDriverRecord | null>;
   /** New fleet vehicles waiting for the ops check, oldest first. */
   vehiclesInReview(limit: number, tx?: Tx): Promise<VehicleRecord[]>;
@@ -188,13 +208,14 @@ export class InMemoryFleetRepository implements FleetRepository {
     return this.driverRows.filter((d) => d.fleetOrgId === fleetOrgId && d.removedAt === null).map((d) => ({ ...d }));
   }
 
-  async addDriver(input: { fleetOrgId: string; personId: string; addedById: string; at: Date }): Promise<FleetDriverRecord> {
+  async addDriver(input: NewFleetDriver): Promise<FleetDriverRecord> {
     const existing = this.driverRows.find((d) => d.fleetOrgId === input.fleetOrgId && d.personId === input.personId);
     if (existing) {
-      if (existing.removedAt) Object.assign(existing, { removedAt: null, acceptedAt: null, addedById: input.addedById, createdAt: input.at });
+      if (existing.removedAt) Object.assign(existing, { removedAt: null, acceptedAt: null, addedById: input.addedById, createdAt: input.at, plannedVehicleId: input.plannedVehicleId ?? null });
+      else if (!existing.acceptedAt && input.plannedVehicleId !== undefined) existing.plannedVehicleId = input.plannedVehicleId;
       return { ...existing };
     }
-    const row: FleetDriverRecord = { id: this.id('fdrv'), fleetOrgId: input.fleetOrgId, personId: input.personId, addedById: input.addedById, acceptedAt: null, removedAt: null, createdAt: input.at };
+    const row: FleetDriverRecord = { id: this.id('fdrv'), fleetOrgId: input.fleetOrgId, personId: input.personId, addedById: input.addedById, acceptedAt: null, removedAt: null, createdAt: input.at, plannedVehicleId: input.plannedVehicleId ?? null };
     this.driverRows.push(row);
     return { ...row };
   }
@@ -235,9 +256,11 @@ export class InMemoryFleetRepository implements FleetRepository {
   async answerLink(input: { fleetOrgId: string; personId: string; accept: boolean; at: Date }): Promise<FleetDriverRecord | null> {
     const row = this.driverRows.find((d) => d.fleetOrgId === input.fleetOrgId && d.personId === input.personId && d.removedAt === null);
     if (!row) return null;
+    const planned = row.plannedVehicleId ?? null;
     if (input.accept) row.acceptedAt ??= input.at;
     else Object.assign(row, { removedAt: input.at, acceptedAt: null });
-    return { ...row };
+    row.plannedVehicleId = null;
+    return { ...row, plannedVehicleId: planned };
   }
 }
 
@@ -344,16 +367,18 @@ export class PrismaFleetRepository implements FleetRepository {
     return this.db(tx).fleetDriver.findMany({ where: { fleetOrgId, removedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   }
 
-  async addDriver(input: { fleetOrgId: string; personId: string; addedById: string; at: Date }, tx?: Tx): Promise<FleetDriverRecord> {
-    return this.db(tx).fleetDriver.upsert({
+  async addDriver(input: NewFleetDriver, tx?: Tx): Promise<FleetDriverRecord> {
+    const db = this.db(tx);
+    const row = await db.fleetDriver.upsert({
       where: { fleetOrgId_personId: { fleetOrgId: input.fleetOrgId, personId: input.personId } },
-      create: { fleetOrgId: input.fleetOrgId, personId: input.personId, addedById: input.addedById, createdAt: input.at },
+      create: { fleetOrgId: input.fleetOrgId, personId: input.personId, addedById: input.addedById, createdAt: input.at, plannedVehicleId: input.plannedVehicleId ?? null },
       update: {},
-    }).then(async (row) => {
-      if (!row.removedAt) return row;
-      // A removed link comes back as a fresh invite: the driver says yes again.
-      return this.db(tx).fleetDriver.update({ where: { id: row.id }, data: { removedAt: null, acceptedAt: null, addedById: input.addedById, createdAt: input.at } });
     });
+    // A removed link comes back as a fresh invite: the driver says yes again.
+    if (row.removedAt) return db.fleetDriver.update({ where: { id: row.id }, data: { removedAt: null, acceptedAt: null, addedById: input.addedById, createdAt: input.at, plannedVehicleId: input.plannedVehicleId ?? null } });
+    // A pending invite sent again may pick another car.
+    if (!row.acceptedAt && input.plannedVehicleId !== undefined && row.plannedVehicleId !== input.plannedVehicleId) return db.fleetDriver.update({ where: { id: row.id }, data: { plannedVehicleId: input.plannedVehicleId } });
+    return row;
   }
 
   async linksOf(personId: string, tx?: Tx): Promise<FleetDriverRecord[]> {
@@ -395,7 +420,9 @@ export class PrismaFleetRepository implements FleetRepository {
     const db = this.db(tx);
     const row = await db.fleetDriver.findFirst({ where: { fleetOrgId: input.fleetOrgId, personId: input.personId, removedAt: null } });
     if (!row) return null;
-    if (input.accept) return row.acceptedAt ? row : db.fleetDriver.update({ where: { id: row.id }, data: { acceptedAt: input.at } });
-    return db.fleetDriver.update({ where: { id: row.id }, data: { removedAt: input.at, acceptedAt: null } });
+    const planned = row.plannedVehicleId;
+    const data = input.accept ? { acceptedAt: row.acceptedAt ?? input.at, plannedVehicleId: null } : { removedAt: input.at, acceptedAt: null, plannedVehicleId: null };
+    const updated = input.accept && row.acceptedAt && !planned ? row : await db.fleetDriver.update({ where: { id: row.id }, data });
+    return { ...updated, plannedVehicleId: planned };
   }
 }

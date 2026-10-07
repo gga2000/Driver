@@ -121,6 +121,7 @@ function RootNavigator() {
         <Stack.Screen name="photo" options={{ title: t('partner.mainphoto_title') }} />
         <Stack.Screen name="vehicle" options={{ title: t('partner.features_title') }} />
         <Stack.Screen name="seen" options={{ title: t('partner.seen_title') }} />
+        <Stack.Screen name="location-why" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="checkin" options={{ title: t('partner.hub_checkin') }} />
         <Stack.Screen name="intercity/index" options={{ title: t('partner.hub_intercity') }} />
         <Stack.Screen name="khat/index" options={{ title: t('partner.hub_khat') }} />
