@@ -70,7 +70,7 @@ k11, wait for a fee decision). g3/r5: no paid ranking, ever.
 
 ## Waiting
 
-- Home: the food tile should open `/food` (d1/g2). Home belongs to the home redesign thread.
+- Home: the food tile opens `/food` (d1/g2), one line changed here with the home thread's OK.
 - Not built, owned elsewhere: gift and occasion pre-order (s3, s4) wait for the checkout redesign; Console shop
   kind and signature dish (o1, o2); merchant per-kilo and hot/cold setup (o3). The street view (p3) and the
   summer drip on the sweet door (p4) are left out for now.
