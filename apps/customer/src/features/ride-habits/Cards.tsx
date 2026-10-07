@@ -4,14 +4,13 @@ import type { DinnerChance, FavouriteDriverView, Order, RegularTripView } from '
 import { formatClock, formatWhen } from '@driver/i18n';
 import { Avatar, Button, Card, Icon, Text, useTheme, useToast } from '@driver/ui';
 import { routeLabel } from '@/features/rajaa/labels';
-import { useRideMemo } from '@/features/ride/store';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { profile } from '@/lib/profile';
 import { dinnerStore, useDinnerPick } from './dinner-store';
 import { corridorCity, daysLabel, timeAt } from './logic';
-import { useRecentGoodDriver, useSetFavourite } from './queries';
+import { useBookedRoute, useRecentGoodDriver, useSetFavourite } from './queries';
 
 /** A driver's face: his approved photo, else his initial (the person glyph when he has no name). */
 export function DriverFace({ name, photoUrl, size = 48, testID }: { name: string | null; photoUrl: string | null; size?: number; testID?: string }) {
@@ -215,7 +214,7 @@ export function DinnerBanner() {
 export function BookedRideCard({ order, now }: { order: Order; now: Date }) {
   const theme = useTheme();
   const t = useT();
-  const memo = useRideMemo(order.id);
+  const memo = useBookedRoute(order.id);
   if (!order.scheduledFor) return null;
   const when = t('habits.booked_home', { when: formatWhen(order.scheduledFor, now) });
   const open = () => router.push({ pathname: '/ride/booked/[id]', params: { id: order.id } });

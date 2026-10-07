@@ -329,6 +329,11 @@ export class RideHabitsService implements RideHabitsPort {
         active: t.active,
         plan: t.plan,
         next: t.active ? nextOccurrence(t, now, mine) : null,
+        booked: decisions
+          .filter((d) => d.regularTripId === t.id && d.state === 'confirmed')
+          .map((d) => this.summary(t, d.date, d))
+          .filter((o) => o.at.getTime() > now.getTime())
+          .sort((a, b) => a.at.getTime() - b.at.getTime()),
       };
     });
   }

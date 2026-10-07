@@ -3,6 +3,7 @@ import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
 import { Avatar, Card, DepartureTime, Icon, PlateChip, StatusPill, Text, useTheme, type StatusTone } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { apiPhoto } from '@/lib/photo';
 import type { SeatFit } from './fit';
 import { fitLabel, fitReason, seatsLeftLabel, vehicleDesc } from './labels';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, type FillTone } from './logic';
@@ -75,7 +76,7 @@ export function DepartureTile({
 
         {/* سايقك on one line: initial (verified ring), first name and car, the plate never clipped (R-08). */}
         <View testID={`departure-driver-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Avatar name={name} uri={driver?.photoUrl ?? undefined} size={36} ring={Boolean(driver?.verifiedTodayAt)} {...(driver?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
+          <Avatar name={name} uri={apiPhoto(driver?.photoUrl) ?? undefined} size={36} ring={Boolean(driver?.verifiedTodayAt)} {...(driver?.firstName ? {} : { icon: 'user' as const, tone: 'accent' as const })} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text variant="label" weight={600} numberOfLines={1} style={{ flexShrink: 1 }}>

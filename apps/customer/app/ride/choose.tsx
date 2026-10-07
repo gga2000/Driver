@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
 import { Button, Chip, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
-import { formatClock, formatWhen } from '@driver/i18n';
+import { formatClock, formatHourPart, formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, hourOptions, minuteOptions, scheduleAt, SCHEDULE_DAYS, settleChoice, type ScheduleChoice, type ScheduleDay } from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
@@ -338,14 +338,14 @@ function WhenPicker({ when, onWhen, choice, onChoice }: { when: 'now' | 'later';
           />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="ride-when-hours">
             {hours.map((h) => (
-              <Chip key={h} role="radio" label={formatClock(scheduleAt(now, { day: choice.day, hour: h, minute: 0 }))} selected={choice.hour === h} onPress={() => onChoice(settleChoice(now, { ...choice, hour: h }))} testID={`ride-hour-${h}`} />
+              <Chip key={h} role="radio" label={formatHourPart(scheduleAt(now, { day: choice.day, hour: h, minute: 0 }))} selected={choice.hour === h} onPress={() => onChoice(settleChoice(now, { ...choice, hour: h }))} testID={`ride-hour-${h}`} />
             ))}
           </ScrollView>
           <SegmentedControl
             accessibilityLabel={t('ride.when_minute')}
             value={String(choice.minute) as '0' | '15' | '30' | '45'}
             onChange={(v) => onChoice(settleChoice(now, { ...choice, minute: Number(v) }))}
-            options={minutes.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: `:${String(m).padStart(2, '0')}` }))}
+            options={minutes.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: formatClock(scheduleAt(now, { ...choice, minute: m }), { period: false }) }))}
           />
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
             <Icon name="clock" size={15} color="liveText" strokeWidth={2} />

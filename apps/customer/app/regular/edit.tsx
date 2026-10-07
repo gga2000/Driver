@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, Switch, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
-import { formatClock } from '@driver/i18n';
+import { formatClock, formatHourPart } from '@driver/i18n';
 import { Button, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
@@ -115,14 +115,14 @@ function RegularEdit() {
         <Section title={t('habits.time')}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }}>
             {HOURS.map((h) => (
-              <Chip key={h} role="radio" label={formatClock(timeAt(h * 60, now))} selected={Math.floor(d.timeMin / 60) === h} onPress={() => up({ timeMin: h * 60 + (d.timeMin % 60) })} testID={`regular-hour-${h}`} />
+              <Chip key={h} role="radio" label={formatHourPart(timeAt(h * 60, now))} selected={Math.floor(d.timeMin / 60) === h} onPress={() => up({ timeMin: h * 60 + (d.timeMin % 60) })} testID={`regular-hour-${h}`} />
             ))}
           </ScrollView>
           <SegmentedControl
             accessibilityLabel={t('habits.minute')}
             value={String(d.timeMin % 60) as '0' | '15' | '30' | '45'}
             onChange={(m) => up({ timeMin: Math.floor(d.timeMin / 60) * 60 + Number(m) })}
-            options={MINUTES.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: `:${String(m).padStart(2, '0')}` }))}
+            options={MINUTES.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: formatClock(timeAt(Math.floor(d.timeMin / 60) * 60 + m, now), { period: false }) }))}
           />
           <Text variant="footnote" color="textMuted" tabular testID="regular-time-chosen">
             {t('habits.time_chosen', { time: formatClock(timeAt(d.timeMin, now)) })}
@@ -306,7 +306,7 @@ function RajaaPart({ d, up }: { d: RegularDraft; up: (p: Partial<RegularDraft>) 
           value={d.rajaa.direction}
           onChange={(direction) => rajaa({ direction })}
           options={[
-            { value: 'from_aziziyah', label: t('habits.dir_from', { city: cityName(t, corridor?.cityId ?? 'kut') }) },
+            { value: 'from_aziziyah', label: t('habits.dir_from') },
             { value: 'to_aziziyah', label: t('habits.dir_to') },
           ]}
         />

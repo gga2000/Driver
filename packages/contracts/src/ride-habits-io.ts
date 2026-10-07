@@ -199,6 +199,8 @@ export const RegularTripView = z.object({
   plan: RegularTripPlan,
   /** The next one to ask about or already decided; null when paused. */
   next: OccurrenceSummary.nullable(),
+  /** Days already booked from it and still ahead (a ride for later, a seat, «أريد أرجع»). */
+  booked: z.array(OccurrenceSummary).default([]),
 });
 export type RegularTripView = z.infer<typeof RegularTripView>;
 

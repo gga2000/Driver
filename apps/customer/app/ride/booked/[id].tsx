@@ -10,8 +10,7 @@ import { DriverFace } from '@/features/ride-habits/Cards';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { regularDraft } from '@/features/ride-habits/draft';
 import { isBookedRide, searchStartsAt } from '@/features/ride-habits/logic';
-import { useFavourites } from '@/features/ride-habits/queries';
-import { useRideMemo } from '@/features/ride/store';
+import { useBookedRoute, useFavourites } from '@/features/ride-habits/queries';
 import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { appNow } from '@/lib/dev-clock';
 import { useLocale, useT } from '@/lib/i18n';
@@ -39,7 +38,7 @@ function BookedRide() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const order = useQuery({ ...api.orders.get.queryOptions({ orderId: id ?? '' }), enabled: Boolean(id), refetchInterval: 30_000 });
   const favs = useFavourites();
-  const memo = useRideMemo(id ?? '');
+  const memo = useBookedRoute(id ?? '');
   const tick = useNow(true, 15_000);
   const now = useMemo(() => appNow(tick), [tick]);
   const o = order.data;
