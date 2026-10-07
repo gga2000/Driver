@@ -135,7 +135,12 @@ export function toTrpcError(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'internal', cause: err });
 }
 
-export const t = initTRPC.context<AppContext>().create({
+/** Procedure metadata: the roles a protected procedure admits (read by the audit coverage test, CON-10). */
+export interface ProcedureMeta {
+  roles?: readonly RoleKind[];
+}
+
+export const t = initTRPC.context<AppContext>().meta<ProcedureMeta>().create({
   transformer,
   // `live.*` subscriptions over SSE: a keep-alive comment so proxies keep idle streams open, and the
   // client reconnects when even those stop arriving.
@@ -206,7 +211,7 @@ async function allowedFor(ctx: AppContext, personId: string, roles: readonly Rol
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.use(async ({ ctx, next }) => {
+  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
     if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
