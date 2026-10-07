@@ -169,3 +169,62 @@ jobs:
             api.log
             simulation.log
           if-no-files-found: ignore
+
+  console-browser:
+    # The Console in a real browser (CON-13, gate C10 in the Console build plan): sign in through
+    # /login against the in-memory demo API, then every page in both themes at 1440×900 and 1366×768:
+    # no page errors, no CSP violations, RTL Arabic, axe 0 serious/critical. Screenshots are uploaded.
+    name: console · browser · axe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages and the API (the demo API runs apps/api/dist in memory)
+        run: pnpm turbo run build --filter='./packages/*' --filter=@driver/api
+
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @driver/console exec playwright install --with-deps chromium
+
+      - name: Browser checks (builds the Console, starts it and the demo API)
+        run: pnpm --filter @driver/console e2e
+
+      - name: Upload screenshots and report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-browser
+          path: |
+            apps/console/e2e/.shots
+            apps/console/e2e/.report
+            apps/console/e2e/.results
+          if-no-files-found: ignore

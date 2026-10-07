@@ -118,7 +118,12 @@ export function SafetyDesk() {
               ]}
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto" role="listbox" aria-label={t('console.safety.title')}>
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            // A listbox must hold options: while loading, empty or failed it is a plain region.
+            role={rows.length > 0 && !source.isPending ? 'listbox' : 'region'}
+            aria-label={t('console.safety.title')}
+          >
             {source.error && !source.data ? (
               <div className="p-4">
                 <QueryError error={source.error} onRetry={() => void source.refetch()} />

@@ -9,7 +9,8 @@
     "start": "next start --port 3100",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",
@@ -27,7 +28,9 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
     "@eslint/eslintrc": "3.3.7",
+    "@playwright/test": "1.56.1",
     "@types/geojson": "7946.0.16",
     "@types/node": "22.20.5",
     "@types/react": "19.3.0",

@@ -278,7 +278,8 @@ function MerchantsCard({ rows }: { rows: MerchantPayableRow[] }) {
       {sorted.length === 0 ? (
         <p className="text-sm text-muted">{t('console.fin_no_merchants')}</p>
       ) : (
-        <ul className="-my-1 max-h-[20rem] divide-y divide-line overflow-y-auto">
+        // Scrolls on its own, so it takes focus: keyboard users can scroll it with the arrows.
+        <ul tabIndex={0} aria-label={t('console.fin_merchants')} className="-my-1 max-h-[20rem] divide-y divide-line overflow-y-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">
           {sorted.map((m) => (
             <li key={m.merchantId} className="flex items-center justify-between gap-3 py-2">
               <span className="min-w-0">
@@ -307,7 +308,7 @@ function HandoversCard({ rows }: { rows: HandoverRow[] }) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted">{t('console.fin_handovers_empty')}</p>
       ) : (
-        <ul className="-my-1 max-h-[22rem] divide-y divide-line overflow-y-auto">
+        <ul tabIndex={0} aria-label={t('console.fin_handovers')} className="-my-1 max-h-[22rem] divide-y divide-line overflow-y-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">
           {rows.map((h, i) => (
             <li key={`${h.reference}-${i}`} className="flex items-baseline justify-between gap-3 py-2 text-sm">
               <span className="min-w-0">
