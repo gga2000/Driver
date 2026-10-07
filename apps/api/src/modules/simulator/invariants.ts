@@ -1,5 +1,5 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import type { DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -32,6 +32,8 @@ export interface SimSnapshot {
   quarantined: QuarantinedEvent[];
   outbox: { pending: number; published: number; failed: number };
   offers: ObservedOffer[];
+  /** Requested / assigned / booked-ride moments per trip (absent in hand-built snapshots). */
+  dispatchLog?: DispatchMoment[];
   replays: ReplayRecord[];
   hotWaits: HotWaitRecord[];
   handovers: HandoverRecord[];
@@ -494,7 +496,7 @@ export const INVARIANTS: readonly Definition[] = [
   },
   {
     name: 'booked_ride_waits_for_its_search',
-    description: 'a ride booked «بعدين» reaches no driver before its search starts (15 min before its time)',
+    description: 'a ride booked «بعدين» reaches no driver before its search starts (30 min before its time, review #28)',
     run: (s) => {
       const bad: string[] = [];
       let checked = 0;
@@ -505,6 +507,36 @@ export const INVARIANTS: readonly Definition[] = [
         const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
         const early = s.offers.filter((x) => trips.has(x.tripId) && x.at < startsAt);
         if (early.length > 0) bad.push(`${o.id}: ${early.length} offer(s) from ${new Date(Math.min(...early.map((x) => x.at))).toISOString()}, search starts ${new Date(startsAt).toISOString()}`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'scheduled_ride_dispatched_once',
+    description: 'a ride booked for later is dispatched once (one request, one assignment) and never has two confirmed drivers (review #28)',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const log = s.dispatchLog ?? [];
+      for (const o of s.orders) {
+        if (o.type !== 'ride' || !o.scheduledFor) continue;
+        checked += 1;
+        const trips = new Set(s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id)).map((t) => t.id));
+        const moments = log.filter((m) => trips.has(m.tripId));
+        const requested = moments.filter((m) => m.type === 'dispatch.requested').length;
+        const assigned = moments.filter((m) => m.type === 'dispatch.assigned').length;
+        if (requested > 1) bad.push(`${o.id}: dispatched ${requested} times`);
+        if (assigned > 1) bad.push(`${o.id}: assigned ${assigned} times`);
+        // Replay the confirmations: a second driver may confirm only after the first one dropped it.
+        let holders = 0;
+        for (const m of moments) {
+          if (m.type === 'dispatch.booked_confirmed') holders += 1;
+          if (m.type === 'dispatch.booked_released' || m.type === 'dispatch.booked_cancelled') holders = Math.max(0, holders - 1);
+          if (holders > 1) {
+            bad.push(`${o.id}: two confirmed drivers at once (${m.driverId ?? '?'})`);
+            break;
+          }
+        }
       }
       return { checked, bad };
     },

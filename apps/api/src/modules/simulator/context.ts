@@ -147,6 +147,14 @@ export interface DriverRun {
 }
 
 /** Offers the observer saw being sent, with the driver's cap position at that moment. */
+/** A dispatch moment of a trip (review #28 invariant): requested, assigned, a booked ride confirmed / dropped / cancelled. */
+export interface DispatchMoment {
+  tripId: string;
+  type: string;
+  driverId: string | null;
+  at: number;
+}
+
 export interface ObservedOffer {
   tripId: string;
   driverId: string;
