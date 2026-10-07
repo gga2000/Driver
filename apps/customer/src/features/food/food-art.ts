@@ -1,3 +1,4 @@
+import { doorOf, onlyIceCream } from '@driver/contracts';
 import type { DishKind } from '@driver/ui';
 
 /**
@@ -11,15 +12,18 @@ export type Motif = DishKind;
 
 /** Name rules, first match wins (drinks before food words: «ليمون بالنعناع» is a drink, «لفة كبد» a wrap). */
 const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
-  [/چاي|شاي|قهوة|استكان/, 'tea'],
+  // Food doors (2026-10-07): coffee is a café cup, not the tea glass; ice cream before the sweets words.
+  [/قهوة|كوفي|لاتيه|كابتشينو|كابوتشينو|اسبريسو|إسبريسو|موكا|نسكافيه|نسكفي/, 'coffee'],
+  [/چاي|شاي|استكان/, 'tea'],
+  [/آيس كريم|ايس كريم|أيس كريم|ايسكريم|آيسكريم|دوندرمة|دندرمة|بوظة|جيلاتي|ميلك شيك/, 'icecream'],
   [/ماي|مياه/, 'water'],
   [/لبن|شنينة|عيران/, 'laban'],
   [/بيبسي|ببسي|كولا|سفن|ميرندا|غازي/, 'can'],
-  [/عصير|ليمون|برتقال/, 'juice'],
+  [/عصير|ليمون|برتقال|رمان|موهيتو|كوكتيل|موز بالحليب/, 'juice'],
   [/فلافل/, 'falafel'],
   [/لفة|سندويش|ساندويج/, 'wrap'],
   [/شاورما|صاج/, 'shawarma'],
-  [/كنافة|زلابية|بقلاوة|حلو|كيك|مهلبي/, 'sweet'],
+  [/كنافة|زلابية|زلابيا|بقلاوة|حلو|كيك|مهلبي|كليچة|كليجة|بسبوسة/, 'sweet'],
   [/طرشي|مخلل|عمبة/, 'pickles'],
   // J4: the Iraqi dishes that now have their own drawing, before the general words they contain.
   [/باچة|باجة|پاچة|پاجة/, 'pacha'],
@@ -44,6 +48,11 @@ const BY_NAME: ReadonlyArray<readonly [RegExp, Motif]> = [
 
 /** Menu-section fallbacks for names the rules don't know. */
 const BY_SECTION: ReadonlyArray<readonly [RegExp, Motif]> = [
+  [/قهوة/, 'coffee'],
+  [/چاي|شاي/, 'tea'],
+  [/آيس كريم|ايس كريم|ميلك شيك/, 'icecream'],
+  [/عصير|بارد/, 'juice'],
+  [/كنافة|كليچة|كيك/, 'sweet'],
   [/مشروب/, 'can'],
   [/حلو/, 'sweet'],
   [/شاورما/, 'shawarma'],
@@ -66,6 +75,8 @@ export function motifForDish(name: string, section?: string): Motif {
 /** Kitchen words on home's cuisine circles that no dish name uses. */
 const BY_CUISINE: ReadonlyArray<readonly [RegExp, Motif]> = [
   [/فطور|ريوك|ريوگ/, 'tea'],
+  [/قهوة|كافيه|كوفي/, 'coffee'],
+  [/آيس كريم|ايس كريم|دوندرمة/, 'icecream'],
   [/حلويات/, 'sweet'],
   [/مشويات/, 'kebab'],
   [/معجنات/, 'bread'],
@@ -78,14 +89,32 @@ export function motifForCuisine(word: string): Motif {
   return motifForDish(word);
 }
 
-/** A kitchen's hero scene, from its cuisine tags. */
-export function motifForKitchen(tags: readonly string[]): Motif {
+/**
+ * A kitchen's picture (row, rail and menu hero alike), bugs b3/b4 of the food doors review: a café is a
+ * coffee cup, a juice bar a glass, a sweets shop its tray and an ice cream shop a cone, never the rice
+ * fallback. A restaurant shows the first word of its own cuisine line («كباب · تكة» → kebab), so two
+ * grill kitchens differ: «مشويات» is the mixed-grill tray, not another kebab plate. Tags decide when the
+ * line names nothing drawable.
+ */
+export function motifForKitchen(tags: readonly string[], cuisine?: string): Motif {
+  const door = doorOf(tags);
+  if (door === 'cafe') return 'coffee';
+  if (door === 'cold') return 'juice';
+  if (door === 'sweet') return onlyIceCream(tags) ? 'icecream' : 'sweet';
+  const first = cuisine?.split(/[·،,]/)[0]?.trim();
+  if (first) {
+    if (/مشويات|مشاوي/.test(first)) return 'tray';
+    const m = motifForCuisine(first);
+    if (m !== 'plate') return m;
+  }
   if (tags.includes('shawarma')) return 'shawarma';
   if (tags.includes('pacha')) return 'pacha';
   if (tags.includes('breakfast')) return 'tea';
   if (tags.includes('grill') || tags.includes('kebab')) return 'kebab';
   if (tags.includes('falafel')) return 'falafel';
-  return 'rice';
+  if (tags.includes('chicken')) return 'chicken';
+  if (tags.includes('rice') || tags.includes('stew')) return 'rice';
+  return 'plate';
 }
 
 export interface DishArt {

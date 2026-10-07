@@ -9,6 +9,7 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { activeFilterCount, applyList, cuisineOptions, hasFreeDelivery, hasRatings, type ListFilters, type ListSort } from '@/features/food/list';
 import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
 import { useRestaurants } from '@/features/home/queries';
+import { showTools } from '@/features/doors/doors';
 import { DinnerBanner } from '@/features/ride-habits/Cards';
 import { useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
@@ -17,8 +18,8 @@ import { countKey } from '@/lib/plural';
 const PRESETS: Record<string, ListFilters> = { open: { openNow: true }, deals: { deals: true }, all: {} };
 
 /**
- * كل المطاعم (audit C-02): every kitchen in town, sorted (الأقرب، الأسرع، الأعلى تقييماً once ratings
- * exist) and filtered (مفتوح هسة، توصيل مجاني and عروض when some kitchen has them, cuisine). Closed
+ * كل المحلات (audit C-02): every shop in town, sorted (الأقرب، الأسرع، الأعلى تقييماً once ratings
+ * exist) and filtered once more than 8 are open (food doors k6: a short list needs no tools) (مفتوح هسة، توصيل مجاني and عروض when some kitchen has them, cuisine). Closed
  * kitchens stay reachable in their own section with when they open. Public, like home.
  */
 export default function Restaurants() {
@@ -33,6 +34,8 @@ export default function Restaurants() {
   const out = useMemo(() => applyList(list, sort, filters), [list, sort, filters]);
   const cuisines = useMemo(() => cuisineOptions(list), [list]);
   const total = out.open.length + out.closed.length;
+  // k6: sorting and filters only once there is a crowd to sort (more than 8 open); a short list is just read.
+  const crowded = showTools(list.filter((r) => r.open).length);
 
   const sorts: { value: ListSort; label: string }[] = [
     { value: 'nearest', label: t('list.sort_nearest') },
@@ -67,8 +70,9 @@ export default function Restaurants() {
         <DinnerBanner />
       </View>
 
-      <View style={{ gap: theme.space[3] }}>
-        <SegmentedControl options={sorts} value={sort} onChange={setSort} accessibilityLabel={t('list.sort_label')} />
+      {crowded ? (
+        <View style={{ gap: theme.space[3] }}>
+          <SegmentedControl options={sorts} value={sort} onChange={setSort} accessibilityLabel={t('list.sort_label')} />
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -94,7 +98,8 @@ export default function Restaurants() {
             />
           ))}
         </ScrollView>
-      </View>
+        </View>
+      ) : null}
 
       {restaurants.isPending ? (
         <View style={{ gap: theme.space[3] }} accessibilityLabel={t('status.loading')}>

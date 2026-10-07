@@ -182,7 +182,7 @@ export default function RestaurantScreen() {
         {/* 0: hero + facts */}
         <View>
           <View style={{ height: HERO_H + insets.top }}>
-            {restaurant ? <FoodArt variant="hero" motif={motifForKitchen(restaurant.tags)} photoUrl={restaurant.photoUrl} /> : <Skeleton height={HERO_H + insets.top} radius={0} />}
+            {restaurant ? <FoodArt variant="hero" motif={motifForKitchen(restaurant.tags, restaurant.cuisine)} photoUrl={restaurant.photoUrl} /> : <Skeleton height={HERO_H + insets.top} radius={0} />}
             <View style={{ position: 'absolute', top: insets.top + theme.space[2], start: theme.space[4], end: theme.space[4], flexDirection: 'row', justifyContent: 'space-between' }}>
               <IconButton
                 icon="arrow-back"

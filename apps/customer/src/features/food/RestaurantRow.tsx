@@ -8,6 +8,7 @@ import { FoodArt, kitchenLook, motifForKitchen } from '@/features/food/FoodArt';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { Shutter } from '@/features/doors/Shutter';
 
 const ART = 84;
 
@@ -16,9 +17,10 @@ const ART = 84;
  * card on a warm lift, the kitchen's dish on its own coloured plate, the name and cuisine, then small
  * chips — the rating with a saffron star, the door time, the delivery fee (free delivery is a saffron
  * chip, never green: J-D1). A closed kitchen stays tappable, muted, with when it opens: its menu can
- * be browsed (audit C-02).
+ * be browsed (audit C-02), behind a rolled-down shutter (food doors p1). `reason` is the one true line
+ * that put it in «أحسن 3» (food doors r3/k3), in the accent over the cuisine.
  */
-export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; testID?: string; onOpen?: () => void }) {
+export function RestaurantRow({ r, testID, onOpen, reason }: { r: RestaurantSummary; testID?: string; onOpen?: () => void; reason?: string }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -34,12 +36,13 @@ export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; tes
         onOpen?.();
         router.push({ pathname: '/restaurant/[id]', params: { id: r.id } });
       }}
-      accessibilityLabel={[r.name, r.cuisine, r.open ? null : closedLabel].filter(Boolean).join('، ')}
+      accessibilityLabel={[r.name, reason, r.cuisine, r.open ? null : closedLabel].filter(Boolean).join('، ')}
     >
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
         {/* The kitchen's dish, the same drawing as its menu hero (joy S2-13): food, not a letter. */}
-        <View testID={`${testID ?? `restaurant-row-${r.id}`}-art`} style={{ width: ART, height: ART, borderRadius: theme.radius.lg, overflow: 'hidden', opacity: r.open ? 1 : 0.6 }}>
-          <FoodArt motif={motifForKitchen(r.tags)} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} />
+        <View testID={`${testID ?? `restaurant-row-${r.id}`}-art`} style={{ width: ART, height: ART, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
+          <FoodArt motif={motifForKitchen(r.tags, r.cuisine)} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} />
+          {r.open ? null : <Shutter size={ART} />}
         </View>
         <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
@@ -48,6 +51,14 @@ export function RestaurantRow({ r, testID, onOpen }: { r: RestaurantSummary; tes
             </Text>
             {r.open && r.dealCount > 0 ? <DealSticker label={t('list.deal')} /> : null}
           </View>
+          {reason ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} testID={`${testID ?? `restaurant-row-${r.id}`}-reason`}>
+              <Icon name="check" size={13} color="accentText" strokeWidth={2.4} />
+              <Text variant="caption" weight={700} color="accentText" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {reason}
+              </Text>
+            </View>
+          ) : null}
           <Text variant="footnote" color="textMuted" numberOfLines={1}>
             {r.cuisine}
           </Text>

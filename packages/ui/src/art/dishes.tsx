@@ -35,6 +35,8 @@ export const DISH_KINDS = [
   'water',
   'can',
   'juice',
+  'coffee',
+  'icecream',
 ] as const;
 export type DishKind = (typeof DISH_KINDS)[number];
 
@@ -654,6 +656,41 @@ function drawDish(kind: DishKind, p: Pen): ReactElement {
             <Path d="M0-10L0 10M-10 0L10 0M-7-7L7 7M-7 7L7-7" stroke={K.juice} strokeWidth={1.4} />
           </G>
           {p.garnish ? <Herb p={p} x={74} y={52} s={0.7} /> : null}
+        </G>
+      );
+    case 'coffee':
+      // A café cup on its saucer (not the tea glass): crema with a heart, a curl of steam; two dates when garnished.
+      return (
+        <G>
+          <Shadow cx={104} cy={170} rx={70} ry={13} />
+          <Shape d={ellipseD(100, 160, 70, 16)} fill={p.plate} w={p.w} />
+          <Path d={ellipseD(100, 158, 36, 7)} fill="none" stroke={K.rim} strokeWidth={p.w * 0.8} />
+          <Shape d="M138 106Q166 104 164 126Q162 146 134 144" fill="none" w={p.w * 1.6} />
+          <Shape d="M56 96L144 96Q142 156 100 158Q58 156 56 96Z" fill={K.white} w={p.w} />
+          <Path d="M62 120Q100 132 138 120" stroke={K.kashi} strokeWidth={p.w * 1.2} fill="none" strokeLinecap="round" />
+          <Shape d={ellipseD(100, 96, 44, 11)} fill={K.char} w={p.w * 0.8} />
+          <Path d="M100 102Q86 94 92 89Q97 86 100 91Q103 86 108 89Q114 94 100 102Z" fill={K.bread} />
+          <Steam x={92} y={78} h={34} w={p.w * 0.8} />
+          {p.garnish ? (
+            <G>
+              <Shape d={ellipseD(46, 158, 9, 5)} fill={K.wood} w={p.w * 0.6} />
+              <Shape d={ellipseD(156, 160, 9, 5)} fill={K.wood} w={p.w * 0.6} />
+            </G>
+          ) : null}
+        </G>
+      );
+    case 'icecream':
+      // A waffle cone with two scoops (qaimar under strawberry), one drip; pistachio crumbs when garnished.
+      return (
+        <G>
+          <Shadow cx={104} cy={182} rx={22} ry={5} />
+          <Shape d="M70 104L130 104L102 182Q100 186 98 182Z" fill={K.chicken} w={p.w} />
+          <Path d="M78 116L116 154M92 108L124 140M74 128L106 172M110 108L84 160M124 112L96 176M100 106L80 140" stroke={K.fried} strokeWidth={p.w * 0.7} strokeLinecap="round" opacity={0.7} />
+          <Shape d="M64 104Q60 72 100 70Q140 72 136 104Q130 112 118 106Q112 116 104 108Q94 116 86 106Q74 114 64 104Z" fill={K.rice} w={p.w} />
+          <Shape d={circleD(100, 56, 28)} fill={K.turnip} w={p.w} />
+          <Path d="M116 76Q120 90 118 94Q114 98 112 92Q111 84 108 80Z" fill={K.turnip} />
+          <Path d="M84 46Q90 38 98 38" stroke={K.white} strokeWidth={p.w * 1.1} fill="none" strokeLinecap="round" opacity={0.7} />
+          {p.garnish ? <Path d="M90 32h4M104 30h4M114 40h4M82 58h4M110 62h4" stroke={K.cucumber} strokeWidth={p.w * 1.6} strokeLinecap="round" /> : null}
         </G>
       );
   }

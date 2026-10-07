@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
-import { ART_LOOKS, artOf, dishArt, kitchenLook, motifForCuisine, motifForDish, sameDrawing } from './food-art';
+import { ART_LOOKS, artOf, dishArt, kitchenLook, motifForCuisine, motifForDish, motifForKitchen, sameDrawing } from './food-art';
 
 describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
   it('drinks: water is a bottle, laban and شنينة a glass, soft drinks a can, tea an istikan', () => {
@@ -105,5 +105,32 @@ describe('cuisine words get a dish circle (joy b6)', () => {
   });
   it('falls back to a plate for a word it does not know', () => {
     expect(motifForCuisine('برغر')).toBe('plate');
+  });
+});
+
+describe('food doors pictures (bugs b3, b4)', () => {
+  it('coffee is a cup, not the tea glass; ice cream is a cone, not the sweets tray', () => {
+    expect(motifForDish('قهوة عربية')).toBe('coffee');
+    expect(motifForDish('لاتيه مثلج')).toBe('coffee');
+    expect(motifForDish('چاي كرك')).toBe('tea');
+    expect(motifForDish('كوب آيس كريم قيمر')).toBe('icecream');
+    expect(motifForDish('دوندرمة بالفستق')).toBe('icecream');
+    expect(motifForDish('كليچة تمر')).toBe('sweet');
+    expect(motifForDish('موز بالحليب')).toBe('juice');
+    expect(motifForDish('شي جديد', 'قهوة')).toBe('coffee');
+  });
+  it('a shop is drawn by what it is, never the rice fallback', () => {
+    expect(motifForKitchen(['coffee', 'cake'], 'قهوة · چاي · كيك')).toBe('coffee');
+    expect(motifForKitchen(['juice'], 'عصير طازج')).toBe('juice');
+    expect(motifForKitchen(['sweets', 'kunafa', 'ice_cream'], 'كنافة · بقلاوة')).toBe('sweet');
+    expect(motifForKitchen(['ice_cream'], 'آيس كريم')).toBe('icecream');
+    expect(motifForKitchen(['burger'])).toBe('plate');
+  });
+  it('the two grill kitchens no longer share a picture', () => {
+    expect(motifForKitchen(['grill', 'kebab', 'tikka', 'liver', 'sandwiches'], 'كباب · تكة · كبد')).toBe('kebab');
+    expect(motifForKitchen(['grill', 'kebab', 'tikka', 'chicken', 'rice'], 'مشويات · دجاج · تمن ومرق')).toBe('tray');
+    expect(motifForKitchen(['shawarma', 'falafel'], 'شاورما · فلافل · مناقيش')).toBe('shawarma');
+    expect(motifForKitchen(['breakfast', 'pacha', 'rice', 'stew'], 'باچة · ريوگ · تمن ومرق')).toBe('pacha');
+    expect(motifForKitchen(['grill'])).toBe('kebab');
   });
 });

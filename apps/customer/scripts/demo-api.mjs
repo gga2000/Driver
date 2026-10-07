@@ -4,7 +4,8 @@
 //
 //   PORT=3200 node apps/customer/scripts/demo-api.mjs
 //
-// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) with
+// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) and
+// the demo-only food-door shops (كافيه دجلة، عصائر الربيع، حلويات الزهراء، آيس كريم الفرات) with
 // their storefronts and menus — the same seed `pnpm db:seed` writes (@driver/contracts/seeds) — and
 // plays the kitchen:
 //   - an order a customer places is accepted after DEMO_KITCHEN_MS (default 20000; 0 = never);
@@ -52,7 +53,10 @@ const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
 const controls = app.get(ControlsService);
 
-const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
+// door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
+const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
 // Demo restaurants stay open around the clock so screens and shots work at any hour
 // (DEMO_HOURS=real keeps the real opening hours, e.g. to show the "closed" states).
 if (process.env.DEMO_HOURS !== 'real') {

@@ -138,6 +138,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         {/* Search and the full restaurant list (audit C-01, C-02): public, like home and menus. */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="restaurants" options={{ headerShown: false }} />
+        {/* The food doors (أبواب الأكل): the food home and one door's shops. Public, like home. */}
+        <Stack.Screen name="food/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food/[door]" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
