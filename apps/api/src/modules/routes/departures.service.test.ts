@@ -808,6 +808,14 @@ describe('x3 seat hold: our taxi to the garage runs late (RIDE_SEAT_HOLD)', () =
     expect(await code(h.departures.markNoShow('d1', dep.id, paid.id))).toBe('no error');
   });
 
+  it('the meter minutes our late taxi caused are reported with the settled meter, so the company pays them', async () => {
+    const { h, dep, paid } = await lateTaxi(true);
+    await h.departures.taxiLate('r2', paid.id, T(41)); // due 12:41; the meter runs from 12:30
+    h.advance(15); // 12:44: he checks in 14 minutes late, 11 of them ours
+    await h.checkIn(dep.id, paid.id);
+    expect(h.events.last('seat.late_meter_settled')?.payload).toMatchObject({ minutesLate: 14, taxiLateMinutes: 11, late: { kind: 'rider', id: 'r2' } });
+  });
+
   it('on: cleared (taxi on time again or gone) → no hold; a seat that is no longer booked is left alone', async () => {
     const { h, dep, cash } = await lateTaxi(true);
     await h.departures.taxiLate('r1', cash.id, T(41));

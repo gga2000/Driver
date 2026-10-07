@@ -38,6 +38,7 @@ import {
   driverMeter,
   meterApplies,
   riderMeterMinutes,
+  riderMeterStart,
   seatHoldUntil,
   type CheckpointWaiver,
 } from './late-meter.js';
@@ -1266,7 +1267,20 @@ export class DeparturesService {
       late: { kind: 'rider', id: b.riderId },
       driverId: dep.driverId,
       waitingRiderIds: waiting,
+      taxiLateMinutes: this.taxiLateMeterMinutes(dep, bookings, b, minutes),
     });
+  }
+
+  /**
+   * x3: how many of `b`'s meter minutes ran while our own taxi bringing him was still due (capped like
+   * the hold). The company pays those blocks (ledger `lateTaxiPaysMeter`), whether or not the seat
+   * hold is switched on: the lateness is ours either way. 0 when he had no late taxi.
+   */
+  private taxiLateMeterMinutes(dep: DepartureRecord, bookings: readonly BookingRecord[], b: BookingRecord, minutes: number): number {
+    const held = seatHoldUntil(dep, b, this.money.lateMeter.capMin, true);
+    const start = riderMeterStart(dep, bookings, b);
+    if (!held || !start) return 0;
+    return Math.min(minutes, Math.max(0, Math.floor((held.getTime() - start.getTime()) / MIN_MS)));
   }
 
   /**

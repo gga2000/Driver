@@ -2,8 +2,8 @@
 
 Three taxi ideas Ali voted yes on, built server-first with drop-in customer cards. Nothing here changes
 a price or a fee: every taxi is an ordinary ride, priced by the server when it is booked. The only
-write into the routes (الرجعة) module is the x3 seat hold's late-taxi time, and the hold itself is off
-(`RIDE_SEAT_HOLD`) until Ali confirms the no-show rule.
+write into the routes (الرجعة) module is the x3 seat hold's late-taxi time; the hold (`RIDE_SEAT_HOLD`)
+is on, and the late meter minutes our taxi caused are paid by the company (Ali 2026-10-07).
 
 | Idea | What the rider gets |
 |---|---|
@@ -44,7 +44,7 @@ the pickup + the ride (`TrackingService.liveEta`); for a ride still searching, n
 `garage_taxi.late` (idempotency `garage_taxi.late:<link id>:<minutes>`). The link closes when he boards,
 the seat or car is gone, or the ride ends/is cancelled.
 
-**Seat hold (`RIDE_SEAT_HOLD`, off).** Ali 2026-10-07: "a main feature". The same tick tells the seat
+**Seat hold (`RIDE_SEAT_HOLD`, on).** Ali 2026-10-07: "a main feature". The same tick tells the seat
 when our late taxi is due (`DeparturesService.taxiLate(riderId, bookingId, until | null)`, stored as
 `seat_bookings.taxi_late_until`; cleared when the taxi is on time again or the link closes). While the
 switch (`IntercityRules.seatHoldForLateTaxi`, default `RIDE_SEAT_HOLD` in
@@ -54,9 +54,15 @@ car's time; then the usual rules apply (cash grace, meter forfeit, latest depart
 seat row carries `taxiDueAt` and `seatHeld` (garage mode: «جاي بتكسينا · يوصل 12:41» on the seat,
 «مقعده محجوز لحد 12:41، تكسينا متأخر عليه» in the rider sheet); the rider's notice
 (`GarageTaxiLink.seatHeldUntil`) says «مقعدك محجوز، السيارة تنتظرك لحد 12:41». Off: the time is
-recorded and shown to the driver, but nothing is held. **Who pays the wait** (the late meter's
-1,000 / 500 per 10 min while his seat is held) is open with Ali; until he answers the meter settles as
-today.
+recorded and shown to the driver, but nothing is held.
+
+**Who pays the wait (Ali 2026-10-07: "yes").** The company. When his meter settles,
+`seat.late_meter_settled` carries `taxiLateMinutes` = the meter minutes that ran before our taxi was
+due (same cap as the hold, counted whether or not the hold is switched on). With
+`MoneyRules.lateTaxiPaysMeter` on, the ledger pays the blocks for those minutes from `platform`
+(memo `late_taxi`: 1,000 to the driver and 500 to each waiting rider per 10 min); the rider pays only
+the blocks after that. Example: car 12:30, our taxi due 12:41, he checks in 12:48 → 18 minutes =
+2 blocks; the 11 minutes before 12:41 are 1 block, so the company pays one block and he pays one.
 
 ### x4 — armed taxi home
 `arm` stores the arm (seat, place, payment). Each tick: follows a seat moved to another car; drops on a
@@ -182,7 +188,7 @@ or `features/rajaa/**` changed; the card only imports read hooks and helpers fro
   and in Aziziyah.
 
 ## Still open in the routes module (owned by the trips thread)
-1. Done (x3 seat hold above, switched off). Who pays the held wait waits for Ali.
+1. Done (x3 seat hold above, on; the company pays the held wait).
 2. Done (garage mode shows the late taxi on the seat and in the rider sheet).
 3. Optionally carry an **arrival garage** on inbound departures, so x4 does not have to guess the
    nearest Aziziyah garage from the car's last position.

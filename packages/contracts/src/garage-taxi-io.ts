@@ -17,9 +17,10 @@ import { RIDE_HABIT_RULES, rideScheduleProblem } from './ride-habits-io.js';
 /**
  * x3 seat hold (Ali 2026-10-07: "a main feature"): when our taxi to the garage runs late, the rider's
  * الرجعة seat waits for him (the driver can't mark him a no-show until the taxi is due, capped at the
- * late meter's cap). Off until Ali confirms the no-show rule and who pays the wait.
+ * late meter's cap). On since Ali settled who pays the wait (2026-10-07, "yes"): the late meter's blocks
+ * for those minutes are the company's (`MoneyRules.lateTaxiPaysMeter`), not the rider's.
  */
-export const RIDE_SEAT_HOLD = false;
+export const RIDE_SEAT_HOLD = true;
 
 export const GARAGE_TAXI_RULES = {
   /** x2: the taxi brings him to the garage this many minutes before the car's announced time. */

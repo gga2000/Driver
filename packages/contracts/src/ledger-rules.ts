@@ -220,6 +220,12 @@ export const MoneyRules = z.object({
    * "yes" on 2026-10-07; the switch lets ops stop it without a release.
    */
   driverCancelCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
+   * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
+   * company, not the rider. Ali said "yes" on 2026-10-07; only acts while the seat hold is on.
+   */
+  lateTaxiPaysMeter: z.object({ enabled: z.boolean() }).default({ enabled: false }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -277,6 +283,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
   // M-15: on (Ali, 2026-10-07, "yes").
   driverCancelCredit: { enabled: true },
+  // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
+  lateTaxiPaysMeter: { enabled: true },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */
