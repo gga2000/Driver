@@ -90,6 +90,8 @@ export interface RoutesRepository {
   saveRequest(r: RequestRecord, tx?: Tx): Promise<void>;
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
+  /** y5: completed private trips per driver (his offer was picked and the trip completed). */
+  privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>>;
 
   /** Appends one seat-PIN attempt (the log is never updated or deleted). */
   addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void>;
@@ -251,6 +253,16 @@ export class InMemoryRoutesRepository implements RoutesRepository {
           a.when.getTime() - b.when.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
       )
       .map(clone);
+  }
+
+  async privateTripCounts(driverIds: readonly string[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    for (const r of this.requests.values()) {
+      if (r.state !== 'completed') continue;
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (picked && picked.driverId in out) out[picked.driverId]! += 1;
+    }
+    return out;
   }
 
   async addPinAttempt(a: PinAttemptRecord): Promise<void> {

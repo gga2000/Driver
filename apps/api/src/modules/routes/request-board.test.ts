@@ -115,6 +115,46 @@ describe('request board: offers, pick, 20 % deposit (customer spec §2, review C
   });
 });
 
+describe('request board: the detailed request (y1), «شافوا طلبك» (y4), private trips (y5)', () => {
+  const base = { from: { label: 'العزيزية' }, to: { label: 'النجف' }, seats: 2, travellingAs: 'aila' as const };
+
+  it('details default to one way, and must hold together: hours for a wait, a return day within the week', () => {
+    const h = routesHarness();
+    const when = h.at(120);
+    expect(PostRequestInput.parse({ ...base, when }).details).toEqual({ trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false });
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'wait_return' } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days' } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 30 * 60_000) } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 8 * 86_400_000) } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 2 * 86_400_000) } }).success).toBe(true);
+  });
+
+  it('a driver is counted once when he opens it or offers; not after it is matched', async () => {
+    const h = routesHarness();
+    const r = await postRequest(h);
+    await h.requests.seen('d1', r.id);
+    await h.requests.seen('d1', r.id);
+    await h.requests.offer('d2', r.id, 30_000);
+    expect((await h.requests.get(r.id))!.seenDriverIds).toEqual(['d1', 'd2']);
+    expect(await code(h.requests.seen('r1', r.id))).toBe('forbidden');
+    const o = (await h.requests.get(r.id))!.offers[0]!;
+    h.wallet.set('r1', 20_000);
+    await h.requests.pick('r1', r.id, o.id);
+    await h.requests.seen('d3', r.id);
+    expect((await h.requests.get(r.id))!.seenDriverIds).toEqual(['d1', 'd2']);
+  });
+
+  it('private trips count only completed rides whose offer was picked', async () => {
+    const h = routesHarness();
+    const r = await matched(h);
+    expect(await h.repo.privateTripCounts(['d1', 'd2'])).toEqual({ d1: 0, d2: 0 });
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(await h.repo.privateTripCounts(['d1', 'd2', 'd9'])).toEqual({ d1: 1, d2: 0, d9: 0 });
+  });
+});
+
 describe('request board no-shows and settlement through the ledger', () => {
   it('driver no-show: 2× the deposit from the driver to the rider, after 20 minutes', async () => {
     const h = routesHarness();

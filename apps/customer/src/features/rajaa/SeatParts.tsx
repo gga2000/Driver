@@ -146,17 +146,16 @@ export function WayPointRow({ point, selected, onPress, draftLabel }: { point: M
   );
 }
 
-/** c7: «عندي جنطة كبيرة» as a switch with the bag, so the driver keeps room in the boot. */
-export function BagSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+/** A row that is one switch: an icon in a circle, the label and a hint, the switch drawn at the end. */
+export function SwitchRow({ icon, label, hint, value, onChange, testID }: { icon: IconName; label: string; hint?: string; value: boolean; onChange: (v: boolean) => void; testID?: string }) {
   const theme = useTheme();
-  const t = useT();
   return (
     <Pressable
-      testID="rajaa-large-bags"
+      testID={testID}
       accessibilityRole="switch"
       accessibilityState={{ checked: value }}
-      accessibilityLabel={t('rajaa.large_bags')}
-      accessibilityHint={t('rajaa.large_bags_hint')}
+      accessibilityLabel={label}
+      {...(hint ? { accessibilityHint: hint } : {})}
       onPress={() => onChange(!value)}
       style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 56, paddingVertical: theme.space[2] }}
     >
@@ -170,15 +169,17 @@ export function BagSwitch({ value, onChange }: { value: boolean; onChange: (v: b
           justifyContent: 'center',
         }}
       >
-        <Icon name="bag" size={20} color={value ? 'accentText' : 'textMuted'} strokeWidth={2} />
+        <Icon name={icon} size={20} color={value ? 'accentText' : 'textMuted'} strokeWidth={2} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="label" weight={600}>
-          {t('rajaa.large_bags')}
+          {label}
         </Text>
-        <Text variant="caption" color="textMuted">
-          {t('rajaa.large_bags_hint')}
-        </Text>
+        {hint ? (
+          <Text variant="caption" color="textMuted">
+            {hint}
+          </Text>
+        ) : null}
       </View>
       {/* The row carries the switch role; the switch itself is only the look. */}
       <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
@@ -190,4 +191,10 @@ export function BagSwitch({ value, onChange }: { value: boolean; onChange: (v: b
       </View>
     </Pressable>
   );
+}
+
+/** c7: «عندي جنطة كبيرة» as a switch with the bag, so the driver keeps room in the boot. */
+export function BagSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT();
+  return <SwitchRow testID="rajaa-large-bags" icon="bag" label={t('rajaa.large_bags')} hint={t('rajaa.large_bags_hint')} value={value} onChange={onChange} />;
 }

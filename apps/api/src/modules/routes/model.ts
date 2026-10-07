@@ -14,6 +14,7 @@ import type {
   RequestState,
   ReviewHideReason,
   SeatPayment,
+  RequestDetails,
   TravellingAs,
   VehicleModelKey,
 } from '@driver/contracts';
@@ -193,6 +194,10 @@ export interface RequestRecord {
   privateCar: boolean;
   travellingAs: TravellingAs;
   note: string | null;
+  /** y1: trip kind, big bags, the car wanted (defaults for older rows and stranded posts). */
+  details: RequestDetails;
+  /** y4: drivers who opened the request (ids only; the rider sees the count). */
+  seenDriverIds: string[];
   state: RequestState;
   origin: 'rider' | 'stranded';
   priceCapIqd: number | null;

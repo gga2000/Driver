@@ -26,7 +26,8 @@ export function RajaaDriver({
 }: {
   /** The car: a departure's, or (request board) the offering driver's latest one; null when unknown. */
   dep: { vehicle: DepartureCard['vehicle'] | null };
-  card: (Pick<RajaaDriverCard, 'firstName' | 'verifiedTodayAt' | 'photoUrl'> & Partial<Pick<RajaaDriverCard, 'stats'>>) | null | undefined;
+  /** `stats` is null for a request-board driver who has not run a seat departure yet. */
+  card: (Pick<RajaaDriverCard, 'firstName' | 'verifiedTodayAt' | 'photoUrl'> & { stats?: RajaaDriverCard['stats'] | null }) | null | undefined;
   /** Show his record and «ملفه» for this departure (needs the card's stats); `line` keeps it to one line (the pass, t1). */
   record?: { departureId: string; line?: boolean };
   size?: 'md' | 'lg';

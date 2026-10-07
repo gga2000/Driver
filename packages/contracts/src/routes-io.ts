@@ -559,16 +559,61 @@ export const RequestPlace = z.object({
 });
 export type RequestPlace = z.infer<typeof RequestPlace>;
 
-export const PostRequestInput = z.object({
-  from: RequestPlace,
-  to: RequestPlace,
-  when: z.coerce.date(),
-  seats: z.number().int().min(1).max(7),
-  /** Whole car for the rider (8 % take) vs seats to another destination. */
-  privateCar: z.boolean().default(true),
-  travellingAs: TravellingAs,
-  note: z.string().max(300).optional(),
+/**
+ * What kind of trip a private-car request is (idea y1, Ali 2026-10-07): one way; there and back the
+ * same day with the driver waiting some hours; or there one day and back on another (within a week).
+ */
+export const RequestTripKind = z.enum(['one_way', 'wait_return', 'two_days']);
+export type RequestTripKind = z.infer<typeof RequestTripKind>;
+
+/** Hours a driver may be asked to wait on a same-day return. */
+export const REQUEST_WAIT_HOURS_MAX = 12;
+/** A two-day trip comes back within this many days. */
+export const REQUEST_RETURN_DAYS_MAX = 7;
+
+/** The request's details the drivers price on (y1): trip kind, big bags, the car wanted. */
+export const RequestDetails = z.object({
+  trip: RequestTripKind.default('one_way'),
+  /** `wait_return`: how long the driver waits before the way back. */
+  waitHours: z.number().int().min(1).max(REQUEST_WAIT_HOURS_MAX).nullable().default(null),
+  /** `two_days`: when to come back. */
+  returnAt: z.coerce.date().nullable().default(null),
+  /** Suitcases that need the boot. */
+  bigBags: z.number().int().min(0).max(7).default(0),
+  /** The car wanted; null = any. */
+  carKind: IntercityVehicleKind.nullable().default(null),
+  /** The rider wants the AC working. */
+  ac: z.boolean().default(false),
 });
+export type RequestDetails = z.infer<typeof RequestDetails>;
+export const DEFAULT_REQUEST_DETAILS: RequestDetails = { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false };
+
+/** Why a request's details don't hold together (checked on the server and, for the form, the app). */
+export function requestDetailsProblem(d: RequestDetails, when: Date): 'wait_hours_needed' | 'return_needed' | 'return_too_early' | 'return_too_late' | null {
+  if (d.trip === 'wait_return' && d.waitHours === null) return 'wait_hours_needed';
+  if (d.trip !== 'two_days') return null;
+  if (!d.returnAt) return 'return_needed';
+  if (d.returnAt.getTime() <= when.getTime() + 3_600_000) return 'return_too_early';
+  if (d.returnAt.getTime() > when.getTime() + REQUEST_RETURN_DAYS_MAX * 86_400_000) return 'return_too_late';
+  return null;
+}
+
+export const PostRequestInput = z
+  .object({
+    from: RequestPlace,
+    to: RequestPlace,
+    when: z.coerce.date(),
+    seats: z.number().int().min(1).max(7),
+    /** Whole car for the rider (8 % take) vs seats to another destination. */
+    privateCar: z.boolean().default(true),
+    travellingAs: TravellingAs,
+    note: z.string().max(300).optional(),
+    details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  })
+  .superRefine((v, ctx) => {
+    const problem = requestDetailsProblem(v.details, v.when);
+    if (problem) ctx.addIssue({ code: 'custom', path: ['details'], message: problem });
+  });
 export type PostRequestInput = z.input<typeof PostRequestInput>;
 
 export const RequestState = z.enum([
@@ -595,6 +640,10 @@ export const RequestOfferDriver = z.object({
   /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
   photoUrl: z.string().nullable(),
   vehicle: IntercityVehicle.nullable(),
+  /** His record on الرجعة runs (y5: rating, trips, on-time); null on a driver's own view. */
+  stats: z.lazy(() => RajaaDriverStats).nullable().default(null),
+  /** Private trips (request board) he completed (y5). */
+  privateTrips: z.number().int().nonnegative().default(0),
 });
 export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
 
@@ -618,6 +667,9 @@ export const RequestPostView = z.object({
   privateCar: z.boolean(),
   travellingAs: TravellingAs,
   note: z.string().nullable(),
+  details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  /** «9 سواق شافوا طلبك» (y4): drivers who opened this request; only the rider sees it. */
+  seenBy: z.number().int().nonnegative().default(0),
   state: RequestState,
   /** `stranded`: opened by the platform at the seat price for a forfeited or stranded rider (review C-40/46). */
   origin: z.enum(['rider', 'stranded']),
@@ -1121,6 +1173,7 @@ export interface RoutesPort {
   /** Riders: the full profile of a departure's driver (same visibility as `driverCards`). */
   driverProfile(actor: Actor, input: DriverProfileInput): Promise<RajaaDriverProfile>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
+  requestSeen(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
   requestCompleted(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;

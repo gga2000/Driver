@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  DEFAULT_REQUEST_DETAILS,
   DriverError,
   encodeDomainEvent,
   isDomainEventType,
@@ -74,6 +75,7 @@ export class RequestBoardService {
         privateCar: input.privateCar,
         travellingAs: input.travellingAs,
         note: input.note ?? null,
+        details: input.details,
         origin: 'rider',
         priceCapIqd: null,
       });
@@ -118,6 +120,7 @@ export class RequestBoardService {
       privateCar: true,
       travellingAs: s.travellingAs,
       note: null,
+      details: { ...DEFAULT_REQUEST_DETAILS },
       origin: 'stranded',
       priceCapIqd: s.priceCapIqd,
     });
@@ -228,6 +231,21 @@ export class RequestBoardService {
     );
   }
 
+  /**
+   * y4: a driver opened the request. Recorded once per driver while it is open, so the rider sees
+   * «N سواق شافوا طلبك»; no event (nothing to settle or notify).
+   */
+  seen(driverId: string, postId: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.must(postId, tx);
+      if (r.riderId === driverId) throw new DriverError('forbidden');
+      if (r.state !== 'open' || r.seenDriverIds.includes(driverId)) return r;
+      r.seenDriverIds.push(driverId);
+      await this.repo.saveRequest(r, tx);
+      return r;
+    });
+  }
+
   offer(driverId: string, postId: string, priceIqd: number): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.must(postId, tx);
@@ -247,6 +265,8 @@ export class RequestBoardService {
         state: 'open' as const,
       };
       r.offers.push(offer);
+      // An offer means he read it, even from a list that never opened the detail.
+      if (!r.seenDriverIds.includes(driverId)) r.seenDriverIds.push(driverId);
       await this.repo.saveRequest(r, tx);
       await this.emit(tx, 'request.offer_made', driverId, r, {
         offerId: offer.id,
@@ -387,6 +407,7 @@ export class RequestBoardService {
       | 'id'
       | 'riderId'
       | 'state'
+      | 'seenDriverIds'
       | 'offers'
       | 'pickedOfferId'
       | 'depositIqd'
@@ -401,6 +422,7 @@ export class RequestBoardService {
       riderId,
       ...r,
       state: 'open',
+      seenDriverIds: [],
       offers: [],
       pickedOfferId: null,
       depositIqd: null,

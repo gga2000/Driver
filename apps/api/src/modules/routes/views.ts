@@ -298,6 +298,9 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
     privateCar: r.privateCar,
     travellingAs: r.travellingAs,
     note: r.note,
+    details: r.details,
+    // y4: only the rider learns how many drivers opened it.
+    seenBy: viewerDriverId ? 0 : r.seenDriverIds.length,
     state: r.state,
     origin: r.origin,
     priceCapIqd: r.priceCapIqd,

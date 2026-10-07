@@ -703,7 +703,7 @@ app.use('/demo/usuals', async (req, res) => {
 // middle seat that a woman can't take between two men, a van with a walk-up, a family-only SUV,
 // a car with its front seat sold), demand posts behind the board banner, and three dev hooks:
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
-//   POST /demo/rajaa/offers?personId=…   three drivers offer on that person's open requests
+//   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and four offer
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
@@ -1123,15 +1123,37 @@ const rajaa = await (async () => {
     }
   });
 
+  // y5: private trips the offering drivers already completed (post → offer → pick → done), once.
+  let privateSeeded = false;
+  async function seedPrivateTrips() {
+    if (privateSeeded) return;
+    privateSeeded = true;
+    for (const [driverId, n, price] of [[D.drv_4M9T, 11, 60_000], [D.drv_7K2Q, 6, 55_000], [D.drv_5R1D, 2, 45_000]]) {
+      for (let i = 0; i < n; i += 1) {
+        const who = rider();
+        await ledger.record({ type: 'adjustment', amount: 20_000, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
+        const r = await requests.post(who, { from: { label: 'العزيزية' }, to: { label: 'النجف' }, when: at(1), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false } });
+        const o = (await requests.offer(driverId, r.id, price)).offers.at(-1);
+        await requests.pick(who, r.id, o.id);
+        await requests.complete(driverId, r.id);
+      }
+    }
+  }
+
   app.use('/demo/rajaa/offers', async (req, res) => {
     try {
       const personId = personOf(req);
       const open = (await requests.mine(personId ?? '')).filter((r) => r.state === 'open');
       if (req.method !== 'POST' || open.length === 0) return json(res, 400, { error: 'POST with a personId that has an open request' });
+      await seedPrivateTrips();
       for (const r of open) {
-        await requests.offer(D.drv_5R1D, r.id, 45_000);
-        await requests.offer(D.drv_8T6W, r.id, 50_000);
-        await requests.offer(D.drv_3C5N, r.id, 60_000);
+        // y4: seven drivers opened it, four offered (y5, y6: the Elantra with AC, the cheaper Avante
+        // without, the GMC with the best record, and one more).
+        for (const d of [D.drv_1Q7Z, D.drv_6J2L, D.drv_9B3H]) await requests.seen(d, r.id);
+        await requests.offer(D.drv_7K2Q, r.id, 55_000);
+        await requests.offer(D.drv_3C5N, r.id, 42_000);
+        await requests.offer(D.drv_4M9T, r.id, 60_000);
+        await requests.offer(D.drv_5R1D, r.id, 48_000);
       }
       json(res, 200, { requests: open.map((r) => r.id) });
     } catch (err) {

@@ -1,4 +1,4 @@
-import { PinAlertKind, PinAttemptResult, RajaaRatingTag, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -300,6 +300,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
       privateCar: r.privateCar,
       travellingAs: r.travellingAs,
       note: r.note,
+      details: r.details as unknown as Prisma.InputJsonObject,
+      seenDriverIds: r.seenDriverIds,
       state: r.state,
       origin: r.origin,
       priceCapIqd: r.priceCapIqd,
@@ -350,6 +352,18 @@ export class PrismaRoutesRepository implements RoutesRepository {
       orderBy: [{ when: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toRequest);
+  }
+
+  async privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    if (driverIds.length === 0) return out;
+    const rows = await this.db(tx).rideRequestOffer.groupBy({
+      by: ['driverId'],
+      where: { driverId: { in: [...driverIds] }, state: 'picked', request: { state: 'completed' } },
+      _count: { _all: true },
+    });
+    for (const r of rows) out[r.driverId] = r._count._all;
+    return out;
   }
 
   // ───────────────────────── seat PIN attempts ─────────────────────────
@@ -556,6 +570,12 @@ function toDemand(r: DemandRow): DemandPostRecord {
   };
 }
 
+/** Stored details through the contract (dates revived, defaults for rows written before y1). */
+function parseRequestDetails(raw: unknown): RequestDetails {
+  const parsed = RequestDetails.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : { ...DEFAULT_REQUEST_DETAILS };
+}
+
 function toRequest(r: RequestRow): RequestRecord {
   return {
     id: r.id,
@@ -568,6 +588,8 @@ function toRequest(r: RequestRow): RequestRecord {
     privateCar: r.privateCar,
     travellingAs: r.travellingAs,
     note: r.note,
+    details: parseRequestDetails(r.details),
+    seenDriverIds: r.seenDriverIds,
     state: r.state,
     origin: r.origin as RequestRecord['origin'],
     priceCapIqd: r.priceCapIqd,

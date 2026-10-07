@@ -147,6 +147,11 @@ export const routesRouter = router({
       .input(RequestListInput)
       .output(z.array(RequestPostView))
       .query(({ ctx, input }) => ctx.routes.openRequests(ctx.actor, input)),
+    /** Driver: he opened the request (y4); the rider sees how many drivers did. Idempotent. */
+    seen: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestSeen(ctx.actor, input)),
     /** Driver: offer a price (multiples of 1,000); a new offer replaces the driver's previous one. */
     offer: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestOfferInput)

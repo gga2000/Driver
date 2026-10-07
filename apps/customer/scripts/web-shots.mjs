@@ -900,17 +900,35 @@ async function rajaaShots(personId) {
   // Request board: post → offers arrive → pick one → deposit rules → matched.
   await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid="rajaa-req-from"]').fill('العزيزية، حي الزهراء');
-  await page.locator('[data-testid="rajaa-req-to"]').fill('النجف');
+  // y1, y2: the places as chips, there and back with a 4-hour wait, AC.
+  await byTestId('req-from-aziziyah').click();
+  await byTestId('req-place-najaf').click();
+  await byTestId('req-trip-wait_return').click();
+  await byTestId('req-wait').waitFor({ timeout: 5_000 });
+  await page.locator('[data-testid="req-wait"] [aria-label="زيد واحد"]').first().click();
+  await byTestId('req-ac').click();
   await shot('rajaa-request-form');
+  await fullShot('rajaa-request-form-full');
+  await byTestId('req-trip-two_days').click();
+  await byTestId('req-return').waitFor({ timeout: 5_000 });
+  await byTestId('req-return').scrollIntoViewIfNeeded();
+  await shot('rajaa-request-form-two-days');
+  await byTestId('req-trip-wait_return').click();
   await byTestId('rajaa-request-submit').click();
   await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
+  await byTestId('rajaa-req-seen').waitFor({ timeout: 10_000 });
+  await shot('rajaa-request-waiting');
   if (personId) {
     await demoPost(`/demo/rajaa/offers?personId=${encodeURIComponent(personId)}`);
     await demoPost(`/demo/rajaa/topup?personId=${encodeURIComponent(personId)}&amount=25000`);
-    // The pick button (offer-<id>), not the driver row or price inside the same offer (f4: the old
-    // selector caught the driver row, so the deposit step never opened in the shots).
-    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"])').first();
+    // y4–y6: seen count, sort, rich cards with the winners named.
+    await byTestId('offer-sort-best').waitFor({ timeout: 20_000 });
+    await fullShot('rajaa-request-offers-full');
+    await byTestId('offer-sort-cheapest').click();
+    await shot('rajaa-request-offers-cheapest');
+    await byTestId('offer-sort-best').click();
+    // The pick button (offer-<id>) of the top card, not the driver row, price or card inside it.
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });

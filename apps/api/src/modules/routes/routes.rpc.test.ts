@@ -338,11 +338,37 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     const byDriver = new Map(mine!.offers.map((o) => [o.driverId, o.driver]));
     expect(byDriver.get('d1')).toMatchObject({ firstName: 'حيدر', photoUrl: null, vehicle: { kind: 'saloon', plate: 'واسط 12345', model: 'سوناتا', color: 'بيضاء' } });
     expect(byDriver.get('d1')!.verifiedTodayAt).toBeInstanceOf(Date);
-    expect(byDriver.get('d3')).toEqual({ firstName: null, verifiedTodayAt: null, photoUrl: null, vehicle: null });
+    expect(byDriver.get('d3')).toEqual({ firstName: null, verifiedTodayAt: null, photoUrl: null, vehicle: null, stats: null, privateTrips: 0 });
+    // y5: a driver who has run a seat departure brings his record (no ratings yet → «جديد»).
+    expect(byDriver.get('d1')!.stats).toMatchObject({ trips: 0, ratingAvg: null, ridesWithYou: 0 });
     expect(JSON.stringify(mine)).not.toContain('كاظم');
     // The driver's own view of the board does not read other drivers' names.
     const [seen] = await driver.requestBoard.list({});
     expect(seen!.offers.every((o) => o.driver === null)).toBe(true);
+  });
+
+  it('requestBoard: the rider sees how many drivers opened his request; drivers never see the count (y4)', async () => {
+    const h = routesHarness();
+    const rider = as(h, 'r1', ['customer']);
+    const d1 = as(h, 'd1', ['intercity_driver']);
+    const d2 = as(h, 'd2', ['intercity_driver']);
+    const rq = await rider.requestBoard.post({
+      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      to: { label: 'مطار بغداد' },
+      when: h.at(60),
+      seats: 2,
+      travellingAs: 'aila',
+      details: { trip: 'wait_return', waitHours: 3, bigBags: 2, carKind: 'suv', ac: true },
+    });
+    expect(rq.details).toMatchObject({ trip: 'wait_return', waitHours: 3, returnAt: null, bigBags: 2, carKind: 'suv', ac: true });
+    expect(rq.seenBy).toBe(0);
+    await d1.requestBoard.seen({ postId: rq.id });
+    await d1.requestBoard.seen({ postId: rq.id });
+    const forDriver = await d2.requestBoard.seen({ postId: rq.id });
+    expect(forDriver.seenBy).toBe(0);
+    expect(forDriver.details.trip).toBe('wait_return');
+    expect((await rider.requestBoard.mine())[0]!.seenBy).toBe(2);
+    expect(await codeOf(rider.requestBoard.seen({ postId: rq.id }))).toBe('FORBIDDEN');
   });
 
   it('requestBoard.myRides: only rides that picked his offer, with price, cash to collect and the no-show time', async () => {

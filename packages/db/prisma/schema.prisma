@@ -1859,6 +1859,10 @@ model RideRequest {
   privateCar       Boolean          @default(true) @map("private_car")
   travellingAs     TravellingAs     @map("travelling_as")
   note             String?
+  /// y1: {trip, waitHours, returnAt, bigBags, carKind, ac} (RequestDetails)
+  details          Json             @default("{}")
+  /// y4: drivers who opened the request (ids only; the rider sees the count)
+  seenDriverIds    String[]         @default([]) @map("seen_driver_ids")
   state            RideRequestState @default(open)
   /// rider | stranded (opened by the platform at the seat price, review C-40/46)
   origin           String           @default("rider")
