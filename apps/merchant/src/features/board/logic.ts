@@ -181,21 +181,25 @@ export function suggestBusy(waiting: number, busyOn: boolean): boolean {
   return !busyOn && waiting >= BUSY_SUGGEST_FROM;
 }
 
-/** A ticket that pushes its own Accept below the fold on a phone: a group order or more than three dishes. */
+/**
+ * A ticket that pushes its own Accept below the fold on a phone: a group order (a header per person)
+ * or more than four dishes. Four dishes still fit under the bar and the ribbon at 390 × 844.
+ */
 export function isLongOrder(o: Pick<BoardOrder, 'groups' | 'itemCount'>): boolean {
-  return o.groups.length > 1 || o.itemCount > 3;
+  return o.groups.length > 1 || o.itemCount > 4;
 }
 
 /**
- * The phone's sticky accept bar (M-06): the order to answer next (least time left, still ringing for
- * the kitchen) when it is long or a group order, or when several wait — so Accept is always one
- * thumb away. Null when nothing needs it.
+ * The phone's «هسة» view (o2): one order in full at the top — the one the kitchen picked, else the
+ * one with least time left — and every other new order as a one-line row under it, in answer order.
+ * The sticky accept bar (M-06) follows the top order while it is still the kitchen's to answer and
+ * long enough to push its own Accept below the fold.
  */
-export function stickyAcceptTarget<T extends Pick<BoardOrder, 'column' | 'acceptBy' | 'placedAt' | 'partial' | 'id' | 'groups' | 'itemCount'>>(orders: readonly T[]): T | null {
-  const waiting = byTimeLeft(orders.filter((o) => o.column === 'new' && o.partial === null));
-  const next = waiting[0];
-  if (!next) return null;
-  return isLongOrder(next) || waiting.length > 1 ? next : null;
+export function phoneNow<T extends Pick<BoardOrder, 'column' | 'acceptBy' | 'placedAt' | 'partial' | 'id' | 'groups' | 'itemCount'>>(orders: readonly T[], pickedId: string | null): { first: T | null; rest: T[]; sticky: T | null } {
+  const sorted = byTimeLeft(orders.filter((o) => o.column === 'new'));
+  const first = sorted.find((o) => o.id === pickedId) ?? sorted[0] ?? null;
+  const rest = sorted.filter((o) => o !== first);
+  return { first, rest, sticky: first && first.partial === null && isLongOrder(first) ? first : null };
 }
 
 /** Every customer note on the order: the order's (kitchen) note, each person's note, each line's. */
@@ -212,4 +216,62 @@ export function kitchenNotes(o: Pick<BoardOrder, 'note' | 'groups'>): string[] {
 /** M-09: any note on the order mentions an allergy → the card shows a "حساسية" pill. Display only. */
 export function hasAllergy(o: Pick<BoardOrder, 'note' | 'groups'>): boolean {
   return mentionsAllergy(...kitchenNotes(o));
+}
+
+// ───────────────────────── the counter board (redesign step 2) ─────────────────────────
+
+/**
+ * «على النار» in cooking order (o6): the ticket due first at the top, so a late one is always first;
+ * tickets without a promised time (not expected) after them, oldest first.
+ */
+export function byDueFirst<T extends Pick<BoardOrder, 'promisedReadyAt' | 'placedAt' | 'id'>>(orders: readonly T[]): T[] {
+  const due = (o: T) => o.promisedReadyAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  return [...orders].sort((a, b) => due(a) - due(b) || a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id));
+}
+
+/**
+ * How much of the prep time is left on a cooking ticket (o5), 1 → 0, for the bar that drains along
+ * it; `late` once the promised time has passed. Null without both times (nothing to drain).
+ */
+export function prepLeft(o: Pick<BoardOrder, 'column' | 'acceptedAt' | 'promisedReadyAt'>, now: number): { fraction: number; late: boolean } | null {
+  if (o.column !== 'preparing' || !o.acceptedAt || !o.promisedReadyAt) return null;
+  const total = o.promisedReadyAt.getTime() - o.acceptedAt.getTime();
+  const left = o.promisedReadyAt.getTime() - now;
+  if (left < 0) return { fraction: 0, late: true };
+  if (total <= 0) return { fraction: 0, late: false };
+  return { fraction: Math.min(1, left / total), late: false };
+}
+
+/** The key for one dish line the kitchen ticked off (o10). */
+export function tickKey(orderId: string, lineId: string): string {
+  return `${orderId}:${lineId}`;
+}
+
+export interface CookingTotal {
+  name: string;
+  qty: number;
+}
+
+/**
+ * «على النار» added up (o11): every dish still to make across the cooking tickets, by name, biggest
+ * first — the grill cook reads one line. Lines the kitchen ticked off, and lines that are out or
+ * removed, don't count.
+ */
+export function cookingTotals(orders: readonly Pick<BoardOrder, 'id' | 'column' | 'groups'>[], ticked: ReadonlySet<string>): CookingTotal[] {
+  const sum = new Map<string, number>();
+  for (const o of orders) {
+    if (o.column !== 'preparing') continue;
+    for (const g of o.groups)
+      for (const l of g.lines) {
+        if (l.availability !== 'available' || ticked.has(tickKey(o.id, l.lineId))) continue;
+        sum.set(l.name, (sum.get(l.name) ?? 0) + l.qty);
+      }
+  }
+  return [...sum.entries()].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+}
+
+/** The dishes of an order in one line for the new-order ribbon (a1): «2× لفة تكة، 1× ماي». */
+export function dishLine(o: Pick<BoardOrder, 'groups'>, max = 3): { shown: { qty: number; name: string }[]; more: number } {
+  const lines = o.groups.flatMap((g) => g.lines).filter((l) => l.availability !== 'removed');
+  return { shown: lines.slice(0, max).map((l) => ({ qty: l.qty, name: l.name })), more: Math.max(0, lines.length - max) };
 }

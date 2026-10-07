@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
-import { agoText, ModalSheet, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme } from '@driver/ui';
+import { agoText, Button, ModalSheet, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { COUNTER } from '@/lib/counter';
@@ -30,11 +30,10 @@ import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
-import { InfoStrip, MissedStrip, NewOrderBanner } from './Banners';
-import { CourierRadarStrip } from './CourierRadar';
+import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
 import { stageFor } from './ladder';
-import { byTimeLeft, COLUMN_LABEL, COLUMNS, isRush, newOrderSummary, oneTapPrep, splitColumns, stickyAcceptTarget, suggestBusy } from './logic';
+import { byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, splitColumns, suggestBusy, type CookingTotal } from './logic';
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
@@ -42,10 +41,11 @@ import { PassCard } from './PassCard';
 import { passFirst, passState, waitingAtPass } from './pass';
 import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
 import { RejectSheet } from './RejectSheet';
-import { RushQueue, StickyAcceptBar } from './Rush';
+import { StickyAcceptBar } from './Rush';
 import { ShiftGate } from './ShiftGate';
 import { shiftGateNeeded, startShift, useShift } from './shift';
 import { useMissedSeen } from './useMissed';
+import { useTicks } from './useTicks';
 
 const EMPTY_ICON: Record<BoardColumn, MIconName> = { new: 'bell', preparing: 'flame', ready: 'bag' };
 
@@ -90,6 +90,31 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
 }
 
 /**
+ * «على النار» added up (o11): every dish still to make across the cooking tickets, so the grill cook
+ * works from one line. Hidden while nothing is cooking.
+ */
+function CookingTotals({ totals }: { totals: readonly CookingTotal[] }) {
+  const theme = useTheme();
+  const t = useT();
+  if (totals.length === 0) return null;
+  return (
+    <View testID="cooking-totals" accessibilityLabel={t('merchant.board.totals_a11y', { list: totals.map((x) => `${x.qty} ${x.name}`).join('، ') })} style={{ backgroundColor: COUNTER.date, borderRadius: theme.radius.lg, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 6, marginBottom: theme.space[2] }}>
+      <Text variant="caption" weight={700} style={{ color: COUNTER.onDateMuted }}>
+        {t('merchant.board.totals_title')}
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: theme.space[3], rowGap: 4 }}>
+        {totals.map((x) => (
+          <Text key={x.name} weight={700} tabular style={{ color: COUNTER.onDate, fontSize: 16, lineHeight: 24 }}>
+            <Text tabular style={[theme.face('display'), { color: COUNTER.busy, fontSize: 16, lineHeight: 24 }]}>{`${x.qty}× `}</Text>
+            {x.name}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
  * الطلبات — the orders board (Driver Merchant spec). Tablet: جديد / يتحضّر / جاهز side by side under
  * the store status bar. Phone: one column at a time behind a segmented control with counts.
  *
@@ -102,6 +127,12 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
  * with three or more waiting, a queue strip shows every one of them and the tickets go compact except
  * the one being read; from four waiting, busy mode is suggested. On a phone the header is one row and
  * a sticky accept bar keeps the next order's Accept within reach. One "new" count everywhere.
+ *
+ * Counter redesign step 2: one dark status bar (missed orders and the courier at the pass are chips in
+ * it; no radar panel — couriers show on their own tickets), the next order on the saffron ribbon with
+ * one-tap accept (a1), every waiting order a readable ticket (o1), «على النار» due-first (o6) with a
+ * draining time bar (o5), dishes ticked off one by one (o10) and added up (o11). Phone «هسة» (o2): one
+ * order in full, the rest as rows.
  */
 export function Board() {
   const theme = useTheme();
@@ -137,6 +168,7 @@ export function Board() {
   const printerSnap = usePrinterSnapshot();
   const print = usePrintOrder(store?.name ?? '');
   const { seen, markSeen } = useMissedSeen();
+  const ticks = useTicks();
 
   const [segment, setSegment] = useState<BoardColumn>('new');
   const [acceptId, setAcceptId] = useState<string | null>(null);
@@ -156,14 +188,17 @@ export function Board() {
   const nowMinute = Math.floor(now / 60_000);
   const cols = useMemo(() => {
     const c = splitColumns(orders);
-    return { ...c, new: byTimeLeft(c.new), ready: passFirst(c.ready, nowMinute * 60_000) };
+    return { ...c, new: byTimeLeft(c.new), preparing: byDueFirst(c.preparing), ready: passFirst(c.ready, nowMinute * 60_000) };
   }, [orders, nowMinute]);
   const atPass = waitingAtPass(cols.ready, now);
   const firstPass = atPass[0] ? passState(atPass[0], now) : null;
+  const totals = useMemo(() => cookingTotals(cols.preparing, ticks.ticked), [cols.preparing, ticks.ticked]);
   // Rush (tablet): which new ticket is open; the most urgent unless the kitchen picked another.
   const rush = wide && isRush(cols.new.length);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const expandedId = pickedId && cols.new.some((o) => o.id === pickedId) ? pickedId : (cols.new[0]?.id ?? null);
+  // Phone «هسة» (o2): the picked (or most urgent) order in full, the rest as rows.
+  const now1 = phoneNow(cols.new, pickedId);
   const newScroll = useRef<ScrollView>(null);
   const cardY = useRef(new Map<string, number>());
   const [scrollTo, setScrollTo] = useState<string | null>(null);
@@ -197,6 +232,11 @@ export function Board() {
   const missedNew = missed ? unseenMissed(missed.orders, seen) : [];
   const nudge = missed ? missNudge(missed.orders, seen, now) : false;
   const sheetOpen = acceptId !== null || rejectId !== null || detailId !== null || sheet !== null;
+  /** Closing «طلبات فاتتك» counts as «تمام» for the ones it showed (the strip it replaced did the same). */
+  const closeMissed = () => {
+    if (missedNew.length > 0) markSeen(missedNew.map((m) => m.orderId));
+    setSheet(null);
+  };
   const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
@@ -313,6 +353,7 @@ export function Board() {
     }
     const ringing = plan.ringing.includes(o.id);
     const compact = rush && o.column === 'new' && o.id !== expandedId;
+    const row = !wide && o.column === 'new' && o.id !== now1.first?.id;
     return (
       <View
         key={o.id}
@@ -321,7 +362,9 @@ export function Board() {
       <OrderCard
         order={o}
         compact={compact}
-        onExpand={() => pick(o)}
+        row={row}
+        ticks={ticks}
+        onExpand={() => (wide ? pick(o) : setPickedId(o.id))}
         now={now}
         clock={clock}
         ringing={ringing}
@@ -360,7 +403,18 @@ export function Board() {
   const alerts = [
     !gateOpen && soundOff ? <HeaderChip key="sound" testID="sound-off-chip" icon="volume-off" tone="danger" dot label={t('merchant.sound.off_chip')} onPress={() => void soundOn()} /> : null,
     !gateOpen && Platform.OS === 'web' && wake !== 'on' ? <HeaderChip key="wake" testID="wake-chip" icon="screen" tone="warning" label={t('merchant.wake.chip')} onPress={() => void requestWakeLock()} /> : null,
-    missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
+    missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" dot={missedNew.length > 0} label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
+    // S-M4 on a phone: a courier at the pass is seen from any tab of the board, in the bar (o3).
+    !wide && segment !== 'ready' && atPass[0] ? (
+      <HeaderChip
+        key="pass"
+        testID="pass-chip"
+        icon="bike"
+        tone={firstPass?.kind === 'at_pass' && firstPass.tone === 'warning' ? 'warning' : 'success'}
+        label={t('merchant.pass.headline', { who: atPass[0].courier.firstName?.trim() || t('merchant.pass.courier'), number: atPass[0].number })}
+        onPress={() => setSegment('ready')}
+      />
+    ) : null,
   ].filter((x) => x !== null);
 
   const dayCard =
@@ -369,7 +423,9 @@ export function Board() {
     ) : null;
   const urgent = plan.mostUrgent;
   const summary = newOrderSummary(orders, plan.snoozed);
-  const sticky = !wide && segment === 'new' ? stickyAcceptTarget(cols.new) : null;
+  const sticky = !wide && segment === 'new' ? now1.sticky : null;
+  // a1: the ribbon carries the next order to answer (tablet), never one waiting on the customer.
+  const next = wide ? (cols.new.find((o) => o.partial === null && plan.ringing.includes(o.id)) ?? null) : null;
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.bg }} testID="board">
       <StoreHeader
@@ -399,13 +455,9 @@ export function Board() {
           compact={!wide}
           summary={summary}
           storeClosed={plan.closed.length > 0}
+          featured={next ? { order: next, oneTapMinutes: oneTap.shown, busy: acceptingId === next.id, onAccept: () => void onAcceptNow(next), onOpen: () => setDetailId(next.id) } : null}
         />
       ) : null}
-      <MissedStrip
-        missed={missedNew}
-        onOk={() => markSeen(missedNew.map((m) => m.orderId))}
-        {...(nudge && !busyOn ? { nudge: { text: t('merchant.missed.nudge'), onBusy: () => setSheet('busy'), onClose: () => setSheet('close') } } : {})}
-      />
       {!online ? (
         <InfoStrip tone="neutral" text={t('merchant.board.offline_actions')} testID="offline-strip" />
       ) : conn.kind === 'stale' ? (
@@ -425,18 +477,8 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
-      {/* S-M4 on a phone: a courier at the pass is seen from any tab of the board. */}
-      {!wide && segment !== 'ready' && atPass[0] ? (
-        <InfoStrip
-          tone={firstPass?.kind === 'at_pass' && firstPass.tone === 'warning' ? 'warning' : 'success'}
-          icon="bike"
-          testID="pass-strip"
-          text={t('merchant.pass.headline', { who: atPass[0].courier.firstName?.trim() || t('merchant.pass.courier'), number: atPass[0].number })}
-          action={{ label: t('merchant.pass.show'), onPress: () => setSegment('ready'), testID: 'pass-strip-show' }}
-        />
-      ) : null}
       {/* One busy nudge at a time: the missed-orders strip already offers it when it shows its own. */}
-      {suggestBusy(cols.new.length, busyOn) && s?.open && !(missedNew.length > 0 && nudge) ? (
+      {suggestBusy(cols.new.length, busyOn) && s?.open ? (
         <InfoStrip
           tone="warning"
           icon="flame"
@@ -456,7 +498,6 @@ export function Board() {
         />
       ) : null}
 
-      <CourierRadarStrip orders={orders} compact={!wide} />
       {wide ? dayCard : null}
 
       {wide ? (
@@ -476,7 +517,7 @@ export function Board() {
               <View style={{ paddingHorizontal: theme.space[1] }}>
                 <ColumnHeader column={c} count={cols[c].length} />
               </View>
-              {c === 'new' && rush ? <RushQueue orders={cols.new} clock={clock} selectedId={expandedId} onPick={pick} /> : null}
+              {c === 'preparing' ? <CookingTotals totals={totals} /> : null}
               <ScrollView
                 ref={c === 'new' ? newScroll : undefined}
                 style={{ flex: 1 }}
@@ -500,7 +541,14 @@ export function Board() {
           </View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], padding: theme.space[4], paddingBottom: theme.space[10] }}>
             {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : null}
-            {loading ? skeleton : cols[segment].length === 0 ? <EmptyColumn column={segment} /> : cols[segment].map(card)}
+            {segment === 'preparing' && !loading ? <CookingTotals totals={totals} /> : null}
+            {loading
+              ? skeleton
+              : cols[segment].length === 0
+                ? <EmptyColumn column={segment} />
+                : segment === 'new' && now1.first
+                  ? [now1.first, ...now1.rest].map(card)
+                  : cols[segment].map(card)}
           </ScrollView>
           {sticky ? (
             <StickyAcceptBar
@@ -545,7 +593,25 @@ export function Board() {
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
-      <ModalSheet visible={sheet === 'missed'} onClose={() => setSheet(null)} title={t('merchant.missed.sheet_title')} testID="missed-sheet">
+      <ModalSheet visible={sheet === 'missed'} onClose={closeMissed} title={t('merchant.missed.sheet_title')} testID="missed-sheet">
+        {missedNew.length > 0 ? (
+          <View testID="missed-new" style={{ gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.dangerTint }}>
+            <Text variant="label" weight={700} color="dangerText">
+              {missedText(t, missedNew)}
+            </Text>
+            {nudge && !busyOn ? (
+              <>
+                <Text variant="label" color="dangerText">
+                  {t('merchant.missed.nudge')}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+                  <Button testID="missed-nudge-busy" label={t('merchant.missed.busy')} variant="secondary" size="md" onPress={() => { markSeen(missedNew.map((m) => m.orderId)); setSheet('busy'); }} />
+                  <Button testID="missed-nudge-close" label={t('merchant.missed.close')} variant="secondary" size="md" onPress={() => { markSeen(missedNew.map((m) => m.orderId)); setSheet('close'); }} />
+                </View>
+              </>
+            ) : null}
+          </View>
+        ) : null}
         {(missed?.orders ?? []).length === 0 ? (
           <Text variant="body" color="textMuted">
             {t('merchant.missed.sheet_empty')}

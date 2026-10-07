@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { createContext, isValidElement, useContext, useState, type ReactNode } from 'react';
+import { createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
 import type { MerchantBalanceView, MoneyHeadline, StoreStatusView } from '@driver/contracts';
 import { Button, ModalSheet, Skeleton, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
@@ -11,6 +11,7 @@ import { clock12, minutesLeft } from '@/lib/time';
 import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 import { color as palette } from '@driver/design-tokens';
 import { COUNTER } from '@/lib/counter';
+import { useReportBarBottom } from '@/lib/toast';
 import { chipsFitInline } from './header-fit';
 
 export interface StoreHeaderProps {
@@ -297,6 +298,10 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
   };
   const printer = usePrinterSnapshot();
   const chip = printerChipState(printer, status?.printer.state);
+  // Toasts open just under this bar, never over its switch and chips.
+  const bar = useReportBarBottom();
+  const { release } = bar;
+  useEffect(() => release, [release]);
 
   const chips: ReactNode[] = [...(alerts ?? [])];
   if (status) {
@@ -401,7 +406,9 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
 
   if (wide) {
     return (
-      <WideBar name={name} openSwitch={status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />} chips={chips} money={money} />
+      <View ref={bar.ref} onLayout={bar.onLayout}>
+        <WideBar name={name} openSwitch={status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />} chips={chips} money={money} />
+      </View>
     );
   }
   // Phone (M-06): one 56-pt row — the store, open/closed, and "…" for busy mode, the printer and the
@@ -410,7 +417,7 @@ export function StoreHeader({storeName, status, balance, headline, canSeeMoney, 
   const busyOn = Boolean(status?.busy.on && status.busy.until);
   const needsLook = busyOn || chip === 'disconnected';
   return (
-    <View style={{ backgroundColor: COUNTER.date }}>
+    <View ref={bar.ref} onLayout={bar.onLayout} style={{ backgroundColor: COUNTER.date }}>
       <OnBar.Provider value={true}>
       <View testID="store-header-row" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 56, paddingHorizontal: theme.space[4] }}>
         <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>

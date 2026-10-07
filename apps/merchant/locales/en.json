@@ -1279,5 +1279,11 @@
   "merchant.story.saved_shown": "Saved, and customers see it.",
   "merchant.story.saved_hidden": "Saved, not shown.",
   "merchant.story.load_failed": "Couldn't load the story",
-  "merchant.pot.show_all": "Whole menu ({count})"
+  "merchant.pot.show_all": "Whole menu ({count})",
+  "merchant.board.tick_a11y": "{qty} {name}. Tap when it's done",
+  "merchant.board.prep_bar": "{percent}% of the prep time left",
+  "merchant.board.prep_bar_late": "Past the promised time",
+  "merchant.board.row_a11y": "Order #{number}, {count} items. Tap to bring it up",
+  "merchant.board.totals_title": "Cooking now",
+  "merchant.board.totals_a11y": "Cooking now: {list}"
 }

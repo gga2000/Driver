@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardOrder } from '@driver/contracts';
-import { byTimeLeft, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, stickyAcceptTarget, suggestBusy, unacknowledged } from './logic';
+import { byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged } from './logic';
 
 const T0 = Date.parse('2026-10-03T17:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000);
@@ -136,20 +136,24 @@ describe('rush: one count, answer order, compact tickets, sticky accept (M-05, M
     expect(suggestBusy(9, true)).toBe(false);
   });
 
-  it('sticky accept bar: the next order when it is long or a group, or whenever several wait', () => {
-    const short = card('short', { itemCount: 2, groups: [group('o', 'orderer')] });
+  it('phone «هسة»: the picked or most urgent order on top, the rest as rows; sticky only for a long one', () => {
+    const short = card('short', { itemCount: 2, acceptBy: at(2), groups: [group('o', 'orderer')] });
     const grouped = card('group', { itemCount: 3, acceptBy: at(1), groups: [group('o', 'orderer'), group('p', 'participant')] });
-    const long = card('long', { itemCount: 5, groups: [group('o', 'orderer')] });
+    const long = card('long', { itemCount: 5, acceptBy: at(3), groups: [group('o', 'orderer')] });
     expect(isLongOrder(short)).toBe(false);
     expect(isLongOrder(grouped)).toBe(true);
     expect(isLongOrder(long)).toBe(true);
-    expect(stickyAcceptTarget([short])).toBeNull();
-    expect(stickyAcceptTarget([long])?.id).toBe('long');
-    // Two waiting: the one with less time left, even if short.
-    expect(stickyAcceptTarget([short, grouped])?.id).toBe('group');
-    expect(stickyAcceptTarget([short, card('later', { acceptBy: at(3) })])?.id).toBe('short');
-    // Partial accepts wait for the customer, not the kitchen; other columns never.
-    expect(stickyAcceptTarget([card('p', { itemCount: 9, partial: { unavailableLineIds: ['x'], deadline: at(1) } }), card('q', { column: 'preparing', itemCount: 9 })])).toBeNull();
+    const now = phoneNow([short, long, grouped, card('q', { column: 'preparing' })], null);
+    expect(now.first?.id).toBe('group');
+    expect(now.rest.map((o) => o.id)).toEqual(['short', 'long']);
+    expect(now.sticky?.id).toBe('group');
+    const picked = phoneNow([short, long, grouped], 'short');
+    expect(picked.first?.id).toBe('short');
+    expect(picked.rest.map((o) => o.id)).toEqual(['group', 'long']);
+    expect(picked.sticky).toBeNull();
+    // A partial accept waits for the customer, not the kitchen: no sticky accept.
+    expect(phoneNow([card('p', { itemCount: 9, partial: { unavailableLineIds: ['x'], deadline: at(1) } })], null).sticky).toBeNull();
+    expect(phoneNow([], null)).toEqual({ first: null, rest: [], sticky: null });
   });
 
   it('allergy pill: any kitchen note on the order — order, person or line (M-09)', () => {
@@ -160,5 +164,49 @@ describe('rush: one count, answer order, compact tickets, sticky accept (M-05, M
     // The courier's note is not the kitchen's: never read for the pill.
     expect(hasAllergy(card('a', { courierNote: 'الجار عنده حساسية من الجرس' }))).toBe(false);
     expect(kitchenNotes(card('a', { note: 'أ', groups: [group('p', 'participant', 'ب', [line('ج')])] }))).toEqual(['أ', 'ب', 'ج']);
+  });
+});
+
+describe('counter board (redesign step 2)', () => {
+  const at = (m: number) => new Date(Date.UTC(2026, 9, 7, 12, m));
+  const line = (lineId: string, name: string, qty: number, availability: 'available' | 'unavailable' | 'removed' = 'available') => ({ lineId, name, qty, modifiers: [], note: null, unitPriceIqd: 1000, totalIqd: 1000 * qty, availability });
+  const group = (lines: ReturnType<typeof line>[]) => ({ key: 'g', kind: 'orderer' as const, label: null, note: null, itemCount: lines.length, lines });
+
+  it('puts the ticket due first at the top of «على النار»', () => {
+    const list = [
+      { id: 'a', placedAt: at(0), promisedReadyAt: at(30) },
+      { id: 'b', placedAt: at(1), promisedReadyAt: at(10) },
+      { id: 'c', placedAt: at(2), promisedReadyAt: null },
+    ];
+    expect(byDueFirst(list).map((o) => o.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('drains the prep bar and says when it is late', () => {
+    const o = { column: 'preparing' as const, acceptedAt: at(0), promisedReadyAt: at(20) };
+    expect(prepLeft(o, at(5).getTime())).toEqual({ fraction: 0.75, late: false });
+    expect(prepLeft(o, at(25).getTime())).toEqual({ fraction: 0, late: true });
+    expect(prepLeft({ ...o, column: 'ready' }, at(5).getTime())).toBeNull();
+    expect(prepLeft({ ...o, acceptedAt: null }, at(5).getTime())).toBeNull();
+  });
+
+  it('adds up what is cooking, skipping ticked, out and removed lines', () => {
+    const orders = [
+      { id: 'o1', column: 'preparing' as const, groups: [group([line('l1', 'تكة', 2), line('l2', 'لفة كص', 1)])] },
+      { id: 'o2', column: 'preparing' as const, groups: [group([line('l3', 'تكة', 3), line('l4', 'ماي', 2, 'unavailable'), line('l5', 'كبة', 1, 'removed')])] },
+      { id: 'o3', column: 'ready' as const, groups: [group([line('l6', 'تكة', 9)])] },
+    ];
+    expect(cookingTotals(orders, new Set())).toEqual([
+      { name: 'تكة', qty: 5 },
+      { name: 'لفة كص', qty: 1 },
+    ]);
+    expect(cookingTotals(orders, new Set([tickKey('o2', 'l3')]))).toEqual([
+      { name: 'تكة', qty: 2 },
+      { name: 'لفة كص', qty: 1 },
+    ]);
+  });
+
+  it('writes the dishes for the ribbon, with how many more', () => {
+    const o = { groups: [group([line('a', 'تكة', 2), line('b', 'كص', 1), line('c', 'ماي', 2), line('d', 'لبن', 1), line('e', 'x', 1, 'removed')])] };
+    expect(dishLine(o)).toEqual({ shown: [{ qty: 2, name: 'تكة' }, { qty: 1, name: 'كص' }, { qty: 2, name: 'ماي' }], more: 1 });
   });
 });

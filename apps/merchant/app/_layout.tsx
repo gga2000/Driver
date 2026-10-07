@@ -22,6 +22,7 @@ import { useAppFonts } from '@/lib/fonts';
 import { useLocale, useT } from '@/lib/i18n';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
+import { useToastTop } from '@/lib/toast';
 import { WIDE_MIN_WIDTH } from '@/lib/layout';
 import { prefs, usePrefs } from '@/lib/prefs';
 import { enforceRtl } from '@/lib/rtl';
@@ -68,7 +69,7 @@ export default function RootLayout() {
         <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a frozen tablet. */}
           <CrashScreenBoundary locale={locale}>
-            <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
+            <CounterToasts bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
               <ApiProvider>
                 <StatusBar style="dark" />
                 {/* Launch status banner from the Console (system.banner), above every screen. */}
@@ -77,7 +78,7 @@ export default function RootLayout() {
                   <RootNavigator />
                 </SheetDefaults>
               </ApiProvider>
-            </ToastProvider>
+            </CounterToasts>
           </CrashScreenBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -200,5 +201,15 @@ function Splash() {
     <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
       <Wordmark />
     </View>
+  );
+}
+
+/** The toast host, opening top toasts under the counter's status bar wherever it is showing. */
+function CounterToasts({ children, bottomOffset, maxWidth }: { children: ReactNode; bottomOffset: number; maxWidth: number | undefined }) {
+  const topOffset = useToastTop();
+  return (
+    <ToastProvider bottomOffset={bottomOffset} {...(topOffset !== undefined ? { topOffset } : {})} maxWidth={maxWidth}>
+      {children}
+    </ToastProvider>
   );
 }

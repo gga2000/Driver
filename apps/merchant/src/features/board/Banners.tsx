@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import type { MissedOrder } from '@driver/contracts';
+import type { BoardOrder, MissedOrder } from '@driver/contracts';
 import { Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { color } from '@driver/design-tokens';
 import { MIcon, type MIconName } from '@/components/MIcon';
-import { useT } from '@/lib/i18n';
+import { COUNTER } from '@/lib/counter';
+import { useLocale, useT } from '@/lib/i18n';
+import { iqd } from '@/lib/money';
 import type { AlarmStage } from './ladder';
-import type { NewOrderSummary } from './logic';
+import { dishLine, hasAllergy, type NewOrderSummary } from './logic';
 
 /** A pill button on a coloured strip (40 px tall, 44 px with its hit slop). */
 function StripButton({ label, icon, onPress, testID, tone }: { label: string; icon?: MIconName; onPress: () => void; testID: string; tone: 'ink' | 'soft' | 'light' }) {
@@ -50,6 +52,35 @@ export interface NewOrderBannerProps {
    * يرن") with no snooze button: closing already silenced the alarm.
    */
   storeClosed?: boolean;
+  /**
+   * a1 (tablet): the order to answer next, on the ribbon itself — its number, dishes, the cash and
+   * one-tap «اقبل · 15 د» — so the kitchen answers from the top of the screen without finding the
+   * ticket. Absent on a phone, while snoozed and while the store is closed.
+   */
+  featured?: { order: BoardOrder; oneTapMinutes: number; busy: boolean; onAccept: () => void; onOpen: () => void } | null;
+}
+
+/** The ribbon's own accept: dark on saffron (and on red in the last 30 s), 52 px tall. */
+function RibbonAccept({ label, busy, onPress, testID }: { label: string; busy: boolean; onPress: () => void; testID: string }) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityState={{ busy }}
+      disabled={busy}
+      onPress={() => {
+        theme.haptic('success');
+        onPress();
+      }}
+      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 52, paddingHorizontal: theme.space[5], borderRadius: theme.radius.lg, backgroundColor: COUNTER.date, opacity: busy ? 0.7 : pressed ? 0.88 : 1 })}
+    >
+      <Icon name="check" size={20} color={COUNTER.onDate} strokeWidth={2.6} />
+      <Text weight={700} tabular style={{ color: COUNTER.onDate, fontSize: 18, lineHeight: 26 }} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
 /** "3 طلبات تنتظر · 1 مسكّت · 1 ينتظر الزبون" (or "طلب جديد!" for a single fresh order). */
@@ -65,9 +96,10 @@ export function summaryTitle(t: ReturnType<typeof useT>, s: NewOrderSummary): st
  * and counts down ("باقي 7 ثواني على #3912"). "سكّت 30 ثانية" snoozes; while snoozed it says when it
  * rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
  */
-export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false }: NewOrderBannerProps) {
+export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false, featured = null }: NewOrderBannerProps) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const p = useSharedValue(0);
   const hot = stage === 'urgent' || stage === 'final';
   const ringing = count > 0;
@@ -105,6 +137,7 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         ? t('merchant.board.alert_left', { seconds })
         : null;
 
+  const show = ringing && !storeClosed && !compact ? featured : null;
   const bg = !ringing ? theme.colors.warningTint : hot ? theme.colors.danger : theme.colors.accent;
   const glowColor = hot ? color.danger[700] : color.primary[400];
   const fg = !ringing ? theme.colors.warningText : hot ? theme.colors.onDanger : theme.colors.onAccent;
@@ -119,7 +152,7 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
     <View
       testID={stage === 'final' ? 'alarm-final-banner' : 'new-order-banner'}
       accessibilityLiveRegion={storeClosed ? 'polite' : 'assertive'}
-      style={{ backgroundColor: bg, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: compact ? theme.space[4] : theme.space[5], paddingVertical: theme.space[3], overflow: 'hidden' }}
+      style={{ backgroundColor: bg, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[3], rowGap: theme.space[2], paddingHorizontal: compact ? theme.space[4] : theme.space[5], paddingVertical: theme.space[3], overflow: 'hidden' }}
     >
       <View testID={`alarm-stage-${ringing ? (stage ?? 'calm') : storeClosed ? 'closed' : 'snoozed'}`} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
       {ringing ? <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: glowColor }, glow]} /> : null}
@@ -137,6 +170,49 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
         ) : null}
       </View>
       {action}
+      {show ? <FeaturedOrder f={show} t={t} locale={locale} /> : null}
+    </View>
+  );
+}
+
+/**
+ * a1: the next order on the ribbon, a ticket stub in paper — number, dishes, allergy, cash — and its
+ * one-tap accept. Tapping the stub opens the order.
+ */
+function FeaturedOrder({ f, t, locale }: { f: NonNullable<NewOrderBannerProps['featured']>; t: ReturnType<typeof useT>; locale: ReturnType<typeof useLocale> }) {
+  const theme = useTheme();
+  const o = f.order;
+  const dishes = dishLine(o, 3);
+  const allergy = hasAllergy(o);
+  return (
+    <View testID="ribbon-featured" style={{ flexBasis: '100%', flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+      <Pressable
+        testID="ribbon-open"
+        onPress={f.onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={t('merchant.detail.title', { number: o.number })}
+        style={({ pressed }) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 52, paddingHorizontal: theme.space[4], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: COUNTER.paper, opacity: pressed ? 0.92 : 1 })}
+      >
+        <Text tabular style={[theme.face('display'), { fontSize: 24, lineHeight: 32, color: COUNTER.date }]}>
+          {t('merchant.card.number', { number: o.number })}
+        </Text>
+        <View style={{ width: 1, alignSelf: 'stretch', backgroundColor: theme.colors.border }} />
+        <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ flex: 1, color: theme.colors.text }}>
+          {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('،  ') + (dishes.more > 0 ? `  ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
+        </Text>
+        {allergy ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, height: 30, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.danger }}>
+            <MIcon name="alert" size={16} color={theme.colors.onDanger} strokeWidth={2.2} />
+            <Text variant="footnote" weight={700} style={{ color: theme.colors.onDanger }}>
+              {t('merchant.card.allergy')}
+            </Text>
+          </View>
+        ) : null}
+        <Text variant="label" weight={700} tabular numberOfLines={1} style={{ color: theme.colors.warningText }}>
+          {o.paymentMethod === 'cash' ? `${t('merchant.card.cash')} · ${iqd(o.collectCashIqd, { locale })}` : t('merchant.card.prepaid')}
+        </Text>
+      </Pressable>
+      <RibbonAccept testID="ribbon-accept" label={t('merchant.accept.one_tap', { minutes: f.oneTapMinutes })} busy={f.busy} onPress={f.onAccept} />
     </View>
   );
 }
@@ -209,39 +285,21 @@ export function InfoStrip({
 }
 
 /**
- * "طلبات فاتتك" (M-01): sticky under the header until "تمام". One miss names the order and what
- * happened; several list their numbers. A partial accept the customer let lapse says it doesn't count.
- * After two misses in 30 minutes the same strip suggests busy mode or a short close (one strip, not two).
+ * "طلبات فاتتك" (M-01) in one sentence: one miss names the order and what happened; several list
+ * their numbers. A partial accept the customer let lapse says it doesn't count. Since the counter
+ * redesign it heads the «فاتك اليوم» sheet (the chip in the status bar carries a dot until seen).
  */
-export function MissedStrip({ missed, onOk, nudge }: { missed: readonly MissedOrder[]; onOk: () => void; nudge?: { text: string; onBusy: () => void; onClose: () => void } }) {
-  const t = useT();
-  if (missed.length === 0) return null;
+export function missedText(t: ReturnType<typeof useT>, missed: readonly MissedOrder[]): string {
   const timeouts = missed.filter((m) => m.reason === 'merchant_timeout');
-  const first = missed[0]!;
-  const text =
-    missed.length === 1
-      ? first.reason === 'partial_timeout'
-        ? t('merchant.missed.partial', { number: first.number })
-        : `${t('merchant.missed.one', { number: first.number })}${first.scored ? '' : ` · ${t('merchant.missed.not_scored')}`}`
-      : timeouts.length === 0
-        ? t('merchant.missed.partial_many', { numbers: missed.map((m) => `#${m.number}`).join('، ') })
-        : missed.length === 2
-          ? t('merchant.missed.two', { numbers: missed.map((m) => `#${m.number}`).join('، ') })
-          : t('merchant.missed.many', { count: missed.length, numbers: missed.slice(0, 4).map((m) => `#${m.number}`).join('، ') + (missed.length > 4 ? '…' : '') });
-  return (
-    <InfoStrip
-      tone="danger"
-      icon="bell"
-      testID="missed-strip"
-      text={text}
-      {...(nudge ? { sub: nudge.text } : {})}
-      action={{ label: t('merchant.missed.ok'), onPress: onOk, testID: 'missed-ok' }}
-      {...(nudge
-        ? {
-            secondary: { label: t('merchant.missed.busy'), onPress: nudge.onBusy, testID: 'missed-nudge-busy' },
-            more: [{ label: t('merchant.missed.close'), onPress: nudge.onClose, testID: 'missed-nudge-close' }],
-          }
-        : {})}
-    />
-  );
+  const first = missed[0];
+  if (!first) return '';
+  return missed.length === 1
+    ? first.reason === 'partial_timeout'
+      ? t('merchant.missed.partial', { number: first.number })
+      : `${t('merchant.missed.one', { number: first.number })}${first.scored ? '' : ` · ${t('merchant.missed.not_scored')}`}`
+    : timeouts.length === 0
+      ? t('merchant.missed.partial_many', { numbers: missed.map((m) => `#${m.number}`).join('، ') })
+      : missed.length === 2
+        ? t('merchant.missed.two', { numbers: missed.map((m) => `#${m.number}`).join('، ') })
+        : t('merchant.missed.many', { count: missed.length, numbers: missed.slice(0, 4).map((m) => `#${m.number}`).join('، ') + (missed.length > 4 ? '…' : '') });
 }

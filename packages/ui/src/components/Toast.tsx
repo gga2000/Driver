@@ -197,7 +197,7 @@ function useScreenReader(): boolean {
  * Hosts toasts at the bottom of the screen, one at a time with a short waiting line (audit S-21):
  * timers pause while the toast is touched, hovered or focused, and every toast leaves with an exit.
  */
-export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
+export function ToastProvider({ children, bottomOffset = 24, topOffset, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Distance below the safe area for `placement: 'top'` toasts (default 8): an app with a status bar of its own keeps it uncovered. */ topOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const screenReader = useScreenReader();
@@ -258,7 +258,7 @@ export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { child
           pointerEvents="box-none"
           style={[
             { position: 'absolute', start: theme.space[4], end: theme.space[4], alignItems: 'center' },
-            current.placement === 'top' ? { top: insets.top + theme.space[2] } : { bottom: bottomOffset },
+            current.placement === 'top' ? { top: insets.top + (topOffset ?? theme.space[2]) } : { bottom: bottomOffset },
           ]}
         >
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>

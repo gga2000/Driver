@@ -12,8 +12,8 @@ import { iqd } from '@/lib/money';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
-import { PickupCode } from './CourierRadar';
-import { canExtendPrep, cardTiming, courierLine, hasAllergy } from './logic';
+import { PickupCode } from './PickupCode';
+import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
@@ -47,6 +47,13 @@ export interface OrderCardProps {
    */
   compact?: boolean;
   onExpand?: () => void;
+  /**
+   * Phone «هسة» (o2): every new order after the first is one line — ring, number, dishes — and a
+   * tap brings it to the top (`onExpand`).
+   */
+  row?: boolean;
+  /** Cooking tickets (o10): the lines the kitchen ticked off on this tablet, and the tap that ticks one. */
+  ticks?: { ticked: ReadonlySet<string>; toggle: (orderId: string, lineId: string) => void };
 }
 
 /** "حساسية" on the card header when any kitchen note mentions an allergy (M-09): impossible to miss. */
@@ -78,19 +85,25 @@ export function KitchenNote({ note, testID }: { note: string; testID?: string })
 }
 
 /** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
-function Line({ qty, name, modifiers, note, out }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean }) {
+function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
   const theme = useTheme();
   const t = useT();
-  return (
-    <View style={{ gap: 2, opacity: out ? 0.5 : 1 }}>
+  const struck = out || done === true;
+  const body = (
+    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
         <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }]}>
           {`${qty}×`}
         </Text>
-        <Text variant="bodyStrong" weight={700} style={{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: out ? 'line-through' : 'none' }}>
+        <Text variant="bodyStrong" weight={700} style={{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }}>
           {name}
         </Text>
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
+        {onTick ? (
+          <View style={{ alignSelf: 'center', width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+            {done ? <Icon name="check" size={16} color={COUNTER.onDate} strokeWidth={3} /> : null}
+          </View>
+        ) : null}
       </View>
       {modifiers.length > 0 ? (
         <Text variant="footnote" color="textMuted" style={{ paddingStart: 38 }}>
@@ -105,6 +118,23 @@ function Line({ qty, name, modifiers, note, out }: { qty: number; name: string; 
         </View>
       ) : null}
     </View>
+  );
+  if (!onTick) return body;
+  // o10: the whole line is the target (≥ 44 px tall); one tap strikes it, another brings it back.
+  return (
+    <Pressable
+      testID={testID}
+      onPress={() => {
+        theme.haptic('light');
+        onTick();
+      }}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: done === true }}
+      accessibilityLabel={t('merchant.board.tick_a11y', { qty, name })}
+      style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', borderRadius: theme.radius.sm, opacity: pressed ? 0.8 : 1 })}
+    >
+      {body}
+    </Pressable>
   );
 }
 
@@ -140,7 +170,7 @@ function GroupHeader({ g, several }: { g: BoardGroup; several: boolean }) {
 }
 
 /** Items grouped by person; `maxLines` caps the card (the rest: "+3 أصناف ثانية"). */
-export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLines?: number }) {
+export function OrderItems({ order, maxLines = 99, ticks }: { order: BoardOrder; maxLines?: number; ticks?: OrderCardProps['ticks'] }) {
   const theme = useTheme();
   const t = useT();
   const several = order.groups.length > 1;
@@ -158,7 +188,17 @@ export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLin
         <GroupHeader g={g} several={several} />
         <View style={{ gap: theme.space[2], paddingStart: several ? theme.space[1] : 0 }}>
           {visible.map((l) => (
-            <Line key={l.lineId} qty={l.qty} name={l.name} modifiers={l.modifiers} note={l.note} out={l.availability === 'unavailable'} />
+            <Line
+              key={l.lineId}
+              qty={l.qty}
+              name={l.name}
+              modifiers={l.modifiers}
+              note={l.note}
+              out={l.availability === 'unavailable'}
+              {...(ticks && l.availability === 'available'
+                ? { done: ticks.ticked.has(tickKey(order.id, l.lineId)), onTick: () => ticks.toggle(order.id, l.lineId), testID: `tick-${order.number}-${l.lineId}` }
+                : {})}
+            />
           ))}
         </View>
       </View>
@@ -217,6 +257,26 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
 }
 
 /**
+ * o5: the time left on a cooking ticket as a bar that drains — readable from across the kitchen
+ * without reading numbers. Date brown while there's time, red (and full) once it is late.
+ */
+export function PrepBar({ fraction, late, testID }: { fraction: number; late: boolean; testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  const pct = Math.round((late ? 1 : fraction) * 100);
+  return (
+    <View
+      testID={testID}
+      accessibilityRole="progressbar"
+      accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })}
+      style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}
+    >
+      <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date }} />
+    </View>
+  );
+}
+
+/**
  * The width a ticket number needs on one line: tabular digits and «#» are ~0.6 em in IBM Plex Sans,
  * plus the letter spacing, with a little room. Keeps «#5427» from being squeezed into a column.
  */
@@ -225,7 +285,7 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand } = props;
+  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
@@ -243,6 +303,7 @@ export function OrderCard(props: OrderCardProps) {
   const timing = cardTiming(order, now);
   const courier = courierLine(order.courier, now);
   const partialLeft = order.partial ? secondsLeft(order.partial.deadline, now) : 0;
+  const drain = prepLeft(order, now);
 
   const timingPill =
     timing.kind === 'ready_in' ? (
@@ -297,6 +358,54 @@ export function OrderCard(props: OrderCardProps) {
     />
   ) : null;
 
+  if (row && isNew) {
+    // Phone «هسة» (o2): one line per order waiting behind the first; tap brings it to the top.
+    const dishes = dishLine(order, 2);
+    return (
+      <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
+        <Pressable
+          testID={`row-${order.number}`}
+          onPress={onExpand ?? onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={t('merchant.board.row_a11y', { number: order.number, count: order.itemCount })}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.space[3],
+            minHeight: 64,
+            paddingHorizontal: theme.space[3],
+            paddingVertical: theme.space[2],
+            borderRadius: theme.radius.lg,
+            backgroundColor: COUNTER.paper,
+            borderWidth: hot ? 2 : 1,
+            borderColor: hot ? COUNTER.late : theme.colors.border,
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          {order.acceptBy && !order.partial ? (
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
+          ) : (
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
+              <MIcon name="hourglass" size={18} color="warningText" />
+            </View>
+          )}
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text tabular style={[theme.face('display'), { fontSize: 20, lineHeight: 28, color: COUNTER.date }]}>
+                {t('merchant.card.number', { number: order.number })}
+              </Text>
+              {allergy ? <MIcon name="alert" size={18} color="dangerText" strokeWidth={2.4} /> : null}
+            </View>
+            <Text variant="footnote" color="textMuted" numberOfLines={1}>
+              {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
+            </Text>
+          </View>
+          <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   if (compact && isNew) {
     // Rush ticket (M-05): everything needed to answer it, nothing to read. Tap → the full ticket.
     return (
@@ -337,6 +446,8 @@ export function OrderCard(props: OrderCardProps) {
             {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
             {order.scheduledFor ? <StatusPill tone="neutral" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           </View>
+          {/* o1: a short ticket is still a ticket — the first dishes, readable, never just a number. */}
+          <OrderItems order={order} maxLines={3} />
           {order.partial ? <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} /> : acceptButtons('md')}
         </Pressable>
       </Animated.View>
@@ -397,6 +508,7 @@ export function OrderCard(props: OrderCardProps) {
             timingPill
           )}
         </View>
+        {drain ? <PrepBar fraction={drain.fraction} late={drain.late} testID={`prep-bar-${order.number}`} /> : null}
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
@@ -408,7 +520,7 @@ export function OrderCard(props: OrderCardProps) {
 
         <View style={{ height: 1, backgroundColor: theme.colors.border }} />
 
-        <OrderItems order={order} maxLines={maxLines} />
+        <OrderItems order={order} maxLines={maxLines} {...(order.column === 'preparing' && ticks ? { ticks } : {})} />
 
         {/* M-09: the kitchen's note only; the courier's note stays in the detail sheet. */}
         {order.note ? <KitchenNote note={order.note} testID={`kitchen-note-${order.number}`} /> : null}

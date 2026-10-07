@@ -1279,5 +1279,11 @@
   "merchant.story.saved_shown": "انحفظت، والزباين يشوفوها",
   "merchant.story.saved_hidden": "انحفظت، ومو معروضة",
   "merchant.story.load_failed": "ما گدرنا نجيب القصة",
-  "merchant.pot.show_all": "كل المنيو ({count})"
+  "merchant.pot.show_all": "كل المنيو ({count})",
+  "merchant.board.tick_a11y": "{qty} {name}. اضغط إذا خلص",
+  "merchant.board.prep_bar": "باقي {percent}% من وقت التحضير",
+  "merchant.board.prep_bar_late": "تأخر عن الوقت",
+  "merchant.board.row_a11y": "طلب #{number}، {count} صنف. اضغط حتى يطلع فوق",
+  "merchant.board.totals_title": "على النار هسة",
+  "merchant.board.totals_a11y": "على النار هسة: {list}"
 }
