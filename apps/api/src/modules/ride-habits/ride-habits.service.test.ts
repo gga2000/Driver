@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor, type BookingView, type DepartureCard, type IntercityBoard, type Order, type PlaceOrderInput, type RideFootprint, type SavedPlaceView } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
-import type { FinishedRide, HabitsEventsPort, HabitsPeoplePort, HabitsRajaaPort, HabitsRidesPort, RideInProgress } from './ports.js';
+import type { BookedRidePlan, FinishedRide, HabitsEventsPort, HabitsPeoplePort, HabitsRajaaPort, HabitsRidesPort, RideInProgress } from './ports.js';
 import { InMemoryRideHabitsRepository } from './ride-habits.repository.js';
 import { REGULAR_TRIP_DUE_EVENT, RideHabitsService, SAME_RIDE_DUE_EVENT } from './ride-habits.service.js';
 
@@ -99,7 +99,7 @@ function setup() {
   const held: unknown[] = [];
   const demands: unknown[] = [];
   const emitted: Array<{ type: string; payload: Record<string, unknown>; idempotencyKey?: string }> = [];
-  const state = { inProgress: null as RideInProgress | null, bookings: [booking({ id: 'bk_done' })], board: [] as DepartureCard[], fare: 3000, unfinished: new Set<string>(), rideOn: false };
+  const state = { inProgress: null as RideInProgress | null, bookings: [booking({ id: 'bk_done' })], board: [] as DepartureCard[], fare: 3000, unfinished: new Set<string>(), rideOn: false, orders: [] as Order[], bookedPlan: null as BookedRidePlan | null, purposes: [] as Array<string | undefined> };
   const ridesPort: HabitsRidesPort = {
     finishedRides: async (personId, from) => (personId === 'c1' ? rides.filter((r) => r.finishedAt >= from) : []),
     finishedRide: async (personId, orderId) => (personId === 'c1' ? (rides.find((r) => r.orderId === orderId) ?? null) : null),
@@ -110,13 +110,14 @@ function setup() {
       if (prior < 0) placed.push({ personId, input });
       return { id: `ord_${prior < 0 ? placed.length : prior + 1}` } as Order;
     },
-    order: async () => null,
+    order: async (id) => state.orders.find((o) => o.id === id) ?? null,
     rideInProgress: async () => state.inProgress,
     kitchen: async (id) => (id === 'm_khalid' ? { prepMin: 25, leadMin: 10, pin: { lat: 32.9, lng: 45.05 } } : null),
     minutes: async () => 8,
     driverRating: async (id) => (id === 'd_abbas' ? { rating: 4.8, count: 12 } : null),
     finishedOrderIds: async (ids) => new Set(ids.filter((id) => !state.unfinished.has(id))),
     rideOn: async () => state.rideOn,
+    bookedRide: async () => state.bookedPlan,
   };
   const rajaa: HabitsRajaaPort = {
     bookings: async () => state.bookings,
@@ -135,7 +136,10 @@ function setup() {
     routeAr: (_c, d) => (d === 'to_aziziyah' ? 'الكوت ← العزيزية' : 'العزيزية ← الكوت'),
   };
   const people: HabitsPeoplePort = {
-    firstNames: async (ids) => Object.fromEntries(ids.map((id) => [id, id === 'd_abbas' ? 'عباس' : id === 'd_haidar' ? 'حيدر' : null])),
+    firstNames: async (ids, _accessor, purpose) => {
+      state.purposes.push(purpose);
+      return Object.fromEntries(ids.map((id) => [id, id === 'd_abbas' ? 'عباس' : id === 'd_haidar' ? 'حيدر' : null]));
+    },
     photoUrls: async (ids) => Object.fromEntries(ids.filter((id) => id === 'd_abbas').map((id) => [id, `/files/${id}.jpg`])),
     places: async () => [{ id: 'pl_home', label: 'home', name: 'البيت', pin: HOME_PIN } as SavedPlaceView],
   };
@@ -417,5 +421,45 @@ describe('«نفس مشوار البارحة؟» (step 4, o4)', () => {
     h.clock.set('2026-10-11T04:20:00Z'); // Sunday
     expect(await h.svc.sameRideDue()).toBe(1);
     expect(h.emitted[0]?.payload).toMatchObject({ date: '2026-10-11', afterWeekend: true });
+  });
+});
+
+describe('booked rides: what the rider is told (review #28)', () => {
+  const AT = new Date('2026-10-08T02:00:00Z');
+  const ride = (over: Partial<Order> = {}) => ({ id: 'ord_b', type: 'ride', ordererId: 'c1', state: 'placed', scheduledFor: AT, ...over }) as Order;
+
+  it('confirmed: his first name and photo, read for the rider (logged purpose booked_ride_driver)', async () => {
+    const { svc, state } = setup();
+    state.orders = [ride()];
+    state.bookedPlan = { state: 'confirmed', driverId: 'd_abbas', confirmBy: new Date('2026-10-07T19:00:00Z'), searchAt: new Date('2026-10-08T01:30:00Z') };
+    expect(await svc.bookedRide(ME, { orderId: 'ord_b' })).toEqual({
+      orderId: 'ord_b',
+      state: 'confirmed',
+      confirmBy: new Date('2026-10-07T19:00:00Z'),
+      searchAt: new Date('2026-10-08T01:30:00Z'),
+      driver: { firstName: 'عباس', photoUrl: '/files/d_abbas.jpg' },
+    });
+    expect(state.purposes).toEqual(['booked_ride_driver']);
+  });
+
+  it('looking: until when drivers are asked, and no name', async () => {
+    const { svc, state } = setup();
+    state.orders = [ride()];
+    state.bookedPlan = { state: 'looking', driverId: null, confirmBy: new Date('2026-10-07T19:00:00Z'), searchAt: new Date('2026-10-08T01:30:00Z') };
+    expect(await svc.bookedRide(ME, { orderId: 'ord_b' })).toMatchObject({ state: 'looking', confirmBy: new Date('2026-10-07T19:00:00Z'), driver: null });
+  });
+
+  it('later: no pre-assignment (or nobody by the deadline) — the search time, 30 min before', async () => {
+    const { svc, state } = setup();
+    state.orders = [ride()];
+    expect(await svc.bookedRide(ME, { orderId: 'ord_b' })).toEqual({ orderId: 'ord_b', state: 'later', confirmBy: null, searchAt: new Date('2026-10-08T01:30:00Z'), driver: null });
+  });
+
+  it("only his own ride booked for later", async () => {
+    const { svc, state } = setup();
+    state.orders = [ride({ ordererId: 'someone' }), ride({ id: 'ord_now', scheduledFor: null }), ride({ id: 'ord_food', type: 'food' })];
+    expect(await code(svc.bookedRide(ME, { orderId: 'ord_b' }))).toBe('not_found');
+    expect(await code(svc.bookedRide(ME, { orderId: 'ord_now' }))).toBe('not_found');
+    expect(await code(svc.bookedRide(ME, { orderId: 'ord_food' }))).toBe('not_found');
   });
 });

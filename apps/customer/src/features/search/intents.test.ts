@@ -50,7 +50,19 @@ describe('one box for the whole town (h4, D-04)', () => {
     expect(searchIntents('ريوگ')[0]).toMatchObject({ meal: 'breakfast' });
     expect(searchIntents('غدا')[0]).toMatchObject({ meal: 'lunch' });
     expect(searchIntents('عشا')[0]).toMatchObject({ meal: 'dinner' });
-    expect(searchIntents('حلويات')[0]).toMatchObject({ meal: 'sweet' });
+  });
+
+  it('a whole kind of shop opens its door (food doors f1); a dish word stays a dish search', () => {
+    expect(searchIntents('حلويات')).toEqual([{ kind: 'door', door: 'sweet', iceCream: false }]);
+    expect(searchIntents('الحلويات')).toEqual([{ kind: 'door', door: 'sweet', iceCream: false }]);
+    expect(searchIntents('قهوة')).toEqual([{ kind: 'door', door: 'cafe', iceCream: false }]);
+    expect(searchIntents('كافيه')).toEqual([{ kind: 'door', door: 'cafe', iceCream: false }]);
+    expect(searchIntents('عصير')).toEqual([{ kind: 'door', door: 'cold', iceCream: false }]);
+    expect(searchIntents('آيس كريم')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('ايس كريم')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('دوندرمة')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('كنافة')).toEqual([]);
+    expect(searchIntents('لاتيه')).toEqual([]);
   });
 
   it('coming-soon words open the sheet; «سوق» also offers the ride to the market garage', () => {

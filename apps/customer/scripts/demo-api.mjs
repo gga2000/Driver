@@ -4,7 +4,8 @@
 //
 //   PORT=3200 node apps/customer/scripts/demo-api.mjs
 //
-// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) with
+// Seeds the four launch restaurants (مطعم خالد، مشويات الحاج كريم، مأكولات الشام، مطعم المسافر) and
+// the demo-only food-door shops (كافيه دجلة، عصائر الربيع، حلويات الزهراء، آيس كريم الفرات) with
 // their storefronts and menus — the same seed `pnpm db:seed` writes (@driver/contracts/seeds) — and
 // plays the kitchen:
 //   - an order a customer places is accepted after DEMO_KITCHEN_MS (default 20000; 0 = never);
@@ -33,6 +34,8 @@
 //                                                                     taxi to a car, three trips back (offer, armed, booked),
 //                                                                     and n9: two cars back from Baghdad today
 //   - POST /demo/rajaa-taxi?personId=…&baghdadSeat=1                  n9: only his seat on a car back from Baghdad
+//   - POST /demo/booked-ride?personId=…[&state=looking|confirmed]    review #28: a ride booked for tomorrow 7:30,
+//                                                                     drivers asked until 22:00 or حسين confirmed
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -59,7 +62,10 @@ const catalog = app.get(CatalogService);
 const orders = app.get(OrdersService);
 const controls = app.get(ControlsService);
 
-const seeded = await seedStorefronts(orgs, catalog, undefined, 'demo-owner');
+// The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
+// door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
+const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -77,6 +83,13 @@ await orgs.settled?.();
 const khalid = seeded.find((s) => s.seed.key === 'khalid');
 /** مطعم خالد's pin: the pickup for the live-order demo. */
 const kitchen = khalid.seed.pin;
+// «وياها كنافة؟» after a meal (food doors s7) needs a meal kitchen that makes a sweet. None of the four
+// launch kitchens does, so in the demo only مطعم خالد bakes one kunafa tray (never in `pnpm db:seed`).
+await catalog.upsertItem(
+  khalid.orgId,
+  { patch: { nameAr: 'كنافة', nameEn: 'Kunafa', description: 'جبن حار وقطر، تطلع من الفرن', priceIqd: 2000, categoryAr: 'حلو', sortOrder: 900, prepTimeMin: 5 } },
+  'demo-owner',
+);
 
 const json = (res, status, body) => {
   res.statusCode = status;
@@ -1893,6 +1906,65 @@ const rajaa = await (async () => {
         await advanceRide(ride.id); // at the pickup
         await advanceRide(ride.id); // on the trip, driving home
         json(res, 200, { orderId: ride.id });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+
+    // ───────── review #28: evening-before booked rides ─────────
+    //   POST /demo/booked-ride?personId=…[&state=looking|confirmed]   → {orderId, tripId, scheduledFor}
+    // A taxi from البيت to الدائرة booked for 7:30 tomorrow (the day after when it is already 21:00 or
+    // later, so the evening offer is still to come). `looking`: drivers are asked until 22:00 the evening
+    // before («ندوّرلك سايق، نأكدلك قبل الساعة 10 بالليل»). `confirmed`: the evening offer is opened now
+    // (the demo can't wait for 18:00) and حسين علي confirms it through the real path («سايقك محجوز: حسين»,
+    // with his approved photo, and the rider's push).
+    const { DISPATCH_STORE: J28Store } = await load('modules/dispatch/dispatch.store.js');
+    const { OfferOrchestrator: J28Orchestrator } = await load('modules/dispatch/offer.orchestrator.js');
+    const bookedStore = app.get(J28Store);
+    const bookedOrchestrator = app.get(J28Orchestrator);
+
+    /** Opens a booked ride's evening offer now, to everyone (demo only: the real one opens at 18:00). */
+    async function openBookedNow(tripId) {
+      const r = await bookedStore.getRequest(tripId);
+      if (!r?.booked) throw new Error(`ride ${tripId} has no evening-before offer`);
+      const now = Date.now();
+      r.booked = { ...r.booked, offerAt: Math.min(r.booked.offerAt, now), favouriteUntil: Math.min(r.booked.favouriteUntil, now) };
+      await bookedStore.saveRequest(r);
+      await bookedOrchestrator.onTimer({ kind: 'booked_open', tripId, epoch: r.epoch, step: 0 });
+    }
+
+    app.use('/demo/booked-ride', async (req, res) => {
+      try {
+        const url = new URL(req.url ?? '/', 'http://x');
+        const personId = url.searchParams.get('personId');
+        const state = url.searchParams.get('state') ?? 'looking';
+        if (req.method !== 'POST' || !personId || !['looking', 'confirmed'].includes(state)) return json(res, 400, { error: 'POST /demo/booked-ride?personId=…[&state=looking|confirmed]' });
+        const { home, work } = await homeAndWork(personId);
+        const local = new Date(Date.now() + 3 * 3_600_000);
+        const ahead = local.getUTCHours() < 21 ? 1 : 2;
+        const date = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + ahead)).toISOString().slice(0, 10);
+        const scheduledFor = new Date(`${date}T07:30:00+03:00`);
+        const ride = await orders.place(personId, { cityId: 'aziziyah', type: 'ride', rideVertical: 'taxi', pickup: point(home), dropoff: point(work), paymentMethod: 'cash', scheduledFor });
+        const trip = await trips.activeForOrder(ride.id);
+        if (state === 'confirmed') {
+          await openBookedNow(trip.id);
+          // حسين first; when an earlier call already gave him a ride at that time (an hour apart at
+          // least), the next demo taxi driver takes it.
+          const cars = (await ensureDrivers()).filter((x) => x.def.vehicle === 'car').sort((a, b) => Number(b.def.name === 'حسين علي') - Number(a.def.name === 'حسين علي'));
+          let taken = false;
+          for (const d of cars) {
+            await dispatch.presence.heartbeat(d.id, d.pos).catch(() => undefined);
+            try {
+              await dispatch.answerBookedJob(d.id, trip.id, 'confirm');
+              taken = true;
+              break;
+            } catch (err) {
+              if (err?.code !== 'booked_job_clash') throw err;
+            }
+          }
+          if (!taken) throw new Error('every demo taxi driver already has a booked ride at that time');
+        }
+        json(res, 200, { orderId: ride.id, tripId: trip.id, scheduledFor: scheduledFor.toISOString() });
       } catch (err) {
         json(res, 500, { error: String(err?.stack ?? err) });
       }

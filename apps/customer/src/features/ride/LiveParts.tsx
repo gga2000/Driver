@@ -6,7 +6,7 @@ import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Icon, ltr, Text, useTheme } from '@driver/ui';
 import { useCityConfig } from './queries';
-import { freeCancelLeftSec, mmss, searchProgress, searchStage, tooClose, zoneTitle, type SearchStage } from './logic';
+import { freeCancelLeftSec, mmss, paidWaitPerIqd, searchProgress, searchStage, tooClose, zoneTitle, type SearchStage } from './logic';
 import { useRideMemo } from './store';
 import { ChangeCreditStrip } from '@/features/track/ChangeCredited';
 import { useLocale, useT } from '@/lib/i18n';
@@ -148,9 +148,10 @@ export const FREE_WAIT_SEC = 180;
 
 /**
  * The collapsed header's right side while the driver waits at the pickup: the free wait counting
- * down, then the paid wait counting up (warning tone), so "اطلع" carries a clock.
+ * down, then the paid wait counting up (warning tone), so "اطلع" carries a clock. `paid` false (nothing
+ * charges waiting yet): "ينتظرك" counting down, then "صارله ينتظرك" counting up — no promised charge.
  */
-export function WaitCounter({ arrivedAt, now }: { arrivedAt: Date; now: number }) {
+export function WaitCounter({ arrivedAt, now, paid }: { arrivedAt: Date; now: number; paid: boolean }) {
   const theme = useTheme();
   const t = useT();
   const waited = Math.max(0, Math.floor((now - arrivedAt.getTime()) / 1000));
@@ -161,7 +162,7 @@ export function WaitCounter({ arrivedAt, now }: { arrivedAt: Date; now: number }
       style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: free ? theme.colors.successTint : theme.colors.warningTint, minWidth: 84 }}
     >
       <Text variant="caption" color={free ? 'successText' : 'warningText'} style={{ lineHeight: 16 }}>
-        {t(free ? 'ride.wait_free_label' : 'ride.wait_paid_label')}
+        {t(paid ? (free ? 'ride.wait_free_label' : 'ride.wait_paid_label') : free ? 'ride.wait_label_plain' : 'ride.wait_over_plain')}
       </Text>
       <Text variant="amount" tabular color={free ? 'successText' : 'warningText'} style={{ lineHeight: 30 }}>
         {mmss(free ? FREE_WAIT_SEC - waited : waited - FREE_WAIT_SEC)}
@@ -218,12 +219,12 @@ export function WaitNote({ vertical }: { vertical: 'taxi' | 'tuktuk' }) {
   const theme = useTheme();
   const t = useT();
   const city = useCityConfig();
-  const per = city.data?.verticals.find((v) => v.vertical === vertical)?.components.find((c) => c.key === 'wait')?.perUnit ?? 250;
+  const per = paidWaitPerIqd(city.data, vertical);
   return (
     <View testID="ride-wait-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
       <Icon name="clock" size={18} color="successText" strokeWidth={2.2} />
       <Text variant="footnote" weight={600} color="successText" style={{ flex: 1 }}>
-        {t('ride.wait_note', { amount: amountParam(per) })}
+        {per === null ? t('ride.wait_note_plain') : t('ride.wait_note', { amount: amountParam(per) })}
       </Text>
     </View>
   );
