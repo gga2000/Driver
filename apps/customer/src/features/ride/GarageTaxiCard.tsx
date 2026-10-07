@@ -147,7 +147,6 @@ export function GarageTaxiCardView({ state, now, busy = false, onPlace, onBook, 
           testID={`${testID}-book`}
           icon="taxi"
           label={later ? t('gtaxi.to_book_later', { time: when(plan.pickupAt!) }) : t('gtaxi.to_book_now')}
-          trailing={amount ? t('habits.amount', { amount }) : undefined}
           loading={busy}
           disabled={offline}
           fullWidth

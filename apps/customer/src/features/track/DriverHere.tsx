@@ -48,8 +48,8 @@ export function DriverHereCard({
   standsM: number | null;
   /** When he pressed "وصلت" at the pickup: the free wait runs from here. */
   arrivedAt: Date | null;
-  /** What each 5 minutes of paid wait costs after the free 3 (city pricing). */
-  waitPerIqd: number;
+  /** What a paid minute of waiting costs after the free 3, or null while nothing charges for it. */
+  waitPerIqd: number | null;
   /** Server-corrected time. */
   now: number;
   clock: () => number;
@@ -137,14 +137,14 @@ export function DriverHereCard({
             {free ? (
               <CountdownRing mode="accept" startedAt={arrivedAt.getTime()} durationMs={FREE_WAIT_SEC * 1000} format="clock" urgentMs={30_000} size={64} strokeWidth={6} clock={clock} testID="driver-here-ring" />
             ) : (
-              <WaitCounter arrivedAt={arrivedAt} now={now} />
+              <WaitCounter arrivedAt={arrivedAt} now={now} paid={waitPerIqd !== null} />
             )}
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="label" weight={700} color={free ? 'successText' : 'warningText'}>
-                {t(free ? 'ride.wait_free_label' : 'ride.free_wait_over')}
+                {waitPerIqd === null ? t(free ? 'ride.wait_label_plain' : 'ride.wait_over_plain') : t(free ? 'ride.wait_free_label' : 'ride.free_wait_over')}
               </Text>
               <Text variant="footnote" color="textMuted">
-                {t('ride.free_wait_then', { amount: amountParam(waitPerIqd) })}
+                {waitPerIqd === null ? (free ? t('ride.wait_note_plain') : t('ride.wait_over_hint')) : t('ride.free_wait_then', { amount: amountParam(waitPerIqd) })}
               </Text>
             </View>
           </View>

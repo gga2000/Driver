@@ -44,6 +44,13 @@ import {
   RequestPositionInput,
   RequestPostView,
   RajaaDriverCard,
+  RajaaDriverProfile,
+  RajaaDriverProfileInput,
+  ReviewsOpsInput,
+  REVIEW_MODERATION_ROLES,
+  ReviewOpsView,
+  HideReviewInput,
+  UnhideReviewInput,
   RespondPickupInput,
   SelfieInput,
 } from '../routes-io.js';
@@ -70,6 +77,11 @@ export const routesRouter = router({
     .input(DriverCardsInput)
     .output(z.array(RajaaDriverCard))
     .query(({ ctx, input }) => ctx.routes.driverCards(ctx.actor, input)),
+  /** «ملفه» (x12–x17): the driver's record, quality bars, badges and reviews; same visibility as driverCards. */
+  driverProfile: protectedProcedure()
+    .input(RajaaDriverProfileInput)
+    .output(RajaaDriverProfile)
+    .query(({ ctx, input }) => ctx.routes.driverProfile(ctx.actor, input)),
   /** Live departure board per garage (or corridor + direction), with fill and front-seat status. */
   board: protectedProcedure()
     .input(BoardInput)
@@ -135,6 +147,11 @@ export const routesRouter = router({
       .input(RequestListInput)
       .output(z.array(RequestPostView))
       .query(({ ctx, input }) => ctx.routes.openRequests(ctx.actor, input)),
+    /** Driver: he opened the request (y4); the rider sees how many drivers did. Idempotent. */
+    seen: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestSeen(ctx.actor, input)),
     /** Driver: offer a price (multiples of 1,000); a new offer replaces the driver's previous one. */
     offer: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestOfferInput)
@@ -270,5 +287,19 @@ export const routesRouter = router({
       .input(PinAlertCallInput)
       .output(SafetyCallSession)
       .mutation(({ ctx, input }) => ctx.routes.callPinAlertDriver(ctx.actor, input)),
+    /** «كلام الركاب»: riders' written reviews, newest first, shown and hidden. */
+    reviews: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(ReviewsOpsInput)
+      .output(z.array(ReviewOpsView))
+      .query(({ ctx, input }) => ctx.routes.reviews(ctx.actor, input)),
+    /** Take a review off the driver's profile (kept and logged; `unhideReview` puts it back). */
+    hideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(HideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.hideReview(ctx.actor, input)),
+    unhideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(UnhideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.unhideReview(ctx.actor, input)),
   }),
 });
