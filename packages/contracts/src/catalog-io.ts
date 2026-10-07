@@ -217,6 +217,8 @@ export const CatalogSearchDish = z.object({
   restaurantOpen: z.boolean(),
   /** The kitchen's next opening (12-hour "7:00") when it is closed. */
   restaurantOpensAt: z.string().nullable(),
+  /** Sold by weight (s1): the price of one kilo («الكيلو 15,000», `kiloPriceOf`); absent otherwise. */
+  kiloIqd: Iqd.nullable().optional(),
 });
 export type CatalogSearchDish = z.infer<typeof CatalogSearchDish>;
 
@@ -245,6 +247,30 @@ export const CatalogPicksInput = z.object({
   limit: z.number().int().min(1).max(12).default(3),
 });
 export type CatalogPicksInput = z.input<typeof CatalogPicksInput>;
+
+/**
+ * `catalog.cravings` (food doors, ideas d5, k9, s6, j2): «شنو بخاطرك؟» inside a door — for each kind of
+ * thing (كنافة، لاتيه، رمان…) the open shops that have it right now, each with its best-matching
+ * orderable dish (a dish counts when its name starts with one of the kind's words, like `picks`). One
+ * dish per shop, best match then cheapest first. Kinds nobody has right now are left out, so a picture
+ * never leads to an empty page.
+ */
+export const CatalogCravingsInput = z.object({
+  cityId: CityId,
+  kinds: z
+    .array(z.object({ key: z.string().trim().min(1).max(30), words: z.array(z.string().trim().min(1).max(30)).min(1).max(8) }))
+    .min(1)
+    .max(12),
+  dropoff: DeliveryPoint.optional(),
+});
+export type CatalogCravingsInput = z.input<typeof CatalogCravingsInput>;
+
+export const CatalogCraving = z.object({
+  key: z.string(),
+  /** One dish per open shop that has it. */
+  dishes: z.array(CatalogSearchDish),
+});
+export type CatalogCraving = z.infer<typeof CatalogCraving>;
 
 /**
  * `search.unmet` (joy h4, discovery D-13): a search that found nothing, sent when the customer says
@@ -353,6 +379,7 @@ export interface CustomerCatalogPort {
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
   picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]>;
+  cravings(reader: Actor | CatalogReader, input: z.infer<typeof CatalogCravingsInput>): Promise<CatalogCraving[]>;
   /** Joy h2: today's pots in the city (open kitchens first); `followed` for a signed-in reader. */
   pots(reader: Actor | CatalogReader, input: z.infer<typeof PotsTodayInput>): Promise<TodayPot[]>;
   dishFollows(actor: Actor): Promise<MyDishFollows>;

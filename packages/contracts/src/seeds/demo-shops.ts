@@ -23,6 +23,43 @@ const cupSize = (largeIqd: number): SeedModifierGroup => ({
   ],
 });
 
+/** Sugar the Iraqi way (idea q2): optional, so no pick is the shop's usual; the app remembers the person's last pick. */
+const sugar: SeedModifierGroup = {
+  nameAr: 'السكر',
+  nameEn: 'Sugar',
+  required: false,
+  max: 1,
+  options: [
+    { nameAr: 'سادة', nameEn: 'No sugar', priceIqd: 0 },
+    { nameAr: 'وسط', nameEn: 'Medium', priceIqd: 0 },
+    { nameAr: 'حلو', nameEn: 'Sweet', priceIqd: 0 },
+  ],
+};
+
+/** Ice on the side (idea j3): a juice that rides a while arrives cold without going watery. */
+const ice: SeedModifierGroup = {
+  nameAr: 'الثلج',
+  nameEn: 'Ice',
+  required: false,
+  max: 1,
+  options: [
+    { nameAr: 'الثلج بكوب لحاله', nameEn: 'Ice in a separate cup', priceIqd: 0 },
+    { nameAr: 'بلا ثلج', nameEn: 'No ice', priceIqd: 0 },
+  ],
+};
+
+/** Cardamom in Arabic coffee (q2). */
+const cardamom: SeedModifierGroup = {
+  nameAr: 'الهيل',
+  nameEn: 'Cardamom',
+  required: false,
+  max: 1,
+  options: [
+    { nameAr: 'بالهيل', nameEn: 'With cardamom', priceIqd: 0 },
+    { nameAr: 'بلا هيل', nameEn: 'No cardamom', priceIqd: 0 },
+  ],
+};
+
 const byWeight = (halfIqd: number, kiloIqd: number): SeedModifierGroup => ({
   nameAr: 'الكمية',
   nameEn: 'Amount',
@@ -78,6 +115,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 1000,
             prepTimeMin: 4,
             taxonomy: 'coffee',
+            modifierGroups: [sugar, cardamom],
           },
           {
             key: 'espresso',
@@ -95,7 +133,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 2500,
             prepTimeMin: 5,
             taxonomy: 'coffee',
-            modifierGroups: [cupSize(500)],
+            modifierGroups: [cupSize(500), sugar],
           },
           {
             key: 'iced_latte',
@@ -115,6 +153,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 1500,
             prepTimeMin: 3,
             taxonomy: 'coffee',
+            modifierGroups: [sugar],
           },
         ],
       },
@@ -130,6 +169,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 500,
             prepTimeMin: 3,
             taxonomy: 'coffee',
+            modifierGroups: [sugar],
           },
           {
             key: 'karak',
@@ -139,6 +179,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 1500,
             prepTimeMin: 4,
             taxonomy: 'coffee',
+            modifierGroups: [sugar],
           },
           {
             key: 'lemon_tea',
@@ -202,7 +243,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 2000,
             prepTimeMin: 4,
             taxonomy: 'juice',
-            modifierGroups: [cupSize(1000)],
+            modifierGroups: [cupSize(1000), ice],
           },
           {
             key: 'pomegranate',
@@ -211,7 +252,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 3000,
             prepTimeMin: 5,
             taxonomy: 'juice',
-            modifierGroups: [cupSize(1000)],
+            modifierGroups: [cupSize(1000), ice],
           },
           {
             key: 'banana_milk',
@@ -220,7 +261,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             priceIqd: 2500,
             prepTimeMin: 4,
             taxonomy: 'juice',
-            modifierGroups: [cupSize(1000)],
+            modifierGroups: [cupSize(1000), ice],
           },
           {
             key: 'carrot',

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG_PUBLIC_RATE, PriceRequest, isDriverError, type AppContext, type DealBadge, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
+import { DEMO_SHOPS } from '@driver/contracts/demo-shops';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
@@ -492,6 +493,54 @@ describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
     expect(picks.find((d) => d.id === khalid.itemIds.get('liver_plate'))).toMatchObject({ quickAdd: true });
     const found = await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب بالكيلو' });
     expect(found.dishes.find((d) => d.id === khalid.itemIds.get('kebab_kilo'))).toMatchObject({ quickAdd: false });
+  });
+});
+
+describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)', () => {
+  async function shopsWorld() {
+    const w = await world();
+    await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
+    return w;
+  }
+
+  it('answers each kind with the open shops that have it, one dish per shop, and drops kinds nobody has', async () => {
+    const w = await shopsWorld();
+    const out = await caller(w.rpc, null).cravings({
+      cityId: 'aziziyah',
+      kinds: [
+        { key: 'kunafa', words: ['كنافة'] },
+        { key: 'pizza', words: ['بيتزا'] },
+        { key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] },
+      ],
+    });
+    expect(out.map((k) => k.key)).toEqual(['kunafa', 'icecream']);
+    const kunafa = out[0]!;
+    // Two kunafas at الزهراء, one dish for the shop: the plain name before «بالقيمر», then the cheaper.
+    expect(kunafa.dishes).toHaveLength(1);
+    expect(kunafa.dishes[0]).toMatchObject({ name: 'كنافة نابلسية', restaurantName: 'حلويات الزهراء', restaurantOpen: true });
+    // Both ice cream shops have it.
+    expect(new Set(out[1]!.dishes.map((d) => d.restaurantName))).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+  });
+
+  it('gives a sweet sold by weight its kilo price; a dish sold by the piece has none', async () => {
+    const w = await shopsWorld();
+    const [baklava, cake] = await w.rpc.cravings(ACTOR, {
+      cityId: 'aziziyah',
+      kinds: [
+        { key: 'baklava', words: ['بقلاوة'] },
+        { key: 'cake', words: ['كيك'] },
+      ],
+    });
+    // Quarter 5,000 + the kilo option 15,000.
+    expect(baklava?.dishes[0]).toMatchObject({ name: 'بقلاوة', priceIqd: 5000, kiloIqd: 20000 });
+    expect(cake?.dishes[0]?.kiloIqd).toBeNull();
+  });
+
+  it('leaves closed shops out', async () => {
+    const w = await world('2026-10-03T05:00:00Z'); // 8:00 Baghdad: الفرات opens at 12
+    await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
+    const out = await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds: [{ key: 'cone', words: ['كون'] }] });
+    expect(out).toEqual([]);
   });
 });
 
