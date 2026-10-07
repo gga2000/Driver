@@ -65,6 +65,17 @@ export function useDriverCards(departureIds: readonly string[]) {
   });
 }
 
+/** «ملفه» (x12–x17): the driver of a departure the rider can see. Not polled; a minute fresh is plenty. */
+export function useDriverProfile(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.driverProfile.queryOptions({ departureId: departureId ?? 'none' }),
+    enabled: signedIn && !!departureId,
+    staleTime: 60_000,
+  });
+}
+
 export function useMyBookings() {
   const api = useApi();
   const signedIn = useSignedIn();

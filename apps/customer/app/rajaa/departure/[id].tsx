@@ -232,7 +232,7 @@ export default function BookSeat() {
           <Text variant="footnote" color="textMuted">
             {t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })} · {t('intercity.latest_departure', { time: clockLabel(dep.latestDepartureAt) })}
           </Text>
-          <RajaaDriver dep={dep} card={driverCard} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
+          <RajaaDriver dep={dep} card={driverCard} record={{ departureId: dep.id }} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
           {dep.familyOnly ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="user" size={16} color="infoText" />

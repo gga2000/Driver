@@ -7,6 +7,7 @@ import { apiPhoto } from '@/lib/photo';
 import type { SeatFit } from './fit';
 import { fitLabel, fitReason, seatsLeftLabel, vehicleDesc } from './labels';
 import { clockLabel, fillTone, isBoardingOpen, minutesUntil, type FillTone } from './logic';
+import { compactRecord, rodeBefore } from './driver-record';
 
 const FILL_TONE: Record<FillTone, StatusTone> = { open: 'success', filling: 'accent', last: 'warning', full: 'neutral' };
 
@@ -47,6 +48,9 @@ export function DepartureTile({
   const hasWay = dep.meetingPoints.length > 0;
   const wayFrom = hasWay ? Math.min(...dep.meetingPoints.map((m) => m.feeIqd)) : 0;
   const name = driver?.firstName ?? t('rajaa.driver_unnamed');
+  const record = driver ? compactRecord(t, driver.stats) : null;
+  // «سافرت وياه قبل» (x17); a favourite already says more, so it shows only one of the two.
+  const rode = driver ? rodeBefore(t, driver.stats.ridesWithYou) : null;
 
   return (
     <Card
@@ -55,7 +59,15 @@ export function DepartureTile({
       elevation={1}
       tone={selected ? 'tint' : 'surface'}
       onPress={onPress}
-      accessibilityLabel={[t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) }), pill, name, favourite ? t('habits.fav_badge_long') : null].filter(Boolean).join('، ')}
+      accessibilityLabel={[
+        t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) }),
+        pill,
+        name,
+        driver?.stats.ratingAvg != null ? t('rajaa.record_rating_a11y', { rating: record?.rating ?? '', n: driver.stats.ratingCount }) : record?.text,
+        favourite ? t('habits.fav_badge_long') : rode,
+      ]
+        .filter(Boolean)
+        .join('، ')}
     >
       <View style={{ gap: theme.space[3] }}>
         {/* Time · seats for you · price: the three things a rider scans for. */}
@@ -83,11 +95,19 @@ export function DepartureTile({
                 {name}
               </Text>
               {driver?.verifiedTodayAt ? <Icon name="shield" size={13} color="successText" strokeWidth={2.2} accessibilityLabel={t('trip.verified_today')} /> : null}
-              {favourite ? <StatusPill testID={`departure-fav-${dep.id}`} size="sm" tone="accent" icon="heart" label={t('habits.fav_badge')} /> : null}
+              {favourite ? (
+                <StatusPill testID={`departure-fav-${dep.id}`} size="sm" tone="accent" icon="heart" label={t('habits.fav_badge')} />
+              ) : rode ? (
+                <StatusPill testID={`departure-rode-${dep.id}`} size="sm" tone="success" icon="check" label={rode} />
+              ) : null}
             </View>
-            <Text variant="caption" color="textMuted" numberOfLines={1}>
-              {vehicleDesc(t, dep.vehicle)}
-            </Text>
+            {/* His record (x16) before the car: «4.9 · 120 سفرة · صالون · النترا». */}
+            <View testID={`departure-record-${dep.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              {record?.rating ? <Icon name="star" size={12} color="accent" filled fillColor="accent" /> : null}
+              <Text variant="caption" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {[record?.rating, record?.text, vehicleDesc(t, dep.vehicle)].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
           </View>
           <PlateChip plate={dep.vehicle.plate} accessibilityLabel={t('driver.plate')} />
         </View>

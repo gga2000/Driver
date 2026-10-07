@@ -232,7 +232,7 @@ export default function BoardingPassScreen() {
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
         <Perforation />
-        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
+        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow record={{ departureId: b.departure.id }} testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
         {b.pickup.status === 'pending' ? (
           <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
             <StatusPill tone="warning" icon="clock" label={t('intercity.pickup_pending')} />

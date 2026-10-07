@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { RAJAA_GOOD_TAGS, RAJAA_LOW_STARS, RAJAA_LOW_TAGS, type BookingView, type RajaaRatingTag } from '@driver/contracts';
+import { RAJAA_GOOD_TAGS, RAJAA_LOW_STARS, RAJAA_LOW_TAGS, RAJAA_REVIEW_MAX, reviewTextProblem, type BookingView, type RajaaRatingTag } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Chip, Icon, SketchScene, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, Icon, ltr, SketchScene, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { useMe } from '@/features/account/queries';
 import { useSupportWhatsApp } from '@/features/help/HelpParts';
 import { dayKey } from '@/features/orders/history';
@@ -33,6 +33,9 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
   const support = useSupportWhatsApp();
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<RajaaRatingTag[]>([]);
+  // x14: one optional line other riders read on his profile, without the writer's name.
+  const [comment, setComment] = useState('');
+  const commentProblem = reviewTextProblem(comment) ? t('rajaa.review_contact') : null;
   const arrivedAt = booking.completedAt ?? booking.departure.departAt;
   const told = me.data?.safety.notifyOnArrival ? (me.data.trustedContacts ?? []).map((c) => c.name) : [];
   const back = returnTrip(booking, now);
@@ -43,7 +46,7 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
 
   const send = () =>
     rate.mutate(
-      { bookingId: booking.id, stars, tags: tags.filter((x) => chips.includes(x)) },
+      { bookingId: booking.id, stars, tags: tags.filter((x) => chips.includes(x)), ...(comment.trim() ? { comment: comment.trim() } : {}) },
       { onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger', placement: 'top' }) },
     );
   const problem = () =>
@@ -93,6 +96,11 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
               <Text variant="label" color="textMuted">
                 {t('rajaa.safe_rated')}
               </Text>
+              {rated.comment ? (
+                <Text testID="rajaa-safe-review" variant="footnote" color="textMuted" align="center">
+                  {t('rajaa.review_yours', { text: `«${rated.comment}»` })}
+                </Text>
+              ) : null}
             </View>
           ) : (
             <>
@@ -121,7 +129,19 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
                   ))}
                 </View>
               ) : null}
-              {stars > 0 ? <Button testID="rajaa-rate-send" label={t('rajaa.safe_rate_send')} fullWidth loading={rate.isPending} onPress={send} /> : null}
+              {stars > 0 ? (
+                <TextField
+                  testID="rajaa-review-input"
+                  label={t('rajaa.review_label')}
+                  placeholder={t('rajaa.review_placeholder')}
+                  value={comment}
+                  onChangeText={setComment}
+                  maxLength={RAJAA_REVIEW_MAX}
+                  multiline
+                  {...(commentProblem ? { error: commentProblem } : { hint: `${t('rajaa.review_note')} · ${ltr(`${comment.length}/${RAJAA_REVIEW_MAX}`)}` })}
+                />
+              ) : null}
+              {stars > 0 ? <Button testID="rajaa-rate-send" label={t('rajaa.safe_rate_send')} fullWidth loading={rate.isPending} disabled={!!commentProblem} onPress={send} /> : null}
             </>
           )}
           {low || (rated && rated.stars <= RAJAA_LOW_STARS) ? (
