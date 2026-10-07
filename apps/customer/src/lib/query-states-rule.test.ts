@@ -1,7 +1,10 @@
 import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
+import baselineJson from '../../eslint-rules/query-states-baseline.json';
 import driver from '../../eslint-rules/query-states.mjs';
+
+const baseline = baselineJson as Record<string, number>;
 
 /** The `driver/query-handles-error` lint rule on small screens (audit W8). */
 function lint(code: string, filename = 'app/new-screen.tsx'): string[] {
@@ -35,11 +38,15 @@ describe('driver/query-handles-error', () => {
   });
 
   it('holds screens from before the rule to their baseline count', () => {
-    const wallet = `export default function S() { const a = useA(); const b = useB(); const c = useC(); const d = useD(); const e = useE(); return <T>{a.data}{b.data}{c.data}{d.data}{e.data}</T>; }`;
-    // app/(tabs)/wallet.tsx is listed with 4: a fifth unhandled query fails, the listed four pass.
-    expect(lint(wallet, 'app/(tabs)/wallet.tsx')[0]).toContain('has 5 queries without an error state; the baseline allows 4');
-    expect(lint(wallet.replace('{e.data}', ''), 'app/(tabs)/wallet.tsx')).toEqual([]);
+    // The screen with the most listed queries; read from the file so lowering an entry never breaks this test.
+    const [file, allowed] = Object.entries(baseline).sort((a, b) => b[1] - a[1])[0]!;
+    const uses = (n: number) => Array.from({ length: n }, (_, i) => `const q${i} = useQ${i}();`).join(' ');
+    const reads = (n: number) => Array.from({ length: n }, (_, i) => `{q${i}.data}`).join('');
+    const screen = (n: number) => `export default function S() { ${uses(n)} return <T>${reads(n)}</T>; }`;
+    // One more unhandled query than listed fails; exactly the listed number passes.
+    expect(lint(screen(allowed + 1), file)[0]).toContain(`has ${allowed + 1} queries without an error state; the baseline allows ${allowed}`);
+    expect(lint(screen(allowed), file)).toEqual([]);
     // Fixing one means lowering the entry, so the list only shrinks.
-    expect(lint(wallet.replace('{e.data}', '').replace('{d.data}', ''), 'app/(tabs)/wallet.tsx')[0]).toContain('lower its entry');
+    expect(lint(screen(allowed - 1), file)[0]).toContain('lower its entry');
   });
 });

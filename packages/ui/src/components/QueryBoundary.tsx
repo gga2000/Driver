@@ -51,6 +51,10 @@ export interface QueryBoundaryProps<T> {
   staleNote?: boolean;
   /** Skeleton turns into "slow" after this long (default `NET_RULES.slowLoadMs`). */
   slowMs?: number;
+  /** `inline` for a section inside a screen: the retry is one row (RetryState `inline`), no centring. */
+  size?: 'full' | 'inline';
+  /** Extra style for the retry row or block (a light surface when the section sits on a dark card). */
+  retryStyle?: StyleProp<ViewStyle>;
   locale?: Locale;
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -92,12 +96,16 @@ export function QueryBoundary<T>({
   offlineArt,
   staleNote = true,
   slowMs,
+  size = 'full',
+  retryStyle,
   locale,
   testID = 'query',
   style,
 }: QueryBoundaryProps<T>) {
   const theme = useTheme();
   const net = useNetwork();
+  const inline = size === 'inline';
+  const frame: ViewStyle = inline ? {} : { flexGrow: 1, justifyContent: 'center' };
   const waiting = query.data === undefined && query.isPending;
   const [slow, restartSlow] = useLoadTimeout(waiting, slowMs);
   const phase = queryPhase(query, { slow, isEmpty: isEmpty as ((d: never) => boolean) | undefined, hasGone: Boolean(gone), offline: net.state === 'offline' && waiting });
@@ -112,22 +120,22 @@ export function QueryBoundary<T>({
     // Data kept from an earlier load while a refresh fails or the network is gone: mark it as old.
     const old = staleNote && (query.isError || !net.online);
     return (
-      <View testID={`${testID}-${phase}`} style={[{ flexGrow: 1 }, style]}>
-        {old ? <StaleNote updatedAt={query.dataUpdatedAt ?? null} force locale={locale} style={{ marginHorizontal: theme.space[4], marginTop: theme.space[2] }} /> : null}
+      <View testID={`${testID}-${phase}`} style={[inline ? null : { flexGrow: 1 }, style]}>
+        {old ? <StaleNote updatedAt={query.dataUpdatedAt ?? null} force locale={locale} style={inline ? { marginBottom: theme.space[2] } : { marginHorizontal: theme.space[4], marginTop: theme.space[2] }} /> : null}
         {phase === 'empty' && empty ? <EmptyState {...empty} /> : children(query.data as T)}
       </View>
     );
   }
   if (phase === 'loading') {
     return (
-      <View testID={`${testID}-loading`} accessibilityLabel={sharedT('status.loading', undefined, locale)} accessibilityState={{ busy: true }} style={[{ flexGrow: 1 }, style]}>
+      <View testID={`${testID}-loading`} accessibilityLabel={sharedT('status.loading', undefined, locale)} accessibilityState={{ busy: true }} style={[inline ? null : { flexGrow: 1 }, style]}>
         {skeleton}
       </View>
     );
   }
   if (phase === 'gone' && gone) {
     return (
-      <View testID={`${testID}-gone`} style={[{ flexGrow: 1, justifyContent: 'center' }, style]}>
+      <View testID={`${testID}-gone`} style={[frame, style]}>
         <EmptyState icon={gone.icon} title={gone.title} body={gone.body} action={gone.action} />
       </View>
     );
@@ -136,8 +144,8 @@ export function QueryBoundary<T>({
     // The server's own words for what happened ("ما لگينا المطلوب"), and a way to try again.
     const words = finalWords(query.error, locale);
     return (
-      <View testID={`${testID}-final`} style={[{ flexGrow: 1, justifyContent: 'center' }, style]}>
-        <RetryState kind="server" testID={`${testID}-retry`} title={words ?? retry?.server?.title} body={words ? null : retry?.server?.body} locale={locale} onRetry={again} />
+      <View testID={`${testID}-final`} style={[frame, style]}>
+        <RetryState kind="server" size={size} style={retryStyle} testID={`${testID}-retry`} title={words ?? retry?.server?.title} body={words ? null : retry?.server?.body} locale={locale} onRetry={again} />
       </View>
     );
   }
@@ -146,8 +154,8 @@ export function QueryBoundary<T>({
   const copy = retry?.[kind];
   const art = copy?.art ?? (kind === 'offline' || kind === 'unreachable' ? offlineArt : undefined);
   return (
-    <View testID={`${testID}-error`} style={[{ flexGrow: 1, justifyContent: 'center' }, style]}>
-      <RetryState kind={kind} testID={`${testID}-retry`} title={copy?.title} body={copy?.body} art={art} locale={locale} onRetry={again} />
+    <View testID={`${testID}-error`} style={[frame, style]}>
+      <RetryState kind={kind} size={size} style={retryStyle} testID={`${testID}-retry`} title={copy?.title} body={copy?.body} art={inline ? undefined : art} locale={locale} onRetry={again} />
     </View>
   );
 }

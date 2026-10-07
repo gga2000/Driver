@@ -25,6 +25,11 @@ export interface RetryStateProps {
   locale?: Locale;
   /** A sketchbook scene (joy J4, e.g. the offline Tigris) in place of the icon tile. */
   art?: ReactNode;
+  /**
+   * `inline`: one row for a section inside a screen (a card, a list block), on its own small surface card:
+   * icon, the title and a small retry, so a failed section never pushes the rest of the screen away. Default `full`.
+   */
+  size?: 'full' | 'inline';
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }
@@ -33,7 +38,7 @@ export interface RetryStateProps {
  * The standard "couldn't load" state: what went wrong in plain words (never "Failed to fetch"), and a
  * retry. Skeletons turn into this after `useLoadTimeout`; queries that fail show it at once.
  */
-export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, locale, art, testID = 'retry-state', style }: RetryStateProps) {
+export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, locale, art, size = 'full', testID = 'retry-state', style }: RetryStateProps) {
   const theme = useTheme();
   const tr = (key: Parameters<typeof sharedT>[0]) => sharedT(key, undefined, locale);
   const copy: Record<RetryKind, [string, string]> = {
@@ -44,6 +49,17 @@ export function RetryState({ kind, onRetry, title, body, retryLabel, secondary, 
   };
   const [defTitle, defBody] = copy[kind];
   const danger = kind === 'server';
+  if (size === 'inline') {
+    return (
+      <View testID={`${testID}-${kind}`} accessibilityLiveRegion="polite" style={[{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[3], paddingHorizontal: theme.space[4], minHeight: 56, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border }, style]}>
+        <Icon name={ICON[kind]} size={20} color={danger ? 'dangerText' : 'textMuted'} strokeWidth={1.8} />
+        <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+          {title ?? defTitle}
+        </Text>
+        {onRetry ? <Button testID={`${testID}-retry`} size="sm" variant="secondary" icon="refresh" label={retryLabel ?? tr('action.retry')} onPress={onRetry} /> : null}
+      </View>
+    );
+  }
   return (
     <View testID={`${testID}-${kind}`} accessibilityLiveRegion="polite" style={[{ alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[8], paddingHorizontal: theme.space[6] }, style]}>
       {art ? (

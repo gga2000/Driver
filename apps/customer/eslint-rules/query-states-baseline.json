@@ -5,7 +5,7 @@
   "app/(tabs)/account.tsx": 5,
   "app/(tabs)/index.tsx": 7,
   "app/(tabs)/orders.tsx": 2,
-  "app/(tabs)/wallet.tsx": 4,
+  "app/(tabs)/wallet.tsx": 1,
   "app/cart.tsx": 1,
   "app/checkout.tsx": 7,
   "app/drivers.tsx": 3,

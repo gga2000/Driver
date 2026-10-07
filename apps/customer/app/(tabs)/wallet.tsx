@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import type { WalletLine, WalletLineKind } from '@driver/contracts';
 import type { IconName } from '@driver/ui';
-import { Button, Card, Chip, EmptyState, Icon, ListRow, Skeleton, StatusPill, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Card, Chip, EmptyState, Icon, ListRow, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast, withAlpha } from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
@@ -66,7 +66,9 @@ function Wallet() {
   const topup = useTopupOptions();
   const household = useHousehold();
   const claim = useClaimPoints();
-  const pendingTopUp = useTopUpStatus().data;
+  const topUpStatus = useTopUpStatus();
+  // A pending top-up code is extra: shown once it has loaded, quietly absent otherwise.
+  const pendingTopUp = topUpStatus.isSuccess ? topUpStatus.data : undefined;
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<WalletFilter>('all');
   const b = balance.data;
@@ -113,17 +115,27 @@ function Wallet() {
               {t('wallet.balance')}
             </Text>
           </View>
-          {!b ? (
-            <Skeleton height={40} width="60%" />
-          ) : fresh ? (
-            <Text testID="wallet-new" variant="heading" color={theme.colors.bg}>
-              {t('wallet.new_title')}
-            </Text>
-          ) : (
-            <Text testID="wallet-balance" variant="display" color={b.moneyIqd < 0 ? theme.colors.warning : theme.colors.bg} tabular>
-              {balanceText(b.moneyIqd, locale, t)}
-            </Text>
-          )}
+          {/* The balance never sits as a grey bar forever: a failed load says so, with a retry (W8). */}
+          <QueryBoundary
+            query={balance}
+            size="inline"
+            staleNote={false}
+            locale={locale}
+            testID="wallet-balance-state"
+            skeleton={<Skeleton height={40} width="60%" />}
+          >
+            {(bal) =>
+              fresh ? (
+                <Text testID="wallet-new" variant="heading" color={theme.colors.bg}>
+                  {t('wallet.new_title')}
+                </Text>
+              ) : (
+                <Text testID="wallet-balance" variant="display" color={bal.moneyIqd < 0 ? theme.colors.warning : theme.colors.bg} tabular>
+                  {balanceText(bal.moneyIqd, locale, t)}
+                </Text>
+              )
+            }
+          </QueryBoundary>
           <Text variant="footnote" color={theme.colors.border}>
             {b && b.moneyIqd < 0 ? t('wallet.owe_body') : fresh ? t('wallet.new_body') : t('wallet.balance_body')}
           </Text>
@@ -189,9 +201,9 @@ function Wallet() {
             <Text variant="amount" tabular>
               {pointsWorthText(b.points, b.pointValueIqd, t)}
             </Text>
-          ) : (
+          ) : balance.isPending ? (
             <Skeleton height={32} width="70%" />
-          )}
+          ) : null}
           {/* w1: how points come and go, from the city's rules (no threshold exists: any number of points pays). */}
           <View style={{ gap: theme.space[1] }} testID="wallet-points-rules">
             {b ? (
@@ -228,70 +240,79 @@ function Wallet() {
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('household.title')} action={household.data ? { label: t('action.see_all'), onPress: () => router.push('/household') } : undefined} />
-        {household.isPending ? (
-          <Skeleton height={72} />
-        ) : !household.data ? (
-          <Card padding={4}>
-            <View style={{ gap: theme.space[3] }}>
-              <Text variant="body">{t('wallet.household_intro')}</Text>
-              <Button testID="wallet-household-start" variant="secondary" icon="plus" label={t('household.create')} onPress={() => router.push('/household')} />
-            </View>
-          </Card>
-        ) : approvals.length > 0 ? (
-          approvals.map((a) => <ApprovalCard key={a.id} approval={a} />)
-        ) : (
-          <Card elevation={0} padding={0}>
-            <ListRow
-              testID="wallet-household"
-              leading="user"
-              title={household.data.name}
-              subtitle={t('account.household_members', { n: household.data.members.length })}
-              trailing={<StatusPill size="sm" tone="success" label={t('wallet.no_requests')} />}
-              onPress={() => router.push('/household')}
-            />
-          </Card>
-        )}
+        {/* A household that failed to load is not "no household": no create button on a failed read. */}
+        <QueryBoundary query={household} size="inline" locale={locale} testID="wallet-household-state" skeleton={<Skeleton height={72} />}>
+          {(h) =>
+            !h ? (
+              <Card padding={4}>
+                <View style={{ gap: theme.space[3] }}>
+                  <Text variant="body">{t('wallet.household_intro')}</Text>
+                  <Button testID="wallet-household-start" variant="secondary" icon="plus" label={t('household.create')} onPress={() => router.push('/household')} />
+                </View>
+              </Card>
+            ) : approvals.length > 0 ? (
+              approvals.map((a) => <ApprovalCard key={a.id} approval={a} />)
+            ) : (
+              <Card elevation={0} padding={0}>
+                <ListRow
+                  testID="wallet-household"
+                  leading="user"
+                  title={h.name}
+                  subtitle={t('account.household_members', { n: h.members.length })}
+                  trailing={<StatusPill size="sm" tone="success" label={t('wallet.no_requests')} />}
+                  onPress={() => router.push('/household')}
+                />
+              </Card>
+            )
+          }
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('wallet.topup_title')} />
-        <Card elevation={0} padding={0}>
-          {(topup.data?.channels ?? []).map((c, i, list) => (
-            <ListRow
-              key={c.id}
-              leading={c.id === 'agent' ? 'garage' : c.id === 'driver' ? 'car' : 'phone'}
-              title={locale === 'en' ? c.title_en : c.title_ar}
-              subtitle={c.available ? (locale === 'en' ? c.body_en : c.body_ar) : undefined}
-              trailing={c.available ? undefined : <StatusPill size="sm" label={t('wallet.soon_badge')} />}
-              chevron={false}
-              divider={i < list.length - 1}
-            />
-          ))}
-        </Card>
-        {topup.data && topup.data.agents.length > 0 ? (
-          <View style={{ gap: theme.space[2] }}>
-            <Text variant="label" color="textMuted">
-              {t('wallet.agents_near')}
-            </Text>
-            <Card elevation={0} padding={0}>
-              {topup.data.agents.map((a, i, list) => (
-                <ListRow
-                  key={a.id}
-                  leading="map-pin"
-                  title={locale === 'en' ? a.name_en : a.name_ar}
-                  subtitle={`${locale === 'en' ? a.zoneName_en : a.zoneName_ar} · ${locale === 'en' ? a.hours_en : a.hours_ar}`}
-                  chevron={false}
-                  divider={i < list.length - 1}
-                />
-              ))}
-            </Card>
-            {topup.data.placeholder ? (
-              <Text variant="caption" color="textMuted">
-                {t('wallet.agents_placeholder')}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
+        <QueryBoundary query={topup} size="inline" locale={locale} testID="wallet-topup-state" skeleton={<Skeleton height={96} />}>
+          {(opts) => (
+            <>
+              <Card elevation={0} padding={0}>
+                {(opts.channels).map((c, i, list) => (
+                  <ListRow
+                    key={c.id}
+                    leading={c.id === 'agent' ? 'garage' : c.id === 'driver' ? 'car' : 'phone'}
+                    title={locale === 'en' ? c.title_en : c.title_ar}
+                    subtitle={c.available ? (locale === 'en' ? c.body_en : c.body_ar) : undefined}
+                    trailing={c.available ? undefined : <StatusPill size="sm" label={t('wallet.soon_badge')} />}
+                    chevron={false}
+                    divider={i < list.length - 1}
+                  />
+                ))}
+              </Card>
+              {opts.agents.length > 0 ? (
+                <View style={{ gap: theme.space[2] }}>
+                  <Text variant="label" color="textMuted">
+                    {t('wallet.agents_near')}
+                  </Text>
+                  <Card elevation={0} padding={0}>
+                    {opts.agents.map((a, i, list) => (
+                      <ListRow
+                        key={a.id}
+                        leading="map-pin"
+                        title={locale === 'en' ? a.name_en : a.name_ar}
+                        subtitle={`${locale === 'en' ? a.zoneName_en : a.zoneName_ar} · ${locale === 'en' ? a.hours_en : a.hours_ar}`}
+                        chevron={false}
+                        divider={i < list.length - 1}
+                      />
+                    ))}
+                  </Card>
+                  {opts.placeholder ? (
+                    <Text variant="caption" color="textMuted">
+                      {t('wallet.agents_placeholder')}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </>
+          )}
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>

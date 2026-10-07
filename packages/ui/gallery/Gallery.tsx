@@ -1065,7 +1065,7 @@ function QueryBoundaryStates() {
   const theme = useTheme();
   const fake = (over: Partial<QueryLike<string[]>>): QueryLike<string[]> => ({ data: undefined, error: null, isPending: false, isError: false, fetchStatus: 'idle', refetch: () => {}, ...over });
   const answered = (httpStatus: number, code: string, message_ar: string) => Object.assign(new Error(code), { data: { httpStatus, code, message_ar, message_en: code } });
-  const states: { label: string; query: QueryLike<string[]>; slowMs?: number }[] = [
+  const states: { label: string; query: QueryLike<string[]>; slowMs?: number; size?: 'inline' }[] = [
     { label: 'يحمّل', query: fake({ isPending: true, fetchStatus: 'fetching' }), slowMs: 60 * 60_000 },
     { label: 'أخذ وقت (بعد 8 ثواني)', query: fake({ isPending: true, fetchStatus: 'fetching' }), slowMs: 0 },
     { label: 'ما گدرنا نوصل', query: fake({ isError: true, error: Object.assign(new Error('request_timeout'), { name: 'TimeoutError' }) }) },
@@ -1074,6 +1074,8 @@ function QueryBoundaryStates() {
     { label: 'مو موجود', query: fake({ isError: true, error: answered(404, 'not_found', 'ما لگينا المطلوب') }) },
     { label: 'فارغ', query: fake({ data: [] }) },
     { label: 'البيانات القديمة تبقى إذا فشل التحديث', query: fake({ data: ['كباب', 'تكة'], isError: true, error: answered(500, 'internal', 'مشكلة من عدنا'), dataUpdatedAt: Date.now() - 180_000 }) },
+    { label: 'قسم داخل الشاشة (inline): ما گدرنا نوصل', query: fake({ isError: true, error: Object.assign(new Error('request_timeout'), { name: 'TimeoutError' }) }), size: 'inline' },
+    { label: 'قسم داخل الشاشة (inline): مشكلة من عدنا', query: fake({ isError: true, error: answered(500, 'internal', 'مشكلة من عدنا') }), size: 'inline' },
   ];
   return (
     <View style={{ gap: theme.space[3] }}>
@@ -1088,6 +1090,7 @@ function QueryBoundaryStates() {
           <QueryBoundary
             query={s.query}
             slowMs={s.slowMs}
+            size={s.size}
             skeleton={<Skeleton lines={3} />}
             isEmpty={(d) => d.length === 0}
             empty={{ icon: 'receipt', title: t('empty.orders'), body: t('empty.orders_hint'), action: { label: t('home.order_now'), onPress: () => {} } }}

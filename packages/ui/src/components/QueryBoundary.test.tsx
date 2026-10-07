@@ -68,6 +68,19 @@ describe('QueryBoundary', () => {
     expect(screen.getByTestId('query-retry-offline')).toBeTruthy();
   });
 
+  it('inline (a section inside a screen): a failure is one row with a retry, no big icon tile', () => {
+    const query = q<string[]>({ isError: true, error: answered(500, 'internal') });
+    renderUI(
+      <QueryBoundary query={query} size="inline" skeleton={<Text testID="skel">…</Text>}>
+        {(rows) => <Text testID="rows">{rows.join('،')}</Text>}
+      </QueryBoundary>,
+    );
+    expect(screen.getByTestId('query-retry-server')).toBeTruthy();
+    expect(screen.queryByTestId('query-retry-icon')).toBeNull();
+    fireEvent.click(screen.getByTestId('query-retry-retry'));
+    expect(query.refetch).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the data on screen when a refresh fails, marked as old', () => {
     render(q({ data: ['كباب'], isError: true, error: answered(500, 'internal'), dataUpdatedAt: Date.now() - 120_000 }));
     expect(screen.getByTestId('rows').textContent).toBe('كباب');
