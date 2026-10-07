@@ -6,7 +6,7 @@ import { formatHourRange, type MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, CountdownRing, Icon, Skeleton, Stepper, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { routeLabel, seatsCount, seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
+import { routeLabel, seatsCount, wayKey, seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, demandWindows, endpoints, holdCountdown, PRIMARY_CORRIDOR, RAJAA_RULES, waitingWithMe, type WindowId, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
@@ -60,11 +60,12 @@ export default function DemandScreen() {
   // R-02: who drives the car that claimed the seat (first name, today's check-in, the plate).
   const cards = useDriverCards(claimed?.b ? [claimed.b.departure.id] : []);
   // Opened from a push there is nothing to go back to: back goes to الرجعة (C-26).
-  const back = <Stack.Screen options={{ headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />;
+  const back = <Stack.Screen options={{ title: t(wayKey('demand.post_title', direction)), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />;
 
   if (mine.isPending || network.isPending) {
     return (
       <Screen edges={['bottom']}>
+        {back}
         <Skeleton height={160} radius={20} />
         <Skeleton height={220} radius={20} />
       </Screen>
@@ -157,6 +158,7 @@ export default function DemandScreen() {
           />
         }
       >
+        {back}
         <View style={{ alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[4] }}>
           <View style={{ width: 112, height: 112, borderRadius: 56, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
             {others > 0 ? (
@@ -214,16 +216,17 @@ export default function DemandScreen() {
         <Button testID="rajaa-demand-submit" size="lg" fullWidth icon="bell" label={t('rajaa.demand_submit')} disabled={!chosen || !travellingAs} loading={post.isPending} onPress={submit} />
       }
     >
+      {back}
       <View style={{ gap: theme.space[2] }}>
         <Text variant="caption" color="textMuted">
           {corridor ? routeLabel(t, corridor.cityId, direction) : ''}
         </Text>
         <Text variant="body" color="textMuted">
-          {t('rajaa.demand_intro')}
+          {t(wayKey('rajaa.demand_intro', direction))}
         </Text>
       </View>
 
-      <Section title={t('rajaa.window_q')}>
+      <Section title={t(wayKey('rajaa.window_q', direction))}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {windows.map((w) => (
             <Chip

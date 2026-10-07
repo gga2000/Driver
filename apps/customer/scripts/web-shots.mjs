@@ -15,7 +15,8 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
-//   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+//   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
+//            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
@@ -814,6 +815,16 @@ async function rajaaShots(personId) {
   await shot('rajaa-pass');
   await fullShot('rajaa-pass-full');
 
+  // Going out (f1, f3, n1, n2): the board reads «العزيزية ← بغداد» and «نبّهني», never «الرجعة».
+  await page.goto(`${origin}/rajaa?corridor=aziziyah_baghdad&direction=from_aziziyah`, LOADED);
+  await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('rajaa-board-out');
+  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=from_aziziyah`, LOADED);
+  await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
+  await settle();
+  await shot('rajaa-demand-out');
+
   // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
   await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
   await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
@@ -841,7 +852,9 @@ async function rajaaShots(personId) {
   if (personId) {
     await demoPost(`/demo/rajaa/offers?personId=${encodeURIComponent(personId)}`);
     await demoPost(`/demo/rajaa/topup?personId=${encodeURIComponent(personId)}&amount=25000`);
-    const offer = page.locator('[data-testid^="offer-"]').first();
+    // The pick button (offer-<id>), not the driver row or price inside the same offer (f4: the old
+    // selector caught the driver row, so the deposit step never opened in the shots).
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });

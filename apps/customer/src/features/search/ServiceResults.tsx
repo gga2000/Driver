@@ -4,7 +4,7 @@ import Animated from 'react-native-reanimated';
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, Icon, Text, useMotionPresets, useTheme, type IconName } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
-import { routeLabel } from '@/features/rajaa/labels';
+import { routeLabel, wayKey } from '@/features/rajaa/labels';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard, useNetwork } from '@/features/rajaa/queries';
 import { startRide } from '@/features/ride/WhereToBar';
@@ -113,20 +113,20 @@ function RajaaRow({ intent, onPick }: { intent: Extract<SearchIntent, { kind: 'r
       ? t('status.loading')
       : summary.next
         ? t(countKey('rajaa.home_summary', summary.count), { n: summary.count, time: clockLabel(summary.next.departAt) })
-        : t('rajaa.home_summary_none');
+        : t(wayKey('rajaa.home_summary_none', intent.direction));
   const open = () => {
     onPick();
     router.push({ pathname: '/rajaa', params: { corridor: corridorId, direction: intent.direction } });
   };
   return (
-    <Card padding={4} elevation={0} style={{ backgroundColor: theme.colors.liveTint }} testID={`search-rajaa-${intent.cityId}`}>
+    <Card padding={4} elevation={0} style={{ backgroundColor: theme.colors.liveTint }} testID={`search-rajaa-${intent.cityId}${intent.direction === 'to_aziziyah' ? '-back' : ''}`}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <View style={{ width: 44, height: 44, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="rajaa" size={24} color="liveText" strokeWidth={1.9} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="caption" weight={600} color="liveText">
-            {t('home.rajaa_title')}
+            {t(wayKey('rajaa.kind', intent.direction))}
           </Text>
           <Text variant="bodyStrong">{routeLabel(t, intent.cityId, intent.direction)}</Text>
           <Text variant="footnote" color="textMuted" tabular testID="search-rajaa-summary">

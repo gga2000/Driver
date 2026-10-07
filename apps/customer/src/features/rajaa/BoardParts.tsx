@@ -4,7 +4,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import type { BookingView, CorridorView, IntercityDirection, TravellingAs } from '@driver/contracts';
 import { Button, Card, Chip, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
-import { cityName, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, windowLabel } from './labels';
+import { cityName, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel, wayKey, windowLabel } from './labels';
 import { bookingHref, clockLabel, endpoints, holdCountdown, type DemandSummary } from './logic';
 
 /**
@@ -159,8 +159,20 @@ export function TravellerAsk({ value, onChange }: { value: TravellingAs | null; 
   );
 }
 
-/** "7 ناس يريدون يرجعون بين 4 و 6 العصر" with the أريد أرجع call to action. */
-export function DemandBanner({ demand, empty, onPost }: { demand: DemandSummary | null; /** No car on the board at all. */ empty: boolean; onPost: () => void }) {
+/** "7 ناس يريدون يرجعون بين 4 و 6 العصر" (or «يسافرون» going out) with «أريد أرجع» / «نبّهني». */
+export function DemandBanner({
+  demand,
+  empty,
+  direction,
+  onPost,
+}: {
+  demand: DemandSummary | null;
+  /** No car on the board at all. */
+  empty: boolean;
+  /** «أريد أرجع» on the way back, «نبّهني» going out. */
+  direction: IntercityDirection;
+  onPost: () => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -172,17 +184,17 @@ export function DemandBanner({ demand, empty, onPost }: { demand: DemandSummary 
           <Text variant="label" weight={600}>
             {demand
               ? demand.posts === 1
-                ? t('rajaa.demand_banner_one', { window })
-                : t('rajaa.demand_banner', { n: demand.posts, window })
+                ? t(wayKey('rajaa.demand_banner_one', direction), { window })
+                : t(wayKey('rajaa.demand_banner', direction), { n: demand.posts, window })
               : empty
                 ? t('rajaa.board_empty_title')
                 : t('rajaa.demand_none_title')}
           </Text>
           <Text variant="caption" color="textMuted">
-            {demand ? t('rajaa.demand_banner_hint') : t('rajaa.board_empty_body')}
+            {demand ? t('rajaa.demand_banner_hint') : t(wayKey('rajaa.board_empty_body', direction))}
           </Text>
         </View>
-        <Button testID="rajaa-demand-cta" label={t('demand.post_title')} size="sm" variant={empty ? 'primary' : 'secondary'} onPress={onPost} />
+        <Button testID="rajaa-demand-cta" label={t(wayKey('demand.post_title', direction))} size="sm" variant={empty ? 'primary' : 'secondary'} onPress={onPost} />
       </View>
     </Card>
   );

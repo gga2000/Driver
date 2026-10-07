@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
@@ -12,6 +12,7 @@ import { foldBoard, seatFit } from '@/features/rajaa/fit';
 import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, PRIMARY_CORRIDOR, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
+import { boardTitle } from '@/features/rajaa/labels';
 import { garageName, useActiveBooking, useBoard, useDriverCards, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
@@ -100,6 +101,8 @@ export default function RajaaBoard() {
       edges={['bottom']}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
     >
+      {/* f3/n1: «العزيزية ← بغداد» going out; «الرجعة» only on the way back. */}
+      <Stack.Screen options={{ title: boardTitle(t, corridor?.cityId ?? 'baghdad', direction) }} />
       <View style={{ gap: theme.space[3] }}>
         {network.isPending ? (
           <Skeleton height={60} radius={20} />
@@ -165,7 +168,7 @@ export default function RajaaBoard() {
         />
       ) : (
         <>
-          {!anyCars ? <DemandBanner demand={banner} empty onPost={openDemand} /> : null}
+          {!anyCars ? <DemandBanner demand={banner} empty direction={direction} onPost={openDemand} /> : null}
           {groups.map((g, gi) => {
             const { open, folded } = foldBoard(g.departures, Boolean(travellingAs));
             return (
@@ -218,7 +221,7 @@ export default function RajaaBoard() {
             </View>
             );
           })}
-          {anyCars ? <DemandBanner demand={banner} empty={false} onPost={openDemand} /> : null}
+          {anyCars ? <DemandBanner demand={banner} empty={false} direction={direction} onPost={openDemand} /> : null}
         </>
       )}
 
