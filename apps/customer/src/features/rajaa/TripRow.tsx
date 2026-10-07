@@ -11,10 +11,13 @@ import { bookingHref, clockLabel } from './logic';
 
 const TONE: Partial<Record<BookingView['state'], StatusTone>> = { booked: 'accent', checked_in: 'success', held: 'warning', completed: 'success' };
 
-/** "بغداد ← العزيزية" from the booking's corridor (the network names the far city). */
+/**
+ * "بغداد ← العزيزية": the booking names its corridor's far city; the network is the fallback for an
+ * older answer. Never a guessed city: with neither, the row just says «رحلتي».
+ */
 export function tripRoute(t: TFn, b: BookingView, network: IntercityNetwork | undefined): string {
-  const corridor = network?.corridors.find((c) => c.id === b.departure.corridorId);
-  return routeLabel(t, corridor?.cityId ?? 'baghdad', b.departure.direction);
+  const cityId = b.departure.cityId ?? network?.corridors.find((c) => c.id === b.departure.corridorId)?.cityId;
+  return cityId ? routeLabel(t, cityId, b.departure.direction) : t('rajaa.trip_title');
 }
 
 /**
