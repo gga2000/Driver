@@ -48,6 +48,10 @@
 //            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
 //            الرجعة board's «سايقك», the kept pass's heart, «عشاك يوصل وياك» on home, the list and
 //            checkout, and on the الرجعة pass, the notification switch     POST /demo/ride-habits, /demo/dinner
+//   simple-* ride idea v2 «الوضع البسيط» on a fresh account with the phone's position faked: the account
+//            switch, the simple home without a saved home and «وين بيتك؟», home saved from the phone, «رجعني
+//            للبيت» from the souq to the simple choose screen, the simple search, the ride as the big card
+//            (searching, then the driver coming)                         POST /demo/ride, /demo/ride/accept
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -112,7 +116,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'simple'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -251,12 +255,101 @@ try {
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
+  // Last: it signs in as its own fresh account and grants the page the phone's position.
+  if (wants('simple')) await simpleShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+/**
+ * Ride idea v2 «الوضع البسيط», as a fresh account with no saved place. The phone's position is faked
+ * (granted geolocation): at home in الهاشمي to save it with «أني بالبيت هسة», then at كراج السوق for
+ * «رجعني للبيت» → the simple choose screen → the search → the simple home's big ride card.
+ */
+async function simpleShots() {
+  const HOME = { latitude: 32.896, longitude: 45.0675, accuracy: 15 };
+  const SOUQ = { latitude: 32.9062, longitude: 45.0612, accuracy: 15 };
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.context().grantPermissions(['geolocation'], { origin });
+  await page.context().setGeolocation(HOME);
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.SIMPLE_PHONE ?? '0770 456 7711');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('كاظم');
+    await byTestId('setup-next').click();
+    await byTestId('setup-skip-place').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+
+  // The account page: the switch with its one-line explanation; turning it on opens the simple home.
+  await byTestId('tab-account').click();
+  await byTestId('account-simple').waitFor({ timeout: 15_000 });
+  await byTestId('account-simple').scrollIntoViewIfNeeded();
+  await shot('simple-account');
+  await byTestId('account-simple-switch').click();
+  await byTestId('simple-home').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  await shot('simple-no-home');
+
+  // «رجعني للبيت» with no saved home: «وين بيتك؟», then «أني بالبيت هسة» saves the phone's position.
+  await byTestId('simple-go-home').click();
+  await byTestId('simple-set-home').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('simple-set-home');
+  await byTestId('simple-set-home-here').click();
+  await byTestId('simple-set-home').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('home not saved from the phone'));
+  await page.waitForFunction(() => !document.querySelector('[data-testid="simple-go-home-sub"]')?.textContent?.includes('بيتك أول'), null, { timeout: 15_000 }).catch(() => errors.push('simple home still asks for the home'));
+  await page.waitForTimeout(2600);
+  await shot('simple-home');
+
+  // From the souq: one tap to the fares home, one confirm.
+  // The web build asks the browser with maximumAge: Infinity (expo-location), so a fresh page reads the new position.
+  await page.context().setGeolocation(SOUQ);
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-go-home').waitFor({ timeout: 15_000 });
+  await byTestId('simple-go-home').click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('simple-choose');
+  await byTestId('ride-request').click();
+  await page.waitForURL(/\/order\//, { timeout: 15_000 });
+  const orderId = new URL(page.url()).pathname.split('/').pop();
+  await byTestId('ride-offers').waitFor({ timeout: 15_000 }).catch(() => errors.push('offered drivers not shown (simple)'));
+  await page.waitForTimeout(3000);
+  await shot('simple-searching');
+
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-active-ride').waitFor({ timeout: 15_000 }).catch(() => errors.push('active ride card not shown on the simple home'));
+  await settle(900);
+  await shot('simple-active');
+  const ok = await demoPost(`/demo/ride/accept?orderId=${orderId}`);
+  if (!ok) return;
+  await page.goto(`${origin}/simple`, LOADED);
+  await byTestId('simple-active-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver not shown on the simple ride card'));
+  await settle(900);
+  await shot('simple-active-matched');
+  await page.goto(`${origin}/order/${orderId}`, LOADED);
+  await byTestId('courier-marker').waitFor({ timeout: 15_000 }).catch(() => undefined);
+  await page.waitForTimeout(3500);
+  await shot('simple-live-matched');
 }
 
 /**

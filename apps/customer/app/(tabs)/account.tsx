@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, Platform, Pressable, View } from 'react-native';
+import { Image, Platform, Pressable, Switch, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
 import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
@@ -11,6 +11,7 @@ import { useGuardianChildren, useHousehold, useMe, useMyPlaces, useSavedPeople, 
 import { amountParam } from '@/lib/money';
 import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
+import { useSimpleMode } from '@/features/simple/pref';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
@@ -42,6 +43,7 @@ function Account() {
   // w10: the header knows you — your points and what you saved this year (both from the server).
   const wallet = useWalletBalance().data;
   const [signingOut, setSigningOut] = useState(false);
+  const simple = useSimpleMode();
   const name = me.data?.name ?? prof.name ?? null;
 
   const signOut = async () => {
@@ -53,6 +55,13 @@ function Account() {
     await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
     await profile.reset();
     await session.signOut();
+  };
+
+  // Ride idea v2: turning it on opens the simple home at once, so whoever set it up sees what changed.
+  const toggleSimple = (on: boolean) => {
+    void simple.set(on);
+    toast.show({ message: t(on ? 'account.simple_on' : 'account.simple_off'), tone: 'success', icon: 'check' });
+    if (on) router.replace('/simple');
   };
 
   const changeLocale = (next: AppLocale) => {
@@ -206,6 +215,27 @@ function Account() {
           <ListRow testID="account-help" leading="chat" title={t('account.help_row')} subtitle={t('account.help_row_hint')} onPress={() => router.push('/help')} />
         </Card>
       </View>
+
+      {/* Ride idea v2: «الوضع البسيط» — bigger text, fewer choices, one big «رجعني للبيت». */}
+      <Card elevation={0} padding={0}>
+        <ListRow
+          testID="account-simple"
+          leading="bulb"
+          title={t('account.simple_title')}
+          subtitle={t('account.simple_hint')}
+          chevron={false}
+          trailing={
+            <Switch
+              testID="account-simple-switch"
+              accessibilityLabel={t('account.simple_title')}
+              value={simple.on}
+              onValueChange={toggleSimple}
+              trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+              {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
+            />
+          }
+        />
+      </Card>
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.language')} />

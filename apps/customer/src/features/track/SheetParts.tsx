@@ -48,7 +48,7 @@ const PHASE_TONE: Record<Phase, StatusTone> = {
   disputed: 'warning',
 };
 
-/** Collapsed sheet: status line + ETA (spec §4). */
+/** Collapsed sheet: status line + ETA (spec §4). Simple mode (ride idea v2): the status line in the larger type. */
 export function SheetHeader({
   phase,
   status,
@@ -59,6 +59,7 @@ export function SheetHeader({
   note,
   aside,
   below,
+  simple = false,
 }: {
   phase: Phase;
   status: string;
@@ -72,6 +73,7 @@ export function SheetHeader({
   aside?: ReactNode;
   /** Full width under the header row, still in the collapsed sheet (rides: the notification ask, joy f1). */
   below?: ReactNode;
+  simple?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -80,9 +82,9 @@ export function SheetHeader({
   const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
       <View style={{ flex: 1, gap: theme.space[1] }}>
-        <StatusPill size="sm" tone={lateMin > 0 ? 'warning' : PHASE_TONE[phase]} live={live} label={lateMin > 0 ? t('track.running_late', { minutes: lateMin }) : pill} />
+        <StatusPill size={simple ? 'md' : 'sm'} tone={lateMin > 0 ? 'warning' : PHASE_TONE[phase]} live={live} label={lateMin > 0 ? t('track.running_late', { minutes: lateMin }) : pill} />
         {/* L-23: screen readers read each new status by itself, politely (the ETA box stays quiet). */}
-        <Text variant="title" numberOfLines={2} testID="status-line" accessibilityLiveRegion="polite">
+        <Text variant={simple ? 'heading' : 'title'} numberOfLines={simple ? 3 : 2} testID="status-line" accessibilityLiveRegion="polite">
           {status}
         </Text>
         {note ? (

@@ -18,12 +18,15 @@ export const VEHICLE: Record<RideVertical, { name: MessageKey; hint: MessageKey;
 
 // ───────────────────────── route summary ─────────────────────────
 
-/** "● من … / ■ إلى …" with a change link: the trip the quotes are for. */
-export function RouteSummary({ pickup, dropoff, onEdit }: { pickup: Spot; dropoff: Spot; onEdit: () => void }) {
+/**
+ * "● من … / ■ إلى …" with a change link: the trip the quotes are for. Simple mode (ride idea v2): the
+ * two places in the larger type, and no change link (the back button is the one way back).
+ */
+export function RouteSummary({ pickup, dropoff, onEdit, simple = false }: { pickup: Spot; dropoff: Spot; onEdit: () => void; simple?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const line = (kind: 'pickup' | 'dropoff', s: Spot) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 30 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: simple ? 40 : 30 }}>
       <View style={{ width: 16, alignItems: 'center' }}>
         {kind === 'pickup' ? (
           <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.success, borderWidth: 2, borderColor: theme.colors.successTint }} />
@@ -31,10 +34,10 @@ export function RouteSummary({ pickup, dropoff, onEdit }: { pickup: Spot; dropof
           <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: theme.colors.text }} />
         )}
       </View>
-      <Text variant="body" weight={kind === 'dropoff' ? 600 : 500} numberOfLines={1} style={{ flex: 1 }}>
+      <Text variant={simple ? 'title' : 'body'} weight={kind === 'dropoff' ? 600 : 500} numberOfLines={simple ? 2 : 1} style={{ flex: 1 }}>
         {s.title}
         {s.subtitle && s.kind !== 'zone' ? (
-          <Text variant="footnote" color="textMuted">
+          <Text variant={simple ? 'body' : 'footnote'} color="textMuted">
             {`  ${s.subtitle}`}
           </Text>
         ) : null}
@@ -50,11 +53,13 @@ export function RouteSummary({ pickup, dropoff, onEdit }: { pickup: Spot; dropof
         </View>
         {line('dropoff', dropoff)}
       </View>
-      <Pressable accessibilityRole="button" onPress={onEdit} hitSlop={8} testID="ride-edit-route" style={({ pressed }) => ({ paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: 999, backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken })}>
-        <Text variant="label" weight={600} color="accentText">
-          {t('ride.edit')}
-        </Text>
-      </Pressable>
+      {simple ? null : (
+        <Pressable accessibilityRole="button" onPress={onEdit} hitSlop={8} testID="ride-edit-route" style={({ pressed }) => ({ paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: 999, backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surfaceSunken })}>
+          <Text variant="label" weight={600} color="accentText">
+            {t('ride.edit')}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -103,7 +108,8 @@ const ART_H = 52;
  * One slim row per vehicle (ride ideas c2–c4): the drawing, the name, the clock you get there
  * («توصل 11:55»: the nearest one's minutes to you plus the ride) and the price on one line. The
  * chosen row springs a little and shows «التفاصيل» under its price. A tuktuk that can't reach an edge
- * area says why on its own full-width line, with «جرّب تكتك على كل حال».
+ * area says why on its own full-width line, with «جرّب تكتك على كل حال». Simple mode (ride idea v2):
+ * the name, the clock and the price in the larger type, no «أرخص بـ» pill and no details link.
  */
 export function VehicleCard({
   vertical,
@@ -116,6 +122,7 @@ export function VehicleCard({
   arriveAt,
   cheaperBy,
   index = 0,
+  simple = false,
   onPress,
   onDetails,
   onTryAnyway,
@@ -134,6 +141,8 @@ export function VehicleCard({
   cheaperBy: number | null;
   /** Position in the list, for the entrance stagger. */
   index?: number;
+  /** Simple mode (ride idea v2): larger type, nothing secondary. */
+  simple?: boolean;
   onPress: () => void;
   onDetails: () => void;
   onTryAnyway?: () => void;
@@ -182,10 +191,10 @@ export function VehicleCard({
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Text variant="title" weight={700} style={{ fontSize: 18, lineHeight: 26 }}>
+              <Text variant={simple ? 'heading' : 'title'} weight={700} style={simple ? undefined : { fontSize: 18, lineHeight: 26 }}>
                 {t(v.name)}
               </Text>
-              {cheaperBy && cheaperBy > 0 && !off ? (
+              {cheaperBy && cheaperBy > 0 && !off && !simple ? (
                 <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
                   <Text variant="caption" weight={600} color="successText" style={{ lineHeight: 18 }}>
                     {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
@@ -196,13 +205,14 @@ export function VehicleCard({
             {off ? null : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                 {arriveAt ? (
-                  <Text variant="caption" weight={700} tabular testID={`ride-minutes-${vertical}`} accessibilityLabel={minutes ? t('ride.trip_minutes', { minutes }) : undefined}>
+                  <Text variant={simple ? 'body' : 'caption'} weight={700} tabular testID={`ride-minutes-${vertical}`} accessibilityLabel={minutes ? t('ride.trip_minutes', { minutes }) : undefined}>
                     {t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) })}
                   </Text>
                 ) : null}
                 {nearMinutes ? (
-                  <Text variant="caption" weight={600} color="successText" tabular testID={`ride-near-${vertical}`}>
-                    {`${arriveAt ? '· ' : ''}${t('ride.near_short', { minutes: nearMinutes })}`}
+                  <Text variant={simple ? 'body' : 'caption'} weight={600} color="successText" tabular testID={`ride-near-${vertical}`}>
+                    {/* Simple mode's larger type puts it on its own line: no joining dot. */}
+                    {`${arriveAt && !simple ? '· ' : ''}${t('ride.near_short', { minutes: nearMinutes })}`}
                   </Text>
                 ) : null}
               </View>
@@ -210,9 +220,9 @@ export function VehicleCard({
           </View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
             {quote ? (
-              <Text variant="title" tabular numberOfLines={1} testID={`ride-price-${vertical}`} style={{ fontSize: 19, lineHeight: 26 }}>
+              <Text variant={simple ? 'heading' : 'title'} tabular numberOfLines={1} testID={`ride-price-${vertical}`} style={simple ? undefined : { fontSize: 19, lineHeight: 26 }}>
                 {amountParam(quote.total)}
-                <Text variant="caption" weight={500} color="textMuted">
+                <Text variant={simple ? 'body' : 'caption'} weight={500} color="textMuted">
                   {` ${t('quote.currency')}`}
                 </Text>
               </Text>
@@ -223,7 +233,7 @@ export function VehicleCard({
                 {t('ride.quote_failed')}
               </Text>
             )}
-            {selected && quote && !off ? (
+            {selected && quote && !off && !simple ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t('ride.price_details')} onPress={onDetails} hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }} testID={`ride-details-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                 <Icon name="receipt" size={13} color="accentText" strokeWidth={2.2} />
                 <Text variant="caption" weight={600} color="accentText">
