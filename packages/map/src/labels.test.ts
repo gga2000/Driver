@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LABEL_MARKER_CLEARANCE_PX, labelBox, labelMarkerGap, labelsClearOf, obstaclesOnScreen, pinLabelRect, pinLabelSide, pinLabelWidth, rectsOverlap, type PinLabelLayout, type PlacedLabel } from './labels.js';
+import { LABEL_MARKER_CLEARANCE_PX, labelBox, labelMarkerGap, labelsClearOf, obstaclesOnScreen, pinLabelPlacement, pinLabelRect, pinLabelSide, pinLabelWidth, rectsOverlap, type PinLabelLayout, type PlacedLabel } from './labels.js';
 
 const street30: PlacedLabel = { x: 195, y: 200, name: 'شارع 30' };
 
@@ -81,5 +81,39 @@ describe('a pin name flips under its pin when the courier covers it (QA 2026-10-
   it('a pill grows with its name and stops at the cap', () => {
     expect(pinLabelWidth('مطعم خالد', 12, 39, 150)).toBeGreaterThan(pinLabelWidth('الزبون', 12, 39, 150));
     expect(pinLabelWidth('مطعم بيت الكبة والدولمة العراقية الأصيلة', 12, 39, 150)).toBe(150);
+  });
+});
+
+describe('a pin name hangs under the courier when he stands on the pin (share page «الوجهة», QA 2026-10-07)', () => {
+  // The customer pin: a 30 px pill 17 px over the tip; flipped, 7 px under it.
+  const layout: PinLabelLayout = { width: 100, height: 30, gapAbove: 17, gapBelow: 7 };
+  const tip = { x: 195, y: 300 };
+  /** The courier marker on the share page: his 44 px vehicle and the 24 px minutes pill over it, centred at (x, y). */
+  const courier = (x: number, y: number) => ({ left: x - 22, right: x + 22, top: y - 22 - 24, bottom: y + 22 });
+
+  it('at the door his minutes pill sits where the name is: the name flips under him, clear of the whole marker', () => {
+    const marker = courier(tip.x, tip.y);
+    expect(rectsOverlap(pinLabelRect(tip, 'above', layout), marker, 4)).toBe(true);
+    const placed = pinLabelPlacement(tip, [marker], layout);
+    expect(placed.side).toBe('below');
+    const below = pinLabelRect(tip, 'below', layout);
+    const hung = { ...below, top: below.top + placed.drop, bottom: below.bottom + placed.drop };
+    expect(rectsOverlap(hung, marker, 4)).toBe(false);
+    expect(placed.drop).toBe(22 + 4 - 7);
+  });
+
+  it('stays above with the courier away, and flips without a longer stem when under the pin is clear', () => {
+    expect(pinLabelPlacement(tip, [], layout)).toEqual({ side: 'above', drop: 0 });
+    expect(pinLabelPlacement(tip, [courier(tip.x, tip.y + 300)], layout)).toEqual({ side: 'above', drop: 0 });
+    // He is just over the name (coming from the north): it flips, nothing under the pin.
+    expect(pinLabelPlacement(tip, [courier(tip.x + 20, tip.y - 40)], layout)).toEqual({ side: 'below', drop: 0 });
+  });
+
+  it('clears a second mover lower down too', () => {
+    const placed = pinLabelPlacement(tip, [courier(tip.x, tip.y), courier(tip.x, tip.y + 60)], layout);
+    const below = pinLabelRect(tip, 'below', layout);
+    const hung = { ...below, top: below.top + placed.drop, bottom: below.bottom + placed.drop };
+    expect(placed.side).toBe('below');
+    expect(rectsOverlap(hung, courier(tip.x, tip.y), 4) || rectsOverlap(hung, courier(tip.x, tip.y + 60), 4)).toBe(false);
   });
 });

@@ -132,3 +132,29 @@ export function pinLabelSide(tip: { x: number; y: number }, movers: readonly Scr
   };
   return hit('above') && !hit('below') ? 'below' : 'above';
 }
+
+/** Where a pin's name goes, and how much lower than usual it hangs when flipped (a longer stem), px. */
+export interface PinLabelPlacement {
+  side: PinLabelSide;
+  drop: number;
+}
+
+/**
+ * Like `pinLabelSide`, for pins whose stem can grow: above while the movers leave the name clear;
+ * otherwise flipped under its pin, hanging `drop` px lower until no mover touches it. When the
+ * courier stands on the pin itself (at the door, his minutes pill right where the name sits above —
+ * the share page's «الوجهة», QA 2026-10-07), the name goes under him instead of under his pill.
+ */
+export function pinLabelPlacement(tip: { x: number; y: number }, movers: readonly ScreenRect[], layout: PinLabelLayout, margin = PIN_LABEL_CLEARANCE_PX): PinLabelPlacement {
+  if (!movers.some((m) => rectsOverlap(pinLabelRect(tip, 'above', layout), m, margin))) return { side: 'above', drop: 0 };
+  const base = pinLabelRect(tip, 'below', layout);
+  let drop = 0;
+  // Each pass moves the name under the lowest mover it still touches; a mover lower down is met next.
+  for (let pass = 0; pass <= movers.length; pass++) {
+    const rect = { ...base, top: base.top + drop, bottom: base.bottom + drop };
+    const hits = movers.filter((m) => rectsOverlap(rect, m, margin));
+    if (hits.length === 0) break;
+    drop = Math.ceil(Math.max(...hits.map((m) => m.bottom + margin - base.top)));
+  }
+  return { side: 'below', drop };
+}

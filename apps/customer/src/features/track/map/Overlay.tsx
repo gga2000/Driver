@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedProps, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { pinLabelSide, pinLabelWidth, type PinLabelLayout, type PinLabelSide } from '@driver/map';
+import { pinLabelPlacement, pinLabelWidth, type PinLabelLayout, type PinLabelPlacement, type PinLabelSide } from '@driver/map';
 import { Icon, Text, useTheme, usePulse, withAlpha } from '@driver/ui';
 import { layerTransform, pathD, project, type Camera, type LngLat, type Size } from '../geo';
 import { glidePos, remainingFrom, type Glide, type Path as RoadPath } from '../motion';
@@ -214,16 +214,17 @@ const MINUTES_PILL = 22 + 2;
 
 /**
  * Which side of its pin a place's name goes for one camera (the `@driver/map` rule): under the pin
- * when the courier marker, drawn over the pins, would cover it above (QA 2026-10-07). `courier` is
- * his last fix; between fixes the glide stays close to it.
+ * when the courier marker, drawn over the pins, would cover it above (QA 2026-10-07), hanging lower
+ * when he stands on the pin itself (`drop`, the courier at the door). `courier` is his last fix;
+ * between fixes the glide stays close to it.
  */
-export function placePinSide(at: LngLat, label: string, courier: LngLat | null, withMinutes: boolean, cam: Camera, size: Size): PinLabelSide {
-  if (!courier || size.w === 0) return 'above';
+export function placePinSide(at: LngLat, label: string, courier: LngLat | null, withMinutes: boolean, cam: Camera, size: Size): PinLabelPlacement {
+  if (!courier || size.w === 0) return { side: 'above', drop: 0 };
   const me = project(courier.lat, courier.lng, cam, size);
   const half = VEHICLE_SIZE / 2;
   const marker = { left: me.x - half, right: me.x + half, top: me.y - half - (withMinutes ? MINUTES_PILL : 0), bottom: me.y + half };
   const layout: PinLabelLayout = { width: pinLabelWidth(label, PILL_FONT, PILL_CHROME, PIN_W), height: PILL_H, gapAbove: STEM + TIP_DOT - DOT_TUCK, gapBelow: STEM - DOT_TUCK };
-  return pinLabelSide(project(at.lat, at.lng, cam, size), [marker], layout);
+  return pinLabelPlacement(project(at.lat, at.lng, cam, size), [marker], layout);
 }
 
 /**
@@ -231,7 +232,7 @@ export function placePinSide(at: LngLat, label: string, courier: LngLat | null, 
  * saved home, a flag otherwise, L-15), the kitchen, or the ride pickup. Anchored at its tip; the
  * name sits over it, or under it when `side` is below (`placePinSide`).
  */
-export function PlacePin({ cam, size, at, kind, label, side = 'above', testID }: LayerProps & { at: LngLat; kind: 'home' | 'destination' | 'kitchen' | 'pickup'; label: string; side?: PinLabelSide; testID?: string }) {
+export function PlacePin({ cam, size, at, kind, label, side = 'above', drop = 0, testID }: LayerProps & { at: LngLat; kind: 'home' | 'destination' | 'kitchen' | 'pickup'; label: string; side?: PinLabelSide; /** Flipped: how much longer the stem gets, px (`placePinSide`). */ drop?: number; testID?: string }) {
   const theme = useTheme();
   const place = useAnimatedStyle(() => {
     const p = project(at.lat, at.lng, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value);
@@ -240,8 +241,9 @@ export function PlacePin({ cam, size, at, kind, label, side = 'above', testID }:
   const home = kind === 'home' || kind === 'destination';
   const pickup = kind === 'pickup';
   const fill = home ? theme.colors.text : theme.colors.surface;
+  const extra = side === 'below' ? drop : 0;
   return (
-    <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: PIN_W, height: PIN_H, alignItems: 'center', justifyContent: side === 'below' ? 'flex-start' : 'flex-end' }, place]}>
+    <Animated.View testID={testID} pointerEvents="none" style={[styles.anchor, { width: PIN_W, height: PIN_H + extra, alignItems: 'center', justifyContent: side === 'below' ? 'flex-start' : 'flex-end' }, place]}>
       <View style={{ alignItems: 'center', flexDirection: side === 'below' ? 'column-reverse' : 'column' }}>
         <View
           style={{
@@ -271,7 +273,7 @@ export function PlacePin({ cam, size, at, kind, label, side = 'above', testID }:
           </Text>
         </View>
         {/* Stem and the tip dot. */}
-        <View style={{ width: 2, height: STEM, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
+        <View style={{ width: 2, height: STEM + extra, backgroundColor: fill === theme.colors.surface ? theme.colors.borderStrong : fill }} />
         <View style={{ width: TIP_DOT, height: TIP_DOT, borderRadius: TIP_DOT / 2, ...(side === 'below' ? { marginBottom: -DOT_TUCK } : { marginTop: -DOT_TUCK }), backgroundColor: home ? theme.colors.accent : pickup ? theme.colors.success : theme.colors.text, borderWidth: 2, borderColor: theme.colors.surface }} />
       </View>
     </Animated.View>
