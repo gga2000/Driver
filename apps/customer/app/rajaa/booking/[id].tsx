@@ -1,13 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import type { SeatPayment } from '@driver/contracts';
+import type { BookingView, SeatPayment } from '@driver/contracts';
 import { Button, Card, CountdownRing, EmptyState, PriceLine, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { useWalletBalance } from '@/features/account/queries';
 import { Screen } from '@/components/Screen';
 import { seatsList } from '@/features/rajaa/labels';
 import { boardingOpensAt, clockLabel, holdCountdown, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
-import { OptionCard, RuleList, Section } from '@/features/rajaa/Option';
-import { garageName, useBookSeat, useBooking, useCancelSeat, useNetwork, useWalletBalance } from '@/features/rajaa/queries';
+import { Section } from '@/features/rajaa/Option';
+import { PayCompare, walletShortBy } from '@/features/rajaa/PayParts';
+import { garageName, useBookSeat, useBooking, useCancelSeat, useNetwork } from '@/features/rajaa/queries';
+import { useApi } from '@/lib/api';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -30,12 +34,15 @@ export default function HoldAndPay() {
   const booking = useBooking(bookingId);
   const network = useNetwork();
   const wallet = useWalletBalance();
+  const balance = wallet.data ? wallet.data.moneyIqd : null;
+  const api = useApi();
+  const qc = useQueryClient();
   const book = useBookSeat();
   const release = useCancelSeat();
   const now = useNow(1000);
   const b = booking.data ?? null;
-  // Wallet only when we know it covers the seat; otherwise cash is the default (the rider may still try the wallet).
-  const [payment, setPayment] = useState<SeatPayment>(wallet !== null && b && wallet >= b.totalIqd ? 'wallet' : 'cash');
+  // Cash is the default (p2); the wallet is one tap, marked «الأضمن».
+  const [payment, setPayment] = useState<SeatPayment>('cash');
 
   useEffect(() => {
     if (b && (b.state === 'booked' || b.state === 'checked_in')) router.replace({ pathname: '/rajaa/pass/[id]', params: { id: b.id } });
@@ -71,6 +78,8 @@ export default function HoldAndPay() {
       { bookingId: b.id, payment },
       {
         onSuccess: (done) => {
+          // p4: the pass opens on the booked seat at once (no blank skeleton between the two screens).
+          qc.setQueryData<BookingView[]>(api.routes.myBookings.queryKey(), (all) => (all ? all.map((x) => (x.id === done.id ? done : x)) : [done]));
           // The pass says "booked" in its own flow (`booked=1`): a toast here would sit over the car and plate.
           router.replace({ pathname: '/rajaa/pass/[id]', params: { id: done.id, booked: '1' } });
         },
@@ -106,6 +115,8 @@ export default function HoldAndPay() {
             icon={payment === 'wallet' ? 'wallet' : 'check'}
             label={payment === 'wallet' ? t('rajaa.confirm_wallet', { amount: amountParam(b.totalIqd) }) : t('rajaa.confirm_cash')}
             loading={book.isPending}
+            // p3: a wallet that can't cover the seat says so under the choice, with «اشحن»; no failing tap.
+            disabled={payment === 'wallet' && walletShortBy(balance, b.totalIqd) > 0}
             onPress={confirm}
           />
           <Button testID="rajaa-release" variant="ghost" size="sm" label={t('rajaa.release_hold')} loading={release.isPending} onPress={letGo} />
@@ -164,35 +175,7 @@ export default function HoldAndPay() {
       </Card>
 
       <Section title={t('rajaa.pay_title')}>
-        <OptionCard
-          testID="pay-cash"
-          icon="receipt"
-          title={t('rajaa.pay_cash')}
-          detail={t('intercity.prepay_cash')}
-          selected={payment === 'cash'}
-          onPress={() => setPayment('cash')}
-        >
-          <RuleList
-            items={[
-              t('rajaa.cash_rule_1', { amount: amountParam(b.totalIqd) }),
-              t('rajaa.cash_rule_2'),
-              t('rajaa.cash_rule_3'),
-              t('rajaa.cash_rule_4'),
-            ]}
-          />
-        </OptionCard>
-        <OptionCard
-          testID="pay-wallet"
-          icon="wallet"
-          title={t('rajaa.pay_wallet')}
-          detail={wallet !== null ? `${amountParam(wallet)} ${t('quote.currency')}` : t('intercity.pay_prepaid')}
-          selected={payment === 'wallet'}
-          onPress={() => setPayment('wallet')}
-        >
-          <RuleList
-            items={[t('rajaa.wallet_rule_1'), t('rajaa.wallet_rule_2'), t('rajaa.wallet_rule_3', { time: clockLabel(boardingOpensAt(b.departure.departAt)) })]}
-          />
-        </OptionCard>
+        <PayCompare value={payment} onChange={setPayment} cancelUntil={clockLabel(boardingOpensAt(b.departure.departAt))} totalIqd={b.totalIqd} balanceIqd={balance} />
       </Section>
     </Screen>
   );

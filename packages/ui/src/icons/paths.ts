@@ -89,6 +89,12 @@ export const ICONS = {
   ],
   /** A garage as a place (the Partner's garage, a meeting garage). The الرجعة service is `rajaa`. */
   garage: [{ d: 'M3 21V9l9-5 9 5v12' }, { d: 'M7 21v-8.5h10V21' }, { d: 'M7 16.5h10' }],
+  /** «سايق مميز» (الرجعة driver badge): a medal on its ribbon. */
+  award: [{ circle: [12, 9, 5.5] }, { d: 'M8.6 13.4 7.5 21l4.5-2.4 4.5 2.4-1.1-7.6' }, { d: 'M12 6.5v5M9.5 9h5' }],
+  /** «ما يدخن» (driver badge): a cigarette, crossed out. */
+  'no-smoking': [{ circle: [12, 12, 9] }, { d: 'M5.6 5.6l12.8 12.8' }, { d: 'M6 13h8.5v2.5H6z' }, { d: 'M16.5 13v2.5' }, { d: 'M17 10.5c0-1.2 1.2-1.2 1.2-2.4' }],
+  /** «جناط كبيرة» (driver badge): a suitcase. */
+  suitcase: [{ rect: [4, 7.5, 16, 12.5, 2] }, { d: 'M9 7.5V5.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2' }, { d: 'M9 7.5V20M15 7.5V20' }],
   // Service glyphs (joy S2-09, J3a): the first thing people tap, so each one is its own silhouette.
   /** Food: a skewer over a plate (the bag reads as shopping). */
   food: [

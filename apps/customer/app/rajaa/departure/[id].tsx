@@ -1,13 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { IntercityDirection, IntercityRow, IntercitySeatId, PickupChoice, TravellingAs } from '@driver/contracts';
+import type { IntercityDirection, IntercityRow, IntercitySeatId, PickupChoice } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import {
   Button,
   Card,
+  CarSeatArt,
   Chip,
-  ChipGroup,
   EmptyState,
   Icon,
   PriceLine,
@@ -23,9 +23,11 @@ import {
   type SelectRejection,
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { seatsList, TRAVELLING_AS, TRAVELLING_AS_ICON, travellingAsLabel } from '@/features/rajaa/labels';
+import { carArtFor } from '@/features/rajaa/car-art';
+import { seatsList } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import {
+  bestSeat,
   blockedReason,
   carAvailable,
   clockLabel,
@@ -33,18 +35,19 @@ import {
   maxSeatsFor,
   pickupPointsInOrder,
   PRIMARY_CORRIDOR,
+  RIDER_TRAVELLING_AS,
   pruneSelection,
   quoteSelection,
   rowOptions,
   toSeatMap,
-  publicPlaceName,
 } from '@/features/rajaa/logic';
-import { OptionCard, Section } from '@/features/rajaa/Option';
+import { Section } from '@/features/rajaa/Option';
+import { BagSwitch, BlockedLine, PickupTiles, WayPointRow, type PickupKind, type PickupTile } from '@/features/rajaa/SeatParts';
 import { garageName, useBoard, useDriverCards, useHoldSeat, useNetwork } from '@/features/rajaa/queries';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
-import { deliveryPointOf, profile, selectedPlace, useProfile } from '@/lib/profile';
+import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 
 type Mode = 'seats' | 'row' | 'car';
 type Pickup = { kind: 'garage' } | { kind: 'meeting_point'; meetingPointId: string } | { kind: 'door' };
@@ -65,8 +68,8 @@ export default function BookSeat() {
   const corridorId = params.corridor || PRIMARY_CORRIDOR;
   const direction: IntercityDirection = params.direction === 'from_aziziyah' ? 'from_aziziyah' : 'to_aziziyah';
 
-  // r1: the board's remembered «تسافر:» is pre-selected; a change here is remembered too.
-  const [travellingAs, setTravellingAs] = useState<TravellingAs | null>(prof.rajaaTravellingAs);
+  // Ali dropped «مسافر» (2026-10-07): every rider books as a group; see RIDER_TRAVELLING_AS.
+  const travellingAs = RIDER_TRAVELLING_AS;
   const [mode, setMode] = useState<Mode>('seats');
   const [selection, setSelection] = useState<IntercitySeatId[]>([]);
   const [row, setRow] = useState<IntercityRow | null>(null);
@@ -76,7 +79,7 @@ export default function BookSeat() {
   const [blocked, setBlocked] = useState<'adjacency' | 'family_only' | null>(null);
 
   const network = useNetwork();
-  const board = useBoard({ corridorId, direction, ...(travellingAs ? { travellingAs } : {}) });
+  const board = useBoard({ corridorId, direction, travellingAs });
   const hold = useHoldSeat();
   const dep = board.data?.departures.find((d) => d.id === id) ?? null;
   const driverCard = useDriverCards(dep ? [dep.id] : []).data?.get(dep?.id ?? '');
@@ -90,6 +93,20 @@ export default function BookSeat() {
       return kept.length === s.length ? s : kept;
     });
   }, [dep]);
+
+  // c4: the app picks the best free seat once per car and «مسافر» choice; the rider can change or clear it.
+  const autoPickedFor = useRef<string | null>(null);
+  const [autoPicked, setAutoPicked] = useState<IntercitySeatId | null>(null);
+  useEffect(() => {
+    // Wait for the seats as seen by this «مسافر» choice (the board refetches when it changes).
+    if (!dep || !travellingAs || mode !== 'seats' || board.isFetching) return;
+    const key = `${dep.id}:${travellingAs}`;
+    if (autoPickedFor.current === key) return;
+    autoPickedFor.current = key;
+    const pick = bestSeat(dep.vehicle.layout, dep.seats);
+    setAutoPicked(pick);
+    if (pick) setSelection((s) => (s.length === 0 ? [pick] : s));
+  }, [dep, travellingAs, mode, board.isFetching]);
 
   const rows = useMemo(() => (dep && travellingAs ? rowOptions(dep.vehicle.layout, dep.seats, dep.familyOnly, travellingAs) : []), [dep, travellingAs]);
   const wholeCar = !!dep && !!travellingAs && carAvailable(dep.seats, dep.familyOnly, travellingAs);
@@ -179,6 +196,36 @@ export default function BookSeat() {
 
   const max = travellingAs ? maxSeatsFor(travellingAs, dep.vehicle.layout) : 1;
   const ready = !!travellingAs && seatIds.length > 0;
+  // The driver's own car under the seats when it has a picture (Ali, 2026-10-07); the drawn map otherwise.
+  const art = carArtFor(dep.vehicle);
+  const mapSeats = toSeatMap(dep.seats) as SeatInfo[];
+  const mapSelection = mode === 'seats' ? selection : seatIds;
+  const wayFee = wayPoints.length > 0 ? Math.min(...wayPoints.map((m) => m.feeIqd)) : null;
+  const pickupTiles: PickupTile[] = [
+    { kind: 'garage', detail: t('rajaa.pickup_free'), disabled: false },
+    {
+      kind: 'way',
+      detail: wayFee === null ? t('rajaa.pickup_way_none') : wayPoints.some((m) => m.feeIqd !== wayFee) ? t('rajaa.pickup_from', { amount: amountParam(wayFee) }) : iqd(wayFee, { locale, sign: true }),
+      disabled: wayFee === null,
+    },
+    {
+      kind: 'door',
+      detail: !homePin ? t('rajaa.pickup_door_short_location') : dep.doorPickupsLeft <= 0 ? t('rajaa.pickup_door_short_full') : iqd(doorFee ?? 0, { locale, sign: true }),
+      disabled: !doorOk,
+    },
+  ];
+  const pickupKind: PickupKind = pickup.kind === 'meeting_point' ? 'way' : pickup.kind;
+  const onSeats =
+    travellingAs && mode === 'seats'
+      ? (s: SeatInfo['id'][]) => {
+          const next = s as IntercitySeatId[];
+          // A tap on another seat while only our pick is chosen moves the pick there, not adds a seat.
+          const swap = autoPicked && selection.length === 1 && selection[0] === autoPicked && next.length === 2 && next.includes(autoPicked);
+          setSelection(swap ? next.filter((x) => x !== autoPicked) : next);
+          setAutoPicked(null);
+          setBlocked(null);
+        }
+      : undefined;
 
   return (
     <Screen
@@ -219,7 +266,7 @@ export default function BookSeat() {
           <Text variant="footnote" color="textMuted">
             {t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })} · {t('intercity.latest_departure', { time: clockLabel(dep.latestDepartureAt) })}
           </Text>
-          <RajaaDriver dep={dep} card={driverCard} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
+          <RajaaDriver dep={dep} card={driverCard} record={{ departureId: dep.id }} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
           {dep.familyOnly ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="user" size={16} color="infoText" />
@@ -230,21 +277,6 @@ export default function BookSeat() {
           ) : null}
         </View>
       </Card>
-
-      <Section title={t('intercity.travelling_as')} hint={t('rajaa.travelling_as_hint')} testID="rajaa-travelling-as">
-        <ChipGroup
-          accessibilityLabel={t('intercity.travelling_as')}
-          required
-          items={TRAVELLING_AS.map((v) => ({ id: v, label: travellingAsLabel(t, v), icon: TRAVELLING_AS_ICON[v] }))}
-          value={travellingAs ? [travellingAs] : []}
-          onChange={(next) => {
-            const v = (next[0] as TravellingAs | undefined) ?? null;
-            setTravellingAs(v);
-            if (v) void profile.setRajaaTravellingAs(v);
-            setBlocked(null);
-          }}
-        />
-      </Section>
 
       <Section title={mode === 'seats' && max > 1 ? t('rajaa.choose_seats') : t('intercity.choose_seat')}>
         <SegmentedControl<Mode>
@@ -281,71 +313,74 @@ export default function BookSeat() {
           </Text>
         ) : null}
         <View style={{ opacity: travellingAs ? 1 : 0.45 }}>
-          <SeatMap
-            layout={dep.vehicle.layout}
-            seats={toSeatMap(dep.seats) as SeatInfo[]}
-            selection={mode === 'seats' ? selection : seatIds}
-            max={max}
-            onChange={travellingAs && mode === 'seats' ? (s) => {
-              setSelection(s as IntercitySeatId[]);
-              setBlocked(null);
-            } : undefined}
-            onReject={onReject}
-          />
+          {art ? (
+            <CarSeatArt
+              art={art}
+              carName={dep.vehicle.model ?? undefined}
+              layout={dep.vehicle.layout}
+              seats={mapSeats}
+              selection={mapSelection}
+              max={max}
+              onChange={onSeats}
+              onReject={onReject}
+              {...(driverCard?.firstName ? { driverLabel: driverCard.firstName } : {})}
+            />
+          ) : (
+            <SeatMap layout={dep.vehicle.layout} seats={mapSeats} selection={mapSelection} max={max} onChange={onSeats} onReject={onReject} />
+          )}
         </View>
         {blocked ? (
-          <Card testID="rajaa-blocked-note" tone="sunken" elevation={0} padding={4}>
-            <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'flex-start' }}>
-              <Icon name="shield" size={20} color="accentText" strokeWidth={2} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text variant="label" weight={600}>
-                  {t('rajaa.blocked_title')}
-                </Text>
-                <Text variant="footnote" color="textMuted">
-                  {blocked === 'family_only' ? t('rajaa.blocked_family') : t('rajaa.blocked_adjacency')}
-                </Text>
-              </View>
-            </View>
-          </Card>
+          <BlockedLine reason={blocked} />
+        ) : autoPicked && mode === 'seats' && selection.length === 1 && selection[0] === autoPicked ? (
+          <View testID="rajaa-auto-picked" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            <Icon name="check" size={16} color="accentText" strokeWidth={2.5} />
+            <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+              {t('rajaa.auto_picked', { seat: seatsList(t, [autoPicked]) })}
+            </Text>
+          </View>
         ) : null}
       </Section>
 
       <Section title={t('rajaa.pickup_title')}>
-        <OptionCard
-          testID="pickup-garage"
-          icon="garage"
-          title={t('intercity.pickup_garage')}
-          detail={t('rajaa.pickup_garage_hint', { garage: garageName(network.data, dep.garageId) })}
-          selected={pickup.kind === 'garage'}
-          onPress={() => setPickup({ kind: 'garage' })}
+        <PickupTiles
+          tiles={pickupTiles}
+          value={pickupKind}
+          onChange={(k) => {
+            if (k === 'garage') setPickup({ kind: 'garage' });
+            else if (k === 'door') setPickup({ kind: 'door' });
+            else if (wayPoints[0]) setPickup({ kind: 'meeting_point', meetingPointId: mp?.id ?? wayPoints[0].id });
+          }}
         />
-        {wayPoints.map((m) => (
-          <OptionCard
-            key={m.id}
-            testID={`pickup-${m.id}`}
-            icon="map-pin"
-            title={publicPlaceName(m.nameAr)}
-            detail={m.draft ? `${t('rajaa.pickup_short_way')} · ${t('rajaa.pickup_draft')}` : t('rajaa.pickup_short_way')}
-            trailing={iqd(m.feeIqd, { locale, sign: true })}
-            selected={pickup.kind === 'meeting_point' && pickup.meetingPointId === m.id}
-            onPress={() => setPickup({ kind: 'meeting_point', meetingPointId: m.id })}
-          />
-        ))}
-        <OptionCard
-          testID="pickup-door"
-          icon="home"
-          title={t('rajaa.pickup_door')}
-          detail={!homePin ? t('rajaa.pickup_door_no_location') : dep.doorPickupsLeft <= 0 ? t('rajaa.pickup_door_full') : t('rajaa.pickup_door_hint')}
-          trailing={doorOk ? iqd(doorFee ?? 0, { locale, sign: true }) : undefined}
-          selected={pickup.kind === 'door'}
-          disabled={!doorOk}
-          onPress={() => setPickup({ kind: 'door' })}
-        >
-          <TextField label={t('rajaa.door_note')} placeholder={t('rajaa.door_note_placeholder')} value={doorNote} onChangeText={setDoorNote} maxLength={200} />
-        </OptionCard>
-        <View style={{ flexDirection: 'row' }}>
-          <Chip testID="rajaa-large-bags" icon="bag" label={t('rajaa.large_bags')} selected={largeBags} onPress={() => setLargeBags((v) => !v)} />
-        </View>
+        {pickup.kind === 'garage' ? (
+          <Text variant="footnote" color="textMuted">
+            {t('rajaa.pickup_garage_hint', { garage: garageName(network.data, dep.garageId) })}
+          </Text>
+        ) : pickup.kind === 'meeting_point' ? (
+          <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.pickup_way_which')}>
+            {wayPoints.length > 1 ? (
+              <Text variant="label" weight={600}>
+                {t('rajaa.pickup_way_which')}
+              </Text>
+            ) : null}
+            {wayPoints.map((m) => (
+              <WayPointRow
+                key={m.id}
+                point={m}
+                draftLabel={t('rajaa.pickup_draft')}
+                selected={pickup.meetingPointId === m.id}
+                onPress={() => setPickup({ kind: 'meeting_point', meetingPointId: m.id })}
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={{ gap: theme.space[2] }}>
+            <Text variant="footnote" color="textMuted">
+              {t('rajaa.pickup_door_hint')}
+            </Text>
+            <TextField label={t('rajaa.door_note')} placeholder={t('rajaa.door_note_placeholder')} value={doorNote} onChangeText={setDoorNote} maxLength={200} />
+          </View>
+        )}
+        <BagSwitch value={largeBags} onChange={setLargeBags} />
       </Section>
 
       {quote && quote.seats > 0 ? (
