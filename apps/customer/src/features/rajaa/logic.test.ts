@@ -3,6 +3,7 @@ import type { BoardSeat, BookingView, DemandBucket, DepartureCard, IntercitySeat
 import { createT } from '@driver/i18n';
 import {
   activeBooking,
+  bestSeat,
   blockedReason,
   boardSummary,
   bookingHref,
@@ -207,6 +208,13 @@ describe('seats', () => {
     expect(m.find((x) => x.id === 'front')).toEqual({ id: 'front', state: 'free', premium: 2000 });
     expect(m.find((x) => x.id === 'back_middle')).toEqual({ id: 'back_middle', state: 'free', blocked: true });
     expect(blockedReason(s, 'back_middle')).toBe('adjacency');
+  });
+  it('picks the kerb-side window seat first, never the front or a blocked one (c4)', () => {
+    expect(bestSeat(4, seats(4))).toBe('back_right');
+    expect(bestSeat(4, seats(4, { back_right: { state: 'taken' } }))).toBe('back_left');
+    expect(bestSeat(4, s)).toBeNull(); // only the blocked middle is free
+    expect(bestSeat(4, seats(4, { back_left: { state: 'taken' }, back_middle: { state: 'taken' }, back_right: { state: 'taken' } }))).toBeNull(); // front only
+    expect(bestSeat(7, seats(7, { middle_right: { state: 'held' }, middle_left: { state: 'taken' } }))).toBe('rear_right');
   });
   it('drops picks that stopped being selectable', () => {
     expect(pruneSelection(['back_middle', 'front'], s)).toEqual([]);

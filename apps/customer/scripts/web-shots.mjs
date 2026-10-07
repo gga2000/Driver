@@ -809,11 +809,24 @@ async function rajaaShots(personId) {
   // As رجال the same seat is open: hold it.
   await byTestId('chip-rijal').click();
   await page.waitForTimeout(1200);
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  // c4: the only seat open to him is picked for him already («اخترنالك ورا نص»); tap it only if not.
+  if (await byTestId('rajaa-auto-picked').isVisible()) {
+    await byTestId('rajaa-auto-picked').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(300);
+    await shot('rajaa-seat-auto');
+  } else {
+    await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  }
   await byTestId('rajaa-quote').waitFor({ timeout: 10_000 });
   // The driver's own car under the seats (an Elantra on this run), with the picked seat.
   await byTestId('car-seat-art').scrollIntoViewIfNeeded().catch(() => errors.push('car picture not shown on the seat screen'));
   await shot('rajaa-seat-picked');
+  // Where you get in (c5): one row of three; «على الطريق» opens the stops.
+  await byTestId('pickup-tile-way').click();
+  await page.locator('[data-testid^="pickup-mp_"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('rajaa-seat-pickup-way');
+  await byTestId('pickup-tile-garage').click();
   await byTestId('rajaa-hold').click();
   await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);

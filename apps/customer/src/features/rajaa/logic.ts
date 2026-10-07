@@ -223,6 +223,28 @@ export function carAvailable(seats: readonly BoardSeat[], familyOnly: boolean, t
   return (!familyOnly || travellingAs === 'aila') && seats.length > 0 && seats.every((s) => s.state === 'free');
 }
 
+/**
+ * The order the app tries seats in when it picks one for the rider (idea c4): the window seats of
+ * the first passenger row first, the right one before the left (the kerb side, where you get in),
+ * then the next row, the middles last. The front is never picked for him: it costs more.
+ */
+const PICK_ORDER: Record<IntercitySeatLayout, IntercitySeatId[]> = {
+  4: ['back_right', 'back_left', 'back_middle'],
+  6: ['middle_right', 'middle_left', 'rear_right', 'rear_left', 'rear_middle'],
+  7: ['middle_right', 'middle_left', 'rear_right', 'rear_left', 'middle_middle', 'rear_middle'],
+};
+
+/** The free seat the app picks first (c4), or null when no plain seat is open to this rider. */
+export function bestSeat(layout: IntercitySeatLayout, seats: readonly BoardSeat[]): IntercitySeatId | null {
+  const byId = new Map(seats.map((s) => [s.id, s]));
+  return (
+    PICK_ORDER[layout].find((id) => {
+      const s = byId.get(id);
+      return !!s && s.state === 'free' && !s.blocked && s.premiumIqd === 0;
+    }) ?? null
+  );
+}
+
 /** Drop picks that stopped being selectable after a board refresh or a travelling-as change. */
 export function pruneSelection(selection: readonly IntercitySeatId[], seats: readonly BoardSeat[]): IntercitySeatId[] {
   const byId = new Map(seats.map((s) => [s.id, s]));
