@@ -193,6 +193,7 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 - 2026-10-07: first draft, after Ali approved the launch plan and D-22.
 - 2026-10-07: Ali chose "chat first" for calls (G0-10).
 - 2026-10-07: dress rehearsal script and courier briefing written.
+- 2026-10-07: Fly.io account open with billing (org "Personal"); Supabase staging "Driver" in Frankfurt (free plan). G0-14 Fly + Supabase done; Pro is Ali's call before launch.
 - 2026-10-07: added G0-26, checking the SOS number (911) in Aziziyah.
 - 2026-10-07: Ali postponed his own tasks and the money questions M-1 … M-14 ("to do later"); listed in `before-launch.md` §7.
 - 2026-10-07: Ali opened taxis and tuktuks on day one; added G0-21 … G0-25.
