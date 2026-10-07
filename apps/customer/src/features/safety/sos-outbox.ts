@@ -37,6 +37,11 @@ export interface SosOutboxDeps {
   send(input: { subject: SosSubject; position: SosPosition | null; clientId: string; pressedAt: Date }): Promise<SosView>;
   fix(): Promise<SosPosition | null>;
   online(): boolean;
+  /**
+   * Whether this phone still holds a session. A 401 while it does is a refresh that hasn't got
+   * through yet (a weak network), so the press is retried; only a 401 with the session gone is final.
+   */
+  signedIn?(): boolean;
 }
 
 interface Timers {
@@ -127,7 +132,8 @@ export function createSosOutbox(opts: { timers?: Timers; retryMs?: number; newId
       set({ press: null, failure: null, delivered: { subjectKey: subjectKey(press.subject), view, restored: press.restored } });
     } catch (err) {
       if (state.press !== press) return;
-      if (!classifyError(err).transient) {
+      const c = classifyError(err);
+      if (!c.transient && !(c.kind === 'auth' && d.signedIn?.())) {
         // A definitive answer (refused, not found, invalid): retrying can't help, so stop and say "call 911".
         clearTimer();
         save(null);

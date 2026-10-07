@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import type { SosSubject } from '@driver/contracts';
 import { getNetwork } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
+import { session } from '@/lib/session';
 import { currentSosFix } from './fix';
 import { sosOutbox } from './outbox';
 import { SosModal } from './SosControl';
@@ -19,6 +20,7 @@ export function SosOutboxSync() {
       send: (input) => client.safety.sos.mutate(input),
       fix: () => currentSosFix(2500),
       online: () => getNetwork().getSnapshot().state === 'online',
+      signedIn: () => Boolean(session.getSnapshot().session),
     });
     void sosOutbox.restore();
   }, [client]);

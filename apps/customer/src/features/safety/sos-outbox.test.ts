@@ -73,6 +73,41 @@ describe('SOS outbox (FLOW-05)', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('a 401 while the phone still holds a session is a refresh not through yet: retried, then sent', async () => {
+    vi.useFakeTimers();
+    const box = createSosOutbox({ retryMs: 4_000, newId: () => 'sos-press-1' });
+    const unauthorized = Object.assign(new Error('unauthorized'), { data: { httpStatus: 401, code: 'unauthorized' } });
+    const answers: Array<'401' | 'ok'> = ['401', 'ok'];
+    const send = vi.fn<SosOutboxDeps['send']>(async () => {
+      if (answers.shift() === '401') throw unauthorized;
+      return view;
+    });
+    box.setDeps({ send, fix: async () => null, online: () => true, signedIn: () => true });
+    box.press(subject);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(box.getState()).toMatchObject({ failure: 'failed', refused: null });
+    expect(box.pendingFor(subject)).toBe(true);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]![0].clientId).toBe('sos-press-1');
+    expect(box.getState()).toMatchObject({ press: null, failure: null, delivered: { subjectKey: 'order:ord_1', view } });
+  });
+
+  it('a 401 with the session gone is final: the person is pointed to 911', async () => {
+    vi.useFakeTimers();
+    const box = createSosOutbox({ retryMs: 4_000, newId: () => 'sos-press-1' });
+    const unauthorized = Object.assign(new Error('unauthorized'), { data: { httpStatus: 401, code: 'unauthorized' } });
+    const send = vi.fn<SosOutboxDeps['send']>(async () => {
+      throw unauthorized;
+    });
+    box.setDeps({ send, fix: async () => null, online: () => true, signedIn: () => false });
+    box.press(subject);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(box.getState()).toMatchObject({ press: null, refused: { subjectKey: 'order:ord_1', restored: false } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('stops on a definitive refusal and says so, instead of retrying forever', async () => {
     vi.useFakeTimers();
     const box = createSosOutbox({ retryMs: 4_000, newId: () => 'sos-press-1' });
