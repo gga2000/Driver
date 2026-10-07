@@ -26,6 +26,10 @@
     "./net-client": {
       "types": "./dist/net-client.d.ts",
       "default": "./dist/net-client.js"
+    },
+    "./crash-report": {
+      "types": "./dist/crash-report.d.ts",
+      "default": "./dist/crash-report.js"
     }
   },
   "scripts": {
