@@ -11,6 +11,7 @@ import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
+import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
@@ -160,6 +161,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
       </Stack>
       {/* الرجعة boarding pass on the lock screen from T−30 (audit d-8; Android). */}
       {lockScreenPassSupported ? <LockScreenPass /> : null}
+      {/* The live order or ride on the lock screen (joy l1; Android). */}
+      {lockScreenOrderSupported ? <LockScreenOrder /> : null}
       {ready && !fontsPending ? null : <Splash />}
     </View>
   );

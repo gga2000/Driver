@@ -6289,5 +6289,11 @@
   "partner.compliments_offline": "Offline — it loads when you're back",
   "partner.shiftsum_compliments": "Said about you this shift",
   "error.compliment_not_offered": "Kind words can be sent after a 4–5 star rating, within a day of delivery",
-  "error.compliment_invalid": "Pick from the words on screen"
+  "error.compliment_invalid": "Pick from the words on screen",
+  "live_notice.eta": "Arrives ~{time}",
+  "live_notice.eta_ride": "You arrive ~{time}",
+  "live_notice.rate": "Rate {name} in one tap",
+  "live_notice.open": "Open the order",
+  "live_notice.channel": "Live order",
+  "live_notice.channel_desc": "Your current order or ride on the lock screen, silently"
 }

@@ -6289,5 +6289,11 @@
   "partner.compliments_offline": "ماكو نت، نجيبه من يرجع",
   "partner.shiftsum_compliments": "قالوا عنك بهالشفت",
   "error.compliment_not_offered": "الكلام الحلو يندز بعد ما تقيّم 4 أو 5 نجوم وخلال يوم من وصول الطلب",
-  "error.compliment_invalid": "اختار من الكلمات اللي بالشاشة"
+  "error.compliment_invalid": "اختار من الكلمات اللي بالشاشة",
+  "live_notice.eta": "يوصلك ~{time}",
+  "live_notice.eta_ride": "توصل ~{time}",
+  "live_notice.rate": "قيّم {name} بلمسة",
+  "live_notice.open": "افتح الطلب",
+  "live_notice.channel": "تتبع الطلب",
+  "live_notice.channel_desc": "طلبك أو مشوارك الحالي على شاشة القفل، بدون صوت"
 }
