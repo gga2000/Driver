@@ -35,7 +35,7 @@ export default function KhatRun() {
   const run = useTodayRun();
   const subs = useSubstituteOffers();
   const actions = useKhatActions();
-  const caller = useRunCall();
+  const caller = useRunCall('khat');
   const now = useNow(1_000);
   // The run he just finished is kept from the last answer so the sweep and the summary stay on
   // screen even if today's list moves on.

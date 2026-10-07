@@ -4,3 +4,10 @@
  * calls are carried by the platform (docs/before-launch.md, calls).
  */
 export const CALLS_LIVE = false;
+
+/**
+ * خطوط guardian calls stay on (coordinator, 2026-10-07): a driver carrying children must be able to
+ * reach a guardian, and khat runs have no chat. Its own switch, so it can follow the parents' WhatsApp
+ * work later (docs/before-launch.md §4). Ali may overrule.
+ */
+export const KHAT_CALLS_LIVE = true;
