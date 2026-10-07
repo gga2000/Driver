@@ -1,12 +1,14 @@
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
+import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { transformer, type AppRouter } from '@driver/contracts';
-import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
+import { NET_RULES } from '@driver/contracts/net-client';
+import { bindOnlineManager, configureNetwork, createNetworkFetch, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
+import { retryDelayMs, shouldRetryQuery } from './errors';
 import { session as appSession, type SessionStore } from './session';
 
 export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthorized } from './api-links';
@@ -15,7 +17,9 @@ export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthor
  * The customer app's API layer: one tRPC client (httpBatchLink + superjson; `live.*` subscriptions
  * over SSE with httpSubscriptionLink) whose requests carry
  * `Authorization: Bearer <access token>` from the session, refresh once on a 401 and retry, and a
- * React Query client shared by every screen.
+ * React Query client shared by every screen. Every request has a deadline (`NET_RULES.requestTimeoutMs`,
+ * the refresh a shorter one), so a stalled connection never freezes the app (audit CORE-01); live
+ * streams reconnect on their own after `LIVE_RULES.inactivityMs` of silence.
  *
  * Screens use `useApi()` (the typed tRPC proxy) with React Query:
  *
@@ -46,8 +50,9 @@ const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?
 const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
-  // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: networkFetch })] });
+  // A bare client for the refresh call: no auth header, no retry link (no recursion), and a shorter
+  // deadline, since every other request waits behind a refresh.
+  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: createNetworkFetch(NET_RULES.refreshTimeoutMs) })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
@@ -93,8 +98,10 @@ export function makeQueryClient() {
     defaultOptions: {
       queries: {
         staleTime: 15_000,
-        // Don't hammer a refused request; the auth link already retried a 401 once.
-        retry: (count, err) => count < 2 && !(err instanceof TRPCClientError && (err.data as { httpStatus?: number } | undefined)?.httpStatus === 401),
+        // Retry only what can change (no response, our server, a short rate limit); a definitive answer
+        // shows at once. The auth link already retried a 401 once.
+        retry: shouldRetryQuery,
+        retryDelay: retryDelayMs,
       },
       // A tap offline fails at once with a clear message instead of spinning until the network is back
       // (React Query's default pauses it). Work that must survive offline is queued explicitly.

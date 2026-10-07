@@ -128,4 +128,30 @@ describe('session store', () => {
     expect(await store.getAccessToken()).toBeNull();
     expect(await store.refresh()).toBe(false);
   });
+
+  it('a refresh that never answers gives up, keeps the session and frees every waiting request (CORE-01)', async () => {
+    vi.useFakeTimers();
+    try {
+      let now = T0;
+      const store = createSessionStore({ storage: createMemoryStorage(), now: () => now, refreshTimeoutMs: 10_000 });
+      await store.hydrate();
+      await store.signIn(pair(1));
+      const refresher = vi.fn(() => new Promise<TokenPairLike>(() => {}));
+      store.setRefresher(refresher);
+      now += 15 * 60_000; // the access token is now about to expire
+      const a = store.getAccessToken();
+      const b = store.getAccessToken();
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Both callers go on with the old token (the server's 401 path decides), the session stays.
+      expect(await a).toBe('access-1');
+      expect(await b).toBe('access-1');
+      expect(refresher).toHaveBeenCalledTimes(1);
+      expect(store.getSnapshot().status).toBe('signedIn');
+      // The single-flight slot is free again: the next request tries a fresh refresh.
+      refresher.mockResolvedValueOnce(pair(2, now));
+      expect(await store.getAccessToken()).toBe('access-2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

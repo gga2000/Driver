@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image, Platform, Pressable, Switch, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
+import { settleWithin } from '@driver/contracts/net-client';
 import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
@@ -17,6 +18,9 @@ import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
 import { GuestGate } from '@/components/GuestGate';
 import { session, useSignedIn } from '@/lib/session';
+
+/** Sign-out waits this long at most for the server to hear about it. */
+const SIGN_OUT_WAIT_MS = 4_000;
 
 /**
  * حسابي (customer spec §10): who you are (name from the vault), saved places with their gate
@@ -49,10 +53,14 @@ function Account() {
   const signOut = async () => {
     setSigningOut(true);
     const refreshToken = session.getSnapshot().session?.refreshToken;
-    // Best effort: drop this phone's push token, revoke server-side (which also drops the session's
-    // tokens), then forget everything on this device regardless.
-    await unregisterPush(client);
-    await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
+    // Best effort, bounded: drop this phone's push token and revoke server-side (which also drops the
+    // session's tokens), then forget everything on this device regardless. A bad network never keeps
+    // someone signed in (audit CORE-15).
+    const farewell = Promise.allSettled([
+      unregisterPush(client),
+      client.identity.logout.mutate(refreshToken ? { refreshToken } : {}),
+    ]);
+    await settleWithin(farewell, SIGN_OUT_WAIT_MS);
     await profile.reset();
     await session.signOut();
   };

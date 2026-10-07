@@ -7,6 +7,7 @@ import {
   NET_RULES,
   secondsSince,
   trackFetch,
+  withTimeout,
   type ConnectionBannerKind,
   type NetSnapshot,
   type NetworkMonitor,
@@ -55,12 +56,20 @@ export function configureNetwork({ apiUrl }: { apiUrl: string }): NetworkMonitor
   return getNetwork();
 }
 
-/** `fetch` for the tRPC links: every answer and every failure reaches the monitor. */
-export const networkFetch = trackFetch(
-  { reportResponse: () => getNetwork().reportResponse(), reportNetworkError: () => getNetwork().reportNetworkError() },
-  // Read the global per call: tests and polyfills may replace it after this module loads.
-  (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
-) as typeof fetch;
+/**
+ * `fetch` for the tRPC links with a deadline of `timeoutMs` (a stalled request fails as "no response"
+ * instead of spinning forever); every answer and every failure reaches the monitor.
+ */
+export function createNetworkFetch(timeoutMs: number = NET_RULES.requestTimeoutMs): typeof fetch {
+  return trackFetch(
+    { reportResponse: () => getNetwork().reportResponse(), reportNetworkError: () => getNetwork().reportNetworkError() },
+    // Read the global per call: tests and polyfills may replace it after this module loads.
+    withTimeout((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init), timeoutMs),
+  ) as typeof fetch;
+}
+
+/** The links' `fetch`: `NET_RULES.requestTimeoutMs` per request. */
+export const networkFetch = createNetworkFetch();
 
 /** React Query's `onlineManager` (structural, so this package doesn't depend on React Query). */
 export function bindOnlineManager(om: { setEventListener(setup: (setOnline: (online: boolean) => void) => () => void): void }): void {

@@ -72,6 +72,7 @@ export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosS
 export {
   bindOnlineManager,
   configureNetwork,
+  createNetworkFetch,
   getNetwork,
   networkFetch,
   retryKindFor,

@@ -9,7 +9,7 @@ import { storage as platformStorage, type KeyValueStorage } from './storage';
  * - The API link calls `refresh()` once more on a 401 and retries the request (see api.ts).
  * - Refreshes are single-flight: the API rotates refresh tokens and treats a reused one as theft
  *   (`refresh_reused` revokes the session), so two parallel refreshes would sign the person out.
- * - A refresh refused by the server (401) signs out; a network failure keeps the session.
+ * - A refresh refused by the server (401) signs out; a network failure or a timeout keeps the session.
  */
 
 export interface TokenPairLike {
@@ -44,7 +44,15 @@ export interface SessionStoreOptions {
   refreshSkewMs?: number;
   /** True when a refresh failure means the server refused the token (sign out), not a network blip. */
   isAuthError?: (err: unknown) => boolean;
+  /**
+   * A refresh that hasn't settled after this long counts as a network failure (session kept), so the
+   * single-flight promise every request waits on always settles (audit CORE-01). Just over the refresh
+   * request's own deadline, as a backstop for a refresher that never answers.
+   */
+  refreshTimeoutMs?: number;
 }
+
+export const REFRESH_TIMEOUT_MS = 12_000;
 
 export const SESSION_KEY = 'driver.customer.session';
 
@@ -83,11 +91,21 @@ function parseStored(raw: string | null): StoredSession | null {
   }
 }
 
+/** `work`, or a rejection that is not an auth error once `ms` have passed. */
+function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('refresh_timeout')), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export function createSessionStore(opts: SessionStoreOptions) {
   const key = opts.key ?? SESSION_KEY;
   const now = opts.now ?? Date.now;
   const skew = opts.refreshSkewMs ?? 30_000;
   const authError = opts.isAuthError ?? isAuthError;
+  const refreshTimeoutMs = opts.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS;
 
   let snapshot: SessionSnapshot = { status: 'loading', session: null };
   let refresher: Refresher | null = null;
@@ -181,7 +199,7 @@ export function createSessionStore(opts: SessionStoreOptions) {
       const run = refresher;
       inflight = (async () => {
         try {
-          const tokens = await run(s.refreshToken);
+          const tokens = await deadline(run(s.refreshToken), refreshTimeoutMs);
           if (gen !== generation) return false;
           const next = toStored(tokens, s.personId);
           set({ status: 'signedIn', session: next });
