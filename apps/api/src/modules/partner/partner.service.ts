@@ -24,7 +24,7 @@ import {
 } from '@driver/contracts';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { servedVerticals } from '../dispatch/index.js';
+import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
 import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
 
@@ -175,6 +175,8 @@ export class PartnerService implements PartnerPort {
       batch: batchedSecond ? { extraIqd: pay.totalIqd, withTripIds: current.map((t) => t.id).filter((t) => t !== trip.id) } : null,
       merchant: this.prepOf(orders[0], now, names),
       collectIqd: collect > 0 ? collect : null,
+      // Joy l9: the rider asked for him on this booked ride — the offer says so, and nothing more.
+      favourite: offer.policy === FAVOURITE_OFFER_POLICY,
     };
   }
 

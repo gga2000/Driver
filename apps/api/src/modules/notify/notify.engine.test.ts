@@ -71,7 +71,7 @@ describe('notify routing', () => {
       ['order_receipt', 'whatsapp', 'suppressed', 'preference:whatsappReceipts'],
       ['marketing_offer', 'push', 'suppressed', 'preference:marketing'],
     ]);
-    expect(await h.service.preferences(h.actor('cust'))).toEqual({ orderUpdates: true, chat: true, whatsappReceipts: false, smsFallback: true, marketing: false, dishPots: true });
+    expect(await h.service.preferences(h.actor('cust'))).toEqual({ orderUpdates: true, chat: true, whatsappReceipts: false, smsFallback: true, marketing: false, dishPots: true, regularTrips: true });
   });
 
   it('never lets a preference switch off safety, work or money messages', async () => {
