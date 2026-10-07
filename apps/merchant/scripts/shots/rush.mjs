@@ -64,7 +64,8 @@ export default {
     }
 
     // Best sellers (M-13): rank and bar from the same measure.
-    await byTestId(phone ? 'tab-insights' : 'nav-insights').click();
+    await byTestId(phone ? 'tab-money' : 'nav-money').click();
+    await byTestId('segment-insights').click();
     await byTestId('insights-best').waitFor({ timeout: 20_000 });
     // Panel top just under the page's sticky title.
     await byTestId('insights-best').evaluate((e) => {

@@ -105,7 +105,7 @@ export function ShopScreen() {
   const front = s ? (
     <View style={{ gap: theme.space[4] }}>
       <ShopFront status={s} hours={hours.data} wide={wide} busy={setOpen.isPending} onClose={() => setClosing('shutter')} onOpen={() => void reopen()} />
-      <Pauses status={s} hours={hours.data} now={now} busy={setOpen.isPending} onPause={(p) => void pause(p)} onOther={() => setClosing('other')} />
+      <Pauses status={s} hours={hours.data} now={now} wide={wide} busy={setOpen.isPending} onPause={(p) => void pause(p)} onOther={() => setClosing('other')} />
     </View>
   ) : (
     <Skeleton height={wide ? 330 : 300} radius={theme.radius.xl} />
@@ -188,7 +188,7 @@ function ShopFront({ status, hours, wide, busy, onClose, onOpen }: { status: Sto
 }
 
 /** «وقفة قصيرة»: four one-tap pauses (h2). Orders already in keep going. */
-function Pauses({ status, hours, now, busy, onPause, onOther }: { status: StoreStatusView; hours: StoreHoursView | undefined; now: number; busy: boolean; onPause: (p: QuickPause) => void; onOther: () => void }) {
+function Pauses({ status, hours, now, wide, busy, onPause, onOther }: { status: StoreStatusView; hours: StoreHoursView | undefined; now: number; wide: boolean; busy: boolean; onPause: (p: QuickPause) => void; onOther: () => void }) {
   const theme = useTheme();
   const t = useT();
   const off = !status.open;
@@ -205,15 +205,16 @@ function Pauses({ status, hours, now, busy, onPause, onOther }: { status: StoreS
     <Panel title={t('merchant.shop.pauses_title')} caption={off ? t('merchant.shop.pauses_closed') : t('merchant.shop.pauses_body')} icon="pause" testID="pauses">
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
         {pauses.map((p) => (
-          <PauseChip key={p.id} testID={`pause-${p.id}`} icon={PAUSE_ICON[p.id]} title={t(title(p))} sub={sub(p)} disabled={off || busy} onPress={() => onPause(p)} />
+          <PauseChip key={p.id} testID={`pause-${p.id}`} icon={PAUSE_ICON[p.id]} title={t(title(p))} sub={sub(p)} wide={wide} disabled={off || busy} onPress={() => onPause(p)} />
         ))}
-        <PauseChip testID="pause-other" icon="sliders" title={t('merchant.shop.pause_other')} sub={t('merchant.shop.pause_other_sub')} disabled={off || busy} onPress={onOther} />
+        <PauseChip testID="pause-other" icon="sliders" title={t('merchant.shop.pause_other')} sub={t('merchant.shop.pause_other_sub')} wide={wide} disabled={off || busy} onPress={onOther} />
       </View>
     </Panel>
   );
 }
 
-function PauseChip({ icon, title, sub, disabled, onPress, testID }: { icon: MIconName; title: string; sub: string; disabled: boolean; onPress: () => void; testID: string }) {
+/** Two to a row on a tablet; one per row on a phone, so «لباچر · يفتح 1:15 م» is never cut. */
+function PauseChip({ icon, title, sub, wide, disabled, onPress, testID }: { icon: MIconName; title: string; sub: string; wide: boolean; disabled: boolean; onPress: () => void; testID: string }) {
   const theme = useTheme();
   return (
     <Pressable
@@ -227,9 +228,9 @@ function PauseChip({ icon, title, sub, disabled, onPress, testID }: { icon: MIco
         onPress();
       }}
       style={({ pressed }) => ({
-        flexBasis: '47%',
+        flexBasis: wide ? '47%' : '100%',
         flexGrow: 1,
-        minHeight: 64,
+        minHeight: wide ? 64 : 56,
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space[3],

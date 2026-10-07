@@ -36,7 +36,7 @@ export function Shutter({ storeName, open, line, note, hint, label, disabled, wi
     down.value = theme.reduceMotion ? to : withTiming(to, { duration: 900, easing: Easing.bezier(0.33, 0, 0.2, 1) });
   }, [open, theme.reduceMotion, down]);
   const roll = useAnimatedStyle(() => ({ transform: [{ translateY: (down.value - 1) * h }] }));
-  const height = wide ? 230 : 200;
+  const height = wide ? 230 : 180;
 
   return (
     <Pressable
@@ -103,7 +103,16 @@ function ShopInside({ wide }: { wide: boolean }) {
     <View style={{ flex: 1, justifyContent: 'flex-end' }}>
       <View style={{ position: 'absolute', top: 14, alignSelf: 'center', width: 2, height: 30, backgroundColor: COUNTER.shutterBox }} />
       <View style={{ position: 'absolute', top: 42, alignSelf: 'center', width: 46, height: 22, borderTopStartRadius: 23, borderTopEndRadius: 23, backgroundColor: COUNTER.newBadge }} />
-      <View style={{ position: 'absolute', top: 60, alignSelf: 'center', width: 120, height: 70, borderRadius: 60, backgroundColor: withAlpha('#FFFFFF', 0.45) }} />
+      <View style={{ position: 'absolute', top: 64, alignSelf: 'center', width: 84, height: 18, borderRadius: 42, backgroundColor: withAlpha('#FFFFFF', 0.55) }} />
+      {/* A shelf of jars on the back wall (tablet: the phone's doorway is too short for it). */}
+      {wide ? (
+        <View style={{ position: 'absolute', top: 104, start: theme.space[6], end: theme.space[6], flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          {[22, 30, 18, 26, 22, 30].map((jh, i) => (
+            <View key={i} style={{ width: 16, height: jh, borderTopStartRadius: 4, borderTopEndRadius: 4, backgroundColor: i % 2 ? COUNTER.qty : COUNTER.ready, opacity: 0.75 }} />
+          ))}
+        </View>
+      ) : null}
+      {wide ? <View style={{ position: 'absolute', top: 134, start: theme.space[5], end: theme.space[5], height: 4, borderRadius: 2, backgroundColor: COUNTER.shutterBox }} /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-evenly', paddingHorizontal: theme.space[5] }}>
         <View style={{ width: wide ? 90 : 70, height: 18, borderTopStartRadius: 9, borderTopEndRadius: 9, backgroundColor: COUNTER.saffron }} />
         <View style={{ width: 30, height: 34, borderTopStartRadius: 10, borderTopEndRadius: 10, backgroundColor: COUNTER.dateRaised }} />

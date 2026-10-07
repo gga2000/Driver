@@ -29,7 +29,8 @@ export function DayStrip({ summary, waiting, wide, onWaiting }: { summary: Merch
           <View
             key={f.key}
             style={{
-              flexBasis: wide ? 0 : '46%',
+              // On a phone the owner's net gets its own row, so the whole amount fits.
+              flexBasis: wide ? 0 : f.hero ? '100%' : '46%',
               flexGrow: f.hero ? 1.6 : 1,
               gap: 2,
               padding: theme.space[4],
