@@ -34,6 +34,7 @@ import { FridayCard, UsualCard } from '@/features/home/UsualCard';
 import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
 import { SeasonCard } from '@/features/season/SeasonCard';
+import { SimpleHomeRedirect } from '@/features/simple/SimpleHome';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
@@ -46,6 +47,8 @@ import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useActiveBooking } from '@/features/rajaa/queries';
+import { BaghdadModeCard } from '@/features/ride/BaghdadModeCard';
+import { RideHomeCard } from '@/features/ride/RideHomeCard';
 import { startRide } from '@/features/ride/WhereToBar';
 import { popularTerms } from '@/features/search/logic';
 import { appNow } from '@/lib/dev-clock';
@@ -199,6 +202,8 @@ export default function Home() {
 
   return (
     <Screen testID="home" scroll={false} padded={false} backdrop={<SkyBackdrop hour={dp.hour} />}>
+      {/* «الوضع البسيط» on: home hands over to /simple (ride idea v2). */}
+      <SimpleHomeRedirect />
       <TeaPullScroll
         scrollRef={scrollRef}
         scrollY={scrollY}
@@ -229,8 +234,12 @@ export default function Home() {
             <ActiveOrderPill order={active.data} />
           </Animated.View>
         ) : null}
+        {/* In Baghdad or Kut: the next car back to Aziziyah (ride idea n9); nothing anywhere else. */}
+        <BaghdadModeCard testID="home-baghdad-mode" />
         {dinner.data ? <DinnerCard chance={dinner.data} now={now} testID="home-dinner" /> : null}
         {booked.data ? <BookedRideCard order={booked.data} now={now} /> : null}
+        {/* «رجعني للبيت», or the way back from where the last ride went (ride ideas w3, a4): itself decides. */}
+        <RideHomeCard />
         {cards.includes('rajaa_trip') ? <RajaaCard hour={dp.hour} /> : null}
         {cards.includes('friday') && friday ? <FridayCard ahead={friday} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
         {cards.includes('usual') && usual ? <UsualCard usual={usual} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}
