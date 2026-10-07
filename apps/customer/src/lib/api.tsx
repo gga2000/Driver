@@ -1,13 +1,13 @@
-import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { transformer, type AppRouter } from '@driver/contracts';
 import { NET_RULES } from '@driver/contracts/net-client';
-import { bindOnlineManager, configureNetwork, createNetworkFetch, networkFetch } from '@driver/ui';
+import { bindFocusManager, bindOnlineManager, configureNetwork, createNetworkFetch, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
-import { authRetryLink } from './api-links';
+import { authRetryLink, inputTooLongForUrl, URL_RULES } from './api-links';
 import { retryDelayMs, shouldRetryQuery } from './errors';
 import { session as appSession, type SessionStore } from './session';
 
@@ -39,9 +39,12 @@ export const API_URL: string = process.env.EXPO_PUBLIC_API_URL || 'http://localh
 installReadableStreamPolyfill();
 
 // Offline awareness (the shared strip, skeleton timeouts): every request feeds the network monitor, its
-// probe checks this API while it can't be reached, and React Query pauses while the device is offline.
+// probe checks this API while it can't be reached, and React Query pauses while the device is offline
+// and while the app is in the background.
 configureNetwork({ apiUrl: API_URL });
 bindOnlineManager(onlineManager);
+// Polls pause in the background and stale screens refresh on return (CORE-09).
+bindFocusManager(focusManager);
 
 /** Browsers keep their EventSource; React Native gets the XHR one (it has none). */
 const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource;
@@ -56,14 +59,15 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
   const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: createNetworkFetch(NET_RULES.refreshTimeoutMs) })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
-  const batch = httpBatchLink({
-    url,
-    transformer,
-    fetch: networkFetch,
-    async headers() {
-      const token = await store.getAccessToken();
-      return token ? { authorization: `Bearer ${token}` } : {};
-    },
+  const headers = async () => {
+    const token = await store.getAccessToken();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  };
+  // Batches split before their URL gets long; one query too big for a URL on its own goes as POST.
+  const batch = splitLink<AppRouter>({
+    condition: (op) => inputTooLongForUrl(op),
+    true: httpBatchLink({ url, transformer, fetch: networkFetch, headers, methodOverride: 'POST' }),
+    false: httpBatchLink({ url, transformer, fetch: networkFetch, headers, maxURLLength: URL_RULES.maxUrlLength }),
   });
   // `live.*` subscriptions go over SSE. EventSource cannot send headers, so each connection carries a
   // short-lived stream token (`live.token`, Bearer-authenticated) in tRPC connection params.
