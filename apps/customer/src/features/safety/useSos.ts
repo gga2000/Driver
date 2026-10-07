@@ -1,40 +1,48 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking } from 'react-native';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AppState, Linking } from 'react-native';
 import { SAFETY_RULES, type SosSubject, type SosView } from '@driver/contracts';
-import { useNetwork, useToast, type SosSheetPhase } from '@driver/ui';
+import { getNetwork, useToast, type SosSheetPhase } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { currentSosFix } from './fix';
+import { createSosOutbox, subjectKey } from './sos-outbox';
 
-const RETRY_MS = 4_000;
+/**
+ * The app's one SOS outbox (FLOW-05): a press that hasn't got through keeps trying after the sheet is
+ * closed or the trip screen left, and tries at once when the network or the app comes back.
+ */
+const outbox = createSosOutbox();
+getNetwork().subscribe(() => {
+  if (getNetwork().getSnapshot().state === 'online') outbox.nudge();
+});
+AppState.addEventListener('change', (s) => {
+  if (s === 'active') outbox.nudge();
+});
 
 export function sosPhaseOf(v: Pick<SosView, 'state'>): SosSheetPhase {
   return v.state === 'open' ? 'open' : v.state === 'acknowledged' ? 'acknowledged' : v.state === 'resolved' ? 'resolved' : 'cancelled';
 }
 
-const newClientId = () => `sos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-
 /**
  * The SOS flow on a trip screen (scoring & safety §3): the hold sends `safety.sos` with the phone's
- * fix (retried every few seconds while the network is down — the press keeps its client id, so a
- * retry is the same incident); the sheet shows the 10-s cancel; while the incident is open the
- * phone sends its position every 5 s and picks up who took it. An open incident survives a
- * restart of the screen (`safety.status`).
+ * fix through the app's outbox (retried every few seconds until it gets through, even with the sheet
+ * closed — the press keeps its client id, so a retry is the same incident); the sheet shows the 10-s
+ * cancel; while the incident is open the phone sends its position every 5 s and picks up who took
+ * it. An open incident survives a restart of the screen (`safety.status`); a press still on its way
+ * keeps the button lit, and tapping it shows the sheet again.
  */
 export function useSos(subject: SosSubject | null) {
   const client = useApiClient();
   const toast = useToast();
   const t = useT();
-  const net = useNetwork();
-  const online = useRef(net.online);
-  online.current = net.online;
   const [view, setView] = useState<SosView | null>(null);
   const [phase, setPhase] = useState<SosSheetPhase | null>(null);
   const [cancelling, setCancelling] = useState(false);
   /** Server clock − device clock, so the cancel countdown follows the server's window. */
   const [offset, setOffset] = useState(0);
-  const pending = useRef<{ clientId: string; pressedAt: Date } | null>(null);
-  const key = subject ? `${subject.kind}:${subject.id}` : null;
+  const key = subject ? subjectKey(subject) : null;
+  const box = useSyncExternalStore(outbox.subscribe, outbox.getState, outbox.getState);
+  const pending = Boolean(box.press && key && subjectKey(box.press.subject) === key);
 
   const accept = useCallback((v: SosView, openSheet: boolean) => {
     setView(v);
@@ -58,31 +66,35 @@ export function useSos(subject: SosSubject | null) {
     };
   }, [key, client, accept]);
 
-  const send = useCallback(async () => {
-    const press = pending.current;
-    if (!press || !subject) return;
-    const position = await currentSosFix(2500);
-    try {
-      const v = await client.safety.sos.mutate({ subject, position, clientId: press.clientId, pressedAt: press.pressedAt });
-      pending.current = null;
-      accept(v, true);
-    } catch {
-      if (pending.current === press) setPhase(online.current ? 'failed' : 'offline');
-    }
-  }, [client, subject, accept]);
+  useEffect(() => {
+    outbox.setDeps({
+      send: (input) => client.safety.sos.mutate(input),
+      fix: () => currentSosFix(2500),
+      online: () => getNetwork().getSnapshot().state === 'online',
+    });
+  }, [client]);
+
+  // The press got through (now or after the sheet was closed): show the incident and its cancel.
+  const delivered = box.delivered;
+  const seen = useRef<SosView | null>(null);
+  useEffect(() => {
+    if (!delivered || delivered.subjectKey !== key || seen.current === delivered.view) return;
+    seen.current = delivered.view;
+    accept(delivered.view, true);
+  }, [delivered, key, accept]);
+
+  // Not through yet: the open sheet says why (the outbox keeps trying either way).
+  useEffect(() => {
+    if (!pending || !box.failure) return;
+    const failure = box.failure;
+    setPhase((cur) => (cur === null ? null : failure));
+  }, [pending, box.failure]);
 
   const trigger = useCallback(() => {
-    pending.current = { clientId: newClientId(), pressedAt: new Date() };
+    if (!subject) return;
     setPhase('sending');
-    void send();
-  }, [send]);
-
-  // Not through yet: keep trying while the sheet says so.
-  useEffect(() => {
-    if (phase !== 'offline' && phase !== 'failed') return;
-    const id = setInterval(() => void send(), RETRY_MS);
-    return () => clearInterval(id);
-  }, [phase, send]);
+    outbox.press(subject);
+  }, [subject]);
 
   // Open: the position every 5 s (or a status read when there is no fix).
   const incidentId = view?.incidentId ?? null;
@@ -117,17 +129,21 @@ export function useSos(subject: SosSubject | null) {
   }, [view, cancelling, client, accept, toast, t]);
 
   return {
-    active: sharing,
+    // A press still on its way keeps the button lit too, so the person can reopen the sheet.
+    active: sharing || pending,
     phase,
     view,
     cancelling,
     cancelUntil: view ? view.cancelUntil.getTime() - offset : null,
     trigger,
-    retry: () => void send(),
+    retry: () => outbox.nudge(),
     release: () => toast.show({ message: t('sos.released'), tone: 'info', icon: 'sos' }),
     cancel: () => void cancel(),
     close: () => setPhase(null),
-    open: () => view && setPhase(sosPhaseOf(view)),
+    open: () => {
+      if (pending) setPhase(box.failure ?? 'sending');
+      else if (view) setPhase(sosPhaseOf(view));
+    },
     callPolice: () => void Linking.openURL(`tel:${SAFETY_RULES.policeNumber}`).catch(() => undefined),
   };
 }
