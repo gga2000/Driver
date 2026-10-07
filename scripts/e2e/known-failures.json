@@ -1,0 +1,6 @@
+{
+  "CRIT2-01": "sos",
+  "CRIT2-02": "share",
+  "LOAD-01": "ride",
+  "LOAD-02": ["food", "share"]
+}
