@@ -6295,5 +6295,10 @@
   "live_notice.rate": "Rate {name} in one tap",
   "live_notice.open": "Open the order",
   "live_notice.channel": "Live order",
-  "live_notice.channel_desc": "Your current order or ride on the lock screen, silently"
+  "live_notice.channel_desc": "Your current order or ride on the lock screen, silently",
+  "shortcut.track": "Where's my order?",
+  "shortcut.track_ride": "Where's my driver?",
+  "shortcut.reorder": "Order it again",
+  "shortcut.rajaa": "Book الرجعة",
+  "shortcut.rajaa_sub": "A seat to Baghdad or Kut"
 }

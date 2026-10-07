@@ -12,6 +12,7 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
+import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
@@ -163,6 +164,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
       {lockScreenPassSupported ? <LockScreenPass /> : null}
       {/* The live order or ride on the lock screen (joy l1; Android). */}
       {lockScreenOrderSupported ? <LockScreenOrder /> : null}
+      {/* Long-press shortcuts on the app icon (joy t1). */}
+      {Platform.OS === 'web' ? null : <QuickActionsSync />}
       {ready && !fontsPending ? null : <Splash />}
     </View>
   );

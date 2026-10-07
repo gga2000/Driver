@@ -6295,5 +6295,10 @@
   "live_notice.rate": "قيّم {name} بلمسة",
   "live_notice.open": "افتح الطلب",
   "live_notice.channel": "تتبع الطلب",
-  "live_notice.channel_desc": "طلبك أو مشوارك الحالي على شاشة القفل، بدون صوت"
+  "live_notice.channel_desc": "طلبك أو مشوارك الحالي على شاشة القفل، بدون صوت",
+  "shortcut.track": "وين طلبي؟",
+  "shortcut.track_ride": "وين السايق؟",
+  "shortcut.reorder": "اطلب نفس الطلب",
+  "shortcut.rajaa": "احجز الرجعة",
+  "shortcut.rajaa_sub": "مقعد لبغداد أو الكوت"
 }

@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import type { LaunchService } from '@driver/contracts';
 import { Button, Card, Icon, SearchField, StaleNote, Text, useLoadTimeout, useNow, useTheme } from '@driver/ui';
@@ -26,6 +26,7 @@ import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { ComingSoonStrip, ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { CuisineCircles } from '@/features/home/CuisineCircles';
 import { lastReorderable } from '@/features/orders/history';
+import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useActiveBooking } from '@/features/rajaa/queries';
@@ -87,6 +88,15 @@ export default function Home() {
   const night = useMemo(() => nightHome(list ?? []), [list]);
   const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
+  // Joy t1: «اطلب نفس الطلب» from the app icon lands here with `?reorder=last` — the reorder sheet opens once.
+  const { reorder: reorderParam } = useLocalSearchParams<{ reorder?: string }>();
+  const startedReorder = useRef(false);
+  useEffect(() => {
+    if (reorderParam !== REORDER_LAST_PARAM || !last || startedReorder.current) return;
+    startedReorder.current = true;
+    router.setParams({ reorder: undefined });
+    void reorder.start(last);
+  }, [reorderParam, last, reorder]);
   // Joy s3: the usual for this hour, and Thursday evening / Friday morning the Friday booking.
   const usuals = useUsuals();
   const usual = useMemo(() => usualNow(usuals.data ?? [], now), [usuals.data, now]);
