@@ -1,9 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, ModalSheet, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { currentFix } from '@/features/account/device';
+import { currentFix, locationDeniedToast, type Fix } from '@/features/account/device';
+import { distanceText, judgeDistance, judgeHereFix } from '@/features/account/place-fix';
 import { useConfirmPlace, useHousehold, useMyPlaces, useRemovePlace, useUpdatePlace } from '@/features/account/queries';
 import { PlaceEditor, toSaveInput, type PlaceEditorValue } from '@/features/account/PlaceEditor';
 import { apiErrorMessage } from '@/lib/api';
@@ -28,6 +29,8 @@ export default function EditPlace() {
   const remove = useRemovePlace();
   const confirm = useConfirmPlace();
   const [locating, setLocating] = useState(false);
+  /** A good fix far from the saved pin, waiting for «إي، هنا البيت». */
+  const [farFix, setFarFix] = useState<Fix | null>(null);
 
   useEffect(() => {
     if (place && !value) {
@@ -79,12 +82,7 @@ export default function EditPlace() {
     }
   };
 
-  const confirmHere = async () => {
-    setLocating(true);
-    const fix = await currentFix();
-    setLocating(false);
-    if (fix === 'denied') return toast.show({ message: t('error.location_denied'), tone: 'danger' });
-    if (!fix) return toast.show({ message: t('error.location_weak'), tone: 'danger' });
+  const sendHere = async (fix: Fix) => {
     try {
       const next = await confirm.mutateAsync({ placeId: place.id, pin: fix.pin, ...(fix.accuracyM !== null ? { accuracyM: fix.accuracyM } : {}) });
       setValue((v) => (v ? { ...v, pin: next.pin, zoneId: next.zoneId } : v));
@@ -92,6 +90,21 @@ export default function EditPlace() {
     } catch (err) {
       fail(err);
     }
+  };
+
+  const confirmHere = async () => {
+    setLocating(true);
+    const fix = await currentFix();
+    setLocating(false);
+    if (fix === 'denied') return toast.show(locationDeniedToast(t));
+    if (!fix) return toast.show({ message: t('error.location_weak'), tone: 'danger' });
+    // A rough fix never becomes the door; a fix far from home asks first (HUNT-04, FLOW-21).
+    const verdict = judgeHereFix(fix, place.pin);
+    if (verdict.kind === 'rough') {
+      return toast.show({ message: verdict.accuracyM === null ? t('place.fix_unknown') : t('place.fix_rough', { m: Math.round(verdict.accuracyM) }), tone: 'warning' }, 6000);
+    }
+    if (verdict.kind === 'far') return setFarFix(fix);
+    await sendHere(fix);
   };
 
   const removePlace = async () => {
@@ -152,6 +165,31 @@ export default function EditPlace() {
           <Button testID="place-remove" variant="destructive" label={t('account.remove_place')} loading={remove.isPending} onPress={() => void removePlace()} />
         </>
       )}
+      <ModalSheet
+        visible={farFix !== null}
+        onClose={() => setFarFix(null)}
+        title={t('place.far_title')}
+        testID="place-far"
+        footer={
+          <View style={{ gap: theme.space[2] }}>
+            <Button
+              testID="place-far-move"
+              label={t('place.far_move')}
+              size="lg"
+              fullWidth
+              loading={confirm.isPending}
+              onPress={() => {
+                const fix = farFix;
+                setFarFix(null);
+                if (fix) void sendHere(fix);
+              }}
+            />
+            <Button testID="place-far-keep" variant="secondary" label={t('place.far_keep')} size="lg" fullWidth onPress={() => setFarFix(null)} />
+          </View>
+        }
+      >
+        <Text color="textMuted">{farFix ? t('place.far_body', { distance: distanceText(judgeDistance(farFix.pin, place.pin), t), name: place.name }) : ''}</Text>
+      </ModalSheet>
     </Screen>
   );
 }
