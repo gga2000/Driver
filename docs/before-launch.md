@@ -101,7 +101,6 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 
 - Seat-PIN alerts have no "handled" button (they disappear after an hour); a PIN from another car isn't matched.
 - A blocked or expired driver goes offline only at his next check-in (up to 30 seconds).
-- No support chat inside an order; customers can't rate the courier yet.
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.

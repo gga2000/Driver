@@ -320,7 +320,13 @@ API: `docs/api/gifts-invites-share.md`. Plan: `docs/superpowers/plans/2026-10-07
   pass: the same link per booking. The public page `app/share/[token].tsx` reads `tracking.shared`
   (first name, car, plate, the car on the map inside the sharing window, ETA; never a phone or
   address). `EXPO_PUBLIC_SHARE_BASE_URL` sets the public origin (web: the page's own origin).
-- Demo: `POST /demo/chat?personId=…&scenario=courier|merchant|ride` (a conversation already going, or a
+- **Support chat** («احجي ويا الدعم», `docs/api/support-chat.md`) — the `customer_support` thread of
+  the order, open from placement: a row in the order's actions (the desk's unread count in its hint) and
+  the button in «عندي مشكلة» before delivery; same `ChatThread`, titled «فريق الدعم», no call or location.
+- **Rate the courier** (`docs/api/courier-rating.md`) — step 1 of the rating panel: his stars, then
+  optional reasons (`rating-logic.ts` `courierReasons`), sent as `courierReasons` with `orders.rate`.
+- Demo: `POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty` (a conversation
+  already going, a support chat the desk answered or an unused one, or a
   ride with a moving car and a share link → `{token, path}`), `POST /demo/chat/clock?minutes=31` (the
   chat module's clock, to show a closed thread; `0` resets). `SHOTS=chat` writes `chat-*.png`.
 
