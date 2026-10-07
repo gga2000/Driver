@@ -371,7 +371,8 @@ export class ChatService implements ChatPort {
   }
 
   private applicableKinds(ctx: OrderContext): ChatThreadKind[] {
-    return ALL_KINDS.filter((k) => k === 'customer_courier' || ctx.order.merchantOrgId !== null);
+    // The courier and support chats exist on every order (rides and parcels too); the kitchen's only with a kitchen.
+    return ALL_KINDS.filter((k) => k === 'customer_courier' || k === 'customer_support' || ctx.order.merchantOrgId !== null);
   }
 
   private status(ctx: OrderContext, kind: ChatThreadKind, now: Date): ChatThreadStatus {
@@ -406,7 +407,14 @@ export class ChatService implements ChatPort {
   /** The actor's party in a thread of `kind`, or null. */
   private async partyRole(personId: string, ctx: OrderContext, kind: ChatThreadKind): Promise<ChatRole | null> {
     if (!this.applicableKinds(ctx).includes(kind)) return null;
-    for (const r of CHAT_THREAD_PARTIES[kind]) if (await this.isParty(personId, r, ctx)) return r;
+    for (const r of CHAT_THREAD_PARTIES[kind]) {
+      // The support chat is the orderer's own (a rider or group-order guest never reads his case with us).
+      if (kind === 'customer_support' && r === 'customer') {
+        if (personId === ctx.order.ordererId) return r;
+        continue;
+      }
+      if (await this.isParty(personId, r, ctx)) return r;
+    }
     return null;
   }
 

@@ -32,8 +32,13 @@ const cid = () => `client-${++n}-${Math.random().toString(36).slice(2, 8)}`;
 
 const ROLES: Record<string, RoleKind[]> = { ops: ['support'], fin: ['finance'], 'm-staff': ['merchant_staff'] };
 
+/** Test-only twists on an order as the chat module reads it (a guest participant, a ride with no kitchen). */
+const patches = new Map<string, Record<string, unknown>>();
+
 function setup() {
   const h = ordersHarness();
+  const ordersView = Object.create(h.orders) as typeof h.orders;
+  ordersView.get = async (id: string) => ({ ...(await h.orders.get(id)), ...(patches.get(id) ?? {}) }) as Awaited<ReturnType<typeof h.orders.get>>;
   const ev = createInMemoryEvents({ clock: h.clock, uow: h.uow });
   const identity = {
     hasRole: async (personId: string, kind: RoleKind) => (ROLES[personId] ?? []).includes(kind),
@@ -43,7 +48,7 @@ function setup() {
   };
   const chat = new ChatService(
     new InMemoryChatRepository(),
-    h.orders,
+    ordersView,
     h.trips,
     identity,
     { storeName: async () => 'مطعم التجربة' },
@@ -159,6 +164,27 @@ describe('support chat inside an order', () => {
     expect(await code(say(s, o.id, 'هلو'))).toBe('chat_closed');
     // The desk keeps the last word.
     expect(await code(s.support.reply(as('ops'), { ticketId: ticket.id, text: 'تواصلنا وياك', internal: false }))).toBe('ok');
+  });
+
+  it('is the orderer’s own: a guest on the order (a rider, a group-order friend) is not in it', async () => {
+    const s = setup();
+    const o = await s.h.orders.place('c1', s.h.foodInput());
+    const base = await s.h.orders.get(o.id);
+    patches.set(o.id, { participants: [...base.participants, { personId: 'guest', role: 'rider' }] });
+    expect(await code(say(s, o.id, 'هلو', 'guest'))).toBe('chat_not_party');
+    expect((await s.chat.threads(as('guest'), { orderId: o.id }).catch(() => [])).map((t) => t.kind)).not.toContain('customer_support');
+    expect(await code(say(s, o.id, 'هلو'))).toBe('ok');
+    patches.delete(o.id);
+  });
+
+  it('exists on an order with no kitchen too (a ride or a parcel)', async () => {
+    const s = setup();
+    const o = await s.h.orders.place('c1', s.h.foodInput());
+    patches.set(o.id, { merchantOrgId: null, type: 'ride' });
+    const kinds = (await s.chat.threads(as('c1'), { orderId: o.id })).map((t) => t.kind);
+    expect(kinds).toEqual(['customer_courier', 'customer_support']);
+    expect((await s.chat.thread(as('c1'), { orderId: o.id, kind: 'customer_support' })).quickReplies).toContain('customer_support_driver');
+    patches.delete(o.id);
   });
 
   it(`opens at most ${CHAT_RULES.supportOpensPerDay} new support chats per customer a day`, async () => {

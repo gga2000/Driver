@@ -14,7 +14,7 @@ import { OrgName } from '../named';
 import { Button, cx, Dialog, Field, Input, Segmented, Textarea, useToast } from '../ui';
 
 const KINDS: readonly TicketKind[] = ['complaint', 'dispute', 'incident', 'question'];
-const CHANNELS: readonly TicketChannel[] = ['phone', 'whatsapp', 'in_app'];
+const CHANNELS: readonly Exclude<TicketChannel, 'chat'>[] = ['phone', 'whatsapp', 'in_app'];
 
 /** A ticket for a call or a WhatsApp message. "#1284" as the customer says it finds the order (K-02). */
 export function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -23,7 +23,7 @@ export function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () 
   const toast = useToast();
   const ids = { subject: useId(), order: useId(), note: useId() };
   const [kind, setKind] = useState<TicketKind>('complaint');
-  const [channel, setChannel] = useState<TicketChannel>('phone');
+  const [channel, setChannel] = useState<Exclude<TicketChannel, 'chat'>>('phone');
   const [subject, setSubject] = useState('');
   const [orderId, setOrderId] = useState('');
   const [note, setNote] = useState('');
