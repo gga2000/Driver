@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- the apps typecheck this file too, and only a reference brings the *.webp declaration with it.
 /// <reference path="./images.d.ts" />
 /**
  * The AI dish pictures (Ali, 2026-10-07: "let's use them all in the app"): one painted picture per kind of dish,
