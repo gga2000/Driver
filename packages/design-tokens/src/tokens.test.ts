@@ -127,9 +127,10 @@ describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
       for (const c of identity[n]) expect(contrastRatio(c.on, c.fill), `${n} ${c.fill}`).toBeGreaterThanOrEqual(4.5);
     }
   });
-  it('each service has its own colour: saffron food, yellow taxi, plum tuktuk, teal trips, date الرجعة', () => {
+  it('each service has its own colour: saffron food, yellow taxi, plum tuktuk, date-brown trips, gold الرجعة (no blue)', () => {
     const s = services.istikan;
-    expect([s.food.fill, s.taxi.fill, s.tuktuk.fill, s.trips.fill, s.back.fill]).toEqual(['#F7A33B', '#FFD84D', '#8A3F93', '#0E7480', '#2A170C']);
+    expect([s.food.fill, s.taxi.fill, s.tuktuk.fill, s.trips.fill, s.back.fill]).toEqual(['#F7A33B', '#FFD84D', '#8A3F93', '#2A170C', '#FFC155']);
+    expect([s.trips.light, s.trips.pattern, s.back.light]).toEqual(['#5A3118', '#FFC155', '#FFE3A6']);
     expect(decor.istikan.stages.length).toBeGreaterThanOrEqual(6);
   });
 });

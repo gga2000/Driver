@@ -4,7 +4,7 @@ import Svg, { G } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceSwatch } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
-import { DishDrawing, DotHalo, Icon, MeshFill, Skeleton, StarPattern, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, StarPattern, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
@@ -30,7 +30,7 @@ export const SERVICES: readonly ServiceDef[] = [
   { id: 'taxi', label: 'home.service_taxi', icon: 'taxi' },
   { id: 'tuktuk', label: 'home.service_tuktuk', icon: 'tuktuk-fringe' },
   { id: 'trips', label: 'home.service_trips', icon: 'rajaa' },
-  { id: 'rajaa', label: 'home.service_rajaa', icon: 'garage' },
+  { id: 'rajaa', label: 'home.service_rajaa', icon: 'arrow-back' },
   { id: 'grocery', label: 'home.service_grocery', icon: 'cart', soon: true },
   { id: 'khat', label: 'home.service_khat', icon: 'clock', soon: true },
   { id: 'parcel', label: 'home.service_parcel', icon: 'parcel', soon: true },
@@ -62,9 +62,9 @@ function useNextCar(direction: IntercityDirection, enabled: boolean) {
 /**
  * The services on home as the Date & Saffron bento (Ali, 2026-10-06; v3 artifact), on a warm dot halo:
  * أكل the tall saffron-gradient tile with a dish breaking out of its corner, تكسي in yellow and تكتك in
- * plum beside it, then بغداد والكوت wide in Tigris teal with Iraqi star lines and الرجعة (the way back)
- * smaller in date brown on its left (Ali, 2026-10-07). Each tile glows in its own colour and shows one
- * live fact from the server. Offline the ride tiles turn grey and say they need the internet; with every
+ * plum beside it, then بغداد والكوت wide in date brown with gold Iraqi star lines and its next car in a
+ * gold chip, and الرجعة (the way back) smaller in gold on its left (Ali, 2026-10-07: the trips' own
+ * colours, no blue). Each tile glows in its own colour and shows one live fact from the server. Offline the ride tiles turn grey and say they need the internet; with every
  * kitchen closed the food tile goes quiet. The coming-soon services are in `ComingSoonStrip` at the end.
  */
 export function ServicesRow({ onPress, foodFact, foodOff }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean }) {
@@ -125,10 +125,12 @@ export function ServicesRow({ onPress, foodFact, foodOff }: { onPress: (id: Serv
       </View>
       <View style={{ flexDirection: 'row', gap: GAP }}>
         <Tile id="trips" swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: TRIP_H }} onPress={() => press('trips')}>
+          {ridesOff ? null : <CornerFill base={s.trips.fill} light={s.trips.light} />}
           {ridesOff ? null : <StarPattern color={s.trips.pattern} />}
-          <TileBody icon={def('trips').icon} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} row />
+          <TileBody icon={def('trips').icon} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} live={facts.trips?.key === 'home.trips_next'} row />
         </Tile>
         <Tile id="rajaa" swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: TRIP_H }} onPress={() => press('rajaa')}>
+          {ridesOff ? null : <DownFill top={s.back.light} bottom={s.back.fill} />}
           <TileBody icon={def('rajaa').icon} swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} compact />
         </Tile>
       </View>
@@ -182,32 +184,56 @@ function Tile({
   );
 }
 
-/** Icon, name and live fact; `big` for أكل, `row` for the wide trips tile, `compact` for الرجعة. */
-function TileBody({ icon, swatch, label, fact, big, row, compact }: { icon: IconName; swatch: ServiceSwatch; label: string; fact: string | null; big?: boolean; row?: boolean; compact?: boolean }) {
+/**
+ * Icon, name and live fact; `big` for أكل, `row` for the wide trips tile (name and fact only),
+ * `compact` for الرجعة. `live` puts the fact in a chip with a dot (the trips tile's next car, in gold).
+ */
+function TileBody({
+  icon,
+  swatch,
+  label,
+  fact,
+  live,
+  big,
+  row,
+  compact,
+}: {
+  icon: IconName;
+  swatch: ServiceSwatch;
+  label: string;
+  fact: string | null;
+  live?: boolean;
+  big?: boolean;
+  row?: boolean;
+  compact?: boolean;
+}) {
   const theme = useTheme();
+  const sub = swatch.sub ?? swatch.on;
+  const factText = fact ? (
+    <Text variant={compact ? 'caption' : 'footnote'} weight={600} color={sub} numberOfLines={1} tabular style={{ flexShrink: 1 }}>
+      {fact}
+    </Text>
+  ) : null;
   const words = (
-    <View style={{ gap: 0, flexShrink: 1, minWidth: 0 }}>
+    <View style={{ gap: live ? 4 : 0, flex: row ? 1 : undefined, flexShrink: 1, minWidth: 0, alignItems: 'flex-start' }}>
       <Text variant={big ? 'display' : compact ? 'bodyStrong' : 'title'} face="display" color={swatch.on} numberOfLines={1}>
         {label}
       </Text>
-      {fact ? (
-        <Text variant={compact ? 'caption' : 'footnote'} weight={600} color={swatch.on} numberOfLines={1} tabular>
-          {fact}
-        </Text>
+      {fact && live ? (
+        <View testID="service-live" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.md, backgroundColor: withAlpha(sub, 0.16) }}>
+          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: sub, boxShadow: `0px 0px 0px 3px ${withAlpha(sub, 0.3)}` }} />
+          {factText}
+        </View>
+      ) : fact ? (
+        factText
       ) : (
         <Skeleton height={12} width="70%" style={{ marginTop: 5, opacity: 0.5 }} />
       )}
     </View>
   );
   if (row) {
-    return (
-      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4] }}>
-        <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(swatch.on, 0.16) }}>
-          <Icon name={icon} size={22} color={swatch.on} strokeWidth={1.9} />
-        </View>
-        {words}
-      </View>
-    );
+    // No icon: the name and the next car's chip get the whole width (the trips artifact's tile).
+    return <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.space[4] }}>{words}</View>;
   }
   return (
     <View style={{ flex: 1, justifyContent: 'space-between', padding: compact ? theme.space[3] : big ? theme.space[4] : theme.space[3] }}>

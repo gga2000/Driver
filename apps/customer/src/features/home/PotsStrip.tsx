@@ -3,7 +3,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { TodayPot } from '@driver/contracts';
 import { formatClock } from '@driver/i18n';
-import { Card, Skeleton, StaleNote, stageOf, Text, useMotionPresets, useTheme } from '@driver/ui';
+import { Card, Skeleton, stageOf, Text, useMotionPresets, useTheme } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
 import { FollowBell } from '@/features/food/FollowBell';
 import { FoodArt, artOf } from '@/features/food/FoodArt';
@@ -20,12 +20,12 @@ const ART = 72;
  * «العزيزية اليوم» (joy h2, delight E1/E2): what the town's kitchens are cooking today — each open
  * kitchen's «قدر اليوم» with its dish drawing, price and note, and a bell to be told the next time.
  * Nothing to show (no pots, or every pot's kitchen closed) draws nothing; loading is a skeleton row,
- * a failed read with nothing cached nothing at all, offline the last copy with its age.
+ * a failed read with nothing cached nothing at all, offline the last copy (home's one offline line
+ * above the search says how old it is).
  */
 export function PotsStrip({ now }: { now: Date }) {
   const theme = useTheme();
   const t = useT();
-  const locale = useLocale();
   const pots = usePots();
   const shown = visiblePots(pots.data);
 
@@ -44,7 +44,6 @@ export function PotsStrip({ now }: { now: Date }) {
   return (
     <View testID="home-pots" style={{ gap: theme.space[3] }}>
       <SectionHeader big title={t('pots.title')} />
-      <StaleNote updatedAt={pots.dataUpdatedAt} locale={locale} testID="home-pots-stale" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[3], paddingHorizontal: theme.space[5], paddingBottom: theme.space[3] }} style={{ marginHorizontal: -theme.space[5] }}>
         {shown.map((p, i) => (
           <PotCard key={p.merchantOrgId} pot={p} now={now} index={i} />

@@ -40,13 +40,15 @@ describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service 
   const p = services[name];
   const fills = (k: keyof typeof p): string[] => {
     const s = p[k];
-    return 'mesh' in s ? [s.fill, ...s.mesh] : [s.fill];
+    return [s.fill, ...('light' in s ? [s.light] : []), ...('mesh' in s ? s.mesh : [])];
   };
   it.each(Object.keys(p) as (keyof typeof p)[])('%s: its title and live fact pass AA on every stop of the fill', (k) => {
-    for (const fill of fills(k)) {
-      const ratio = contrastRatio(p[k].on, fill);
-      if (ratio < 4.5) throw new Error(`${name}: ${k} ${p[k].on} on ${fill} is ${ratio.toFixed(2)}:1 (< 4.5:1)`);
-      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    for (const ink of [p[k].on, p[k].sub].filter((x): x is string => !!x)) {
+      for (const fill of fills(k)) {
+        const ratio = contrastRatio(ink, fill);
+        if (ratio < 4.5) throw new Error(`${name}: ${k} ${ink} on ${fill} is ${ratio.toFixed(2)}:1 (< 4.5:1)`);
+        expect(ratio).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
   it('the tuktuk is not the error red, and no two services share a fill', () => {

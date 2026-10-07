@@ -524,24 +524,27 @@ export interface ServiceSwatch {
   fill: string;
   /** Titles and live facts on `fill` (AA, tested on every stop of a gradient fill). */
   on: string;
+  /** The live fact's ink when it isn't `on` (AA on every stop too). */
+  sub?: string;
   /** The coloured shadow under the tile (drawn translucent). */
   glow: string;
 }
 
 /**
  * The home services, each in its own colour (Date & Saffron, Ali 2026-10-06): food a saffron
- * gradient, taxi yellow, tuktuk plum (not red: red is for errors), Baghdad and Kut trips the Tigris
- * teal with a faint Iraqi star pattern, الرجعة (the way back) date brown. `off` draws a tile that
- * can't be used right now (no internet, kitchens closed).
+ * gradient, taxi yellow, tuktuk plum (not red: red is for errors), Baghdad and Kut trips date brown
+ * with a gold Iraqi star pattern and الرجعة (the way back) gold — the trips' own colours (Ali,
+ * 2026-10-07: no blue). `off` draws a tile that can't be used right now (no internet, kitchens closed).
  */
 export interface ServicePalette {
   /** `mesh`: the gradient's glows over `fill` — light top corner, warm side, deep bottom. */
   food: ServiceSwatch & { mesh: readonly [string, string, string] };
   taxi: ServiceSwatch;
   tuktuk: ServiceSwatch;
-  /** `pattern`: the star lines over `fill`. */
-  trips: ServiceSwatch & { pattern: string };
-  back: ServiceSwatch;
+  /** `light`: the warm brown glowing from the top corner over `fill`; `pattern`: the gold star lines. */
+  trips: ServiceSwatch & { light: string; pattern: string };
+  /** `light`: the pale top of the gold that deepens down to `fill`. */
+  back: ServiceSwatch & { light: string };
   off: ServiceSwatch;
 }
 
@@ -549,8 +552,8 @@ const servicesDay: ServicePalette = {
   food: { fill: '#F7A33B', on: '#2A1404', glow: '#F38A1B', mesh: ['#FFD27A', '#FF9F43', '#F0731A'] },
   taxi: { fill: '#FFD84D', on: '#2A1D00', glow: '#DCAA0A' },
   tuktuk: { fill: '#8A3F93', on: '#FFFFFF', glow: '#8A3F93' },
-  trips: { fill: '#0E7480', on: '#FFFFFF', glow: '#0E7480', pattern: '#FFFFFF' },
-  back: { fill: '#2A170C', on: '#FFF3E2', glow: '#5A3A12' },
+  trips: { fill: '#2A170C', light: '#5A3118', on: '#FFF3E2', sub: '#FFD27A', glow: '#2A170C', pattern: '#FFC155' },
+  back: { fill: '#FFC155', light: '#FFE3A6', on: '#3A2006', sub: '#6B4A12', glow: '#E09A2A' },
   off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2' },
 };
 
@@ -558,8 +561,8 @@ const servicesNight: ServicePalette = {
   food: { fill: '#F5A13A', on: '#1A1004', glow: '#000000', mesh: ['#FFC155', '#FF9F43', '#F08A1F'] },
   taxi: { fill: '#F2C94C', on: '#1A1004', glow: '#000000' },
   tuktuk: { fill: '#7E3A88', on: '#FFFFFF', glow: '#000000' },
-  trips: { fill: '#0B6A75', on: '#FFFFFF', glow: '#000000', pattern: '#FFFFFF' },
-  back: { fill: '#3B2914', on: '#FFF3E2', glow: '#000000' },
+  trips: { fill: '#2E1A0E', light: '#4A2914', on: '#FFF3E2', sub: '#FFD27A', glow: '#000000', pattern: '#FFC155' },
+  back: { fill: '#F2B444', light: '#FFD98A', on: '#2A1404', sub: '#5C3D0C', glow: '#000000' },
   off: { fill: '#2E241C', on: '#BFA892', glow: '#000000' },
 };
 
