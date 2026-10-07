@@ -7021,5 +7021,8 @@
   "call.soon_label": "Calling is coming soon",
   "call.soon_toast": "Calling is coming soon. For now, send a message or a voice note",
   "call.soon_toast_in_chat": "Calling is coming soon. For now, type or send a voice note here",
-  "call.soon_action": "Message"
+  "call.soon_action": "Message",
+  "sos.cancel_failed": "The cancel didn't get through and the alert is still on. Try again",
+  "not_found.title": "This link doesn't work",
+  "not_found.body": "It may have expired or been typed wrong. Go back home and carry on from there"
 }

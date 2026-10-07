@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { AppState, Linking } from 'react-native';
 import { SAFETY_RULES, type SosSubject, type SosView } from '@driver/contracts';
 import { getNetwork, useToast, type SosSheetPhase } from '@driver/ui';
-import { useApiClient } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
+import { classifyError } from '@/lib/errors';
+import { useLocale, useT } from '@/lib/i18n';
 import { currentSosFix } from './fix';
 import { createSosOutbox, subjectKey } from './sos-outbox';
 
@@ -35,6 +36,7 @@ export function useSos(subject: SosSubject | null) {
   const client = useApiClient();
   const toast = useToast();
   const t = useT();
+  const locale = useLocale();
   const [view, setView] = useState<SosView | null>(null);
   const [phase, setPhase] = useState<SosSheetPhase | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -115,18 +117,24 @@ export function useSos(subject: SosSubject | null) {
     return () => clearInterval(id);
   }, [incidentId, sharing, client, accept]);
 
-  const cancel = useCallback(async () => {
+  const cancel = useCallback(async function run(): Promise<void> {
     if (!view || cancelling) return;
     setCancelling(true);
     try {
       accept(await client.safety.cancel.mutate({ incidentId: view.incidentId }), true);
       toast.show({ message: t('sos.cancelled'), tone: 'info', icon: 'check' });
-    } catch {
-      toast.show({ message: t('sos.cancel_late'), tone: 'warning', icon: 'sos' }, 5000);
+    } catch (err) {
+      // Only the server's "the window has passed" is too late; a lost answer leaves the alert on and
+      // says so, with a retry while the window is still open (audit FLOW-09).
+      if (classifyError(err).transient) {
+        toast.show({ message: t('sos.cancel_failed'), tone: 'warning', icon: 'sos', action: { label: t('action.retry'), onPress: () => void run() } }, 5000);
+      } else {
+        toast.show({ message: apiErrorCode(err) === 'sos_cancel_window_passed' ? t('sos.cancel_late') : apiErrorMessage(err, t('sos.cancel_late'), locale), tone: 'warning', icon: 'sos' }, 5000);
+      }
     } finally {
       setCancelling(false);
     }
-  }, [view, cancelling, client, accept, toast, t]);
+  }, [view, cancelling, client, accept, toast, t, locale]);
 
   return {
     // A press still on its way keeps the button lit too, so the person can reopen the sheet.

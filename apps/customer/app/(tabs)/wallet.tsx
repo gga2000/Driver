@@ -9,7 +9,7 @@ import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { useClaimPoints, useHousehold, useTopUpStatus, useTopupOptions, useWalletBalance, useWalletLines } from '@/features/account/queries';
-import { balanceText, lineAmount, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
+import { balanceText, cityDateText, lineAmount, paidOutsideWallet, pointsWorthText } from '@/features/account/wallet-format';
 import { MoneyIn } from '@/features/account/MoneyIn';
 import { MonthCard } from '@/features/account/MonthCard';
 import { lineHref, WALLET_FILTERS, walletDays, type WalletFilter } from '@/features/account/wallet-lines';
@@ -207,7 +207,7 @@ function Wallet() {
             <View testID="wallet-points-expiry" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.text }}>
               <Icon name="clock" size={18} color="deal" />
               <Text variant="footnote" weight={600} color={theme.colors.bg} style={{ flex: 1 }}>
-                {t('points.expiring_soon', { n: amountParam(b.pendingPoints), date: `${expiresSoon.getDate()}/${expiresSoon.getMonth() + 1}` })}
+                {t('points.expiring_soon', { n: amountParam(b.pendingPoints), date: cityDateText(expiresSoon, t) })}
               </Text>
             </View>
           ) : null}
@@ -216,7 +216,7 @@ function Wallet() {
               <View style={{ gap: theme.space[3] }}>
                 <Text variant="bodyStrong">{t('wallet.pending_title', { n: amountParam(b.pendingPoints), amount: amountParam(b.pendingWorthIqd) })}</Text>
                 <Text variant="footnote" color="textMuted">
-                  {b.pendingExpiresAt ? t('wallet.pending_body_expiry', { date: `${b.pendingExpiresAt.getDate()}/${b.pendingExpiresAt.getMonth() + 1}` }) : t('wallet.pending_body')}
+                  {b.pendingExpiresAt ? t('wallet.pending_body_expiry', { date: cityDateText(b.pendingExpiresAt, t) }) : t('wallet.pending_body')}
                 </Text>
                 <Button testID="wallet-claim" icon="gift" label={t('wallet.claim')} loading={claim.isPending} onPress={() => void claimPoints()} />
               </View>
