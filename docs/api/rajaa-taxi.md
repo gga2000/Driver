@@ -1,4 +1,4 @@
-# Taxis linked to a الرجعة seat — x2, x3, x4 (+ n10) (2026-10-07)
+# Taxis linked to a الرجعة seat — x2, x3, x4 (+ n10, n9) (2026-10-07)
 
 Three taxi ideas Ali voted yes on, built server-first with drop-in customer cards. Nothing here changes
 a price, a fee, a no-show rule or the routes (الرجعة) module: every taxi is an ordinary ride, priced by
@@ -107,16 +107,65 @@ Placing the two cards on the الرجعة screens is left to the thread that own
 `features/rajaa/**`: `<GarageTaxiCard bookingId={b.id} />` and `<ArmedRideCard bookingId={b.id} />` —
 each hides itself for a seat it does not apply to, so both can be dropped on every pass.
 
+## n9 «Baghdad mode» — the next car back, on a card (2026-10-07)
+Ali's yes: «When your phone is in Baghdad, home leads with a live card for the next car back to
+Aziziyah.» Built as a drop-in card; placing it at the top of home is left to the thread that owns
+`app/(tabs)/index.tsx` / `features/home/**`: `<BaghdadModeCard />` (it renders nothing unless it applies).
+
+**When it shows.** Signed in, location **already allowed** (the card never asks: expo-location
+`getForegroundPermissionsAsync`, then the last known fix, else one quick balanced fix — on the web the
+browser's permission state), and that position is in a far city of the الرجعة network. "In Baghdad" is
+`awayCityAt(point, network.garages)` in `packages/contracts/src/away-city.ts`: within the city's radius of
+one of its garages (`AWAY_CITY_RADIUS_KM`: Baghdad 20 km around النهضة, Kut 10 km; Aziziyah's garages
+never count, and سلمان باك on the road home is outside). The network is `routes.network`; nothing new
+on the server. Anywhere else, without permission or signed out: nothing is rendered (no empty space).
+
+**What it shows.** The city's corridor home (`aziziyah_baghdad` / `aziziyah_kut`), read with
+`routes.board` (`direction: 'to_aziziyah'`, to 36 h ahead on the hour, re-read every 30 s) and his
+`routes.myBookings`:
+- **His seat first**: a live seat (held, booked or checked in) on a car back on that corridor within the
+  next 12 h → «مقعدك راجع للعزيزية»: when it leaves, from which garage, his seat(s), «شوف تذكرتك» (the
+  pass) — or for a hold «ماسكينه إلك» with until when and «كمّل الحجز» — and under it
+  `<ArmedRideCard bookingId=…/>` (n10: a taxi waiting at the Aziziyah garage). The switch is not shown
+  under a hold (it applies to a booked seat).
+- **Else the next car**: the earliest bookable car with a free seat leaving within 12 h — «تطلع 7:05 م»
+  with «بعد 25 دقيقة», «من كراج النهضة», seats left (pill) and «15,000 دينار للمقعد» (the seat price the
+  server gives, untouched), «احجز مقعد» → `/rajaa/departure/[id]` (the existing seat booking screen),
+  and a quiet line for the one after («اللي بعدها 8:15 م · باقي مقعدين»).
+- **Else** «ماكو سيارة راجعة هسة» with the first car announced later (up to 36 h: «أول سيارة معلنة
+  باچر 7:00 ص من كراج النهضة», and «احجز مقعد» on it), or, when none is announced, «أريد أرجع» →
+  `/rajaa/demand` for that corridor (drivers see how many wait).
+- Loading (skeleton), error with «حاول مرة ثانية», offline (no data yet), and offline with data (the
+  last cars stay, buttons off, a quiet line). Full cars are skipped; the pill says «إنت ببغداد» / «إنت
+  بالكوت». Copy `bmode.*`.
+
+| Component | Path | Props |
+|---|---|---|
+| `BaghdadModeCard` | `features/ride/BaghdadModeCard.tsx` | `testID?` (default `baghdad-mode-card`; the n10 card under the seat gets `<testID>-armed`) |
+| `BaghdadModeCardView` | `features/ride/BaghdadModeCard.tsx` | `state: BaghdadModeState, now: number, onBook(car), onSeeSeat(seat), onWantBack(corridorId), onRetry(), armed?(bookingId) → ReactNode, testID?` |
+
+Helpers: `baghdad-mode.ts` (`baghdadModeState`, `carsBack`, `seatBack`, `corridorBack`, `boardUntil`,
+`BAGHDAD_MODE_TODAY_H` 12, `BAGHDAD_MODE_AHEAD_H` 36, `BAGHDAD_MODE_POLL_MS` 30 s; tests in
+`baghdad-mode.test.ts`), `baghdad-mode-queries.ts` (`useBaghdadMode`), `phone-position.ts`
+(`grantedPosition`, `useGrantedPosition`). Nothing in `apps/api/src/modules/routes/**`, `app/rajaa/**`
+or `features/rajaa/**` changed; the card only imports read hooks and helpers from `features/rajaa`.
+
 ## Demo, preview and screenshots
 - Demo hook: `POST /demo/rajaa-taxi?personId=…` (`apps/customer/scripts/demo-api.mjs`) saves home and
   الدائرة, books a seat out of Gate 1 in ~95 min (x2), a seat out of Gate 2 in 25 min with the taxi to it
   taken by a driver 12 km away (x3, told), and three Kut → Aziziyah trips on the road: one far out
   (offer), one far out and armed, one 3 km out and armed (booked at once). Returns the ids and what the
-  server made of them.
+  server made of them. It also announces two cars from النهضة back to Aziziyah (~35 and ~95 min,
+  `baghdadDepartureIds`) for n9; `&baghdadSeat=1` instead only books him a seat on a new car back from
+  Baghdad in ~50 min (`{baghdadBookingId}`).
 - Dev preview (only with `EXPO_PUBLIC_DEV_TOOLS`): `/ride/garage-preview` — every card in every state on
-  sample data; `?out=&ret=&armed=&placed=&late=` adds the live cards for those ids.
+  sample data; `?out=&ret=&armed=&placed=&late=` adds the live cards for those ids; every n9 state is there too, and
+  `?n9=1` adds the live n9 card (shown only with the browser's position allowed and in Baghdad/Kut).
 - Shots: `SHOTS=rajaa-taxi node apps/customer/scripts/web-shots.mjs <out>` → `rajaa-taxi-*` (each card
-  state, the live cards, the late notice on the live ride screen).
+  state, the live cards, the late notice on the live ride screen), and `rajaa-taxi-n9-*`: each n9 state,
+  then live with the position faked to Baghdad — the next car (`-live-next`) and, after `baghdadSeat=1`,
+  his seat with the n10 switch (`-live-booked`); it checks the card stays away without the permission
+  and in Aziziyah.
 
 ## What the routes module would need (owned by another thread, #8)
 Nothing was changed in `apps/api/src/modules/routes/**`. To actually **hold the seat** for a rider whose

@@ -5,6 +5,8 @@ import { GARAGE_TAXI_RULES, type GarageArmView, type GarageTaxiLink, type Garage
 import { Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { ArmedRideCard, ArmedRideCardView } from '@/features/ride/ArmedRideCard';
+import { BaghdadModeCard, BaghdadModeCardView } from '@/features/ride/BaghdadModeCard';
+import type { BaghdadModeState, CarBack } from '@/features/ride/baghdad-mode';
 import { GarageLateNotice, GarageLateNoticeView } from '@/features/ride/GarageLateNotice';
 import { GarageTaxiCard, GarageTaxiCardView } from '@/features/ride/GarageTaxiCard';
 import { hasView, type ArmCardState, type ToGarageCardState } from '@/features/ride/garage-taxi';
@@ -14,6 +16,8 @@ import { DEV_TOOLS } from '@/lib/env';
  * Dev only (`EXPO_PUBLIC_DEV_TOOLS`): the الرجعة taxi cards (x2, x3, x4) in every state with sample
  * data, for review and the `SHOTS=rajaa-taxi` screenshots. With `?out=&ret=&armed=&placed=&late=`
  * (the ids `POST /demo/rajaa-taxi` returns) it also shows the live cards on the demo server's data.
+ * Ride idea n9 «Baghdad mode» too: every state of its card, and with `?n9=1` the live card (it shows
+ * only when the browser's position, already allowed, is in Baghdad or Kut).
  * Section labels are developer codes, not app copy. Not linked from anywhere in the app.
  */
 export default function GaragePreviewPage() {
@@ -97,6 +101,28 @@ const X3: [string, GarageTaxiLink][] = [
   ['told', { ...LINK, driverTold: true, toldMin: 7 }],
 ];
 
+const NAHDHA = 'كراج النهضة';
+const CAR: CarBack = { departureId: 'dep_demo', corridorId: 'aziziyah_baghdad', garageNameAr: NAHDHA, departAt: at(35), free: 3, seatPriceIqd: 15000 };
+const SEAT = { bookingId: 'bk_back', state: 'booked' as const, departAt: at(50), seatIds: ['back_right' as const], garageNameAr: NAHDHA, heldUntil: null };
+
+/** 7:00 ص tomorrow on Baghdad's clock (UTC+3): the first car announced, for the empty card. */
+const DAY = 24 * 60 * MIN;
+const TOMORROW_7AM = new Date(Math.floor((NOW + 180 * MIN) / DAY) * DAY + DAY + 4 * 60 * MIN);
+
+const N9: [string, BaghdadModeState][] = [
+  ['next', { kind: 'next', cityId: 'baghdad', next: CAR, after: { ...CAR, departureId: 'dep_after', departAt: at(95), free: 2 }, offline: false }],
+  ['next-last-seat', { kind: 'next', cityId: 'baghdad', next: { ...CAR, departAt: at(10), free: 1 }, after: null, offline: false }],
+  ['next-offline', { kind: 'next', cityId: 'baghdad', next: CAR, after: { ...CAR, departureId: 'dep_after', departAt: at(95), free: 2 }, offline: true }],
+  ['kut', { kind: 'next', cityId: 'kut', next: { ...CAR, corridorId: 'aziziyah_kut', garageNameAr: 'كراج الكوت', seatPriceIqd: 10000 }, after: null, offline: false }],
+  ['empty-announced', { kind: 'empty', cityId: 'baghdad', corridorId: 'aziziyah_baghdad', announced: { ...CAR, departAt: TOMORROW_7AM }, offline: false }],
+  ['empty', { kind: 'empty', cityId: 'baghdad', corridorId: 'aziziyah_baghdad', announced: null, offline: false }],
+  ['booked', { kind: 'booked', cityId: 'baghdad', seat: SEAT, offline: false }],
+  ['held', { kind: 'booked', cityId: 'baghdad', seat: { ...SEAT, state: 'held', heldUntil: at(8) }, offline: false }],
+  ['loading', { kind: 'loading', cityId: 'baghdad' }],
+  ['error', { kind: 'error', cityId: 'baghdad' }],
+  ['offline', { kind: 'offline', cityId: 'baghdad' }],
+];
+
 const noop = () => undefined;
 
 function Section({ id, label, children }: { id: string; label: string; children: ReactNode }) {
@@ -113,7 +139,7 @@ function Section({ id, label, children }: { id: string; label: string; children:
 
 function GaragePreview() {
   const theme = useTheme();
-  const p = useLocalSearchParams<{ out?: string; ret?: string; armed?: string; placed?: string; late?: string }>();
+  const p = useLocalSearchParams<{ out?: string; ret?: string; armed?: string; placed?: string; late?: string; n9?: string }>();
   return (
     <Screen edges={['bottom']} testID="garage-preview">
       <View style={{ gap: theme.space[3] }}>
@@ -135,6 +161,11 @@ function GaragePreview() {
         {p.placed ? (
           <Section id="pv-live-x4-placed" label="live · x4 placed">
             <ArmedRideCard bookingId={p.placed} testID="live-x4-placed" />
+          </Section>
+        ) : null}
+        {p.n9 ? (
+          <Section id="pv-live-n9" label="live · n9">
+            <BaghdadModeCard testID="live-n9" />
           </Section>
         ) : null}
         {p.late ? (
@@ -165,6 +196,20 @@ function GaragePreview() {
               onOrderSelf={noop}
               onAddPlace={noop}
               testID={`x4-${key}`}
+            />
+          </Section>
+        ))}
+        {N9.map(([key, state]) => (
+          <Section key={`n9-${key}`} id={`pv-n9-${key}`} label={`n9 · ${key}`}>
+            <BaghdadModeCardView
+              state={state}
+              now={NOW}
+              onBook={noop}
+              onSeeSeat={noop}
+              onWantBack={noop}
+              onRetry={noop}
+              armed={() => <ArmedRideCardView state={{ kind: 'off', view: ARM, offline: false }} placeId={ARM.toPlaceId} onPlace={noop} onArm={noop} onDisarm={noop} onRetry={noop} onSeeTaxi={noop} onOrderSelf={noop} onAddPlace={noop} testID={`n9-${key}-armed`} />}
+              testID={`n9-${key}`}
             />
           </Section>
         ))}

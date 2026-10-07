@@ -59,6 +59,9 @@
 //   rajaa-taxi-* taxi ideas x2/x3/x4: the dev preview of the الرجعة taxi cards in every state (one shot per
 //            card, plus the page), the live cards on the demo's seats, and the late notice on the live
 //            ride screen of a taxi to a car                                POST /demo/rajaa-taxi
+//            and ride idea n9 «Baghdad mode» (rajaa-taxi-n9-*): its card in every state, then live with the
+//            browser's position in Baghdad (the next car back, then his seat with the n10 switch)
+//                                                                         POST /demo/rajaa-taxi[&baghdadSeat=1]
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -331,6 +334,7 @@ async function rajaaTaxiShots(personId) {
     x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
     x3: ['not-told', 'told'],
     x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
+    n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
   };
   for (const [idea, keys] of Object.entries(states)) for (const key of keys) await cardShot(`rajaa-taxi-${idea}-${key}`, `pv-${idea}-${key}`);
 
@@ -349,12 +353,52 @@ async function rajaaTaxiShots(personId) {
   await cardShot('rajaa-taxi-live-x4-placed', 'pv-live-x4-placed');
   await cardShot('rajaa-taxi-live-x3', 'pv-live-x3');
 
+  await rajaaTaxiN9Shots(personId, cardShot);
+
   // x3 where it lives: the taxi's own live screen.
   await page.goto(`${origin}/order/${seed.lateOrderId}`, LOADED);
   await byTestId('garage-late-notice').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: late notice not on the order screen'));
   await byTestId('garage-late-notice').scrollIntoViewIfNeeded().catch(() => {});
   await shot('rajaa-taxi-order-late');
   await fullShot('rajaa-taxi-order-late-full');
+}
+
+/**
+ * Ride idea n9 «Baghdad mode» live on the preview route (`?n9=1`): nothing without the location
+ * permission (the card never asks) or at home in Aziziyah; with the browser's position in Baghdad the
+ * next car back from النهضة (the demo announced two), then — after `baghdadSeat=1` books him a seat — his
+ * seat with the n10 switch under it. The permission is dropped again afterwards.
+ */
+async function rajaaTaxiN9Shots(personId, cardShot) {
+  const BAGHDAD = { latitude: 33.3128, longitude: 44.3615, accuracy: 20 };
+  const AZIZIYAH = { latitude: 32.9062, longitude: 45.0612, accuracy: 20 };
+  const absent = async (why) => {
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('pv-live-n9').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(3000);
+    if ((await byTestId('live-n9').count()) > 0) errors.push(`rajaa-taxi: the n9 card showed ${why}`);
+  };
+  const ctx = page.context();
+  try {
+    await absent('without the location permission');
+    await ctx.grantPermissions(['geolocation'], { origin });
+    await ctx.setGeolocation(AZIZIYAH);
+    await absent('in Aziziyah');
+
+    await ctx.setGeolocation(BAGHDAD);
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('live-n9-time').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: n9 live card (next car) not shown'));
+    await cardShot('rajaa-taxi-n9-live-next', 'pv-live-n9');
+
+    const seat = await demoPost(`/demo/rajaa-taxi?personId=${encodeURIComponent(personId)}&baghdadSeat=1`);
+    if (!seat) return;
+    await page.goto(`${origin}/ride/garage-preview?n9=1`, LOADED);
+    await byTestId('live-n9-seat-time').waitFor({ timeout: 20_000 }).catch(() => errors.push('rajaa-taxi: n9 live card (his seat) not shown'));
+    await byTestId('live-n9-armed-body').waitFor({ timeout: 15_000 }).catch(() => errors.push('rajaa-taxi: n10 switch not under his seat'));
+    await cardShot('rajaa-taxi-n9-live-booked', 'pv-live-n9');
+  } finally {
+    await ctx.clearPermissions();
+  }
 }
 
 /**
