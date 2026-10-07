@@ -275,11 +275,12 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     // y1, y4: the details come back with the return date revived; the offer counted him as having seen it.
     expect(back?.details).toEqual({ trip: 'two_days', waitHours: null, returnAt: at(200 + 2 * 24 * 60), bigBags: 1, carKind: null, ac: true });
     expect(back?.seenDriverIds).toEqual([ids.driver]);
-    expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 0 });
-    await requests.complete(ids.driver, r.id);
-    expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 1 });
     expect(
       (await repo.listRequests({ riderId: ids.r1, states: ['matched'] })).map((x) => x.id),
     ).toEqual([r.id]);
+    // y5: a completed ride counts as one of his private trips.
+    expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 0 });
+    await requests.complete(ids.driver, r.id);
+    expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 1 });
   });
 });
