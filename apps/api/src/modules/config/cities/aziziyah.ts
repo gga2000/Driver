@@ -190,6 +190,28 @@ const smartBroadcast: DispatchConfig = {
   offerSeenAfterSec: 3,
 };
 
+/**
+ * Taxi and tuktuk: the smart broadcast, plus the evening-before pre-assignment of rides booked for later
+ * (edge-case review #28, adopted): offered from 18:00 the evening before, confirmed by 22:00 (a same-day
+ * ride booked 3 h ahead: by 90 min before, asked 08:00–22:00 only), the favourite alone for the first
+ * hour, the confirmed driver reminded an hour before and started at T−30, else the T−30 search.
+ */
+const rides: DispatchConfig = {
+  ...smartBroadcast,
+  bookedRides: {
+    offerFromHour: 18,
+    confirmByHour: 22,
+    sameDayMinLeadMin: 180,
+    sameDayConfirmLeadMin: 90,
+    sameDayFromHour: 8,
+    minOfferWindowMin: 30,
+    favouriteFirstMin: 60,
+    reminderLeadMin: 60,
+    minGapMin: 60,
+    notifyDrivers: 10,
+  },
+};
+
 const autoAssign: DispatchConfig = {
   ...smartBroadcast,
   policy: 'auto_assign',
@@ -303,8 +325,8 @@ export const aziziyah: CityPricingConfig = {
     },
   ],
   dispatch: {
-    taxi: smartBroadcast,
-    tuktuk: smartBroadcast,
+    taxi: rides,
+    tuktuk: rides,
     parcel: smartBroadcast,
     food: autoAssign,
     grocery: autoAssign,

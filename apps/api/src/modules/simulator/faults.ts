@@ -106,6 +106,12 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
     s.offers.push({ tripId: trip.id, driverId: 'fault', at: o.placedAt.getTime(), kind: 'dispatch.offer_sent', overCap: false, owedIqd: 0, capIqd: 75_000 });
   },
+  scheduled_ride_dispatched_once: (s) => {
+    // Review #28: two drivers confirm the same booked ride (the first-confirm lock skipped).
+    const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
+    const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
+    (s.dispatchLog ??= []).push({ tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_a', at: 0 }, { tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_b', at: 0 });
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 

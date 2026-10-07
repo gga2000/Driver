@@ -17,6 +17,7 @@ import {
   UnavoidInput,
   UnfavouriteInput,
 } from '../ride-habits-io.js';
+import { BookedRideInput, BookedRideStatus } from '../booked-rides.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -40,6 +41,8 @@ export const rideHabitsRouter = router({
     confirm: protectedProcedure().input(ConfirmOccurrenceInput).output(OccurrenceView).mutation(({ ctx, input }) => ctx.rideHabits.confirm(ctx.actor, input)),
     skip: protectedProcedure().input(OccurrenceInput).output(OccurrenceView).mutation(({ ctx, input }) => ctx.rideHabits.skip(ctx.actor, input)),
   }),
+  /** Review #28: whether a driver confirmed his ride booked for later («سايقك محجوز: حسين»), or when we tell him. */
+  bookedRide: protectedProcedure().input(BookedRideInput).output(BookedRideStatus).query(({ ctx, input }) => ctx.rideHabits.bookedRide(ctx.actor, input)),
   dinnerChance: protectedProcedure().output(DinnerChance.nullable()).query(({ ctx }) => ctx.rideHabits.dinnerChance(ctx.actor)),
   dinnerTime: protectedProcedure().input(DinnerTimeInput).output(DinnerTime).query(({ ctx, input }) => ctx.rideHabits.dinnerTime(ctx.actor, input)),
 });

@@ -17,6 +17,7 @@ import { FollowBell } from './FollowBell';
 import { FoodArt, artOf } from './FoodArt';
 import { HOUSEHOLD_PREFIX, defaultPersonFor, isFamilyOrder, personChips } from './family';
 import { servesChosen, servesCopy } from './portions';
+import { tasteStore, useTaste, withTaste } from '@/features/doors/taste';
 import { chosenModifiers, defaultSelection, selectionProblems, sheetCta, sheetLinePrice, toggleModifier, type Selection } from './modifiers';
 
 /** The dish picture on top of the sheet: 16:9 (joy o2). */
@@ -49,7 +50,10 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
   const household = useHousehold().data?.members;
   const family = isFamilyOrder({ household: household ?? [], cartPeople: cart.people.length, tableLines: cart.lines.filter((l) => l.personId === TABLE).length });
   const personTouched = useRef(false);
-  const [selection, setSelection] = useState<Selection>(() => defaultSelection(item));
+  // q2 «مثل آخر مرة»: sugar, cardamom and ice the way this person took them last time.
+  const taste = useTaste();
+  const [selection, setSelection] = useState<Selection>(() => withTaste(item, defaultSelection(item), tasteStore.getSnapshot()).selection);
+  const [remembered, setRemembered] = useState<string[]>(() => withTaste(item, defaultSelection(item), tasteStore.getSnapshot()).filled);
   const [qty, setQty] = useState(1);
   const [personId, setPersonId] = useState<string>(ME);
   const [note, setNote] = useState('');
@@ -66,11 +70,15 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
   const [flash, setFlash] = useState<{ groupId: string; n: number } | null>(null);
 
   useEffect(() => {
-    setSelection(defaultSelection(item));
+    const start = withTaste(item, defaultSelection(item), taste);
+    setSelection(start.selection);
+    setRemembered(start.filled);
     setQty(1);
     setNote('');
     setConflict(null);
     personTouched.current = false;
+    // The usual is read when a dish opens (the menu screen loads it first); learning from this add must not reset the sheet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
   // A dish that feeds two or more starts on «للسفرة» in a family order, until the person picks.
   useEffect(() => {
@@ -105,6 +113,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
 
   const onToggle = (group: MenuModifierGroup, modifierId: string) => {
     const res = toggleModifier(item, selection, group.id, modifierId);
+    setRemembered((r) => r.filter((id) => id !== group.id));
     if (res.blocked === 'max') toast.show({ message: `${group.name}: ${t('item.choose_up_to', { n: group.max })}`, icon: 'x' });
     else if (res.blocked === 'unavailable') toast.show({ message: t('item.sold_out'), icon: 'x' });
     setSelection(res.selection);
@@ -133,6 +142,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
       setConflict(res.current.name);
       return;
     }
+    tasteStore.learn(item, selection);
     onAdded(item.name);
   };
 
@@ -211,7 +221,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
         {followable ? <FollowRow item={item} merchant={merchant} /> : null}
         {item.modifierGroups.map((g) => (
           <View key={g.id} onLayout={(e) => (groupY.current[g.id] = e.nativeEvent.layout.y)}>
-            <ModifierGroupBlock group={g} basePrice={item.priceIqd} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} flash={flash?.groupId === g.id ? flash.n : 0} />
+            <ModifierGroupBlock group={g} basePrice={item.priceIqd} remembered={remembered.includes(g.id)} selected={selection[g.id] ?? []} onToggle={(id) => onToggle(g, id)} missing={missing?.groupId === g.id} flash={flash?.groupId === g.id ? flash.n : 0} />
           </View>
         ))}
 
@@ -275,6 +285,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
 function ModifierGroupBlock({
   group,
   basePrice,
+  remembered,
   selected,
   onToggle,
   missing,
@@ -282,6 +293,8 @@ function ModifierGroupBlock({
 }: {
   group: MenuModifierGroup;
   basePrice: number;
+  /** Filled in from the person's usual (q2): says «مثل آخر مرة». */
+  remembered: boolean;
   selected: readonly string[];
   onToggle: (id: string) => void;
   missing: boolean;
@@ -319,8 +332,8 @@ function ModifierGroupBlock({
         <Text variant="bodyStrong" style={{ flexShrink: 1 }}>
           {group.name}
         </Text>
-        <Text variant="caption" color="textMuted">
-          {rule}
+        <Text variant="caption" color={remembered ? 'accentText' : 'textMuted'} weight={remembered ? 700 : 400} testID={remembered ? `group-${group.id}-remembered` : undefined}>
+          {remembered ? t('item.remembered') : rule}
         </Text>
         <View style={{ flex: 1 }} />
         <StatusPill size="sm" tone={group.required ? (missing ? 'warning' : 'accent') : 'neutral'} label={group.required ? t('item.modifier_required') : t('item.modifier_optional')} />

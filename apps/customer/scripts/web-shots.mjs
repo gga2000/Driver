@@ -62,8 +62,12 @@
 //            and ride idea n9 «Baghdad mode» (rajaa-taxi-n9-*): its card in every state, then live with the
 //            browser's position in Baghdad (the next car back, then his seat with the n10 switch)
 //                                                                         POST /demo/rajaa-taxi[&baghdadSeat=1]
+//   booked-* review #28 on a fresh account: a ride booked for tomorrow while drivers are asked (home card
+//            and screen), then one a driver confirmed («سايقك محجوز: حسين»)   POST /demo/booked-ride
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
+//   crash-*  the root crash screen («صار خلل بالتطبيق», a demo render error from `?crash=1`, dev tools
+//            only) and home again after «جرّب مرة ثانية»
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -126,7 +130,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -274,6 +278,8 @@ try {
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
+  if (wants('crash')) await crashShots();
+  if (wants('booked')) await bookedShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -496,11 +502,19 @@ async function simpleShots() {
  * the work trip's next day; POST /demo/dinner puts a taxi home on the road, then a seat to Aziziyah.
  */
 async function tripsShots(khalid) {
+  const personId = await freshSignIn(process.env.TRIPS_PHONE ?? '0770 456 8899');
+  const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  await tripsFlow(khalid, personId, seed);
+}
+
+/** Signs out, then in as that number (name and area on a first sign-in); the person's id. */
+async function freshSignIn(phoneNumber) {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${origin}/phone`, LOADED);
   await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
-  await page.locator('[data-testid="phone-input"]').fill(process.env.TRIPS_PHONE ?? '0770 456 8899');
+  await page.locator('[data-testid="phone-input"]').fill(phoneNumber);
   await byTestId('phone-submit').click();
   await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
   const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
@@ -520,9 +534,41 @@ async function tripsShots(khalid) {
   await byTestId('home').waitFor({ timeout: 15_000 });
   const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
   if (!personId) throw new Error('no person after sign-in');
-  const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
-  if (!seed) return;
+  return personId;
+}
 
+/**
+ * Review #28 on a fresh account: a ride booked for tomorrow 7:30 while drivers are asked («ندوّرلك سايق،
+ * نأكدلك قبل الساعة 10 بالليل») on home and its screen; cancelled from there; then one حسين confirmed
+ * («سايقك محجوز: حسين» with his photo).                   POST /demo/booked-ride
+ */
+async function bookedShots() {
+  const personId = await freshSignIn(process.env.BOOKED_PHONE ?? '0770 456 7711');
+  const looking = await demoPost(`/demo/booked-ride?personId=${encodeURIComponent(personId)}&state=looking`);
+  if (!looking) return;
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-booked-looking').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked card «ندوّرلك سايق» not shown'));
+  await shot('booked-home-looking');
+  await page.goto(`${origin}/ride/booked/${looking.orderId}`, LOADED);
+  await byTestId('booked-looking').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked screen «نأكدلك قبل» not shown'));
+  await shot('booked-looking');
+  await byTestId('booked-cancel').click();
+  await byTestId('booked-new').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked ride not cancelled'));
+
+  const confirmed = await demoPost(`/demo/booked-ride?personId=${encodeURIComponent(personId)}&state=confirmed`);
+  if (!confirmed) return;
+  await page.goto(`${origin}/`, LOADED);
+  await byTestId('home-booked-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked card «سايقك محجوز» not shown'));
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete)).catch(() => {});
+  await shot('booked-home-confirmed');
+  await page.goto(`${origin}/ride/booked/${confirmed.orderId}`, LOADED);
+  await byTestId('booked-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked screen «سايقك محجوز» not shown'));
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete)).catch(() => {});
+  await shot('booked-confirmed');
+  await fullShot('booked-confirmed-full');
+}
+
+async function tripsFlow(khalid, personId, seed) {
   // Home: the ride booked for the work trip's next day has its own card.
   await page.goto(`${origin}/`, LOADED);
   await byTestId('home-booked-ride').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked ride card not shown'));
@@ -1256,6 +1302,20 @@ async function dealsShots(khalid) {
  * Wallet top-up with cash: شحن المحفظة → amount → code + QR; then the ops agent (Partner app, Ops
  * mode, its own browser context) keys the code in and confirms; the customer's screen becomes the receipt.
  */
+/** The root crash screen: `?crash=1` throws one render error (dev tools only); the retry mounts home again. */
+async function crashShots() {
+  const before = errors.length;
+  await page.goto(`${origin}/?crash=1`, LOADED);
+  await byTestId('crash-screen').waitFor({ timeout: 15_000 });
+  await shot('crash-screen');
+  await byTestId('crash-screen-state-retry').click();
+  const back = await byTestId('home').waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+  // The demo crash logs itself on purpose (React's caught-error report): not a failure.
+  errors.splice(before);
+  if (!back) errors.push('crash retry did not bring home back');
+  await shot('crash-retried');
+}
+
 async function topupShots() {
   await page.goto(`${origin}/wallet`, LOADED);
   await byTestId('wallet-topup').waitFor({ timeout: 15_000 });

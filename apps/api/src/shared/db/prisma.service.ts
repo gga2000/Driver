@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { createPrisma, dbOptionsFromEnv, type PrismaClient } from '@driver/db';
+import { PRISMA_LOG_CONTEXT, prismaErrorLogger } from './prisma-error-log.js';
 
 export type DbStatus = 'ok' | 'unavailable';
 
@@ -15,6 +16,8 @@ export type DbStatus = 'ok' | 'unavailable';
 export class PrismaService implements OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
+  private readonly queryLog = new Logger(PRISMA_LOG_CONTEXT);
+
   private client: PrismaClient | undefined;
 
   constructor(private readonly databaseUrl: string | undefined = process.env['DATABASE_URL']) {}
@@ -27,7 +30,10 @@ export class PrismaService implements OnModuleDestroy {
   /** The underlying client. Throws when no DATABASE_URL is configured. */
   get prisma(): PrismaClient {
     if (!this.databaseUrl) throw new Error('DATABASE_URL is not configured');
-    this.client ??= createPrisma(this.databaseUrl, dbOptionsFromEnv());
+    // Every failed query is logged once (with the request id inside a request), then rethrown as is.
+    this.client ??= createPrisma(this.databaseUrl, dbOptionsFromEnv()).$extends({
+      query: { $allOperations: prismaErrorLogger((msg) => this.queryLog.warn(msg)) },
+    }) as unknown as PrismaClient;
     return this.client;
   }
 

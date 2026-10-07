@@ -9,6 +9,7 @@ import '@fontsource/ibm-plex-sans-arabic/600.css';
 import '@fontsource/ibm-plex-sans-arabic/700.css';
 import { Providers } from '@/lib/providers';
 import { PREPAINT_SCRIPT } from '@/lib/prefs-keys';
+import { CrashReporting } from '@/components/crash-panel';
 import { Shell } from '@/components/shell';
 import { themeCss } from '@/theme/palette';
 import './globals.css';
@@ -41,6 +42,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen font-sans">
         <Providers>
+          {/* Crash reports: a no-op until NEXT_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts). */}
+          <CrashReporting />
           <Shell>{children}</Shell>
         </Providers>
       </body>
