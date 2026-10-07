@@ -9,7 +9,11 @@ import {
   type DecideApprovalInput,
   type DecideApprovalOutput,
   type RoleKind,
+  vehicleColourKey,
+  type VehicleColour,
+  type VehicleFeature,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { ConfigService } from '../config/index.js';
@@ -32,6 +36,8 @@ export const APPROVAL_KIND_ROLES: Record<ApprovalKind, readonly RoleKind[]> = {
   // A new merchant goes live: admin, or field ops other than the one who drafted it
   merchant_onboarding: ['admin', 'field_ops'],
   fleet_vehicle: ['field_ops', 'support', 'admin'],
+  // The car check of a driver's claimed features (ride ideas n1, n2): whoever checks cars.
+  vehicle_features: ['field_ops', 'support', 'admin'],
 };
 
 export const APPROVAL_KIND_AR: Record<ApprovalKind, string> = {
@@ -40,6 +46,7 @@ export const APPROVAL_KIND_AR: Record<ApprovalKind, string> = {
   landmark_photo: 'صورة معلم',
   merchant_onboarding: 'تفعيل محل',
   fleet_vehicle: 'مركبة أسطول',
+  vehicle_features: 'مميزات سيارة',
 };
 
 /** The `photo` document is the driver's main photo customers see (Ali, 2026-10-06). */
@@ -48,6 +55,19 @@ const MAIN_PHOTO_HINT_AR = 'تبين للزبائن بعد الموافقة';
 const DEAL_TYPE_AR: Record<string, string> = { percent: 'خصم نسبة', fixed: 'خصم مبلغ', free_delivery: 'توصيل مجاني', bogo: 'واحد ويا واحد' };
 const VEHICLE_AR: Record<string, string> = { bike: 'ماطور', tuktuk: 'تكتك', car: 'سيارة', suv: 'جكسارة', van: 'كيا', intercity: 'سيارة خطوط' };
 const REF_TTL_MS = 5 * 60_000;
+
+/** Model and colour, when the registry has them (ride step 3, d1). */
+function carFacts(v: { model: string | null; colour: VehicleColour | null }): ApprovalItem['facts'] {
+  return [...(v.model ? [{ label_ar: 'الموديل', value: v.model }] : []), ...(v.colour ? [{ label_ar: 'اللون', value: t(vehicleColourKey(v.colour)) }] : [])];
+}
+
+/** Every claimed feature with whether the car check already confirmed it. */
+function featureChecks(v: { features: readonly VehicleFeature[]; featuresConfirmed: readonly VehicleFeature[] }): ApprovalItem['features'] {
+  return v.features.map((feature) => ({ feature, confirmed: v.featuresConfirmed.includes(feature) }));
+}
+
+/** «مكيّفة، عوائل» */
+const featureNames = (fs: readonly VehicleFeature[]) => fs.map((f) => t(`vehicle.feature.${f}`)).join('، ');
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 /**
@@ -110,6 +130,7 @@ export class ApprovalsService {
     if (kinds.includes('landmark_photo')) items.push(...(await this.photoItems(actor, input.cityId)));
     if (kinds.includes('merchant_onboarding')) items.push(...(await this.onboardingItems(actor, input.cityId)));
     if (kinds.includes('fleet_vehicle')) items.push(...(await this.vehicleItems(actor)));
+    if (kinds.includes('vehicle_features')) items.push(...(await this.featureItems(actor)));
     items.sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime() || a.id.localeCompare(b.id));
     const names = await this.names.of(items.map((i) => i.submittedBy).filter((x): x is string => Boolean(x)), actor.personId, 'approvals_queue');
     for (const i of items) if (i.submittedBy && i.submittedByName === null) i.submittedByName = names[i.submittedBy] ?? null;
@@ -154,6 +175,7 @@ export class ApprovalsService {
           ...(d.expiresAt ? [{ label_ar: 'تاريخ الانتهاء', value: d.expiresAt.toISOString().slice(0, 10) }] : []),
         ],
         takesExpiry: ['licence', 'vehicle_registration', 'insurance', 'national_id_front'].includes(d.kind),
+        features: [],
       });
     }
     return out;
@@ -188,6 +210,7 @@ export class ApprovalsService {
           { label_ar: 'الأكلات', value: d.itemIds.length > 0 ? `${d.itemIds.length} أكلة` : 'كل المنيو' },
         ],
         takesExpiry: false,
+        features: [],
       });
     }
     return out;
@@ -219,6 +242,7 @@ export class ApprovalsService {
           { label_ar: 'الهدف', value: isNew ? 'معلم جديد' : p.targetKind === 'meeting_point' ? 'نقطة تجمّع' : 'مكان' },
         ],
         takesExpiry: false,
+        features: [],
       });
     }
     return out;
@@ -251,6 +275,7 @@ export class ApprovalsService {
           ...(o.notes ? [{ label_ar: 'ملاحظات', value: o.notes }] : []),
         ],
         takesExpiry: false,
+        features: [],
       });
     }
     return out;
@@ -277,10 +302,43 @@ export class ApprovalsService {
         facts: [
           { label_ar: 'اللوحة', value: v.plate },
           { label_ar: 'النوع', value: VEHICLE_AR[v.vehicleClass] ?? v.vehicleClass },
+          ...carFacts(v),
           { label_ar: 'المقاعد', value: String(v.seats) },
           { label_ar: 'السايق الحالي', value: v.activeDriverId ? 'معيّن' : 'بدون سايق' },
         ],
         takesExpiry: false,
+        features: featureChecks(v),
+      });
+    }
+    return out;
+  }
+
+  /** Verified cars whose driver claimed features the car check has not confirmed yet (n1, n2). */
+  private async featureItems(actor: Actor): Promise<ApprovalItem[]> {
+    const out: ApprovalItem[] = [];
+    for (const v of await this.fleet.vehiclesWithUnconfirmedFeatures()) {
+      const own = v.activeDriverId === actor.personId || (v.ownerOrgId ? await this.identity.hasRole(actor.personId, 'fleet_owner', v.ownerOrgId) : false);
+      const waiting = v.features.filter((f) => !v.featuresConfirmed.includes(f));
+      out.push({
+        id: `vehicle_features:${v.id}`,
+        kind: 'vehicle_features',
+        kind_ar: APPROVAL_KIND_AR.vehicle_features,
+        refId: v.id,
+        title_ar: `${v.model ?? VEHICLE_AR[v.vehicleClass] ?? v.vehicleClass} · ${v.plate}`,
+        subtitle_ar: featureNames(waiting),
+        submittedAt: v.updatedAt ?? v.createdAt ?? this.clock.now(),
+        submittedBy: v.activeDriverId,
+        submittedByName: null,
+        ownItem: own,
+        photos: [],
+        compare: [],
+        facts: [
+          { label_ar: 'اللوحة', value: v.plate },
+          { label_ar: 'النوع', value: VEHICLE_AR[v.vehicleClass] ?? v.vehicleClass },
+          ...carFacts(v),
+        ],
+        takesExpiry: false,
+        features: featureChecks(v),
       });
     }
     return out;
@@ -327,8 +385,13 @@ export class ApprovalsService {
         break;
       }
       case 'fleet_vehicle': {
-        const v = await this.fleet.reviewVehicle(actor, { vehicleId: input.refId, approve, reason });
-        summary = `${approve ? 'ثبّت' : 'رفض'} المركبة ${v.plate}`;
+        const v = await this.fleet.reviewVehicle(actor, { vehicleId: input.refId, approve, reason, confirmFeatures: input.confirmFeatures });
+        summary = `${approve ? 'ثبّت' : 'رفض'} المركبة ${v.plate}${approve && v.featuresConfirmed.length > 0 ? ` (${featureNames(v.featuresConfirmed)})` : ''}`;
+        break;
+      }
+      case 'vehicle_features': {
+        const v = await this.fleet.reviewFeatures(actor, { vehicleId: input.refId, approve, reason, confirmFeatures: input.confirmFeatures });
+        summary = approve ? `أكّد مميزات ${v.plate}: ${v.featuresConfirmed.length > 0 ? featureNames(v.featuresConfirmed) : 'ولا وحدة'}` : `رفض مميزات ${v.plate}`;
         break;
       }
     }

@@ -5,6 +5,7 @@ import type { Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
+import { VehicleColour, VehicleFeature } from './vehicle-features.js';
 
 /** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
 export const EtaBasis = z.enum(['road', 'estimated']);
@@ -25,8 +26,16 @@ export const CourierCard = z.object({
   vehicleClass: VehicleClass.nullable(),
   /** Registered plate of the vehicle he is driving, when the fleet registry has it. */
   plate: z.string().nullable(),
-  /** "Toyota Corolla · أبيض"; null when unknown. */
+  /** "Toyota Corolla · أبيض" (model + the colour's Arabic name); null when the model is unknown. Kept for older screens. */
   vehicleLabel: z.string().nullable(),
+  /** "Toyota Corolla" as the fleet registry has it; null when unknown (ride step 3, d1). */
+  vehicleModel: z.string().nullable().default(null),
+  /** Body colour, drawn as a real paint dot beside the model (`VEHICLE_COLOUR_HEX`); null when unknown. */
+  vehicleColour: VehicleColour.nullable().default(null),
+  /** What the car offers, ops-confirmed at the car check only, loud ones first (`sortFeatures`; n1, n2). */
+  features: z.array(VehicleFeature).default([]),
+  /** His completed trips on every vertical (the card's "1,240 مشوار"). */
+  tripCount: z.number().int().min(0).default(0),
   /** His average from customers' courier ratings (newest 50), one decimal; null until he has 5 (`RATING_RULES`). */
   rating: z.number().min(1).max(5).nullable(),
   ratingCount: z.number().int().min(0),

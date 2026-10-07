@@ -20,6 +20,7 @@ import {
   type LatLng,
   type Trip,
   type VehicleClass,
+  VehicleColour,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -242,6 +243,8 @@ export class ShareLinksService implements TrackingSharePort {
       driverPhotoUrl: null,
       vehicleClass: null,
       vehicleLabel: null,
+      vehicleModel: null,
+      vehicleColour: null,
       plate: null,
       position: null,
       target: null,
@@ -267,6 +270,8 @@ export class ShareLinksService implements TrackingSharePort {
       driverPhotoUrl: driver?.photoRef && this.photos ? this.photos.readUrl(driver.photoRef) : null,
       vehicleClass: state.vehicleClass,
       vehicleLabel: state.vehicleLabel,
+      vehicleModel: state.vehicleModel,
+      vehicleColour: state.vehicleColour,
       plate: state.plate,
       position: state.position ? { ...state.position, ageSec: Math.max(0, Math.round((now.getTime() - state.position.at.getTime()) / 1000)) } : null,
       target: state.target,
@@ -393,6 +398,8 @@ export class ShareLinksService implements TrackingSharePort {
       driverId: trip.courierId,
       vehicleClass,
       vehicleLabel: vehicle?.label ?? null,
+      vehicleModel: vehicle?.model ?? null,
+      vehicleColour: vehicle?.colour ?? null,
       plate: vehicle?.plate ?? null,
       position,
       target,
@@ -421,7 +428,7 @@ export class ShareLinksService implements TrackingSharePort {
       return delivered ? { ...base, status: 'arrived', completedAt: delivered } : base;
     }
     const vehicle = await this.vehicles.forCourier(trip.courierId, trip.vehicleId);
-    const courier = { ...base, driverId: trip.courierId, vehicleClass: vehicle?.vehicleClass ?? order.minVehicleClass ?? 'bike', vehicleLabel: vehicle?.label ?? null, plate: vehicle?.plate ?? null };
+    const courier = { ...base, driverId: trip.courierId, vehicleClass: vehicle?.vehicleClass ?? order.minVehicleClass ?? 'bike', vehicleLabel: vehicle?.label ?? null, vehicleModel: vehicle?.model ?? null, vehicleColour: vehicle?.colour ?? null, plate: vehicle?.plate ?? null };
     if (delivered) return { ...courier, status: 'arrived', completedAt: delivered };
     const collected = Boolean(order.pickedUpAt) || order.state === 'picked_up' || stop('pickup')?.state === 'completed';
     const state: SubjectState = { ...courier, status: collected ? 'on_trip' : 'to_pickup' };
@@ -445,6 +452,9 @@ export class ShareLinksService implements TrackingSharePort {
       driverId: dep.driverId,
       vehicleClass: 'intercity',
       vehicleLabel: [dep.vehicle.model, dep.vehicle.color].filter(Boolean).join(' · ') || null,
+      vehicleModel: dep.vehicle.model,
+      // The garage form's colour is free text; the paint dot only when it names one of ours.
+      vehicleColour: VehicleColour.safeParse(dep.vehicle.color).data ?? null,
       plate: dep.vehicle.plate,
       position: null,
       target: null,
@@ -473,6 +483,8 @@ interface SubjectState {
   driverId: string | null;
   vehicleClass: VehicleClass | null;
   vehicleLabel: string | null;
+  vehicleModel: string | null;
+  vehicleColour: VehicleColour | null;
   plate: string | null;
   position: { lat: number; lng: number; at: Date; bearing: number | null; speedKmh: number | null } | null;
   target: SharedTrip['target'];
@@ -481,7 +493,7 @@ interface SubjectState {
   storeName: string | null;
 }
 
-const EMPTY_STATE: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, plate: null, position: null, target: null, eta: null, route: null, storeName: null };
+const EMPTY_STATE: SubjectState = { status: 'waiting', completedAt: null, driverId: null, vehicleClass: null, vehicleLabel: null, vehicleModel: null, vehicleColour: null, plate: null, position: null, target: null, eta: null, route: null, storeName: null };
 
 /** Completion + 30 min, capped at creation + 24 h. */
 export function expiryOf(createdAt: Date, completedAt: Date | null): Date {

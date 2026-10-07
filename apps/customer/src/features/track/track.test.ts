@@ -89,7 +89,7 @@ function trip(state: NonNullable<OrderTracking['trip']>['state'], extra: Partial
   };
 }
 
-const courier = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 12345', vehicleLabel: null, rating: null, ratingCount: 0, verifiedTodayAt: T0, photoUrl: null };
+const courier = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 12345', vehicleLabel: null, vehicleModel: null, vehicleColour: null, features: [], tripCount: 0, rating: null, ratingCount: 0, verifiedTodayAt: T0, photoUrl: null };
 
 describe('geo — interpolation and bearing', () => {
   it('bearing is clockwise from north', () => {

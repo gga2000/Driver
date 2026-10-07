@@ -94,7 +94,7 @@ describe('TrackingService — the view', () => {
 
   it('shows the courier by first name, vehicle and plate, verified today; one vault read per trip', async () => {
     const { h, tracking, vehicles, vaultReads } = setup();
-    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨', label: null });
+    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط ٤٥٦٧٨' });
     const o = await acceptedOrder(h);
     const trip = await h.tripFor(o.id);
     const v = await tracking.track(as('c1'), { orderId: o.id });
@@ -106,11 +106,33 @@ describe('TrackingService — the view', () => {
     expect(vaultReads).toEqual([{ courierId: 'd1', accessorId: 'c1' }]);
   });
 
+  it('ride step 3: the card names the model with its colour, the confirmed features and his completed trips', async () => {
+    const { h, tracking, vehicles } = setup();
+    vehicles.register('d1', { vehicleClass: 'car', plate: 'واسط 31207', model: 'Toyota Corolla', colour: 'white', features: ['family', 'ac'] });
+    // An earlier job he finished counts; this one (still on its way) does not yet.
+    const first = await acceptedOrder(h);
+    const firstTrip = await h.tripFor(first.id);
+    await h.pickup(firstTrip.id);
+    await h.dropoff(firstTrip.id, { cashCollectedIqd: 16500 });
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    const card = (await tracking.track(as('c1'), { orderId: o.id })).courier!;
+    expect(card).toMatchObject({ vehicleModel: 'Toyota Corolla', vehicleColour: 'white', vehicleLabel: 'Toyota Corolla · أبيض', features: ['ac', 'family'], tripCount: 1 });
+  });
+
+  it('ride step 3: without a registered model the card has no label, no colour and no features', async () => {
+    const { h, tracking, vehicles } = setup();
+    vehicles.register('d1', { vehicleClass: 'tuktuk', plate: 'واسط 777', colour: 'red' });
+    const o = await acceptedOrder(h);
+    await h.tripFor(o.id);
+    expect((await tracking.track(as('c1'), { orderId: o.id })).courier).toMatchObject({ vehicleModel: null, vehicleColour: 'red', vehicleLabel: null, features: [], tripCount: 0 });
+  });
+
   it('joy l2: the card carries his public rating once five customers rated him (read once per card)', async () => {
     let reads = 0;
     const at = (n: number) => new Date(Date.UTC(2026, 9, n));
     const few = setup(undefined, { courierScores: async () => [4, 5, 5].map((score, i) => ({ score, at: at(i + 1) })) });
-    few.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    few.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111' });
     const o1 = await acceptedOrder(few.h);
     await few.h.tripFor(o1.id);
     expect((await few.tracking.track(as('c1'), { orderId: o1.id })).courier).toMatchObject({ rating: null, ratingCount: 0 });
@@ -120,7 +142,7 @@ describe('TrackingService — the view', () => {
         return [5, 5, 4, 5, 5, 4].map((score, i) => ({ score, at: at(i + 1) }));
       },
     });
-    many.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111', label: null });
+    many.vehicles.register('d1', { vehicleClass: 'bike', plate: 'واسط 11111' });
     const o2 = await acceptedOrder(many.h);
     await many.h.tripFor(o2.id);
     expect((await many.tracking.track(as('c1'), { orderId: o2.id })).courier).toMatchObject({ rating: 4.7, ratingCount: 6 });

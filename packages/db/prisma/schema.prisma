@@ -460,30 +460,30 @@ enum ZoneTier {
 
 /// Plate-level object. Owned by an org (fleet) and driven by one active person.
 model Vehicle {
-  id             String       @id @default(cuid())
-  plate          String       @unique
-  class          VehicleClass
-  ownerOrgId     String?      @map("owner_org_id")
-  activeDriverId String?      @map("active_driver_id")
+  id                String       @id @default(cuid())
+  plate             String       @unique
+  class             VehicleClass
+  ownerOrgId        String?      @map("owner_org_id")
+  activeDriverId    String?      @map("active_driver_id")
   /// Edge-case §9: seat map per vehicle — saloon 4, SUV 6, van 7/11: [{position, row, premiumIqd?}].
-  seatMap        Json         @default("[]") @map("seat_map")
-  parcelCapacity Int          @default(0) @map("parcel_capacity")
-  active         Boolean      @default(true)
+  seatMap           Json         @default("[]") @map("seat_map")
+  parcelCapacity    Int          @default(0) @map("parcel_capacity")
+  active            Boolean      @default(true)
   /// Launch control room: a fleet owner's new vehicle waits for ops ("pending"); everything else is "verified".
-  reviewState    String       @default("verified") @map("review_state")
-  reviewedById   String?      @map("reviewed_by_id")
-  reviewedAt     DateTime?    @map("reviewed_at")
-  reviewNote     String?      @map("review_note")
-  /// Ride step 3 (d1): the car's model as riders name it ("Toyota Corolla"); null on older rows.
+  reviewState       String       @default("verified") @map("review_state")
+  reviewedById      String?      @map("reviewed_by_id")
+  reviewedAt        DateTime?    @map("reviewed_at")
+  reviewNote        String?      @map("review_note")
+  /// Ride step 3 (d1): "Toyota Corolla", typed by the fleet owner; null on older rows.
   model             String?
-  /// VehicleColour (`packages/contracts/src/vehicle-features.ts`); null on older rows.
+  /// One of `VehicleColour` (white, black, silver…): the colour dot beside the model on the rider's card.
   colour            String?
-  /// VehicleFeature keys the driver claims (n1, n2): ac, heating, family, no_smoking, big_boot, child_seat.
+  /// What the driver says the car offers (`VehicleFeature`: ac, heating, family, no_smoking, big_boot, child_seat).
   features          String[]     @default([])
-  /// The claimed features ops confirmed at the car check (a subset of `features`); customers see only these.
+  /// The claims ops confirmed at the car check (a subset of `features`); the only ones customers see.
   featuresConfirmed String[]     @default([]) @map("features_confirmed")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
 
   ownerOrg     Org?        @relation(fields: [ownerOrgId], references: [id])
   activeDriver Person?     @relation("VehicleActiveDriver", fields: [activeDriverId], references: [id])

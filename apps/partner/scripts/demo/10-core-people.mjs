@@ -2,8 +2,8 @@
 // the role gate, a few other couriers on the map, and today's money for the courier.
 //
 //   who=courier    0770 111 0001  حيدر كاظم    courier, bike   — 12,500 · 6 طلبات today, 45,000 cash held
-//   who=tuktuk     0770 111 0002  عباس فاضل    driver, tuktuk  — online in الهاشمي
-//   who=intercity  0770 111 0003  مصطفى جاسم   intercity_driver, car
+//   who=tuktuk     0770 111 0002  عباس فاضل    driver, tuktuk  — online in الهاشمي; a blue باجاج, «ممنوع التدخين» confirmed, «عوائل» waiting
+//   who=intercity  0770 111 0003  مصطفى جاسم   intercity_driver, car — a black هيونداي سوناتا, AC confirmed, heating waiting
 //   who=khat       0770 111 0004  كرار عادل    khat_driver, van
 //   who=customer   0770 111 0009  (customer only → "حسابك مو مفعّل كشريك بعد")
 //   who=buyer      0770 111 0010  the customer whose orders the demo places
@@ -23,8 +23,9 @@ export default async function register(demo) {
   demo.restaurants = Object.fromEntries(seeded.map((s) => [s.seed.key, s]));
 
   const courier = await demo.person({ key: 'courier', phone: '07701110001', name: 'حيدر كاظم', roles: ['courier'], vehicle: 'bike', plate: 'واسط 45678' });
-  const tuktuk = await demo.person({ key: 'tuktuk', phone: '07701110002', name: 'عباس فاضل', roles: ['driver'], vehicle: 'tuktuk', plate: 'واسط 31207' });
-  await demo.person({ key: 'intercity', phone: '07701110003', name: 'مصطفى جاسم', roles: ['intercity_driver'], vehicle: 'car', plate: 'بغداد 88412' });
+  // «مميزات سيارتك»: one feature confirmed at the car check, one still waiting for it.
+  const tuktuk = await demo.person({ key: 'tuktuk', phone: '07701110002', name: 'عباس فاضل', roles: ['driver'], vehicle: 'tuktuk', plate: 'واسط 31207', car: { model: 'باجاج', colour: 'blue', claimed: ['family', 'no_smoking'], confirmed: ['no_smoking'] } });
+  await demo.person({ key: 'intercity', phone: '07701110003', name: 'مصطفى جاسم', roles: ['intercity_driver'], vehicle: 'car', plate: 'بغداد 88412', car: { model: 'هيونداي سوناتا', colour: 'black', claimed: ['ac', 'heating', 'no_smoking'], confirmed: ['ac', 'no_smoking'] } });
   await demo.person({ key: 'khat', phone: '07701110004', name: 'كرار عادل', roles: ['khat_driver'], vehicle: 'van', plate: 'واسط 50923' });
   await demo.person({ key: 'customer', phone: '07701110009', name: 'زينب' });
   const buyer = await demo.person({ key: 'buyer', phone: '07701110010', name: 'علي' });

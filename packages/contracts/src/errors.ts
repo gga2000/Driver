@@ -71,6 +71,8 @@ export const ERROR_TABLE = {
   fleet_ambiguous: { retryHint: 'never', status: 'BAD_REQUEST' },
   vehicle_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   vehicle_plate_taken: { retryHint: 'never', status: 'CONFLICT' },
+  // fleet.setMyVehicleFeatures: a feature his kind of vehicle cannot offer (AC on a tuktuk), `CLASS_FEATURES`
+  vehicle_feature_not_offered: { retryHint: 'never', status: 'BAD_REQUEST' },
   driver_not_in_fleet: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_code_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   handover_code_locked: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
