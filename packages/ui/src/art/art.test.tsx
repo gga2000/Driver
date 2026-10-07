@@ -5,16 +5,20 @@ import { hasKey, t } from '@driver/i18n';
 import { EmptyState } from '../components/EmptyState';
 import { RetryState } from '../components/RetryState';
 import { renderUI } from '../test/render';
+import { DISH_PICTURES } from './dish-pictures';
 import { DISH_KINDS, DishDrawing } from './dishes';
 import { archPath } from './kit';
 import { SCENE_NAMES, SketchScene } from './SketchScene';
 
 const SHAPES = 'path,circle,ellipse,rect,line,polygon';
-/** Cheap-Android budget (spec §6): a menu shows many dishes, a screen one scene. */
-const DISH_BUDGET = 40;
+/**
+ * Cheap-Android budget (spec §6): a menu shows many dishes, a screen one scene. The dish pictures are Ali's
+ * locked set as drawn; the importer joins their grains and seeds into one path per colour to stay under it.
+ */
+const DISH_BUDGET = 110;
 const SCENE_BUDGET = 90;
 
-describe('sketchbook dishes (joy J4)', () => {
+describe('dish pictures (joy J4)', () => {
   it('has the food-funnel S-3 archetypes', () => {
     for (const k of ['kebab', 'tikka', 'liver', 'chicken', 'shawarma', 'falafel', 'wrap', 'plate', 'tray', 'rice', 'okra', 'beans', 'soup', 'pacha', 'dolma', 'fish', 'kubba', 'bread', 'salad', 'pickles', 'hummus', 'sweet', 'tea', 'laban', 'water', 'can'] as const) {
       expect(DISH_KINDS).toContain(k);
@@ -31,6 +35,23 @@ describe('sketchbook dishes (joy J4)', () => {
       const n = container.querySelectorAll(SHAPES).length;
       expect(n).toBeGreaterThan(4);
       expect(n).toBeLessThanOrEqual(DISH_BUDGET);
+      unmount();
+    }
+  });
+
+  it('every picture keeps its ids to itself (many dishes share one page on the web)', () => {
+    const owner = new Map<string, string>();
+    for (const [name, Picture] of Object.entries(DISH_PICTURES)) {
+      const { container, unmount } = renderUI(
+        <Svg viewBox="0 0 240 240">
+          <Picture />
+        </Svg>,
+      );
+      for (const el of container.querySelectorAll('[id]')) {
+        expect(el.id.startsWith(`${name}-`)).toBe(true);
+        expect(owner.get(el.id) ?? name).toBe(name);
+        owner.set(el.id, name);
+      }
       unmount();
     }
   });

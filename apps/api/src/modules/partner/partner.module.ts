@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EtaService, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
-import { ClimateChecks, DispatchModule, DispatchService } from '../dispatch/index.js';
+import { ClimateChecks, DispatchModule, DispatchService, type BookedJobInfo } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
 import { FleetModule, FleetService } from '../fleet/index.js';
 import { IdentityModule, ROLE_READER, type RoleReader } from '../identity/index.js';
@@ -15,7 +15,7 @@ import { TripsModule, TripsService } from '../trips/index.js';
 import { WAITING_STATUSES, type TakeRule } from './logic.js';
 import { PartnerService } from './partner.service.js';
 import { PlacesModule, SavedPlacesService } from '../places/index.js';
-import { PARTNER_DEPS, type PartnerDeps } from './ports.js';
+import { PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps } from './ports.js';
 
 /** Ride take rules by vertical (money & ops §3); deliveries pass through and have none. */
 function takeFor(vertical: Vertical): TakeRule | null {
@@ -62,6 +62,20 @@ function takeFor(vertical: Vertical): TakeRule | null {
         },
         dispatch: {
           openOffer: (id, cityId) => dispatch.openOffer(id, cityId),
+          bookedJobs: async (id, cityId) => {
+            const found = await dispatch.bookedJobs(id, cityId);
+            const record = (i: BookedJobInfo): PartnerBookedRecord => ({
+              request: i.request,
+              scheduledFor: new Date(i.job.scheduledFor),
+              confirmBy: new Date(i.job.confirmBy),
+              startFrom: i.startFrom,
+              showBy: i.showBy,
+              favourite: i.favourite,
+              held: i.job.driverId === id,
+            });
+            return { online: found.online, mine: found.mine.map(record), open: found.open.map(record) };
+          },
+          answerBookedJob: (id, tripId, answer) => dispatch.answerBookedJob(id, tripId, answer),
           waitingZones: async (cityId) => {
             try {
               return (await dispatch.board(cityId)).cards.filter((c) => WAITING_STATUSES.has(c.status)).map((c) => c.zoneId);

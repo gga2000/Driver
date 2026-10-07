@@ -13,6 +13,7 @@ import type {
   OverrideInput,
   PartnerDemandMap,
   OverrideOutput,
+  PartnerBookedAnswer,
   RespondInput,
   RespondOutput,
   SetPolicyInput,
@@ -24,7 +25,7 @@ import type { DispatchRequest } from './dispatch.store.js';
 import { liveDriver, type LiveDriver } from './driver-pins.js';
 import { NearbyService } from './nearby.service.js';
 import { ZoneDemandService } from './zone-demand.service.js';
-import { OfferOrchestrator, type DispatchRequestInput } from './offer.orchestrator.js';
+import { OfferOrchestrator, type BookedJobInfo, type BookedRideInfo, type DispatchRequestInput } from './offer.orchestrator.js';
 import { AutoAssignPolicy, PreAssignedPolicy, ScheduledPolicy, SmartBroadcastPolicy } from './policies.js';
 import type { DispatchJob, DispatchPlan, DriverCandidate, Policy } from './policy.js';
 import type { RiderPrefsPort } from './ports.js';
@@ -208,6 +209,21 @@ export class DispatchService implements DispatchPort {
   /** A driver's own open offer and its request (the Partner app's offer card), or null. */
   openOffer(driverId: string, cityId: string): Promise<{ offer: OfferRecord; request: DispatchRequest } | null> {
     return this.o.openOfferFor(driverId, cityId);
+  }
+
+  /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones open to him. */
+  bookedJobs(driverId: string, cityId: string): Promise<{ online: boolean; mine: BookedJobInfo[]; open: BookedJobInfo[] }> {
+    return this.o.bookedFor(driverId, cityId);
+  }
+
+  /** Confirm / pass on an open booked ride, release or start his own (review #28). */
+  answerBookedJob(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void> {
+    return this.o.answerBooked(driverId, tripId, answer);
+  }
+
+  /** The rider's booked ride: who confirmed it, or when the search starts (review #28). */
+  bookedRide(tripId: string): Promise<BookedRideInfo | null> {
+    return this.o.bookedRide(tripId);
   }
 
   /** Offers accepted since `since` and the mean seconds from send to accept. */

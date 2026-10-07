@@ -41,6 +41,13 @@ describe('greeting and band', () => {
     expect(greetingKey(friLunch, { quiet: false, named: true })).toBe('home.daypart.friday_lunch');
   });
 
+  it('late with every kitchen closed, says they are back in the morning instead of «هذني فاتحين»', () => {
+    expect(greetingKey(daypart(at('03:10')), { quiet: false, named: true, closed: true })).toBe('home.daypart.late_closed');
+    expect(greetingKey(daypart(at('03:10')), { quiet: false, named: false, closed: true })).toBe('home.daypart.late_closed_anon');
+    expect(greetingKey(daypart(at('07:00')), { quiet: false, named: true, closed: true })).toBe('home.daypart.dawn');
+    expect(greetingKey(daypart(at('03:10')), { quiet: true, named: true, closed: true })).toBe('home.daypart.quiet_late');
+  });
+
   it('has no playful line on a quiet day', () => {
     expect(greetingKey(daypart(at('01:00')), { quiet: true, named: true })).toBe('home.daypart.quiet_late');
     expect(greetingKey(daypart(at('17:00')), { quiet: true, named: false })).toBe('home.daypart.quiet_evening_anon');

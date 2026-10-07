@@ -17,9 +17,11 @@ import { VEHICLE_ICON } from '@/features/work/logic';
 import { OnlineSwitch } from '@/features/work/OnlineSwitch';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
 import { PrePromptGate } from '@/features/notify/Push';
-import { useDemandMap, useStatus } from '@/features/work/queries';
+import { useBookedJobs, useDemandMap, useStatus } from '@/features/work/queries';
+import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
+import { formatWhen } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
 /**
@@ -30,6 +32,7 @@ import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 export default function Home() {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const status = useStatus();
   const s = status.data;
   const presence = usePresence(s);
@@ -47,6 +50,9 @@ export default function Home() {
   // A fleet owner's invite waits for his yes (nothing reaches the owner before it).
   const invites = useFleetInvites(s?.canDrive ?? false);
   const invite = splitInvites(invites.data ?? []).pending[0] ?? null;
+  // Review #28: «مشاوير باچر» for taxi and tuktuk drivers.
+  const bookedJobs = useBookedJobs(s?.modes.includes('city') ?? false);
+  const booked = bookedHome(bookedJobs.data, new Date());
 
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -146,6 +152,17 @@ export default function Home() {
               ) : null}
               {s.modes.includes('khat') ? (
                 <ModeCard testID="mode-khat" icon="seat" href="/khat" title={t('partner.khat_card_title')} body={t('partner.khat_card_body')} cta={t('partner.khat_card_cta')} />
+              ) : null}
+              {/* Review #28: rides booked for later — his next one, or how many wait for a driver. */}
+              {booked ? (
+                <ModeCard
+                  testID="mode-booked"
+                  icon="taxi"
+                  href="/booked"
+                  title={t('partner.booked_title')}
+                  body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+                  cta={t('partner.booked_home_cta')}
+                />
               ) : null}
               {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
 

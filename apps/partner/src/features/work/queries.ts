@@ -144,6 +144,32 @@ export function useAnswerClimateCheck() {
   });
 }
 
+/** «مشاوير باچر» (review #28): his booked rides and the open ones; re-read every minute (lighter in low-data mode). */
+export function useBookedJobs(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const lite = useLiteMode();
+  return useQuery({ ...api.partner.bookedJobs.queryOptions(), enabled: signedIn && enabled, staleTime: 30_000, refetchInterval: enabled ? liteInterval(BOOKED_REFRESH_MS, lite) : false });
+}
+
+const BOOKED_REFRESH_MS = 60_000;
+
+/** Confirm / pass / release / start: the answer comes back with the fresh list; a start opens the job. */
+export function useAnswerBookedJob() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const refresh = useRefreshWork();
+  return useMutation({
+    ...api.partner.answerBookedJob.mutationOptions(),
+    onSuccess: (jobs, input) => {
+      qc.setQueryData(api.partner.bookedJobs.queryKey(), jobs);
+      if (input.answer === 'start') void refresh();
+    },
+    // Taken by someone else, closed, or changed since the list was read: show what is true now.
+    onError: () => void qc.invalidateQueries({ queryKey: api.partner.bookedJobs.queryKey() }),
+  });
+}
+
 export function useRespond() {
   const api = useApi();
   return useMutation(api.dispatch.respond.mutationOptions());

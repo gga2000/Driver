@@ -309,10 +309,18 @@ Demo: `POST /demo/ride-safety?who=tuktuk&step=at_pickup` (answers with the `star
 ## «الزبون طلبك إنت» — a favourite's offer (joy l9)
 
 A rider who kept a driver as a favourite may ask for him on a ride booked for later. When its search starts
-(15 minutes before) the offer rings for him alone for a minute and says «الزبون طلبك إنت» (`offer-favourite`
+(30 minutes before, when no driver confirmed it the evening before) the offer rings for him alone for a minute and says «الزبون طلبك إنت» (`offer-favourite`
 in `app/offer.tsx`, from `PartnerOffer.favourite`); then the normal waves. Nothing else about who favourited
 him is shown. Demo: `POST /demo/offer?who=tuktuk&kind=favourite`; `SHOTS=favourite` (`scripts/shots/97-favourite.mjs`).
 `docs/api/ride-habits.md`.
+
+## «مشاوير باچر» — booked rides offered the evening before (review #28)
+
+`app/booked.tsx` and the home card (`mode-booked`, taxi/tuktuk drivers): his booked rides («طالع هسة» from an
+hour before, «ما أگدر أجي» asked twice) and the open ones that fit his vehicle («أحجزه» / «مو إلي», «احجزه قبل
+10 بالليل», «الزبون طلبك إنت» for the rider's own driver). Zones, km and pay only. Offline he sees only his own.
+Demo: `POST /demo/booked?who=tuktuk[&mine=1]` (`scripts/demo/27-booked.mjs`); `SHOTS=booked`
+(`scripts/shots/98-booked.mjs`). `docs/api/ride-habits.md`.
 
 ## «كلام الزبائن» — compliments (joy l4)
 

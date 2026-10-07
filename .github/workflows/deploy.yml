@@ -156,7 +156,8 @@ jobs:
       - run: |
           flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
             --app "${{ vars.FLY_CONSOLE_APP }}" --remote-only \
-            --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}"
+            --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}" \
+            --build-arg NEXT_PUBLIC_SENTRY_DSN="${{ vars.SENTRY_DSN_CONSOLE || vars.SENTRY_DSN }}"
 
   web:
     name: deploy web (${{ matrix.app }})
@@ -171,14 +172,19 @@ jobs:
         include:
           - app: customer
             project_var: CF_PAGES_CUSTOMER
+            sentry_var: SENTRY_DSN_CUSTOMER
           - app: partner
             project_var: CF_PAGES_PARTNER
+            sentry_var: SENTRY_DSN_PARTNER
           - app: merchant
             project_var: CF_PAGES_MERCHANT
+            sentry_var: SENTRY_DSN_MERCHANT
     env:
       PROJECT: ${{ vars[matrix.project_var] }}
       EXPO_PUBLIC_API_URL: ${{ vars.API_PUBLIC_URL }}
       EXPO_PUBLIC_SHARE_BASE_URL: ${{ vars.SHARE_BASE_URL }}
+      # Crash reports (docs/deploy/hosting.md "Logs and errors"); unset = none are sent.
+      EXPO_PUBLIC_SENTRY_DSN: ${{ vars[matrix.sentry_var] || vars.SENTRY_DSN }}
     steps:
       - name: Skip when no Pages project is named for this app
         if: env.PROJECT == ''

@@ -3,6 +3,7 @@ import type { Cue } from './moment-sound';
 
 /* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles assets through require() */
 const FILES: Record<Cue, number> = {
+  placed: require('../../assets/sounds/placed.wav') as number,
   accepted: require('../../assets/sounds/accepted.wav') as number,
   picked_up: require('../../assets/sounds/picked_up.wav') as number,
   near: require('../../assets/sounds/near.wav') as number,
