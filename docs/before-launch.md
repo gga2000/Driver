@@ -45,7 +45,7 @@ we can't open to the public without it.
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |
 | Road routing server (OSRM), until then times are straight-line estimates | No | `docs/deploy/hosting.md` |
 | Apple developer account (iPhone comes after Android) | No | `docs/deploy/mobile.md` |
-| Our own domain, Sentry crash reports | No | `docs/deploy/web.md`, `docs/deploy/hosting.md` |
+| Our own domain; Sentry crash reports (server, three apps and the Console are built and switched off: only a Sentry account and the DSNs are needed) | No | `docs/deploy/web.md`, `docs/deploy/hosting.md` "Logs and errors" |
 
 ## 3. Built, but not finished for real phones
 
