@@ -215,8 +215,10 @@ export const PartnerOffer = z.object({
    * alone for a minute; nothing else about who favourited him is ever shown.
    */
   favourite: z.boolean().default(false),
+  /** «راكب ينتظرك» (ride step 3, n4): the waiting rider nudged him on this offer; null = not. */
+  nudgedAt: z.coerce.date().nullable().default(null),
 });
-export type PartnerOffer = z.infer<typeof PartnerOffer>;
+export type PartnerOffer =z.infer<typeof PartnerOffer>;
 
 /**
  * The customer's door for the courier on the job (maps program f6, a5). Photos are signed links,

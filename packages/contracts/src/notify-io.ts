@@ -127,6 +127,7 @@ export const NotifyTemplateId = z.enum([
   'merchant_new_order',
   'partner_new_job',
   'partner_zone_nudge',
+  'ride_nudge',
   'merchant_cash_handover',
   'menu_photos_ready',
   'courier_cash_receipt',
@@ -309,6 +310,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'partner',
     push: { title: 'push.partner_zone_nudge.title', body: 'push.partner_zone_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // «نبّهه» (ride step 3, n4): the rider waiting on a ride he was sent nudged him — soft, on the
+  // quiet `orders` channel (the offer itself already rang on `offers`); opens the offer.
+  ride_nudge: {
+    id: 'ride_nudge',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.ride_nudge.title', body: 'push.ride_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://offer' },
     primary: ['push'],
     quietHours: 'send',
   },

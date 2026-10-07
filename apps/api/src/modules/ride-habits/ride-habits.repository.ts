@@ -28,6 +28,14 @@ export interface RegularTripRecord {
 
 export type NewRegularTrip = Omit<RegularTripRecord, 'id' | 'createdAt'>;
 
+/** A driver a rider keeps off his rides (`avoided_drivers`, ride step 3 s5): ids only. */
+export interface AvoidRecord {
+  id: string;
+  personId: string;
+  driverId: string;
+  createdAt: Date;
+}
+
 /** One day's decision on a regular trip (`regular_trip_occurrences`). */
 export interface OccurrenceRecord {
   regularTripId: string;
@@ -50,6 +58,12 @@ export interface RideHabitsRepository {
   addFavourite(personId: string, driverId: string, kind: FavouriteKind, now: Date): Promise<FavouriteRecord>;
   removeFavourite(personId: string, driverId: string): Promise<void>;
 
+  /** s5: oldest first. */
+  avoidedOf(personId: string): Promise<AvoidRecord[]>;
+  /** Idempotent: an existing row is returned as is. */
+  addAvoid(personId: string, driverId: string, now: Date): Promise<AvoidRecord>;
+  removeAvoid(personId: string, driverId: string): Promise<void>;
+
   tripsOf(personId: string): Promise<RegularTripRecord[]>;
   trip(id: string): Promise<RegularTripRecord | null>;
   activeTrips(): Promise<RegularTripRecord[]>;
@@ -70,6 +84,7 @@ const newId = (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, '').sl
 
 export class InMemoryRideHabitsRepository implements RideHabitsRepository {
   private readonly favs: FavouriteRecord[] = [];
+  private readonly avoids: AvoidRecord[] = [];
   private readonly trips = new Map<string, RegularTripRecord>();
   private readonly occ = new Map<string, OccurrenceRecord>();
 
@@ -94,6 +109,22 @@ export class InMemoryRideHabitsRepository implements RideHabitsRepository {
     if (i < 0) return;
     const [gone] = this.favs.splice(i, 1);
     for (const t of this.trips.values()) if (t.favouriteId === gone!.id) t.favouriteId = null;
+  }
+
+  async avoidedOf(personId: string): Promise<AvoidRecord[]> {
+    return this.avoids.filter((a) => a.personId === personId).map((a) => ({ ...a }));
+  }
+  async addAvoid(personId: string, driverId: string, now: Date): Promise<AvoidRecord> {
+    let a = this.avoids.find((x) => x.personId === personId && x.driverId === driverId);
+    if (!a) {
+      a = { id: newId('avd'), personId, driverId, createdAt: now };
+      this.avoids.push(a);
+    }
+    return { ...a };
+  }
+  async removeAvoid(personId: string, driverId: string): Promise<void> {
+    const i = this.avoids.findIndex((x) => x.personId === personId && x.driverId === driverId);
+    if (i >= 0) this.avoids.splice(i, 1);
   }
 
   async tripsOf(personId: string): Promise<RegularTripRecord[]> {
@@ -147,6 +178,9 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
 }
 
+type AvoidRow = { id: string; personId: string; driverId: string; createdAt: Date };
+const avoidOf = (r: AvoidRow): AvoidRecord => ({ id: r.id, personId: r.personId, driverId: r.driverId, createdAt: r.createdAt });
+
 type FavRow = { id: string; personId: string; driverId: string; kinds: string[]; createdAt: Date };
 const favOf = (r: FavRow): FavouriteRecord => ({ id: r.id, personId: r.personId, driverId: r.driverId, kinds: r.kinds.filter((k): k is FavouriteKind => k === 'taxi' || k === 'tuktuk' || k === 'intercity'), createdAt: r.createdAt });
 
@@ -199,6 +233,24 @@ export class PrismaRideHabitsRepository implements RideHabitsRepository {
   }
   async removeFavourite(personId: string, driverId: string): Promise<void> {
     await this.db.favouriteDriver.deleteMany({ where: { personId, driverId } });
+  }
+
+  async avoidedOf(personId: string): Promise<AvoidRecord[]> {
+    return (await this.db.avoidedDriver.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } })).map(avoidOf);
+  }
+  async addAvoid(personId: string, driverId: string, now: Date): Promise<AvoidRecord> {
+    const where = { personId_driverId: { personId, driverId } };
+    const prior = await this.db.avoidedDriver.findUnique({ where });
+    if (prior) return avoidOf(prior);
+    try {
+      return avoidOf(await this.db.avoidedDriver.create({ data: { personId, driverId, createdAt: now } }));
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      return avoidOf((await this.db.avoidedDriver.findUnique({ where }))!);
+    }
+  }
+  async removeAvoid(personId: string, driverId: string): Promise<void> {
+    await this.db.avoidedDriver.deleteMany({ where: { personId, driverId } });
   }
 
   async tripsOf(personId: string): Promise<RegularTripRecord[]> {

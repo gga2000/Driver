@@ -425,6 +425,7 @@ export class OrdersService implements OnModuleInit {
             heldForPayer: askPayer !== null,
             familyTable: input.familyTable ?? false,
             preferredDriverId,
+            familyPreferred: input.type === 'ride' && input.familyPreferred === true,
           },
           newLines,
           participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
@@ -444,7 +445,7 @@ export class OrdersService implements OnModuleInit {
           participantCount: agg.participants.length,
           arrivingCallRequired: risk?.requiresArrivingCall ?? false,
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
-          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId } } : {}),
+          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true } } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -1215,6 +1216,8 @@ export class OrdersService implements OnModuleInit {
       dropoff: s.dropoff,
       ...(s.order.householdOrgId ? { householdOrgId: s.order.householdOrgId } : {}),
       ...(s.order.courierNote ? { courierNote: s.order.courierNote } : {}),
+      // Ride step 3 (s6): «عوائل» carries over to the other vehicle.
+      ...(s.order.familyPreferred ? { familyPreferred: true } : {}),
       clientRequestId: input.clientRequestId,
     });
     return this.uow.run(async () => {
@@ -2188,6 +2191,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     ...(order.heldForPayer ? { heldForPayer: true } : {}),
     ...(order.familyTable ? { familyTable: true } : {}),
     ...(order.preferredDriverId ? { preferredDriverId: order.preferredDriverId } : {}),
+    ...(order.familyPreferred ? { familyPreferred: true } : {}),
     quoteId: order.quoteId,
     paymentMethod: order.paymentMethod,
     itemsTotalIqd: order.itemsTotalIqd,

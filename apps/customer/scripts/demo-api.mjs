@@ -1448,16 +1448,25 @@ const rajaa = await (async () => {
 //   POST /demo/ride/accept?orderId=…  accept that ride's open offer now
 //   POST /demo/ride/advance?orderId=… one step: to pickup → at pickup → on the trip → arrived (cash paid)
 //   POST /demo/ride/search-age?orderId=…&sec=200  the ride reads as searching for `sec` (the 3-minute offer)
+//   POST /demo/ride?acceptMs=0[&nudgeAcceptMs=4000]  hold every offer: the rider watches the drivers it was
+//                                     sent to (dispatch.myRideOffers: sent → شافه after 1.5 s), and a driver he
+//                                     nudges («نبّهه») accepts nudgeAcceptMs after the nudge (0 = never)
+//   POST /demo/ride/nudges?orderId=…  the drivers sent that ride and which were nudged (what each one's
+//                                     partner app shows as «راكب ينتظرك»)
 {
   const RIDE_DRIVERS = [
-    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', at: { lat: 32.9068, lng: 45.0591 } },
-    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', at: { lat: 32.9031, lng: 45.0667 } },
-    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', at: { lat: 32.9112, lng: 45.0618 } },
-    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', at: { lat: 32.9019, lng: 45.0579 } },
-    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', label: 'هيونداي النترا · أسود', at: { lat: 32.9102, lng: 45.0702 } },
-    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', label: 'تويوتا كامري · أبيض', at: { lat: 32.8996, lng: 45.0631 } },
-    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', label: 'باجاج · أخضر', at: { lat: 32.9077, lng: 45.0712 } },
+    { name: 'حسين علي', vehicle: 'car', plate: 'واسط 27415', label: 'كيا سيراتو · فضي', model: 'كيا سيراتو', colour: 'silver', features: ['ac', 'no_smoking'], at: { lat: 32.9068, lng: 45.0591 } },
+    { name: 'مصطفى جاسم', vehicle: 'car', plate: 'واسط 31207', label: 'تويوتا كورولا · أبيض', model: 'تويوتا كورولا', colour: 'white', features: ['ac', 'heating', 'family'], at: { lat: 32.9031, lng: 45.0667 } },
+    { name: 'عباس كريم', vehicle: 'tuktuk', plate: 'واسط 8841', label: 'باجاج · أحمر', model: 'باجاج', colour: 'red', features: [], at: { lat: 32.9112, lng: 45.0618 } },
+    { name: 'سجاد فاضل', vehicle: 'tuktuk', plate: 'واسط 9206', label: 'باجاج · أزرق', model: 'باجاج', colour: 'blue', features: ['family'], at: { lat: 32.9019, lng: 45.0579 } },
+    { name: 'كرار حسن', vehicle: 'car', plate: 'واسط 40318', label: 'هيونداي النترا · أسود', model: 'هيونداي النترا', colour: 'black', features: ['big_boot'], at: { lat: 32.9102, lng: 45.0702 } },
+    { name: 'علي ناصر', vehicle: 'car', plate: 'واسط 15562', label: 'تويوتا كامري · أبيض', model: 'تويوتا كامري', colour: 'white', features: ['ac', 'heating', 'child_seat'], at: { lat: 32.8996, lng: 45.0631 } },
+    { name: 'مرتضى سالم', vehicle: 'tuktuk', plate: 'واسط 7713', label: 'باجاج · أخضر', model: 'باجاج', colour: 'green', features: [], at: { lat: 32.9077, lng: 45.0712 } },
   ];
+  // Ride step 3: the car facts riders see on the offered-drivers list and the profile (model, colour,
+  // confirmed tags; trip count from his completed trips) — the in-memory port in the demo.
+  const { VEHICLE_FACTS } = await load('modules/dispatch/index.js');
+  const facts = app.get(VEHICLE_FACTS);
   /** Metres per 500 ms tick while free: ≈ 36 km/h for a car, 25 for a tuktuk. */
   const CRUISE_M = { car: 5, tuktuk: 3.5 };
   /** A free driver drives a small block (≈ 270 × 260 m) around where he became free. */
@@ -1484,6 +1493,10 @@ const rajaa = await (async () => {
   const drivers = []; // { id, def, pos, tripId }
   const rides = new Map(); // orderId → { tripId, driverId, step }
   let acceptMs = Number(process.env.DEMO_RIDE_ACCEPT_MS ?? 3000);
+  /** A nudged driver («راكب ينتظرك») answers this long after the nudge, even when offers are held (0 = never). */
+  let nudgeAcceptMs = Number(process.env.DEMO_RIDE_NUDGE_ACCEPT_MS ?? 4000);
+  /** He opens the offer (state «شافه») this long after it rings. */
+  const SEEN_AFTER_MS = 1500;
   const seen = new Map(); // offerId → first seen (ms)
 
   async function rideDriver(def, i) {
@@ -1495,6 +1508,7 @@ const rajaa = await (async () => {
     await identity.setName({ personId: id, sessionId: 'demo' }, def.name);
     await giveMainPhoto(id, `ride:${def.name}`);
     vehicles.register?.(id, { vehicleClass: def.vehicle, plate: def.plate, label: def.label });
+    facts.register?.(id, { vehicleClass: def.vehicle, model: def.model, colour: def.colour, confirmedFeatures: def.features });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at: def.at, vehicle: def.vehicle, tier: 'gold' });
     // Joy l2: riders see his rating on the reveal (six rated past jobs; demo only).
     if (process.env.DEMO_RIDE_RATED !== "0") await ratedHistory(id, { force: true });
@@ -1534,7 +1548,11 @@ const rajaa = await (async () => {
         if (!open) continue;
         const first = seen.get(open.offer.id) ?? Date.now();
         seen.set(open.offer.id, first);
+        if (open.offer.state === 'sent' && Date.now() - first >= SEEN_AFTER_MS)
+          await dispatch.offerSeen({ personId: d.id, sessionId: 'demo' }, { offerId: open.offer.id, foregroundMs: 60_000 }).catch(() => undefined);
+        const nudgedAt = open.offer.nudgedAt?.getTime() ?? null;
         if (acceptMs > 0 && Date.now() - first >= acceptMs) await acceptOffer(d, open.offer.id);
+        else if (nudgedAt !== null && nudgeAcceptMs > 0 && Date.now() - nudgedAt >= nudgeAcceptMs) await acceptOffer(d, open.offer.id);
       } catch (err) {
         console.error('ride demo', err?.message ?? err);
       }
@@ -1584,6 +1602,18 @@ const rajaa = await (async () => {
         await app.get(ORDERS_REPOSITORY).update(orderId, { placedAt: new Date(Date.now() - sec * 1000) });
         return json(res, 200, { orderId, placedAt: (await orders.get(orderId)).placedAt });
       }
+      if (url.pathname.endsWith('/nudges')) {
+        const trip = await trips.activeForOrder(orderId);
+        if (!trip) return json(res, 404, { error: 'no trip' });
+        const search = await dispatch.searchOf(trip.id);
+        const names = new Map((await ensureDrivers()).map((d) => [d.id, d.def.name]));
+        return json(res, 200, {
+          orderId,
+          tripId: trip.id,
+          searching: Boolean(search),
+          offers: (search?.offers ?? []).map((o) => ({ offerId: o.id, driverId: o.driverId, name: names.get(o.driverId) ?? null, state: o.state, nudgedAt: o.nudgedAt })),
+        });
+      }
       if (url.pathname.endsWith('/accept')) {
         const trip = await trips.activeForOrder(orderId);
         if (!trip) return json(res, 404, { error: 'no trip' });
@@ -1594,8 +1624,9 @@ const rajaa = await (async () => {
         return json(res, 409, { error: 'no open offer for that ride yet' });
       }
       if (url.searchParams.has('acceptMs')) acceptMs = Number(url.searchParams.get('acceptMs'));
+      if (url.searchParams.has('nudgeAcceptMs')) nudgeAcceptMs = Number(url.searchParams.get('nudgeAcceptMs'));
       const list = await ensureDrivers();
-      json(res, 200, { acceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
+      json(res, 200, { acceptMs, nudgeAcceptMs, drivers: list.map((d) => ({ id: d.id, name: d.def.name, vehicle: d.def.vehicle, busy: Boolean(d.tripId) })) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

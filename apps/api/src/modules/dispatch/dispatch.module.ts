@@ -24,6 +24,7 @@ import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type Trip
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
 import { TripsServiceTripOffers } from './trips.adapter.js';
+import { InMemoryVehicleFacts, PrismaVehicleFacts, VEHICLE_FACTS } from './vehicle-facts.js';
 import { ZoneDirectory } from './zones.js';
 
 export const DISPATCH_REDIS = Symbol('DISPATCH_REDIS');
@@ -101,6 +102,15 @@ export class DispatchRuntime implements OnModuleDestroy {
     },
     { provide: DISPATCH_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     { provide: TRIP_OFFERS, useFactory: (trips: TripsService) => new TripsServiceTripOffers(trips), inject: [TripsService] },
+    // Ride step 3: the car riders are told about (model, colour, confirmed features) and trip counts.
+    {
+      provide: VEHICLE_FACTS,
+      useFactory: (prisma: PrismaService, trips: TripsService) =>
+        prisma.configured
+          ? new PrismaVehicleFacts(prisma)
+          : new InMemoryVehicleFacts(async (driverId) => (await trips.completedForDriver(driverId, new Date(0))).filter((t) => t.state === 'completed').length),
+      inject: [PrismaService, TripsService],
+    },
     { provide: CAPS, useExisting: LEDGER_CAPS_PORT },
     { provide: DEPARTURES, useExisting: RoutesDeparturesPort },
     // Launch kill switches with "hold dispatch" turn new jobs in their scope suggest-only.
@@ -113,7 +123,7 @@ export class DispatchRuntime implements OnModuleDestroy {
     DispatchRuntime,
     DispatchService,
   ],
-  exports: [DispatchService],
+  exports: [DispatchService, VEHICLE_FACTS],
 })
 export class DispatchModule implements OnModuleInit, OnModuleDestroy {
   private unsubscribe: Array<() => void> = [];

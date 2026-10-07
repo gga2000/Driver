@@ -51,6 +51,8 @@ export const NOTIFY_EVENT_TYPES = [
   'khat.sweep_missed',
   'dispatch.offer_sent',
   'dispatch.zone_nudged',
+  // Ride step 3 (n4): the waiting rider tapped «نبّهه» on a driver his ride was sent to.
+  'dispatch.offer_nudged',
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
   'session.signed_out',
@@ -368,6 +370,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'dispatch.offer_nudged': {
+      // «راكب ينتظرك»: one soft push to the nudged driver (the server allows one per driver per ride).
+      const driverId = str(p['driverId']);
+      const offerId = str(p['offerId']);
+      if (!driverId || !offerId || !e.tripId) return [];
+      return [{ ...base, template: 'ride_nudge' as const, to: driverId, params: {}, data: { tripId: e.tripId, offerId } }];
     }
     case 'catalog.pot_posted': {
       // «قدر اليوم» (joy h2): each follower of the dish, at most once a Baghdad day — the request's

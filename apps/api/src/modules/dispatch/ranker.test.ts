@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigService } from '../config/index.js';
-import { DEFAULT_WEIGHTS, DriverRanker, campingFactor } from './ranker.js';
+import { DEFAULT_WEIGHTS, DriverRanker, campingFactor, climateFeature, familyFit, preferFirst } from './ranker.js';
 
 describe('ranker weights 40 / 30 / 20 / 10 (spec §3)', () => {
   const ranker = new DriverRanker();
@@ -66,5 +66,32 @@ describe('time-in-zone decay against camping (review J112)', () => {
     const ranker = new DriverRanker();
     const far = { driverId: 'x', distanceKm: 5, activeTrips: 0, tier: 'gold' as const };
     expect(ranker.score({ ...far, minutesInZone: 120 })).toBe(ranker.score(far));
+  });
+});
+
+describe('ride step 3 preferences on top of the score', () => {
+  const ranked = [{ driverId: 'a' }, { driverId: 'b' }, { driverId: 'c' }, { driverId: 'd' }];
+
+  it('preferFirst moves the picked drivers ahead, each group in its rank order', () => {
+    expect(preferFirst(ranked, (id) => id === 'c' || id === 'b').map((d) => d.driverId)).toEqual(['b', 'c', 'a', 'd']);
+    expect(preferFirst(ranked, () => false).map((d) => d.driverId)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('the weather picks AC when hot, heating when cold, nothing otherwise (n6)', () => {
+    expect(climateFeature('hot')).toBe('ac');
+    expect(climateFeature('cold')).toBe('heating');
+    expect(climateFeature(null)).toBeNull();
+  });
+
+  it('«عوائل» needs the confirmed tag, 90 days and a 4.7 rating (s6)', () => {
+    const now = new Date('2026-10-07T12:00:00Z');
+    const since = (days: number) => new Date(now.getTime() - days * 86_400_000);
+    const fit = { features: ['family' as const], rating: 4.7, driverSince: since(90) };
+    expect(familyFit(fit, now)).toBe(true);
+    expect(familyFit({ ...fit, features: ['ac'] }, now)).toBe(false);
+    expect(familyFit({ ...fit, rating: 4.69 }, now)).toBe(false);
+    expect(familyFit({ ...fit, rating: null }, now)).toBe(false);
+    expect(familyFit({ ...fit, driverSince: since(89) }, now)).toBe(false);
+    expect(familyFit({ ...fit, driverSince: null }, now)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { DriverError, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type Vertical } from '@driver/contracts';
+import { climateAt, DriverError, NUDGE_RULES, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type DispatchStatus, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
@@ -15,9 +15,10 @@ import { etaMin, haversineKm } from './geo.js';
 import { CITY_RADIUS_KM, type DriverPresence } from './geo-index.js';
 import { DEFAULT_WAVES } from './policies.js';
 import type { DispatchJob } from './policy.js';
-import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type DeparturesPort, type DispatchHoldsPort, type JobExposure, type TripOffersPort } from './ports.js';
+import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type DeparturesPort, type DispatchHoldsPort, type JobExposure, type RiderPrefsPort, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
-import { DriverRanker, type RankedDriver } from './ranker.js';
+import { climateFeature, DriverRanker, familyFit, preferFirst, type RankedDriver } from './ranker.js';
+import { VEHICLE_FACTS, type VehicleFactsPort } from './vehicle-facts.js';
 import { batchLimit, vehicleFit } from './vehicles.js';
 import { ZoneDirectory } from './zones.js';
 
@@ -56,6 +57,9 @@ export const DISPATCH_QUEUE_NAME = 'dispatch';
 /** The first-accept lock is the assignment claim; it outlives any trip. */
 const LOCK_TTL_MS = 24 * 3600 * 1000;
 const SYSTEM = 'system';
+/** A ride still looking for its driver: the rider may watch the offered drivers and nudge one (ride step 3). */
+const SEARCHING: ReadonlySet<DispatchStatus> = new Set(['searching', 'rebroadcast', 'awaiting_dispatcher', 'needs_dispatcher']);
+const RIDE_VERTICALS: ReadonlySet<Vertical> = new Set(['taxi', 'tuktuk']);
 
 interface Candidate {
   ranked: RankedDriver;
@@ -95,6 +99,9 @@ export type DispatchRequestInput = DispatchJob;
 export class OfferOrchestrator {
   private readonly ranker: DriverRanker;
 
+  /** Ride step 3: the rider's avoid list, favourites and drivers' standing (bound by ride habits). */
+  private riders: RiderPrefsPort | null = null;
+
   constructor(
     private readonly config: ConfigService,
     private readonly presence: PresenceService,
@@ -110,9 +117,16 @@ export class OfferOrchestrator {
     private readonly uow: UnitOfWork,
     @Optional() ranker?: DriverRanker,
     @Optional() @Inject(DISPATCH_HOLDS) private readonly holds?: DispatchHoldsPort,
+    /** Ride step 3: confirmed car features for n6 (weather) and s6 («عوائل»); without it nobody is preferred. */
+    @Optional() @Inject(VEHICLE_FACTS) private readonly facts?: VehicleFactsPort,
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.queue.process(async (job) => this.onTimer(job.data));
+  }
+
+  /** The ride-habits module binds the rider's preferences at start-up (it imports this module). */
+  bindRiders(port: RiderPrefsPort): void {
+    this.riders = port;
   }
 
   // ───────────────────────── config & policy ─────────────────────────
@@ -213,6 +227,10 @@ export class OfferOrchestrator {
       eligibleDriverIds: job.eligibleDriverIds ?? null,
       startAt: job.startAt?.getTime() ?? null,
       preferDriverIds: job.preferDriverIds ? [...job.preferDriverIds] : [],
+      riderId: job.riderId ?? null,
+      familyPreferred: job.familyPreferred ?? false,
+      // s5 / s4: read once when the search is asked for; a rider's ride never reaches a driver he avoids.
+      ...(await this.riderLists(job)),
     };
 
     return this.uow.run(async () => {
@@ -288,24 +306,30 @@ export class OfferOrchestrator {
     const prefer = r.preferDriverIds ?? [];
     if (prefer.length > 0) {
       const chosen = await this.candidates(r, cfg, { requireIdle: true, only: prefer });
-      if (chosen.length > 0) {
-        const seconds = RIDE_HABIT_RULES.favourite.offerWindowSec;
-        const expiresAt = this.now() + seconds * 1000;
-        const ids = chosen.map((c) => c.ranked.driverId);
-        r.status = 'searching';
-        r.searchStartedAt = this.now();
-        r.wave = 0;
-        r.pass = 0;
-        r.nextTimerAt = expiresAt;
-        await this.createOffers(r, FAVOURITE_OFFER_POLICY, chosen, { wave: 0, pass: 0, expiresAt, compensation: () => 0 });
-        await this.trips.offer(r.tripId, ids, seconds);
-        await this.emit('dispatch.wave_sent', r, { wave: 0, driverIds: ids, seconds, radiusKm: null, favourite: true });
-        await this.store.saveRequest(r);
-        await this.schedule('favourite_end', r, expiresAt, 0);
-        return;
-      }
+      if (chosen.length > 0) return this.offerFavourite(r, chosen, false);
+    } else if ((r.favouriteDriverIds ?? []).length > 0) {
+      // s4: no favourite asked for, but one of his favourites is free close by — he gets it first, alone.
+      const near = await this.candidates(r, cfg, { requireIdle: true, only: r.favouriteDriverIds ?? [], radiusKm: RIDE_HABIT_RULES.favourite.autoFirstKm });
+      if (near.length > 0) return this.offerFavourite(r, near.slice(0, 1), true);
     }
     await this.startWaves(r, cfg);
+  }
+
+  /** Wave 0: the favourite rings alone for `offerWindowSec`; then (or on his no) the normal waves. */
+  private async offerFavourite(r: DispatchRequest, chosen: readonly Candidate[], auto: boolean): Promise<void> {
+    const seconds = RIDE_HABIT_RULES.favourite.offerWindowSec;
+    const expiresAt = this.now() + seconds * 1000;
+    const ids = chosen.map((c) => c.ranked.driverId);
+    r.status = 'searching';
+    r.searchStartedAt = this.now();
+    r.wave = 0;
+    r.pass = 0;
+    r.nextTimerAt = expiresAt;
+    await this.createOffers(r, FAVOURITE_OFFER_POLICY, chosen, { wave: 0, pass: 0, expiresAt, compensation: () => 0 });
+    await this.trips.offer(r.tripId, ids, seconds);
+    await this.emit('dispatch.wave_sent', r, { wave: 0, driverIds: ids, seconds, radiusKm: auto ? RIDE_HABIT_RULES.favourite.autoFirstKm : null, favourite: true, ...(auto ? { auto: true } : {}) });
+    await this.store.saveRequest(r);
+    await this.schedule('favourite_end', r, expiresAt, 0);
   }
 
   /** The smart broadcast proper: re-broadcast and free-cancel clocks from now, then wave 1. */
@@ -332,7 +356,10 @@ export class OfferOrchestrator {
     for (let i = index; i < waves.length; i += 1) {
       const w = waves[i]!;
       const offered = new Set((await this.repo.listByTrip(r.tripId)).map((o) => o.driverId));
-      const ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: offered, ...(w.radiusKm !== undefined ? { radiusKm: w.radiusKm } : {}) });
+      const all = await this.candidates(r, cfg, { requireIdle: true, exclude: offered, ...(w.radiusKm !== undefined ? { radiusKm: w.radiusKm } : {}) });
+      // s6 «عوائل»: the first wave only to family-fit drivers when any is free; everyone from the second.
+      const family = i === 0 && r.familyPreferred ? await this.familyFit(all) : [];
+      const ranked = family.length > 0 ? family : all;
       const chosen = w.size === 'all' ? ranked : ranked.slice(0, w.size);
       r.wave = i + 1;
       r.pass = 1;
@@ -836,6 +863,8 @@ export class OfferOrchestrator {
     // Review #20: his roles on his registered vehicle do not cover this vertical — the same warning.
     if (p && (vehicleFit(r.vertical, p.vehicle) === 0 || (p.verticals && !p.verticals.includes(r.vertical)))) warnings.push('vehicle_fit');
     if (p && this.edgeBlocked(r, p)) warnings.push('edge_zone');
+    // s5: the rider said never again — not even a forced override sends him this ride.
+    if (r.avoidDriverIds?.includes(input.driverId)) throw new DriverError('override_invalid');
     if (warnings.length > 0 && !input.force) throw new DriverError('override_invalid');
     if (input.force && !input.reason?.trim()) throw new DriverError('override_reason_required');
 
@@ -966,6 +995,50 @@ export class OfferOrchestrator {
     return best;
   }
 
+  // ───────────────────────── the rider's side (ride step 3) ─────────────────────────
+
+  /**
+   * n3: the ride's request and every offer sent for it, while it is still looking for its driver; null
+   * once it was assigned, cancelled or before its search started. Read-only.
+   */
+  async searchOf(tripId: string): Promise<{ request: DispatchRequest; offers: OfferRecord[] } | null> {
+    const r = await this.store.getRequest(tripId);
+    if (!r || !SEARCHING.has(r.status) || r.assignedDriverId) return null;
+    return { request: r, offers: await this.repo.listByTrip(tripId) };
+  }
+
+  /** n5: a driver's accepted offers, newest first (where each job was when he took it). Read-only. */
+  acceptedBy(driverId: string, limit: number): Promise<OfferRecord[]> {
+    return this.repo.acceptedByDriver(driverId, limit);
+  }
+
+  /**
+   * n4 «نبّهه»: the waiting rider nudges one driver who holds an open offer of this ride. Once per driver
+   * per ride (`NUDGE_RULES.perDriver`); refused for a ride no longer searching, an offer of another ride,
+   * and a declined, expired or withdrawn offer. The notify module sends him a soft `ride_nudge` push
+   * and his offer card re-reads with «راكب ينتظرك» (the live fan-out of `dispatch.offer_nudged`).
+   */
+  async nudge(tripId: string, offerId: string, riderId: string): Promise<Date> {
+    const search = await this.searchOf(tripId);
+    if (!search) throw new DriverError('ride_not_searching');
+    const offer = search.offers.find((o) => o.id === offerId);
+    if (!offer) throw new DriverError('nudge_offer_closed');
+    const nudges = search.offers.filter((o) => o.driverId === offer.driverId && o.nudgedAt !== null).length;
+    if (nudges >= NUDGE_RULES.perDriver) throw new DriverError('nudge_already');
+    if (!OPEN_STATES.includes(offer.state) || this.now() >= offer.expiresAt.getTime()) throw new DriverError('nudge_offer_closed');
+    return this.uow.run(async (tx) => {
+      const at = this.clock.now();
+      const marked = await this.repo.markNudged(offer.id, at, tx);
+      if (!marked) {
+        // Lost a race: a second tap nudged him first, or he answered / the wave moved on meanwhile.
+        const fresh = await this.repo.getOffer(offer.id, tx);
+        throw new DriverError(fresh?.nudgedAt ? 'nudge_already' : 'nudge_offer_closed');
+      }
+      await this.emit('dispatch.offer_nudged', search.request, { offerId: offer.id, driverId: offer.driverId, wave: offer.wave, pass: offer.pass }, riderId);
+      return at;
+    });
+  }
+
   /** Offers accepted since `since` and the mean seconds from send to accept (Console right-now bar). */
   /** Offers sent since `since`, by outcome (launch wall: acceptance rate = accepted / answered). */
   /** Offers sent in `[since, to)` by how they ended (`to` defaults to now: the wall's "vs yesterday" passes now − 24 h). */
@@ -1043,8 +1116,10 @@ export class OfferOrchestrator {
   private async candidates(r: DispatchRequest, cfg: DispatchConfig, f: CandidateFilter): Promise<Candidate[]> {
     const nearby = await this.presence.nearby(r.cityId, r.pickup, f.radiusKm ?? CITY_RADIUS_KM);
     const pool: Array<{ presence: DriverPresence; jobs: string[]; distanceKm: number; fit: number }> = [];
+    const avoided = new Set(r.avoidDriverIds ?? []);
     for (const { presence: p, distanceKm } of nearby) {
       if (f.exclude?.has(p.driverId)) continue;
+      if (avoided.has(p.driverId)) continue;
       if (f.only && !f.only.includes(p.driverId)) continue;
       if (f.onlyVetted && !p.vetted) continue;
       const fit = vehicleFit(r.vertical, p.vehicle);
@@ -1071,7 +1146,41 @@ export class OfferOrchestrator {
         minutesInZone: this.presence.minutesInZone(c.presence),
       })),
     );
-    return ranked.map((d) => ({ ranked: d, presence: byId.get(d.driverId)!.presence, jobs: byId.get(d.driverId)!.jobs }));
+    const ordered = await this.weatherFirst(r, ranked);
+    return ordered.map((d) => ({ ranked: d, presence: byId.get(d.driverId)!.presence, jobs: byId.get(d.driverId)!.jobs }));
+  }
+
+  /**
+   * n6: on a hot or cold day (Aziziyah's calendar and clock, `climateAt`) a ride goes first to cars
+   * whose AC / heating ops confirmed; each group keeps its rank order, so waves still fill nearest-best.
+   * Rides only; the price never changes.
+   */
+  private async weatherFirst(r: DispatchRequest, ranked: RankedDriver[]): Promise<RankedDriver[]> {
+    const feature = climateFeature(climateAt(this.clock.now()));
+    if (!feature || !this.facts || !RIDE_VERTICALS.has(r.vertical) || ranked.length < 2) return ranked;
+    const features = await this.facts.confirmedFeatures(ranked.map((d) => d.driverId));
+    return preferFirst(ranked, (id) => features.get(id)?.includes(feature) ?? false);
+  }
+
+  /** s6: the candidates fit for a «عوائل» ride (`familyFit`), in their rank order. */
+  private async familyFit(cands: readonly Candidate[]): Promise<Candidate[]> {
+    if (!this.facts || !this.riders || cands.length === 0) return [];
+    const features = await this.facts.confirmedFeatures(cands.map((c) => c.ranked.driverId));
+    const tagged = cands.filter((c) => features.get(c.ranked.driverId)?.includes('family'));
+    if (tagged.length === 0) return [];
+    const standing = await this.riders.standing(tagged.map((c) => c.ranked.driverId));
+    const now = this.clock.now();
+    return tagged.filter((c) => {
+      const s = standing.get(c.ranked.driverId);
+      return familyFit({ features: features.get(c.ranked.driverId) ?? [], rating: s?.rating ?? null, driverSince: s?.driverSince ?? null }, now);
+    });
+  }
+
+  /** s5 / s4: the rider's avoid list and favourites, when the job is a rider's and ride habits are bound. */
+  private async riderLists(job: DispatchJob): Promise<{ avoidDriverIds: string[]; favouriteDriverIds: string[] }> {
+    if (!job.riderId || !this.riders) return { avoidDriverIds: [], favouriteDriverIds: [] };
+    const [avoid, favourites] = await Promise.all([this.riders.avoided(job.riderId), this.riders.favourites(job.riderId)]);
+    return { avoidDriverIds: avoid, favouriteDriverIds: favourites.filter((id) => !avoid.includes(id)) };
   }
 
   private async createOffers(

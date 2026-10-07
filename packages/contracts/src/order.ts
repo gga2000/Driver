@@ -133,6 +133,12 @@ export const PlaceOrderInput = z.object({
    * dispatch carries on as always. Refused on a ride for now (`favourite_needs_schedule`).
    */
   favouriteId: z.string().min(1).optional(),
+  /**
+   * Ride step 3 (s6) «عوائل»: the first wave goes only to drivers whose car has the confirmed family tag,
+   * who have driven here a while and are rated well (`FAMILY_PREFERENCE_RULES`); everyone after that.
+   * Rides only; the price does not change.
+   */
+  familyPreferred: z.boolean().optional(),
   /** For the kitchen ("بدون بصل", an allergy): the merchant's card and receipt show it. */
   note: z.string().max(500).optional(),
   /**
@@ -334,6 +340,8 @@ export const Order = z.object({
   familyTable: z.boolean().optional(),
   /** Joy l9: the favourite driver this ride booked for later asked for; null/absent = anyone. */
   preferredDriverId: z.string().nullable().optional(),
+  /** Ride step 3 (s6): placed with «عوائل» (family-tagged drivers first); absent = no preference. */
+  familyPreferred: z.boolean().optional(),
   /** The discount line behind `discountIqd` (merchant deal or platform promo); null without one. */
   discount: AppliedDiscount.nullable().optional(),
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */

@@ -30,6 +30,8 @@ export interface PartnerOfferRecord {
   expiresAt: Date;
   /** How dispatch offered it (`favourite`: the rider's own driver, alone for a minute — joy l9). */
   policy?: string;
+  /** Ride step 3 (n4): when the waiting rider nudged him; null/absent = not. */
+  nudgedAt?: Date | null;
 }
 
 export interface PartnerOfferRequest {

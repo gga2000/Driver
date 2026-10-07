@@ -474,6 +474,14 @@ model Vehicle {
   reviewedById   String?      @map("reviewed_by_id")
   reviewedAt     DateTime?    @map("reviewed_at")
   reviewNote     String?      @map("review_note")
+  /// Ride step 3 (d1): the car's model as riders name it ("Toyota Corolla"); null on older rows.
+  model             String?
+  /// VehicleColour (`packages/contracts/src/vehicle-features.ts`); null on older rows.
+  colour            String?
+  /// VehicleFeature keys the driver claims (n1, n2): ac, heating, family, no_smoking, big_boot, child_seat.
+  features          String[]     @default([])
+  /// The claimed features ops confirmed at the car check (a subset of `features`); customers see only these.
+  featuresConfirmed String[]     @default([]) @map("features_confirmed")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
@@ -1076,6 +1084,8 @@ model Order {
   giftHidePrices     Boolean       @default(false) @map("gift_hide_prices")
   /// Joy l9: a ride booked for later asked for this favourite driver; he gets the job alone for a minute first.
   preferredDriverId  String?       @map("preferred_driver_id")
+  /// Ride step 3 (s6) «عوائل»: the rider asked for a family-tagged, long-standing, well-rated driver first.
+  familyPreferred    Boolean       @default(false) @map("family_preferred")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
@@ -2242,6 +2252,21 @@ model FavouriteDriver {
   @@schema("public")
 }
 
+/// Ride step 3 (s5) «ما أريده مرة ثانية»: a driver the rider never wants again. Dispatch never offers
+/// that rider's rides to him; avoiding a favourite removes the favourite. Ids only.
+model AvoidedDriver {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  driverId  String   @map("driver_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([personId, driverId])
+  @@index([driverId])
+  @@map("avoided_drivers")
+  @@schema("public")
+}
+
 /// Joy r5: a ride or a الرجعة the rider takes every week. Each occurrence is asked about (the evening
 /// before or that morning) and booked only when he taps «أكدها»; prices are the server's at that moment.
 model RegularTrip {
@@ -2563,6 +2588,8 @@ model DispatchOffer {
   sentAt          DateTime           @default(now()) @map("sent_at")
   seenAt          DateTime?          @map("seen_at")
   respondedAt     DateTime?          @map("responded_at")
+  /// Ride step 3 (n4) «نبّهه»: the rider nudged this driver (once per driver per ride).
+  nudgedAt        DateTime?          @map("nudged_at")
   expiresAt       DateTime           @map("expires_at")
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")

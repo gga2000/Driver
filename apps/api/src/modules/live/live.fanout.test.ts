@@ -140,6 +140,38 @@ describe('live fan-out: outbox event → compact events per channel', () => {
     expect(on(pubs, 'driver:courier_a')).toEqual([]);
   });
 
+  it('dispatch on a taxi/tuktuk trip: the rider re-reads the drivers sent his ride; food trips do not', async () => {
+    const pubs = await fanout(
+      {
+        type: 'dispatch.offer_nudged',
+        aggregate: 'trip',
+        aggregateId: 't1',
+        tripId: 't1',
+        payload: { cityId: 'aziziyah', vertical: 'taxi', driverId: 'courier_b', offerId: 'do_1' },
+      },
+      look,
+    );
+    for (const o of ['o1', 'o2'])
+      expect(on(pubs, `order:${o}`)).toContainEqual({
+        type: 'invalidate',
+        keys: ['dispatch.myRideOffers'],
+        cause: 'dispatch.offer_nudged',
+        orderId: o,
+        tripId: 't1',
+      });
+    const food = await fanout(
+      {
+        type: 'dispatch.offer_sent',
+        aggregate: 'trip',
+        aggregateId: 't1',
+        tripId: 't1',
+        payload: { cityId: 'aziziyah', vertical: 'food', driverId: 'courier_b' },
+      },
+      look,
+    );
+    expect(food.some((p) => p.event.type === 'invalidate' && p.event.keys.includes('dispatch.myRideOffers'))).toBe(false);
+  });
+
   it('chat: the thread gets the message, badges update for the order and every recipient; kitchen threads reach the store', async () => {
     const payload = {
       threadId: 'th1',

@@ -79,6 +79,9 @@ export interface RosterResult {
 /** Who can hold a role on behalf of the system when no human actor is involved. */
 const SYSTEM_ACTOR = 'system';
 
+/** Roles that carry customers or their orders: «سايق ويانا من» counts from the oldest one. */
+const DRIVING_ROLES: ReadonlySet<RoleKind> = new Set<RoleKind>(['courier', 'driver', 'intercity_driver', 'khat_driver']);
+
 /**
  * Identity façade (plan Step 2 + edge-case §7). One pseudonymous Person per peppered phone hash;
  * the phone and name live only in the vault, reachable through `IdentityRepository`.
@@ -688,6 +691,20 @@ export class IdentityService implements IdentityPort {
   async verifiedAtOf(personIds: readonly string[]): Promise<Record<string, Date | null>> {
     const out: Record<string, Date | null> = {};
     for (const personId of new Set(personIds)) out[personId] = (await this.repo.findPersonById(personId))?.lastVerifiedAt ?? null;
+    return out;
+  }
+
+  /**
+   * Since when each person drives here (ride step 3: the profile's «سايق ويانا من», the «عوائل» wave's
+   * 90 days): the start of his oldest live courier / driver grant; null when he holds none. Role rows
+   * only, no vault fields.
+   */
+  async driverSinceOf(personIds: readonly string[]): Promise<Record<string, Date | null>> {
+    const out: Record<string, Date | null> = {};
+    for (const personId of new Set(personIds)) {
+      const grants = (await this.repo.rolesOf(personId)).filter((r) => DRIVING_ROLES.has(r.kind) && r.frozenAt === null);
+      out[personId] = grants.length === 0 ? null : new Date(Math.min(...grants.map((r) => r.createdAt.getTime())));
+    }
     return out;
   }
 

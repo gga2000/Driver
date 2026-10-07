@@ -3,6 +3,9 @@ import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import { DispatchPolicyKind } from './city-config.js';
 import type { Actor } from './identity-io.js';
 import type { PartnerDemandMap } from './partner-io.js';
+import { ComplimentKey } from './order-compliment.js';
+import { VehicleClass } from './trip.js';
+import { VehicleColour, VehicleFeature } from './vehicle-features.js';
 
 
 /** Where a dispatch request stands; the Console board groups cards by this. */
@@ -168,6 +171,8 @@ export const NUDGE_RULES = {
   /** Free drivers within this distance of the zone (and not already in it) are nudged. */
   radiusKm: 4,
   maxDrivers: 15,
+  /** A rider's «نبّهه» (ride n4): at most this many nudges per offered driver per ride. */
+  perDriver: 1,
 } as const;
 
 export const ZoneDemandInput = z.object({ cityId: CityId });
@@ -180,6 +185,104 @@ export const NudgeZoneResult = z.object({
   nextAt: z.coerce.date(),
 });
 export type NudgeZoneResult = z.infer<typeof NudgeZoneResult>;
+
+// ───────────────────────── the rider's side of the search (ride step 3) ─────────────────────────
+
+/**
+ * n3: how one driver's offer of the rider's ride stands. `expired` covers an offer that ran out or was
+ * withdrawn when the wave moved on; an accepted offer ends the search, so it never shows here.
+ */
+export const RideOfferState = z.enum(['sent', 'seen', 'declined', 'expired']);
+export type RideOfferState = z.infer<typeof RideOfferState>;
+
+/**
+ * n3: a driver who was sent the rider's ride, as the rider sees him while it searches: first name and
+ * approved photo (logged vault reads, like the courier card), his public rating, his car and the
+ * features ops confirmed, and his minutes to the pickup on the one ETA. Never a position, a phone or
+ * a last name.
+ */
+export const RideOfferCard = z.object({
+  offerId: z.string(),
+  firstName: z.string().nullable(),
+  /** His approved main photo, signed and short-lived; null → the app draws his initial. */
+  photoUrl: z.string().nullable(),
+  /** Joy l2's public rating (newest 50, shown from 5); null below that. */
+  rating: z.number().nullable(),
+  ratingCount: z.number().int().min(0),
+  /** His completed trips, every vertical. */
+  tripCount: z.number().int().min(0),
+  vehicleClass: VehicleClass,
+  /** "Toyota Corolla"; null when the registry has none. */
+  vehicleModel: z.string().nullable(),
+  vehicleColour: VehicleColour.nullable(),
+  /** Confirmed at the car check only, display order (`sortFeatures`). */
+  features: z.array(VehicleFeature),
+  /** Minutes to the pickup while the offer is open (rounded up, at least 1); null once it is not. */
+  minutesAway: z.number().int().min(1).nullable(),
+  state: RideOfferState,
+  /** When the rider nudged him («نبّهه»); null = not yet. */
+  nudgedAt: z.coerce.date().nullable(),
+  /** One of the rider's favourite drivers. */
+  favourite: z.boolean(),
+});
+export type RideOfferCard = z.infer<typeof RideOfferCard>;
+
+export const MyRideOffersInput = z.object({ orderId: z.string().min(1) });
+export type MyRideOffersInput = z.infer<typeof MyRideOffersInput>;
+
+/** Nearest first (open offers by minutes, then the rest); empty before the first wave. */
+export const MyRideOffers = z.object({ offers: z.array(RideOfferCard), at: z.coerce.date() });
+export type MyRideOffers = z.infer<typeof MyRideOffers>;
+
+/** n4 «نبّهه»: a soft «راكب ينتظرك» to one driver whose offer of this ride is still open. */
+export const NudgeOfferInput = z.object({ orderId: z.string().min(1), offerId: z.string().min(1) });
+export type NudgeOfferInput = z.infer<typeof NudgeOfferInput>;
+export const NudgeOfferResult = z.object({ nudgedAt: z.coerce.date() });
+export type NudgeOfferResult = z.infer<typeof NudgeOfferResult>;
+
+/** n5: what the driver profile shows, and when. */
+export const DRIVER_PROFILE_RULES = {
+  /** The on-time share needs this many completed trips first. */
+  onTimeMinTrips: 20,
+  /** Most-said compliments shown. */
+  compliments: 4,
+} as const;
+
+/**
+ * n5: a driver's profile on tap — a driver offered the rider's searching ride, or the driver assigned
+ * to it. The plate only for the assigned driver; never a phone, a position or a last name.
+ */
+export const DriverProfile = z.object({
+  firstName: z.string().nullable(),
+  photoUrl: z.string().nullable(),
+  rating: z.number().nullable(),
+  ratingCount: z.number().int().min(0),
+  tripCount: z.number().int().min(0),
+  /** Share of his timed stops reached on time (0–100); null under `DRIVER_PROFILE_RULES.onTimeMinTrips` trips. */
+  onTimePct: z.number().int().min(0).max(100).nullable(),
+  /** When he became a driver here (his oldest live courier / driver role); null when none is on file. */
+  memberSince: z.coerce.date().nullable(),
+  vehicleClass: VehicleClass,
+  vehicleModel: z.string().nullable(),
+  vehicleColour: VehicleColour.nullable(),
+  /** Only when he is the driver assigned to this order. */
+  plate: z.string().nullable(),
+  features: z.array(VehicleFeature),
+  /** What riders said, most said first (top `DRIVER_PROFILE_RULES.compliments`). */
+  compliments: z.array(z.object({ key: ComplimentKey, count: z.number().int().positive() })),
+});
+export type DriverProfile = z.infer<typeof DriverProfile>;
+
+/** `offerId`: a driver offered this ride while it searches; absent: the driver assigned to it. */
+export const DriverProfileInput = z.object({ orderId: z.string().min(1), offerId: z.string().min(1).optional() });
+export type DriverProfileInput = z.infer<typeof DriverProfileInput>;
+
+/**
+ * s6 «عوائل»: the first wave of a ride placed with `familyPreferred` goes only to drivers whose car has
+ * the confirmed `family` tag, who have driven here at least `minDriverDays` and whose public rating is
+ * at least `minRating`; from the second wave (or when none is free) it goes to everyone as usual.
+ */
+export const FAMILY_PREFERENCE_RULES = { minDriverDays: 90, minRating: 4.7 } as const;
 
 export interface DispatchPort {
   board(cityId: string): Promise<DispatchBoard>;

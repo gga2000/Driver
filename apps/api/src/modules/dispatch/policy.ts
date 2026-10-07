@@ -45,6 +45,10 @@ export interface DispatchJob {
   startAt?: Date;
   /** smart_broadcast (joy l9): the rider's favourite, offered the job alone for a minute first. */
   preferDriverIds?: readonly string[];
+  /** smart_broadcast (ride step 3): the rider (orderer): his avoid list (s5) and favourites (s4) apply. */
+  riderId?: string;
+  /** smart_broadcast (ride step 3, s6): «عوائل» — family-tagged, long-standing, well-rated drivers first. */
+  familyPreferred?: boolean;
 }
 
 export interface Wave {
