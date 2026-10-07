@@ -40,7 +40,7 @@ today. Items that are not needed for a food-only launch stay parked (section 5).
 | Thu 15 Oct | D-53 | This plan agreed with Ali; G0-6 street-map date agreed with the map session |
 | Sun 18 Oct | D-50 | D-24 (waves) and D-25 (which Play account) decided; re-plan |
 | Wed 28 Oct | D-40 | Cloudflare, EAS, domain open (G0-14) |
-| Mon 2 Nov | D-35 | Prices (G0-7), zones (G0-8), calls decision (G0-10), partner phones (G0-1), Play location declaration ready (G0-2) |
+| Mon 2 Nov | D-35 | Prices (G0-7), zones (G0-8), partner phones (G0-1), Play location declaration ready (G0-2) |
 | Wed 4 Nov | D-33 | D-U-N-S number received (needed for the Play organisation account) |
 | Mon 9 Nov | D-28 | Play organisation account verified, apps created (G0-3); kitchens on tablets (G0-4); map (G0-6); SOS rota (G0-9); support (G0-11); landmarks (G0-12); SMS and WhatsApp (G0-13) |
 | Tue 10 Nov | D-27 | Closed-track releases submitted, with the location declaration (G0-2, G0-3) |
@@ -70,7 +70,7 @@ or answers; the question is in section 4.
 | G0-7 | **Real Aziziyah price tables** 💰 | Ali | D-35 Mon 2 Nov | Ali's numbers entered in the Console; the sim passes with them | Waits on Ali's numbers. This thread can prepare a fill-in sheet with today's demo values and what each one changes (question 5) |
 | G0-8 | **34 zones approved and checked in**, with any fee changes 💰 | Ali, map session | D-35 Mon 2 Nov | Console zone map matches Ali's approval; fee changes approved by Ali | Ali's drawings exist, not approved. Map session owns loading them |
 | G0-9 | **SOS rota and escalation**, at least 2 people (D-19) | Ali | D-28 Mon 9 Nov | Two named people on a written rota; an SOS test at night reaches the person on duty, and the escalation reaches the second | Waits on Ali: name the second person (question 2). Code: today every live dispatcher gets every SOS and "on shift" means every dispatcher; a rota and a named escalation person are a Console + server change (hand-off to lane E and lane A). The auto phone call to Ali needs calls (G0-10); until then escalation goes by push, WhatsApp and SMS |
-| G0-10 | **Calls** between customer and courier ("we carry them") | Ali decides by D-35; a thread builds | D-24 Fri 13 Nov | The chosen way works on 2 real phones, numbers hidden both ways | Until decided (Ali, 7 Oct): food tracking shows chat as the main button and a greyed «قريباً» call button (lane C). Decision in question 4 |
+| G0-10 | **Calls** between customer and courier ("we carry them") | Lane C (app) | D-24 Fri 13 Nov | Chat and voice notes work between customer and courier on 2 real phones; the call button reads «قريباً» everywhere | **Decided by Ali 2026-10-07: chat first.** Chat and voice notes at launch, numbers hidden; in-app internet calls are built after launch. Food tracking keeps chat as the main button and a greyed «قريباً» call button (lane C) |
 | G0-11 | **Support staffed** for the closed test and launch week; canned replies in Iraqi Arabic; AI first-line **not** at launch | Ali (D-20) | D-28 Mon 9 Nov | Rota written (2 people, 10:00–24:00 in launch week, a backup); canned replies loaded in the Console | Waits on Ali: who (question 2). Canned replies: drafted by lane C, Ali approves (plan §8.3) |
 | G0-12 | **Launch content**: 50+ landmarks and meeting points with photos | Field ops (photos), map session (loading) | D-28 Mon 9 Nov | 50 landmarks visible in the app, each with a photo | Waits on field ops (question 3) |
 | G0-13 | **SMS provider live; WhatsApp Business verified, templates approved; the real WhatsApp support number** | Ali (accounts, number), lane D (setup) | D-28 Mon 9 Nov | 100 sign-in codes on the 3 networks arrive within 30 s (p95); one send per WhatsApp template; the support number answers | Waits on Ali: a dedicated support SIM, the SMS gateway contract, and WhatsApp Business verification (needs the company papers) (question 1). The parents' خطوط templates are **not** needed for a food-only launch |
@@ -104,15 +104,8 @@ Each is Ali's own action or involves money, so no thread does it for him. Recomm
 3. **Field ops lead (this week).** One person who signs the 4 kitchens, recruits and briefs 29
    couriers, and photographs 50+ landmarks. G0-4, 5, 12, 17, 18 and 19 all depend on this person.
    *Recommended: name one by Sun 18 Oct; the courier recruiting starts the same week.*
-4. **Calls (G0-10, by Mon 2 Nov).** You said "we carry them", with no outside company. Options:
-   - **(a) Chat and voice notes at launch; in-app internet calls after launch.** The courier and the
-     customer chat and send voice notes; the call button stays «قريباً». In-app calling over the
-     internet is built after launch, once the apps run as development builds.
-   - (b) In-app internet calls before the closed test. Needs a native calling module, our own relay
-     server and testing on the 7 phones, all inside 4 weeks while the apps are first built for phones.
-   - (c) Our own phone line: a company number that staff use to connect the courier and the customer
-     by hand. Works on any phone, but needs a person on the line at every peak.
-   *Recommended: (a). It is honest, private and ready; (b) puts the closed test at risk.*
+4. **Calls (G0-10): decided 2026-10-07, chat first.** Chat and voice notes at launch; in-app
+   internet calls after launch.
 5. **Prices (G0-7) and zones (G0-8) 💰, by Mon 2 Nov.** *Recommended: this thread prepares a one-page
    fill-in sheet with today's demo numbers and what each changes; you write your numbers on it.*
 6. **Things to buy.** The 7 test phones (plan 6.2, this week) and one tablet per launch kitchen (by
@@ -130,7 +123,7 @@ Food-only launch (D-1) means rides, Baghdad/Kut seats and خطوط open about D+
 |---|---|
 | §1 WhatsApp support number | G0-13 (question 1) |
 | §1 SOS on duty and escalation | G0-9 (question 2) |
-| §1 Calls ("we carry them") | G0-10 (question 4) |
+| §1 Calls ("we carry them") | G0-10: chat first at launch, in-app calls after (Ali, 2026-10-07) |
 | §1 Parents' WhatsApp messages (خطوط) | After launch: خطوط opens about D+30 (D-1) |
 | §1 Brand symbol | Gate G1 (REL-27, lane D) (question 8) |
 | §1 Real price tables | G0-7 (question 5) |
@@ -174,7 +167,7 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 | Partner app thread | Phone test of background location and live updates on 3 test phones; record the Play declaration video | G0-1, G0-2 |
 | Lane D (comms and identity) | Update `docs/deploy/mobile.md`: partner foreground-service location permission; closed track, not internal; EAS internal-distribution APKs before D-28 | G0-2, G0-3 |
 | Lane E (Console) + lane A (server) | SOS on-duty rota: who is on shift, a named escalation person, instead of "every live dispatcher" | G0-9 |
-| Lane C (app) | Food tracking: chat as the main button, greyed «قريباً» call button (Ali, 7 Oct), until G0-10 is decided | G0-10 |
+| Lane C (app) | Food tracking: chat as the main button, greyed «قريباً» call button; calls come after launch (G0-10, chat first) | G0-10 |
 | Lane C (app) | Draft the canned support replies in Iraqi Arabic for Ali's OK | G0-11 |
 | Lane B (platform) | Kill switches ready for the game day | G0-15 |
 | Lane D (W5) | Waitlist and wave size in controls | G0-20 |
@@ -183,3 +176,4 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 ## 7. Change log
 
 - 2026-10-07: first draft, after Ali approved the launch plan and D-22.
+- 2026-10-07: Ali chose "chat first" for calls (G0-10).
