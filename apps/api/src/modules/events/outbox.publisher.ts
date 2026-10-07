@@ -3,7 +3,7 @@ import type { Clock } from '../../shared/clock.js';
 import type { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
-import { runWithRequestId } from '../../shared/request-context.js';
+import { runAsBackground } from '../../shared/request-context.js';
 import type { EventsRepository } from './events.repository.js';
 import type { OutboxRecord } from './events.types.js';
 import type { SubscriberRegistry, Subscription } from './subscriber.registry.js';
@@ -154,15 +154,16 @@ export class OutboxPublisher {
   /** One batch: claims up to `limit` due rows (SKIP LOCKED) and delivers them in order. */
   async drainOnce(limit = this.batchSize): Promise<DrainResult> {
     const now = this.clock.now();
-    return this.repo.claimDue(now, limit, async (rows, tx) => {
+    // Background work even when a request's commit poked it: the batch gets the job time limits.
+    return runAsBackground('outbox-drain', () => this.repo.claimDue(now, limit, async (rows, tx) => {
       const result: DrainResult = { claimed: rows.length, published: 0, retried: 0, failed: 0 };
       for (const row of rows) {
         // Log lines of this row's subscribers carry `outbox-<rowId>` (the e2e job maps it to its subjects).
-        const outcome = await runWithRequestId(`outbox-${row.id}`, () => this.deliverRow(row, now, tx));
+        const outcome = await runAsBackground(`outbox-${row.id}`, () => this.deliverRow(row, now, tx));
         result[outcome] += 1;
       }
       return result;
-    });
+    }));
   }
 
   private async deliverRow(row: OutboxRecord, now: Date, claimTx: Tx | undefined): Promise<'published' | 'retried' | 'failed'> {
