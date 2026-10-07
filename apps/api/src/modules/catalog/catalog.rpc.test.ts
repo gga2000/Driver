@@ -4,6 +4,7 @@ import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { DEMO_SHOPS } from '@driver/contracts/demo-shops';
 import { FakeClock } from '../../shared/clock.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
@@ -28,15 +29,21 @@ const SAT_EVENING = '2026-10-03T15:12:00Z';
 const ZAKUR = { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } };
 const CENTRE_HOME = { zoneKey: 'centre' };
 
+/** Uses up all but the last of a guest IP's reads in the window, without running 1,200 real reads. */
+async function fillGuestWindow(w: Awaited<ReturnType<typeof world>>, ip: string) {
+  for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp - 1; i++) await w.guests.hit(`catalog:guest:${ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
+}
+
 async function world(at = SAT_EVENING) {
   const clock = new FakeClock(at);
   const orgs = new OrgsService(undefined, clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository());
   const pricing = new PricingService(new ConfigService());
-  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock);
+  const guests = new InMemoryWindowCounter(clock);
+  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock, guests);
   const seeded = await seedStorefronts(orgs, catalog);
   const byKey = (key: string) => seeded.find((s) => s.seed.key === key)!;
-  return { clock, orgs, catalog, pricing, rpc, seeded, byKey };
+  return { clock, orgs, catalog, pricing, rpc, seeded, byKey, guests };
 }
 
 function caller(rpc: CatalogRpc, personId: string | null = 'c1') {
@@ -137,7 +144,8 @@ describe('catalog.restaurants (customer read, M3)', () => {
   it('limits guests per client IP (rate_limited with retryAfterSec); signed-in readers are not limited', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.7' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' }); // the last allowed read
     const err = await w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} }).then(
       () => null,
       (e: unknown) => e,
@@ -408,7 +416,8 @@ describe('catalog.today (welcome screen live proof, audit d-6)', () => {
   it('is rate-limited for guests like the rest of the public catalog', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.9' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.today(guest, { cityId: 'aziziyah' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.today(guest, { cityId: 'aziziyah' }); // the last allowed read
     const err = await w.rpc.today(guest, { cityId: 'aziziyah' }).catch((e: unknown) => e);
     expect(isDriverError(err) && err.code).toBe('rate_limited');
   });
