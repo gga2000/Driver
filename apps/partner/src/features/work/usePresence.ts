@@ -6,10 +6,10 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { DEV_TOOLS } from '@/lib/env';
 import { currentFix, DEMO_FIX, lastRealFix } from '@/lib/location';
+import { HEARTBEAT_MS } from './presence-timing';
 import { useGoOffline, useGoOnline } from './queries';
 
-/** Presence lives 90 s in the dispatch index; the app refreshes it well inside that. */
-export const HEARTBEAT_MS = 30_000;
+export { HEARTBEAT_MS };
 
 /**
  * The position to go online with: a fresh GPS fix, else the last real one this session (a heartbeat
@@ -25,7 +25,7 @@ export async function bestFix(): Promise<{ lat: number; lng: number } | null> {
 /**
  * Online/offline for the home switch, plus the heartbeat that keeps him in the dispatch index
  * while the app is open (`partner.goOnline` is idempotent: same zone keeps its anti-camping clock).
- * TODO(background-location): a background task takes over the heartbeat when the app is closed.
+ * With the app in the background, the background location task sends it (`useBackgroundLocation`).
  */
 export function usePresence(status: PartnerStatus | undefined) {
   const t = useT();
