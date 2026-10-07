@@ -1,11 +1,11 @@
-import { useCallback, useState, type ComponentProps, type ReactNode } from 'react';
-import { Pressable, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { Easing, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
-import Svg, { G, Path } from 'react-native-svg';
+import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
+import { Image, Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
-import { lift, type ServiceSwatch } from '@driver/design-tokens';
+import type { ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
-import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, STAR_TILE, StarPattern, Text, useDriftClock, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, Icon, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
@@ -14,7 +14,8 @@ import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { useAmbient } from './ambient';
 import { backFact, rideFact, soonNames, tripsFact, type Fact } from './service-facts';
-import { MOMENT_LEAD_MS, MOMENT_MS, nudge, starsX, steamWisp, taxiX, tuktukHop } from './tile-moments';
+import { MOMENT_LEAD_MS, MOMENT_MS, nudge, steamWisp, tuktukHop } from './tile-moments';
+import { TILE_PICTURES, type TilePicture } from './tile-pictures';
 import { grownTileHeight } from './tile-size';
 
 /** `trips`: Baghdad and Kut (leaving Aziziyah); `rajaa`: الرجعة, the way back (Ali, 2026-10-07). */
@@ -42,18 +43,39 @@ export const SERVICES: readonly ServiceDef[] = [
 
 const def = (id: ServiceId): ServiceDef => SERVICES.find((s) => s.id === id)!;
 
-/** The bento's measures (Date & Saffron v3, at phone size and normal text; `grownTileHeight` adds large text). */
+/** The bento's measures (soft tint, at phone size and normal text; `grownTileHeight` adds large text). */
 const GAP = 10;
 const SMALL_H = 96;
 const TRIP_H = 84;
-const FOOD_ART = 104;
 /** How far a tile's name or fact may shrink to fit its width (phones only; the web keeps the size). */
 const FIT_MIN = 0.8;
-/** The food drawing floats: it moves this share of the page's scroll more slowly, at most `FLOAT_MAX` px. */
+/** The food picture floats: it moves this share of the page's scroll more slowly, at most `FLOAT_MAX` px. */
 const FLOAT = 0.18;
 const FLOAT_MAX = 26;
-/** Scrolled this far, the tiles are well off the top of the screen: the food tile's light stops drifting. */
-const DRIFT_AWAY = 640;
+/** How far a vehicle pulls forward in its tile's moment (px). */
+const PULL = 12;
+/** The live dot, and one beat of its ring. */
+const DOT = 7;
+const PULSE_MS = 2400;
+
+/**
+ * Where a picture sits in its tile, as shares of the tile's width so it scales with the phone: its
+ * `width`, how far it runs past the tile's `end` edge (the tile clips it), and `bottom` when it stands
+ * on the tile's floor rather than in the middle. `text` is the width the name and fact keep at the start.
+ */
+interface Placement {
+  width: DimensionValue;
+  end: DimensionValue;
+  bottom?: DimensionValue;
+  text?: DimensionValue;
+}
+const PLACE = {
+  food: { width: '66%', end: '-2%', bottom: '-20%' },
+  taxi: { width: '62%', end: '-22%', text: '50%' },
+  tuktuk: { width: '52%', end: '-8%', text: '50%' },
+  trips: { width: '42%', end: '-8%', bottom: '8%', text: '62%' },
+  rajaa: { width: '80%', end: '-40%', bottom: '6%', text: '56%' },
+} as const satisfies Record<string, Placement>;
 
 /** A tile's moment (`tile-moments.ts`): its progress, and `play` to run it from the start. */
 function useMoment() {
@@ -83,14 +105,13 @@ function useNextCar(direction: IntercityDirection, enabled: boolean) {
 }
 
 /**
- * The services on home as the Date & Saffron bento (Ali, 2026-10-06; v3 artifact), on a warm dot halo:
- * أكل the tall saffron-gradient tile (its light slowly drifting) with a dish breaking out of its
- * corner, تكسي in yellow and تكتك in plum beside it, then بغداد والكوت wide in date brown with gold
- * Iraqi star lines and its next car in a gold chip, and الرجعة (the way back) smaller in gold on its
- * left (Ali, 2026-10-07: the trips' own colours, no blue). Each tile glows in its own colour and
- * shows one live fact from the server. Offline the ride tiles turn grey and say they need the
- * internet; with every kitchen closed the food tile goes quiet. The coming-soon services are in
- * `ComingSoonStrip` at the end.
+ * The services on home as soft-tint cards (Ali, 2026-10-07: concept C of the home cards redesign,
+ * same layout as before): each card a pale wash of its service's own colour with ink type and the
+ * service's real picture, no shadow. أكل tall with the wrap rising from its floor, تكسي and تكتك
+ * stacked beside it, then بغداد والكوت wide and الرجعة smaller. Each card shows one live fact from the
+ * server, with a softly beating dot while it is live. Offline the ride cards turn grey and say they
+ * need the internet; with every kitchen closed the food card goes quiet. The coming-soon services
+ * are in `ComingSoonStrip` at the end.
  */
 export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean; scrollY?: SharedValue<number> }) {
   const theme = useTheme();
@@ -110,18 +131,19 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
     trips: tripsFact({ online, signedIn, ...out }),
     rajaa: backFact({ online, signedIn, ...back }),
   };
-  const say = (f: Fact | null) => (f ? t(f.key, f.params) : null);
-  // The food tile's saffron drifts (Ali's Yes, "mesh") while it can be seen.
-  const [away, setAway] = useState(false);
-  useAnimatedReaction(
-    () => (scrollY ? scrollY.value > DRIFT_AWAY : false),
-    (now, was) => {
-      if (now !== was) runOnJS(setAway)(now);
-    },
-  );
-  const drift = useDriftClock(useAmbient() && !away && !foodOff);
+  // The dot marks what the server knows right now, not a card's standing description.
+  const live = {
+    food: !foodOff && foodFact?.key === 'home.food_open',
+    taxi: facts.taxi?.key === 'home.taxi_near',
+    tuktuk: facts.tuktuk?.key === 'home.tuktuk_near',
+    trips: facts.trips?.key === 'home.trips_next',
+    rajaa: facts.rajaa?.key === 'home.back_next',
+  };
+  // A number keeps the word after it on its line when a fact wraps («3 دقيقة», «2:35 ص», «4 ركاب»).
+  const say = (f: Fact | null) => (f ? t(f.key, f.params).replace(/(\d) /g, '$1\u00A0') : null);
+  const beat = useAmbient();
   const moments = { food: useMoment(), taxi: useMoment(), tuktuk: useMoment(), trips: useMoment(), rajaa: useMoment() };
-  // The tile plays its moment, then the next screen opens over it (at once under reduced motion).
+  // The card plays its moment, then the next screen opens over it (at once under reduced motion).
   const press = (id: keyof typeof moments) => {
     theme.haptic('selection');
     moments[id].play();
@@ -129,79 +151,73 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
     else setTimeout(() => onPress(id), MOMENT_LEAD_MS);
   };
   const end = theme.isRTL ? -1 : 1;
-  // Large text: each row grows by what a tile's name and fact lines grow (`tile-size.ts`).
+  // Large text: each row grows by what a card's name and two fact lines grow (`tile-size.ts`).
   const { fontScale } = useWindowDimensions();
-  const tileLines = [theme.type.title.lineHeight, theme.type.footnote.lineHeight];
-  const smallH = grownTileHeight(SMALL_H, tileLines, fontScale);
-  const tripH = grownTileHeight(TRIP_H, tileLines, fontScale);
-  const float = useAnimatedStyle(() => ({ transform: [{ translateY: scrollY ? Math.min(FLOAT_MAX, Math.max(-8, scrollY.value * FLOAT)) : 0 }, { rotate: '-14deg' }] }));
-  const taxiIcon = useAnimatedStyle(() => ({ transform: [{ translateX: taxiX(moments.taxi.a.value, end) }] }));
-  const tuktukIcon = useAnimatedStyle(() => {
+  const lines = [theme.type.title.lineHeight, theme.type.caption.lineHeight, theme.type.caption.lineHeight];
+  const smallH = grownTileHeight(SMALL_H, lines, fontScale);
+  const tripH = grownTileHeight(TRIP_H, lines, fontScale);
+  const float = useAnimatedStyle(() => ({ transform: [{ translateY: scrollY ? Math.min(FLOAT_MAX, Math.max(-8, scrollY.value * FLOAT)) : 0 }] }));
+  // The taxi and الرجعة's car face the start side (coming for you, coming home) and pull forward;
+  // the Baghdad car faces the end and pulls away; the tuktuk hops.
+  const taxiPull = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.taxi.a.value, -end, PULL) }] }));
+  const tuktukHops = useAnimatedStyle(() => {
     const h = tuktukHop(moments.tuktuk.a.value);
     return { transform: [{ translateY: h.y }, { rotate: `${h.rotate}deg` }] };
   });
-  // الرجعة's arrow points to the start side (it is mirrored in RTL), and nudges that way.
-  const backIcon = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.rajaa.a.value, -end, 10) }] }));
-  const stars = useAnimatedStyle(() => ({ transform: [{ translateX: starsX(moments.trips.a.value, end, STAR_TILE) }] }));
-  const chip = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.trips.a.value, end, 8) }] }));
+  const tripsPull = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.trips.a.value, end, PULL) }] }));
+  const backPull = useAnimatedStyle(() => ({ transform: [{ translateX: nudge(moments.rajaa.a.value, -end, PULL) }] }));
+  const food = foodOff ? s.off.card : s.food.card;
+  const ride = (c: ServiceCard) => (ridesOff ? s.off.card : c);
 
   return (
     <View testID="home-services" style={{ gap: GAP }}>
-      {/* The halo reaches past the tiles into the gutter and fades out before the screen's edge. */}
-      <DotHalo style={{ top: -22, bottom: -22, start: -theme.space[5], end: -theme.space[5] }} />
       <View style={{ flexDirection: 'row', gap: GAP }}>
-        <Tile
-          id="food"
-          swatch={foodOff ? s.off : s.food}
-          label={t(def('food').label)}
-          fact={say(foodFact)}
-          style={{ flex: 1.12, height: smallH * 2 + GAP }}
-          onPress={() => press('food')}
-        >
-          {foodOff ? null : <MeshFill base={s.food.fill} mesh={s.food.mesh} clock={drift} />}
-          <Animated.View pointerEvents="none" testID="service-food-art" style={[{ position: 'absolute', top: -10, end: -14, width: FOOD_ART, height: FOOD_ART, opacity: foodOff ? 0.45 : 1 }, float]}>
-            <Svg width={FOOD_ART} height={FOOD_ART} viewBox="0 0 200 200">
-              <G transform="translate(8 6) scale(0.92)">
-                <DishDrawing kind="shawarma" look={0} line={4.5} window={false} />
-              </G>
-            </Svg>
-            <Steam a={moments.food.a} color={withAlpha(s.food.on, 0.6)} />
-          </Animated.View>
-          <TileBody icon={def('food').icon} swatch={foodOff ? s.off : s.food} label={t(def('food').label)} fact={say(foodFact)} big />
+        <Tile id="food" card={food} label={t(def('food').label)} fact={say(foodFact)} style={{ flex: 1.12, height: smallH * 2 + GAP }} onPress={() => press('food')}>
+          {food.top ? <CornerFill base={food.bg} light={food.top} /> : null}
+          <Picture testID="service-food-art" picture={TILE_PICTURES.food} place={PLACE.food} facing="end" tilt={-9} off={foodOff} style={float}>
+            <Steam a={moments.food.a} color={withAlpha(food.sub, 0.55)} />
+          </Picture>
+          <View style={{ padding: theme.space[4] }}>
+            <Words card={food} label={t(def('food').label)} fact={say(foodFact)} live={live.food} beat={beat} big />
+          </View>
         </Tile>
         <View style={{ flex: 1, gap: GAP }}>
-          <Tile id="taxi" swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('taxi')}>
-            <TileBody icon={def('taxi').icon} iconStyle={taxiIcon} swatch={ridesOff ? s.off : s.taxi} label={t(def('taxi').label)} fact={say(facts.taxi)} />
+          <Tile id="taxi" card={ride(s.taxi.card)} label={t(def('taxi').label)} fact={say(facts.taxi)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('taxi')}>
+            <Picture picture={TILE_PICTURES.taxi} place={PLACE.taxi} facing="start" off={ridesOff} style={taxiPull} />
+            <SideWords text={PLACE.taxi.text}>
+              <Words card={ride(s.taxi.card)} label={t(def('taxi').label)} fact={say(facts.taxi)} live={live.taxi} beat={beat} />
+            </SideWords>
           </Tile>
-          <Tile id="tuktuk" swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('tuktuk')}>
-            <TileBody icon={def('tuktuk').icon} iconStyle={tuktukIcon} swatch={ridesOff ? s.off : s.tuktuk} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} />
+          <Tile id="tuktuk" card={ride(s.tuktuk.card)} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} disabled={ridesOff} style={{ height: smallH }} onPress={() => press('tuktuk')}>
+            <Picture picture={TILE_PICTURES.tuktuk} place={PLACE.tuktuk} facing="start" off={ridesOff} style={tuktukHops} />
+            <SideWords text={PLACE.tuktuk.text}>
+              <Words card={ride(s.tuktuk.card)} label={t(def('tuktuk').label)} fact={say(facts.tuktuk)} live={live.tuktuk} beat={beat} />
+            </SideWords>
           </Tile>
         </View>
       </View>
       <View style={{ flexDirection: 'row', gap: GAP }}>
-        <Tile id="trips" swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: tripH }} onPress={() => press('trips')}>
-          {ridesOff ? null : <CornerFill base={s.trips.fill} light={s.trips.light} />}
-          {ridesOff ? null : (
-            // One tile wider on each side, so gliding by a whole tile never shows an edge.
-            <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, bottom: 0, start: -STAR_TILE, end: -STAR_TILE }, stars]}>
-              <StarPattern color={s.trips.pattern} />
-            </Animated.View>
-          )}
-          <TileBody icon={def('trips').icon} chipStyle={chip} swatch={ridesOff ? s.off : s.trips} label={t(def('trips').label)} fact={say(facts.trips)} live={facts.trips?.key === 'home.trips_next'} row />
+        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: tripH }} onPress={() => press('trips')}>
+          <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
+          <SideWords text={PLACE.trips.text}>
+            <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
+          </SideWords>
         </Tile>
-        <Tile id="rajaa" swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: tripH }} onPress={() => press('rajaa')}>
-          {ridesOff ? null : <DownFill top={s.back.light} bottom={s.back.fill} />}
-          <TileBody icon={def('rajaa').icon} iconStyle={backIcon} swatch={ridesOff ? s.off : s.back} label={t(def('rajaa').label)} fact={say(facts.rajaa)} compact />
+        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: tripH }} onPress={() => press('rajaa')}>
+          <Picture picture={TILE_PICTURES.intercity} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
+          <SideWords text={PLACE.rajaa.text}>
+            <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
+          </SideWords>
         </Tile>
       </View>
     </View>
   );
 }
 
-/** One tile: its glow outside, its fill and decoration clipped inside. */
+/** One card: its wash, with the picture and words clipped inside; it sinks a little under the finger. */
 function Tile({
   id,
-  swatch,
+  card,
   label,
   fact,
   disabled,
@@ -210,7 +226,7 @@ function Tile({
   children,
 }: {
   id: ServiceId;
-  swatch: ServiceSwatch;
+  card: ServiceCard;
   label: string;
   fact: string | null;
   disabled?: boolean;
@@ -219,16 +235,12 @@ function Tile({
   children: ReactNode;
 }) {
   const theme = useTheme();
-  const g = lift.glowOffset;
-  const glow = disabled || swatch === theme.services.off || theme.scheme !== 'light' ? undefined : `${g.x}px ${g.y}px ${g.blur}px ${g.spread}px ${withAlpha(swatch.glow, lift.glowAlpha)}`;
-  // The soft spring press (Ali's Yes, "press"): the tile sinks and its glow tightens under it, then
-  // both spring back with one small overshoot when the finger lifts.
+  // The soft spring press (Ali's Yes, "press"): the card sinks, then springs back with one small
+  // overshoot when the finger lifts.
   const p = useSharedValue(0);
   const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * p.value }] }));
-  const halo = useAnimatedStyle(() => ({ opacity: 1 - 0.4 * p.value, transform: [{ scale: 1 - 0.06 * p.value }] }));
   return (
-    <Animated.View style={[{ borderRadius: theme.radius.tile }, style, sink]}>
-      {glow ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: theme.radius.tile, backgroundColor: swatch.fill, boxShadow: glow }, halo]} /> : null}
+    <Animated.View style={[style, sink]}>
       <Pressable
         testID={`service-${id}`}
         accessibilityRole="button"
@@ -242,7 +254,7 @@ function Tile({
         onPressOut={() => {
           p.value = withSpring(0, theme.motion.spring.select);
         }}
-        style={{ flex: 1, borderRadius: theme.radius.tile, backgroundColor: swatch.fill, overflow: 'hidden' }}
+        style={{ flex: 1, borderRadius: theme.radius.xl, backgroundColor: card.bg, overflow: 'hidden' }}
       >
         {children}
       </Pressable>
@@ -252,16 +264,55 @@ function Tile({
 
 type AnimatedViewStyle = ComponentProps<typeof Animated.View>['style'];
 
-/** Three curls of steam over the food tile's dish (its moment): drawn on the dish's own 200 grid. */
-const STEAM_D = ['M78 70c-9-11 9-15 0-27', 'M100 64c-9-11 9-15 0-27', 'M122 70c-9-11 9-15 0-27'] as const;
+/**
+ * A card's picture at its `place`, turned to face the reading direction's `start` or `end` side
+ * (mirrored when the file faces the other way). `tilt` leans it; `off` fades it with its card.
+ */
+function Picture({
+  picture,
+  place,
+  facing,
+  tilt,
+  off,
+  style,
+  testID,
+  children,
+}: {
+  picture: TilePicture;
+  place: Placement;
+  facing: 'start' | 'end';
+  tilt?: number;
+  off: boolean;
+  style?: AnimatedViewStyle;
+  testID?: string;
+  children?: ReactNode;
+}) {
+  const theme = useTheme();
+  const startSide = theme.isRTL ? 'right' : 'left';
+  const side = facing === 'start' ? startSide : startSide === 'right' ? 'left' : 'right';
+  const turn = [...(picture.faces !== side ? [{ scaleX: -1 }] : []), ...(tilt ? [{ rotate: `${tilt}deg` }] : [])];
+  const at: ViewStyle = place.bottom !== undefined ? { bottom: place.bottom } : { top: 0, bottom: 0, justifyContent: 'center' };
+  return (
+    <Animated.View testID={testID} pointerEvents="none" style={[{ position: 'absolute', end: place.end, width: place.width, opacity: off ? 0.4 : 1 }, at, style]}>
+      {/* The box holds the shape (an image left to size itself takes the file's own pixels on the web). */}
+      <View style={{ width: '100%', aspectRatio: picture.aspect, transform: turn.length ? turn : undefined }}>
+        <Image source={picture.source} accessible={false} accessibilityIgnoresInvertColors importantForAccessibility="no" resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+      </View>
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Three curls of steam over the wrap (the food card's moment), on a 200 × 100 grid above the picture. */
+const STEAM_D = ['M70 96c-9-11 9-15 0-27', 'M100 88c-9-11 9-15 0-27', 'M130 96c-9-11 9-15 0-27'] as const;
 
 function Steam({ a, color }: { a: SharedValue<number>; color: string }) {
   return (
-    <>
+    <View pointerEvents="none" style={{ position: 'absolute', top: '-22%', start: '10%', width: '80%', aspectRatio: 2 }}>
       {STEAM_D.map((d, i) => (
         <SteamCurl key={d} d={d} i={i} a={a} color={color} />
       ))}
-    </>
+    </View>
   );
 }
 
@@ -272,80 +323,68 @@ function SteamCurl({ d, i, a, color }: { d: string; i: number; a: SharedValue<nu
   });
   return (
     <Animated.View style={[StyleSheet.absoluteFill, style]}>
-      <Svg width="100%" height="100%" viewBox="0 0 200 200">
+      <Svg width="100%" height="100%" viewBox="0 0 200 100">
         <Path d={d} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round" />
       </Svg>
     </Animated.View>
   );
 }
 
-/**
- * Icon, name and live fact; `big` for أكل, `row` for the wide trips tile (name and fact only),
- * `compact` for الرجعة. `live` puts the fact in a chip with a dot (the trips tile's next car, in gold).
- */
-function TileBody({
-  icon,
-  iconStyle,
-  chipStyle,
-  swatch,
-  label,
-  fact,
-  live,
-  big,
-  row,
-  compact,
-}: {
-  icon: IconName;
-  /** The icon's part in the tile's moment. */
-  iconStyle?: AnimatedViewStyle;
-  /** The live chip's part in the tile's moment. */
-  chipStyle?: AnimatedViewStyle;
-  swatch: ServiceSwatch;
-  label: string;
-  fact: string | null;
-  live?: boolean;
-  big?: boolean;
-  row?: boolean;
-  compact?: boolean;
-}) {
+/** The name and fact column at a card's start side, beside its picture, centred top to bottom. */
+function SideWords({ text, children }: { text: DimensionValue; children: ReactNode }) {
   const theme = useTheme();
-  const sub = swatch.sub ?? swatch.on;
-  const factText = fact ? (
-    // Large text: the tile grows only to the compact cap, and a long fact shrinks to its width rather than being cut.
-    <Text variant={compact ? 'caption' : 'footnote'} weight={600} color={sub} numberOfLines={1} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN} tabular style={{ flexShrink: 1 }}>
-      {fact}
-    </Text>
-  ) : null;
-  const words = (
-    <View style={{ gap: live ? 4 : 0, flex: row ? 1 : undefined, flexShrink: 1, minWidth: 0, alignItems: 'flex-start' }}>
-      <Text variant={big ? 'display' : compact ? 'bodyStrong' : 'title'} face="display" color={swatch.on} numberOfLines={1} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN}>
+  return <View style={{ position: 'absolute', top: 0, bottom: 0, start: theme.space[3], width: text, justifyContent: 'center' }}>{children}</View>;
+}
+
+/**
+ * The service's name and its live fact (two lines at most, beside a picture; one in the tall food
+ * card), with the beating dot while the fact is live. A shimmer holds the fact's place while it loads.
+ */
+function Words({ card, label, fact, live, beat, big }: { card: ServiceCard; label: string; fact: string | null; live: boolean; beat: boolean; big?: boolean }) {
+  const theme = useTheme();
+  const factType = big ? 'footnote' : 'caption';
+  const line = theme.type[factType].lineHeight;
+  return (
+    <View style={{ alignItems: 'flex-start', minWidth: 0 }}>
+      <Text variant={big ? 'heading' : 'title'} face="display" color={card.on} numberOfLines={1} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN}>
         {label}
       </Text>
-      {fact && live ? (
-        <Animated.View testID="service-live" style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.md, backgroundColor: withAlpha(sub, 0.16) }, chipStyle]}>
-          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: sub, boxShadow: `0px 0px 0px 3px ${withAlpha(sub, 0.3)}` }} />
-          {factText}
-        </Animated.View>
-      ) : fact ? (
-        factText
+      {fact ? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, maxWidth: '100%' }}>
+          {live ? <LiveDot color={card.dot} beat={beat} top={(line - DOT) / 2} /> : null}
+          {/* Large text: the card grows only to the compact cap, and a long fact shrinks to fit rather than being cut. */}
+          <Text variant={factType} weight={500} color={card.sub} numberOfLines={big ? 1 : 2} compact adjustsFontSizeToFit minimumFontScale={FIT_MIN} tabular style={{ flexShrink: 1 }}>
+            {fact}
+          </Text>
+        </View>
       ) : (
-        // The shimmer takes the fact line's own height, so the tile doesn't shift when the fact arrives.
-        <View style={{ height: theme.type[compact ? 'caption' : 'footnote'].lineHeight, justifyContent: 'center', alignSelf: 'stretch' }}>
+        // The shimmer takes the fact line's own height, so the card doesn't shift when the fact arrives.
+        <View style={{ height: line, justifyContent: 'center', alignSelf: 'stretch' }}>
           <Skeleton height={10} width="70%" style={{ opacity: 0.5 }} />
         </View>
       )}
     </View>
   );
-  if (row) {
-    // No icon: the name and the next car's chip get the whole width (the trips artifact's tile).
-    return <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.space[4] }}>{words}</View>;
-  }
+}
+
+/** The live dot: a ring grows out of it and fades, once per beat, while home is in front (`useAmbient`). */
+function LiveDot({ color, beat, top }: { color: string; beat: boolean; top: number }) {
+  const ring = useSharedValue(0);
+  useEffect(() => {
+    if (!beat) {
+      cancelAnimation(ring);
+      ring.value = 0;
+      return;
+    }
+    ring.value = 0;
+    ring.value = withRepeat(withTiming(1, { duration: PULSE_MS, easing: Easing.out(Easing.quad) }), -1, false);
+    return () => cancelAnimation(ring);
+  }, [beat, ring]);
+  const halo = useAnimatedStyle(() => ({ opacity: 0.45 * (1 - ring.value), transform: [{ scale: 1 + 1.4 * ring.value }] }));
   return (
-    <View style={{ flex: 1, justifyContent: 'space-between', padding: compact ? 10 : big ? theme.space[4] : theme.space[3] }}>
-      <Animated.View style={[{ alignSelf: 'flex-start' }, iconStyle]}>
-        <Icon name={icon} size={big ? 28 : compact ? 18 : 24} color={swatch.on} strokeWidth={1.9} />
-      </Animated.View>
-      {words}
+    <View testID="service-live" style={{ width: DOT, height: DOT, marginTop: top }}>
+      <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: DOT / 2, backgroundColor: color }, halo]} />
+      <View style={{ width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: color }} />
     </View>
   );
 }
