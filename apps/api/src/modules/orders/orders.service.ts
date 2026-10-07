@@ -56,6 +56,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
@@ -90,6 +91,7 @@ import { startCodeForNewOrder } from './start-code.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
+import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
 
 /** A household member as placement reads them (role and limits). */
 type HouseholdMember = NonNullable<Awaited<ReturnType<OrdersHouseholdsPort['member']>>>;
@@ -468,7 +470,7 @@ export class OrdersService implements OnModuleInit {
           },
           newLines,
           [
-            ...participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+            ...participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: publicLabel(pp), note: pp.note })),
             ...(rider ? [{ ref: RIDER_REF, role: 'rider' as const, personId: rider.personId, phoneHash: rider.phoneHash, label: null, note: null }] : []),
           ],
           tx,
@@ -476,6 +478,7 @@ export class OrdersService implements OnModuleInit {
         const order = agg.order;
         const riderParticipant = rider ? agg.participants.find((pp) => pp.role === 'rider') : undefined;
         if (rider && riderParticipant && this.riders) await this.riders.remember(riderParticipant.id, rider, ordererId);
+        await rememberRecipients(this.riders, agg.participants, participants, ordererId); // SEC-14: names to the vault
         await this.emit(tx, 'order.placed', ordererId, order, {
           type: order.type,
           cityId: order.cityId,
@@ -1124,6 +1127,15 @@ export class OrdersService implements OnModuleInit {
    * still take its rating.
    */
   async rate(actorId: string, input: RateOrderInput): Promise<Order> {
+    // A double tap racing the first rating (RDB-04): the loser reads the order the winner rated.
+    return this.rateOnce(actorId, input).catch(async (err: unknown) => {
+      const again = isUniqueViolation(err) || (err instanceof DriverError && err.code === 'order_state_conflict') ? await this.repo.find(input.orderId) : null;
+      if (!again?.order.ratedAt || again.order.ordererId !== actorId) throw err;
+      return this.view(again.order.id);
+    });
+  }
+
+  private async rateOnce(actorId: string, input: RateOrderInput): Promise<Order> {
     return this.uow.run(async (tx) => {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
@@ -1350,7 +1362,8 @@ export class OrdersService implements OnModuleInit {
    * reads the ride as his own, the driver reads the name through `riderOf`. The first read of each name
    * is a logged vault read.
    */
-  async withRiders(orders: Order[], accessorId: string, purpose = 'ride_rider_name'): Promise<Order[]> {
+  async withRiders(input: Order[], accessorId: string, purpose = 'ride_rider_name'): Promise<Order[]> {
+    const orders = await this.withRecipients(input, accessorId, 'order_recipient_name', (o) => o.ordererId === accessorId || o.participants.some((p) => p.personId === accessorId));
     const riderOf = (o: Order) => (o.type === 'ride' && o.ordererId === accessorId ? o.participants.find((p) => p.role === 'rider' && p.personId) : undefined);
     const ids = orders.flatMap((o) => riderOf(o)?.id ?? []);
     if (ids.length === 0 || !this.riders) return orders;
@@ -1360,6 +1373,12 @@ export class OrdersService implements OnModuleInit {
       const name = p ? names[p.id] : null;
       return name ? { ...o, rider: { name } } : o;
     });
+  }
+
+  /** SEC-14: recipients' names (vault, logged per reader) on the orders `which` allows; the caller authorises. */
+  async withRecipients(orders: Order[], accessorId: string, purpose: string, which: (o: Order) => boolean = () => true): Promise<Order[]> {
+    const ids = recipientIds(orders.filter(which));
+    return ids.length === 0 || !this.riders ? orders : withRecipientLabels(orders, await this.riderNames(ids, accessorId, purpose));
   }
 
   /**

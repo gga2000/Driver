@@ -303,6 +303,12 @@ export const PartnerJobStop = z.object({
    * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * SEC-14: the person he hands the order to when someone else receives it (a gift «عزيمة», food sent
+   * to someone): the name the sender gave, read from the vault for this courier (logged), on the
+   * drop-off only. Null/absent otherwise.
+   */
+  recipient: z.object({ name: z.string() }).nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

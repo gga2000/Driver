@@ -456,6 +456,14 @@ function JobView({
               </View>
 
               <GiftLine stop={stop} />
+              {stop.type === 'dropoff' && stop.recipient ? (
+                <View testID="job-recipient" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+                  <Icon name="user" size={18} color="text" />
+                  <Text variant="label" weight={700} style={{ flex: 1 }}>
+                    {t('partner.job_recipient', { name: stop.recipient.name })}
+                  </Text>
+                </View>
+              ) : null}
               {ride && stop.type === 'pickup' && stop.rider ? (
                 <View testID="job-rider" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
                   <Icon name="user" size={18} color="text" />

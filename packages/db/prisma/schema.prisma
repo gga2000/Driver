@@ -418,10 +418,11 @@ model ChildIdentity {
 /// Ride ideas c9/s3: the name an orderer gave the person he booked a ride for («ماما», «أم علي»),
 /// keyed by the opaque participant id the public side carries. The rider's number is that person's
 /// own identity (`person_identities`); every read is a VaultAccessLog row against the rider.
+/// SEC-14: also the name a sender gave the recipient of his order (a gift), keyed the same way.
 model ParticipantIdentity {
   id            String   @id @default(cuid())
   participantId String   @unique @map("participant_id")
-  /// The person on the order (the rider).
+  /// The person on the order (the rider; a recipient with an account), else the orderer who named them.
   personId      String   @map("person_id")
   /// Who gave the name (the orderer).
   givenById     String   @map("given_by_id")
@@ -1191,6 +1192,8 @@ model Participant {
   personId  String?         @map("person_id")
   phoneHash String?         @map("phone_hash")
   /// Orderer-chosen grouping tag shown on the merchant ticket (e.g. "الكبير"), not an identifier.
+  /// Always null on a `recipient`: the name the sender gave them lives in the vault (SEC-14,
+  /// identity_vault.participant_identities).
   label     String?
   note      String?
   createdAt DateTime        @default(now()) @map("created_at")

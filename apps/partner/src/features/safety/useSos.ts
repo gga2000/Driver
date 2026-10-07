@@ -5,6 +5,7 @@ import { useNetwork, useToast, type SosSheetPhase } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { currentSosFix } from './fix';
+import { isSosRefusal } from './refusal';
 
 const RETRY_MS = 4_000;
 
@@ -40,7 +41,7 @@ export function useSos(subject: SosSubject | null) {
     setView(v);
     setOffset(v.serverNow.getTime() - Date.now());
     if (openSheet) setPhase(sosPhaseOf(v));
-    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' ? sosPhaseOf(v) : cur));
+    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' && cur !== 'refused' ? sosPhaseOf(v) : cur));
   }, []);
 
   // An alert already open (the screen was reopened): the button shows it, no new hold needed.
@@ -66,8 +67,15 @@ export function useSos(subject: SosSubject | null) {
       const v = await client.safety.sos.mutate({ subject, position, clientId: press.clientId, pressedAt: press.pressedAt });
       pending.current = null;
       accept(v, true);
-    } catch {
-      if (pending.current === press) setPhase(online.current ? 'failed' : 'offline');
+    } catch (err) {
+      if (pending.current !== press) return;
+      if (isSosRefusal(err)) {
+        // No retry loop on a refusal: the press is dropped and the sheet offers the emergency number.
+        pending.current = null;
+        setPhase('refused');
+        return;
+      }
+      setPhase(online.current ? 'failed' : 'offline');
     }
   }, [client, subject, accept]);
 
