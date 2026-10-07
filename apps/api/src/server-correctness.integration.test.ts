@@ -8,6 +8,7 @@ import { AppModule } from './app.module.js';
 import { CatalogService } from './modules/catalog/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersService } from './modules/orders/index.js';
+import { HouseholdsRpc } from './modules/orgs/index.js';
 import { SavedPlacesService } from './modules/places/index.js';
 import { PricingService } from './modules/pricing/index.js';
 import { SafetyService } from './modules/safety/index.js';
@@ -17,7 +18,7 @@ import { PrismaService } from './shared/db/prisma.service.js';
 
 /**
  * Server correctness on a real Postgres, through the app's own wiring (AppModule): an SOS is never
- * refused (FLOW-08); double taps are idempotent (RDB-04). Skipped without DATABASE_URL.
+ * refused (FLOW-08); double taps are idempotent (RDB-04) and make one household (RDB-05). Skipped without DATABASE_URL.
  */
 const url = process.env['DATABASE_URL'];
 const KITCHEN = { lat: 32.9105, lng: 45.0665 };
@@ -127,4 +128,15 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
     expect(await db.courierRating.count({ where: { orderId: ride.id } })).toBe(1);
     expect((await db.order.findUniqueOrThrow({ where: { id: ride.id } })).state).toBe('closed');
   }, 60_000);
+
+  it('RDB-05: two parallel household.create calls by the same person make one household', async () => {
+    const identity = app.get(IdentityService);
+    const payer = await identity.ensurePersonByPhone(phone(3), 'system:test', 'server_correctness_it', { name: 'علي حسين' });
+    const rpc = app.get(HouseholdsRpc);
+    const results = await Promise.allSettled([rpc.create(as(payer), { name: 'بيت علي', cityId: 'aziziyah' }), rpc.create(as(payer), { name: 'بيت علي', cityId: 'aziziyah' })]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+    const [a, b] = results.map((r) => (r as PromiseFulfilledResult<{ id: string }>).value);
+    expect(a!.id).toBe(b!.id);
+    expect(await db.orgMember.count({ where: { personId: payer, role: 'payer', org: { type: 'household' } } })).toBe(1);
+  }, 30_000);
 });
