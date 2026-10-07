@@ -19,6 +19,7 @@ import { CollapsedBar } from '@/features/home/CollapsedBar';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
 import { homeContext } from '@/features/home/context';
 import { nightHome } from '@/features/home/night';
+import { NightMoon } from '@/features/home/NightMoon';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
 import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
@@ -276,9 +277,7 @@ export default function Home() {
               <Card lift padding={4} testID="home-night">
                 <View style={{ gap: theme.space[4] }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                    <View style={{ width: 48, height: 48, borderRadius: theme.radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.inverse }}>
-                      <Icon name="moon" size={24} color="onInverseAccent" strokeWidth={2} />
-                    </View>
+                    <NightMoon />
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text variant="title" face="display">
                         {t('home.night_title')}

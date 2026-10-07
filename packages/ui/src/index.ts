@@ -14,7 +14,7 @@ export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingPro
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
 // Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.
-export { CornerFill, DotHalo, DownFill, MeshFill, StarPattern, STAR_TILE, SkyBackdrop } from './art/decor';
+export { CornerFill, DotHalo, DownFill, MeshFill, StarPattern, STAR_TILE, SkyBackdrop, useDriftClock } from './art/decor';
 export { TeaGlass, type TeaGlassProps } from './art/tea';
 
 // Motion
@@ -98,6 +98,7 @@ export { SegmentRing, type SegmentRingProps } from './components/SegmentRing';
 export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';
 // Phase 3 · garage board (customer audit d-2): the departure-board time
 export { DepartureTime, type DepartureTimeProps, type DepartureTimeSize, type DepartureTimeTone } from './components/DepartureTime';
+export { RollingDigits, type RollingDigitsProps } from './components/RollingDigits';
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';

@@ -1,17 +1,18 @@
-import { useCallback, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, useState, type ComponentProps, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceSwatch } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
-import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, STAR_TILE, StarPattern, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, DishDrawing, DotHalo, DownFill, Icon, MeshFill, Skeleton, STAR_TILE, StarPattern, Text, useDriftClock, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
 import { useT } from '@/lib/i18n';
 import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
+import { useAmbient } from './ambient';
 import { backFact, rideFact, soonNames, tripsFact, type Fact } from './service-facts';
 import { MOMENT_LEAD_MS, MOMENT_MS, nudge, starsX, steamWisp, taxiX, tuktukHop } from './tile-moments';
 
@@ -48,6 +49,8 @@ const FOOD_ART = 104;
 /** The food drawing floats: it moves this share of the page's scroll more slowly, at most `FLOAT_MAX` px. */
 const FLOAT = 0.18;
 const FLOAT_MAX = 26;
+/** Scrolled this far, the tiles are well off the top of the screen: the food tile's light stops drifting. */
+const DRIFT_AWAY = 640;
 
 /** A tile's moment (`tile-moments.ts`): its progress, and `play` to run it from the start. */
 function useMoment() {
@@ -78,11 +81,13 @@ function useNextCar(direction: IntercityDirection, enabled: boolean) {
 
 /**
  * The services on home as the Date & Saffron bento (Ali, 2026-10-06; v3 artifact), on a warm dot halo:
- * أكل the tall saffron-gradient tile with a dish breaking out of its corner, تكسي in yellow and تكتك in
- * plum beside it, then بغداد والكوت wide in date brown with gold Iraqi star lines and its next car in a
- * gold chip, and الرجعة (the way back) smaller in gold on its left (Ali, 2026-10-07: the trips' own
- * colours, no blue). Each tile glows in its own colour and shows one live fact from the server. Offline the ride tiles turn grey and say they need the internet; with every
- * kitchen closed the food tile goes quiet. The coming-soon services are in `ComingSoonStrip` at the end.
+ * أكل the tall saffron-gradient tile (its light slowly drifting) with a dish breaking out of its
+ * corner, تكسي in yellow and تكتك in plum beside it, then بغداد والكوت wide in date brown with gold
+ * Iraqi star lines and its next car in a gold chip, and الرجعة (the way back) smaller in gold on its
+ * left (Ali, 2026-10-07: the trips' own colours, no blue). Each tile glows in its own colour and
+ * shows one live fact from the server. Offline the ride tiles turn grey and say they need the
+ * internet; with every kitchen closed the food tile goes quiet. The coming-soon services are in
+ * `ComingSoonStrip` at the end.
  */
 export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean; scrollY?: SharedValue<number> }) {
   const theme = useTheme();
@@ -103,6 +108,15 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
     rajaa: backFact({ online, signedIn, ...back }),
   };
   const say = (f: Fact | null) => (f ? t(f.key, f.params) : null);
+  // The food tile's saffron drifts (Ali's Yes, "mesh") while it can be seen.
+  const [away, setAway] = useState(false);
+  useAnimatedReaction(
+    () => (scrollY ? scrollY.value > DRIFT_AWAY : false),
+    (now, was) => {
+      if (now !== was) runOnJS(setAway)(now);
+    },
+  );
+  const drift = useDriftClock(useAmbient() && !away && !foodOff);
   const moments = { food: useMoment(), taxi: useMoment(), tuktuk: useMoment(), trips: useMoment(), rajaa: useMoment() };
   // The tile plays its moment, then the next screen opens over it (at once under reduced motion).
   const press = (id: keyof typeof moments) => {
@@ -136,7 +150,7 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           style={{ flex: 1.12, height: SMALL_H * 2 + GAP }}
           onPress={() => press('food')}
         >
-          {foodOff ? null : <MeshFill base={s.food.fill} mesh={s.food.mesh} />}
+          {foodOff ? null : <MeshFill base={s.food.fill} mesh={s.food.mesh} clock={drift} />}
           <Animated.View pointerEvents="none" testID="service-food-art" style={[{ position: 'absolute', top: -10, end: -14, width: FOOD_ART, height: FOOD_ART, opacity: foodOff ? 0.45 : 1 }, float]}>
             <Svg width={FOOD_ART} height={FOOD_ART} viewBox="0 0 200 200">
               <G transform="translate(8 6) scale(0.92)">
