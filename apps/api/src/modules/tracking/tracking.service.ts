@@ -31,6 +31,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { rideMilestones } from './ride-milestones.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -562,21 +563,24 @@ export class TrackingService implements TrackingPort {
 
   /**
    * «أول مرة» (joy g8): the actor's first delivered food order and first finished tuktuk ride, from
-   * every order they placed, by when it reached them — so once claimed, no later order takes it.
+   * every order they placed, by when it reached them — so once claimed, no later order takes it. Ride
+   * stickers (g2): the first night ride and the latest milestone ride, the same way.
    */
   async firsts(actor: Actor): Promise<OrderFirsts> {
     // When it reached the person: the moment belongs to whichever arrived first, and stays there.
     const doneAt = (o: Order) => (o.deliveredAt ?? o.closedAt ?? o.placedAt).getTime();
     const mine = [...(await this.orders.listForPerson(actor.personId))].filter((o) => o.ordererId === actor.personId);
     const food = mine.filter((o) => o.type === 'food' && o.deliveredAt !== null).sort((a, b) => doneAt(a) - doneAt(b))[0] ?? null;
+    const rides = mine.filter((x) => x.type === 'ride' && (x.state === 'completed' || x.deliveredAt !== null)).sort((a, b) => doneAt(a) - doneAt(b));
     let tuktuk: string | null = null;
-    for (const o of mine.filter((x) => x.type === 'ride' && (x.state === 'completed' || x.deliveredAt !== null)).sort((a, b) => doneAt(a) - doneAt(b))) {
+    for (const o of rides) {
       if ((await this.currentTrip(o.id))?.vertical === 'tuktuk') {
         tuktuk = o.id;
         break;
       }
     }
-    return { foodOrderId: food?.id ?? null, tuktukOrderId: tuktuk };
+    const milestones = rideMilestones(rides.map((o) => ({ id: o.id, placedAt: o.placedAt, doneAt: new Date(doneAt(o)) })));
+    return { foodOrderId: food?.id ?? null, tuktukOrderId: tuktuk, ...milestones };
   }
 
   // ───────────────────────── internals ─────────────────────────

@@ -29,7 +29,14 @@ time. Shown on the Console controls page («شنو يدورون وما لگوه�
 
 ## `orders.firsts` (protected query)
 
-`→ { foodOrderId, tuktukOrderId }` — the caller's first delivered food order and first finished tuktuk
+`→ { foodOrderId, tuktukOrderId, nightRideOrderId, rideMilestone }` — the caller's first delivered food order and first finished tuktuk
 ride, chosen from all their orders by when each reached them, so once claimed no later order can take
 it. The app shows the «أول مرة» stamp on that order's arrival screen once per phone, never on a quiet
 day. The first الرجعة seat is the earliest booking that became a real seat (`routes.myBookings`).
+
+Ride stickers (taxi/tuktuk idea g2) ride on the same read: `nightRideOrderId` is the first finished
+taxi or tuktuk ride **booked** at night (Baghdad 21:00–05:59, `isNightAt`), and `rideMilestone`
+`{ orderId, count }` is the latest finished ride whose count is in `RIDE_STICKER_MILESTONES` (10, 25,
+50, 100), both by when the rides reached the person (`ride-milestones.ts`). That ride's arrival screen
+offers a sticker from the pack — «وصلت بالسلامة» for the night ride, «جاي بالطريق» for a milestone
+(a milestone wins when one ride is both) — with «أرسله» to send it on WhatsApp. Never on a quiet day.

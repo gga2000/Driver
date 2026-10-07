@@ -189,8 +189,15 @@ export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
 export const OrderFirsts = z.object({
   foodOrderId: z.string().nullable(),
   tuktukOrderId: z.string().nullable(),
+  /** Ride idea g2: the first taxi or tuktuk ride booked at night, which gets the «وصلت بالسلامة» sticker. */
+  nightRideOrderId: z.string().nullable(),
+  /** Ride idea g2: the latest finished ride whose count is in `RIDE_STICKER_MILESTONES` (10th, 25th…). */
+  rideMilestone: z.object({ orderId: z.string(), count: z.number().int().positive() }).nullable(),
 });
 export type OrderFirsts = z.infer<typeof OrderFirsts>;
+
+/** Which finished city rides (taxi and tuktuk together) earn a sticker on their arrival screen (ride idea g2). */
+export const RIDE_STICKER_MILESTONES = [10, 25, 50, 100] as const;
 
 /** How many orders `orders.history` returns (newest first). */
 export const ORDER_HISTORY_LIMIT = 50;

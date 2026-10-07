@@ -27,7 +27,8 @@
 //   ride-*   taxi/tuktuk booking: home bar, where to, search, choose (fare, door, family driver), edge
 //            zone, pin, searching with the drivers sent it («نبّهه», a profile), cancel preview, matched,
 //            a minute away, the screen light and safety shield (a night tab), the arrived card, on the
-//            trip, night share, arrival, rating, the receipt's lost-item and not-again rows
+//            trip, night share, arrival (with the 10th-ride sticker), rating, the receipt's lost-item and
+//            not-again rows
 //                                                                         POST /demo/ride
 //   family-* joy w4/w6: «بيتنا» (this month per member, a request over the month's budget, the family
 //            table), a member's limits, «شهرك» this month and last, the month-start card on the 2nd
@@ -1418,10 +1419,27 @@ async function rideShots() {
   // per order), and the reload below would then open on the calm receipt.
   await page.goto(`${origin}/`, LOADED);
   await demoPost(`/demo/ride/advance?orderId=${orderId}`);
+  // g2: show this ride as his 10th, so the arrival offers its sticker (the demo rider has one ride).
+  const asTenth = async (route) => {
+    const res = await route.fetch();
+    const patch = (v) => {
+      if (Array.isArray(v)) return v.forEach(patch);
+      if (!v || typeof v !== 'object') return;
+      if ('tuktukOrderId' in v && 'rideMilestone' in v) v.rideMilestone = { orderId, count: 10 };
+      Object.values(v).forEach(patch);
+    };
+    const body = await res.json().catch(() => null);
+    if (body === null) return route.fulfill({ response: res });
+    patch(body);
+    await route.fulfill({ response: res, json: body });
+  };
+  await page.route('**/trpc/*orders.firsts*', asTenth);
   await page.goto(`${origin}/order/${orderId}`, LOADED);
   await byTestId('arrival').waitFor({ timeout: 15_000 });
+  await byTestId('ride-sticker-milestone').waitFor({ timeout: 10_000 }).catch(() => errors.push('ride sticker not shown'));
   await page.waitForTimeout(1200);
   await shot('ride-arrived');
+  await page.unroute('**/trpc/*orders.firsts*', asTenth);
   await byTestId('arrival-rate').click();
   await byTestId('stars-delivery').waitFor();
   await settle(500);

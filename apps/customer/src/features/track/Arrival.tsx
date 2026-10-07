@@ -14,7 +14,8 @@ import { useLocale, useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { useSeason } from '@/lib/use-season';
 import { RideArrivalSummary } from '@/features/ride/LiveParts';
-import { firstKindForOrder } from '@/features/firsts/firsts';
+import { firstKindForOrder, rideStickerFor } from '@/features/firsts/firsts';
+import { RideStickerCard } from '@/features/firsts/RideStickerCard';
 import { FirstMoment, useOrderFirsts } from '@/features/firsts/FirstMoment';
 import { arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
 import { rideArrivalCopy } from './arrival-copy';
@@ -76,6 +77,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
   // «أول مرة» (joy g8): the first meal delivered or the first tuktuk ride, once in a lifetime.
   const firsts = useOrderFirsts();
   const first = firstKindForOrder(view.order.id, firsts.data);
+  // Ride idea g2: the first night ride and the 10th, 25th… ride earn a sticker from the pack.
+  const sticker = ride ? rideStickerFor(view.order.id, firsts.data) : null;
   // On a quiet day (mourning, set in the Console) the moment is calm: no burst, no bounce, no success buzz.
   const celebrate = today.celebrations && !theme.reduceMotion;
   useEffect(() => {
@@ -110,6 +113,7 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
         {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
         {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}
         <FirstMoment kind={first} />
+        <RideStickerCard sticker={sticker} />
         {/* A ride ends wherever the rider asked, not at a door: its own fare summary instead. */}
         {ride ? (
           <RideArrivalSummary view={view} />

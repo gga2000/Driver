@@ -224,7 +224,7 @@ describe('TrackingService — «أول مرة» (joy g8)', () => {
     const early = await acceptedOrder(h);
     h.clock.advance(60_000);
     const later = await acceptedOrder(h);
-    expect(await tracking.firsts(as('c1'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+    expect(await tracking.firsts(as('c1'))).toEqual({ foodOrderId: null, tuktukOrderId: null, nightRideOrderId: null, rideMilestone: null });
     // The later order reaches the door first: that is the first meal.
     const t2 = await h.tripFor(later.id);
     await h.pickup(t2.id);
@@ -235,7 +235,7 @@ describe('TrackingService — «أول مرة» (joy g8)', () => {
     await h.pickup(t1.id);
     await h.dropoff(t1.id, { cashCollectedIqd: 16500 });
     expect((await tracking.firsts(as('c1'))).foodOrderId).toBe(later.id);
-    expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null });
+    expect(await tracking.firsts(as('someone_else'))).toEqual({ foodOrderId: null, tuktukOrderId: null, nightRideOrderId: null, rideMilestone: null });
   });
 
   it('joy s3: the same delivered order a week apart, same weekday and band, is a usual with its history row', async () => {
