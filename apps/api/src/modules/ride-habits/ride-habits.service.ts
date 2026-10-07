@@ -2,15 +2,27 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   askAt,
   atLocal,
+  AZIZIYAH_ZONES,
   baghdadDate,
+  baghdadMinuteOfDay,
+  baghdadWeekday,
   dinnerDeliverAt,
   DriverError,
   dueReminders,
+  encodeRideEnd,
+  haversineM,
   isOccurrenceDate,
+  isWorkDay,
   nextOccurrence,
   occurrenceState,
   RIDE_HABIT_RULES,
+  sameRide,
+  sameRideHabits,
+  sameRidePushWindow,
   SaveRegularTripInput,
+  shiftDate,
+  westernDigits,
+  workDaysBefore,
   type Actor,
   type AvoidDriverInput,
   type AvoidedDriverView,
@@ -40,7 +52,9 @@ import {
   type RecentDriverView,
   type RegularTripIdInput,
   type RegularTripView,
+  type RideFootprint,
   type RideHabitsPort,
+  type SameRideHabit,
   type SavedPlaceView,
   type UnavoidInput,
   type UnfavouriteInput,
@@ -60,6 +74,8 @@ const TOGETHER_DAYS = 365;
 const LIVE_SEAT = new Set<BookingView['state']>(['booked', 'checked_in']);
 
 export const REGULAR_TRIP_DUE_EVENT = 'regular_trip.due';
+/** Step 4 (o4): «نفس مشوار البارحة؟» is due for a rider today (once a day: keyed per person and date). */
+export const SAME_RIDE_DUE_EVENT = 'same_ride.due';
 
 /**
  * Joy J7d: favourite drivers (l9), regular trips (r5) and «عشاك يوصل وياك» (r6). Owns
@@ -353,6 +369,98 @@ export class RideHabitsService implements RideHabitsPort {
       }
     }
     return n;
+  }
+
+  // ───────────────────────── «نفس مشوار البارحة؟» (step 4, o4) ─────────────────────────
+
+  /** A ride he booked leaves its footprint (from `order.placed`; a redelivery changes nothing). */
+  async recordRide(personId: string, f: RideFootprint): Promise<void> {
+    await this.repo.addFootprint(personId, f);
+  }
+
+  /**
+   * The job's look, every 5 minutes on working days: riders with a habit whose push time has come
+   * (10 minutes before, until 3 before) get one `same_ride.due` — at most one a day (keyed per person
+   * and date). Only finished rides count. Nothing when he has a ride on or booked around then, already
+   * took that ride today, or has a regular trip for it (r5 asks him itself).
+   */
+  async sameRideDue(): Promise<number> {
+    const now = this.clock.now();
+    const today = baghdadDate(now);
+    if (!isWorkDay(today)) return 0;
+    const r = RIDE_HABIT_RULES.sameRide;
+    const nowMin = baghdadMinuteOfDay(now);
+    // A habit due now is timed in [now + 3, now + 10]; its rides lie within twice the window of that.
+    const oldest = workDaysBefore(today, r.lookbackDays).at(-1)!;
+    const prints = await this.repo.footprintsAround(atLocal(oldest, 0), nowMin + r.lastCallMin - 2 * r.windowMin, nowMin + r.pushBeforeMin + 2 * r.windowMin);
+    const byPerson = new Map<string, RideFootprint[]>();
+    for (const f of prints) byPerson.set(f.personId, [...(byPerson.get(f.personId) ?? []), f]);
+    let n = 0;
+    for (const [personId, mine] of byPerson) {
+      if (mine.length < r.needed) continue;
+      const finished = await this.rides.finishedOrderIds(mine.map((f) => f.orderId));
+      const habit = sameRideHabits(
+        mine.filter((f) => finished.has(f.orderId)),
+        today,
+      ).find((h) => {
+        const w = sameRidePushWindow(h, today);
+        return now >= w.from && now <= w.until;
+      });
+      if (!habit) continue;
+      const { at } = sameRidePushWindow(habit, today);
+      if (mine.some((f) => baghdadDate(f.at) === today && sameRide(f, { ...habit, at }))) continue;
+      if (await this.rides.rideOn(personId, at)) continue;
+      if (await this.regularCovers(personId, habit, at)) continue;
+      await this.events.emit(
+        {
+          type: SAME_RIDE_DUE_EVENT,
+          actorId: 'system',
+          occurredAt: now,
+          payload: {
+            personId,
+            date: today,
+            at: at.toISOString(),
+            vertical: habit.vertical,
+            doorPickup: habit.doorPickup,
+            from: encodeRideEnd(habit.pickup),
+            to: encodeRideEnd(habit.dropoff),
+            route: await this.sameRideRoute(personId, habit),
+            // His last working day was not yesterday (a Sunday after the weekend): «نفس مشوار الخميس؟».
+            afterWeekend: habit.dates[0] !== shiftDate(today, -1),
+          },
+          idempotencyKey: `${SAME_RIDE_DUE_EVENT}:${personId}:${today}`,
+        },
+        { name: 'person', id: personId },
+      );
+      n += 1;
+    }
+    return n;
+  }
+
+  /** One of his active regular rides on this weekday covers the habit (same ends, about the same time). */
+  private async regularCovers(personId: string, habit: SameRideHabit, at: Date): Promise<boolean> {
+    const r = RIDE_HABIT_RULES.sameRide;
+    return (await this.repo.tripsOf(personId)).some(
+      (t) =>
+        t.active &&
+        t.plan.kind === 'ride' &&
+        t.days.includes(baghdadWeekday(at)) &&
+        Math.abs(t.timeMin - habit.timeMin) <= r.windowMin &&
+        haversineM(t.plan.pickup.pin, habit.pickup.pin) <= r.radiusM &&
+        haversineM(t.plan.dropoff.pin, habit.dropoff.pin) <= r.radiusM,
+    );
+  }
+
+  /** «البيت ← المدرسة»: his saved place's name at each end, else the zone's name. */
+  private async sameRideRoute(personId: string, habit: SameRideHabit): Promise<string> {
+    const places = await this.people.places(personId);
+    const name = (end: SameRideHabit['pickup']) => {
+      const place = places.find((p) => p.id === end.placeId) ?? places.find((p) => haversineM(p.pin, end.pin) <= RIDE_HABIT_RULES.sameRide.radiusM);
+      if (place) return place.name;
+      const zone = AZIZIYAH_ZONES.find((z) => z.id === end.zoneKey);
+      return zone ? westernDigits(zone.name_ar) : end.zoneKey;
+    };
+    return `${name(habit.pickup)} ← ${name(habit.dropoff)}`;
   }
 
   private routeOf(t: RegularTripRecord): string {

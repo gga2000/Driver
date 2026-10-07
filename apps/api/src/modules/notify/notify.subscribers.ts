@@ -63,6 +63,9 @@ export const NOTIFY_EVENT_TYPES = [
   'insights.month_ready',
   // Joy r5: «تأكد رحلتك؟» the evening before (or that morning) a regular trip.
   'regular_trip.due',
+  // Step 4: half an hour before a ride booked for later (c10); «نفس مشوار البارحة؟» (o4).
+  'order.ride_reminder',
+  'same_ride.due',
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -302,6 +305,32 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const at = str(p['at']);
       if (!personId || !regularTripId || !day || !at || Number.isNaN(Date.parse(at))) return [];
       return [{ ...base, template: 'regular_trip_reminder', to: personId, params: { regularTripId, day, route: str(p['route']) ?? '', time: localTime(new Date(at)) }, data: { regularTripId, date: day } }];
+    }
+    case 'order.ride_reminder': {
+      // Step 4 (c10): «مشوارك 7:00 الصبح» — when the search starts, and that cancelling is still free.
+      const customerId = str(p['customerId']);
+      const at = str(p['scheduledFor']);
+      const searchAt = str(p['searchAt']);
+      if (!customerId || !e.orderId || !at || !searchAt || Number.isNaN(Date.parse(at)) || Number.isNaN(Date.parse(searchAt))) return [];
+      return [{ ...base, template: 'ride_booked_reminder', to: customerId, orderId: e.orderId, params: { orderId: e.orderId, time: localTime(new Date(at)), search: localTime(new Date(searchAt)) }, data: { orderId: e.orderId } }];
+    }
+    case 'same_ride.due': {
+      // Step 4 (o4): its own switch (the engine); the job already checked the day, the time and that no
+      // ride is on. The link fills choose with the same ends, vehicle and door pickup.
+      const personId = str(p['personId']);
+      const at = str(p['at']);
+      const from = str(p['from']);
+      const to = str(p['to']);
+      const vertical = p['vertical'] === 'tuktuk' ? 'tuktuk' : p['vertical'] === 'taxi' ? 'taxi' : null;
+      if (!personId || !at || Number.isNaN(Date.parse(at)) || !from || !to || !vertical) return [];
+      return [
+        {
+          ...base,
+          template: p['afterWeekend'] === true ? 'same_ride_after_weekend' : 'same_ride_offer',
+          to: personId,
+          params: { route: str(p['route']) ?? '', time: localTime(new Date(at)), from, to, vertical, door: p['doorPickup'] === true ? '1' : '0' },
+        },
+      ];
     }
     case 'wallet.topped_up': {
       const customerId = str(p['customerId']);

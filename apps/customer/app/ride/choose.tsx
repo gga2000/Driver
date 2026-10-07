@@ -1,17 +1,18 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Redirect, router, Stack } from 'expo-router';
+import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, Chip, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
-import { formatClock, formatHourPart, formatWhen } from '@driver/i18n';
+import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
+import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
-import { favouritesFor, firstSlot, hourOptions, minuteOptions, scheduleAt, SCHEDULE_DAYS, settleChoice, type ScheduleChoice, type ScheduleDay } from '@/features/ride-habits/logic';
+import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { useWalletBalance } from '@/features/account/queries';
 import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
+import { WhenPicker } from '@/features/ride/LaterPicker';
 import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
 import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes } from '@/features/ride/queries';
 import { RideMap } from '@/features/ride/RideMap';
@@ -49,6 +50,8 @@ export default function RideChoose() {
   const pickup = d.pickup ?? defaultPickup;
   const dropoff = d.dropoff;
   // Joy J7d: now, or booked for later (20 min – 7 days), quoted for that time; l9: a favourite asked first.
+  // «نفس مشوار البارحة؟» (step 4, o4) opened choose filled in: say so.
+  const { again } = useLocalSearchParams<{ again?: string }>();
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [choice, setChoice] = useState<ScheduleChoice>(() => firstSlot(new Date()));
   const [favouriteId, setFavouriteId] = useState<string | null>(null);
@@ -196,6 +199,14 @@ export default function RideChoose() {
             </Text>
           ) : null}
           <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {again ? (
+            <View testID="ride-again-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
+              <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
+              <Text variant="footnote" weight={600} color="successText" style={{ flex: 1 }}>
+                {t('ride.again_note')}
+              </Text>
+            </View>
+          ) : null}
 
           {surcharges.map((s) => (
             <SurchargeBanner key={s.key} s={s} city={city.data ?? undefined} vertical={vertical} />
@@ -268,7 +279,7 @@ export default function RideChoose() {
             label={
               quote
                 ? bookedAt
-                  ? t('ride.book_later', { vehicle: t(VEHICLE[vertical].name), when: formatWhen(bookedAt, new Date()), amount: amountParam(quote.total) })
+                  ? t('ride.book_for', { when: formatWhen(bookedAt, new Date()), amount: amountParam(quote.total) })
                   : t('ride.request', { vehicle: t(VEHICLE[vertical].name), amount: amountParam(quote.total) })
                 : t('ride.choose_title')
             }
@@ -313,7 +324,7 @@ export default function RideChoose() {
             </View>
           </View>
 
-          <WhenPicker when={when} onWhen={setWhen} choice={settled} onChoice={setChoice} />
+          <WhenPicker when={when} onWhen={setWhen} choice={settled} onChoice={setChoice} now={new Date()} />
 
           {when === 'later' && vertFavs.length > 0 ? (
             <View style={{ gap: theme.space[2] }} testID="ride-fav">
@@ -388,58 +399,3 @@ export default function RideChoose() {
   );
 }
 
-/**
- * «وكتها» (joy J7d): هسة, or a time from 20 minutes to the day after tomorrow on the quarter hour (the
- * server takes 20 min – 7 days). The fare above is the server's quote for that time.
- */
-function WhenPicker({ when, onWhen, choice, onChoice }: { when: 'now' | 'later'; onWhen: (w: 'now' | 'later') => void; choice: ScheduleChoice; onChoice: (c: ScheduleChoice) => void }) {
-  const theme = useTheme();
-  const t = useT();
-  const now = new Date();
-  const hours = hourOptions(now, choice.day);
-  const minutes = minuteOptions(now, choice.day, choice.hour);
-  const dayLabel = (day: ScheduleDay) => (day === 0 ? t('time.today') : day === 1 ? t('time.tomorrow') : t('ride.when_day_after'));
-  return (
-    <View style={{ gap: theme.space[2] }} testID="ride-when">
-      <Text variant="label" weight={600} color="textMuted">
-        {t('ride.when')}
-      </Text>
-      <SegmentedControl
-        accessibilityLabel={t('ride.when')}
-        value={when}
-        onChange={onWhen}
-        options={[
-          { value: 'now', label: t('ride.when_now') },
-          { value: 'later', label: t('ride.when_later') },
-        ]}
-      />
-      {when === 'later' ? (
-        <View style={{ gap: theme.space[2] }}>
-          <SegmentedControl
-            accessibilityLabel={t('ride.when_day')}
-            value={String(choice.day) as '0' | '1' | '2'}
-            onChange={(v) => onChoice(settleChoice(now, { ...choice, day: Number(v) as ScheduleDay }))}
-            options={SCHEDULE_DAYS.filter((day) => hourOptions(now, day).length > 0).map((day) => ({ value: String(day) as '0' | '1' | '2', label: dayLabel(day) }))}
-          />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="ride-when-hours">
-            {hours.map((h) => (
-              <Chip key={h} role="radio" label={formatHourPart(scheduleAt(now, { day: choice.day, hour: h, minute: 0 }))} selected={choice.hour === h} onPress={() => onChoice(settleChoice(now, { ...choice, hour: h }))} testID={`ride-hour-${h}`} />
-            ))}
-          </ScrollView>
-          <SegmentedControl
-            accessibilityLabel={t('ride.when_minute')}
-            value={String(choice.minute) as '0' | '15' | '30' | '45'}
-            onChange={(v) => onChoice(settleChoice(now, { ...choice, minute: Number(v) }))}
-            options={minutes.map((m) => ({ value: String(m) as '0' | '15' | '30' | '45', label: formatClock(scheduleAt(now, { ...choice, minute: m }), { period: false }) }))}
-          />
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-            <Icon name="clock" size={15} color="liveText" strokeWidth={2} />
-            <Text variant="footnote" color="textMuted" style={{ flex: 1 }} testID="ride-when-hint">
-              {t('ride.later_hint')}
-            </Text>
-          </View>
-        </View>
-      ) : null}
-    </View>
-  );
-}

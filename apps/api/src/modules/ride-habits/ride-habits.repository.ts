@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { RegularTripPlan, type CalendarDate, type FavouriteKind, type RegularRemind } from '@driver/contracts';
+import { baghdadMinuteOfDay, DeliveryPoint, RegularTripPlan, type CalendarDate, type FavouriteKind, type RegularRemind, type RideFootprint } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -76,6 +76,16 @@ export interface RideHabitsRepository {
   decision(tripId: string, date: CalendarDate): Promise<OccurrenceRecord | null>;
   /** The first decision for a day wins; returns the stored one. */
   decide(o: OccurrenceRecord): Promise<OccurrenceRecord>;
+
+  /** Step 4 (o4): one ride's footprint (`ride_footprints`, one per order: a repeat changes nothing). */
+  addFootprint(personId: string, f: RideFootprint): Promise<void>;
+  /**
+   * Footprints wanted at or after `since` whose Baghdad minute of the day is in `[fromMin, toMin]`, with
+   * their riders: the slice of the day the «نفس مشوار البارحة؟» job looks at.
+   */
+  footprintsAround(since: Date, fromMin: number, toMin: number): Promise<Array<RideFootprint & { personId: string }>>;
+  /** One rider's footprints wanted at or after `since`. */
+  footprintsOf(personId: string, since: Date): Promise<RideFootprint[]>;
 }
 
 export const RIDE_HABITS_REPOSITORY = Symbol('RIDE_HABITS_REPOSITORY');
@@ -87,6 +97,7 @@ export class InMemoryRideHabitsRepository implements RideHabitsRepository {
   private readonly avoids: AvoidRecord[] = [];
   private readonly trips = new Map<string, RegularTripRecord>();
   private readonly occ = new Map<string, OccurrenceRecord>();
+  private readonly prints = new Map<string, RideFootprint & { personId: string }>();
 
   async favouritesOf(personId: string): Promise<FavouriteRecord[]> {
     return this.favs.filter((f) => f.personId === personId).map((f) => ({ ...f, kinds: [...f.kinds] }));
@@ -168,6 +179,22 @@ export class InMemoryRideHabitsRepository implements RideHabitsRepository {
     this.occ.set(key, { ...o });
     return { ...o };
   }
+
+  async addFootprint(personId: string, f: RideFootprint): Promise<void> {
+    if (!this.prints.has(f.orderId)) this.prints.set(f.orderId, { ...structuredClone(f), personId });
+  }
+  async footprintsAround(since: Date, fromMin: number, toMin: number): Promise<Array<RideFootprint & { personId: string }>> {
+    return [...this.prints.values()]
+      .filter((f) => f.at >= since && baghdadMinuteOfDay(f.at) >= fromMin && baghdadMinuteOfDay(f.at) <= toMin)
+      .map((f) => structuredClone(f));
+  }
+  async footprintsOf(personId: string, since: Date): Promise<RideFootprint[]> {
+    return [...this.prints.values()].filter((f) => f.personId === personId && f.at >= since).map((f) => withoutPerson(structuredClone(f)));
+  }
+}
+
+function withoutPerson(f: RideFootprint & { personId: string }): RideFootprint {
+  return { orderId: f.orderId, vertical: f.vertical, doorPickup: f.doorPickup, pickup: f.pickup, dropoff: f.dropoff, at: f.at };
 }
 
 function copyTrip(t: RegularTripRecord): RegularTripRecord {
@@ -200,6 +227,19 @@ const tripOf = (r: TripRow): RegularTripRecord => ({
 
 type OccRow = { regularTripId: string; date: string; state: string; orderId: string | null; bookingId: string | null; demandId: string | null; decidedAt: Date };
 const occOf = (r: OccRow): OccurrenceRecord => ({ regularTripId: r.regularTripId, date: r.date, state: r.state === 'skipped' ? 'skipped' : 'confirmed', orderId: r.orderId, bookingId: r.bookingId, demandId: r.demandId, decidedAt: r.decidedAt });
+
+type PrintRow = { orderId: string; personId: string; vertical: string; doorPickup: boolean; pickup: unknown; dropoff: unknown; at: Date };
+/** A stored end: the booked point with its pin (rows without one are never written). */
+const End = DeliveryPoint.pick({ zoneKey: true, placeId: true }).extend({ pin: DeliveryPoint.shape.pin.unwrap() });
+const printOf = (r: PrintRow): RideFootprint & { personId: string } => ({
+  orderId: r.orderId,
+  personId: r.personId,
+  vertical: r.vertical === 'tuktuk' ? 'tuktuk' : 'taxi',
+  doorPickup: r.doorPickup,
+  pickup: End.parse(r.pickup),
+  dropoff: End.parse(r.dropoff),
+  at: r.at,
+});
 
 const tripData = (t: NewRegularTrip) => ({ personId: t.personId, kind: t.plan.kind, days: t.days, timeMin: t.timeMin, remind: t.remind, paymentMethod: t.paymentMethod, favouriteId: t.favouriteId, active: t.active, plan: t.plan });
 
@@ -288,5 +328,18 @@ export class PrismaRideHabitsRepository implements RideHabitsRepository {
       if (!isUniqueViolation(err)) throw err;
       return (await this.decision(o.regularTripId, o.date))!;
     }
+  }
+
+  async addFootprint(personId: string, f: RideFootprint): Promise<void> {
+    await this.db.rideFootprint.createMany({
+      data: [{ orderId: f.orderId, personId, vertical: f.vertical, doorPickup: f.doorPickup, pickup: f.pickup, dropoff: f.dropoff, at: f.at, minuteOfDay: baghdadMinuteOfDay(f.at) }],
+      skipDuplicates: true,
+    });
+  }
+  async footprintsAround(since: Date, fromMin: number, toMin: number): Promise<Array<RideFootprint & { personId: string }>> {
+    return (await this.db.rideFootprint.findMany({ where: { at: { gte: since }, minuteOfDay: { gte: fromMin, lte: toMin } } })).map(printOf);
+  }
+  async footprintsOf(personId: string, since: Date): Promise<RideFootprint[]> {
+    return (await this.db.rideFootprint.findMany({ where: { personId, at: { gte: since } }, orderBy: { at: 'desc' } })).map((r) => withoutPerson(printOf(r)));
   }
 }

@@ -52,6 +52,10 @@
 //            switch, the simple home without a saved home and «وين بيتك؟», home saved from the phone, «رجعني
 //            للبيت» from the souq to the simple choose screen, the simple search, the ride as the big card
 //            (searching, then the driver coming)                         POST /demo/ride, /demo/ride/accept
+//   later-*  step 4 c10/o4 on a fresh account: choose with «هسة / بعدين», the day+time picker (opened, a
+//            time picked), the summary and «احجز لـ …», «مشوارك محجوز» with the reminder, the booked rides
+//            in طلباتي and the free cancel, the «نفس مشوار البارحة» switch, and the push's link landing
+//            on choose with both ends filled           POST /demo/ride-habits, /demo/same-ride
 //   habits-* joy J7a: pots strip + usual on home, a followed pot, Thursday 20:00 «باچر الجمعة» and its
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
@@ -116,7 +120,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'simple'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'later', 'simple'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -255,6 +259,7 @@ try {
   if (wants('gift')) await giftShots(khalid, personId);
   if (wants('live')) await liveShots(personId);
   if (wants('trips')) await tripsShots(khalid);
+  if (wants('later')) await laterShots();
   // Last: it signs in as its own fresh account and grants the page the phone's position.
   if (wants('simple')) await simpleShots();
 } catch (err) {
@@ -445,7 +450,7 @@ async function tripsShots(khalid) {
   await shot('trips-booked');
   await fullShot('trips-booked-full');
 
-  // Booking a ride for later with the favourite: home → work, «لوكت ثاني», حسين.
+  // Booking a ride for later with the favourite: home → work, «بعدين» (its picker's first time), حسين.
   await page.goto(`${origin}/ride`, LOADED);
   // The where-to screen may open on «من» or on «إلى»: الدائرة, then البيت if it was the pickup.
   await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
@@ -458,7 +463,10 @@ async function tripsShots(khalid) {
   // «وكتها» lives in the trip options sheet (ride idea c7).
   await byTestId('ride-options').click();
   await byTestId('ride-options-panel').waitFor();
-  await page.getByText('لوكت ثاني', { exact: true }).click();
+  await page.getByText('بعدين', { exact: true }).click();
+  await byTestId('ride-later-pick').waitFor({ timeout: 10_000 });
+  await byTestId('ride-later-pick').click();
+  await byTestId('ride-later-sheet').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
   await byTestId('ride-fav').waitFor({ timeout: 10_000 }).catch(() => errors.push('favourite chips not shown'));
   await page.getByText('حسين', { exact: true }).click().catch(() => errors.push('favourite chip not found'));
   await byTestId('ride-when').scrollIntoViewIfNeeded();
@@ -522,6 +530,113 @@ async function tripsShots(khalid) {
   await byTestId('pref-regularTrips').waitFor({ timeout: 15_000 });
   await byTestId('pref-regularTrips').scrollIntoViewIfNeeded();
   await shot('trips-notify');
+}
+
+/**
+ * Step 4 c10 + o4, as a fresh account: a ride booked «بعدين» from choose (the picker, the summary, the
+ * button), its booked screen with the reminder, the booked rides in طلباتي with «ألغي», the
+ * «نفس مشوار البارحة» switch, and the push's deep link landing on choose with البيت ← الدائرة filled.
+ */
+async function laterShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.LATER_PHONE ?? '0770 456 7711');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
+    await byTestId('setup-next').click();
+    await byTestId('chip-street_30').click();
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('no person after sign-in');
+  // Home and الدائرة saved, two rides done, and the work trip's next day booked already.
+  const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
+
+  // Choose: البيت → الدائرة, then «بعدين».
+  await page.goto(`${origin}/ride`, LOADED);
+  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+  await settle(600);
+  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
+  await byTestId('ride-choose').waitFor({ timeout: 15_000 });
+  // «هسة / بعدين» lives in the trip options sheet (ride idea c7).
+  await byTestId('ride-options').click();
+  await byTestId('ride-options-panel').waitFor();
+  await byTestId('ride-when').scrollIntoViewIfNeeded();
+  await settle(900);
+  await shot('later-choose-now');
+  await page.getByText('بعدين', { exact: true }).click();
+  await byTestId('ride-later-sheet').waitFor({ timeout: 10_000 });
+  await settle(800);
+  await shot('later-picker');
+  // باچر at 7, then a quarter past.
+  await visible('ride-later-day-1').click();
+  await visible('ride-later-hour-7').click();
+  await page.getByText('7:15', { exact: true }).last().click().catch(() => errors.push('quarter 7:15 not shown'));
+  await settle(600);
+  await shot('later-picker-picked');
+  await visible('ride-later-pick').click();
+  await byTestId('ride-later-sheet').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+  await byTestId('ride-when-summary').waitFor({ timeout: 10_000 });
+  await byTestId('ride-when-summary').scrollIntoViewIfNeeded();
+  await settle(900);
+  await shot('later-choose-booked');
+  await byTestId('ride-options-done').click();
+  await byTestId('ride-options-panel').waitFor({ state: 'detached' }).catch(() => undefined);
+  await page.waitForFunction(() => /احجز لـ/.test(document.querySelector('[data-testid="ride-request"]')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => errors.push('book-for button not shown'));
+  await settle(900);
+  await shot('later-choose-booked-row');
+
+  // Booked: «مشوارك محجوز» with the reminder half an hour before.
+  await byTestId('ride-request').click();
+  await byTestId('booked-reminder').waitFor({ timeout: 20_000 }).catch(() => errors.push('booked reminder row not shown'));
+  await settle(900);
+  await shot('later-booked');
+  await fullShot('later-booked-full');
+
+  // طلباتي: both rides booked for later, with «ألغي»; the cancel asks once.
+  await page.goto(`${origin}/orders`, LOADED);
+  await page.locator('[data-testid^="booked-cancel-"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('booked rides not in طلباتي'));
+  await settle(900);
+  await shot('later-orders');
+  if (seed.bookedOrderId) {
+    await visible(`booked-cancel-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).waitFor({ timeout: 10_000 });
+    await settle(700);
+    await shot('later-orders-cancel');
+    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-${seed.bookedOrderId}`).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('cancelled booked ride still listed'));
+    await settle(900);
+    await shot('later-orders-cancelled');
+  }
+
+  // o4: the switch in notification settings, and the push's link landing on choose.
+  await page.goto(`${origin}/profile/notifications`, LOADED);
+  await byTestId('pref-sameRide').waitFor({ timeout: 15_000 });
+  await byTestId('pref-sameRide').scrollIntoViewIfNeeded();
+  await settle(600);
+  await shot('later-notify');
+  const link = await demoPost(`/demo/same-ride?personId=${encodeURIComponent(personId)}`);
+  if (link?.deepLink) {
+    await page.goto(`${origin}/${link.deepLink.slice('driver://'.length)}`, LOADED);
+    await byTestId('ride-again-note').waitFor({ timeout: 20_000 }).catch(() => errors.push('same-ride landing note not shown'));
+    await settle(1200);
+    await shot('later-again');
+  }
 }
 
 /**

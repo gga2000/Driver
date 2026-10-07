@@ -32,6 +32,7 @@ import {
   ruleHours,
   sameSpot,
   searchSpots,
+  spotForEnd,
   searchStage,
   surchargesOf,
   tooClose,
@@ -131,6 +132,16 @@ describe('places', () => {
     expect(zoneTitle('street_30')).toBe('شارع 30');
     expect(zoneTitle('street_30', 'en')).toBe('Street 30');
     expect(zoneTitle('nowhere')).toBe('nowhere');
+  });
+
+  it('turns a «نفس مشوار البارحة؟» end into the spot the rider knows (o4)', () => {
+    const gate = landmarkSpot(garage, 'ar-IQ', 'كراج');
+    const sources = { saved: [home], recent: [], landmarks: [gate] };
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.95, lng: 45.1 }, placeId: 'p1' }, sources)).toBe(home);
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.9097, lng: 45.0636 } }, sources)).toBe(home);
+    expect(spotForEnd({ zoneKey: 'street_30', pin: { lat: 32.9089, lng: 45.0648 } }, sources)).toBe(gate);
+    const pin = spotForEnd({ zoneKey: 'fidaa', pin: { lat: 32.92, lng: 45.07 } }, sources);
+    expect(pin).toMatchObject({ kind: 'pin', zoneId: 'fidaa', title: zoneTitle('fidaa'), pin: { lat: 32.92, lng: 45.07 } });
   });
 });
 

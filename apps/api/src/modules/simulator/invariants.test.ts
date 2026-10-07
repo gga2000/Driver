@@ -60,3 +60,20 @@ describe('late_credit_once_per_delivery (honest-delay promise, Ali 2026-10-06)',
     expect(r.examples.join('\n')).toMatch(/o4 \(ride\): late credit on a non-delivery/);
   });
 });
+
+describe('booked_ride_waits_for_its_search (step 4, c10)', () => {
+  const booked = order({ id: 'r1', type: 'ride', scheduledFor: new Date('2026-10-06T11:00:00Z') });
+  const trip = { id: 't1', state: 'completed', stops: [], orders: [{ orderId: 'r1' }] } as unknown as SimSnapshot['trips'][number];
+  const offer = (at: string) => ({ tripId: 't1', driverId: 'd1', at: Date.parse(at), kind: 'broadcast', overCap: false, owedIqd: 0, capIqd: 0 });
+  const check = (offers: SimSnapshot['offers']) => checkInvariants({ ...snapshot([booked, order({ id: 'o1' })], []), trips: [trip], offers }).find((r) => r.name === 'booked_ride_waits_for_its_search')!;
+
+  it('passes offers from 15 minutes before the booked time', () => {
+    expect(check([offer('2026-10-06T10:45:00Z'), offer('2026-10-06T10:50:00Z')])).toMatchObject({ checked: 1, violations: 0 });
+  });
+
+  it('flags an offer before the search starts', () => {
+    const r = check([offer('2026-10-06T10:30:00Z')]);
+    expect(r.violations).toBe(1);
+    expect(r.examples[0]).toMatch(/r1: 1 offer\(s\) from 2026-10-06T10:30:00.000Z, search starts 2026-10-06T10:45:00.000Z/);
+  });
+});

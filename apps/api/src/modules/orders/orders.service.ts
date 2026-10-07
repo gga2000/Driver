@@ -21,8 +21,10 @@ import {
   orderTicketNumber,
   parseOrderTicket,
   redeemablePoints,
+  rideReminderAt,
   rideScheduleProblem,
   sortCargo,
+  rideSearchStartsAt,
   smallOrderFeeIqd,
   type CancellationBeneficiary,
   type CancellationFee,
@@ -174,6 +176,8 @@ export const ORDER_JOBS = {
   offerToMerchant: 'order.offerToMerchant',
   /** Joy w4: a held household order nobody answered is cancelled free (`HOUSEHOLD_RULES.approvalWaitMin`). */
   payerTimeout: 'order.payerTimeout',
+  /** Step 4 (c10): «مشوارك بعد نص ساعة» for a ride booked for later (`rideReminderAt`). */
+  rideReminder: 'order.rideReminder',
   readyOverdue: 'merchant.readyOverdue',
   courierRelease: 'merchant.courierRelease',
 } as const;
@@ -450,7 +454,8 @@ export class OrdersService implements OnModuleInit {
           participantCount: agg.participants.length,
           arrivingCallRequired: risk?.requiresArrivingCall ?? false,
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
-          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true } } : {}),
+          // Step 4 (o4): door pickup too, so ride habits can offer the same ride the same way.
+          ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true, doorPickup: input.options?.doorPickup ?? false } } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -463,6 +468,12 @@ export class OrdersService implements OnModuleInit {
           await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
         } else if (merchantType && profile) {
           await this.scheduleOffer(order, profile, now, tx);
+        }
+        // Step 4 (c10): a ride booked for later reminds its rider half an hour before (a delayed job, so
+        // it survives a restart like every order timer); booked closer than that, nothing to remind.
+        const remindAt = order.type === 'ride' && order.scheduledFor ? rideReminderAt(order.scheduledFor, now) : null;
+        if (remindAt && order.scheduledFor) {
+          await this.queue.add(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
         }
         return this.view(order.id, tx);
       });
@@ -1506,6 +1517,12 @@ export class OrdersService implements OnModuleInit {
         }
         case ORDER_JOBS.autoClose: {
           if (order.state === 'delivered' || order.state === 'completed') await this.close(order, SYSTEM, 'auto_2h', tx);
+          return;
+        }
+        case ORDER_JOBS.rideReminder: {
+          // Only the booking it was set for, still waiting for its search (not cancelled, not taken).
+          if (order.type !== 'ride' || order.state !== 'placed' || !order.scheduledFor || order.scheduledFor.getTime() !== job.refMs) return;
+          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() });
           return;
         }
         default:

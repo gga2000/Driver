@@ -210,6 +210,19 @@ export function pushRecent(list: readonly Spot[], spot: Spot, max = 6): Spot[] {
   return [entry, ...list.filter((s) => !sameSpot(s, spot))].slice(0, max);
 }
 
+/**
+ * One end of «نفس مشوار البارحة؟» (step 4, o4) as the spot the rider knows: his saved place (by id,
+ * else within 60 m), then a recent trip, then a landmark there, else a pin titled with its zone.
+ */
+export function spotForEnd(end: { zoneKey: string; pin: LatLng; placeId?: string | undefined }, sources: Pick<SpotSources, 'saved' | 'recent' | 'landmarks'>, locale: 'ar-IQ' | 'en' = 'ar-IQ'): Spot {
+  const at = { zoneId: end.zoneKey, pin: end.pin };
+  const saved = (end.placeId ? sources.saved.find((s) => s.id === `saved:${end.placeId}`) : undefined) ?? sources.saved.find((s) => sameSpot(s, at));
+  if (saved) return saved;
+  const known = sources.recent.find((s) => sameSpot(s, at)) ?? sources.landmarks.find((s) => sameSpot(s, at));
+  if (known) return known;
+  return { id: `pin:${end.zoneKey}:${end.pin.lat.toFixed(5)},${end.pin.lng.toFixed(5)}`, kind: 'pin', title: zoneTitle(end.zoneKey, locale), zoneId: end.zoneKey, pin: end.pin };
+}
+
 /** Closer than this, a ride makes no sense ("same place"); the rider changes the destination. */
 export const MIN_RIDE_M = 150;
 

@@ -55,6 +55,13 @@ export interface HabitsRidesPort {
   driverRating(driverId: string): Promise<{ rating: number; count: number } | null>;
   /** Travel minutes between two points (the one ETA, learned corrections included). */
   minutes(from: LatLng, to: LatLng, vehicle: VehicleClass): Promise<number>;
+  /** Step 4 (o4): which of these orders are rides he finished (completed or closed). */
+  finishedOrderIds(orderIds: readonly string[]): Promise<Set<string>>;
+  /**
+   * Step 4 (o4): he has a ride in hand — one searching or under way, or one booked for within an hour
+   * of `around` — so «نفس مشوار البارحة؟» stays quiet.
+   */
+  rideOn(personId: string, around: Date): Promise<boolean>;
 }
 
 /** What ride habits read and do on الرجعة (the routes module). */

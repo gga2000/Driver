@@ -100,6 +100,12 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     if (start) start.startCodeChecked = false;
     else (s.rideStarts ??= []).push({ orderId: o.id, tripId: 'fault', stopId: 'fault', startCodeChecked: false });
   },
+  booked_ride_waits_for_its_search: (s) => {
+    // A ride booked «بعدين» broadcast as soon as it was placed (the request's start time ignored).
+    const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
+    const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
+    s.offers.push({ tripId: trip.id, driverId: 'fault', at: o.placedAt.getTime(), kind: 'dispatch.offer_sent', overCap: false, owedIqd: 0, capIqd: 75_000 });
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 

@@ -1,4 +1,4 @@
-import { Inject, Module, type OnModuleInit } from '@nestjs/common';
+import { Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { DRIVER_PROFILE_RULES, publicCourierRating, ROAD_FACTOR, TOWN_SPEED_KMH, type IntercityDirection, type LatLng, type Order, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
@@ -28,16 +28,20 @@ import {
   type HabitsRidesPort,
   type HabitsSearchPort,
 } from './ports.js';
+import { registerFootprints } from './footprints.subscriber.js';
 import { RegularTripJob } from './regular-trip.job.js';
 import { InMemoryRideHabitsRepository, PrismaRideHabitsRepository, RIDE_HABITS_REPOSITORY, type RideHabitsRepository } from './ride-habits.repository.js';
 import { RideHabitsService } from './ride-habits.service.js';
 import { RiderDriversService } from './rider-drivers.service.js';
+import { SameRideJob } from './same-ride.job.js';
 
 const FINISHED = new Set<Order['state']>(['completed', 'closed']);
 const MIN = 60_000;
 /** The profile's on-time share reads his newest completed trips of the last year, at most this many. */
 const ON_TIME_TRIPS = 200;
 const YEAR_MS = 365 * 24 * 60 * MIN;
+/** A ride booked for within this many minutes of a habit's time is that day's ride already (o4). */
+const RIDE_ON_BOOKED_MIN = 60;
 
 const isRide = (v: Vertical): v is 'taxi' | 'tuktuk' => v === 'taxi' || v === 'tuktuk';
 
@@ -130,6 +134,17 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
         kitchen: (merchantOrgId) => orders.kitchenTiming(merchantOrgId),
         minutes: async (from, to, vehicle) => (await eta.minutes(from, to, vehicle)).minutes,
         driverRating: async (driverId) => publicCourierRating(await scores.courierScores(driverId)),
+        finishedOrderIds: async (ids) => {
+          const found = await Promise.all(ids.map((id) => orders.get(id).catch(() => null)));
+          return new Set(found.filter((o): o is Order => o !== null && o.type === 'ride' && FINISHED.has(o.state)).map((o) => o.id));
+        },
+        rideOn: async (personId, around) =>
+          (await orders.listForPerson(personId)).some(
+            (o) =>
+              o.ordererId === personId &&
+              o.type === 'ride' &&
+              (o.state === 'matched' || (o.state === 'placed' && (!o.scheduledFor || Math.abs(o.scheduledFor.getTime() - around.getTime()) <= RIDE_ON_BOOKED_MIN * MIN))),
+          ),
         };
       },
       inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK],
@@ -239,10 +254,13 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
     RideHabitsService,
     RiderDriversService,
     RegularTripJob,
+    SameRideJob,
   ],
-  exports: [RideHabitsService, RegularTripJob],
+  exports: [RideHabitsService, RegularTripJob, SameRideJob],
 })
-export class RideHabitsModule implements OnModuleInit {
+export class RideHabitsModule implements OnModuleInit, OnModuleDestroy {
+  private unsubscribe: (() => void) | undefined;
+
   constructor(
     private readonly orders: OrdersService,
     private readonly habits: RideHabitsService,
@@ -250,11 +268,13 @@ export class RideHabitsModule implements OnModuleInit {
     private readonly dispatch: DispatchService,
     @Inject(HABITS_RIDES) private readonly rides: HabitsRidesPort,
     @Inject(HABITS_SEARCH) private readonly search: HabitsSearchPort,
+    private readonly events: EventsService,
   ) {}
 
   /**
    * Orders asks this module who a booked ride's favourite is (joy l9); dispatch asks for a rider's
-   * avoid list (s5), his favourites (s4) and the «عوائل» standing of drivers (s6) — ride step 3.
+   * avoid list (s5), his favourites (s4) and the «عوائل» standing of drivers (s6) — ride step 3; every
+   * placed ride leaves its footprint for «نفس مشوار البارحة؟» (step 4, o4).
    */
   onModuleInit(): void {
     this.orders.bindFavourites({ driverFor: (personId, favouriteId) => this.habits.driverFor(personId, favouriteId) });
@@ -266,5 +286,10 @@ export class RideHabitsModule implements OnModuleInit {
         return new Map(ids.map((id, i) => [id, { rating: ratings[i]?.rating ?? null, driverSince: since[id] ?? null }]));
       },
     });
+    this.unsubscribe = registerFootprints(this.events, this.habits);
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribe?.();
   }
 }
