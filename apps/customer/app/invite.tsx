@@ -92,9 +92,10 @@ export default function InviteScreen() {
           {t('invite.title')}
         </Text>
         <Text variant="body" color="textMuted" align="center">
-          {t('invite.subtitle')}
+          {data && !data.rule.rewardsOn ? t('invite.subtitle_plain') : t('invite.subtitle')}
         </Text>
       </View>
+      {data && !data.rule.rewardsOn ? null : (
       <Card elevation={0} padding={4} testID="invite-rule">
         {data ? (
           <View style={{ gap: theme.space[3] }}>
@@ -117,6 +118,7 @@ export default function InviteScreen() {
           </View>
         )}
       </Card>
+      )}
       {data ? (
         <View style={{ alignItems: 'center', gap: theme.space[1] }}>
           <Text variant="caption" color="textMuted">

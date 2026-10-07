@@ -120,6 +120,12 @@ export const MoneyRules = z.object({
     pointValueIqd: Iqd.positive(),
   }),
   referral: z.object({
+    /**
+     * The city's switch for paying invite points, **off by default**. `docs/before-launch.md` lists the
+     * invite-gift amounts as not yet approved (THIN-18, money question M-5): until Ali says yes, a
+     * closed order posts no `referral_bonus` and the apps promise no points.
+     */
+    enabled: z.boolean().default(false),
     pointsPerSide: z.number().int().positive(),
     minOrderIqd: Iqd.nonnegative(),
     /** Unlocks on the referee's Nth completed cash order ≥ minOrderIqd. */
@@ -218,7 +224,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   rounding: { stepIqd: 250 },
   changeToWallet: { maxIqd: 25_000, tenderMaxOverIqd: 50_000 },
   points: { revenueIqdPerPoint: 100, rideTakeIqdPerPoint: 200, maxPerOrder: 50, organizerBonusRate: 0.1, pointValueIqd: 10 },
-  referral: { pointsPerSide: 200, minOrderIqd: 10000, unlockOnQualifyingOrder: 2, monthlyCapPerReferrer: 10 },
+  referral: { enabled: false, pointsPerSide: 200, minOrderIqd: 10000, unlockOnQualifyingOrder: 2, monthlyCapPerReferrer: 10 },
   caps: {
     byRole: {
       courier: { bronze: 75000, silver: 150000, gold: 300000 },
