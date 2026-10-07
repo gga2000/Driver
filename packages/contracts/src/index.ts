@@ -28,6 +28,7 @@ export * from './aziziyah-landmarks.js';
 export * from './landmarks.js';
 export * from './auth.js';
 export * from './dispatch-io.js';
+export * from './vehicle-features.js';
 export * from './console-io.js';
 export * from './routes-io.js';
 export * from './deals.js';
