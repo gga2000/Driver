@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
-import { t } from '@driver/i18n';
+import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups, OrderFacts } from './notify.lookups.js';
@@ -65,6 +65,9 @@ export const NOTIFY_EVENT_TYPES = [
   'regular_trip.due',
   // Step 4: half an hour before a ride booked for later (c10); «نفس مشوار البارحة؟» (o4).
   'order.ride_reminder',
+  // Taxi ideas x3 / x4: the taxi to his الرجعة car is late; the taxi waiting at the garage booked,
+  // dropped (trip cancelled) or not bookable.
+  ...Object.values(GARAGE_TAXI_EVENTS),
   'same_ride.due',
 ] as const;
 
@@ -349,6 +352,41 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const searchAt = str(p['searchAt']);
       if (!customerId || !e.orderId || !at || !searchAt || Number.isNaN(Date.parse(at)) || Number.isNaN(Date.parse(searchAt))) return [];
       return [{ ...base, template: 'ride_booked_reminder', to: customerId, orderId: e.orderId, params: { orderId: e.orderId, time: localTime(new Date(at)), search: localTime(new Date(searchAt)) }, data: { orderId: e.orderId } }];
+    }
+    case GARAGE_TAXI_EVENTS.late: {
+      // x3: the rider hears the minutes and that the car's driver knows; the الرجعة driver hears which
+      // seat, how late, and that it is our taxi (so he does not count the rider as a no-show yet).
+      const riderId = str(p['riderId']);
+      const driverId = str(p['driverId']);
+      const orderId = str(p['orderId']);
+      const departureId = str(p['departureId']);
+      const minutes = num(p['lateMin']);
+      const at = str(p['expectedAt']);
+      if (!riderId || !orderId || !departureId || minutes === null || !at || Number.isNaN(Date.parse(at))) return [];
+      const time = localTime(new Date(at));
+      const garage = str(p['garageAr']) ?? '';
+      const seats = Array.isArray(p['seats']) ? (p['seats'] as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+      const seat = seats.map((id) => t(`seat.${id}` as MessageKey, {}, 'ar-IQ')).join('، ');
+      const out: NotifyRequest[] = [{ ...base, template: 'garage_taxi_late', to: riderId, orderId, params: { orderId, minutes: String(minutes), time, garage }, data: { orderId } }];
+      if (driverId) out.push({ ...base, template: 'rajaa_rider_taxi_late', to: driverId, params: { departureId, minutes: String(minutes), time, seat }, data: { departureId } });
+      return out;
+    }
+    case GARAGE_TAXI_EVENTS.placed: {
+      const riderId = str(p['riderId']);
+      const orderId = str(p['orderId']);
+      if (!riderId || !orderId) return [];
+      return [{ ...base, template: 'garage_taxi_placed', to: riderId, orderId, params: { orderId, garage: str(p['garageAr']) ?? '' }, data: { orderId } }];
+    }
+    case GARAGE_TAXI_EVENTS.dropped: {
+      const riderId = str(p['riderId']);
+      const bookingId = str(p['bookingId']);
+      if (!riderId || !bookingId) return [];
+      return [{ ...base, template: 'garage_taxi_dropped', to: riderId, params: { bookingId }, data: { bookingId } }];
+    }
+    case GARAGE_TAXI_EVENTS.failed: {
+      const riderId = str(p['riderId']);
+      if (!riderId) return [];
+      return [{ ...base, template: 'garage_taxi_failed', to: riderId, params: { garage: str(p['garageAr']) ?? '' } }];
     }
     case 'same_ride.due': {
       // Step 4 (o4): its own switch (the engine); the job already checked the day, the time and that no

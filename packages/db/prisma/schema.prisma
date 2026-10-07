@@ -3358,6 +3358,47 @@ model PhoneBooking {
   @@schema("public")
 }
 
+/// Taxi ideas x2/x3/x4 (+ n10): a taxi linked to a الرجعة seat — the ride to the car's garage
+/// (`to_garage`) or the taxi armed to wait at the Aziziyah garage on the way back (`from_garage`).
+/// Ids, pins and times only; names stay in `identity_vault`.
+model GarageTaxi {
+  id            String    @id @default(cuid())
+  /// to_garage | from_garage
+  kind          String
+  personId      String    @map("person_id")
+  bookingId     String    @map("booking_id")
+  departureId   String    @map("departure_id")
+  /// armed | placed | disarmed | dropped | failed | closed
+  state         String
+  orderId       String?   @map("order_id")
+  garageId      String?   @map("garage_id")
+  placeId       String?   @map("place_id")
+  pinLat        Float?    @map("pin_lat")
+  pinLng        Float?    @map("pin_lng")
+  zoneId        String?   @map("zone_id")
+  /// cash | wallet
+  paymentMethod String    @map("payment_method")
+  departAt      DateTime  @map("depart_at")
+  pickupAt      DateTime? @map("pickup_at")
+  rideMin       Int?      @map("ride_min")
+  expectedAt    DateTime? @map("expected_at")
+  lateMin       Int?      @map("late_min")
+  toldMin       Int?      @map("told_min")
+  toldAt        DateTime? @map("told_at")
+  failCode      String?   @map("fail_code")
+  dropReason    String?   @map("drop_reason")
+  placedAt      DateTime? @map("placed_at")
+  closedAt      DateTime? @map("closed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([bookingId, kind])
+  @@index([kind, state])
+  @@index([orderId])
+  @@map("garage_taxis")
+  @@schema("public")
+}
+
 /// Support ticket (notifications & support §2): disputes open one by themselves (`source_key`).
 model SupportTicket {
   id              String    @id @default(cuid())

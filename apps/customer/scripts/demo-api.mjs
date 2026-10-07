@@ -29,6 +29,8 @@
 //   - POST /demo/ride-habits?personId=…, /demo/dinner?personId=…[&kind=rajaa]   J7d: favourites, regular trips,
 //                                                                     a booked ride, «عشاك يوصل وياك»
 //   - POST /demo/same-ride?personId=…                                 step 4 o4: the «نفس مشوار البارحة؟» link
+//   - POST /demo/rajaa-taxi?personId=…                               taxi ideas x2/x3/x4: a seat out of Aziziyah, a late
+//                                                                     taxi to a car, three trips back (offer, armed, booked)
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -1889,6 +1891,129 @@ const rajaa = await (async () => {
         await advanceRide(ride.id); // at the pickup
         await advanceRide(ride.id); // on the trip, driving home
         json(res, 200, { orderId: ride.id });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
+  }
+
+  // ───────────────────────── taxi ideas x2 / x3 / x4 (+ n10): taxis linked to a الرجعة seat ─────────────────────────
+  //   POST /demo/rajaa-taxi?personId=…   → {outboundBookingId, lateOrderId, lateBookingId, returnBookingId, armedBookingId, placedBookingId,
+  //                                          lateMin, driverTold, armed: {status, carEtaMin}, placed: {status, orderId, carEtaMin}}
+  // Home and الدائرة saved (when missing), then for that person:
+  //   - x2: a booked seat on a car leaving the Gate 1 garage for Baghdad in about 95 minutes (the card offers
+  //     a taxi timed to it);
+  //   - x3: a seat on a car leaving the Gate 2 garage in 25 minutes and the taxi to it ordered now, taken by a
+  //     driver who is still 12 km out — the late notice (the server's look) tells him and the الرجعة driver;
+  //   - x4: three trips back from Kut, on the road: one far out (the card offers a waiting taxi), one far
+  //     out and armed, and one 3 km from Aziziyah, armed and so already booked by the server.
+  {
+    const { GarageTaxiService } = await load('modules/garage-taxi/index.js');
+    const { DeparturesService: GtDepartures } = await load('modules/routes/index.js');
+    const { SavedPlacesService: GtPlaces } = await load('modules/places/index.js');
+    const garageTaxi = app.get(GarageTaxiService);
+    const gtDeps = app.get(GtDepartures);
+    const gtPlaces = app.get(GtPlaces);
+    const MIN = 60_000;
+    const actor = (personId) => ({ personId, sessionId: 'demo' });
+    const saloon = (plate, model, color) => ({ kind: 'saloon', layout: 4, plate, model, color });
+    /** On the Kut road: ~35 km out, and ~3 km from the Aziziyah garages. */
+    const FAR_ON_ROAD = { lat: 32.75, lng: 45.35 };
+    const NEAR_ON_ROAD = { lat: 32.896, lng: 45.088 };
+    /** Where the late taxi's driver still is (12 km north of town). */
+    const FAR_DRIVER = { lat: 33.012, lng: 45.07 };
+    let gtSeq = 0;
+    const driverId = () => `drv_GTX${(++gtSeq).toString(36).toUpperCase()}`;
+
+    /** His seat on that car: the first one free (the demo's other riders may have taken some). */
+    async function holdFree(personId, departureId) {
+      let last;
+      for (const seatId of ['back_right', 'back_left', 'front', 'back_middle']) {
+        try {
+          return await gtDeps.hold(personId, { departureId, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+        } catch (err) {
+          last = `${last ?? ''} | ${seatId}: ${err?.code ?? ''} ${err}`;
+        }
+      }
+      throw new Error(`no free seat on ${departureId}:${last}`);
+    }
+
+    async function seatOut(personId, garageId, departAt) {
+      const dep = await gtDeps.announce(driverId(), { garageId, corridorId: 'aziziyah_baghdad', departAt, latestDepartureAt: new Date(departAt.getTime() + 45 * MIN), vehicle: saloon('51234 واسط', 'كامري', 'بيضاء'), familyOnly: false });
+      const held = await holdFree(personId, dep.id);
+      return gtDeps.book(personId, held.id, 'cash');
+    }
+
+    /** A Kut → Aziziyah trip he is on (no demand posts there to claim the seats first), departed, the car's last fix at `at`. */
+    async function tripBack(personId, at) {
+      const drv = driverId();
+      const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
+      const dep = await gtDeps.announce(drv, { garageId: 'mp_garage_kut', corridorId: 'aziziyah_kut', departAt, latestDepartureAt: new Date(departAt.getTime() + 30 * MIN), vehicle: saloon('77821 واسط', 'سوناتا', 'فضية'), familyOnly: false });
+      const held = await holdFree(personId, dep.id);
+      const booked = await gtDeps.book(personId, held.id, 'cash');
+      await gtDeps.selfie(drv, dep.id, 'demo/selfie.jpg');
+      // Full before its time (walk-ups in the other seats), and everyone on it checked in, so it can leave.
+      for (const seatId of ['front', 'back_left', 'back_middle', 'back_right'].filter((x) => !held.seatIds.includes(x))) await gtDeps.markWalkUp(drv, dep.id, { seatId, travellingAs: 'rijal' });
+      for (const b of await gtDeps.bookings(dep.id)) if (b.state === 'booked' && b.pin) await gtDeps.checkIn(drv, dep.id, b.pin, b.id);
+      await gtDeps.depart(drv, dep.id);
+      await gtDeps.driverPosition(drv, dep.id, at);
+      return booked.id;
+    }
+
+    app.use('/demo/rajaa-taxi', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa-taxi?personId=…' });
+        const mine = await gtPlaces.mine(personId);
+        const home = mine.find((p) => p.label === 'home') ?? (await gtPlaces.save(personId, { cityId: 'aziziyah', label: 'home', name: 'البيت', pin: HOME, photoIds: [], shareWithHousehold: false, clientRef: 'demo-gtaxi-home' }));
+        if (!mine.some((p) => p.label === 'work')) await gtPlaces.save(personId, { cityId: 'aziziyah', label: 'work', name: 'الدائرة', pin: { lat: 32.9139, lng: 45.0603 }, photoIds: [], shareWithHousehold: false, clientRef: 'demo-gtaxi-work' });
+
+        // x2: a seat out in ~95 minutes (on the 5-minute grid, like a garage sign).
+        const outbound = await seatOut(personId, 'mp_garage_bab1', new Date(Math.ceil((Date.now() + 95 * MIN) / (5 * MIN)) * 5 * MIN));
+
+        // x3: a car in 25 minutes, the taxi to it ordered now, taken by a driver still far away.
+        const lateSeat = await seatOut(personId, 'mp_garage_bab2', new Date(Math.ceil((Date.now() + 25 * MIN) / MIN) * MIN));
+        const plan = await garageTaxi.toGarage(actor(personId), { bookingId: lateSeat.id, from: { placeId: home.id } });
+        if (plan.status !== 'offer' || plan.fareIqd === null) throw new Error(`no taxi offer for the late demo (${plan.unavailable})`);
+        const booked = await garageTaxi.bookToGarage(actor(personId), { bookingId: lateSeat.id, from: { placeId: home.id }, fareIqd: plan.fareIqd, clientRequestId: `demo-gtaxi-${lateSeat.id}` });
+        if (!booked.order) throw new Error(`taxi to the car not booked: ${JSON.stringify(booked)}`);
+        const lateOrderId = booked.order.orderId;
+        let trip = await trips.activeForOrder(lateOrderId);
+        for (let i = 0; !trip && i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          trip = await trips.activeForOrder(lateOrderId);
+        }
+        if (!trip) throw new Error(`no trip for the taxi to the car: ${JSON.stringify(booked)}`);
+        const d = (await ensureDrivers()).find((x) => !x.tripId && x.def.vehicle === 'car');
+        if (!d) throw new Error('no free demo taxi');
+        // The trip and its dispatch request come from the order.placed subscriber: give it a moment.
+        let offerId = null;
+        for (let i = 0; !offerId; i++) {
+          try {
+            ({ offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: d.id, reason: 'demo', force: true }));
+          } catch (err) {
+            if (i >= 30) throw err;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
+        await acceptOffer(d, offerId);
+        stopMover(trip.id);
+        d.pos = { ...FAR_DRIVER };
+        await trips.reportPosition(d.id, { tripId: trip.id, pin: FAR_DRIVER, at: new Date(), bearing: 180, speedKmh: 35 });
+        await garageTaxi.tick();
+
+        // x4: three trips back from Kut — offered, armed far out, armed close (booked at once).
+        const returnBookingId = await tripBack(personId, FAR_ON_ROAD);
+        const armedBookingId = await tripBack(personId, FAR_ON_ROAD);
+        await garageTaxi.arm(actor(personId), { bookingId: armedBookingId, to: { placeId: home.id } });
+        const placedBookingId = await tripBack(personId, NEAR_ON_ROAD);
+        await garageTaxi.arm(actor(personId), { bookingId: placedBookingId, to: { placeId: home.id } });
+
+        // What the server made of it (the late minutes it told, the armed taxi it booked), for a quick look.
+        const late = await garageTaxi.forOrder(actor(personId), { orderId: lateOrderId });
+        const placed = await garageTaxi.arrival(actor(personId), { bookingId: placedBookingId });
+        const armed = await garageTaxi.arrival(actor(personId), { bookingId: armedBookingId });
+        json(res, 200, { outboundBookingId: outbound.id, lateOrderId, lateBookingId: lateSeat.id, returnBookingId, armedBookingId, placedBookingId, lateMin: late?.lateMin ?? null, driverTold: late?.driverTold ?? false, armed: { status: armed.status, carEtaMin: armed.carEtaMin }, placed: { status: placed.status, orderId: placed.orderId, carEtaMin: placed.carEtaMin } });
       } catch (err) {
         json(res, 500, { error: String(err?.stack ?? err) });
       }
