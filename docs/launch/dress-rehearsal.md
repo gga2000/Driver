@@ -14,6 +14,7 @@ how many orders each kitchen can actually make in an hour. We stop thinking and 
 | Builds | Lane C, lane D | EAS internal-distribution APKs of all three apps from the same commit, installed on every phone and tablet below; the Console on staging |
 | Server | Lane B | Staging at launch sizes (W4), the real SMS gateway, push working (FCM), Sentry receiving |
 | Kitchens | Field ops | The 4 launch kitchens, each with its tablet signed in, its real menu and prices entered and checked by a second person (plan §8.2) |
+| Taxi and tuktuk drivers | Field ops | At least 6 of each, briefed, on the partner app |
 | Couriers | Field ops | At least 12 couriers briefed (`courier-briefing.md`), photos approved in the Console, partner app signed in, cash float for change |
 | Customers | Ali | 15–20 staff, family and friends with the customer app, spread over at least 4 zones; each has 2 orders to place (section 3) |
 | Console | Ali + support | 2 people signed in: one on dispatch and SOS, one on support chat; canned replies loaded |
@@ -47,6 +48,18 @@ The planned hard cases, each with a named customer and courier:
 | H6 | **Customer cancels late** | A customer cancels after the kitchen started cooking | The cancel fee shown matches the rule; the kitchen is paid as the rule says |
 | H7 | **Courier phone dies** | A courier locks his phone for 10 minutes mid-delivery | His position keeps updating in the Console (G0-1) |
 | H8 | **Busy now** | The observer tells one kitchen to stop taking orders | The kitchen shows «مشغول هسه» to customers, nothing is accepted then cancelled |
+
+### Rides (taxis open on day one, G0-25)
+
+At least 10 rides between 19:00 and 22:00: taxi and tuktuk, street and door pickup, one booked for
+later. The planned hard ones:
+
+| # | Case | Pass |
+|---|---|---|
+| R1 | Rider cancels after the driver accepted, then another after he arrived | The fee shown matches the price sheet and reaches the driver |
+| R2 | Driver doesn't come | The rider is re-matched or released without paying |
+| R3 | Rider presses SOS mid-ride (told beforehand) | The dispatch desk sees it within 10 s and closes it as a test |
+| R4 | Driver locks his phone for 10 minutes mid-ride | His position keeps updating in the Console |
 
 ## 4. Cash at the end of the night
 

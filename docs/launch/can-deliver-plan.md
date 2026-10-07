@@ -10,7 +10,8 @@ deliver"**, and this file tracks every G0 row and every item in `docs/before-lau
 **Why we can start now.** `CLAUDE.md` says not to start anything in `docs/before-launch.md` unless Ali
 asks. On 2026-10-07 Ali approved the launch plan ("go ahead i like it"), including decision **D-22**:
 "start the before-launch items in G0 now, through the companion plan". So the G0 items are open from
-today. Items that are not needed for a food-only launch stay parked (section 5).
+today. **Launch day is food plus taxi and tuktuk** (Ali, 2026-10-07: "taxis open from day 1"); Baghdad/Kut
+seats and خطوط still open about D+30, so their items stay parked (section 5).
 
 ## 1. How this works
 
@@ -79,6 +80,19 @@ or answers; the question is in section 4.
 | G0-17a | **Kitchen throughput first measured** at the rehearsal (orders per hour per kitchen at dinner); kitchen caps set from it | Ali, field ops, merchant thread | D-26 Wed 11 Nov | A number per kitchen in `gates.md`; caps = that number × 0.5 h | Measured at G0-16 |
 | G0-19 | **Courier photos checked by a person**: the selfie and face check accept any photo today, so every courier's main photo is approved in the Console queue | Ali, field ops | D-24 Fri 13 Nov | All 29 couriers have a person-approved photo | The Console queue exists (`docs/api/driver-photos.md`). Process only; no code |
 
+### Taxi and tuktuk on launch day (Ali, 2026-10-07)
+
+Ali decided taxis open from day one, so these rows join G0-closed. Lane work for rides is plan W11
+(taxi thread), which moves from D+0 → D+30 to **D-40 → D-24**.
+
+| # | What | Owner | Due | Pass | Status / next step |
+|---|---|---|---|---|---|
+| G0-21 | **Taxi and tuktuk drivers recruited**: papers, car or tuktuk, main photo approved in the Console, briefed | Ali, field ops | D-24 Fri 13 Nov | The number agreed with Ali signed up and approved (planning start: 15 taxis and 15 tuktuks on the evening shift, re-set from the rehearsal) | Waits on the field ops lead (question 3) and Ali's driver target |
+| G0-22 | **Ride prices** 💰: taxi and tuktuk fares by zone, door pickup, night fee, waiting after 3 minutes, cancel fees, our share | Ali | D-35 Mon 2 Nov | Ali's numbers in the config; the sim passes with them | On the price sheet, part 2 (#22–#33). The waiting charge (#30) is shown to riders but never charged today: Ali's number, or the screen stops promising it (taxi thread) |
+| G0-23 | **Taxi zones**: the 34 zones and their ride tier pairs approved with the food zones (G0-8) | Ali, map session | D-35 Mon 2 Nov | Console zone map and ride fares match Ali's approval | Goes with G0-8 |
+| G0-24 | **Driver app on real phones for rides**: offers, the trip, location with the screen off, on the test phones (with G0-1) | Partner thread, taxi thread | D-35 Mon 2 Nov | One taxi and one tuktuk trip end to end on 2 test phones, position updating with the phone locked | Added to the G0-1 phone test |
+| G0-25 | **Rides in the dress rehearsal**: 10+ rides, including a rider cancel, a driver no-show and an SOS from a rider | Ali + taxi thread | D-26 Wed 11 Nov | Each ends in the right state; fares and cancel fees match the price sheet | Added to `dress-rehearsal.md` |
+
 ### G0-launch (green at go/no-go, Thu 3 Dec)
 
 | # | What | Owner | Due | Pass | Status / next step |
@@ -106,7 +120,7 @@ Each is Ali's own action or involves money, so no thread does it for him. Recomm
    *Recommended: name one by Sun 18 Oct; the courier recruiting starts the same week.*
 4. **Calls (G0-10): decided 2026-10-07, chat first.** Chat and voice notes at launch; in-app
    internet calls after launch.
-5. **Prices (G0-7) and zones (G0-8) 💰, by Mon 2 Nov.** The fill-in sheet is ready: `/mnt/project-files/launch/price-sheet.md` (food first; taxi, tuktuk and seat prices, including the parked ideas, for about D+30).
+5. **Prices (G0-7) and zones (G0-8) 💰, by Mon 2 Nov.** The fill-in sheet is ready: `/mnt/project-files/launch/price-sheet.md` (food and rides by Mon 2 Nov, since taxis open on day one; seat prices for about D+30).
    Ali writes his number next to each line; empty means today's number stays.
 6. **Things to buy.** The 7 test phones (plan 6.2, this week) and one tablet per launch kitchen (by
    Mon 2 Nov). *Recommended: yes; the plan lists the phone models.*
@@ -117,7 +131,7 @@ Each is Ali's own action or involves money, so no thread does it for him. Recomm
 
 ## 5. Every item in `before-launch.md`, and where it goes
 
-Food-only launch (D-1) means rides, Baghdad/Kut seats and خطوط open about D+30, so their items wait.
+Launch is food plus taxi and tuktuk (Ali, 2026-10-07); Baghdad/Kut seats and خطوط open about D+30, so their items wait.
 
 | `before-launch.md` item | Where it goes now |
 |---|---|
@@ -178,4 +192,5 @@ Sent through the coordinator; the owning lane builds and keeps its own PR.
 - 2026-10-07: first draft, after Ali approved the launch plan and D-22.
 - 2026-10-07: Ali chose "chat first" for calls (G0-10).
 - 2026-10-07: dress rehearsal script and courier briefing written.
+- 2026-10-07: Ali opened taxis and tuktuks on day one; added G0-21 … G0-25.
 - 2026-10-07: price sheet ready for Ali (G0-7), with the parked ride and seat prices.
