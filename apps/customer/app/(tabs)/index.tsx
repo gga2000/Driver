@@ -129,7 +129,7 @@ export default function Home() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
     >
       <View style={{ gap: theme.space[4] }}>
-        <HomeHeader daypart={dp} quiet={quiet} />
+        <HomeHeader daypart={dp} quiet={quiet} closed={night.night} />
         {/* Offline: one line says what's below is the last copy we had, and offers to try again. */}
         {!net.online && restaurants.dataUpdatedAt ? <OfflineLine updatedAt={restaurants.dataUpdatedAt} onRetry={retry} /> : null}
         {/* No mic until voice search exists (audit C-01). */}

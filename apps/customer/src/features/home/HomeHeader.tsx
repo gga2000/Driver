@@ -16,7 +16,7 @@ import { pointsChip } from './points-chip';
  * h9), then the hour's greeting as the one hand-lettered line («علي، سهرانين؟ هذني فاتحين», joy h1;
  * plain on quiet days). The hour's sky behind it is the screen's backdrop.
  */
-export function HomeHeader({ daypart, quiet }: { daypart: Pick<Daypart, 'key' | 'friday'>; quiet: boolean }) {
+export function HomeHeader({ daypart, quiet, closed }: { daypart: Pick<Daypart, 'key' | 'friday'>; quiet: boolean; closed: boolean }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -27,7 +27,7 @@ export function HomeHeader({ daypart, quiet }: { daypart: Pick<Daypart, 'key' | 
   const chip = pointsChip(signedIn, balance.data);
   const place = selectedPlace(prof);
   const placeText = place ? `${place.title ?? t(placeLabelKey(place.label))} · ${zoneName(place.zoneId, locale)}` : t('home.deliver_to_none');
-  const key = greetingKey(daypart, { quiet, named: Boolean(prof.name) });
+  const key = greetingKey(daypart, { quiet, named: Boolean(prof.name), closed });
   const hello = t(key, { name: prof.name ?? '' });
 
   return (

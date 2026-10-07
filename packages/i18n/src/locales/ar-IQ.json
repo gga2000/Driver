@@ -3116,6 +3116,8 @@
   "home.daypart.dinner_anon": "شنو عشانا اليوم؟",
   "home.daypart.late": "{name}، سهرانين؟ هذني فاتحين",
   "home.daypart.late_anon": "سهرانين؟ هذني فاتحين",
+  "home.daypart.late_closed": "{name}، سهرانين؟ نرجع الصبح",
+  "home.daypart.late_closed_anon": "سهرانين؟ نرجع الصبح",
   "home.daypart.quiet_dawn": "صباح الخير {name}",
   "home.daypart.quiet_dawn_anon": "صباح الخير",
   "home.daypart.quiet_lunch": "وقت الغدا، {name}",

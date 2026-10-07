@@ -3116,6 +3116,8 @@
   "home.daypart.dinner_anon": "What's for dinner tonight?",
   "home.daypart.late": "{name}, up late? These are still open",
   "home.daypart.late_anon": "Up late? These are still open",
+  "home.daypart.late_closed": "{name}, up late? We're back in the morning",
+  "home.daypart.late_closed_anon": "Up late? We're back in the morning",
   "home.daypart.quiet_dawn": "Good morning {name}",
   "home.daypart.quiet_dawn_anon": "Good morning",
   "home.daypart.quiet_lunch": "Lunch time, {name}",

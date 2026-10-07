@@ -41,7 +41,7 @@ const def = (id: ServiceId): ServiceDef => SERVICES.find((s) => s.id === id)!;
 /** The bento's measures (Date & Saffron v3, at phone size). */
 const GAP = 10;
 const SMALL_H = 96;
-const TRIP_H = 76;
+const TRIP_H = 84;
 const FOOD_ART = 104;
 
 /** Where home asks for the nearest free car: the deliver-to place's pin, else its zone's centre. */
@@ -227,7 +227,10 @@ function TileBody({
       ) : fact ? (
         factText
       ) : (
-        <Skeleton height={12} width="70%" style={{ marginTop: 5, opacity: 0.5 }} />
+        // The shimmer takes the fact line's own height, so the tile doesn't shift when the fact arrives.
+        <View style={{ height: theme.type[compact ? 'caption' : 'footnote'].lineHeight, justifyContent: 'center', alignSelf: 'stretch' }}>
+          <Skeleton height={10} width="70%" style={{ opacity: 0.5 }} />
+        </View>
       )}
     </View>
   );
@@ -236,8 +239,8 @@ function TileBody({
     return <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.space[4] }}>{words}</View>;
   }
   return (
-    <View style={{ flex: 1, justifyContent: 'space-between', padding: compact ? theme.space[3] : big ? theme.space[4] : theme.space[3] }}>
-      <Icon name={icon} size={big ? 28 : compact ? 20 : 24} color={swatch.on} strokeWidth={1.9} />
+    <View style={{ flex: 1, justifyContent: 'space-between', padding: compact ? 10 : big ? theme.space[4] : theme.space[3] }}>
+      <Icon name={icon} size={big ? 28 : compact ? 18 : 24} color={swatch.on} strokeWidth={1.9} />
       {words}
     </View>
   );
