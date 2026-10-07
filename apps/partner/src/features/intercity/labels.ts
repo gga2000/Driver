@@ -1,5 +1,5 @@
-import type { DriverBookingRow, IntercityDepartureState, IntercitySeatId, RequestState, TravellingAs } from '@driver/contracts';
-import { formatMinutes, formatRange, type MessageKey } from '@driver/i18n';
+import type { DriverBookingRow, IntercityDepartureState, IntercitySeatId, RequestDetails, RequestState, TravellingAs } from '@driver/contracts';
+import { formatMinutes, formatRange, pluralCategory, type MessageKey } from '@driver/i18n';
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
@@ -128,4 +128,32 @@ export function legendLabel(t: TFn, s: LegendState): string {
 
 export function rideState(t: TFn, s: RequestState): string {
   return t(`partner.ic_ride_state_${s}` as MessageKey);
+}
+
+/** A counted rider-side key (`x`, `x_one`, `x_two`, `x_few`; `x` is the 11+ form). */
+function countedKey(base: string, n: number): MessageKey {
+  const c = pluralCategory(n);
+  return (c === 'one' || c === 'two' || c === 'few' ? `${base}_${c}` : base) as MessageKey;
+}
+
+const DAY_MS = 86_400_000;
+const BAGHDAD_MS = 3 * 3_600_000;
+
+/**
+ * What the rider asked for on a private car (Baghdad/Kut idea y1), in the rider's own words so both
+ * sides read the same: «رايح جاي · ينتظرك 3 ساعات», «يرجعك بعد يومين · 4:00 م», bags, car, AC.
+ */
+export function requestDetailLabels(t: TFn, d: RequestDetails, when: Date): string[] {
+  const out: string[] = [];
+  if (d.trip === 'wait_return' && d.waitHours !== null)
+    out.push(`${t('rajaa.req_trip.wait_return')} · ${t('rajaa.req_sum.wait', { hours: t(countedKey('rajaa.req_hours', d.waitHours), { n: d.waitHours }) })}`);
+  if (d.trip === 'two_days' && d.returnAt) {
+    const day = (x: Date) => Math.floor((x.getTime() + BAGHDAD_MS) / DAY_MS);
+    const n = day(d.returnAt) - day(when);
+    out.push(t('rajaa.req_sum.return', { days: t(countedKey('rajaa.req_return_days', n), { n }), time: clockLabel(d.returnAt) }));
+  }
+  if (d.bigBags > 0) out.push(t(countedKey('rajaa.req_bags', d.bigBags), { n: d.bigBags }));
+  if (d.carKind) out.push(t(`rajaa.vehicle_${d.carKind}` as MessageKey));
+  if (d.ac) out.push(t('rajaa.badge_ac'));
+  return out;
 }
