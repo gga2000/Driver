@@ -74,6 +74,13 @@ await orgs.settled?.();
 const khalid = seeded.find((s) => s.seed.key === 'khalid');
 /** مطعم خالد's pin: the pickup for the live-order demo. */
 const kitchen = khalid.seed.pin;
+// «وياها كنافة؟» after a meal (food doors s7) needs a meal kitchen that makes a sweet. None of the four
+// launch kitchens does, so in the demo only مطعم خالد bakes one kunafa tray (never in `pnpm db:seed`).
+await catalog.upsertItem(
+  khalid.orgId,
+  { patch: { nameAr: 'كنافة', nameEn: 'Kunafa', description: 'جبن حار وقطر، تطلع من الفرن', priceIqd: 2000, categoryAr: 'حلو', sortOrder: 900, prepTimeMin: 5 } },
+  'demo-owner',
+);
 
 const json = (res, status, body) => {
   res.statusCode = status;
