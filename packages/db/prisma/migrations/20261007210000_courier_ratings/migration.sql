@@ -16,6 +16,7 @@ CREATE TABLE "public"."courier_ratings" (
     "reasons" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "rated_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "courier_ratings_pkey" PRIMARY KEY ("id")
 );

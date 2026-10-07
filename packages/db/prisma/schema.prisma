@@ -2156,6 +2156,7 @@ model CourierRating {
   reasons    String[] @default([])
   ratedAt    DateTime @map("rated_at")
   createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@index([driverId, ratedAt])
   @@map("courier_ratings")
