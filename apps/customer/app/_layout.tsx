@@ -6,7 +6,8 @@ import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
@@ -17,6 +18,7 @@ import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
@@ -26,6 +28,8 @@ import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('istikan');
@@ -76,16 +80,20 @@ export default function RootLayout() {
           // Native direction comes from I18nManager (needs a restart to flip); the web flips live.
           direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}
         >
-          <ToastProvider bottomOffset={96}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SystemBanner />
-              {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
-              <SeasonWatcher />
-              <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
-            </ApiProvider>
-          </ToastProvider>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
+          <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+            <ToastProvider bottomOffset={96}>
+              <ApiProvider>
+                <StatusBar style="dark" />
+                <DevCrashProbe />
+                {/* Launch status banner from the Console (system.banner), above every screen. */}
+                <SystemBanner />
+                {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
+                <SeasonWatcher />
+                <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
+              </ApiProvider>
+            </ToastProvider>
+          </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
