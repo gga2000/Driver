@@ -15,7 +15,9 @@
 #
 # Staging environment — secrets: DIRECT_URL, FLY_API_TOKEN (an org deploy token). Variables:
 # DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
-# (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099).
+# (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
+# CORS_ORIGINS (default the customer web version on Vercel; the staging Console is added when FLY_CONSOLE_APP is set).
+# Secrets are staged: they reach the API on its next deploy (Actions → Deploy → staging).
 name: Staging setup
 
 on:
@@ -96,6 +98,9 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app' }}
+          CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
         run: |
           names() { flyctl secrets list --app "$1" --json | jq -r '(. // [])[] | (.Name // .name)'; }
           api=$(names "$API_APP"); redis=$(names "$REDIS_APP")
@@ -118,6 +123,11 @@ jobs:
           # Verified TLS to Supabase: the secret when set, else Supabase's public root CA from the repo.
           has "$api" DATABASE_CA_CERT || set_api+=("DATABASE_CA_CERT=$DATABASE_CA_CERT")
           has "$api" SMS_PROVIDER || set_api+=("SMS_PROVIDER=fake")
+          # Not a secret, but per environment: set on every run so a changed list takes effect.
+          origins="$CORS_ORIGINS"
+          [ -z "$CONSOLE_APP" ] || origins="$origins,https://${CONSOLE_APP}.fly.dev"
+          set_api+=("CORS_ORIGINS=$origins")
+          echo "CORS_ORIGINS: $origins"
 
           # A Fly secret can't be read back, so the Redis password is only (re)made when either side lacks it.
           if ! has "$redis" REDIS_PASSWORD || ! has "$api" REDIS_URL; then
