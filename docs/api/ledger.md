@@ -40,6 +40,12 @@ touching the account).
   counted, or waits and adds on top, so it is never lost or counted twice. Each account it really
   changed is logged as an error and opened as a `ledger_balance_drift` incident. If the check itself
   fails, it opens `ledger_balance_check_failed` and the close goes on.
+- **Locks (for the reviewer).** A posting now takes a row lock on the driver's balance row(s) until it
+  commits, in line order. Two postings for the same driver that touch both of his accounts in
+  opposite orders at the same moment could deadlock; Postgres then aborts one of them and nothing is
+  half-written. This needs two such postings for one driver within the same instant, which should be
+  rare (not yet audited across every caller). The integration test runs 16 concurrent postings on
+  one driver, all in the same line order.
 - **Unchanged:** amounts, payees, posting groups, control totals, `ledger_events` rows and their
   append-only guard. `ledger_balances` is a projection, never the source of truth; the nightly check
   repairs it from the ledger, not the other way round.
