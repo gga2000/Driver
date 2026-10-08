@@ -1,6 +1,6 @@
 // Driver account (wave 2): earnings history, documents, the daily check-in and the scorecard.
 //
-//   who=courier  0770 111 0001  checked in; two months of deliveries (tips, night/rain extras, batch, shift
+//   who=courier  0770 111 0001  checked in; two months of deliveries (busiest Thursday evenings, tips, night/rain extras, batch, shift
 //                               guarantee top-ups only while MoneyRules.guarantee.enabled — off since 2026-10-06 —, cash orders paid to restaurants and settled daily);
 //                               today ≈ 72 % of his 75,000 cap; scorecard day 65, bronze, 2 nudges
 //   who=tuktuk   0770 111 0002  checked in; rides with the platform take; licence expiring in 12 days,
@@ -146,12 +146,14 @@ export default async function register(demo) {
     const day = today - d * DAY;
     const dow = new Date(day + OFF).getUTCDay();
     const rainy = d === 9 || d === 10 || d === 23;
-    const n = dow === 5 ? 4 + Math.floor(r() * 3) : 6 + Math.floor(r() * 5);
+    // Thursday evenings are his busiest (the weekend starts): «أحسن وقت إلك: الخميس 7–11 بالليل» (e3).
+    const thursday = dow === 4;
+    const n = dow === 5 ? 4 + Math.floor(r() * 3) : thursday ? 10 + Math.floor(r() * 3) : 6 + Math.floor(r() * 5);
     let collected = 0;
     let paidMerchants = 0;
     let earned = 0;
     for (let j = 0; j < n; j++) {
-      const hour = pick(r, [11, 12, 13, 13, 14, 14, 15, 18, 19, 19, 20, 20, 21, 21, 22, 23]);
+      const hour = thursday ? pick(r, [13, 14, 19, 19, 20, 20, 21, 21, 22, 22]) : pick(r, [11, 12, 13, 13, 14, 14, 15, 18, 19, 19, 20, 20, 21, 21, 22, 23]);
       const at = new Date(day + hour * HOUR + Math.floor(r() * 55) * 60_000);
       const orderId = `demo-hist-${(++seq).toString(36).padStart(4, '0')}`;
       const fee = pick(r, [1000, 1500, 1500, 2000, 2000, 2500, 3000]);
@@ -285,7 +287,20 @@ export default async function register(demo) {
   // completedAt (the card's window and the rating), plus the ones he cancelled by cancelledAt.
   const since = (at, from) => at !== null && at.getTime() >= from.getTime();
   const pastTrips = (id, from, states) => (history.get(id)?.trips ?? []).filter((t) => states.includes(t.state) && since(t.state === 'completed' ? t.completedAt : t.cancelledAt, from));
+  // «يومك» km (partner redesign e7): the demo's past deliveries have no trips in memory, so each gets a
+  // drawn one (the restaurant → a town landmark near the customer), read only by DriverAccountService.
+  const { AZIZIYAH_LANDMARKS } = await import('@driver/contracts');
+  const demoTrip = (orderId) => {
+    let h = 0;
+    for (const ch of orderId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const from = AZIZIYAH_LANDMARKS[h % AZIZIYAH_LANDMARKS.length];
+    const to = AZIZIYAH_LANDMARKS[(h >>> 5) % AZIZIYAH_LANDMARKS.length];
+    return { id: `demo-trip:${orderId}`, stops: [{ target: { lat: from.lat, lng: from.lng } }, { target: { lat: to.lat + 0.004, lng: to.lng + 0.003 } }] };
+  };
+  const isDemoOrder = (orderId) => /^demo-(hist|day)-/.test(orderId);
   account.trips = wrap(realTrips, {
+    tripIdsForOrder: async (orderId) => (isDemoOrder(orderId) ? [`demo-trip:${orderId}`] : realTrips.tripIdsForOrder(orderId)),
+    get: async (tripId) => (tripId.startsWith('demo-trip:') ? demoTrip(tripId.slice('demo-trip:'.length)) : realTrips.get(tripId)),
     completedForDriver: async (id, from) => [...(await realTrips.completedForDriver(id, from)), ...pastTrips(id, from, ['completed'])],
     endedForDriver: async (id, from) => [...(await realTrips.endedForDriver(id, from)), ...pastTrips(id, from, ['completed', 'driver_cancelled'])],
   });

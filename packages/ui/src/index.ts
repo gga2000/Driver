@@ -38,6 +38,8 @@ export { PriceLine, PriceBreakdown, ChangeToWallet, type PriceLineProps, type Pr
 export { Rule, type RuleProps } from './components/Rule';
 export { Sheet, type SheetProps } from './components/Sheet';
 export { Stepper, clampStep, type StepperProps } from './components/Stepper';
+export { Toggle, type ToggleProps } from './components/Toggle';
+export { useAnnounce } from './a11y/announce';
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from './components/SegmentedControl';
 export { TextField, SearchField, type TextFieldProps, type SearchFieldProps } from './components/TextField';
 export { Badge, type BadgeProps } from './components/Badge';
@@ -124,3 +126,4 @@ export { RollingDigits, type RollingDigitsProps } from './components/RollingDigi
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';
+export { HoldButton, HOLD_CONFIRM_WINDOW_MS, HOLD_MS, type HoldButtonProps } from './components/HoldButton';

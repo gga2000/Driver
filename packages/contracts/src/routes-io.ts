@@ -904,6 +904,10 @@ export const DriverBookingRow = z.object({
   meterMinutes: z.number().int().nullable(),
   /** The driver may mark no-show / leave without this rider now. */
   canNoShow: z.boolean(),
+  /** x3: our taxi bringing this rider is late; when it is due at the garage (null: none late). */
+  taxiDueAt: z.coerce.date().nullable().default(null),
+  /** x3: his seat is held for that taxi right now (RIDE_SEAT_HOLD on and before the hold ends). */
+  seatHeld: z.boolean().default(false),
 });
 export type DriverBookingRow = z.infer<typeof DriverBookingRow>;
 

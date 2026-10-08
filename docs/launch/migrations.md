@@ -19,7 +19,15 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009091000 | quotes_expires_at_index | lane B | #13 (merged) |
 | 20261009092000 | participants_person_id_index | lane B | #13 (merged) |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
+| 20261009102000 | abuse_limits | lane D | lane D PR (reserved) |
+| 20261009104000 | customer_waves | lane D | W5 waves PR (reserved) |
 | 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
-| 20261010092000 | on_call | lane E | #14 |
-| 20261010100000 | inbox | lane E | #14 |
+| 20261009120000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (reserved) |
+| 20261010092000 | on_call | lane E | #14 (merged) |
+| 20261010100000 | inbox | lane E | #14 (merged) |
+| 20261010101000 | driver_running_balance | lane A | speed fix v2 PR (reserved) |
+| 20261010130000 | fleet_planned_vehicle | partner app thread | #15 (merged) |
+| 20261010131000 | gift_recipient_vault | lane A | #29 |
+| 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
 | 20261010220000 | trail_daily_partitions | lane B | #38 |
+| 20261011090000 | store_closed_until | merchant thread | #19 |

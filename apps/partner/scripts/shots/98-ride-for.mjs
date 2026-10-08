@@ -8,7 +8,7 @@ export default async function run(s) {
   await s.demoPost('/demo/offer?who=tuktuk&kind=ride&for=1');
   await tk.wait('offer-rider', 15_000);
   await tk.shot('offer', { settle: 1200 });
-  await tk.byTestId('offer-accept').click();
+  await tk.hold('offer-accept');
   await tk.page.waitForTimeout(1200);
   await tk.goto('/job');
   await tk.wait('job-rider');

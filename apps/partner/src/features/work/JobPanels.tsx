@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
-import type { GuaranteeWindowView, HandoverProof, PartnerCash, UnreachableStatus } from '@driver/contracts';
-import { AmountPad, Button, Icon, SlideToConfirm, Text, useTheme, withAlpha } from '@driver/ui';
-import { CashMeter } from '@/features/account/CashMeter';
+import type { GuaranteeWindowView, HandoverProof, UnreachableStatus } from '@driver/contracts';
+import { AmountPad, Button, Icon, SlideToConfirm, Text, useTheme } from '@driver/ui';
 import { pickPhoto, type PickedPhoto } from '@/features/account/photo';
-import { HandoverSheet } from '@/features/account/HandoverSheet';
-import { cashTruth } from '@/features/account/logic';
+import { playDoneTink } from '@/lib/alert';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { doorChips, doorHandover, doorState, WALLET_CAP_IQD } from './cash-door';
@@ -175,12 +173,28 @@ export function HandoverPanel({
               </Animated.View>
             ) : (
               <View style={{ gap: theme.space[2] }}>
-                <View testID="door-give-back" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
-                  <Icon name="cash" size={22} color="successText" strokeWidth={2.2} />
-                  <Text variant="title" weight={700} color="successText" tabular style={{ flex: 1 }} accessibilityLiveRegion="polite">
-                    {t('cashchange.door_give_back', { amount: amountParam(door.changeIqd) })}
+                <Animated.View
+                  key={door.changeIqd}
+                  entering={theme.reduceMotion ? undefined : FadeIn.duration(theme.motion.duration.base)}
+                  testID="door-give-back"
+                  accessible
+                  accessibilityLiveRegion="polite"
+                  accessibilityLabel={t('cashchange.door_give_back', { amount: amountParam(door.changeIqd) })}
+                  style={{ alignItems: 'center', gap: 2, paddingVertical: theme.space[4], paddingHorizontal: theme.space[3], borderRadius: theme.radius.xl, backgroundColor: theme.colors.successTint }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                    <Icon name="cash" size={20} color="successText" strokeWidth={2.2} />
+                    <Text variant="label" weight={700} color="successText">
+                      {t('partner.give_back_label')}
+                    </Text>
+                  </View>
+                  <Text tabular weight={700} color="successText" style={{ fontSize: 44, lineHeight: 60 }}>
+                    {`${amountParam(door.changeIqd)} `}
+                    <Text variant="title" color="successText">
+                      {t('quote.currency')}
+                    </Text>
                   </Text>
-                </View>
+                </Animated.View>
                 {door.walletAllowed ? (
                   <Button testID="door-no-change" label={t('cashchange.door_no_change')} variant="secondary" icon="wallet" fullWidth onPress={() => setNoChange(true)} />
                 ) : door.walletBlock === 'above_cap' ? (
@@ -366,12 +380,11 @@ export function UnreachablePanel({ status, busy, onFail, onResponded }: { status
 export const DONE_AUTO_HOME_SEC = 4;
 
 /**
- * End of a job (P-06, P-39, partner S-3): the check lands inside the ring of today's jobs and what he
- * earned counts up, then the day so far, then where his cash stands —
- * the same "لازم تسلّم" meter as home — so he learns here, not from silence, that offers are about to
- * stop or have stopped. Near or over the cap: a card that says when offers stop and a "سلّم الفلوس"
- * button (the hand-over sheet with the amount). Over the cap that card replaces the auto-return;
- * otherwise it counts down home in 4 s ("نرجعك للطلبات…") with a "خليني هنا" escape.
+ * End of a job (P-06, P-39, partner S-3, redesign d3/d4): «تسلم إيدك» — the check lands inside the ring
+ * of today's jobs with one soft «tink», what he earned counts up, then the day so far. No cash warning
+ * here (b6): where his cash stands waits for home, where the same meter lives. Only "الخردة علينا"
+ * stays, as one green line, because it happened at this door. It counts down home in 4 s («نرجعك
+ * للطلبات…») with a "خليني هنا" escape.
  *
  * `ask` is the rare «انت بمنطقة X؟» card (maps program SP3); `hold` stops the count home while it is
  * being read or waits for his tap, so the question is never whisked away mid-thought.
@@ -380,8 +393,6 @@ export function DonePanel({
   earnedIqd,
   failed,
   onHome,
-  cash,
-  fromOwedIqd,
   changeToWalletIqd,
   today,
   guarantee = null,
@@ -392,9 +403,6 @@ export function DonePanel({
   earnedIqd: number;
   failed: boolean;
   onHome: () => void;
-  cash?: PartnerCash | null;
-  /** "لازم تسلّم" before this job's last door: the bar and the number move from it to the new amount. */
-  fromOwedIqd?: number | undefined;
   /** "الخردة علينا": what went to the customer's wallet at this door (the whole note is on him). */
   changeToWalletIqd?: number | undefined;
   /** Today so far, re-read after this job: null while it is being re-read, absent = no day line. */
@@ -409,15 +417,18 @@ export function DonePanel({
 }) {
   const theme = useTheme();
   const t = useT();
-  const [handover, setHandover] = useState(false);
-  const truth = cash ? cashTruth({ owedIqd: cash.owedIqd, heldIqd: cash.heldIqd, capIqd: cash.capIqd, overCap: cash.overCap }) : null;
-  const urgent = truth ? truth.tone !== 'success' : false;
-  const autoHome = !failed && !(truth?.over ?? false);
+  const autoHome = !failed;
   const [stay, setStay] = useState(false);
   const [left, setLeft] = useState(DONE_AUTO_HOME_SEC);
-  const counting = autoHome && !stay && !handover && !hold;
+  const counting = autoHome && !stay && !hold;
   const home = useRef(onHome);
   home.current = onHome;
+  // d3: one soft bell as the check lands (never on a failed job).
+  useEffect(() => {
+    if (failed) return;
+    const id = setTimeout(playDoneTink, theme.reduceMotion ? 0 : 250);
+    return () => clearTimeout(id);
+  }, [failed, theme.reduceMotion]);
   useEffect(() => {
     if (!counting) return;
     if (left <= 0) {
@@ -437,35 +448,22 @@ export function DonePanel({
           <Icon name={failed ? 'clock' : 'check'} size={56} color={failed ? 'textMuted' : 'surface'} strokeWidth={2.6} />
         </Animated.View>
       </JobEndHero>
-      {cash && truth ? (
-        <View
-          testID="done-cash"
-          style={{
-            gap: theme.space[3],
-            padding: theme.space[4],
-            borderRadius: theme.radius.xl,
-            backgroundColor: truth.tone === 'danger' ? theme.colors.dangerTint : truth.tone === 'warning' ? theme.colors.warningTint : theme.colors.surface,
-            borderWidth: 1,
-            borderColor: urgent ? withAlpha(theme.colors[truth.tone], 0.35) : theme.colors.border,
-          }}
+      {changeToWalletIqd ? (
+        <Animated.View
+          entering={theme.reduceMotion ? undefined : FadeIn.delay(900).duration(300)}
+          testID="done-wallet-change"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], alignSelf: 'center', paddingHorizontal: theme.space[4], minHeight: 44, borderRadius: 999, backgroundColor: theme.colors.successTint }}
         >
-          <CashMeter owedIqd={cash.owedIqd} heldIqd={cash.heldIqd} capIqd={cash.capIqd} overCap={cash.overCap} fromOwedIqd={fromOwedIqd} testID="done-meter" />
-          {changeToWalletIqd ? (
-            <View testID="done-wallet-change" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Icon name="wallet" size={16} color="successText" strokeWidth={2.2} />
-              <Text variant="footnote" color="successText" tabular style={{ flex: 1 }}>
-                {t('cashchange.done_wallet', { amount: amountParam(changeToWalletIqd) })}
-              </Text>
-            </View>
-          ) : null}
-          {urgent ? <Button testID="done-settle" label={t('partner.handover_cta')} icon="wallet" fullWidth onPress={() => setHandover(true)} /> : null}
-        </View>
+          <Icon name="wallet" size={18} color="successText" strokeWidth={2.2} />
+          <Text variant="label" weight={600} color="successText" tabular>
+            {t('cashchange.done_wallet', { amount: amountParam(changeToWalletIqd) })}
+          </Text>
+        </Animated.View>
       ) : null}
-      {/* Where the jobs are, only when he can take them: not while the cash card asks him to settle. */}
-      {autoHome && !urgent ? <JobEndNext demand={demand} /> : null}
+      {autoHome ? <JobEndNext demand={demand} /> : null}
       {ask}
       <View style={{ gap: theme.space[2] }}>
-        <Button testID="job-done-home" label={t('partner.job_done_cta')} size="lg" variant={urgent ? 'secondary' : 'primary'} fullWidth onPress={onHome} />
+        <Button testID="job-done-home" label={t('partner.job_done_cta')} size="lg" fullWidth onPress={onHome} />
         {counting ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[2] }}>
             <Text variant="footnote" color="textMuted" tabular testID="done-countdown" accessibilityLiveRegion="polite">
@@ -475,7 +473,6 @@ export function DonePanel({
           </View>
         ) : null}
       </View>
-      {cash ? <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={cash.heldIqd} owedIqd={cash.owedIqd} /> : null}
     </JobEndFrame>
   );
 }

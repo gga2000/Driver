@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { vaultLogFailsClosed, vaultLogRow } from './identity.repository.js';
 import { harness } from './test-harness.js';
-import { STAFF_READ_PURPOSES, VaultLogWriteError, accessorOf, swallowedVaultLogFailures } from './vault-log.js';
+import { CONSOLE_ORDER_RECIPIENT_PURPOSE, STAFF_READ_PURPOSES, VaultLogWriteError, accessorOf, swallowedVaultLogFailures } from './vault-log.js';
 
 /** vault_accessor_fk: synthetic readers, and what happens when the access log row cannot be written. */
 describe('vault access log: accessors and failures', () => {
@@ -76,5 +76,18 @@ describe('vault access log: accessors and failures', () => {
     expect(swallowedVaultLogFailures()).toBe(before);
     // With the log working again the same read answers.
     expect(await h.service.displayNamesFor([actor.personId], staff, 'console_names')).toEqual({ [actor.personId]: { displayName: 'حيدر ك.', deleted: false } });
+  });
+
+  it("the Console's gift-recipient read (orders.get for staff) fails closed; the courier's fails open", async () => {
+    expect(STAFF_READ_PURPOSES.has(CONSOLE_ORDER_RECIPIENT_PURPOSE)).toBe(true);
+    expect(STAFF_READ_PURPOSES.has('partner_recipient')).toBe(false);
+    const h = harness();
+    const orderer = (await h.login('07712345678')).actor.personId;
+    const staff = (await h.login('07700000001')).actor.personId;
+    await h.service.rememberParticipantName({ participantId: 'pt_gift_1', personId: orderer, givenById: orderer, name: 'زينب' });
+    h.repo.failLogWrites = 1;
+    await expect(h.service.participantNames(['pt_gift_1'], staff, CONSOLE_ORDER_RECIPIENT_PURPOSE)).rejects.toBeInstanceOf(VaultLogWriteError);
+    h.repo.failLogWrites = 1;
+    expect(await h.service.participantNames(['pt_gift_1'], staff, 'partner_recipient')).toEqual({ pt_gift_1: 'زينب' });
   });
 });

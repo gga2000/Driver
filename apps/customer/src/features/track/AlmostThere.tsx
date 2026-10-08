@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import type { LatLng, OrderTracking } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
-import { Avatar, Icon, IconButton, Text, useTheme } from '@driver/ui';
+import { Avatar, Icon, IconButton, Text, useTheme, useAnnounce } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { season } from '@/lib/season';
@@ -123,6 +123,8 @@ export function AlmostThereCard({
       : atDoor
         ? t('track.door_paid')
         : t('track.near_paid');
+  // VoiceOver ignores live regions (REL-17): say the card when it appears and when it turns into «at the door».
+  useAnnounce(`${atDoor ? t('track.door_title', { name: who }) : t('track.near_title')}. ${body}`, { initial: true });
   return (
     <Animated.View
       key={variant}

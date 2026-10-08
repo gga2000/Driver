@@ -85,7 +85,7 @@ export function CompareSheet({
     <ModalSheet
       visible={visible}
       onClose={onClose}
-      title={t('food.compare_title')}
+      title={picks.length === 2 ? t('food.compare_title_two') : t('food.compare_title')}
       testID="compare-sheet"
     >
       <View style={{ gap: theme.space[4] }}>
