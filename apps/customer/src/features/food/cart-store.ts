@@ -182,3 +182,28 @@ export function useCartStore(): CartStoreState {
 export function useCart(): CartState {
   return useCartStore().cart;
 }
+
+/**
+ * A slice of the cart that redraws its reader only when the slice changes (perf t1): a menu row reads
+ * its own count, so a «+» redraws that row and the cart bar, not the whole menu. `select` must return
+ * a plain value (number, string, boolean) or something kept stable between calls.
+ */
+export function useCartSelect<T>(select: (state: CartStoreState) => T): T {
+  useEffect(() => {
+    void cartStore.load();
+  }, []);
+  const get = () => select(cartStore.getSnapshot());
+  return useSyncExternalStore(cartStore.subscribe, get, get);
+}
+
+/** How many of this dish are in the cart, when the cart is this kitchen's (0 otherwise). */
+export function countIn(cart: CartState, merchantId: string, itemId: string): number {
+  if (cart.merchant?.id !== merchantId) return 0;
+  let n = 0;
+  for (const l of cart.lines) if (l.itemId === itemId) n += l.qty;
+  return n;
+}
+
+export function useItemCount(merchantId: string, itemId: string): number {
+  return useCartSelect((s) => countIn(s.cart, merchantId, itemId));
+}
