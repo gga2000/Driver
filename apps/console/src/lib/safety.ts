@@ -23,7 +23,7 @@ export function shouldRing(rows: readonly SafetyIncidentSummary[], muted: Readon
 /** "40 ث", "3 د", "1 س 5 د". */
 export function ageText(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
-  return s < 60 ? `${s} ث` : compactDuration(ms);
+  return s < 60 ? t('console.dur_s', { s }) : compactDuration(ms);
 }
 
 export function roleText(role: 'driver' | 'customer'): string {

@@ -5,27 +5,10 @@
  * Absent, failing, slow or empty → safety falls back to paging every live dispatcher (today's
  * behaviour), logged with a stable code. An SOS is never refused whatever the port does.
  */
-export interface IncidentForPaging {
-  incidentId: string;
-  kind: 'sos' | 'safety_report' | 'sweep_alert' | 'pin_alert';
-  cityId: string;
-  zoneKey: string | null;
-  orderId: string | null;
-  rideId: string | null;
-  tripId: string | null;
-  createdAt: Date;
-}
+import type { IncidentForPaging, OnCallPort, PagePlan } from '@driver/contracts';
 
-export interface PagePlan {
-  step: number;
-  staffPersonIds: string[];
-  ackWithinSec: number;
-  source: 'roster' | 'fallback_all_dispatchers';
-}
-
-export interface OnCallPort {
-  firstPage(i: IncidentForPaging): Promise<PagePlan>;
-}
+// The port's types are the contracts' (`on-call-io.ts`), shared with the on-call module that implements it.
+export type { IncidentForPaging, OnCallPort, PagePlan } from '@driver/contracts';
 
 /** Optional provider; absent = fallback. */
 export const ON_CALL_PORT = Symbol('ON_CALL_PORT');

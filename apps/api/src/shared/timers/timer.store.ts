@@ -69,6 +69,11 @@ export interface TimerStore {
   fail(id: string, error: string, retryAt: Date | null): Promise<void>;
   /** BullMQ ran the job first: the sweeper must not run it again. */
   markFired(queue: string, jobId: string, now: Date, tx?: Tx): Promise<void>;
+  /**
+   * What the timers belonged to is over (a cancelled or finished ride): its pending timers whose job id
+   * starts with `jobIdPrefix` are settled as fired without running. Returns how many.
+   */
+  settlePending(queue: string, jobIdPrefix: string, now: Date, tx?: Tx): Promise<number>;
   /** Deletes fired rows past `TIMER_KEEP_FIRED_MS` and failed rows past `TIMER_KEEP_FAILED_MS`. */
   prune(now: Date, limit?: number): Promise<number>;
   stats(now: Date): Promise<TimerStats>;

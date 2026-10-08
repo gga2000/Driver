@@ -434,7 +434,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     if (!inc) return;
     let to: string[];
     let source: 'roster' | 'fallback_all_dispatchers' = 'fallback_all_dispatchers';
-    let step: number | null = null;
+    let step: string | null = null;
     if (e.type === 'sos.escalated') {
       const first = (await this.repo.entries(inc.id, tx)).find((x) => x.kind === 'paged');
       if (first?.data['source'] === 'roster') return;

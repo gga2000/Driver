@@ -376,7 +376,7 @@ describe('SafetyService — the on-call paging port', () => {
   });
 
   it('port returns nobody → fallback', async () => {
-    const r = await firstPage({ firstPage: async () => ({ step: 1, staffPersonIds: [], ackWithinSec: 60, source: 'roster' }) });
+    const r = await firstPage({ firstPage: async () => ({ step: 'ring', staffPersonIds: [], ackWithinSec: 60, source: 'roster' }) });
     expect(r.paged).toEqual(['p_haider', 'p_ali']);
     expect(r.fallbackLogs).toEqual([expect.stringContaining('reason=empty')]);
   });
@@ -386,12 +386,12 @@ describe('SafetyService — the on-call paging port', () => {
     const r = await firstPage({
       firstPage: async (i) => {
         seen.push(i);
-        return { step: 1, staffPersonIds: ['p_haider', 'p_oncall'], ackWithinSec: 90, source: 'roster' };
+        return { step: 'ring', staffPersonIds: ['p_haider', 'p_oncall'], ackWithinSec: 90, source: 'roster' };
       },
     });
     expect(r.paged).toEqual(['p_haider', 'p_oncall']);
     expect(r.fallbackLogs).toEqual([]);
-    expect(r.pagedEntry.data).toEqual({ count: '2', source: 'roster', step: '1' });
+    expect(r.pagedEntry.data).toEqual({ count: '2', source: 'roster', step: 'ring' });
     expect(seen).toEqual([{ incidentId: r.v.incidentId, kind: 'sos', cityId: 'aziziyah', zoneKey: null, orderId: 'ord_ride_1', rideId: null, tripId: 'trp_1', createdAt: r.v.raisedAt }]);
     // Nobody took it in 60 s: the incident is marked escalated, but safety pages nobody again.
     const dispatch = vi.spyOn(r.h.notify, 'dispatch');

@@ -10,7 +10,7 @@ import { stepIndex, useHotkeys } from '@/lib/hotkeys';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC } from '@/lib/trpc';
-import { errorText } from '@/lib/network';
+import { errorText, useConsoleNetwork } from '@/lib/network';
 import { MenuPhotoQueue } from './menu-photo-queue';
 import {
   Avatar,
@@ -257,7 +257,9 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
   );
   const presets = REJECT_PRESETS[item.kind];
   const canReject = reason.trim().length >= 3;
-  const locked = item.ownItem || decide.isPending;
+  // Offline: the A / X keys stop too, like the buttons (nothing is queued for later).
+  const offline = useConsoleNetwork().state !== 'online';
+  const locked = item.ownItem || decide.isPending || offline;
   const run = (decision: 'approve' | 'reject') => {
     if (locked) return;
     if (decision === 'reject' && !canReject) {
@@ -417,10 +419,10 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" size="lg" kbd="A" onClick={() => run('approve')}>
+              <Button variant="primary" size="lg" kbd="A" needsNet onClick={() => run('approve')}>
                 {t(`console.apr_approve_${item.kind}` as MessageKey)}
               </Button>
-              <Button variant="danger-soft" size="lg" kbd="X" onClick={() => run('reject')}>
+              <Button variant="danger-soft" size="lg" kbd="X" needsNet onClick={() => run('reject')}>
                 {canReject ? t('console.apr_reject_with', { reason: reason.trim().length > 24 ? `${reason.trim().slice(0, 24)}…` : reason.trim() }) : t('console.apr_reject')}
               </Button>
             </div>
