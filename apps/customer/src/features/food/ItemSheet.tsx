@@ -188,7 +188,7 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
           ) : null}
           {item.available && dealPrice < price ? (
             <View testID="item-deal-price" style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'baseline', gap: theme.space[2] }}>
-              <Text variant="label" weight={700} color="successText" tabular>
+              <Text variant="label" weight={700} color="accentText" tabular>
                 {iqd(dealPrice, { locale })}
               </Text>
               <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
@@ -261,8 +261,8 @@ export function ItemSheet({ item, merchant, disabled, onClose, onAdded, followab
           {/* Points reach a person only through their phone; the table's are the organiser's. */}
           {(person && person.phone) || personId === TABLE ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="item-points-to">
-              <Icon name="gift" size={16} color="successText" />
-              <Text variant="footnote" color="successText">
+              <Icon name="gift" size={16} color="accentText" />
+              <Text variant="footnote" color="accentText">
                 {person ? t('item.points_go_to', { name: person.name }) : t('item.table_points')}
               </Text>
             </View>
