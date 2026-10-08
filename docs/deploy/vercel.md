@@ -40,5 +40,6 @@ re-run it when the brand symbol is chosen. Colours are the theme's cream `bg`;
 (Vercel reports it to GitHub as a deployment) and every 6 hours, using `scripts/deploy/web-smoke.mjs`:
 the page draws with no script error, the API answers a call from that origin (so a missing
 `CORS_ORIGINS` entry shows up here), and the customer manifest and icons are served. A red run emails
-the repo owner. Once the restaurant site has its address, set the repo variable `MERCHANT_WEB_URL` so
-the timed run checks it too. Run it by hand: Actions → Web live check → Run workflow.
+the repo owner. It always checks the public addresses (driver-customer-iota.vercel.app and
+driver-merchant.vercel.app), never a deploy's one-off address, which the API rightly refuses. If the
+restaurant site moves to its own domain, set the repo variable `MERCHANT_WEB_URL`. Run it by hand: Actions → Web live check → Run workflow.
