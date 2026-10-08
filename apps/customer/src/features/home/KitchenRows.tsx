@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
-import { Fragment, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Image, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { longRideForHotFood } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { CornerFill, Icon, PhotoImage, Skeleton, stageOf, Text, useTheme, withAlpha } from '@driver/ui';
+import type { ThemeColorKey } from '@driver/design-tokens';
+import { Button, CornerFill, Icon, PhotoImage, Skeleton, stageOf, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { DealSticker } from '@/features/food/DealBadge';
 import { FoodArt, kitchenLook, motifForKitchen, type Motif } from '@/features/food/FoodArt';
 import { LongRide } from '@/features/food/RestaurantRow';
@@ -250,6 +251,82 @@ function KitchenRow({ r, motif, photo, ownFee, testID }: { r: RestaurantSummary;
       </View>
       <Icon name="chevron-forward" size={18} color="textMuted" />
     </Pressable>
+  );
+}
+
+/**
+ * One flat line in the kitchens' place when there are none to list: night (who opens first, tap for
+ * its menu), a failed load (try again) or a zone with none. The rows' own look, no box, so home stays
+ * calm when food is quiet.
+ */
+export function KitchenNote({
+  testID,
+  art,
+  title,
+  line,
+  onPress,
+  hint,
+  action,
+}: {
+  testID?: string;
+  art: ReactNode;
+  title: string;
+  line?: string | null;
+  /** The whole line opens something (the first kitchen's menu): a chevron at its end. */
+  onPress?: () => void;
+  hint?: string;
+  /** Or a small button at its end (try again, see all). */
+  action?: { label: string; onPress: () => void; testID?: string };
+}) {
+  const theme = useTheme();
+  const row: ViewStyle = { flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[3], borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border };
+  const body = (
+    <>
+      <View style={{ width: PIC, height: PIC, alignItems: 'center', justifyContent: 'center' }}>{art}</View>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Text variant="bodyStrong" weight={700}>
+          {title}
+        </Text>
+        {line ? (
+          <Text variant="footnote" color="textMuted" tabular>
+            {line}
+          </Text>
+        ) : null}
+      </View>
+      {onPress ? <Icon name="chevron-forward" size={18} color="textMuted" /> : action ? <Button testID={action.testID} size="sm" variant="secondary" label={action.label} onPress={action.onPress} /> : null}
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View testID={testID} style={row}>
+        {body}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={[title, line].filter(Boolean).join('، ')}
+      accessibilityHint={hint}
+      onPress={() => {
+        theme.haptic('selection');
+        onPress();
+      }}
+      style={({ pressed }) => [row, { opacity: pressed ? 0.6 : 1 }]}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+/** The round mark at the start of a note: an icon on the sunken colour. */
+export function NoteMark({ icon, color = 'textMuted' }: { icon: IconName; color?: ThemeColorKey }) {
+  const theme = useTheme();
+  return (
+    <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceSunken }}>
+      <Icon name={icon} size={22} color={color} />
+    </View>
   );
 }
 

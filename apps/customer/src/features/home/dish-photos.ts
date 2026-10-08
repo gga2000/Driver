@@ -63,6 +63,18 @@ export function dishPhoto(name: string): number | null {
 }
 
 /**
+ * The photo a past order shows on home's card: its first dish that has a photo of that very dish, and
+ * that photo's kind (so the kitchens below pick another). Null when none has one: the card draws it.
+ */
+export function orderPhoto(items: readonly { name: string }[]): { photo: number; kind: Motif | null } | null {
+  for (const it of items) {
+    const photo = dishPhoto(it.name);
+    if (photo !== null) return { photo, kind: dishKind(it.name) };
+  }
+  return null;
+}
+
+/**
  * Kinds whose landing photo fairly shows a kitchen of that kind (a grill house, a sweets shop, a café):
  * the dishes above plus the kinds a kitchen stands for. A bakery or a pickle shop has none yet.
  */
