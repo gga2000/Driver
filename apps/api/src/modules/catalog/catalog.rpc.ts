@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   CATALOG_PUBLIC_RATE,
@@ -145,6 +145,7 @@ const TODAY_TUKTUK_ZONE = 'centre';
  */
 @Injectable()
 export class CatalogRpc implements CustomerCatalogPort {
+  private readonly log = new Logger(CatalogRpc.name);
   private readonly clock: Clock;
   private readonly guests: WindowCounter;
   private readonly eta: EtaService;
@@ -548,7 +549,11 @@ export class CatalogRpc implements CustomerCatalogPort {
   private async admit(reader: Actor | CatalogReader): Promise<void> {
     if ('personId' in reader || reader.actor || !reader.ip) return;
     const hit = await this.guests.hit(`catalog:guest:${reader.ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
-    if (!hit.allowed) throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    if (!hit.allowed) {
+      // Logged so a carrier-NAT address full of real guests shows up in the logs, not as silent refusals.
+      this.log.warn(`guest catalog limit hit (${CATALOG_PUBLIC_RATE.perIp}/min) for one address; retry in ${hit.retryAfterSec}s`);
+      throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    }
   }
 
   private matches(s: StorefrontRecord, items: readonly CatalogItemRecord[], q: string): boolean {
