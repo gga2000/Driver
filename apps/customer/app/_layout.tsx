@@ -11,7 +11,7 @@ import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { usePushRegistration } from '@/features/notify/usePush';
+import { usePushLaunch, usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
@@ -21,6 +21,8 @@ import { CachedPhoto } from '@/lib/cached-photo';
 import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
+import { UpdateRequired } from '@/components/UpdateRequired';
+import { useUpdateRequired } from '@/lib/app-update';
 import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
@@ -50,6 +52,8 @@ const FONT_HOLD_MAX_MS = 2500;
  */
 export default function RootLayout() {
   const fontsLoaded = useAppFonts();
+  // CORE-05: the server turned this build away; one «حدّث التطبيق» page replaces every screen.
+  const updateRequired = useUpdateRequired();
   const { locale } = useProfile();
   // Fonts load behind the splash; a slow device stops waiting after FONT_HOLD_MAX_MS and swaps in place.
   const [fontWaitOver, setFontWaitOver] = useState(false);
@@ -99,7 +103,7 @@ export default function RootLayout() {
                 <SosOutboxSync />
                 {/* The first slow connection offers low-data mode once (speed g4). */}
                 <LiteHint />
-                <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
+                {updateRequired ? <UpdateRequired /> : <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />}
               </ApiProvider>
             </ToastProvider>
             </PhotoImageProvider>
@@ -137,6 +141,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
     if (target.remember) void profile.setReturnTo(target.remember);
     router.replace(target.to as never);
   }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
+  // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
+  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>

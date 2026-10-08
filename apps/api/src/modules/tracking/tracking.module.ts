@@ -90,7 +90,7 @@ const POINTS_EARNED_TYPES = new Set(['points_earned', 'organizer_bonus']);
       inject: [PrismaService, ClimateChecks],
     },
     // Audit d-5: the honest-delay credit (delivery fee back as wallet credit past the promise).
-    { provide: TRACKING_LATE_CREDIT, useFactory: (ledger: LedgerService) => ledgerLateCredit(ledger), inject: [LedgerService] },
+    { provide: TRACKING_LATE_CREDIT, useFactory: (ledger: LedgerService, events: EventsService) => ledgerLateCredit(ledger, events), inject: [LedgerService, EventsService] },
     // Its first step (Ali, 2026-10-06): one apology with the new time, sent by the sweep or a track read.
     { provide: TRACKING_LATE_APOLOGY, useFactory: (events: EventsService) => eventsLateApology(events), inject: [EventsService] },
     // Driver photos (Ali, 2026-10-06): the approved main photo, signed short-lived from the blob store.

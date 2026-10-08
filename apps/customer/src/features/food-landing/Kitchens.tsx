@@ -156,7 +156,7 @@ export function AheadCard({ shop }: { shop: RestaurantSummary }) {
   const ink = theme.colors.inverse;
   return (
     <View testID="food-ahead" style={{ height: 300, borderRadius: theme.radius['2xl'], overflow: 'hidden', backgroundColor: ink }}>
-      <Image source={photoForMotif(motifForKitchen(shop.tags, shop.cuisine))} resizeMode="cover" accessible={false} style={StyleSheet.absoluteFill} />
+      <Image source={photoForMotif(motifForKitchen(shop.tags, shop.cuisine))} resizeMode="cover" accessible={false} style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }} />
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>

@@ -247,7 +247,7 @@ export function UnreachablePanel({
         <View style={{ flex: 1, gap: theme.space[1] }}>
           <Text variant="title">{t('unreachable.customer_title')}</Text>
           <Text variant="label" weight={600} testID="unreachable-standing">
-            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door))}
+            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door), view.order.streetHandover === true)}
           </Text>
         </View>
         {/* The timer, small (L-10): guidance first. It counts to the server's fail time, extended or not. */}

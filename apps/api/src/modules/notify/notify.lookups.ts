@@ -9,6 +9,8 @@ export interface OrderFacts {
   itemCount: number;
   /** A ride booked for someone else (s3): the rider's account, when he has one; null otherwise. */
   riderId?: string | null;
+  /** How it is paid (`cash` | `wallet` | `prepaid`); absent = unknown, read as cash. */
+  paymentMethod?: string;
 }
 
 export interface BookingFacts {
@@ -71,6 +73,12 @@ export interface NotifyLookups {
   riderName?(orderId: string): Promise<string | null>;
   /** c9: the car the driver came in — "Toyota Corolla · أبيض" (else تكسي / تكتك) — and its plate. */
   driverCar?(tripId: string, driverId: string): Promise<{ car: string; plate: string } | null>;
+  /** W2: when a picked-up delivery reaches the door — the order screen's own ETA; null when it can't say. */
+  deliveryEta?(orderId: string, now: Date): Promise<Date | null>;
+  /** W2 BENCH-03: the menu names of these lines of an order (free-text lines by their text), in line order. */
+  lineNames?(orderId: string, lineIds: readonly string[]): Promise<string[]>;
+  /** W2: the order a trip stop serves (an event that names only the stop); null when gone. */
+  stopOrder?(tripId: string, stopId: string): Promise<string | null>;
   /** s1: the start code of a night ride, which goes in the rider's SMS; null when the ride has none. */
   startCode?(orderId: string): Promise<string | null>;
 }

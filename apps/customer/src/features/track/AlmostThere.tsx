@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { season } from '@/lib/season';
 import { playCue } from '@/lib/sound';
-import { cashAtDoor } from './arrival-logic';
+import { cashAtDoor, doorCardKeys } from './arrival-logic';
 import { rideNearDue } from '@/features/ride/logic';
 import { rideNearAt } from '@/features/ride/safety';
 import { almostThere, DRIVER_HERE_GAP_MS, momentFeedback, momentsBetween, type MomentSnapshot } from './moments';
@@ -117,14 +117,12 @@ export function AlmostThereCard({
   const atDoor = variant === 'door';
   const who = name ?? t('track.courier_fallback');
   const tender = pay.kind === 'cash' && pay.tender ? `\n${t('cashchange.door_tender', { tender: amountParam(pay.tender.tenderIqd), change: amountParam(pay.tender.changeIqd) })}` : '';
-  const body =
-    pay.kind === 'cash'
-      ? `${atDoor ? t('track.door_cash', { amount: amountParam(pay.cashIqd) }) : t('track.cash_ready', { amount: amountParam(pay.cashIqd) })}${tender}`
-      : atDoor
-        ? t('track.door_paid')
-        : t('track.near_paid');
+  const keys = doorCardKeys(order, atDoor);
+  const street = order.streetHandover === true;
+  const title = t(keys.title, { name: who });
+  const body = pay.kind === 'cash' ? `${t(keys.body, { amount: amountParam(pay.cashIqd) })}${tender}` : t(keys.body);
   // VoiceOver ignores live regions (REL-17): say the card when it appears and when it turns into «at the door».
-  useAnnounce(`${atDoor ? t('track.door_title', { name: who }) : t('track.near_title')}. ${body}`, { initial: true });
+  useAnnounce(`${title}. ${body}`, { initial: true });
   return (
     <Animated.View
       key={variant}
@@ -159,12 +157,12 @@ export function AlmostThereCard({
         <Avatar name={who} uri={apiPhoto(photoUrl) ?? undefined} size={44} />
       ) : (
         <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name={pay.kind === 'cash' ? 'cash' : 'home'} size={22} color="accentText" strokeWidth={2.2} />
+          <Icon name={pay.kind === 'cash' ? 'cash' : street ? 'map-pin' : 'home'} size={22} color="accentText" strokeWidth={2.2} />
         </View>
       )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="label" weight={700} testID="door-card-title">
-          {atDoor ? t('track.door_title', { name: who }) : t('track.near_title')}
+          {title}
         </Text>
         <Text variant="footnote" color="textMuted" testID="almost-there-cash">
           {body}
