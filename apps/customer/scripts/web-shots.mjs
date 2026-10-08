@@ -2583,6 +2583,9 @@ async function basketShots(khalid) {
   } else errors.push('basket person tabs not shown');
 
   await byTestId('cart-checkout').click();
+  // checkout_v2 places from its second step (the slip); the old checkout places straight away.
+  await Promise.race([byTestId('checkout-next').waitFor({ timeout: 15_000 }), byTestId('checkout-place').waitFor({ timeout: 15_000 })]);
+  if (await byTestId('checkout-next').count()) await byTestId('checkout-next').click();
   await byTestId('checkout-place').waitFor({ timeout: 15_000 });
   await byTestId('checkout-place').click();
   await byTestId('kitchen-card').waitFor({ timeout: 15_000 });

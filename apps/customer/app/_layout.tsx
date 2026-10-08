@@ -2,6 +2,8 @@ import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
+import { ScreenSwitchesSync } from '@/lib/screen-switches-sync';
+import { screenSwitches } from '@/lib/ui-switches';
 import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -69,6 +71,8 @@ export default function RootLayout() {
     void loadDataSaverPref();
     // «الوضع البسيط» (ride idea v2): known before home draws, so it never flashes the full home first.
     void simpleMode.load();
+    // The redesigned screens the server showed at the last start, until this start's answer arrives.
+    void screenSwitches.loadSaved();
   }, []);
 
   useEffect(() => {
@@ -103,6 +107,8 @@ export default function RootLayout() {
                 <SosOutboxSync />
                 {/* The first slow connection offers low-data mode once (speed g4). */}
                 <LiteHint />
+                {/* Which redesigned screens to show (system.screens), read at start and after sign-in. */}
+                <ScreenSwitchesSync />
                 {updateRequired ? <UpdateRequired /> : <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />}
               </ApiProvider>
             </ToastProvider>
