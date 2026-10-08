@@ -33,6 +33,14 @@ react-native-worklets), new architecture only. They moved from SDK 52 one major 
   `microphonePermission: false, recordAudioAndroid: false, enableBackgroundPlayback: false`: no
   microphone, no background-audio or foreground-service permissions (Play asks to justify those).
 - `expo prebuild` now clears `android/` and `ios/` by default; they are generated, never committed.
+- **Smaller, faster Android builds** (speed audit s2/s3, 2026-10-07): `expo-build-properties` turns on
+  R8 minify and resource shrinking for release builds (`android.enableMinifyInReleaseBuilds`,
+  `android.enableShrinkResourcesInReleaseBuilds`), and the `expo-font` plugin embeds the font files
+  under `android.fonts`, so Android uses them by file name with no runtime load (`src/lib/fonts.ts`
+  skips loading there; Expo Go and iOS still load at runtime). R8 can drop classes a library reaches by
+  reflection: on the first `preview` APK, open every screen, sign in, take a push and play a sound
+  before shipping; a missing class shows as a crash naming it, fixed with a keep rule in
+  `expo-build-properties` `android.extraProguardRules`.
 - The store Expo Go app runs only the newest SDK; real testing is on a development build (`expo run:android` / `expo run:ios`, or the EAS `preview` build below).
 
 ## Files
