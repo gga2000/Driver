@@ -312,11 +312,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       return [{ ...base, template: 'order_accepted', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.rejected': {
-      // «المطعم ما گدر ياخذ طلبك» / «المطعم ما رد»: told at once, with the way on. No credit is named
-      // here — a credit reaches him in its own message once the ledger posts it.
+      // «المطعم ما گدر ياخذ طلبك» / «المطعم ما رد»: told at once, with the way on. M-17: a kitchen that
+      // cancels after accepting pays him `customerCreditIqd` (500) — the ledger posts it with this event.
       const order = e.orderId ? await L.order(e.orderId) : null;
       if (!order || order.type === 'ride') return [];
       const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? 'المطعم') : 'المطعم';
+      const credit = num(p['customerCreditIqd']) ?? 0;
+      if (credit > 0) return [{ ...base, template: 'order_rejected_credit', to: order.customerId, orderId: order.id, params: { merchant, amount: iqd(credit), orderId: order.id }, data: { orderId: order.id } }];
       const template = p['reason'] === 'merchant_timeout' ? ('order_kitchen_no_answer' as const) : ('order_rejected' as const);
       return [{ ...base, template, to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
     }

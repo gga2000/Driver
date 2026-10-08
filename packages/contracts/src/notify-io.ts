@@ -195,6 +195,7 @@ export const NotifyTemplateId = z.enum([
   'order_on_the_way',
   'order_partial_ask',
   'order_partial_no_answer',
+  'order_rejected_credit',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -305,6 +306,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.order_rejected.title', body: 'push.order_rejected.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // M-17 (Ali, 2026-10-08): the kitchen cancels after accepting — 500 دينار to his wallet, paid by the kitchen.
+  order_rejected_credit: {
+    id: 'order_rejected_credit',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_rejected_credit.title', body: 'push.order_rejected_credit.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',

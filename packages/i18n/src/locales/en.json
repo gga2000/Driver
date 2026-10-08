@@ -8125,5 +8125,7 @@
   "kitchen.partial_item": "An item in your order",
   "kitchen.partial_left_one": "1 second left to answer",
   "kitchen.partial_left_two": "2 seconds left to answer",
-  "kitchen.partial_left_few": "{n} seconds left to answer"
+  "kitchen.partial_left_few": "{n} seconds left to answer",
+  "push.order_rejected_credit.title": "The restaurant couldn't finish your order",
+  "push.order_rejected_credit.body": "{merchant} cancelled your order after accepting it. We added {amount} IQD to your wallet. Order from another restaurant"
 }

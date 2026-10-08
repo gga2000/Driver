@@ -386,6 +386,11 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect(await run(event('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'merchant_timeout' }, { orderId: 'ord_1', actorId: 'system' }))).toEqual([
       { template: 'order_kitchen_no_answer', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } },
     ]);
+    // M-17: after accepting, the kitchen's cancel carries 500 to his wallet, and the message says so.
+    expect(await run(event('order.rejected', { from: 'preparing', to: 'merchant_rejected', reason: 'gas ran out', customerCreditIqd: 500, afterAccept: true, creditFundedBy: 'merchant' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'order_rejected_credit', to: 'cust', params: { merchant: 'مطعم خالد', amount: '500', orderId: 'ord_1' } },
+    ]);
+    expect((await run(event('order.rejected', { reason: 'busy', customerCreditIqd: 0 }, { orderId: 'ord_1' })))[0]?.template).toBe('order_rejected');
   });
 
   it('only what we cancelled is told; the household payer’s answer is named; his own cancel is silent', async () => {

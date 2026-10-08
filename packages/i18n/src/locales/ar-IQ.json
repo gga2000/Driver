@@ -8125,5 +8125,7 @@
   "kitchen.partial_item": "صنف من طلبك",
   "kitchen.partial_left_one": "باقي ثانية وحدة للرد",
   "kitchen.partial_left_two": "باقي ثانيتين للرد",
-  "kitchen.partial_left_few": "باقي {n} ثواني للرد"
+  "kitchen.partial_left_few": "باقي {n} ثواني للرد",
+  "push.order_rejected_credit.title": "المطعم ما گدر يكمّل طلبك",
+  "push.order_rejected_credit.body": "{merchant} لغى طلبك بعد ما قبله. نزلنالك {amount} دينار رصيد بمحفظتك، واطلب من مطعم ثاني"
 }
