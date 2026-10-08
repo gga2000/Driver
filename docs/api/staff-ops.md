@@ -21,6 +21,7 @@ procedure that needs it refuses with `money_rule_off`. Shown in Arabic as «هذ
 |---|---|---|---|---|
 | `orders.cashStanding` | query | any signed-in | none | `CashStanding` |
 | `orders.ops.stuck` | query | dispatcher, support, finance, admin | `StuckOrdersInput` | `StuckOrder[]` |
+| `orders.ops.switches` | query | dispatcher, support, finance, admin | — | `StaffOpsSwitches`: `disputeOutcomes` (allowed list, `void` always in it), `agentLimitIqd`, `courierLostRefund`, `courierLostCharge`, `freeCancel`, `cookedFoodPayer`, `remakePay`. Read-only, no audit row; the Console greys out an action whose switch is off ("waits on Ali") before staff click. |
 | `orders.ops.cancel` | mutation | dispatcher, support, admin | `StaffCancelOrderInput` | `StaffActionResult` |
 | `orders.ops.markDelivered` | mutation | dispatcher, support, admin | `StaffMarkDeliveredInput` | `StaffActionResult` |
 | `orders.ops.close` | mutation | dispatcher, support, admin | `StaffCloseOrderInput` | `StaffActionResult` |
@@ -146,6 +147,7 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 | M-10 charge the courier | `COURIER_LOST_CHARGE` | off | `chargeCourier` |
 | M-11 garage no-show (NTF-14) | `GARAGE_NO_SHOW_AUTO_CANCEL` | off | the watch cancels a no-show departure on its own, as `system`, with an audit row |
 | M-13 agent cash accounts (THIN-12) | `AGENT_CASH_ACCOUNTS` | off | an agent's top-up cash sits on `cash:<agent>` instead of `bank` |
+| c6 remake pay (Ali's shop pick, 2026-10-08) | `MERCHANT_REMAKE_PAY` | off | `orders.merchant.remake`: Driver pays the remade food once (`order:<id>:remake`) — see [shop-load.md](shop-load.md) |
 
 `cashStanding` always reports what is owed and how many cash orders are open, even while the block
 and the cap are off.

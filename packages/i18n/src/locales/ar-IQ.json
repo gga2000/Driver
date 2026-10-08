@@ -6658,6 +6658,7 @@
   "console.ev_order_unstuck": "الطلب طلع من قائمة المعلّقة",
   "console.ev_order_late_apology": "اعتذرنا من الزبون على التأخير وعطيناه وقت جديد",
   "error.ride_schedule_invalid": "تكدر تحجز مشوار من 20 دقيقة لحد 7 أيام قدّام",
+  "error.order_schedule_invalid": "هذا الوقت ما ينفع للطلب. اختار وقت من اليوم أو باچر",
   "error.favourite_needs_schedule": "السايق المفضل بس للمشاوير المحجوزة لوكت ثاني",
   "error.favourite_not_found": "هذا السايق مو بين سواقك المفضلين",
   "error.favourite_needs_good_rating": "تكدر تختار سايق مفضل بعد مشوار قيّمته 4 أو 5 نجوم",

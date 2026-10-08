@@ -144,8 +144,11 @@ export class RequestBoardService {
       const offer = r.offers.find((o) => o.id === offerId && o.state === 'open');
       if (!offer) throw new DriverError('request_state_conflict');
       const deposit = this.depositFor(offer.priceIqd);
+      // SEC-07: under the rider's wallet lock (taken by the writer), net of every other hold on it.
       const available =
-        (await this.wallet.balance(riderId)) - (await walletHolds(this.repo, riderId, tx));
+        (await this.wallet.balance(riderId)) -
+        (await walletHolds(this.repo, riderId, tx)) -
+        (await this.wallet.heldElsewhere(riderId, tx));
       if (available < deposit) throw new DriverError('wallet_insufficient');
       for (const o of r.offers)
         o.state = o.id === offerId ? 'picked' : o.state === 'open' ? 'lost' : o.state;
@@ -159,7 +162,7 @@ export class RequestBoardService {
         depositIqd: deposit,
       });
       return r;
-    });
+    }, { walletLocks: [riderId] });
   }
 
   /** Free while open, or more than an hour before the trip; later, the deposit goes to the driver. */

@@ -226,6 +226,7 @@ export const ERROR_TABLE = {
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  order_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
   // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
   ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },

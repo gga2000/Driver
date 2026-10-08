@@ -128,9 +128,8 @@ export class PostingService {
     const r = RideMoneyPayload.parse(input);
     const posted = postRideCompleted(r, this.rules);
     const points = postPoints({
-      groupId: `trip:${r.tripId}:points`,
+      ...(r.requestId !== undefined ? { groupId: `request:${r.requestId}:points`, refs: {} } : { groupId: `trip:${r.tripId}:points`, refs: { tripId: r.tripId } }),
       occurredAt: r.occurredAt,
-      refs: { tripId: r.tripId },
       points: pointsForRideTake(posted.takeIqd, this.rules),
       ordererId: r.customerId,
       recipients: [],

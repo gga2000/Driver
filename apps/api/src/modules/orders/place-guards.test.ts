@@ -62,6 +62,35 @@ describe('orders.place — opening hours (apps review 2026-10-04 #10)', () => {
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
   });
 
+  it('h5 (Ali 2026-10-08): a shop whose tablet went silent over 5 minutes ago takes no new orders; a scheduled one still waits', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    const rest = h.merchants.merchants.get('rest_1')!;
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 4 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 6 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_paused');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: new Date(h.clock.now().getTime() + 60 * MIN) })))).toBe('ok');
+    rest.lastHeartbeatAt = h.clock.now();
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+  });
+
+  it('FOOD-03: a pre-order is for a real slot: not in the past, not sooner than the lead, at most 48 h ahead', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    const at = (min: number) => new Date(h.clock.now().getTime() + min * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(-60) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(5) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(49 * 60) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(60) })))).toBe('ok');
+  });
+
+  it('FOOD-03: a shop closed by hand takes no pre-order for later today, but does for tomorrow', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z'); // 13:30 Baghdad
+    h.merchants.merchants.get('rest_1')!.closed = true;
+    const at = (min: number) => new Date(h.clock.now().getTime() + min * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(120) })))).toBe('merchant_paused');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(24 * 60) })))).toBe('ok');
+  });
+
   it('a merchant without a storefront (or without hours) is open whenever it is not paused', async () => {
     const h = ordersHarness();
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
