@@ -64,11 +64,16 @@ function isCart(x: unknown): x is CartState {
 export function createCartStore(store: KeyValueStorage) {
   let state: CartStoreState = INITIAL;
   let loading: Promise<void> | null = null;
+  /** Fields changed before the saved copy finished loading: those changes win over it (audit FOOD-29). */
+  const early = new Set<keyof CartStoreState>();
   const listeners = new Set<() => void>();
 
   function emit(next: CartStoreState) {
+    if (!state.loaded) for (const k of Object.keys(next) as (keyof CartStoreState)[]) if (k !== 'loaded' && next[k] !== state[k]) early.add(k);
     state = next;
     for (const l of listeners) l();
+    // Nothing is written over the saved copy before it has been read (load saves the merged one).
+    if (!next.loaded) return;
     const { loaded: _loaded, ...persisted } = next;
     void _loaded;
     void store.setItem(KEY, JSON.stringify(persisted)).catch(() => {});
@@ -94,7 +99,7 @@ export function createCartStore(store: KeyValueStorage) {
         } catch {
           parsed = {};
         }
-        state = {
+        const saved: CartStoreState = {
           loaded: true,
           cart: isCart(parsed.cart) ? parsed.cart : EMPTY_CART,
           placed:
@@ -108,7 +113,16 @@ export function createCartStore(store: KeyValueStorage) {
           people: Array.isArray(parsed.people) ? parsed.people.filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string') : [],
           pending: parsed.pending && typeof parsed.pending.key === 'string' && typeof parsed.pending.signature === 'string' ? { key: parsed.pending.key, signature: parsed.pending.signature, unknownSince: typeof parsed.pending.unknownSince === 'number' ? parsed.pending.unknownSince : null } : null,
         };
-        for (const l of listeners) l();
+        if (early.size === 0) {
+          state = saved;
+          for (const l of listeners) l();
+          return;
+        }
+        // A dish added in the first moment after a cold start is kept, and the merged copy saved.
+        const merged: CartStoreState = { ...saved };
+        for (const k of early) (merged as unknown as Record<string, unknown>)[k] = state[k];
+        emit(merged);
+        early.clear();
       })();
       return loading;
     },

@@ -39,6 +39,8 @@ export const LIVE_RULES = {
   streamTokenTtlSec: 15 * 60,
   /** Clients: no `hello` this long after opening = the network/proxy buffers SSE; treat as a failure. */
   connectTimeoutMs: 12_000,
+  /** Clients: the stream closes after this long in the background and reopens (with a resync) on return. */
+  backgroundCloseMs: 30_000,
   /** Reconnect backoff: base × 2^(n−1), capped, ±20 % jitter. */
   backoffBaseMs: 1_000,
   backoffMaxMs: 30_000,

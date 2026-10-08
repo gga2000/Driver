@@ -11,6 +11,8 @@ export const REQUEST_ID_HEADER = 'x-request-id';
 
 interface RequestContext {
   readonly requestId: string;
+  /** Background work (a queued job, an outbox delivery), not a phone waiting on an answer. */
+  readonly background?: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -23,6 +25,21 @@ export function currentRequestId(): string | undefined {
 /** Runs `fn` with `requestId` as the current request id. */
 export function runWithRequestId<T>(requestId: string, fn: () => T): T {
   return storage.run({ requestId }, fn);
+}
+
+/** Runs `fn` as background work with `id` stamped on its log lines (a queued job, an outbox delivery). */
+export function runAsBackground<T>(id: string, fn: () => T): T {
+  return storage.run({ requestId: id, background: true }, fn);
+}
+
+/**
+ * Whether the code running now serves an HTTP request (someone is waiting: short database limits)
+ * or is background work (jobs, sweeps, outbox deliveries, boot: long limits). Anything outside a
+ * request (an interval sweep, a timer) counts as background.
+ */
+export function workKind(): 'request' | 'background' {
+  const ctx = storage.getStore();
+  return ctx && !ctx.background ? 'request' : 'background';
 }
 
 // Printable ASCII, no spaces, bounded: a header value never becomes a log-injection vector.
