@@ -147,7 +147,7 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 | M-10 charge the courier | `COURIER_LOST_CHARGE` | off | `chargeCourier` |
 | M-11 garage no-show (NTF-14) | `GARAGE_NO_SHOW_AUTO_CANCEL` | off | the watch cancels a no-show departure on its own, as `system`, with an audit row |
 | M-13 agent cash accounts (THIN-12) | `AGENT_CASH_ACCOUNTS` | off | an agent's top-up cash sits on `cash:<agent>` instead of `bank` |
-| c6 remake pay (Ali's shop pick, 2026-10-08) | `MERCHANT_REMAKE_PAY` | off | `orders.merchant.remake`: Driver pays the remade food once (`order:<id>:remake`) — see [shop-load.md](shop-load.md) |
+| c6 remake pay (Ali's shop pick, 2026-10-08) | `MERCHANT_REMAKE_PAY` (`off` to stop) | **on** (Ali, 2026-10-08) | `orders.merchant.remake`: Driver pays the remade food once (`order:<id>:remake`) — see [shop-load.md](shop-load.md) |
 
 `cashStanding` always reports what is owed and how many cash orders are open, even while the block
 and the cap are off.
