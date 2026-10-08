@@ -148,6 +148,21 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(counts.oldestOpenAt).toEqual(new Date(T0));
   });
 
+  it('a safety case opened in support (an incident ticket) opens a row right after SOS; other tickets open nothing', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_late' });
+    await h.emit('support.ticket_opened', { orderId: 'ord_7200' }, { ticketId: 'tk_safe', kind: 'incident', channel: 'phone', slaDueAt: new Date().toISOString() });
+    await h.emit('support.ticket_opened', { orderId: 'ord_9' }, { ticketId: 'tk_cold', kind: 'dispute', channel: 'in_app', slaDueAt: new Date().toISOString() });
+    const rows = await h.list();
+    expect(rows.map((r) => r.kind)).toEqual(['safety_report', 'late']);
+    expect(rows[0]).toMatchObject({ subjectKind: 'ticket', subjectId: 'tk_safe', orderId: 'ord_7200', facts: { channel: 'phone' } });
+    // Closed in support (y1 off): the Today row closes by itself; another ticket's resolution does nothing.
+    await h.emit('support.resolved', { orderId: 'ord_9' }, { ticketId: 'tk_cold' });
+    expect((await h.list()).map((r) => r.kind)).toEqual(['safety_report', 'late']);
+    await h.emit('support.resolved', { orderId: 'ord_7200' }, { ticketId: 'tk_safe' });
+    expect((await h.list()).map((r) => r.kind)).toEqual(['late']);
+  });
+
   it('a booked ride whose request was lost (lane B durable timers) opens a no-driver row', async () => {
     const h = harness();
     await h.emit(

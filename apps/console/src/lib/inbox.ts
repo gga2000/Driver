@@ -14,6 +14,7 @@ import { formatIqd } from './format';
  */
 export const KIND_KEY: Record<InboxKind, MessageKey> = {
   sos: 'console.today.kind_sos',
+  safety_report: 'console.today.kind_safety_report',
   no_driver: 'console.today.kind_no_driver',
   store_silent: 'console.today.kind_store_silent',
   late: 'console.today.kind_late',
@@ -27,6 +28,7 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
 
 export const KIND_TONE: Record<InboxKind, ChipTone> = {
   sos: 'bad',
+  safety_report: 'bad',
   sweep: 'bad',
   pin_alert: 'warn',
   no_driver: 'warn',
@@ -81,6 +83,14 @@ const DOC_KEY: Record<string, MessageKey> = {
   vehicle_registration: 'partner.docs_kind_vehicle_registration',
   insurance: 'partner.docs_kind_insurance',
   photo: 'partner.docs_kind_photo',
+};
+
+const CHANNEL_KEY: Record<string, MessageKey> = {
+  in_app: 'console.sup_channel_in_app',
+  whatsapp: 'console.sup_channel_whatsapp',
+  phone: 'console.sup_channel_phone',
+  system: 'console.sup_channel_system',
+  chat: 'console.sup_channel_chat',
 };
 
 /** The second line of a row: what we know about it, in a few words. */
@@ -143,6 +153,11 @@ export function detailText(
           }),
         );
       break;
+    case 'safety_report': {
+      const c = typeof f['channel'] === 'string' ? CHANNEL_KEY[f['channel']] : undefined;
+      if (c) parts.push(t(c));
+      break;
+    }
     case 'pin_alert':
       parts.push(
         t(f['alert'] === 'cross_use' ? 'console.today.pin_cross_use' : 'console.today.pin_wrong'),
@@ -160,6 +175,8 @@ export function rowHref(row: Pick<InboxRow, 'kind' | 'subjectId' | 'orderId'>): 
   switch (row.kind) {
     case 'sos':
       return `/safety/${encodeURIComponent(row.subjectId)}`;
+    case 'safety_report':
+      return `/safety/report/${encodeURIComponent(row.subjectId)}`;
     case 'sweep':
     case 'pin_alert':
       return '/safety';
