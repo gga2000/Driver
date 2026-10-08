@@ -38,8 +38,14 @@ export interface EventsRepository {
    * batch holds no row lock and no extra connection; concurrent drains (any number of API instances)
    * still never see the same row. `fn` gets no transaction: its writes commit one by one.
    */
-  claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T>;
+  claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>, leaseMs?: number): Promise<T>;
   updateOutbox(id: string, patch: OutboxPatch, tx?: Tx): Promise<void>;
+  /**
+   * Inside a subscriber's transaction, before it checks `deliveredTo`: waits for any other transaction
+   * delivering the same row to the same subscriber, so a row two drains hold (a lease ran out) still
+   * runs each handler once. Postgres: a transaction-scoped advisory lock.
+   */
+  lockDelivery(outboxId: string, subscriber: string, tx: Tx): Promise<void>;
   /** Names of the subscribers that already have this row's effect committed. */
   deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>>;
   markDelivered(outboxId: string, subscriber: string, at: Date, tx?: Tx): Promise<void>;
@@ -179,11 +185,11 @@ export class PrismaEventsRepository implements EventsRepository {
     }));
   }
 
-  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {
+  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>, leaseMs = OUTBOX_LEASE_MS): Promise<T> {
     // FOR NO KEY UPDATE (not FOR UPDATE): a subscriber transaction elsewhere may be inserting a
     // subscriber_deliveries row whose foreign key takes KEY SHARE on an outbox row; NO KEY UPDATE
     // does not wait for it, and still excludes other drains for the instant of the claim.
-    const leaseUntil = new Date(now.getTime() + OUTBOX_LEASE_MS);
+    const leaseUntil = new Date(now.getTime() + leaseMs);
     const records = await this.prisma.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<ClaimRow[]>`
         SELECT "id", "event_id", "aggregate", "aggregate_id", "type", "payload", "status"::text AS "status", "attempts", "idempotency_key", "last_error"
@@ -223,6 +229,10 @@ export class PrismaEventsRepository implements EventsRepository {
   async deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>> {
     const rows = await this.db(tx).subscriberDelivery.findMany({ where: { outboxId, deliveredAt: { not: null } }, select: { subscriber: true } });
     return new Set(rows.map((r) => r.subscriber));
+  }
+
+  async lockDelivery(outboxId: string, subscriber: string, tx: Tx): Promise<void> {
+    await (tx as unknown as Tx).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`outbox:${outboxId}:${subscriber}`}))`;
   }
 
   async markDelivered(outboxId: string, subscriber: string, at: Date, tx?: Tx): Promise<void> {

@@ -6,7 +6,7 @@ import { runAsBackground } from '../../shared/request-context.js';
 import type { EventsRepository } from './events.repository.js';
 import type { OutboxRecord } from './events.types.js';
 import type { SubscriberRegistry, Subscription } from './subscriber.registry.js';
-import { OUTBOX_MAX_ATTEMPTS, backoffMs } from './timestamps.js';
+import { OUTBOX_LEASE_MS, OUTBOX_MAX_ATTEMPTS, backoffMs } from './timestamps.js';
 
 export const OUTBOX_QUEUE = 'outbox';
 export const OUTBOX_TICK_JOB_ID = 'tick';
@@ -26,6 +26,8 @@ export interface OutboxPublisherOptions {
   batchSize?: number;
   tickMs?: number;
   maxAttempts?: number;
+  /** How long a claim holds (`OUTBOX_LEASE_MS`); tests shorten it. */
+  leaseMs?: number;
 }
 
 /**
@@ -48,6 +50,7 @@ export class OutboxPublisher {
   private readonly batchSize: number;
   private readonly tickMs: number;
   private readonly maxAttempts: number;
+  private readonly leaseMs: number;
   private draining: Promise<number> | null = null;
   private rerun = false;
   private timer: NodeJS.Timeout | undefined;
@@ -64,6 +67,7 @@ export class OutboxPublisher {
     this.batchSize = opts.batchSize ?? OUTBOX_BATCH;
     this.tickMs = opts.tickMs ?? OUTBOX_TICK_MS;
     this.maxAttempts = opts.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
+    this.leaseMs = opts.leaseMs ?? OUTBOX_LEASE_MS;
   }
 
   get mode(): 'queue' | 'sync' {
@@ -150,19 +154,36 @@ export class OutboxPublisher {
     }
   }
 
-  /** One batch: claims up to `limit` due rows (a short committed claim, `claimDue`) and delivers them in order. */
+  /**
+   * One batch: claims up to `limit` due rows (a short committed claim, `claimDue`) and delivers them in
+   * order. Once half the lease has passed it starts no new row and hands the rest back (due now), so it
+   * never delivers a row another drain may already have reclaimed.
+   */
   async drainOnce(limit = this.batchSize): Promise<DrainResult> {
     const now = this.clock.now();
+    const started = Date.now();
     // Background work even when a request's commit poked it: the batch gets the job time limits.
-    return runAsBackground('outbox-drain', () => this.repo.claimDue(now, limit, async (rows) => {
-      const result: DrainResult = { claimed: rows.length, published: 0, retried: 0, failed: 0 };
-      for (const row of rows) {
-        // Log lines of this row's subscribers carry `outbox-<rowId>` (the e2e job maps it to its subjects).
-        const outcome = await runAsBackground(`outbox-${row.id}`, () => this.deliverRow(row, now));
-        result[outcome] += 1;
-      }
-      return result;
-    }));
+    return runAsBackground('outbox-drain', () =>
+      this.repo.claimDue(
+        now,
+        limit,
+        async (rows) => {
+          const result: DrainResult = { claimed: rows.length, published: 0, retried: 0, failed: 0 };
+          for (const [i, row] of rows.entries()) {
+            if (Date.now() - started >= this.leaseMs / 2) {
+              for (const rest of rows.slice(i)) await this.repo.updateOutbox(rest.id, { nextAttemptAt: this.clock.now() });
+              this.logger.warn(`outbox batch handed back ${rows.length - i} of ${rows.length} rows: half the lease used`);
+              break;
+            }
+            // Log lines of this row's subscribers carry `outbox-<rowId>` (the e2e job maps it to its subjects).
+            const outcome = await runAsBackground(`outbox-${row.id}`, () => this.deliverRow(row, now));
+            result[outcome] += 1;
+          }
+          return result;
+        },
+        this.leaseMs,
+      ),
+    );
   }
 
   private async deliverRow(row: OutboxRecord, now: Date): Promise<'published' | 'retried' | 'failed'> {
@@ -198,6 +219,8 @@ export class OutboxPublisher {
   /** The handler and its delivery record commit together: a redelivery after success is skipped. */
   private async deliverTo(sub: Subscription, row: OutboxRecord): Promise<void> {
     await this.uow.run(async (tx) => {
+      // A row two drains hold (one's lease ran out) still runs this handler once: the second waits here.
+      await this.repo.lockDelivery(row.id, sub.name, tx);
       if ((await this.repo.deliveredTo(row.id, tx)).has(sub.name)) return;
       await sub.handler({ ...row.event, outboxId: row.id }, { tx, subscriber: sub.name });
       await this.repo.markDelivered(row.id, sub.name, this.clock.now(), tx);

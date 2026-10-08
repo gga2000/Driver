@@ -9,3 +9,5 @@ CREATE INDEX "ledger_events_order_id_occurred_at_idx" ON "public"."ledger_events
 
 -- CreateIndex
 CREATE INDEX "ledger_events_trip_id_occurred_at_idx" ON "public"."ledger_events"("trip_id", "occurred_at");
+
+RESET lock_timeout;

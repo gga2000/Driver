@@ -184,10 +184,10 @@ export class InMemoryEventsRepository implements EventsRepository {
     return filter.limit === undefined ? rows : rows.slice(0, filter.limit);
   }
 
-  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {
+  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>, leaseMs = OUTBOX_LEASE_MS): Promise<T> {
     // Selection and the lease happen synchronously, before the first await: two drains started
     // together can never pick the same row.
-    const leaseUntil = new Date(now.getTime() + OUTBOX_LEASE_MS);
+    const leaseUntil = new Date(now.getTime() + leaseMs);
     const claimed: OutboxRecord[] = [];
     for (const r of this.pendingRows.values()) {
       if (claimed.length >= limit) break;
@@ -217,6 +217,9 @@ export class InMemoryEventsRepository implements EventsRepository {
   }
 
   // ───────────────────────── deliveries ─────────────────────────
+
+  /** One process, one drain at a time (`OutboxPublisher`): nothing to wait for. */
+  async lockDelivery(): Promise<void> {}
 
   async deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>> {
     const names = new Set<string>();

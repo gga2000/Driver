@@ -22,9 +22,9 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
   const repo = new PrismaEventsRepository(prisma);
   const tag = `it_${Date.now().toString(36)}`;
 
-  function instance() {
+  function instance(opts: { leaseMs?: number } = {}) {
     const registry = new SubscriberRegistry();
-    const publisher = new OutboxPublisher(repo, registry, uow, clock, null);
+    const publisher = new OutboxPublisher(repo, registry, uow, clock, null, opts);
     const events = new EventsService(repo, registry, publisher, clock, uow);
     events.useTripOrderLookup(null);
     return { registry, publisher, events };
@@ -110,6 +110,36 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
     expect(row.nextAttemptAt.getTime()).toBeGreaterThan(clock.now().getTime()); // leased: other drains skip it
     release();
     await drain;
+    expect((await prisma.prisma.outbox.findFirstOrThrow({ where: { aggregateId: id } })).status).toBe('published');
+  });
+
+  it('a row two drains hold (the first one\'s lease ran out) still runs each handler once', async () => {
+    const a = instance({ leaseMs: 60_000 });
+    const b = instance({ leaseMs: 60_000 });
+    const id = `${tag}_twice`;
+    let runs = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    const slow = async (e: { aggregateId: string }) => {
+      if (e.aggregateId !== id) return;
+      runs += 1;
+      entered();
+      await gate;
+    };
+    a.registry.subscribe('it:twice', '*', slow);
+    b.registry.subscribe('it:twice', '*', slow);
+    // `a` (sync mode) starts delivering the row after the emit's commit and stops in the subscriber.
+    const first = a.events.emit(undefined, { type: 'order.placed', actorId: 'system:test', occurredAt: clock.now() }, { name: 'order', id });
+    await inside;
+    // a's lease runs out while it is still delivering: b reclaims the row and starts on it too.
+    clock.advance(60_001);
+    const second = b.publisher.drainOnce();
+    await new Promise((r) => setTimeout(r, 300)); // b is now waiting for a's delivery
+    release();
+    await Promise.all([first, second]);
+    expect(runs).toBe(1);
     expect((await prisma.prisma.outbox.findFirstOrThrow({ where: { aggregateId: id } })).status).toBe('published');
   });
 });

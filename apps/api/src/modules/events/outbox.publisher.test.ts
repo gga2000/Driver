@@ -211,6 +211,23 @@ describe('per-subscriber dedupe (subscriber_deliveries)', () => {
     expect((await h.repo.outbox())[0]!.status).toBe('published');
   });
 
+  it('after half the lease a batch starts no new row and hands the rest back, due at once', async () => {
+    const clock = new FakeClock(START);
+    const queue = new InMemoryQueue<OutboxTick>('outbox', () => clock.now());
+    const h = createInMemoryEvents({ clock, queue, contradictions: false, publisher: { leaseMs: 40 } });
+    const seen: string[] = [];
+    h.events.subscribe('test:slow', '*', async (e) => {
+      seen.push(e.orderId ?? '');
+      await new Promise((r) => setTimeout(r, 30)); // real time: the lease is measured on the wall clock
+    });
+    for (const id of ['o1', 'o2', 'o3']) await h.events.emit(undefined, order(id), { name: 'order', id });
+    expect(await h.publisher.drainOnce()).toMatchObject({ claimed: 3, published: 1 });
+    const waiting = (await h.repo.outbox({ status: 'pending' })).map((r) => r.nextAttemptAt.getTime());
+    expect(waiting).toEqual([clock.now().getTime(), clock.now().getTime()]); // handed back, not left leased
+    await h.publisher.drainUntilIdle();
+    expect(seen).toEqual(['o1', 'o2', 'o3']);
+  });
+
   it('rows a dead drain claimed wait out the lease, then come back by themselves', async () => {
     const h = queued();
     let calls = 0;

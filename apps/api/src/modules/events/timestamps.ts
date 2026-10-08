@@ -60,6 +60,8 @@ export const OUTBOX_MAX_ATTEMPTS = 10;
 /**
  * How long a drain owns the rows it claimed. The claim commits at once (no row lock is held while
  * subscribers run); the claimed rows' next attempt moves this far ahead, so other drains skip them,
- * and if this process dies mid-batch they come back by themselves after it.
+ * and if this process dies mid-batch they come back by themselves after it. Above the 2-minute cap on
+ * a subscriber transaction, and a drain starts no new row after half of it (`OutboxPublisher`), so a
+ * row is never delivered while another drain may hold it.
  */
-export const OUTBOX_LEASE_MS = 120_000;
+export const OUTBOX_LEASE_MS = 5 * 60_000;
