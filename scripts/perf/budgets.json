@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73"
     },
     "customer.assets_mb": {
-      "max": 6.65,
-      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08)"
+      "max": 6.8,
+      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08); home gallery's own 4 rice-dish photos, 0.24 MB (concept C): 6.74"
     },
     "partner.code_mb": {
       "max": 6.15,
