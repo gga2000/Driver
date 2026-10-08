@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DriverError, type HouseholdApprovalReason } from '@driver/contracts';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
+import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { NoDatabaseRunner, UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { InMemoryOrgsRepository, ORGS_REPOSITORY, type OrgsRepository } from './orgs.repository.js';
@@ -30,6 +31,8 @@ export class OrgsService {
   private readonly clock: Clock;
   private readonly repo: OrgsRepository;
   private readonly uow: UnitOfWork;
+  /** One household creation at a time per payer (RDB-05). */
+  private readonly householdLock: DistributedKeyedLock;
 
   constructor(
     @Optional() private readonly events?: EventsService,
@@ -40,6 +43,7 @@ export class OrgsService {
     this.clock = clock ?? new SystemClock();
     this.repo = repo ?? new InMemoryOrgsRepository();
     this.uow = uow ?? new UnitOfWork(new NoDatabaseRunner());
+    this.householdLock = new DistributedKeyedLock(this.uow, 'orgs.household_create');
   }
 
   create(input: { type: OrgType; name: string; cityId: string; ownerId: string }): Promise<Org> {
@@ -54,6 +58,22 @@ export class OrgsService {
   /** A household: the creator is its first payer. */
   createHousehold(input: { name: string; cityId: string; payerId: string }): Promise<Org> {
     return this.create({ type: 'household', name: input.name, cityId: input.cityId, ownerId: input.payerId });
+  }
+
+  /**
+   * «بيتنا» created from the app (RDB-05): one household per person. The check and the insert run in
+   * one transaction under a lock on the payer (Postgres advisory lock across instances), so two quick
+   * taps cannot make two households. The same name again by its payer (the second tap) returns the
+   * first household; any other household of the person is `household_exists`.
+   */
+  createOwnHousehold(input: { name: string; cityId: string; payerId: string }): Promise<Org> {
+    return this.householdLock.run(input.payerId, async (tx) => {
+      const mine = await this.repo.list({ types: ['household'], memberId: input.payerId }, tx);
+      const replay = mine.find((o) => o.name === input.name && o.members.some((m) => m.personId === input.payerId && m.role === 'payer'));
+      if (replay) return replay;
+      if (mine.length > 0) throw new DriverError('household_exists');
+      return this.createHousehold(input);
+    });
   }
 
   addMember(orgId: string, personId: string, opts: { role?: OrgMemberRole; spendingLimitIqd?: number | null; actorId?: string } = {}): Promise<Org> {
