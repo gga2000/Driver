@@ -7,6 +7,7 @@ import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import type { DemandLevel } from '@driver/contracts';
 import { BaseMap } from './base/BaseMap';
 import { HeatLayer } from './HeatLayer';
+import { MAP_COLORS_NIGHT } from './base/mapColors';
 import type { CameraValues } from './base/types';
 import { fitCamera, pathD, project, type Camera, type LngLat, type Size } from './geo';
 import { color as palette } from '@driver/design-tokens';
@@ -150,7 +151,7 @@ function RouteLine({ cam, size, points, solid = false }: LayerProps & { points: 
   }, [points]);
   return (
     <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-      <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.95} />
+      <AnimatedPath animatedProps={props} stroke={theme.scheme === 'dark' ? MAP_COLORS_NIGHT.line : palette.neutral[0]} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeOpacity={0.95} />
       {solid ? (
         // The real road (maps program d2): a solid line on a white casing.
         <AnimatedPath animatedProps={props} stroke={theme.colors.accent} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" fill="none" />

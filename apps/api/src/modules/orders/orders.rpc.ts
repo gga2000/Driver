@@ -23,12 +23,24 @@ import {
   type TipResult,
   type RoleKind,
   type MerchantAcceptInput,
+  type CashStanding,
+  type ResolveDisputeInput,
+  type StaffActionResult,
+  type StaffCancelOrderInput,
+  type StaffChargeCourierInput,
+  type StaffCloseOrderInput,
+  type StaffCourierLostInput,
+  type StaffMarkDeliveredInput,
+  type StuckOrder,
+  type StuckOrdersInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CONSOLE_ORDER_RECIPIENT_PURPOSE } from '../identity/index.js';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
+import { OrdersStaffService } from './orders.staff.js';
+import { CASH_LIMITS, type CashLimits } from './cash-limits.js';
 
 /** Live role checks, optionally scoped to an org (merchant staff of *this* restaurant). */
 export interface OrgRoleChecker {
@@ -53,7 +65,50 @@ export class OrdersRpc implements OrdersPort {
     @Inject(ORDERS_ROLE_CHECKER) private readonly roles: OrgRoleChecker,
     @Optional() private readonly tips?: OrderTipsService,
     @Optional() private readonly compliments?: OrderComplimentsService,
+    @Optional() private readonly staff?: OrdersStaffService,
+    @Optional() @Inject(CASH_LIMITS) private readonly cashLimits?: CashLimits,
   ) {}
+
+  // ───────── W3 staff way-out (the router admits the roles; docs/api/staff-ops.md) ─────────
+
+  private staffOrThrow(): OrdersStaffService {
+    if (!this.staff) throw new DriverError('internal');
+    return this.staff;
+  }
+
+  /** W3 (M-3/M-4): the caller's own cash standing. */
+  cashStanding(actor: Actor): Promise<CashStanding> {
+    if (!this.cashLimits) throw new DriverError('internal');
+    return this.cashLimits.standing(actor.personId);
+  }
+
+  opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().cancel(actor, input);
+  }
+
+  opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().markDelivered(actor, input);
+  }
+
+  opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().close(actor, input);
+  }
+
+  opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().courierLost(actor, input);
+  }
+
+  opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().chargeCourier(actor, input);
+  }
+
+  opsResolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().resolveDispute(actor, input);
+  }
+
+  opsStuck(_actor: Actor, input: StuckOrdersInput): Promise<StuckOrder[]> {
+    return this.staffOrThrow().stuck(input);
+  }
 
   /** «شنو عجبك بـ حيدر؟»: the orderer only (checked by the compliments service). */
   complimentOptions(actor: Actor, input: { orderId: string }): Promise<ComplimentOffer> {
