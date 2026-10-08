@@ -8127,5 +8127,13 @@
   "kitchen.partial_left_two": "2 seconds left to answer",
   "kitchen.partial_left_few": "{n} seconds left to answer",
   "push.order_rejected_credit.title": "The restaurant couldn't finish your order",
-  "push.order_rejected_credit.body": "{merchant} cancelled your order after accepting it. We added {amount} IQD to your wallet. Order from another restaurant"
+  "push.order_rejected_credit.body": "{merchant} cancelled your order after accepting it. We added {amount} IQD to your wallet. Order from another restaurant",
+  "push.support_reply.title": "Customer support replied",
+  "push.support_reply.body": "{text}",
+  "push.support_refund.title": "{amount} IQD back to you",
+  "push.support_refund.body": "About your complaint: it went {where}. Sorry for what happened",
+  "push.support_refund.wallet": "to your wallet",
+  "push.support_refund.points": "to your points",
+  "push.support_resolved.title": "Your complaint is closed",
+  "push.support_resolved.body": "{text}"
 }

@@ -20,6 +20,10 @@ notify subscribers, so the table can't drift from what is sent.
 
 Only M-17's rejection names a credit, because that credit is posted with the same event.
 
+## Support (NTF-02)
+
+A customer's complaint answered by phone, WhatsApp or in the app (`support.replied`), refunded (`support.refunded`) or closed (`support.resolved`) reaches him as `support_reply` (the words themselves, one line, 140 characters), `support_refund` («رجعنالك 3,000 دينار … بمحفظتك», money: can't be switched off) and `support_resolved`. Each opens the order (`order/<id>`) or Help when the complaint had no order. Held through quiet hours. A chat case is answered inside the order chat, which pushes on its own.
+
 A second test checks that every notify template has a sender in the API (or a written reason, such as
 `marketing_offer`, whose sender is not built yet).
 

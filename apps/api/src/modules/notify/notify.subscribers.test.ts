@@ -87,8 +87,8 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('support.resolved', { ticketId: 'tk1', resolution: 'الحساب صحيح', driverId: 'drv', jobKey: 't_ride', jobAt: '2026-10-03T15:30:00.000Z' }))).toEqual([
       { template: 'driver_pay_resolved', to: 'drv', params: { text: 'الحساب صحيح', key: 't_ride', at: '2026-10-03T15%3A30%3A00.000Z' } },
     ]);
-    // A customer's ticket (no driver on it) is not this push.
-    expect(await one(event('support.replied', { ticketId: 'tk2', customerId: 'cust', text: 'هلا' }))).toEqual([]);
+    // A customer's ticket (no driver on it) gets the customer's own push (NTF-02), not the driver's.
+    expect(await one(event('support.replied', { ticketId: 'tk2', customerId: 'cust', text: 'هلا' }))).toEqual([{ template: 'support_reply', to: 'cust', params: { text: 'هلا', link: 'help' } }]);
     expect(await one(event('seat.booked', { bookingId: 'bk_1' }))).toEqual([
       { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30 ص', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
     ]);
@@ -446,5 +446,28 @@ describe('BENCH-03: a dish is out — the customer is asked, and told when silen
     expect(missingItemsAr(['بيبسي', 'كباب'], 2)).toBe('بيبسي وكباب');
     expect(missingItemsAr(['بيبسي'], 3)).toBe('3 أصناف من طلبك');
     expect(missingItemsAr([], 1)).toBe('صنف من طلبك');
+  });
+});
+
+describe('NTF-02: support’s answer reaches the customer', () => {
+  const d = () => ({ engine: notifyHarness().engine, repo: notifyHarness().repo, lookups, receiptBaseUrl: 'https://driver.iq/r' });
+  const one = async (e: PublishedEvent) => (await requestsFor(e, d())).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('a reply, a refund and the close, each opening the order (or help without one)', async () => {
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: 'cust', channel: 'phone', text: 'رجعنا نراجع الطلب ويا المطعم' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'support_reply', to: 'cust', params: { text: 'رجعنا نراجع الطلب ويا المطعم', link: 'order/ord_1' } },
+    ]);
+    expect(await one(event('support.refunded', { ticketId: 't1', customerId: 'cust', amountIqd: 3000, method: 'wallet' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'support_refund', to: 'cust', params: { amount: '3,000', where: 'بمحفظتك', link: 'order/ord_1' } },
+    ]);
+    expect(await one(event('support.resolved', { ticketId: 't1', customerId: 'cust', resolution: 'رجعنالك سعر الصحن' }))).toEqual([
+      { template: 'support_resolved', to: 'cust', params: { text: 'رجعنالك سعر الصحن', link: 'help' } },
+    ]);
+  });
+
+  it('nothing for an empty answer, a ticket with no customer, or a driver’s refund', async () => {
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: 'cust', text: '' }))).toEqual([]);
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: null, text: 'هلا' }))).toEqual([]);
+    expect(await one(event('support.refunded', { ticketId: 't1', driverId: 'drv', amountIqd: 3000 }))).toEqual([]);
   });
 });

@@ -196,6 +196,9 @@ export const NotifyTemplateId = z.enum([
   'order_partial_ask',
   'order_partial_no_answer',
   'order_rejected_credit',
+  'support_reply',
+  'support_refund',
+  'support_resolved',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -406,6 +409,34 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
+  },
+  // W2 NTF-02: support's answer on a complaint reaches him (a chat case is answered in the chat itself).
+  // `link` is the screen to open: `order/<id>` for an order's complaint, else `help`.
+  support_reply: {
+    id: 'support_reply',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.support_reply.title', body: 'push.support_reply.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    smsTwinAfterSec: 120,
+    quietHours: 'defer',
+  },
+  support_refund: {
+    id: 'support_refund',
+    category: 'money',
+    app: 'customer',
+    push: { title: 'push.support_refund.title', body: 'push.support_refund.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'defer',
+  },
+  support_resolved: {
+    id: 'support_resolved',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.support_resolved.title', body: 'push.support_resolved.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    quietHours: 'defer',
   },
   courier_arriving: {
     id: 'courier_arriving',

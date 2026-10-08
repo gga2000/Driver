@@ -77,6 +77,8 @@ export const NOTIFY_EVENT_TYPES = [
   'order.complimented',
   'support.replied',
   'support.resolved',
+  // NTF-02: the customer's refund on a complaint.
+  'support.refunded',
   'seat.booked',
   // الرجعة lock-screen pass updates (data-only), customer d-8 follow-up.
   ...RAJAA_PASS_EVENTS,
@@ -619,7 +621,28 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       return [{ ...base, template: 'compliment_received', to: courierId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { name: name ?? 'زبون', words, id: e.orderId ? orderTicketNumber(e.orderId) : '' } }];
     }
     case 'support.replied':
-    case 'support.resolved': {
+    case 'support.resolved':
+    case 'support.refunded': {
+      // NTF-02: a customer's complaint answered, refunded or closed — the words themselves in the push.
+      // A driver's pay query (`driverId`) is answered on the partner side below.
+      if (!str(p['driverId'])) {
+        const customerId = str(p['customerId']);
+        if (!customerId) return [];
+        const link = e.orderId ? `order/${e.orderId}` : 'help';
+        const data: Record<string, string> = e.orderId ? { orderId: e.orderId } : {};
+        const withOrder = e.orderId ? { orderId: e.orderId } : {};
+        if (e.type === 'support.refunded') {
+          const amount = num(p['amountIqd']);
+          if (amount === null || amount <= 0) return [];
+          const where = t(p['method'] === 'points' ? 'push.support_refund.points' : 'push.support_refund.wallet', {}, 'ar-IQ');
+          return [{ ...base, template: 'support_refund', to: customerId, ...withOrder, params: { amount: iqd(amount), where, link }, data }];
+        }
+        const text = str(e.type === 'support.replied' ? p['text'] : p['resolution']);
+        if (!text) return [];
+        const template = e.type === 'support.replied' ? ('support_reply' as const) : ('support_resolved' as const);
+        return [{ ...base, template, to: customerId, ...withOrder, params: { text: clip(text), link }, data }];
+      }
+      if (e.type === 'support.refunded') return [];
       // «عندي اعتراض» answered (S-7 follow-up): only a driver's pay query names `driverId`; the push
       // carries the reply (or the resolution) and opens that job's receipt.
       const driverId = str(p['driverId']);
