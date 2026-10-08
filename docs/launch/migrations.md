@@ -24,4 +24,5 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009120000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (reserved) |
 | 20261010081000 | gift_recipient_vault | lane A | W1 small-fixes PR |
 | 20261010090000 | seat_taxi_hold | taxi thread | x3 PR (reserved) |
+| 20261010100000 | driver_running_balance | lane A | speed fix v2 PR (reserved) |
 | 20261011090000 | store_closed_until | merchant thread | #19 |
