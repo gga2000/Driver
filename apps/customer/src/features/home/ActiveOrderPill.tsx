@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useId, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, FadeIn, ZoomIn, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, ZoomIn, useAnimatedStyle, useDerivedValue, useSharedValue, withDelay, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { LiveStageSwatch } from '@driver/design-tokens';
 import type { Order } from '@driver/contracts';
@@ -245,26 +245,37 @@ function RideBar({ progress, clock, look, mark, isRide }: { progress: number; cl
   );
 }
 
-/** One segment: its track, its fill (part-filled while the order is in it) and its share of the running light. */
+/**
+ * One segment: its track, its fill (part-filled while the order is in it) and its share of the running
+ * light. The fill is always the segment's full length and slides in from the start side, hidden by the
+ * track until it gets there (speed audit m2, 2026-10-07: moving it costs nothing, resizing it lays the
+ * card out again on every frame of the spring).
+ */
 function Segment({ i, p, width, clock, look }: { i: number; p: SharedValue<number>; width: SharedValue<number>; clock: SharedValue<number>; look: LiveStageSwatch }) {
   const theme = useTheme();
   const dir = theme.isRTL ? -1 : 1;
   // The web shares one id space across every SVG on the page.
   const id = `sheen${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
-  const fill = useAnimatedStyle(() => ({ width: `${Math.min(1, Math.max(0, p.value * LIVE_SEGMENTS - i)) * 100}%` }));
+  // How much of this segment is still empty, in px (the bar's width is known after its first layout).
+  const empty = useDerivedValue(() => {
+    const seg = (width.value - SEG_GAP * (LIVE_SEGMENTS - 1)) / LIVE_SEGMENTS;
+    return (1 - Math.min(1, Math.max(0, p.value * LIVE_SEGMENTS - i))) * Math.max(0, seg);
+  });
+  const fill = useAnimatedStyle(() => ({ opacity: width.value > 0 ? 1 : 0, transform: [{ translateX: -dir * empty.value }] }));
   const sheen = useAnimatedStyle(() => {
     const seg = (width.value - SEG_GAP * (LIVE_SEGMENTS - 1)) / LIVE_SEGMENTS;
     const filled = p.value * LIVE_SEGMENTS;
     const whole = Math.floor(filled);
     const lead = whole * (seg + SEG_GAP) + (filled - whole) * seg;
     const run = (clock.value % SHEEN_EVERY) / SHEEN_RUN;
-    // Where the light is along the whole bar, then where that falls inside this segment.
+    // Where the light is along the whole bar, then where that falls inside this segment (the fill it
+    // rides in is pulled back by what is still empty, so the light is pushed on by the same).
     const x = run >= 1 ? -SHEEN_W : -SHEEN_W + run * (lead + SHEEN_W);
-    return { transform: [{ translateX: dir * (x - i * (seg + SEG_GAP)) }] };
+    return { transform: [{ translateX: dir * (x - i * (seg + SEG_GAP) + empty.value) }] };
   });
   return (
     <View style={{ flex: 1, height: SEG_H, borderRadius: 3, backgroundColor: withAlpha(look.sub, 0.3), overflow: 'hidden' }}>
-      <Animated.View style={[{ height: SEG_H, borderRadius: 3, backgroundColor: look.accent, overflow: 'hidden' }, fill]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 3, backgroundColor: look.accent, overflow: 'hidden' }, fill]}>
         <Animated.View style={[{ position: 'absolute', top: 0, start: 0, width: SHEEN_W, height: SEG_H }, sheen]}>
           <Svg width={SHEEN_W} height={SEG_H}>
             <Defs>
