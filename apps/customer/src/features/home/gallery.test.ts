@@ -71,15 +71,27 @@ describe('hourFood', () => {
     expect(ids(more)).toEqual(['5', '6']);
   });
 
-  it('a dish two kitchens share, and the usual card’s kitchen, wait at the back', () => {
+  it('a dish two kitchens share shows once; the usual card’s kitchen waits at the back', () => {
     const { slides, more } = hourFood({
       pots: [pot('kareem', 'bamia')],
-      picks: [pick('kareem', 'qeema-k', { name: 'تمن وقيمة' }), pick('musafir', 'qeema-m', { name: 'تمن وقيمة' }), pick('khalid', 'kebab'), pick('sham', 'falafel'), pick('zahraa', 'kunafa')],
+      picks: [pick('kareem', 'qeema-k', { name: 'تمن وقيمة' }), pick('musafir', 'qeema-m', { name: 'تمن وقيمة' }), pick('khalid', 'kebab'), pick('sham', 'falafel'), pick('zahraa', 'kunafa'), pick('kareem', 'fasoulia')],
       now: NOON,
       later: 'kareem',
     });
     expect(ids(slides)).toEqual(['qeema-m', 'kebab', 'falafel', 'kunafa']);
-    expect(ids(more)).toEqual(['bamia', 'qeema-k']);
+    expect(ids(more)).toEqual(['bamia', 'fasoulia']);
+  });
+
+  it('each picture once, and a dish with no picture stays on its menu', () => {
+    const pics: Record<string, string | number | null> = { wrap: 7, arabi: 7, manakish: null, kebab: 3, own: 'https://x/own.jpg', tikka: 9 };
+    const { slides, more } = hourFood({
+      pots: [],
+      picks: [pick('a', 'wrap'), pick('a', 'arabi'), pick('b', 'manakish'), pick('c', 'kebab'), pick('d', 'own'), pick('e', 'tikka')],
+      now: NOON,
+      pictureOf: (d) => pics[d.id] ?? null,
+    });
+    expect(ids(slides)).toEqual(['wrap', 'kebab', 'own', 'tikka']);
+    expect(more).toEqual([]);
   });
 
   it('only dishes that start with an hour word, short vowels aside', () => {

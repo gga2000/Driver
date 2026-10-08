@@ -72,7 +72,7 @@ function Tile({ h, photo, basket, testID }: { h: HourDish; photo: DishPhoto | nu
         <View ref={pic} collapsable={false} style={{ height: PHOTO_H, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
           {uri ? (
             <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
-          ) : photo ? (
+          ) : photo?.local != null ? (
             <Image source={photo.local} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
           ) : null}
         </View>

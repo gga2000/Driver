@@ -11,8 +11,8 @@ import { potUntilAt } from './habits';
 export const GALLERY_MAX = 4;
 /** Dishes in the two-column grid under the gallery. */
 export const MORE_MAX = 4;
-/** Dishes asked of `catalog.picks` for both. */
-export const HOUR_PICKS = GALLERY_MAX + MORE_MAX;
+/** Dishes asked of `catalog.picks` for both: the server's most, since a repeated dish or picture is left out. */
+export const HOUR_PICKS = 12;
 
 export interface HourDish {
   dish: CatalogSearchDish;
@@ -50,10 +50,12 @@ function potDish(p: TodayPot): CatalogSearchDish {
 }
 
 /**
- * Pots first (the day's real cooking), then the hour's dishes, each dish once. The gallery takes one
- * dish per kitchen before any kitchen's second, so swiping shows the town, not one menu; the grid takes
- * the next ones in pairs (an odd one out would leave a hole in the two columns). Two kitchens' same
- * dish («تمن وقيمة» twice) and the `later` kitchen (the one the usual card above already offers) go
+ * Pots first (the day's real cooking), then the hour's dishes. Home shows each dish once and each
+ * picture once: a second kitchen's «تمن وقيمة», or a dish whose stand-in photo is already showing,
+ * stays on its menu; so does a dish with no picture at all (`pictureOf` null), since a drawing that
+ * big looks cheap. The gallery takes one dish per kitchen before any kitchen's second, so swiping
+ * shows the town, not one menu; the grid takes the next ones in pairs (an odd one out would leave a
+ * hole in the two columns). The `later` kitchen (the one the usual card above already offers) goes
  * to the back, used only when nothing else is left.
  */
 export function hourFood(input: {
@@ -63,6 +65,8 @@ export function hourFood(input: {
   later?: string | null;
   /** The hour's dish words: a pick must start with one, as `catalog.picks` promises. */
   words?: readonly string[];
+  /** The picture a dish would show (its photo's address, or a stand-in's asset), null for none. */
+  pictureOf?: (d: CatalogSearchDish) => string | number | null;
 }): { slides: HourDish[]; more: HourDish[] } {
   const byId = new Map((input.picks ?? []).map((d) => [d.id, d]));
   const all: HourDish[] = [];
@@ -82,19 +86,19 @@ export function hourFood(input: {
     all.push({ dish: d, pot: null, line: d.description });
   }
 
+  const front = all.filter((h) => h.dish.restaurantId !== input.later);
+  const back = all.filter((h) => h.dish.restaurantId === input.later);
   const names = new Set<string>();
-  const front: HourDish[] = [];
-  const back: HourDish[] = [];
-  for (const h of all) {
-    const name = h.dish.name.trim();
-    if (names.has(name) || h.dish.restaurantId === input.later) {
-      back.push(h);
-      continue;
-    }
+  const pictures = new Set<string | number>();
+  const ordered: HourDish[] = [];
+  for (const h of [...front, ...back]) {
+    const name = plain(h.dish.name);
+    const picture = input.pictureOf ? input.pictureOf(h.dish) : h.dish.id;
+    if (picture === null || names.has(name) || pictures.has(picture)) continue;
     names.add(name);
-    front.push(h);
+    pictures.add(picture);
+    ordered.push(h);
   }
-  const ordered = [...front, ...back];
 
   const slides: HourDish[] = [];
   const kitchens = new Set<string>();

@@ -9,24 +9,31 @@ import { apiPhoto } from '@/lib/photo';
 import type { BandBasket } from './DaypartBand';
 import { dishPhoto } from './dish-photos';
 import { DishGallery, galleryHeight, type DishPhoto } from './DishGallery';
-import { hourFood } from './gallery';
+import { hourFood, type HourDish } from './gallery';
 import { usePots } from './habit-queries';
 import { MoreDishes } from './MoreDishes';
 import type { RestaurantSummary } from './restaurant-summary';
+
+/** The hour's food (`hourFood`) from the town's pots and the hour's picks, while either is still loading. */
+export function useHourFood({ picks, picksPending, words, later, now }: { picks: readonly CatalogSearchDish[] | undefined; picksPending: boolean; words: readonly string[]; later: string | null; now: Date }) {
+  const pots = usePots();
+  // Each dish's picture: its kitchen's photo, else the library's photo of that dish; none, and it stays on its menu.
+  const food = useMemo(() => hourFood({ pots: pots.data, picks, now, later, words, pictureOf: (d) => apiPhoto(d.photoUrl) ?? dishPhoto(d.name) }), [pots.data, picks, now, later, words]);
+  return { food, pending: picksPending || pots.isPending };
+}
 
 /**
  * The hour's food on home (Ali 2026-10-08, concept C with the big dish as a rotating gallery): the
  * hour's title («للغدا اليوم», «للعشا»…), the gallery of the town's pots and the hour's dishes, and
  * «أكلات ثانية» in two columns under it. It replaces «العزيزية اليوم» and the hour's dish row, so a
  * kitchen's pot and its dishes are one place, not two. Every picture is a real photo: the kitchen's
- * own, else one from the dish library. Nothing open and nothing cooking: nothing drawn.
+ * own, else the dish library's photo of that dish; a dish with neither, or a picture already showing,
+ * stays on its menu. Nothing open and nothing cooking: nothing drawn.
  */
 export function HourFood({
   title,
-  words,
-  later,
-  picks,
-  picksPending,
+  food,
+  pending,
   kitchens,
   basket,
   now,
@@ -34,12 +41,9 @@ export function HourFood({
   width,
 }: {
   title: string;
-  /** The hour's dish words the picks were asked with. */
-  words: readonly string[];
-  /** The kitchen the card above already offers: its dishes come last. */
-  later: string | null;
-  picks: readonly CatalogSearchDish[] | undefined;
-  picksPending: boolean;
+  food: { slides: HourDish[]; more: HourDish[] };
+  /** The pots or the picks are still on their way. */
+  pending: boolean;
   kitchens: readonly RestaurantSummary[];
   basket: BandBasket;
   now: Date;
@@ -49,12 +53,10 @@ export function HourFood({
 }) {
   const theme = useTheme();
   const t = useT();
-  const pots = usePots();
   const { height: screenH } = useWindowDimensions();
   const [top, setTop] = useState<number | null>(null);
   const [galleryY, setGalleryY] = useState<number | null>(null);
   const [inView, setInView] = useState(false);
-  const food = useMemo(() => hourFood({ pots: pots.data, picks, now, later, words }), [pots.data, picks, now, later, words]);
   const photos = useMemo<DishPhoto[]>(() => [...food.slides, ...food.more].map((h) => ({ uri: apiPhoto(h.dish.photoUrl), local: dishPhoto(h.dish.name) })), [food]);
   const minutesOf = (id: string) => {
     const k = kitchens.find((r) => r.id === id);
@@ -72,7 +74,7 @@ export function HourFood({
     [at, screenH, height],
   );
 
-  const loading = food.slides.length === 0 && (picksPending || pots.isPending);
+  const loading = food.slides.length === 0 && pending;
   if (!loading && food.slides.length === 0) return null;
   return (
     <View testID="home-hour-food" style={{ gap: theme.space[6] }} onLayout={(e) => setTop(e.nativeEvent.layout.y)}>

@@ -14,10 +14,10 @@ import type { BandBasket } from './DaypartBand';
 import { settleSlide, tourDwellMs, tourPlan, type HourDish } from './gallery';
 import { potUntilAt } from './habits';
 
-/** A dish's picture: the kitchen's own photo when it has one, else a real photo from the dish library. */
+/** A dish's picture: the kitchen's own photo when it has one, else a real photo from the dish library (null: none). */
 export interface DishPhoto {
   uri: string | null;
-  local: number;
+  local: number | null;
 }
 
 /** Space between slides while one slides in over the other. */
@@ -277,7 +277,7 @@ function Slide({
         <View ref={pic} collapsable={false} style={StyleSheet.absoluteFill}>
           {uri ? (
             <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
-          ) : photo ? (
+          ) : photo?.local != null ? (
             <Image source={photo.local} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
           ) : null}
         </View>
