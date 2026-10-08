@@ -11,7 +11,7 @@ import { SlotCard } from './SlotCard';
  * "اطلب نفس الطلب" on home (audit C-15): the last meal that reached the door, by restaurant and
  * dishes, one tap to put it back in the cart at today's prices (the reorder sheet explains changes).
  */
-export function ReorderCard({ row, now, photo, busy, onReorder }: { row: OrderHistoryRow; now: Date; photo: number | null; busy: boolean; onReorder: () => void }) {
+export function ReorderCard({ row, now, photo, busy, onReorder }: { row: OrderHistoryRow; now: Date; photo: number | string | null; busy: boolean; onReorder: () => void }) {
   const t = useT();
   const day = dayKey(row.order.placedAt, now);
   const when = day.kind === 'today' ? `${dayLabel(t, day)} ${formatClock(row.order.placedAt)}` : dayLabel(t, day);

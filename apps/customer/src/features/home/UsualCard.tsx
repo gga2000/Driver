@@ -17,7 +17,7 @@ function useReason(u: Usual): string {
  * thinks so. One tap opens the express sheet (today's prices, swaps, the server total); the second
  * places it. Never placed by itself.
  */
-export function UsualCard({ usual, photo, busy, onOrder }: { usual: Usual; photo: number | null; busy: boolean; onOrder: () => void }) {
+export function UsualCard({ usual, photo, busy, onOrder }: { usual: Usual; photo: number | string | null; busy: boolean; onOrder: () => void }) {
   const t = useT();
   const reason = useReason(usual);
   const summary = itemsSummary(usual.row.items, 2);
@@ -44,7 +44,7 @@ export function UsualCard({ usual, photo, busy, onOrder }: { usual: Usual; photo
  * Friday usual, with the slot the kitchen can take (after Friday prayer when the usual time falls in
  * it, and it says so). «احجزه» opens the express sheet set for that time.
  */
-export function FridayCard({ ahead, photo, busy, onBook }: { ahead: FridayAhead; photo: number | null; busy: boolean; onBook: () => void }) {
+export function FridayCard({ ahead, photo, busy, onBook }: { ahead: FridayAhead; photo: number | string | null; busy: boolean; onBook: () => void }) {
   const t = useT();
   const { usual, day, slot } = ahead;
   const reason = useReason(usual);

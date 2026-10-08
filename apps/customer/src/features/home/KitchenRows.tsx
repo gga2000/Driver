@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { longRideForHotFood } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
@@ -12,6 +12,8 @@ import { LongRide } from '@/features/food/RestaurantRow';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
+import type { FoodPhotoSource } from '@/features/food-landing/photos';
 import { kitchenPhotos } from './dish-photos';
 import { HOME_KITCHENS, sharedFee } from './kitchens';
 import type { RestaurantSummary } from './restaurant-summary';
@@ -156,11 +158,7 @@ function AllKitchens({ count, faces, testID }: { count: string; faces: readonly 
                 backgroundColor: theme.colors.surfaceSunken,
               }}
             >
-              {typeof f === 'string' ? (
-                <PhotoImage uri={f} style={{ width: '100%', height: '100%' }} />
-              ) : (
-                <Image source={f} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
-              )}
+              <FoodPhoto photo={f} style={{ width: '100%', height: '100%' }} />
             </View>
           ))}
         </View>
@@ -172,7 +170,7 @@ function AllKitchens({ count, faces, testID }: { count: string; faces: readonly 
   );
 }
 
-function KitchenRow({ r, motif, photo, ownFee, testID }: { r: RestaurantSummary; motif: Motif; photo: number | null; ownFee: boolean; testID: string }) {
+function KitchenRow({ r, motif, photo, ownFee, testID }: { r: RestaurantSummary; motif: Motif; photo: FoodPhotoSource | null; ownFee: boolean; testID: string }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -209,7 +207,7 @@ function KitchenRow({ r, motif, photo, ownFee, testID }: { r: RestaurantSummary;
         {uri ? (
           <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
         ) : photo !== null ? (
-          <Image source={photo} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+          <FoodPhoto photo={photo} style={{ width: '100%', height: '100%' }} />
         ) : (
           <FoodArt motif={motif} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} photoUrl={null} />
         )}

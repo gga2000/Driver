@@ -16,6 +16,8 @@
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
+//   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
+//     own morning hour; on=0 puts the real hours back.
 //   - POST /demo/season?kind=ramadan|eid|off  a Ramadan or Eid period from today (J6 home card, checkout iftar slot).
 // It also seeds and drives the other M3 customer flows (each section below documents its hooks):
 //   - POST /demo/track?personId=…&scenario=…, /demo/track/advance   live order screen (/order/[id])
@@ -185,6 +187,34 @@ app.use('/demo/quiet', async (req, res) => {
     for (const q of await controls.quietDays()) if (q.active) await controls.clearQuietDays(demoOps, { quietId: q.id });
     if (url.searchParams.get('on') === '1') await controls.setQuietDays(demoOps, { cityId: null, startsOn: today, endsOn: today, label_ar: 'يوم هادئ (تجربة)' });
     json(res, 200, await controls.season({ cityId: 'aziziyah' }));
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// The street asleep (food landing A2): every kitchen closes half an hour ago and opens again at its own
+// usual hour, so /food shows the night look with real opening times; on=0 puts each kitchen's hours back.
+const realHours = new Map();
+app.use('/demo/night', async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://x');
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/night?on=1|0' });
+    const on = url.searchParams.get('on') !== '0';
+    const local = new Date(Date.now() + 3 * 3_600_000);
+    const nowMin = local.getUTCHours() * 60 + local.getUTCMinutes();
+    const hhmm = (m) => { const v = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`; };
+    let i = 0;
+    for (const s of seeded) {
+      const front = await catalog.storefront(s.orgId);
+      if (!front) continue;
+      if (!realHours.has(s.orgId)) realHours.set(s.orgId, front.hours);
+      // Seeded kitchens mostly have no hours on file: give those a usual morning one, 7:00 to 11:00.
+      const opens = realHours.get(s.orgId)[0]?.start ?? ['07:00', '08:00', '09:00', '10:00', '11:00'][i % 5];
+      const hours = on ? [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start: opens, end: hhmm(nowMin - 30) })) : realHours.get(s.orgId);
+      i++;
+      await catalog.saveStorefront({ ...front, hours });
+    }
+    json(res, 200, { night: on, kitchens: i });
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });
   }

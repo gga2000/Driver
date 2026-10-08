@@ -1,8 +1,10 @@
-import { ActivityIndicator, Image, Pressable, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { OrderHistoryRow } from '@driver/contracts';
-import { CornerFill, Icon, stageOf, Text, usePressScale, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, Icon, LocalPhoto, PhotoImage, stageOf, Text, usePressScale, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { FoodArt, kitchenLook, motifForDish } from '@/features/food/FoodArt';
+import { apiPhoto } from '@/lib/photo';
 
 /** The dish's picture on the card. */
 const PIC = 72;
@@ -43,8 +45,11 @@ export function SlotCard({
   /** A second, quieter line under the footer (Friday prayer). */
   note?: string | null;
   noteTestID?: string;
-  /** The dish's photo (`orderPhoto`), chosen once on home so the gallery below can leave it out. */
-  photo: number | null;
+  /**
+   * The dish's photo (`orderPhoto`), chosen once on home so the gallery below can leave it out: one that
+   * ships in the app, or a path on the API (the food photos the server hosts).
+   */
+  photo: number | string | null;
   action: string;
   actionIcon: IconName;
   actionTestID?: string;
@@ -56,6 +61,10 @@ export function SlotCard({
   const card = theme.services.food.card;
   const light = card.top ?? card.bg;
   const sink = usePressScale(0.975);
+  // A server photo that fails to load gives way to the dish's drawing, never an empty box.
+  const [failed, setFailed] = useState<string | null>(null);
+  const served = typeof photo === 'string' ? photo : null;
+  const uri = served !== null && served !== failed ? apiPhoto(served) : null;
   return (
     <Animated.View style={sink.style}>
       <Pressable
@@ -72,8 +81,10 @@ export function SlotCard({
         {card.top ? <CornerFill base={card.bg} light={card.top} /> : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
           <View style={{ width: PIC, height: PIC, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: light }}>
-            {photo !== null ? (
-              <Image source={photo} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+            {uri ? (
+              <PhotoImage uri={uri} onError={() => setFailed(served)} style={{ width: '100%', height: '100%' }} />
+            ) : typeof photo === 'number' ? (
+              <LocalPhoto source={photo} style={{ width: '100%', height: '100%' }} />
             ) : (
               <FoodArt motif={motifForDish(row.items[0]?.name ?? '')} look={kitchenLook(row.order.merchantOrgId ?? row.order.id)} stage={stageOf(row.order.merchantOrgId ?? row.order.id, theme.decor.stages)} photoUrl={null} />
             )}

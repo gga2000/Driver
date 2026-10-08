@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
 import { AnimatedPressable, PhotoImage, Text, usePressScale, useTheme } from '@driver/ui';
 import { SectionHeader } from '@/components/SectionHeader';
 import { measure } from '@/features/food/FlyToCart';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { Counter, KEY, type BandBasket } from './DaypartBand';
@@ -73,7 +74,7 @@ function Tile({ h, photo, basket, testID }: { h: HourDish; photo: DishPhoto | nu
           {uri ? (
             <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
           ) : photo?.local != null ? (
-            <Image source={photo.local} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+            <FoodPhoto photo={photo.local} style={{ width: '100%', height: '100%' }} />
           ) : null}
         </View>
         <Text variant="label" weight={700} numberOfLines={1} style={{ marginTop: theme.space[2] }}>
