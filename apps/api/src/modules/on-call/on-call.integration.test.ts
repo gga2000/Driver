@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { PrismaConsoleWatchRepository } from './console-watch.repository.js';
 import { PrismaOnCallRepository } from './on-call.repository.js';
 
 const url = process.env['DATABASE_URL'];
@@ -8,6 +9,7 @@ const CITY = `oncall_it_${Date.now()}`;
 describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
   const prisma = new PrismaService(url);
   const repo = new PrismaOnCallRepository(prisma);
+  const watch = new PrismaConsoleWatchRepository(prisma);
   const alerts: string[] = [];
 
   afterAll(async () => {
@@ -15,6 +17,10 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
       .$executeRaw`DELETE FROM "public"."on_call_shifts" WHERE "city_id" = ${CITY}`;
     await prisma.prisma
       .$executeRaw`DELETE FROM "public"."alert_ladders" WHERE "alert_id" = ANY(${alerts})`;
+    await prisma.prisma
+      .$executeRaw`DELETE FROM "public"."console_presence" WHERE "city_id" = ${CITY}`;
+    await prisma.prisma
+      .$executeRaw`DELETE FROM "public"."console_watch_alerts" WHERE "city_id" = ${CITY}`;
     await prisma.onModuleDestroy();
   });
 
@@ -89,7 +95,7 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
     const id = `sos_it_${Date.now()}`;
     alerts.push(id);
     const t = new Date('2026-10-09T21:00:00Z');
-    const brief = { raiserId: 'p_rider', role: 'customer', subjectKind: 'order', orderId: 'ord_x' };
+    const brief = { raiserId: 'p_rider', role: 'customer', subjectKind: 'order', orderId: 'ord_x', subjectLabel: 'طلب أكل #123' };
     expect(
       await repo.openLadder({
         alertId: id,
@@ -156,5 +162,38 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
       await repo.advance(id, { rings: 1, onCallStep: 1 }, { ...patch, rings: 2, onCallStep: 1 }),
     ).toBe(false);
     expect(await repo.close(id, new Date(t.getTime() + 90_000))).toBe(true);
+  });
+
+  it('keeps screen heartbeats and opens one watch alert per kind at a time', async () => {
+    const t = new Date('2026-10-10T03:00:00Z');
+    const s = (n: number) => new Date(t.getTime() + n * 1000);
+    await watch.touch({ cityId: CITY, tabId: 'tab_a_123', personId: 'p_haider', live: 'live' }, s(0));
+    await watch.touch({ cityId: CITY, tabId: 'tab_a_123', personId: 'p_haider', live: 'live' }, s(30));
+    await watch.touch({ cityId: CITY, tabId: 'tab_b_123', personId: 'p_sara', live: 'fallback' }, s(30));
+    await watch.touch({ cityId: CITY, tabId: 'tab_b_123', personId: 'p_sara', live: 'fallback' }, s(60));
+    await watch.touch({ cityId: CITY, tabId: 'tab_a_123', personId: 'p_haider', live: 'fallback' }, s(60));
+    const tabs = await watch.presentSince(CITY, s(0));
+    expect(
+      tabs
+        .map((x) => [x.tabId, x.live, x.liveSince.getTime() - t.getTime(), x.lastSeenAt.getTime() - t.getTime()])
+        .sort(),
+    ).toEqual([
+      ['tab_a_123', 'fallback', 60_000, 60_000],
+      ['tab_b_123', 'fallback', 30_000, 60_000],
+    ]);
+    expect(await watch.lastSeen(CITY)).toEqual(s(60));
+
+    const a = await watch.open(CITY, 'live_down', s(120));
+    expect(a).toMatchObject({ kind: 'live_down', paged: 0, closedAt: null });
+    expect(await watch.open(CITY, 'live_down', s(125))).toBeNull();
+    await watch.setPaged(a!.id, 2);
+    expect((await watch.openFor(CITY)).map((x) => [x.kind, x.paged])).toEqual([['live_down', 2]]);
+    expect(await watch.close(CITY, 'live_down', s(150))).toBe(true);
+    expect(await watch.close(CITY, 'live_down', s(155))).toBe(false);
+    expect(await watch.openFor(CITY)).toEqual([]);
+    expect(await watch.open(CITY, 'live_down', s(200))).not.toBeNull();
+
+    expect(await watch.dropBefore(s(61))).toBeGreaterThanOrEqual(2);
+    expect(await watch.lastSeen(CITY)).toBeNull();
   });
 });

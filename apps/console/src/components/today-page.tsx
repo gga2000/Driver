@@ -16,7 +16,7 @@ import {
 import { t } from '@driver/i18n';
 import { useId, useState } from 'react';
 import { formatClock } from '@/lib/format';
-import { detailText, KIND_KEY, KIND_TONE, OUTCOME_KEY, OUTCOMES, rowHref } from '@/lib/inbox';
+import { detailText, KIND_KEY, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
 import { CITY_ID, queryRetry, useRightNow } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
 import { errorText } from '@/lib/network';
@@ -329,7 +329,7 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Chip tone={done ? 'done' : KIND_TONE[row.kind]} dot={!done}>
+          <Chip tone={done ? 'done' : rowTone(row)} dot={!done}>
             {t(KIND_KEY[row.kind])}
           </Chip>
           <span className="num text-dense text-muted">
