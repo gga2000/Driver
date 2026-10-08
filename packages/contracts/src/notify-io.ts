@@ -152,6 +152,7 @@ export const NotifyTemplateId = z.enum([
   'khat_sweep_reminder',
   'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
+  'sos_desk_ring',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -174,6 +175,10 @@ export const NotifyTemplateId = z.enum([
   'booked_ride_confirmed',
   'booked_ride_unconfirmed',
   'booked_ride_released',
+  'booked_ride_searching',
+  'ride_driver_cancelled',
+  'ride_driver_cancelled_credit',
+  'ride_no_driver',
   'partner_booked_offer',
   'partner_booked_favourite',
   'partner_booked_reminder',
@@ -541,6 +546,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     smsTwinAfterSec: 30,
     quietHours: 'send',
   },
+  // SOS ladder (Console E1, CON-02): nobody took it yet, so the desk is rung again every 30 s. Push
+  // only and never an SMS twin (the on-call step at 60 s carries WhatsApp and SMS).
+  sos_desk_ring: {
+    id: 'sos_desk_ring',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.sos_ring.title', body: 'push.sos_ring.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
   sos_emergency_contact: {
     id: 'sos_emergency_contact',
@@ -738,6 +753,42 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.booked_unconfirmed.title', body: 'push.booked_unconfirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
     primary: ['push'],
     quietHours: 'defer',
+  },
+  // NTF-05: T−30, the search for the driver of a ride booked for later starts now (his own ride, soon: any hour).
+  booked_ride_searching: {
+    id: 'booked_ride_searching',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_searching.title', body: 'push.booked_searching.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-04: the driver who took the ride cancelled; the ride is back in the search. Any hour: he may be at the curb.
+  ride_driver_cancelled: {
+    id: 'ride_driver_cancelled',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // M-15: the same, after he reached the pickup — the orderer also hears the credit in his wallet.
+  ride_driver_cancelled_credit: {
+    id: 'ride_driver_cancelled_credit',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body_credit', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-04: no driver took it by the free-cancel time: wait, cancel free, or book for later.
+  ride_no_driver: {
+    id: 'ride_no_driver',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_no_driver.title', body: 'push.ride_no_driver.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
   },
   booked_ride_released: {
     id: 'booked_ride_released',

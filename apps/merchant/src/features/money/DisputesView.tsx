@@ -21,6 +21,8 @@ const KIND_ICON: Record<MerchantDispute['kind'], MIconName> = {
   wrong_item: 'swap',
   not_delivered: 'map-pin',
   ride_fare: 'car',
+  driver_behaviour: 'chat',
+  unsafe_driving: 'car',
   other: 'chat',
 };
 

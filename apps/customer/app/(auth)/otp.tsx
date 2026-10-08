@@ -33,12 +33,12 @@ export default function OtpEntry() {
   const t = useT();
   const locale = useLocale();
   const api = useApi();
-  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string }>();
+  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string }>();
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
   const [resendUntil, setResendUntil] = useState(() => Date.now() + Number(params.resendAfter ?? 30) * 1000);
   // SMS first; after 30 s "ما وصلك؟ دزلي على واتساب" sends the next code over WhatsApp (audit C-18).
-  const [channel, setChannel] = useState<OtpChannel>('sms');
+  const [channel, setChannel] = useState<OtpChannel>(params.channel === 'whatsapp' ? 'whatsapp' : 'sms');
   const [resending, setResending] = useState<OtpChannel | null>(null);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
@@ -134,24 +134,28 @@ export default function OtpEntry() {
           </Text>
         ) : (
           <View style={{ alignSelf: 'stretch', gap: theme.space[2] }} testID="otp-not-received">
-            <Button
-              testID="otp-whatsapp"
-              variant="secondary"
-              icon="chat"
-              fullWidth
-              label={t('onboarding.otp_whatsapp_offer')}
-              loading={resending === 'whatsapp'}
-              disabled={resending !== null}
-              onPress={() => void onResend('whatsapp')}
-            />
+            {/* A code that already came on WhatsApp (the SMS budget was spent) offers SMS only. */}
+            {channel === 'whatsapp' ? null : (
+              <Button
+                testID="otp-whatsapp"
+                variant="secondary"
+                icon="chat"
+                fullWidth
+                label={t('onboarding.otp_whatsapp_offer')}
+                loading={resending === 'whatsapp'}
+                disabled={resending !== null}
+                onPress={() => void onResend('whatsapp')}
+              />
+            )}
             <Button
               testID="otp-resend"
-              variant="ghost"
+              variant={channel === 'whatsapp' ? 'secondary' : 'ghost'}
               label={t('onboarding.otp_resend_sms')}
               loading={resending === 'sms'}
               disabled={resending !== null}
               onPress={() => void onResend('sms')}
-              style={{ alignSelf: 'center' }}
+              style={channel === 'whatsapp' ? undefined : { alignSelf: 'center' }}
+              fullWidth={channel === 'whatsapp'}
             />
           </View>
         )}

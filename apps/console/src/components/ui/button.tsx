@@ -1,6 +1,8 @@
 'use client';
 
+import { t } from '@driver/i18n';
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useConsoleNetwork } from '@/lib/network';
 import { Kbd } from './kbd';
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -47,6 +49,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
   /** A shortcut hint shown inside the button ("E", "⌘↵"). */
   kbd?: string;
+  /**
+   * Money, dispatch, refund, cash and switch actions: disabled while offline or the API can't be
+   * reached, saying it won't be sent (never queued for later).
+   */
+  needsNet?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -59,17 +66,23 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     className,
     children,
     disabled,
+    needsNet = false,
+    title,
     type = 'button',
     ...rest
   },
   ref,
 ) {
+  const net = useConsoleNetwork();
+  const cut = needsNet && net.state !== 'online';
   return (
     <button
       ref={ref}
       type={type}
-      disabled={disabled || loading}
+      disabled={disabled || loading || cut}
       aria-busy={loading || undefined}
+      title={cut ? t('console.offline_not_sent') : title}
+      data-net={cut ? 'blocked' : undefined}
       className={buttonCls(variant, size, className)}
       {...rest}
     >

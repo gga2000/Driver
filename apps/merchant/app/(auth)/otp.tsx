@@ -67,7 +67,7 @@ export default function OtpEntry() {
 
   const onResend = async () => {
     try {
-      const res = await resend.mutateAsync({ phone, purpose: 'login', device: await getDeviceInfo() });
+      const res = await resend.mutateAsync({ phone, purpose: 'login', channel: 'sms', device: await getDeviceInfo() });
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
       if (res.channel) setChannel(res.channel);
       setCode('');

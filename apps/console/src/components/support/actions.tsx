@@ -137,6 +137,7 @@ function RefundDialog({
           </Button>
           <Button
             variant="primary"
+            needsNet
             loading={refund.isPending}
             disabled={!valid}
             onClick={() =>
@@ -342,6 +343,7 @@ function FaultDialog({
           </Button>
           <Button
             variant="primary"
+            needsNet
             disabled={!ok}
             loading={fault.isPending}
             onClick={() =>

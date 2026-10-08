@@ -66,6 +66,23 @@ describe.skipIf(!url)('durable timers on Postgres (needs DATABASE_URL)', () => {
     expect((await sweeper.sweep()).fired).toBe(0);
   });
 
+  it("settles a finished ride's pending timers by job-id prefix, in the caller's transaction, and no one else's", async () => {
+    const clock = new FakeClock(new Date());
+    const queue = q('settle');
+    const due = new Date(clock.now().getTime() + 3_600_000);
+    for (const jobId of ['t1.booked_open.1.0', 't1.broadcast_start.1.0', 't10.broadcast_start.1.0']) await store.schedule({ queue, name: 'x', jobId, data: {}, dueAt: due });
+    await expect(
+      uow.run(async (tx) => {
+        await store.settlePending(queue, 't1.', clock.now(), tx);
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+    expect((await rows(queue)).every((r) => r.status === 'pending')).toBe(true);
+    expect(await uow.run((tx) => store.settlePending(queue, 't1.', clock.now(), tx))).toBe(2);
+    const byJob = Object.fromEntries((await rows(queue)).map((r) => [r.jobId, r.status]));
+    expect(byJob).toEqual({ 't1.booked_open.1.0': 'fired', 't1.broadcast_start.1.0': 'fired', 't10.broadcast_start.1.0': 'pending' });
+  });
+
   it('fires each of 200 timers exactly once with two workers sweeping at the same time', async () => {
     const clock = new FakeClock(new Date());
     const queue = q('race');

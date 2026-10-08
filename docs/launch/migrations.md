@@ -15,7 +15,10 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 |---|---|---|---|
 | 20261008130000 | vault_accessor_kind | lane A | #20 (merged) |
 | 20261008130100 | quote_expiry | lane A | #20 (merged) |
-| 20261009090000 | scheduled_timers | lane B | #13 |
-| 20261009091000 | quotes_expires_at_index | lane B | #13 |
-| 20261009092000 | participants_person_id_index | lane B | #13 |
+| 20261009090000 | scheduled_timers | lane B | #13 (merged) |
+| 20261009091000 | quotes_expires_at_index | lane B | #13 (merged) |
+| 20261009092000 | participants_person_id_index | lane B | #13 (merged) |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
+| 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
+| 20261010092000 | on_call | lane E | #14 |
+| 20261010100000 | inbox | lane E | #14 |
