@@ -132,28 +132,29 @@ jobs:
       - name: Build API and console
         run: pnpm turbo run build --filter=@driver/api --filter=@driver/console
 
-      - name: Smoke the built API (health.ping → db ok, redis ok)
+      - name: Smoke the built API (health.live answers, health.ready → db ok, redis ok)
         run: |
           PORT=3999 node apps/api/dist/main.js > api.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          body=''
           for _ in $(seq 1 40); do
-            if body=$(curl -fsS http://localhost:3999/trpc/health.ping 2>/dev/null); then break; fi
-            body=''
+            if curl -fsS -o /dev/null http://localhost:3999/trpc/health.live 2>/dev/null; then break; fi
             sleep 0.5
           done
-          if [ -z "$body" ]; then
-            echo "::error title=API smoke::driver-api never answered /trpc/health.ping"
+          if ! curl -fsS http://localhost:3999/trpc/health.live | jq .; then
+            echo "::error title=API smoke::driver-api never answered /trpc/health.live with 200"
             cat api.log
             exit 1
           fi
+          body=$(curl -fsS http://localhost:3999/trpc/health.ready)
           echo "$body" | jq .
-          if ! echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null; then
-            echo "::error title=API smoke::health.ping must report db: ok and redis: ok"
+          if ! echo "$body" | jq -e '.result.data.json | .ok == true and .db == "ok" and .redis == "ok"' > /dev/null; then
+            echo "::error title=API smoke::health.ready must report db: ok and redis: ok"
             cat api.log
             exit 1
           fi
+          # The installed apps still probe health.ping; it must keep answering.
+          curl -fsS -o /dev/null http://localhost:3999/trpc/health.ping
 
       - name: Simulate (pnpm sim --orders 2000 --seed 1 --ci)
         # Fails the job on a non-zero exit (any invariant violation). `--ci` is accepted but ignored until

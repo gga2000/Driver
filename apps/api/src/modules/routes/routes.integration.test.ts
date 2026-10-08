@@ -7,6 +7,9 @@ import {
   PostRequestInput,
 } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
+import { LEDGER_SUBSCRIBED_EVENTS } from '../ledger/index.js';
+import { PrismaLedgerRepository, type LedgerEventDelegate } from '../ledger/prisma.repository.js';
+import { ledgerHarness } from '../ledger/test-harness.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { DemandService } from './demand.service.js';
@@ -334,5 +337,77 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(back?.seenDriverIds).toEqual([ids.driver, ids.d2]);
     // Once picked, a driver who didn't offer can't read it.
     await expect(requests.seen(ids.d2, r.id)).rejects.toMatchObject({ code: 'request_not_found' });
+  });
+  it('request-board money posts on Postgres under request:<id> groups, with no trip/order/departure refs (RDB-01/02)', async () => {
+    // The ledger on this database, fed the events the board emits the way the bus delivers them. Before
+    // the payloads carried `requestId`, these postings failed on the trip / order / departure foreign keys.
+    const l = ledgerHarness({ repo: new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate) });
+    const deliver = async (from: number) => {
+      for (const e of events.events.slice(from)) {
+        if (!LEDGER_SUBSCRIBED_EVENTS.includes(e.type)) continue;
+        await l.bus.publish(e.type, JSON.parse(JSON.stringify({ actorId: e.actorId, occurredAt: e.occurredAt, ...e.payload })) as Record<string, unknown>);
+      }
+    };
+    const lines = async (requestId: string) =>
+      (await prisma.prisma.ledgerEvent.findMany({ where: { postingGroupId: { startsWith: `request:${requestId}:` } }, orderBy: { recordedAt: 'asc' } })).map((e) => ({
+        group: e.postingGroupId,
+        type: e.type,
+        amount: e.amountIqd,
+        from: e.fromAccount,
+        to: e.toAccount,
+        refs: [e.tripId, e.orderId, e.departureId],
+      }));
+    const trip = async (rider: string, minutes: number, price: number) => {
+      const r = await requests.post(rider, PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: at(minutes), seats: 1, travellingAs: 'aila' }));
+      const o = (await requests.offer(ids.driver, r.id, price)).offers.at(-1)!;
+      wallet.set(rider, 100_000);
+      await requests.pick(rider, r.id, o.id);
+      return r;
+    };
+
+    // Completed: 30,000 (deposit 6,000 from the wallet, 24,000 cash), 8 % take.
+    let from = events.events.length;
+    const done = await trip(ids.r1, 400, 30_000);
+    await requests.complete(ids.driver, done.id);
+    await deliver(from);
+    const posted = await lines(done.id);
+    expect(posted.every((x) => x.refs.every((v) => v === null))).toBe(true);
+    expect([...new Set(posted.map((x) => x.group))].sort()).toEqual([`request:${done.id}:money`, `request:${done.id}:points`]);
+    const money = posted.filter((x) => x.group === `request:${done.id}:money`);
+    expect(money).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'fare', amount: 30_000, from: `customer:${ids.r1}`, to: `driver:${ids.driver}` }),
+      expect.objectContaining({ type: 'commission_accrued', amount: 2_400 }),
+      expect.objectContaining({ type: 'cash_collected', amount: 24_000, from: `cash:${ids.driver}`, to: `customer:${ids.r1}` }),
+    ]));
+
+    // Late cancel (inside the last hour): the deposit to the driver.
+    from = events.events.length;
+    const late = await trip(ids.r2, 30, 20_000);
+    await requests.cancel(ids.r2, late.id);
+    await deliver(from);
+    expect(await lines(late.id)).toEqual([
+      { group: `request:${late.id}:cancel`, type: 'cancellation_fee', amount: 5_000, from: `customer:${ids.r2}`, to: `driver:${ids.driver}`, refs: [null, null, null] },
+    ]);
+
+    // Rider no-show after the wait at the pickup: the deposit to the driver.
+    from = events.events.length;
+    const absent = await trip(ids.r1, 20, 25_000);
+    await requests.arrived(ids.driver, absent.id, { lat: 32.9105, lng: 45.0611 });
+    clock.advance((20 + INTERCITY_RULES.requestBoard.riderNoShowWaitMin + 1) * 60_000);
+    await requests.riderNoShow(ids.driver, absent.id);
+    await deliver(from);
+    expect(await lines(absent.id)).toEqual([
+      { group: `request:${absent.id}:cancel`, type: 'cancellation_fee', amount: 5_000, from: `customer:${ids.r1}`, to: `driver:${ids.driver}`, refs: [null, null, null] },
+    ]);
+
+    // Driver no-show: 2× the deposit from the driver to the rider.
+    from = events.events.length;
+    const stood = await trip(ids.r2, 10, 40_000);
+    clock.advance((10 + INTERCITY_RULES.requestBoard.driverNoShowAfterMin + 1) * 60_000);
+    await requests.driverNoShow(ids.r2, stood.id);
+    await deliver(from);
+    expect(await lines(stood.id)).toEqual([
+      { group: `request:${stood.id}:driver_no_show`, type: 'departure_cancel_fee', amount: 16_000, from: `driver:${ids.driver}`, to: `customer:${ids.r2}`, refs: [null, null, null] },
+    ]);
   });
 });

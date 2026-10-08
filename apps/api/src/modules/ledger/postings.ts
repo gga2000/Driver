@@ -45,6 +45,14 @@ export interface PostingRefs {
   departureId?: string;
 }
 
+/**
+ * RDB-01/02: request-board money (`requestId`) is keyed `request:<id>:<what>` and writes no
+ * foreign-key refs (a request is not a trips/orders/departures row); everything else keeps its own.
+ */
+function keyed(requestId: string | undefined, what: string, own: string, refs: PostingRefs): { id: string; refs: PostingRefs } {
+  return requestId !== undefined ? { id: `request:${requestId}:${what}`, refs: {} } : { id: own, refs };
+}
+
 export interface PostingGroup {
   /** Stable id derived from the business fact; replays of the same fact are no-ops. */
   id: string;
@@ -294,7 +302,8 @@ export interface RidePostings {
 /** Ride/parcel completed: fare to the driver, platform take by class (tuktuk 10 % min 100, car 12 %, parcel 15 %…). */
 export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): RidePostings {
   const r = RideMoneyPayload.parse(input);
-  const b = new GroupBuilder(`trip:${r.tripId}:money`, 'money', r.occurredAt, { tripId: r.tripId, orderId: r.orderId });
+  const k = keyed(r.requestId, 'money', `trip:${r.tripId}:money`, { tripId: r.tripId, orderId: r.orderId });
+  const b = new GroupBuilder(k.id, 'money', r.occurredAt, k.refs);
   const payer = payerAccount(r);
   const driver = Accounts.driver(r.driverId);
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
@@ -387,7 +396,8 @@ export function postCancellation(input: z.input<typeof OrderCancelledPayload>): 
   const c = OrderCancelledPayload.parse(input);
   if (c.feeIqd === 0) return null;
   const payer = payerAccount(c);
-  const b = new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId });
+  const k = keyed(c.requestId, 'cancel', `order:${c.orderId}:cancel`, { orderId: c.orderId, tripId: c.tripId });
+  const b = new GroupBuilder(k.id, 'money', c.occurredAt, k.refs);
   for (const to of c.beneficiaries) b.add('cancellation_fee', to.amountIqd, payer, to.kind === 'merchant' ? Accounts.merchantCash(to.id) : Accounts.driver(to.id), to.kind);
   return b.control(payer, -c.feeIqd).build();
 }
@@ -425,7 +435,8 @@ export function postMerchantLateReject(input: z.input<typeof OrderRejectedPayloa
 export function postDepartureCancelled(input: DepartureCancelledPayload): PostingGroup | null {
   const d = DepartureCancelledPayload.parse(input);
   if (d.cancelledBy !== 'driver' || d.feeIqd === 0 || d.riderIds.length === 0) return null;
-  const b = new GroupBuilder(`departure:${d.departureId}:cancel`, 'money', d.occurredAt, { departureId: d.departureId, routeId: d.routeId });
+  const k = keyed(d.requestId, 'driver_no_show', `departure:${d.departureId}:cancel`, { departureId: d.departureId, routeId: d.routeId });
+  const b = new GroupBuilder(k.id, 'money', d.occurredAt, k.refs);
   const shares = allocate(d.feeIqd, d.riderIds.map(() => 1));
   d.riderIds.forEach((r, i) => b.add('departure_cancel_fee', shares[i] ?? 0, Accounts.driver(d.driverId), Accounts.customer(r)));
   return b.control(Accounts.driver(d.driverId), -d.feeIqd).build();

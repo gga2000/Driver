@@ -7,15 +7,7 @@ import { Text, useMotionPresets, useTheme, withAlpha } from '@driver/ui';
 import { useDoorFactText } from '@/features/doors/DoorTile';
 import type { DoorFact } from '@/features/doors/doors';
 import { useT } from '@/lib/i18n';
-
-/* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles assets through require() */
-const PHOTOS: Readonly<Record<FoodDoor, number>> = {
-  meal: require('../../../assets/food-landing/door-meal.webp') as number,
-  cold: require('../../../assets/food-landing/door-cold.webp') as number,
-  sweet: require('../../../assets/food-landing/door-sweet.webp') as number,
-  cafe: require('../../../assets/food-landing/door-cafe.webp') as number,
-};
-/* eslint-enable @typescript-eslint/no-require-imports */
+import { DOOR_PHOTOS as PHOTOS } from './photos';
 
 const GAP = 10;
 

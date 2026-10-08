@@ -123,6 +123,25 @@ describe('seat state machine: held (10 min) → booked → checked_in → comple
     expect(await code(h.hold('r1', dep.id, ['back_left']))).toBe('booking_state_conflict');
   });
 
+  it('SEC-07: wallet prepay and the deposit also leave room for what the rest of the platform holds', async () => {
+    const h = routesHarness();
+    const a = await h.announce();
+    h.wallet.set('r1', 7_000);
+    // An open food order on the same wallet holds 3,000 of it.
+    h.wallet.elsewhere.set('r1', 3_000);
+    const seat = await h.hold('r1', a.id, ['back_left']);
+    expect(await code(h.departures.book('r1', seat.id, 'wallet'))).toBe('wallet_insufficient');
+    expect(await h.departures.walletAvailable('r1')).toBe(4_000);
+    h.wallet.elsewhere.set('r1', 2_000);
+    expect((await h.departures.book('r1', seat.id, 'wallet')).prepaid).toBe(true);
+  });
+
+  it('SEC-07: a nested routes write may only spend wallets the outer write declared', async () => {
+    const h = routesHarness();
+    await expect(h.writer.run(() => h.writer.run(async () => 1, { walletLocks: ['r9'] }), { walletLocks: ['r1'] })).rejects.toThrow(/undeclared wallets \(r9\)/);
+    expect(await h.writer.run(() => h.writer.run(async () => 2, { walletLocks: ['r1'] }), { walletLocks: ['r1'] })).toBe(2);
+  });
+
   it('wallet prepay needs the balance not already held by other prepaid seats', async () => {
     const h = routesHarness();
     const a = await h.announce();
