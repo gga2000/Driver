@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import type { Usual } from '@driver/contracts';
 import { formatClock } from '@driver/i18n';
-import { Button, Card, Icon, IconButton, Text, useTheme } from '@driver/ui';
+import { Button, Card, Icon, Text, useTheme } from '@driver/ui';
 import { OrderArt } from '@/features/orders/OrderRow';
 import { itemsSummary } from '@/features/orders/reorder';
 import { useT } from '@/lib/i18n';
@@ -25,7 +25,7 @@ export function UsualCard({ usual, busy, onOrder }: { usual: Usual; busy: boolea
   const reason = useReason(usual);
   const summary = itemsSummary(usual.row.items, 2);
   return (
-    <Card testID="home-usual" padding={3} onPress={onOrder} accessibilityLabel={t('usual.a11y', { title: t('usual.title'), merchant: usual.row.merchantName ?? '', items: summary, reason })}>
+    <Card testID="home-usual" padding={3} onPress={busy ? undefined : onOrder} accessibilityLabel={t('usual.a11y', { title: t('usual.title'), merchant: usual.row.merchantName ?? '', items: summary, reason })}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <OrderArt row={usual.row} size={52} />
         <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
@@ -42,7 +42,7 @@ export function UsualCard({ usual, busy, onOrder }: { usual: Usual; busy: boolea
             {reason}
           </Text>
         </View>
-        <IconButton testID="home-usual-go" icon="refresh" variant="tonal" accessibilityLabel={t('usual.order')} onPress={onOrder} disabled={busy} />
+        <GoMark busy={busy} testID="home-usual-go" />
       </View>
     </Card>
   );
@@ -94,5 +94,18 @@ export function FridayCard({ ahead, busy, onBook }: { ahead: FridayAhead; busy: 
         <Button testID="home-friday-book" fullWidth label={t('friday.book')} loading={busy} onPress={onBook} />
       </View>
     </Card>
+  );
+}
+
+/**
+ * The round «again» mark at the end of the usual and reorder cards. Only a picture: the whole card is
+ * the one button (a button inside a button can't be pressed on its own, and the web refuses it).
+ */
+export function GoMark({ busy, testID }: { busy: boolean; testID?: string }) {
+  const theme = useTheme();
+  return (
+    <View testID={testID} aria-hidden accessible={false} style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceSunken, opacity: busy ? 0.5 : 1 }}>
+      <Icon name="refresh" size={20} color="text" />
+    </View>
   );
 }

@@ -1,11 +1,12 @@
 import { View } from 'react-native';
 import type { OrderHistoryRow } from '@driver/contracts';
-import { Card, formatClock, IconButton, Text, useTheme } from '@driver/ui';
+import { Card, formatClock, Text, useTheme } from '@driver/ui';
 import { dayKey } from '@/features/orders/history';
 import { dayLabel, OrderArt } from '@/features/orders/OrderRow';
 import { itemsSummary } from '@/features/orders/reorder';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { GoMark } from './UsualCard';
 
 /**
  * "اطلب نفس الطلب" on home (audit C-15): the last meal that reached the door, by restaurant and
@@ -18,7 +19,7 @@ export function ReorderCard({ row, now, busy, onReorder }: { row: OrderHistoryRo
   const when = day.kind === 'today' ? `${dayLabel(t, day)} ${formatClock(row.order.placedAt)}` : dayLabel(t, day);
   const summary = itemsSummary(row.items, 2);
   return (
-    <Card testID="home-reorder" padding={3} onPress={onReorder} accessibilityLabel={`${t('home.reorder')}: ${row.merchantName ?? ''}، ${summary}`}>
+    <Card testID="home-reorder" padding={3} onPress={busy ? undefined : onReorder} accessibilityLabel={`${t('home.reorder')}: ${row.merchantName ?? ''}، ${summary}`}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <OrderArt row={row} size={52} />
         <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
@@ -35,7 +36,7 @@ export function ReorderCard({ row, now, busy, onReorder }: { row: OrderHistoryRo
             {t('home.reorder_meta', { when, amount: amountParam(row.order.totalIqd) })}
           </Text>
         </View>
-        <IconButton testID="home-reorder-go" icon="refresh" variant="tonal" accessibilityLabel={t('orders.reorder')} onPress={onReorder} disabled={busy} />
+        <GoMark busy={busy} testID="home-reorder-go" />
       </View>
     </Card>
   );
