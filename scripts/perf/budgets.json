@@ -8,7 +8,7 @@
     },
     "customer.assets_mb": {
       "max": 6.8,
-      "why": "door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C); dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
+      "why": "door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.15,

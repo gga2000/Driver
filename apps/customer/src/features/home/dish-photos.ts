@@ -35,7 +35,10 @@ const SAME_DISH: Partial<Record<Motif, Motif>> = {
   dolma: 'dolma',
   tea: 'tea',
   juice: 'juice',
-  kunafa: 'sweet',
+  kunafa: 'kunafa',
+  kubba: 'kubba',
+  laban: 'laban',
+  cocktail: 'cocktail',
   baklava: 'baklava',
   kleicha: 'kleicha',
   zalabia: 'zalabia',
@@ -75,10 +78,10 @@ const KITCHEN_KIND: Partial<Record<Motif, Motif>> = {
   sweet: 'sweet',
   icecream: 'icecream',
   cake: 'cake',
+  bananamilk: 'bananamilk',
   pomegranate: 'pomegranate',
   lemonade: 'lemonade',
   iced: 'iced',
-  cocktail: 'cocktail',
 };
 
 /**
