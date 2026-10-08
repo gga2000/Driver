@@ -36,3 +36,9 @@ Each API machine now keeps both in its own memory for up to **30 seconds**
 | `AUTH_CACHE_TTL_SEC` | `30` | Seconds an entry is kept. `0` turns the cache off; anything above 30 is capped at 30. |
 
 Without `REDIS_URL` (one machine, dev, tests) drops stay on that machine, which is all there is.
+
+## If something looks wrong
+
+If a signed-out phone or a removed role still works on any machine (for example, Redis was down
+when the change happened), set `AUTH_CACHE_TTL_SEC=0` on the API and restart: every call reads the
+database again, as before x4. The worst case without the switch is 30 seconds.
