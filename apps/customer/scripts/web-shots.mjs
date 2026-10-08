@@ -15,6 +15,8 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
+//   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
+//            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
 //            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
@@ -131,7 +133,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -265,6 +267,7 @@ try {
   if (wants('food')) await foodFlow(khalid);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('agree')) await agreeShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
@@ -1275,6 +1278,55 @@ async function whileFailing(proc, flow) {
 }
 
 /** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
+/**
+ * Step 4 agreed trip prices (docs/api/agreed-trip-prices.md): on a car from Baghdad the rider asks the
+ * driver about his own spot on the road (the pin screen), the driver prices it and a door drop near
+ * the garage at home (demo hook), the rider agrees, and the hold shows both lines, locked.
+ */
+async function agreeShots(personId) {
+  if (!personId) throw new Error('agree: no person');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
+  await firstCar.waitFor({ timeout: 15_000 });
+  await firstCar.click();
+  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  const departureId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() ?? '');
+  await byTestId('pickup-tile-way').click();
+  await byTestId('agree-pin_pickup-ask').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await settle(500);
+  await shot('agree-seat-ask');
+  await byTestId('agree-pin_pickup-ask').click();
+  await byTestId('rajaa-agree').waitFor({ timeout: 15_000 });
+  await settle(1500);
+  await byTestId('rajaa-agree-note').fill('جنب سيطرة المدائن، صوب الكازية');
+  await shot('agree-map-pin');
+  await byTestId('rajaa-agree-send').click();
+  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  await byTestId('agree-pin_pickup-waiting').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: the ask is not waiting'));
+  await byTestId('agree-pin_pickup-waiting').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('agree-waiting');
+  await demoPost(`/demo/rajaa/agreements?personId=${encodeURIComponent(personId)}&departureId=${encodeURIComponent(departureId)}`);
+  await byTestId('agree-pin_pickup-priced').waitFor({ timeout: 20_000 }).catch(() => errors.push('agree: the driver\'s price did not show'));
+  await byTestId('agree-pin_pickup-priced').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await settle(500);
+  await shot('agree-priced');
+  await byTestId('agree-pin_pickup-priced-accept').click();
+  await byTestId('agree-pin_pickup-agreed').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: pin not agreed'));
+  await byTestId('agree-door_drop-priced-accept').click();
+  await byTestId('agree-door_drop-agreed').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: door not agreed'));
+  await byTestId('rajaa-quote').evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  await settle(500);
+  await shot('agree-agreed');
+  await fullShot('agree-agreed-full');
+  await byTestId('rajaa-hold').click();
+  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
+  await byTestId('rajaa-agreed-note').waitFor({ timeout: 10_000 }).catch(() => errors.push('agree: no locked note on the hold'));
+  await page.waitForTimeout(1500);
+  await shot('agree-hold');
+  await fullShot('agree-hold-full');
+}
+
 async function rajaaShots(personId) {
   await page.goto(`${origin}/rajaa`, LOADED);
   await byTestId('rajaa-board').waitFor({ timeout: 15_000 });

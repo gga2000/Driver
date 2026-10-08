@@ -11,6 +11,7 @@ import {
   EmptyState,
   Icon,
   PriceLine,
+  QueryBoundary,
   Rule,
   SeatMap,
   SegmentedControl,
@@ -24,8 +25,10 @@ import {
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carArtFor } from '@/features/rajaa/car-art';
-import { seatsList } from '@/features/rajaa/labels';
+import { cityName, seatsList } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
+import { agreementPhase } from '@/features/rajaa/agree';
+import { AgreementSlot, FreeLine } from '@/features/rajaa/AgreeParts';
 import {
   bestSeat,
   blockedReason,
@@ -41,16 +44,17 @@ import {
   rowOptions,
   toSeatMap,
 } from '@/features/rajaa/logic';
-import { Section } from '@/features/rajaa/Option';
+import { OptionCard, Section } from '@/features/rajaa/Option';
 import { BagSwitch, BlockedLine, PickupTiles, WayPointRow, type PickupKind, type PickupTile } from '@/features/rajaa/SeatParts';
-import { garageName, useBoard, useDriverCards, useHoldSeat, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useBoard, useDriverCards, useHoldSeat, useMyAgreements, useNetwork } from '@/features/rajaa/queries';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 
 type Mode = 'seats' | 'row' | 'car';
-type Pickup = { kind: 'garage' } | { kind: 'meeting_point'; meetingPointId: string } | { kind: 'door' };
+/** `way` = on the road with nothing picked yet; `pin` = his own spot at the price the driver named (step 4). */
+type Pickup = { kind: 'garage' } | { kind: 'meeting_point'; meetingPointId: string } | { kind: 'door' } | { kind: 'way' } | { kind: 'pin'; agreementId: string };
 
 /**
  * Seat booking (spec §2, decisions §9): travelling-as first (it decides which seats are open to
@@ -77,6 +81,8 @@ export default function BookSeat() {
   const [doorNote, setDoorNote] = useState('');
   const [largeBags, setLargeBags] = useState(false);
   const [blocked, setBlocked] = useState<'adjacency' | 'family_only' | null>(null);
+  /** Step 4: the agreed door drop he books with; null = the garage. */
+  const [drop, setDrop] = useState<string | null>(null);
 
   const network = useNetwork();
   const board = useBoard({ corridorId, direction, travellingAs });
@@ -84,6 +90,42 @@ export default function BookSeat() {
   const dep = board.data?.departures.find((d) => d.id === id) ?? null;
   const driverCard = useDriverCards(dep ? [dep.id] : []).data?.get(dep?.id ?? '');
   const garage = network.data?.garages.find((g) => g.id === dep?.garageId) ?? null;
+  const agreements = useMyAgreements(dep?.id);
+  const pinPhase = agreementPhase(agreements.data, 'pin_pickup');
+  const doorPhase = agreementPhase(agreements.data, 'door_drop');
+  const pinDeal = pinPhase.phase === 'agreed' ? pinPhase.agreement : null;
+  const doorDeal = doorPhase.phase === 'agreed' ? doorPhase.agreement : null;
+  const farGarages = (network.data?.garages ?? []).filter((g) => g.cityId === dep?.toCityId);
+  const farGarage = farGarages.find((g) => !g.draft) ?? farGarages[0] ?? null;
+
+  // A price that is no longer agreed (he asked again, it was replaced) leaves the choice it was. Only
+  // once the list says so: right after «اتفقنا» the list may still show the price waiting.
+  // A price he just agreed (or one agreed earlier for this car) becomes his choice once, when it appears.
+  const seenPin = useRef<string | null>(null);
+  const seenDoor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pinDeal || seenPin.current === pinDeal.id) return;
+    seenPin.current = pinDeal.id;
+    setPickup({ kind: 'pin', agreementId: pinDeal.id });
+  }, [pinDeal]);
+  useEffect(() => {
+    if (!doorDeal || seenDoor.current === doorDeal.id) return;
+    seenDoor.current = doorDeal.id;
+    setDrop(doorDeal.id);
+  }, [doorDeal]);
+  const stillAgreed = (id: string, deal: { id: string } | null) => {
+    const known = agreements.data?.find((a) => a.id === id);
+    if (!known) return true;
+    return (known.state === 'accepted' || known.state === 'used') && (!deal || deal.id === id);
+  };
+  const pinLost = pickup.kind === 'pin' && !stillAgreed(pickup.agreementId, pinDeal);
+  const dropLost = !!drop && !stillAgreed(drop, doorDeal);
+  useEffect(() => {
+    if (pinLost) setPickup({ kind: 'way' });
+  }, [pinLost]);
+  useEffect(() => {
+    if (dropLost) setDrop(null);
+  }, [dropLost]);
 
   // A refresh (someone else booked) or a new declaration can close seats the rider had picked.
   useEffect(() => {
@@ -133,8 +175,20 @@ export default function BookSeat() {
   const doorFee = homePin && garage ? doorFeeEstimate(homePin, garage) : null;
   const doorOk = !!dep && dep.doorPickupsLeft > 0 && doorFee !== null;
   const mp = pickup.kind === 'meeting_point' ? dep?.meetingPoints.find((m) => m.id === pickup.meetingPointId) : undefined;
-  const pickupFee = pickup.kind === 'meeting_point' ? (mp?.feeIqd ?? 0) : pickup.kind === 'door' ? (doorFee ?? 0) : 0;
-  const quote = dep ? quoteSelection(seatIds, dep, pickupFee) : null;
+  const pickupFee =
+    pickup.kind === 'meeting_point' ? (mp?.feeIqd ?? 0) : pickup.kind === 'door' ? (doorFee ?? 0) : pickup.kind === 'pin' ? (pinDeal?.amountIqd ?? 0) : 0;
+  const dropFee = drop && doorDeal ? (doorDeal.amountIqd ?? 0) : 0;
+  const quote = dep ? quoteSelection(seatIds, dep, pickupFee, dropFee) : null;
+  const toCity = dep ? cityName(t, dep.toCityId) : '';
+  /** Step 4: the pin screen opens on the road (the first meeting point) or at the far garage. */
+  const askFor = (kind: 'pin_pickup' | 'door_drop') => {
+    if (!dep) return;
+    const at = kind === 'pin_pickup' ? (wayPoints[0] ?? garage) : farGarage;
+    router.push({
+      pathname: '/rajaa/agree',
+      params: { departureId: dep.id, kind, lat: String(at?.lat ?? ''), lng: String(at?.lng ?? ''), city: toCity },
+    });
+  };
 
   const onReject = (seat: SeatInfo['id'], reason: SelectRejection) => {
     if (!dep) return;
@@ -152,13 +206,16 @@ export default function BookSeat() {
         ? { kind: 'door', lat: homePin.lat, lng: homePin.lng, ...(doorNote.trim() ? { note: doorNote.trim() } : {}) }
         : pickup.kind === 'meeting_point'
           ? { kind: 'meeting_point', meetingPointId: pickup.meetingPointId }
-          : { kind: 'garage' };
+          : pickup.kind === 'pin'
+            ? { kind: 'pin', agreementId: pickup.agreementId }
+            : { kind: 'garage' };
     hold.mutate(
       {
         departureId: dep.id,
         selection: mode === 'car' ? { kind: 'car' } : mode === 'row' && row ? { kind: 'row', row } : { kind: 'seats', seatIds },
         travellingAs,
         pickup: choice,
+        ...(drop ? { dropoff: { agreementId: drop } } : {}),
         largeBags,
       },
       {
@@ -195,7 +252,7 @@ export default function BookSeat() {
   }
 
   const max = travellingAs ? maxSeatsFor(travellingAs, dep.vehicle.layout) : 1;
-  const ready = !!travellingAs && seatIds.length > 0;
+  const ready = !!travellingAs && seatIds.length > 0 && pickup.kind !== 'way';
   // The driver's own car under the seats when it has a picture (Ali, 2026-10-07); the drawn map otherwise.
   const art = carArtFor(dep.vehicle);
   const mapSeats = toSeatMap(dep.seats) as SeatInfo[];
@@ -205,8 +262,16 @@ export default function BookSeat() {
     { kind: 'garage', detail: t('rajaa.pickup_free'), disabled: false },
     {
       kind: 'way',
-      detail: wayFee === null ? t('rajaa.pickup_way_none') : wayPoints.some((m) => m.feeIqd !== wayFee) ? t('rajaa.pickup_from', { amount: amountParam(wayFee) }) : iqd(wayFee, { locale, sign: true }),
-      disabled: wayFee === null,
+      // Step 4: with no meeting point on this road he can still ask the driver about his own spot.
+      detail:
+        wayFee === null
+          ? pinDeal
+            ? iqd(pinDeal.amountIqd ?? 0, { locale, sign: true })
+            : t('rajaa.pickup_way_ask')
+          : wayPoints.some((m) => m.feeIqd !== wayFee)
+            ? t('rajaa.pickup_from', { amount: amountParam(wayFee) })
+            : iqd(wayFee, { locale, sign: true }),
+      disabled: false,
     },
     {
       kind: 'door',
@@ -214,7 +279,7 @@ export default function BookSeat() {
       disabled: !doorOk,
     },
   ];
-  const pickupKind: PickupKind = pickup.kind === 'meeting_point' ? 'way' : pickup.kind;
+  const pickupKind: PickupKind = pickup.kind === 'meeting_point' || pickup.kind === 'pin' ? 'way' : pickup.kind;
   const onSeats =
     travellingAs && mode === 'seats'
       ? (s: SeatInfo['id'][]) => {
@@ -244,7 +309,13 @@ export default function BookSeat() {
             onPress={submit}
           />
           <Text variant="caption" color="textMuted" align="center">
-            {ready ? t('rajaa.hold_cta_hint') : !travellingAs ? t('rajaa.pick_traveller_first') : t('rajaa.pick_seat_first')}
+            {ready
+              ? t('rajaa.hold_cta_hint')
+              : !travellingAs
+                ? t('rajaa.pick_traveller_first')
+                : seatIds.length === 0
+                  ? t('rajaa.pick_seat_first')
+                  : t('rajaa.pick_way_first')}
           </Text>
         </View>
       }
@@ -349,13 +420,15 @@ export default function BookSeat() {
             if (k === 'garage') setPickup({ kind: 'garage' });
             else if (k === 'door') setPickup({ kind: 'door' });
             else if (wayPoints[0]) setPickup({ kind: 'meeting_point', meetingPointId: mp?.id ?? wayPoints[0].id });
+            else if (pinDeal) setPickup({ kind: 'pin', agreementId: pinDeal.id });
+            else setPickup({ kind: 'way' });
           }}
         />
         {pickup.kind === 'garage' ? (
           <Text variant="footnote" color="textMuted">
             {t('rajaa.pickup_garage_hint', { garage: garageName(network.data, dep.garageId) })}
           </Text>
-        ) : pickup.kind === 'meeting_point' ? (
+        ) : pickup.kind === 'meeting_point' || pickup.kind === 'way' || pickup.kind === 'pin' ? (
           <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.pickup_way_which')}>
             {wayPoints.length > 1 ? (
               <Text variant="label" weight={600}>
@@ -367,10 +440,20 @@ export default function BookSeat() {
                 key={m.id}
                 point={m}
                 draftLabel={t('rajaa.pickup_draft')}
-                selected={pickup.meetingPointId === m.id}
+                selected={pickup.kind === 'meeting_point' && pickup.meetingPointId === m.id}
                 onPress={() => setPickup({ kind: 'meeting_point', meetingPointId: m.id })}
               />
             ))}
+            <AgreementSlot
+              kind="pin_pickup"
+              phase={pinPhase}
+              title={t('rajaa.agree_pin_title')}
+              askTitle={t('rajaa.agree_ask_pin')}
+              askHint={t('rajaa.agree_ask_pin_hint')}
+              selected={pickup.kind === 'pin'}
+              onSelect={(a) => setPickup({ kind: 'pin', agreementId: a.id })}
+              onAsk={() => askFor('pin_pickup')}
+            />
           </View>
         ) : (
           <View style={{ gap: theme.space[2] }}>
@@ -383,6 +466,34 @@ export default function BookSeat() {
         <BagSwitch value={largeBags} onChange={setLargeBags} />
       </Section>
 
+      <Section title={t('rajaa.drop_title')} testID="rajaa-drop">
+        <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.drop_title')}>
+          <OptionCard
+            testID="drop-garage"
+            icon="garage"
+            title={t('rajaa.drop_garage', { garage: farGarage ? garageName(network.data, farGarage.id) : toCity })}
+            trailing={t('rajaa.pickup_free')}
+            selected={!drop}
+            onPress={() => setDrop(null)}
+          />
+          {agreements.isError ? (
+            <QueryBoundary query={agreements} size="inline" skeleton={null} testID="rajaa-agreements-read">
+              {() => null}
+            </QueryBoundary>
+          ) : null}
+          <AgreementSlot
+            kind="door_drop"
+            phase={doorPhase}
+            title={t('rajaa.agree_door_title', { city: toCity })}
+            askTitle={t('rajaa.agree_ask_door')}
+            askHint={t('rajaa.agree_ask_door_hint')}
+            selected={!!drop}
+            onSelect={(a) => setDrop(a.id)}
+            onAsk={() => askFor('door_drop')}
+          />
+        </View>
+      </Section>
+
       {quote && quote.seats > 0 ? (
         <Card testID="rajaa-quote" elevation={0} padding={4}>
           <View style={{ gap: theme.space[1] }}>
@@ -393,10 +504,16 @@ export default function BookSeat() {
             {quote.frontIqd > 0 ? <PriceLine label={t('rajaa.line_front')} amount={quote.frontIqd} /> : null}
             {quote.pickupIqd > 0 ? (
               <PriceLine
-                label={pickup.kind === 'door' ? t('rajaa.line_pickup_door') : t('rajaa.line_pickup_way')}
+                label={pickup.kind === 'door' ? t('rajaa.line_pickup_door') : pickup.kind === 'pin' ? t('rajaa.line_pickup_pin') : t('rajaa.line_pickup_way')}
                 amount={quote.pickupIqd}
                 {...(pickup.kind === 'door' ? { reason: t('rajaa.pickup_door_hint') } : {})}
               />
+            ) : null}
+            {pickup.kind === 'pin' && quote.pickupIqd === 0 ? <FreeLine label={t('rajaa.line_pickup_pin')} /> : null}
+            {quote.dropoffIqd > 0 ? (
+              <PriceLine label={t('rajaa.line_dropoff_door')} amount={quote.dropoffIqd} />
+            ) : drop ? (
+              <FreeLine label={t('rajaa.line_dropoff_door')} testID="rajaa-quote-drop-free" />
             ) : null}
             <Rule style={{ marginVertical: theme.space[1] }} />
             <PriceLine label={t('rajaa.total')} amount={quote.totalIqd} strong />

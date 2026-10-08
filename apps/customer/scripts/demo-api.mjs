@@ -732,6 +732,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/history             finished private trips to Najaf (the usual range, p1)
 //   POST /demo/rajaa/waiting?personId=…&min=…[&charged=1]   the picked driver is waiting (w2 clock)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
+//   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1230,6 +1231,34 @@ const rajaa = await (async () => {
         await repo.saveRequest(back);
       }
       json(res, 200, { requests: live.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/agreements?personId=…&departureId=… — step 4 agreed prices: the driver of that
+  // car prices every ask the person made on it (a pin on the road 2,000 دينار, a door drop ببلاش),
+  // asking a door drop for him first if he has none open.
+  app.use('/demo/rajaa/agreements', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/agreements?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const agreements = app.get(AgreementsService);
+      const dep = await deps.departure(departureId);
+      const open = (a) => a.state === 'asked' || a.state === 'proposed' || a.state === 'accepted';
+      if (!(await agreements.mine(personId, dep.id)).some((a) => a.kind === 'door_drop' && open(a))) {
+        const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+        await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'البيت الثاني بعد الجامع' });
+      }
+      const priced = [];
+      for (const a of await agreements.mine(personId, dep.id)) {
+        if (a.state !== 'asked') continue;
+        priced.push((await agreements.propose(dep.driverId, { agreementId: a.id, amountIqd: a.kind === 'pin_pickup' ? 2_000 : 0 })).id);
+      }
+      json(res, 200, { priced });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestTripKind, TravellingAs } from '@driver/contracts';
+import type { AgreementView, BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestTripKind, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
@@ -158,6 +158,38 @@ export function useCancelSeat() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
   return useMutation(api.routes.cancelSeat.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/**
+ * Step 4: the rider's agreed-price asks on one departure. Polls every 5 s while one waits on the
+ * driver (asked) or on him (priced), so the driver's price shows up without a refresh.
+ */
+export function useMyAgreements(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.agreements.mine.queryOptions({ departureId: departureId ?? '' }),
+    enabled: signedIn && !!departureId,
+    refetchInterval: (q) => (q.state.data?.some((a: AgreementView) => a.state === 'asked' || a.state === 'proposed') ? RAJAA_RULES.pollMs : false),
+  });
+}
+
+export function useAskAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.ask.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useRespondAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.respond.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useWithdrawAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.withdraw.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
 /** «شلون كانت الرجعة؟» (r2): stars and chips once; the bookings list picks up the rating. */

@@ -4,6 +4,7 @@ import { Share, View } from 'react-native';
 import { Button, Card, DepartureTime, EmptyState, Icon, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
+import { stopNameOf } from '@/features/rajaa/agree';
 import { lateStages, passPhase } from '@/features/rajaa/pass';
 import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
 import { endGarageFor, roadLine, type RoadPoint } from '@/features/rajaa/road';
@@ -109,7 +110,7 @@ export default function BoardingPassScreen() {
   const rule = cancelRule(b, now);
   const opensAt = boardingOpensAt(b.departure.departAt);
   const atPoint = b.pickup.kind !== 'garage';
-  const stopName = b.pickup.kind === 'garage' ? garage : (b.pickup.nameAr ? publicPlaceName(b.pickup.nameAr) : null) ?? t('rajaa.pickup_door');
+  const stopName = stopNameOf(b.pickup, garage, { pin: t('rajaa.agree_pin_title'), door: t('rajaa.pickup_door'), place: publicPlaceName });
   const prepaid = p ? p.prepayRail !== 'cash_reservation' : b.prepaid;
   const graceMs = p?.graceEndsAt ? p.graceEndsAt.getTime() - b.departure.departAt.getTime() : RAJAA_RULES.prepaidGraceMin * MIN;
 
@@ -285,6 +286,9 @@ export default function BoardingPassScreen() {
         <View style={{ padding: theme.space[5], flexDirection: 'row', flexWrap: 'wrap', rowGap: theme.space[4], columnGap: theme.space[3] }}>
           <Field icon="seat" label={t('rajaa.seat_label')} value={seatsList(t, b.seatIds)} />
           <Field icon={atPoint ? 'map-pin' : 'garage'} label={atPoint ? t('rajaa.stop_label') : t('rajaa.garage_label')} value={stopName} />
+          {b.dropoff ? (
+            <Field icon="home" label={t('rajaa.drop_label')} value={b.dropoff.note ?? (toCity ? t('rajaa.agree_door_title', { city: cityName(t, toCity) }) : t('rajaa.agree_ask_door'))} />
+          ) : null}
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
         <Perforation />
