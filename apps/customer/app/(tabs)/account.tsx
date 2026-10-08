@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, Platform, Pressable, Switch, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
-import { Avatar, Button, Card, Icon, ListRow, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { settleWithin } from '@driver/contracts/net-client';
+import { Avatar, Button, Card, Icon, ListRow, PhotoImage, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
@@ -13,10 +14,14 @@ import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
 import { useSimpleMode } from '@/features/simple/pref';
 import { useApiClient } from '@/lib/api';
+import { useInviteRule } from '@/features/invite/queries';
 import { useLocale, useT } from '@/lib/i18n';
 import { profile, useProfile, type AppLocale } from '@/lib/profile';
 import { GuestGate } from '@/components/GuestGate';
 import { session, useSignedIn } from '@/lib/session';
+
+/** Sign-out waits this long at most for the server to hear about it. */
+const SIGN_OUT_WAIT_MS = 4_000;
 
 /**
  * حسابي (customer spec §10): who you are (name from the vault), saved places with their gate
@@ -36,6 +41,8 @@ function Account() {
   const client = useApiClient();
   const prof = useProfile();
   const me = useMe();
+  // THIN-18: «عزّم صديقك» promises points, so it shows only while the server pays them.
+  const inviteRule = useInviteRule();
   const places = useMyPlaces();
   const people = useSavedPeople();
   const household = useHousehold();
@@ -49,10 +56,14 @@ function Account() {
   const signOut = async () => {
     setSigningOut(true);
     const refreshToken = session.getSnapshot().session?.refreshToken;
-    // Best effort: drop this phone's push token, revoke server-side (which also drops the session's
-    // tokens), then forget everything on this device regardless.
-    await unregisterPush(client);
-    await client.identity.logout.mutate(refreshToken ? { refreshToken } : {}).catch(() => undefined);
+    // Best effort, bounded: drop this phone's push token and revoke server-side (which also drops the
+    // session's tokens), then forget everything on this device regardless. A bad network never keeps
+    // someone signed in (audit CORE-15).
+    const farewell = Promise.allSettled([
+      unregisterPush(client),
+      client.identity.logout.mutate(refreshToken ? { refreshToken } : {}),
+    ]);
+    await settleWithin(farewell, SIGN_OUT_WAIT_MS);
     await profile.reset();
     await session.signOut();
   };
@@ -140,31 +151,49 @@ function Account() {
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.places')} action={{ label: t('home.add_place'), onPress: () => router.push('/places/new') }} />
-        <Card elevation={0} padding={0}>
-          {places.isPending ? (
-            <View style={{ padding: theme.space[4], gap: theme.space[3] }}>
-              <Skeleton height={44} />
-              <Skeleton height={44} />
-            </View>
-          ) : placeList.length === 0 ? (
-            <ListRow leading="map-pin" title={t('empty.saved_places')} subtitle={t('onboarding.place_hint')} onPress={() => router.push('/places/new')} />
-          ) : (
-            placeList.map((p, i) => <PlaceRow key={p.id} place={p} divider={i < placeList.length - 1} />)
+        {/* W8: a failed read is never "no saved places" (or "nobody yet" below): it says so, with a retry. */}
+        <QueryBoundary
+          query={places}
+          size="inline"
+          staleNote={false}
+          locale={locale}
+          testID="account-places-state"
+          skeleton={
+            <Card elevation={0} padding={4}>
+              <View style={{ gap: theme.space[3] }}>
+                <Skeleton height={44} />
+                <Skeleton height={44} />
+              </View>
+            </Card>
+          }
+        >
+          {() => (
+            <Card elevation={0} padding={0}>
+              {placeList.length === 0 ? (
+                <ListRow leading="map-pin" title={t('empty.saved_places')} subtitle={t('onboarding.place_hint')} onPress={() => router.push('/places/new')} />
+              ) : (
+                placeList.map((p, i) => <PlaceRow key={p.id} place={p} divider={i < placeList.length - 1} />)
+              )}
+            </Card>
           )}
-        </Card>
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.people')} />
-        <Card elevation={0} padding={0}>
-          {(people.data ?? []).length === 0 ? (
-            <ListRow leading="user" title={t('account.people_empty')} subtitle={t('account.people_hint')} chevron={false} />
-          ) : (
-            (people.data ?? []).slice(0, 6).map((p, i, list) => (
-              <ListRow key={p.key} leading={<Avatar name={p.name} size={40} />} title={p.name} subtitle={t('account.people_last', { role: t(p.role === 'rider' ? 'account.people_role_rider' : 'account.people_role_recipient') })} chevron={false} divider={i < list.length - 1} />
-            ))
+        <QueryBoundary query={people} size="inline" staleNote={false} locale={locale} testID="account-people-state" skeleton={<Skeleton height={64} />}>
+          {(saved) => (
+            <Card elevation={0} padding={0}>
+              {saved.length === 0 ? (
+                <ListRow leading="user" title={t('account.people_empty')} subtitle={t('account.people_hint')} chevron={false} />
+              ) : (
+                saved.slice(0, 6).map((p, i, list) => (
+                  <ListRow key={p.key} leading={<Avatar name={p.name} size={40} />} title={p.name} subtitle={t('account.people_last', { role: t(p.role === 'rider' ? 'account.people_role_rider' : 'account.people_role_recipient') })} chevron={false} divider={i < list.length - 1} />
+                ))
+              )}
+            </Card>
           )}
-        </Card>
+        </QueryBoundary>
       </View>
 
       <View style={{ gap: theme.space[3] }}>
@@ -179,7 +208,8 @@ function Account() {
                 ? [t('account.safety_people', { names: trusted.map((p) => p.name).join('، ') }), sharing ? t('account.safety_sharing_on') : null].filter(Boolean).join(' · ')
                 : t('account.emergency_hint')
             }
-            value={trusted.length > 0 ? undefined : t('account.add')}
+            // «أضف» only once the server said there is nobody yet; a failed read never claims the list is empty.
+            value={me.isSuccess && trusted.length === 0 ? t('account.add') : undefined}
             onPress={() => router.push('/profile/safety')}
             divider
           />
@@ -187,12 +217,12 @@ function Account() {
             testID="account-household"
             leading="family"
             title={t('household.title')}
-            subtitle={household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')}
+            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : t('account.household_hint')) : undefined}
             onPress={() => router.push('/household')}
             divider
           />
           {/* خطوط children's photos (Ali, 2026-10-06): only for guardians with a child registered. */}
-          {(children.data ?? []).length > 0 ? (
+          {children.isSuccess && children.data.length > 0 ? (
             <ListRow testID="account-children" leading="user" title={t('household.children_title')} subtitle={t('household.children_row_sub')} onPress={() => router.push('/household/children')} divider />
           ) : null}
           <ListRow testID="account-notifications" leading="bell" title={t('account.notifications')} subtitle={t('account.notifications_hint')} onPress={() => router.push('/profile/notifications')} />
@@ -203,7 +233,9 @@ function Account() {
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.share_section')} />
         <Card elevation={0} padding={0}>
-          <ListRow testID="account-invite" leading="gift" title={t('account.invite_row')} subtitle={t('account.invite_row_hint')} onPress={() => router.push('/invite')} divider />
+          {inviteRule.isSuccess && inviteRule.data.rewardsOn ? (
+            <ListRow testID="account-invite" leading="gift" title={t('account.invite_row')} subtitle={t('account.invite_row_hint')} onPress={() => router.push('/invite')} divider />
+          ) : null}
           <ListRow testID="account-stickers" leading="heart" title={t('account.stickers_row')} subtitle={t('account.stickers_row_hint')} onPress={() => router.push('/stickers')} />
         </Card>
       </View>
@@ -225,13 +257,11 @@ function Account() {
           subtitle={t('account.simple_hint')}
           chevron={false}
           trailing={
-            <Switch
+            <Toggle
               testID="account-simple-switch"
               accessibilityLabel={t('account.simple_title')}
               value={simple.on}
               onValueChange={toggleSimple}
-              trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-              {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
             />
           }
         />
@@ -268,7 +298,7 @@ function PlaceRow({ place, divider }: { place: SavedPlaceView; divider: boolean 
   const photo = place.photos[0];
   const icon = placeIcon(place.label);
   const leading = photo ? (
-    <Image source={{ uri: photoUri(photo.url) }} style={{ width: 44, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} accessibilityIgnoresInvertColors />
+    <PhotoImage uri={photoUri(photo.url)} style={{ width: 44, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} />
   ) : (
     <View style={{ width: 44, height: 44, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceSunken }}>
       <Icon name={icon} size={20} color="textMuted" />

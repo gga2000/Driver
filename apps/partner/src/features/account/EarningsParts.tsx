@@ -1,15 +1,15 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { Easing, FadeIn, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import type { EarningsJobLine, EarningsPeriod, EarningsView } from '@driver/contracts';
+import { orderTicketNumber, type ComplimentKey, type EarningsJobLine, type EarningsPeriod, type EarningsView, type MyBestView } from '@driver/contracts';
 import { Button, Card, Icon, Rule, StatusPill, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { jobsKey, VEHICLE_ICON } from '@/features/work/logic';
 import { useStatus } from '@/features/work/queries';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { CashMeter } from './CashMeter';
-import { Glyph } from './Glyph';
+import { useCompliments } from './queries';
 import {
   bestBucket,
   breakdownRows,
@@ -19,6 +19,8 @@ import {
   componentsKey,
   dayMonth,
   isJob,
+  jobTipIqd,
+  bestWindowLabel,
   nextTierCap,
   shortRef,
   weekdayName,
@@ -27,8 +29,6 @@ import {
 import { color } from '@driver/design-tokens';
 
 const CREAM = color.neutral[50];
-/** "12%" in a left-to-right isolate so the sign stays after the digits inside Arabic. */
-const pct = (n: number) => `\u2066${n}%\u2069`;
 
 /**
  * Animates a whole number from 0 on first show, then between values (period switches): the total
@@ -96,89 +96,104 @@ export function PeriodNav({ label, onPrev, onNext, canNext, dark = false }: { la
   );
 }
 
-/** The dark hero: range, the net total counting up, jobs and the change vs the previous period, the chart. */
+/**
+ * The earnings hero on the cream page (partner redesign e1): range, the net counting up, the jobs, then
+ * his own week and his best day (e4: never "less than yesterday"), and the chart.
+ */
 export function EarningsHero({
   view,
   period,
   rangeLabel,
-  prevLabel,
-  prevNetIqd,
   onPrev,
   onNext,
   canNext,
   buckets,
   loading,
+  best,
 }: {
   view: EarningsView | undefined;
   period: EarningsPeriod;
   rangeLabel: string;
-  prevLabel: string;
-  prevNetIqd: number | null;
   onPrev: () => void;
   onNext: () => void;
   canNext: boolean;
   buckets: ChartBucket[];
   loading: boolean;
+  best?: MyBestView | undefined;
 }) {
   const theme = useTheme();
   const t = useT();
   const net = view?.totals.netIqd ?? 0;
   const shown = useCountFrom(net);
   const jobs = view?.totals.jobs ?? 0;
-  const change = prevNetIqd !== null && prevNetIqd > 0 ? Math.round(((net - prevNetIqd) / prevNetIqd) * 100) : null;
-  const muted = withAlpha(CREAM, 0.66);
+  // This week's tile only on the day view (the week view already is the week).
+  const week = period === 'day' && best && best.week.jobs > 0 ? best.week : null;
+  const bestDay = best?.bestDay ?? null;
   return (
     <View
       testID="earnings-hero"
       style={{
-        backgroundColor: theme.colors.text,
+        backgroundColor: theme.colors.surface,
         borderRadius: theme.radius['2xl'],
+        borderWidth: 1,
+        borderColor: theme.colors.border,
         padding: theme.space[5],
         paddingBottom: theme.space[4],
         gap: theme.space[4],
         shadowColor: theme.colors.shadow,
-        shadowOpacity: 0.22,
-        shadowRadius: 22,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 8,
-        overflow: 'hidden',
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 2,
       }}
     >
-      <PeriodNav label={rangeLabel} onPrev={onPrev} onNext={onNext} canNext={canNext} dark />
+      <PeriodNav label={rangeLabel} onPrev={onPrev} onNext={onNext} canNext={canNext} />
       <View style={{ alignItems: 'center', gap: 2, opacity: loading ? 0.55 : 1 }}>
-        <Text variant="footnote" color={muted}>
+        <Text variant="footnote" color="textMuted">
           {t('partner.earn_net_label')}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-          <Text testID="earnings-total" variant="numeralLg" color={CREAM} style={{ letterSpacing: -0.5 }}>
+          <Text testID="earnings-total" variant="numeralLg" style={{ letterSpacing: -0.5 }}>
             {amountParam(shown)}
           </Text>
-          <Text variant="title" color={muted}>
+          <Text variant="title" color="textMuted">
             {t('quote.currency')}
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Text variant="label" color={muted} tabular>
-            {jobs > 0 ? t(jobsKey(jobs), { n: jobs }) : t('partner.earn_chart_empty')}
-          </Text>
-          {change !== null ? <ChangeChip change={change} prev={prevLabel} /> : null}
-        </View>
+        <Text variant="label" color="textMuted" tabular>
+          {jobs > 0 ? t(jobsKey(jobs), { n: jobs }) : t('partner.earn_chart_empty')}
+        </Text>
       </View>
+      {week || bestDay ? (
+        <View testID="earnings-mybest" style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          {week ? <MiniStat testID="earnings-week-so-far" label={t('partner.e5_week_so_far')} amount={week.netIqd} sub={t(jobsKey(week.jobs), { n: week.jobs })} /> : null}
+          {bestDay ? (
+            <MiniStat testID="earnings-best-day" star label={t('partner.e5_best_day')} amount={bestDay.netIqd} sub={`${weekdayName(bestDay.at, t)} ${dayMonth(bestDay.at, t)}`} />
+          ) : null}
+        </View>
+      ) : null}
       <EarningsChart buckets={buckets} period={period} />
     </View>
   );
 }
 
-function ChangeChip({ change, prev }: { change: number; prev: string }) {
+/** A small tile in the hero: what it is, the amount, one line under it. */
+function MiniStat({ label, amount, sub, star = false, testID }: { label: string; amount: number; sub: string; star?: boolean; testID: string }) {
+  const theme = useTheme();
   const t = useT();
-  const up = change > 2;
-  const down = change < -2;
-  const fg = up ? '#7ACF9D' : down ? '#F2BC68' : withAlpha(CREAM, 0.75);
   return (
-    <View testID="earnings-change" style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 26, borderRadius: 13, backgroundColor: withAlpha(CREAM, 0.08) }}>
-      {up || down ? <Glyph name={up ? 'trend-up' : 'trend-down'} size={14} color={fg} strokeWidth={2.4} /> : null}
-      <Text variant="caption" weight={600} color={fg} tabular>
-        {up ? t('partner.earn_vs_up', { percent: pct(change), prev }) : down ? t('partner.earn_vs_down', { percent: pct(-change), prev }) : t('partner.earn_vs_same', { prev })}
+    <View testID={testID} style={{ flex: 1, gap: 2, padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: star ? theme.colors.accentTint : theme.colors.surfaceSunken }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        {star ? <Icon name="star" size={13} color="accentText" filled fillColor="accentText" /> : null}
+        <Text variant="caption" weight={600} color={star ? 'accentText' : 'textMuted'} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+      <Text variant="bodyStrong" tabular numberOfLines={1}>
+        {`${amountParam(amount)} ${t('quote.currency')}`}
+      </Text>
+      <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
+        {sub}
       </Text>
     </View>
   );
@@ -216,7 +231,7 @@ export function EarningsChart({ buckets, period }: { buckets: ChartBucket[]; per
     <View testID="earnings-chart" style={{ gap: theme.space[2] }}>
       <View style={{ height: CHART_H, flexDirection: 'row', alignItems: 'flex-end', gap: period === 'month' ? 2 : period === 'day' ? 3 : 8 }}>
         {[0.33, 0.66, 1].map((g) => (
-          <View key={g} pointerEvents="none" style={{ position: 'absolute', start: 0, end: 0, bottom: CHART_H * g - 1, height: 1, backgroundColor: withAlpha(CREAM, 0.06) }} />
+          <View key={g} pointerEvents="none" style={{ position: 'absolute', start: 0, end: 0, bottom: CHART_H * g - 1, height: 1, backgroundColor: theme.colors.border }} />
         ))}
         {buckets.map((b) => (
           <Bar
@@ -237,7 +252,7 @@ export function EarningsChart({ buckets, period }: { buckets: ChartBucket[]; per
         {buckets.map((b, i) => (
           <View key={b.key} style={{ flex: 1, alignItems: 'center', overflow: 'visible' }}>
             {i % tickEvery === 0 || (period === 'month' && i === buckets.length - 1 && i % tickEvery > 2) ? (
-              <Text variant="caption" align="center" color={focus?.key === b.key ? CREAM : withAlpha(CREAM, 0.5)} tabular style={{ fontSize: period === 'week' ? 11 : 10, lineHeight: 14, width: 34 }}>
+              <Text variant="caption" align="center" color={focus?.key === b.key ? 'text' : 'textMuted'} tabular style={{ fontSize: period === 'week' ? 11 : 10, lineHeight: 14, width: 34 }}>
                 {b.tick}
               </Text>
             ) : null}
@@ -245,8 +260,8 @@ export function EarningsChart({ buckets, period }: { buckets: ChartBucket[]; per
         ))}
       </View>
       <Animated.View key={caption} entering={theme.reduceMotion ? undefined : FadeIn.duration(180)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-        {best && !sel ? <Icon name="star" size={13} color={theme.colors.accent} filled /> : null}
-        <Text testID="earnings-chart-caption" variant="caption" weight={600} color={withAlpha(CREAM, 0.85)} tabular align="center">
+        {best && !sel ? <Icon name="star" size={13} color="accentText" filled fillColor="accentText" /> : null}
+        <Text testID="earnings-chart-caption" variant="caption" weight={600} color="textMuted" tabular align="center">
           {caption}
         </Text>
       </Animated.View>
@@ -267,13 +282,57 @@ function Bar({ share, grow, active, dim, onPress, label }: { share: number; grow
             borderTopRightRadius: 5,
             borderBottomLeftRadius: 2,
             borderBottomRightRadius: 2,
-            backgroundColor: share <= 0 ? withAlpha(CREAM, 0.12) : active ? color.primary[300] : theme.colors.accent,
+            backgroundColor: share <= 0 ? theme.colors.surfaceSunken : active ? theme.colors.accentText : theme.colors.accent,
             opacity: dim ? 0.35 : 1,
           },
           style,
         ]}
       />
     </Pressable>
+  );
+}
+
+/**
+ * «أحسن وقت إلك» (partner redesign e3): the weekday hours that paid him most in the last four weeks,
+ * from his own jobs, and what they paid on average per hour. History, not a promise; until there is a
+ * habit to read, one quiet line says when it will show.
+ */
+export function BestTimeCard({ best }: { best: MyBestView }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const w = best.bestWindow;
+  if (!w) {
+    return (
+      <Card testID="best-time-empty" elevation={0} padding={4} tone="sunken">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+          <Icon name="clock" size={18} color="textMuted" strokeWidth={2.2} />
+          <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+            {t('partner.e5_best_time_soon')}
+          </Text>
+        </View>
+      </Card>
+    );
+  }
+  return (
+    <Card testID="best-time" elevation={1} padding={5}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
+        <View style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="clock" size={26} color="accentText" strokeWidth={2.2} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="label" color="textMuted">
+            {t('partner.e5_best_time')}
+          </Text>
+          <Text testID="best-time-label" variant="title" weight={700} tabular>
+            {bestWindowLabel(w, t, locale)}
+          </Text>
+          <Text variant="footnote" color="textMuted" tabular>
+            {t('partner.e5_best_time_sub', { weeks: Math.round(best.sinceDays / 7), amount: amountParam(w.perHourIqd) })}
+          </Text>
+        </View>
+      </View>
+    </Card>
   );
 }
 
@@ -395,7 +454,7 @@ function CashRow({ label, amount }: { label: string; amount: number }) {
  * took; tap a job to open its receipt (every line with its reason, audit S-7), an adjustment to open
  * its line in place.
  */
-export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bike' }: { job: EarningsJobLine; withDay: boolean; expanded: boolean; onToggle: () => void; divider: boolean; icon?: IconName }) {
+export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bike', words = [] }: { job: EarningsJobLine; withDay: boolean; expanded: boolean; onToggle: () => void; divider: boolean; icon?: IconName; words?: readonly ComplimentKey[] }) {
   const theme = useTheme();
   const t = useT();
   const real = isJob(job);
@@ -406,7 +465,8 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
     : withDay
       ? t('partner.earn_job_title_day', { day: weekdayName(job.at, t), time: clockTime(job.at) })
       : t('partner.earn_job_title', { time: clockTime(job.at) });
-  const names = [...new Set(job.components.map((c) => componentLabel(c, t)))];
+  const tip = jobTipIqd(job);
+  const names = [...new Set(job.components.filter((c) => !(real && c.type === 'tip')).map((c) => componentLabel(c, t)))];
   const summary = !real
     ? withDay
       ? `${weekdayName(job.at, t)} ${dayMonth(job.at, t)} · ${clockTime(job.at)}`
@@ -444,6 +504,7 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
           <Text variant="caption" color="textMuted" numberOfLines={1}>
             {summary}
           </Text>
+          {real && (tip > 0 || words.length > 0) ? <TipWords tipIqd={tip} words={words} /> : null}
         </View>
         <View style={{ alignItems: 'flex-end', gap: 2 }}>
           <Text variant="bodyStrong" tabular color={job.netIqd < 0 ? 'dangerText' : 'text'}>
@@ -511,15 +572,54 @@ export function JobLine({ job, withDay, expanded, onToggle, divider, icon = 'bik
   );
 }
 
+/**
+ * Partner redesign e5: the tip in green, and beside it the words the customer picked for him on that
+ * order («سريع» · «مؤدب»), matched by the order's ticket from «كلام الزبائن». Never who said them.
+ */
+function TipWords({ tipIqd, words }: { tipIqd: number; words: readonly ComplimentKey[] }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID="job-tip-words" style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+      {tipIqd > 0 ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, minHeight: 22, borderRadius: 11, backgroundColor: theme.colors.successTint }}>
+          <Icon name="heart" size={11} color="successText" filled fillColor="successText" />
+          <Text variant="caption" weight={700} color="successText" tabular style={{ lineHeight: 18 }}>
+            {t('partner.e5_tip', { amount: amountParam(tipIqd) })}
+          </Text>
+        </View>
+      ) : null}
+      {words.length > 0 ? (
+        <Text variant="caption" color="successText" numberOfLines={1} style={{ flexShrink: 1 }}>
+          {words.map((w) => `«${t(`compliment.${w}`)}»`).join('، ')}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /** The jobs of a period in one card; one open at a time. */
-export function JobList({ jobs, withDay, testID }: { jobs: EarningsJobLine[]; withDay: boolean; testID?: string }) {
-  const [open, setOpen] = useState<string | null>(null);
+/**
+ * Pass `open`/`onOpen` when the list sits in a recycled list (FlashList): the open row then lives with the
+ * screen, not in a component another day's rows may reuse.
+ */
+export function JobList({ jobs, withDay, testID, open: openProp, onOpen }: { jobs: EarningsJobLine[]; withDay: boolean; testID?: string; open?: string | null; onOpen?: (key: string | null) => void }) {
+  const [openOwn, setOpenOwn] = useState<string | null>(null);
+  const open = onOpen ? (openProp ?? null) : openOwn;
+  const setOpen = (next: (o: string | null) => string | null) => (onOpen ? onOpen(next(open)) : setOpenOwn(next));
   const vehicle = useStatus().data?.vehicleClass ?? 'bike';
+  const words = useOrderWords();
   return (
     <Card testID={testID} elevation={1} padding={0} style={{ overflow: 'hidden' }}>
       {jobs.map((j, i) => (
-        <JobLine key={j.key} job={j} icon={VEHICLE_ICON[vehicle]} withDay={withDay} expanded={open === j.key} onToggle={() => setOpen((o) => (o === j.key ? null : j.key))} divider={i < jobs.length - 1} />
+        <JobLine key={j.key} job={j} words={j.orderId ? (words.get(orderTicketNumber(j.orderId)) ?? []) : []} icon={VEHICLE_ICON[vehicle]} withDay={withDay} expanded={open === j.key} onToggle={() => setOpen((o) => (o === j.key ? null : j.key))} divider={i < jobs.length - 1} />
       ))}
     </Card>
   );
+}
+
+/** «كلام الزبائن» by order ticket: the words each customer picked (latest ones, the server's list). */
+function useOrderWords(): Map<string, readonly ComplimentKey[]> {
+  const recent = useCompliments().data?.recent;
+  return useMemo(() => new Map((recent ?? []).map((r) => [r.ticket, r.keys] as const)), [recent]);
 }

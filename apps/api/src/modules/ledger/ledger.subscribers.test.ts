@@ -1,6 +1,10 @@
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { describe, expect, it } from 'vitest';
 import { LEDGER_SUBSCRIBED_EVENTS } from './ledger.subscribers.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
+
+/** The rules once Ali approves the invite amounts (M-5): the referral switch on, nothing else changed. */
+const referralOn = { ...AZIZIYAH_MONEY_RULES, referral: { ...AZIZIYAH_MONEY_RULES.referral, enabled: true } };
 
 const at = new Date('2026-10-03T12:00:00Z');
 const day = (d: number) => new Date(Date.UTC(2026, 9, d, 12));
@@ -17,6 +21,8 @@ describe('ledger subscribers', () => {
         'merchant.settlement_requested',
         'order.cancelled',
         'order.closed',
+        'order.driver_cancelled',
+        'order.rejected',
         'seat.completed',
         'seat.late_meter_settled',
         'seat.no_show',
@@ -64,8 +70,16 @@ describe('ledger subscribers', () => {
     expect((await h.ledger.balance('customer:c1')).amount).toBe(-16000);
   });
 
-  it('referral unlocks on the referee’s second completed cash order ≥ 10,000; wallet and small orders do not count', async () => {
+  it('referral pays nothing while the money-rule switch is off (THIN-18, M-5 not approved yet)', async () => {
     const h = ledgerHarness();
+    expect(AZIZIYAH_MONEY_RULES.referral.enabled).toBe(false);
+    for (const n of [1, 2, 3]) await h.posting.orderClosed(workedExample({ orderId: `off-${n}`, customerId: 'b', referredBy: 'a', itemsSubtotalIqd: 20000, occurredAt: day(3) }));
+    expect((await h.ledger.eventsFor('points:a')).some((e) => e.type === 'referral_bonus')).toBe(false);
+    expect((await h.ledger.eventsFor('points:b')).some((e) => e.type === 'referral_bonus')).toBe(false);
+  });
+
+  it('referral unlocks on the referee’s second completed cash order ≥ 10,000; wallet and small orders do not count', async () => {
+    const h = ledgerHarness({ rules: referralOn });
     const order = (id: string, items: number, over = {}) => workedExample({ orderId: id, customerId: 'b', referredBy: 'a', itemsSubtotalIqd: items, occurredAt: day(3), ...over });
     await h.posting.orderClosed(order('b1', 12000));
     await h.posting.orderClosed(order('b2', 7000)); // 8,500 paid < 10,000
@@ -80,7 +94,7 @@ describe('ledger subscribers', () => {
   });
 
   it('referrer monthly cap: the 11th referee this month still gets 200, the referrer does not; next month resets', async () => {
-    const h = ledgerHarness();
+    const h = ledgerHarness({ rules: referralOn });
     const unlock = async (referee: string, d: Date) => {
       for (const n of [1, 2]) await h.posting.orderClosed(workedExample({ orderId: `${referee}-${n}`, customerId: referee, referredBy: 'a', occurredAt: d }));
     };
@@ -131,6 +145,34 @@ describe('ledger subscribers', () => {
     // Khat: 8 % + 1,000 → 3,400 on the cash month, 1,960 on the prorated wallet one; the prepaid month covers what he owes.
     expect(await h.caps.status('d3')).toMatchObject({ earningsIqd: 26600 + 10040, cashIqd: -30000, owedIqd: 0, payoutDueIqd: 0 });
     expect((await h.ledger.eventsFor('customer:g2')).map((e) => e.type)).toEqual(['subscription_proration']);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-15: a driver cancelling after arriving credits the customer 500 from the driver, once even if the event repeats', async () => {
+    const h = ledgerHarness();
+    const ev = wire({ orderId: 'o7', tripId: 't7', occurredAt: at, customerId: 'c7', driverId: 'd7', scoringHit: true, customerCreditIqd: 500, creditFundedBy: 'driver' });
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', wire({ orderId: 'o8', tripId: 't8', occurredAt: at, customerId: 'c8', driverId: 'd8', scoringHit: false }));
+    expect((await h.ledger.balance('customer:c7')).amount).toBe(500);
+    expect((await h.ledger.balance('driver:d7')).amount).toBe(-500);
+    expect((await h.ledger.balance('customer:c8')).amount).toBe(0);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-17: a merchant rejecting after accepting credits the customer 500 from the merchant, once even if the event repeats; no credit posts nothing', async () => {
+    const h = ledgerHarness();
+    const ev = wire({ from: 'preparing', to: 'merchant_rejected', orderId: 'o5', occurredAt: at, customerId: 'c5', merchantOrgId: 'm5', reason: 'خلص', auto: false, scored: true, afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' });
+    await h.bus.publish('order.rejected', ev);
+    await h.bus.publish('order.rejected', ev);
+    // The switch off (or a reject before accepting): the event claims 0 and nothing posts.
+    await h.bus.publish('order.rejected', wire({ from: 'preparing', to: 'merchant_rejected', orderId: 'o6', occurredAt: at, customerId: 'c6', merchantOrgId: 'm6', reason: 'خلص', afterAccept: true, customerCreditIqd: 0, creditFundedBy: null }));
+    // An event written before M-17 (no ids) still decodes.
+    await h.bus.publish('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'merchant_timeout', auto: true, scored: true, pauseWindow: null, dispatchAlert: true });
+    expect((await h.ledger.balance('customer:c5')).amount).toBe(500);
+    expect((await h.ledger.balance('merchant_cash:m5')).amount).toBe(-500);
+    expect((await h.ledger.balance('customer:c6')).amount).toBe(0);
+    expect((await h.ledger.eventsFor('customer:c5')).map((e) => [e.type, e.memo])).toEqual([['cancellation_fee', 'merchant_late_reject']]);
     expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 

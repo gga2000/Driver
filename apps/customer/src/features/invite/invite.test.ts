@@ -3,8 +3,9 @@ import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { claimProblem, friendLabel, inviteMessage, pointsWorthIqd, progressCopy, ruleLines } from './invite';
 
-/** The rule exactly as the server gives it (`inviteRuleOf(AZIZIYAH_MONEY_RULES)`). */
+/** The rule as the server gives it once the reward is switched on (`inviteRuleOf`, M-5 approved). */
 const rule = {
+  rewardsOn: true,
   pointsPerSide: AZIZIYAH_MONEY_RULES.referral.pointsPerSide,
   pointValueIqd: AZIZIYAH_MONEY_RULES.points.pointValueIqd,
   minOrderIqd: AZIZIYAH_MONEY_RULES.referral.minOrderIqd,
@@ -34,6 +35,17 @@ describe('invite as a gift (joy g2)', () => {
 
   it('another unlock order reads with its number', () => {
     expect(ruleLines({ ...rule, unlockOnOrder: 3 })[1]!.key).toBe('invite.rule_when_nth');
+  });
+
+  it('while the reward is switched off (THIN-18), nothing promises points', () => {
+    const off = { ...rule, rewardsOn: AZIZIYAH_MONEY_RULES.referral.enabled };
+    expect(off.rewardsOn).toBe(false);
+    expect(ruleLines(off)).toEqual([]);
+    expect(ruleLines(off, 'friend')).toEqual([]);
+    const msg = inviteMessage({ url: 'https://driver.iq/i/K7Q2MX', code: 'K7Q2MX', rule: off });
+    const text = t(msg.key, msg.params);
+    expect(text).toContain('K7Q2MX');
+    expect(text).not.toContain('نقطة');
   });
 
   it('the WhatsApp text carries the link and the code', () => {

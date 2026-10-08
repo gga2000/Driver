@@ -19,6 +19,10 @@
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"
     },
+    "./demo-shops": {
+      "types": "./dist/seeds/demo-shops.d.ts",
+      "default": "./dist/seeds/demo-shops.js"
+    },
     "./live-client": {
       "types": "./dist/live-client.d.ts",
       "default": "./dist/live-client.js"
@@ -26,6 +30,14 @@
     "./net-client": {
       "types": "./dist/net-client.d.ts",
       "default": "./dist/net-client.js"
+    },
+    "./crash-report": {
+      "types": "./dist/crash-report.d.ts",
+      "default": "./dist/crash-report.js"
+    },
+    "./speed-report": {
+      "types": "./dist/speed-report.d.ts",
+      "default": "./dist/speed-report.js"
     }
   },
   "scripts": {

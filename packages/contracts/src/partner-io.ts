@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { RoleKind } from './auth.js';
-import { AnswerClimateCheckInput, PartnerClimateCheck } from './climate-check.js';
+import { AnswerClimateCheckInput, ClimateFeature, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 import { RideCargo } from './ride-cargo.js';
@@ -190,6 +190,12 @@ export const PartnerOfferPlace = z.object({
   /** Merchant name at a pickup; null elsewhere (the zone name is the label). */
   label: z.string().nullable(),
   pin: LatLng.nullable(),
+  /**
+   * Partner redesign o7: the public landmark the stop is near («يم باب الجامع الكبير»), the way people
+   * here give directions. Only town garages and meeting points (never a person's door); null when none
+   * is close.
+   */
+  landmark: z.string().nullable().default(null),
 });
 export type PartnerOfferPlace = z.infer<typeof PartnerOfferPlace>;
 
@@ -228,8 +234,61 @@ export const PartnerOffer = z.object({
    * the driver («المشوار لـ أم علي»). Null for a rider who booked it himself.
    */
   rider: z.object({ name: z.string() }).nullable().default(null),
+  /**
+   * Partner redesign o12: a car ride on a hot (cold) day, when dispatch sends rides to cars with working
+   * AC (heating) first (ride idea x1) — the slip says «يوم حار · المكيّفة» so he switches it on. Null otherwise.
+   */
+  climate: ClimateFeature.nullable().default(null),
+  /**
+   * Partner redesign o10: how many rides the rider finished with us before this one (0 = first ride).
+   * Rides only; null for deliveries. The rider's name stays off the offer (every driver in the wave sees it).
+   */
+  riderTrips: z.number().int().min(0).nullable().default(null),
 });
 export type PartnerOffer =z.infer<typeof PartnerOffer>;
+
+/**
+ * A ride booked for later as a driver sees it in «مشاوير باچر» (edge-case review #28): the time, the
+ * pickup and drop-off zones, the trip km and his pay — what an offer shows, never a door or a name.
+ * - `open`: waiting for a driver; he may confirm it until `confirmBy`.
+ * - `confirmed`: his; from `startFrom` (T−60, the reminder) he may start toward the pickup; at `showBy`
+ *   (T−30) it starts for him when he is online and free, otherwise it goes to another driver.
+ */
+export const PartnerBookedJob = z.object({
+  tripId: z.string(),
+  vertical: Vertical,
+  scheduledFor: z.coerce.date(),
+  state: z.enum(['open', 'confirmed']),
+  pickup: z.object({ zoneId: z.string() }),
+  dropoff: z.object({ zoneId: z.string() }),
+  tripKm: z.number().min(0).nullable(),
+  pay: PartnerPay,
+  /** Cash he collects from the rider (cash rides); null when prepaid. */
+  collectIqd: Iqd.nullable(),
+  /** The rider asked for him (joy l9): «الزبون طلبك إنت». Nothing else about who is shown. */
+  favourite: z.boolean(),
+  confirmBy: z.coerce.date(),
+  startFrom: z.coerce.date(),
+  showBy: z.coerce.date(),
+});
+export type PartnerBookedJob = z.infer<typeof PartnerBookedJob>;
+
+export const PartnerBookedJobs = z.object({
+  /** Open jobs are matched to the vehicle he is online with: offline, he sees only his own. */
+  online: z.boolean(),
+  /** Jobs he confirmed, soonest first. */
+  mine: z.array(PartnerBookedJob),
+  /** Jobs waiting for a driver that fit him, soonest first. */
+  open: z.array(PartnerBookedJob),
+});
+export type PartnerBookedJobs = z.infer<typeof PartnerBookedJobs>;
+
+/** «أحجزه» / «مو إلي» on an open job; «ما أگدر أجي» / «طالع هسة» on his own. */
+export const PartnerBookedAnswer = z.enum(['confirm', 'pass', 'release', 'start']);
+export type PartnerBookedAnswer = z.infer<typeof PartnerBookedAnswer>;
+
+export const AnswerBookedJobInput = z.object({ tripId: z.string().min(1), answer: PartnerBookedAnswer });
+export type AnswerBookedJobInput = z.infer<typeof AnswerBookedJobInput>;
 
 /**
  * The customer's door for the courier on the job (maps program f6, a5). Photos are signed links,
@@ -303,6 +362,17 @@ export const PartnerJobStop = z.object({
    * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * SEC-14: the person he hands the order to when someone else receives it (a gift «عزيمة», food sent
+   * to someone): the name the sender gave, read from the vault for this courier (logged), on the
+   * drop-off only. Null/absent otherwise.
+   */
+  recipient: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * Partner redesign j2: the public landmark the stop is near («يم جامع الرسول»), the way drivers give
+   * directions — a town place from the landmark list, never a person's door; null when none is close.
+   */
+  landmark: z.string().nullable().default(null),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 
@@ -345,6 +415,10 @@ export interface PartnerPort {
   demandMap(actor: Actor): Promise<PartnerDemandMap>;
   /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
   answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
+  /** «مشاوير باچر» (review #28): rides booked for later he confirmed, and the ones he may confirm. */
+  bookedJobs(actor: Actor): Promise<PartnerBookedJobs>;
+  /** Confirm / pass on an open booked job, release or start his own; answers with the fresh list. */
+  answerBookedJob(actor: Actor, input: AnswerBookedJobInput): Promise<PartnerBookedJobs>;
 }
 
 /** Where the orders are (maps program d5). */

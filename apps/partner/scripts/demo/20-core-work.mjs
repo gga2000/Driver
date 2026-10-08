@@ -186,7 +186,8 @@ export default async function register(demo) {
         rideVertical: 'tuktuk',
         pickup: { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } },
         dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
-        scheduledFor: new Date(Date.now() + 25 * 60_000),
+        // On the 5-minute booking grid (rideScheduleProblem 'off_grid'), 25–30 minutes ahead.
+        scheduledFor: new Date(Math.ceil((Date.now() + 25 * 60_000) / 300_000) * 300_000),
         favouriteId: fav.id,
       });
       const trip = await trips.activeForOrder(ride.id);

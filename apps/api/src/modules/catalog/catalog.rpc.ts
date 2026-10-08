@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   CATALOG_PUBLIC_RATE,
@@ -9,6 +9,7 @@ import {
   SMALL_ORDER_FEE_IQD,
   carryModifierPicks,
   cashToHand,
+  kiloPriceOf,
   matchDish,
   menuDealOf,
   similarKitchens,
@@ -16,6 +17,8 @@ import {
   deliveryFeesOf,
   searchScore,
   type Actor,
+  type CatalogCraving,
+  type CatalogCravingsInput,
   type CatalogPicksInput,
   type CarryOverInput,
   type CarryOverPreview,
@@ -49,7 +52,7 @@ import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
-import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The signed-in person behind a catalog read, if any. */
 function readerPerson(reader: Actor | CatalogReader): string | null {
@@ -140,6 +143,7 @@ const TODAY_TUKTUK_ZONE = 'centre';
  */
 @Injectable()
 export class CatalogRpc implements CustomerCatalogPort {
+  private readonly log = new Logger(CatalogRpc.name);
   private readonly clock: Clock;
   private readonly guests: WindowCounter;
   private readonly eta: EtaService;
@@ -337,10 +341,12 @@ export class CatalogRpc implements CustomerCatalogPort {
             priceIqd: view.priceIqd,
             photoUrl: view.photoUrl,
             available: view.available,
+            quickAdd: oneTap(view),
             restaurantId: card.id,
             restaurantName: card.name,
             restaurantOpen: card.open,
             restaurantOpensAt: card.opensAt,
+            kiloIqd: kiloPriceOf(view),
           },
         });
       }
@@ -407,10 +413,12 @@ export class CatalogRpc implements CustomerCatalogPort {
             priceIqd: view.priceIqd,
             photoUrl: view.photoUrl,
             available: true,
+            quickAdd: oneTap(view),
             restaurantId: card.id,
             restaurantName: card.name,
             restaurantOpen: true,
             restaurantOpensAt: null,
+            kiloIqd: kiloPriceOf(view),
           },
         });
       }
@@ -428,6 +436,55 @@ export class CatalogRpc implements CustomerCatalogPort {
     take((f) => !out.some((o) => o.rank === f.rank));
     take(() => true);
     return out.map((f) => f.dish);
+  }
+
+  /**
+   * `catalog.cravings` (food doors, d5/k9): per kind, the open shops that have it now and their best
+   * dish for it — a dish counts when one of the kind's words starts a word of its name (`searchScore`
+   * ≥ 2, like `picks`); per shop the closest name wins, then the cheaper. Shops in a kind: best match,
+   * then cheapest. Kinds with no shop are dropped.
+   */
+  async cravings(reader: Actor | CatalogReader, input: z.infer<typeof CatalogCravingsInput>): Promise<CatalogCraving[]> {
+    await this.admit(reader);
+    const now = this.clock.now();
+    const kinds = input.kinds.map((k) => ({ key: k.key, words: k.words.map((w) => foldArabic(w)).filter(Boolean) }));
+    const found = new Map<string, Array<{ score: number; dish: CatalogSearchDish }>>(kinds.map((k) => [k.key, []]));
+    for (const s of await this.catalog.storefronts(input.cityId)) {
+      const items = await this.catalog.menu(s.orgId);
+      const card = await this.card(s, items, input.dropoff ?? null, now);
+      if (!card.open) continue;
+      const views = items.map((item) => menuItemView(item, now, this.merchants.timeZone, this.photo)).filter((v) => v.available);
+      for (const kind of kinds) {
+        let best: { score: number; dish: CatalogSearchDish } | null = null;
+        for (const view of views) {
+          const score = Math.max(0, ...kind.words.map((w) => searchScore(w, view.name)));
+          if (score < 2) continue;
+          if (best && (score < best.score || (score === best.score && view.priceIqd >= best.dish.priceIqd))) continue;
+          best = {
+            score,
+            dish: {
+              id: view.id,
+              name: view.name,
+              description: view.description,
+              priceIqd: view.priceIqd,
+              photoUrl: view.photoUrl,
+              available: true,
+              quickAdd: oneTap(view),
+              restaurantId: card.id,
+              restaurantName: card.name,
+              restaurantOpen: true,
+              restaurantOpensAt: null,
+              kiloIqd: kiloPriceOf(view),
+            },
+          };
+        }
+        if (best) found.get(kind.key)!.push(best);
+      }
+    }
+    return kinds.flatMap((k) => {
+      const dishes = found.get(k.key)!.sort((a, b) => b.score - a.score || a.dish.priceIqd - b.dish.priceIqd || a.dish.restaurantName.localeCompare(b.dish.restaurantName, 'ar'));
+      return dishes.length > 0 ? [{ key: k.key, dishes: dishes.map((d) => d.dish) }] : [];
+    });
   }
 
   /**
@@ -490,7 +547,11 @@ export class CatalogRpc implements CustomerCatalogPort {
   private async admit(reader: Actor | CatalogReader): Promise<void> {
     if ('personId' in reader || reader.actor || !reader.ip) return;
     const hit = await this.guests.hit(`catalog:guest:${reader.ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
-    if (!hit.allowed) throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    if (!hit.allowed) {
+      // Logged so a carrier-NAT address full of real guests shows up in the logs, not as silent refusals.
+      this.log.warn(`guest catalog limit hit (${CATALOG_PUBLIC_RATE.perIp}/min) for one address; retry in ${hit.retryAfterSec}s`);
+      throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    }
   }
 
   private matches(s: StorefrontRecord, items: readonly CatalogItemRecord[], q: string): boolean {

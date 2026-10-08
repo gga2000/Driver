@@ -21,7 +21,6 @@ import {
   type IdentityPort,
   type LinkGuardianInput,
   type MeView,
-  type OtpPurpose,
   type RequestOrigin,
   type RequestOtpInput,
   type RequestOtpOutput,
@@ -38,12 +37,13 @@ import {
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
+import { EventOtpAlerts, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { GuardianService, guardianView } from './guardian.service.js';
 import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
-import { InMemoryRateLimiter, OtpRequestGuard } from './rate-limit.js';
+import { OtpGuard } from './rate-limit.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
@@ -53,7 +53,7 @@ import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
 export const OTP_WHATSAPP = Symbol('OTP_WHATSAPP');
 
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
-/** The OTP request guard (per-IP / per-device limits); bound by the module, Redis-backed when configured. */
+/** The one OTP guard (`rate-limit.ts`); bound by the module on the shared window counter. */
 export const OTP_REQUEST_GUARD = Symbol('OTP_REQUEST_GUARD');
 
 type RequestOtp = z.infer<typeof RequestOtpInput>;
@@ -95,7 +95,6 @@ export class IdentityService implements IdentityPort {
   private readonly otp: OtpService;
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
-  private readonly otpGuard: OtpRequestGuard;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -107,11 +106,11 @@ export class IdentityService implements IdentityPort {
     private readonly uow: UnitOfWork,
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
-    @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpRequestGuard,
+    @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
   ) {
-    this.otpGuard = otpGuard ?? new OtpRequestGuard(new InMemoryRateLimiter(clock));
-    this.otp = new OtpService(repo, sms, clock, pepper, otpWhatsApp);
+    const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
+    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
   }
@@ -126,16 +125,13 @@ export class IdentityService implements IdentityPort {
   // ───────────────────────── OTP + login ─────────────────────────
 
   /**
-   * Sends a code. M2 review follow-up: every request counts against its client IP (10/hour) and its
-   * device (5/hour) before anything else happens — `rate_limited` with `retryAfterSec` beyond that.
-   * Internal callers pass no origin and are not counted.
+   * Sends a sign-in code. The OTP guard counts it per number, device and client IP (`rate_limited`
+   * with `retryAfterSec` beyond a hard limit) and picks the channel when the person did not.
    */
   async requestOtp(input: RequestOtp, origin: RequestOrigin = {}): Promise<z.infer<typeof RequestOtpOutput>> {
-    await this.otpGuard.check({ ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
-    const purpose: OtpPurpose = input.purpose ?? 'login';
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
-      const res = await this.otp.request(e164, hash, purpose, tx, input.channel ?? 'sms');
+      const res = await this.otp.request(e164, hash, 'login', tx, input.channel, { ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
       return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel };
     });
   }
@@ -147,8 +143,9 @@ export class IdentityService implements IdentityPort {
    */
   async verifyOtp(input: VerifyOtp): Promise<z.infer<typeof VerifyOtpOutput>> {
     const { e164, hash } = this.phone(input.phone);
+    const challenge = await this.otp.check(hash, 'login', input.code);
     return this.uow.run(async (tx) => {
-      await this.otp.verify(hash, 'login', input.code, tx);
+      await this.otp.consume(challenge, tx);
       const now = this.clock.now();
       let person = await this.repo.findPersonByPhoneHash(hash, tx);
       let isNew = false;
@@ -1083,14 +1080,13 @@ export class IdentityService implements IdentityPort {
   }
 
   async consentGuardianLink(actor: Actor, input: z.infer<typeof ConsentGuardianLinkInput>): Promise<GuardianLinkView> {
-    return this.uow.run(async (tx) => {
-      const link = await this.repo.findGuardianLink(input.linkId, tx);
-      if (!link || !link.wardPersonId) throw new DriverError('guardian_link_not_found');
-      const wardIdentity = await this.repo.readIdentity(link.wardPersonId, tx);
-      if (!wardIdentity) throw new DriverError('guardian_link_not_found');
-      const active = await this.guardians.consent(link.id, wardIdentity.phoneHash, input.code, actor.personId, tx);
-      return guardianView(active);
-    });
+    const link = await this.repo.findGuardianLink(input.linkId);
+    if (!link || !link.wardPersonId) throw new DriverError('guardian_link_not_found');
+    const wardIdentity = await this.repo.readIdentity(link.wardPersonId);
+    if (!wardIdentity) throw new DriverError('guardian_link_not_found');
+    // The code is checked before the transaction opens (see `OtpService.check`).
+    const challenge = await this.otp.check(wardIdentity.phoneHash, 'guardian_consent', input.code);
+    return this.uow.run(async (tx) => guardianView(await this.guardians.consent(link.id, challenge, actor.personId, tx)));
   }
 
   async revokeGuardianLink(actor: Actor, input: z.infer<typeof RevokeGuardianLinkInput>): Promise<GuardianLinkView> {
@@ -1107,20 +1103,23 @@ export class IdentityService implements IdentityPort {
       const next = this.phone(input.newPhone);
       if (next.hash === current.phoneHash) throw new DriverError('phone_change_same_number');
       if (await this.repo.findPersonByPhoneHash(next.hash, tx)) throw new DriverError('phone_change_taken');
-      const a = await this.otp.request(current.phoneE164, current.phoneHash, 'phone_change', tx);
-      await this.otp.request(next.e164, next.hash, 'phone_change', tx);
+      const a = await this.otp.request(current.phoneE164, current.phoneHash, 'phone_change', tx, undefined, { actorId: actor.personId });
+      await this.otp.request(next.e164, next.hash, 'phone_change', tx, undefined, { actorId: actor.personId });
       this.phoneChanges.set(actor.personId, { newE164: next.e164, newHash: next.hash, startedAt: this.clock.now() });
       return { oldPhoneMasked: maskPhone(current.phoneE164), newPhoneMasked: next.masked, expiresAt: a.expiresAt };
     });
   }
 
   async changePhoneConfirm(actor: Actor, input: ChangePhoneConfirm): Promise<MeView> {
+    const pending = this.phoneChanges.get(actor.personId);
+    const current = await this.repo.readIdentity(actor.personId);
+    if (!pending || !current) throw new DriverError('phone_change_not_started');
+    // Both codes are checked before the transaction opens (see `OtpService.check`).
+    const oldChallenge = await this.otp.check(current.phoneHash, 'phone_change', input.oldCode);
+    const newChallenge = await this.otp.check(pending.newHash, 'phone_change', input.newCode);
     await this.uow.run(async (tx) => {
-      const pending = this.phoneChanges.get(actor.personId);
-      const current = await this.repo.readIdentity(actor.personId, tx);
-      if (!pending || !current) throw new DriverError('phone_change_not_started');
-      await this.otp.verify(current.phoneHash, 'phone_change', input.oldCode, tx);
-      await this.otp.verify(pending.newHash, 'phone_change', input.newCode, tx);
+      await this.otp.consume(oldChallenge, tx);
+      await this.otp.consume(newChallenge, tx);
       if (await this.repo.findPersonByPhoneHash(pending.newHash, tx)) throw new DriverError('phone_change_taken');
       const now = this.clock.now();
       await this.repo.updateIdentity(actor.personId, { phoneE164: pending.newE164, phoneHash: pending.newHash }, tx);

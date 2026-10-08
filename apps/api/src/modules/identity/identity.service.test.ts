@@ -3,7 +3,6 @@ import { SignJWT } from 'jose';
 import { DriverError } from '@driver/contracts';
 import { MIN_SECRET_LENGTH, REFRESH_REUSE_GRACE_SEC, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { hashPhone, maskPhone, normalizeIraqiPhone } from './phone.js';
-import { otpRateLimitsFromEnv } from './rate-limit.js';
 import { harness, PEPPER } from './test-harness.js';
 
 const PHONE = '07712345678';
@@ -88,15 +87,15 @@ describe('OTP login', () => {
     await expect(h.service.verifyOtp({ phone: PHONE, code: h.sms.lastCodeFor('+9647712345678')! })).resolves.toMatchObject({ isNew: true });
   });
 
-  it('review C1: a miss is counted even though its transaction rolls back (login)', async () => {
+  it('review C1 / SEC-01: a miss is counted on its own, before any sign-in transaction opens (login)', async () => {
     const h = harness();
     await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
     const real = h.sms.lastCodeFor('+9647712345678')!;
     const wrong = real === '000000' ? '111111' : '000000';
-    // The harness UnitOfWork undoes every in-tx write of the in-memory repo on rollback, like Postgres.
+    // The code is checked outside the transaction, so a wrong one never opens (or rolls back) one.
     const before = h.log.length;
     await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_invalid');
-    expect(h.log.slice(before)).toEqual([expect.stringMatching(/^rollback/)]);
+    expect(h.log.slice(before)).toEqual([]);
     expect(h.repo.otps.at(-1)!.attempts).toBe(1);
     for (let i = 0; i < 3; i += 1) await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_invalid');
     await expectCode(h.service.verifyOtp({ phone: PHONE, code: wrong }), 'otp_locked');
@@ -152,43 +151,6 @@ describe('OTP login', () => {
     h.clock.advanceSeconds(180);
     await expectCode(h.service.verifyOtp({ phone: PHONE, code }), 'otp_expired');
     expect(h.sms.sentTo('+9647712345678')).toHaveLength(2);
-  });
-
-  it('M2 follow-up: requestOtp is rate-limited per IP (10/hour) with retryAfterSec', async () => {
-    const h = harness();
-    const phone = (i: number) => `0771200${String(i).padStart(4, '0')}`;
-    for (let i = 0; i < 10; i += 1) await h.service.requestOtp({ phone: phone(i), purpose: 'login' }, { ip: '203.0.113.7' });
-    const err = await h.service.requestOtp({ phone: phone(10), purpose: 'login' }, { ip: '203.0.113.7' }).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(DriverError);
-    expect((err as DriverError).code).toBe('rate_limited');
-    expect((err as DriverError).envelope).toMatchObject({ retryHint: 'later', retryAfterSec: 3600 });
-    expect(h.sms.sentTo('+9647712000010')).toHaveLength(0);
-    // Another IP is not affected; the window ends after an hour.
-    await expect(h.service.requestOtp({ phone: phone(11), purpose: 'login' }, { ip: '198.51.100.1' })).resolves.toBeTruthy();
-    h.clock.advanceSeconds(20 * 60);
-    expect(((await h.service.requestOtp({ phone: phone(12), purpose: 'login' }, { ip: '203.0.113.7' }).catch((e: unknown) => e)) as DriverError).envelope.retryAfterSec).toBe(2400);
-    h.clock.advanceSeconds(40 * 60);
-    await expect(h.service.requestOtp({ phone: phone(13), purpose: 'login' }, { ip: '203.0.113.7' })).resolves.toBeTruthy();
-  });
-
-  it('M2 follow-up: requestOtp is rate-limited per device (5/hour), whatever the IP; limits are config', async () => {
-    const h = harness();
-    const phone = (i: number) => `0771300${String(i).padStart(4, '0')}`;
-    for (let i = 0; i < 5; i += 1) await h.service.requestOtp({ phone: phone(i), purpose: 'login', device: DEV_A }, { ip: `10.0.0.${i}` });
-    await expectCode(h.service.requestOtp({ phone: phone(5), purpose: 'login', device: DEV_A }, { ip: '10.0.0.99' }), 'rate_limited');
-    await expect(h.service.requestOtp({ phone: phone(6), purpose: 'login', device: DEV_B }, { ip: '10.0.0.99' })).resolves.toBeTruthy();
-
-    const strict = harness('2026-10-02T09:00:00Z', { otpRateLimits: { perIpPerHour: 2, perDevicePerHour: 1 } });
-    await strict.service.requestOtp({ phone: phone(20), purpose: 'login', device: DEV_A }, { ip: '10.1.1.1' });
-    await expectCode(strict.service.requestOtp({ phone: phone(21), purpose: 'login', device: DEV_A }, { ip: '10.1.1.2' }), 'rate_limited');
-    await strict.service.requestOtp({ phone: phone(22), purpose: 'login' }, { ip: '10.1.1.1' });
-    await expectCode(strict.service.requestOtp({ phone: phone(23), purpose: 'login' }, { ip: '10.1.1.1' }), 'rate_limited');
-  });
-
-  it('M2 follow-up: limits come from config (OTP_RATE_LIMIT_PER_IP_HOUR / _PER_DEVICE_HOUR, defaults 10 and 5)', () => {
-    expect(otpRateLimitsFromEnv({})).toEqual({ perIpPerHour: 10, perDevicePerHour: 5 });
-    expect(otpRateLimitsFromEnv({ OTP_RATE_LIMIT_PER_IP_HOUR: '30', OTP_RATE_LIMIT_PER_DEVICE_HOUR: '3' })).toEqual({ perIpPerHour: 30, perDevicePerHour: 3 });
-    expect(() => otpRateLimitsFromEnv({ OTP_RATE_LIMIT_PER_IP_HOUR: 'lots' })).toThrow();
   });
 
   it('a code cannot be used twice', async () => {

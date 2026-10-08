@@ -38,3 +38,9 @@ export function lineAmount(line: Pick<WalletLine, 'amount' | 'unit' | 'method'>,
 export function balanceText(amount: number, locale: MoneyLocale, t: T): string {
   return amount < 0 ? t('wallet.you_owe', { amount: amountParam(-amount) }) : iqd(amount, { locale });
 }
+
+/** "18/10": a day on Baghdad's clock, whatever time zone the phone is set to (audit REL-21). */
+export function cityDateText(at: Date, t: T): string {
+  const { day, month } = cityParts(at);
+  return t('time.date', { day, month });
+}

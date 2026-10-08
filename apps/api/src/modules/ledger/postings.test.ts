@@ -10,7 +10,9 @@ import {
   pointsForRideTake,
   postCancellation,
   postDepartureCancelled,
+  postDriverCancelled,
   postLateMeter,
+  postMerchantLateReject,
   postOrderClosed,
   postPoints,
   postReferral,
@@ -22,6 +24,7 @@ import {
   roundCustomerTotal,
   takeOf,
   type PostingGroup,
+  LATE_TAXI_MEMO,
 } from './postings.js';
 import { workedExample } from './test-harness.js';
 
@@ -273,6 +276,19 @@ describe('late meter — 100 % to the wronged party', () => {
     expect(g.lines.every((l) => l.fromAccount !== 'platform' && l.toAccount !== 'platform')).toBe(true);
   });
 
+  it('x3: the blocks that ran while our own late taxi was due are the company\'s; the rider pays only the rest', () => {
+    const late = { departureId: 'dep1', occurredAt: at, minutesLate: 18, late: { kind: 'rider' as const, id: 'r9' }, driverId: 'd2', waitingRiderIds: ['r1'] };
+    const g = postLateMeter({ ...late, taxiLateMinutes: 12 }, rules)!; // 2 blocks: 1 ours (12 min), 1 his
+    validateGroup(g);
+    expect(nets(g)).toEqual({ 'customer:r9': -1500, platform: -1500, 'driver:d2': 2000, 'customer:r1': 1000 });
+    expect(g.lines.filter((l) => l.fromAccount === 'platform').every((l) => l.memo === LATE_TAXI_MEMO)).toBe(true);
+    // Taxi due after he arrived: the whole meter is ours.
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 30 }, rules)!)).toEqual({ platform: -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
+    // Switched off: the rider pays it all, as before.
+    const off = { ...rules, lateTaxiPaysMeter: { enabled: false } };
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 12 }, off)!)).toEqual({ 'customer:r9': -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
+  });
+
   it('late driver pays each waiting rider from his balance; inside the grace nothing posts', () => {
     const g = postLateMeter({ departureId: 'dep1', occurredAt: at, minutesLate: 9, late: { kind: 'driver', id: 'd2' }, driverId: 'd2', waitingRiderIds: ['r1', 'r2'] }, rules)!;
     expect(nets(g)).toEqual({ 'driver:d2': -2000, 'customer:r1': 1000, 'customer:r2': 1000 });
@@ -300,6 +316,35 @@ describe('cancellations', () => {
     validateGroup(g);
     expect(g.lines.map((l) => l.amount)).toEqual([667, 667, 666]);
     expect(postDepartureCancelled({ departureId: 'dep3', occurredAt: at, driverId: 'd2', cancelledBy: 'low_fill', feeIqd: 2000, riderIds: ['a'] })).toBeNull();
+  });
+
+  it('M-15: a driver cancelling after arriving moves 500 from him to the customer, once per trip; no credit posts nothing', () => {
+    const base = { orderId: 'o9', tripId: 't9', occurredAt: at, customerId: 'c1', driverId: 'd1', scoringHit: true };
+    const g = postDriverCancelled({ ...base, customerCreditIqd: 500, creditFundedBy: 'driver' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o9:driver_cancel:t9');
+    expect(nets(g)).toEqual({ 'driver:d1': -500, 'customer:c1': 500 });
+    expect(postDriverCancelled({ ...base, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+  });
+
+  it('M-17: a merchant rejecting after accepting moves 500 from his cash account to the customer, once per order', () => {
+    const base = { from: 'preparing' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص', afterAccept: true };
+    const g = postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o4:merchant_late_reject');
+    expect(g.lines.map((l) => [l.type, l.amount, l.memo])).toEqual([['cancellation_fee', 500, 'merchant_late_reject']]);
+    expect(nets(g)).toEqual({ 'merchant_cash:m1': -500, 'customer:c1': 500 });
+    // Redelivery builds the same group id, so the ledger records it once.
+    expect(postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!.id).toBe(g.id);
+  });
+
+  it('M-17: the switch off, or a reject before accepting, posts nothing', () => {
+    const base = { from: 'merchant_accepted' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص' };
+    expect(postMerchantLateReject({ ...base, afterAccept: true, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    expect(postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    // A credit the producer could not back (no merchant, or before acceptance) fails the contract.
+    expect(() => postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
+    expect(() => postMerchantLateReject({ ...base, merchantOrgId: undefined, afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
   });
 });
 

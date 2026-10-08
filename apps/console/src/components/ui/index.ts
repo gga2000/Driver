@@ -11,6 +11,7 @@ export * from './table';
 export * from './tabs';
 export * from './field';
 export * from './empty';
+export * from './boundary';
 export * from './overlay';
 export * from './toast';
 export * from './misc';

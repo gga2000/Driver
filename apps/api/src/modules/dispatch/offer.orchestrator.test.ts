@@ -229,9 +229,21 @@ describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)
     const r = await h.service.getRequest('t1');
     expect(r).toMatchObject({ customerMayCancelFree: true, status: 'needs_dispatcher', red: true });
     expect(h.events.types()).toContain('dispatch.free_cancel_available');
+    // NTF-04: a request with no order (this one) says nothing more; the rider's push needs the order.
+    expect(h.events.last('dispatch.free_cancel_available')?.payload).not.toHaveProperty('orderId');
     expect((await h.offers('t1')).filter((o) => o.state === 'sent' || o.state === 'seen')).toEqual([]);
     const card = (await h.service.board('aziziyah')).cards[0]!;
     expect(card).toMatchObject({ customerMayCancelFree: true, status_ar: 'يحتاج الديسباتشر' });
+  });
+});
+
+describe('NTF-04: no driver in time', () => {
+  it('the free-cancel event carries the ride\'s order, so the rider hears «ما لگينا سايق هسة»', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1', { orderId: 'o1' });
+    await h.advance(200);
+    expect(h.events.last('dispatch.free_cancel_available')?.payload).toMatchObject({ orderId: 'o1', vertical: 'taxi' });
   });
 });
 

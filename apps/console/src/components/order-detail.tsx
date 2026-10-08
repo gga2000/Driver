@@ -569,7 +569,7 @@ function storySentence(steps: readonly StoryStep[], ride: boolean): string {
   return steps
     .filter((s) => s.at)
     .map((s) => `${stepLabel(s, ride)} ${formatClock(s.at!)}`)
-    .join('، ');
+    .join(t('console.list_sep'));
 }
 
 // ───────────────────────── main: the order and its money, or its chats ─────────────────────────

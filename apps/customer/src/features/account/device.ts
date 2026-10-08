@@ -1,9 +1,11 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { PHOTO_MAX_BYTES, type LatLng, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
 import { API_URL } from '@/lib/api';
 import { absoluteUrl } from './geo';
+import { fitLongSide } from './photo-size';
 
 /**
  * Device capabilities the account screens use: the gate photo (camera on a phone, file picker on
@@ -36,7 +38,20 @@ export async function pickGatePhoto(source: PhotoSource): Promise<PickedPhoto | 
   const res = useCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
   const asset = res.canceled ? null : res.assets[0];
   if (!asset) return null;
-  return { uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) };
+  return shrinkPhoto({ uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) }, asset.width, asset.height);
+}
+
+/** Resizes a big photo before upload; if that fails for any reason the original is sent as before. */
+async function shrinkPhoto(photo: PickedPhoto, width: number, height: number): Promise<PickedPhoto> {
+  const resize = fitLongSide(width, height);
+  if (!resize) return photo;
+  try {
+    const image = await ImageManipulator.manipulate(photo.uri).resize(resize).renderAsync();
+    const out = await image.saveAsync({ compress: 0.7, format: SaveFormat.JPEG });
+    return { uri: out.uri, contentType: 'image/jpeg' };
+  } catch {
+    return photo;
+  }
 }
 
 /**
@@ -54,16 +69,37 @@ export async function uploadPhoto(photo: PickedPhoto, requestTicket: (input: { c
 
 export type Fix = { pin: LatLng; accuracyM: number | null };
 
-/** One GPS fix; 'denied' when location permission is refused, null when no fix came. */
+/** A GPS read never hangs the screen (audit FLOW-22): after this long the last fix of the past minute is used, or none. */
+export const FIX_TIMEOUT_MS = 10_000;
+const LAST_KNOWN_MAX_AGE_MS = 60_000;
+
+/** One GPS fix; 'denied' when location permission is refused, null when no fix came in time. */
 export async function currentFix(): Promise<Fix | 'denied' | null> {
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
     if (!perm.granted) return 'denied';
-    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-    return { pin: { lat: pos.coords.latitude, lng: pos.coords.longitude }, accuracyM: pos.coords.accuracy ?? null };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), FIX_TIMEOUT_MS);
+    });
+    const pos = await Promise.race([Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }), late]).finally(() => clearTimeout(timer));
+    const got = pos ?? (await Location.getLastKnownPositionAsync({ maxAge: LAST_KNOWN_MAX_AGE_MS }).catch(() => null));
+    return got ? { pin: { lat: got.coords.latitude, lng: got.coords.longitude }, accuracyM: got.coords.accuracy ?? null } : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The toast for a refused location permission, with a button to the phone's settings (audit FLOW-22);
+ * the web has no settings to open, so it keeps the words only.
+ */
+export function locationDeniedToast(t: (key: 'error.location_denied' | 'location.open_settings') => string) {
+  return {
+    message: t('error.location_denied'),
+    tone: 'danger' as const,
+    ...(Platform.OS === 'web' ? {} : { action: { label: t('location.open_settings'), onPress: () => void Linking.openSettings().catch(() => undefined) } }),
+  };
 }
 
 /** Photo URLs from the API may be relative to its origin (dev storage). */

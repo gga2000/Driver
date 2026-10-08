@@ -28,6 +28,8 @@ import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
+import type { OnCallServicePort } from './on-call-io.js';
+import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
@@ -45,7 +47,8 @@ import { transformer } from './transformer.js';
  * internals. The API supplies the implementation through `AppContext`.
  */
 export interface AppContext {
-  pricing: { quote(req: PriceRequest): Quote };
+  /** The quote a client may book with: kept server-side for a while (LOAD-01), hence async. */
+  pricing: { quote(req: PriceRequest): Quote | Promise<Quote> };
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
@@ -121,6 +124,9 @@ export interface AppContext {
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */
   garageTaxi: GarageTaxiPort;
+  /** Console E1: the on-call roster and the alert ladder (`modules/on-call`). */
+  onCall: OnCallServicePort;
+  inbox: InboxServicePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
@@ -141,7 +147,12 @@ export function toTrpcError(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'internal', cause: err });
 }
 
-export const t = initTRPC.context<AppContext>().create({
+/** Procedure metadata: the roles a protected procedure admits (read by the audit coverage test, CON-10). */
+export interface ProcedureMeta {
+  roles?: readonly RoleKind[];
+}
+
+export const t = initTRPC.context<AppContext>().meta<ProcedureMeta>().create({
   transformer,
   // `live.*` subscriptions over SSE: a keep-alive comment so proxies keep idle streams open, and the
   // client reconnects when even those stop arriving.
@@ -183,23 +194,39 @@ export const publicProcedure = t.procedure.use(async ({ next }) => {
 });
 
 /**
+ * The caller's live roles, read once per HTTP request (CON-21): the Console batches several calls
+ * into one request, and each used to cost up to one query per allowed role. Keyed by the request's
+ * decoded token object, so the cache dies with the request and a revoked or frozen role still takes
+ * effect on the very next request.
+ */
+const rolesThisRequest = new WeakMap<object, Promise<ReadonlySet<RoleKind>>>();
+
+async function allowedFor(ctx: AppContext, personId: string, roles: readonly RoleKind[]): Promise<boolean> {
+  const identity = ctx.identity;
+  if (!identity.activeRoles || !ctx.auth) {
+    for (const kind of roles) if (await identity.hasRole(personId, kind)) return true;
+    return false;
+  }
+  let held = rolesThisRequest.get(ctx.auth);
+  if (!held) {
+    held = identity.activeRoles(personId).then((r) => new Set(r));
+    rolesThisRequest.set(ctx.auth, held);
+    // A failed read is not remembered: the next call in the batch asks again.
+    held.catch(() => rolesThisRequest.delete(ctx.auth!));
+  }
+  const set = await held;
+  return roles.some((k) => set.has(k));
+}
+
+/**
  * Requires a valid access token; with `roles`, requires at least one of them (live lookup, so a
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.use(async ({ ctx, next }) => {
+  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
-    if (roles && roles.length > 0) {
-      let allowed = false;
-      for (const kind of roles) {
-        if (await ctx.identity.hasRole(actor.personId, kind)) {
-          allowed = true;
-          break;
-        }
-      }
-      if (!allowed) throw toTrpcError(new DriverError('forbidden'));
-    }
+    if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
     return next({ ctx: { ...ctx, actor } });
   });
 }

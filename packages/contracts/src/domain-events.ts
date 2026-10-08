@@ -3,6 +3,7 @@ import { CityId, DeliveryPoint, Iqd, Vertical } from './common.js';
 import { ComplimentKey } from './order-compliment.js';
 import {
   DepartureCancelledPayload,
+  DriverCancelledPayload,
   ErrandMoneyPayload,
   LateMeterPayload,
   MerchantSettlementRequestedPayload,
@@ -11,8 +12,10 @@ import {
   SeatMoneyPayload,
   SubscriptionChargePayload,
 } from './ledger-io.js';
+import { DriverDocumentKind } from './driver-account-io.js';
 import { CommissionTier } from './ledger-rules.js';
-import { OrderState, OrderType, PaymentMethod } from './order.js';
+import { OrderState, OrderType, PaymentMethod, RatingScore } from './order.js';
+import { StuckReason } from './order-staff-io.js';
 import { StopType, TripState, VehicleClass } from './trip.js';
 
 /**
@@ -191,6 +194,37 @@ export const OrderCancelledPayload = z
 export type OrderCancelledPayload = z.infer<typeof OrderCancelledPayload>;
 
 /**
+ * `order.rejected`: the kitchen rejected the order (or the offer timed out, `auto`). After it had
+ * accepted (`afterAccept`) the spec owes the customer `customerCreditIqd` (500) from the merchant
+ * (M-17): the ledger posts it merchant cash → customer wallet, once per order. 0 before acceptance,
+ * on an auto-reject, or while the money rule `merchantLateRejectCredit` is off. Unknown keys pass
+ * through (the inbox and Console read the envelope); the ids are optional so events written before
+ * M-17 still decode, but a credit needs them.
+ */
+export const OrderRejectedPayload = z
+  .object({
+    from: OrderState.optional(),
+    to: z.literal('merchant_rejected').optional(),
+    orderId: z.string().min(1).optional(),
+    occurredAt: z.coerce.date().optional(),
+    customerId: z.string().min(1).optional(),
+    householdId: z.string().min(1).optional(),
+    merchantOrgId: z.string().min(1).optional(),
+    reason: z.string().min(1).optional(),
+    auto: z.boolean().default(false),
+    scored: z.boolean().optional(),
+    afterAccept: z.boolean().default(false),
+    customerCreditIqd: Iqd.nonnegative().default(0),
+    creditFundedBy: z.enum(['merchant']).nullable().default(null),
+  })
+  .passthrough()
+  .refine((r) => r.customerCreditIqd === 0 || (r.afterAccept && r.creditFundedBy === 'merchant' && !!r.orderId && !!r.customerId && !!r.merchantOrgId && !!r.occurredAt), {
+    message: 'a late-reject credit needs afterAccept, creditFundedBy merchant, orderId, customerId, merchantOrgId and occurredAt',
+    path: ['customerCreditIqd'],
+  });
+export type OrderRejectedPayload = z.infer<typeof OrderRejectedPayload>;
+
+/**
  * `merchant.payable_accrued`: a cash order created the merchant's payable net of commission and a
  * courier now holds it (decisions §3). Informational for the Merchant app; the ledger posts the
  * payable from `order.cash_collected` (same numbers, one posting group).
@@ -276,6 +310,90 @@ export const StopCompletedPayload = z.object({
 });
 export type StopCompletedPayload = z.infer<typeof StopCompletedPayload>;
 
+// ───────────────────────── safety → on-call ─────────────────────────
+
+/** What kind of safety incident pages the desk (SOS today; reports and خطوط alerts later). */
+export const SafetyIncidentKind = z.enum(['sos', 'safety_report', 'sweep_alert', 'pin_alert']);
+export type SafetyIncidentKind = z.infer<typeof SafetyIncidentKind>;
+
+/**
+ * `safety.incident_opened`: a safety incident row has committed. The on-call module (rota,
+ * escalation after the first page) reads it; safety's own first page goes out on `sos.raised`.
+ */
+export const SafetyIncidentOpenedPayload = z.object({
+  incidentId: z.string().min(1),
+  kind: SafetyIncidentKind,
+  cityId: CityId,
+  zoneKey: z.string().nullable(),
+  orderId: z.string().nullable(),
+  rideId: z.string().nullable(),
+  tripId: z.string().nullable(),
+  createdAt: z.coerce.date(),
+});
+export type SafetyIncidentOpenedPayload = z.infer<typeof SafetyIncidentOpenedPayload>;
+
+/** `safety.incident_acked`: a staff person took the incident (stops the on-call escalation). */
+export const SafetyIncidentAckedPayload = z.object({ incidentId: z.string().min(1), byPersonId: z.string().min(1) });
+export type SafetyIncidentAckedPayload = z.infer<typeof SafetyIncidentAckedPayload>;
+
+/** `safety.incident_closed`: resolved by staff, or cancelled by the person who pressed (a false alarm). */
+export const SafetyIncidentClosedPayload = z.object({
+  incidentId: z.string().min(1),
+  outcome: z.enum(['safe', 'false_alarm', 'emergency', 'escalated']),
+  /** Staff who resolved it; null when the person cancelled it themselves. */
+  byPersonId: z.string().nullable(),
+});
+export type SafetyIncidentClosedPayload = z.infer<typeof SafetyIncidentClosedPayload>;
+
+// ───────────────────────── staff "Today" list (Console) ─────────────────────────
+
+/**
+ * `order.rated`: the customer's first scored rating landed, in the rating's own transaction. `stars`
+ * is the delivery score (courier/driver), or the food score when he scored only the food.
+ */
+export const OrderRatedPayload = z.object({ orderId: z.string().min(1), stars: RatingScore, cityId: CityId });
+export type OrderRatedPayload = z.infer<typeof OrderRatedPayload>;
+
+/**
+ * `courier.cash_over_cap` / `courier.cash_under_cap`: a ledger posting moved a driver across his
+ * cash cap (money §4; exactly at the cap counts as over), emitted only on the crossing and in the
+ * posting's transaction. `cashIqd` is what counts against the cap after the posting (owed =
+ * cash he holds that is not his, net of what the platform owes him); `capIqd` his cap by role and tier.
+ */
+export const CourierCashCapPayload = z.object({ courierId: z.string().min(1), cashIqd: Iqd.nonnegative(), capIqd: Iqd.positive(), cityId: CityId });
+export type CourierCashCapPayload = z.infer<typeof CourierCashCapPayload>;
+
+/** `order.stuck`: the order entered the stuck list (`orders.ops.stuck`), seen by the W3 watchdog. `since` = when its state's clock started. */
+export const OrderStuckPayload = z.object({ orderId: z.string().min(1), cityId: CityId, reason: StuckReason, since: z.coerce.date() });
+export type OrderStuckPayload = z.infer<typeof OrderStuckPayload>;
+
+/** `order.unstuck`: the order left the stuck list. `by` = who moved it out (the actor of its latest event; `system` for a timer). */
+export const OrderUnstuckPayload = z.object({ orderId: z.string().min(1), cityId: CityId, by: z.string().min(1) });
+export type OrderUnstuckPayload = z.infer<typeof OrderUnstuckPayload>;
+
+/** `order.merchant_unresponsive`: the kitchen is past its promised time with no heartbeat (dispatcher card, call). `cityId` optional: older events have none. */
+export const OrderMerchantUnresponsivePayload = z.object({
+  merchantOrgId: z.string().min(1),
+  promisedReadyAt: z.string().nullable(),
+  lastHeartbeatAt: z.string().nullable(),
+  dispatcherCard: z.boolean(),
+  call: z.boolean(),
+  cityId: CityId.optional(),
+});
+export type OrderMerchantUnresponsivePayload = z.infer<typeof OrderMerchantUnresponsivePayload>;
+
+/** `order.late_apology`: honest-delay step one, the apology with the new time. `cityId` optional: older events have none. */
+export const OrderLateApologyPayload = z.object({ customerId: z.string().min(1), promisedAt: z.string().min(1), etaAt: z.string().min(1), cityId: CityId.optional() });
+export type OrderLateApologyPayload = z.infer<typeof OrderLateApologyPayload>;
+
+/** `driver.document_submitted`: a driver uploaded a document for review. `cityId` optional: older events have none. */
+export const DriverDocumentSubmittedPayload = z.object({ documentId: z.string().min(1), kind: DriverDocumentKind, expiresAt: z.string().nullable(), cityId: CityId.optional() });
+export type DriverDocumentSubmittedPayload = z.infer<typeof DriverDocumentSubmittedPayload>;
+
+/** `driver.document_reviewed`: staff approved or rejected a document. `cityId` optional: older events have none. */
+export const DriverDocumentReviewedPayload = z.object({ documentId: z.string().min(1), personId: z.string().min(1), kind: DriverDocumentKind, decision: z.enum(['approve', 'reject']), cityId: CityId.optional() });
+export type DriverDocumentReviewedPayload = z.infer<typeof DriverDocumentReviewedPayload>;
+
 // ───────────────────────── registry ─────────────────────────
 
 /**
@@ -293,6 +411,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'order.complimented': OrderComplimentedPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,
+  'order.rejected': OrderRejectedPayload,
   'merchant.payable_accrued': MerchantPayableAccruedPayload,
   'trip.accepted': TripAcceptedPayload,
   'trip.declined': TripOfferOutcomePayload,
@@ -304,10 +423,23 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'seat.no_show': SeatMoneyPayload,
   'seat.late_meter_settled': LateMeterPayload,
   'departure.cancelled': DepartureCancelledPayload,
+  'order.driver_cancelled': DriverCancelledPayload,
   'subscription.started': SubscriptionChargePayload,
   'subscription.renewed': SubscriptionChargePayload,
   'subscription.prorated': SubscriptionChargePayload,
   'merchant.settlement_requested': MerchantSettlementRequestedPayload,
+  'safety.incident_opened': SafetyIncidentOpenedPayload,
+  'safety.incident_acked': SafetyIncidentAckedPayload,
+  'safety.incident_closed': SafetyIncidentClosedPayload,
+  'order.rated': OrderRatedPayload,
+  'courier.cash_over_cap': CourierCashCapPayload,
+  'courier.cash_under_cap': CourierCashCapPayload,
+  'order.stuck': OrderStuckPayload,
+  'order.unstuck': OrderUnstuckPayload,
+  'order.merchant_unresponsive': OrderMerchantUnresponsivePayload,
+  'order.late_apology': OrderLateApologyPayload,
+  'driver.document_submitted': DriverDocumentSubmittedPayload,
+  'driver.document_reviewed': DriverDocumentReviewedPayload,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 export type DomainEventType = keyof typeof DOMAIN_EVENT_PAYLOADS;

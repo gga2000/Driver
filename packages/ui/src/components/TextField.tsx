@@ -1,5 +1,6 @@
 import { forwardRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { lift } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
@@ -23,11 +24,13 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'placehol
    * only shows on focus, so the bar at rest never reads as already focused.
    */
   filled?: boolean;
+  /** With `filled`: a white bar floating on a soft warm shadow (home's search, Date & Saffron). */
+  floating?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
-  { label, hint, error, leadingIcon, trailing, pill, dimWhenReadOnly = true, filled = false, style, onFocus, onBlur, editable = true, ...input },
+  { label, hint, error, leadingIcon, trailing, pill, dimWhenReadOnly = true, filled = false, floating = false, style, onFocus, onBlur, editable = true, ...input },
   ref,
 ) {
   const theme = useTheme();
@@ -47,7 +50,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
       ) : null}
       <View
         style={{
-          minHeight: filled ? 48 : 52,
+          minHeight: floating ? 52 : filled ? 48 : 52,
           flexGrow: multiline ? 1 : 0,
           flexDirection: 'row',
           alignItems: multiline ? 'stretch' : 'center',
@@ -55,7 +58,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           paddingStart: leadingIcon ? theme.space[3] : theme.space[4],
           paddingEnd: trailing ? theme.space[1] : theme.space[4],
           borderRadius: pill ? theme.radius.pill : theme.radius.md,
-          backgroundColor: theme.colors.surfaceSunken,
+          backgroundColor: floating ? theme.colors.surface : theme.colors.surfaceSunken,
+          boxShadow: floating && theme.scheme === 'light' ? lift.float : undefined,
           borderWidth,
           borderColor,
           // Keep the content still when the border thickens on focus.
@@ -85,7 +89,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               minWidth: 0,
               minHeight: filled ? 44 : 48,
               color: theme.colors.text,
-              fontSize: theme.type.body.size,
+              fontSize: Math.round(theme.type.body.size * theme.textScale * 2) / 2,
               writingDirection: theme.direction,
               // Native RTL swaps left/right (left = start); the web needs the physical side.
               textAlign: Platform.OS === 'web' && theme.isRTL ? 'right' : 'left',
@@ -122,10 +126,12 @@ export interface SearchFieldProps extends Omit<TextFieldProps, 'leadingIcon' | '
    * shows no clear or voice action.
    */
   onPress?: () => void;
+  /** White on a soft warm shadow instead of the sunken well (home, Date & Saffron). */
+  floating?: boolean;
 }
 
 /** The one search bar over everything (customer spec §1): dishes, restaurants, "تكسي للكوت", people. */
-export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({ onVoice, onClear, onPress, value, ...rest }, ref) {
+export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({ onVoice, onClear, onPress, value, floating, ...rest }, ref) {
   const theme = useTheme();
   const hasValue = !!value && value.length > 0;
   if (onPress) {
@@ -141,7 +147,7 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
         style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }, rest.style]}
       >
         <View pointerEvents="none">
-          <TextField ref={ref} value={value} leadingIcon="search" pill filled editable={false} dimWhenReadOnly={false} focusable={false} placeholder={rest.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+          <TextField ref={ref} value={value} leadingIcon="search" pill filled floating={floating} editable={false} dimWhenReadOnly={false} focusable={false} placeholder={rest.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
         </View>
       </Pressable>
     );
@@ -153,6 +159,7 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
       leadingIcon="search"
       pill
       filled
+      floating={floating}
       returnKeyType="search"
       accessibilityRole="search"
       trailing={

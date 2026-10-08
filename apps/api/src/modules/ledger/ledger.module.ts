@@ -8,7 +8,8 @@ import { IdentityModule, IdentityService, ROLE_READER, type RoleReader } from '.
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { ScoringModule, ScoringService } from '../scoring/index.js';
 import { AdjustmentService } from './adjustments.service.js';
-import { CAP_PROFILE_RESOLVER, CapsService, IdentityScoringCapProfiles } from './caps.js';
+import { CashCapWatch } from './cap-watch.js';
+import { CAP_PROFILE_RESOLVER, CapsService, IdentityScoringCapProfiles, type DriverCapProfileResolver } from './caps.js';
 import { EventsServiceLedgerBus, type LedgerEventBus } from './events.adapter.js';
 import { EventsShiftActivity, SHIFT_ACTIVITY, ShiftGuaranteeService } from './guarantee.js';
 import { LedgerIncidents } from './incidents.js';
@@ -54,6 +55,12 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
       inject: [ROLE_READER, ScoringService, CLOCK, MONEY_RULES],
     },
     LedgerService,
+    // Cash-cap crossings for the Console's "Today" list, emitted from the posting's transaction.
+    {
+      provide: CashCapWatch,
+      useFactory: (profiles: DriverCapProfileResolver, rules: MoneyRules, bus: LedgerEventBus) => new CashCapWatch(profiles, rules, bus),
+      inject: [CAP_PROFILE_RESOLVER, MONEY_RULES, LEDGER_EVENTS],
+    },
     CapsService,
     { provide: CAPS_PORT, useExisting: CapsService },
     MerchantCashService,
@@ -80,7 +87,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     CustomerWalletService,
     SupportCreditService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
+  exports: [LedgerService, CapsService, CAPS_PORT, MONEY_RULES, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);
@@ -91,9 +98,12 @@ export class LedgerModule implements OnModuleInit {
     private readonly merchantCash: MerchantCashService,
     private readonly nightly: NightlyJob,
     private readonly queues: BullMqQueueFactory,
+    private readonly ledger: LedgerService,
+    private readonly capWatch: CashCapWatch,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    this.ledger.watchCaps(this.capWatch);
     registerLedgerSubscribers(this.bus, this.posting, this.merchantCash);
     if (!this.queues.configured) return;
     try {

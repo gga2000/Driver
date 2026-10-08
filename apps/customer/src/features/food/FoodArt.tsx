@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
-import { DishDrawing, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
+import { PhotoImage, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import Svg, { Circle, Ellipse, G } from 'react-native-svg';
 import { apiPhoto } from '@/lib/photo';
 import { ART_LOOKS, type Motif } from './food-art';
@@ -37,16 +38,22 @@ export interface FoodArtProps {
    * the dish centred on its paper, a few dots), or a square dish thumbnail.
    */
   variant?: 'hero' | 'wide' | 'thumb';
+  /**
+   * A thumbnail on a coloured plate (Date & Saffron dish cards, food-type circles, restaurant rows):
+   * the plate's colour instead of the paper, and no arch window behind the dish.
+   */
+  stage?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', style }: FoodArtProps) {
+export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', stage, style }: FoodArtProps) {
   // Low-data mode (maps program q2): the drawn dish instead of downloading the photo.
   const lite = useLiteMode();
   // A merchant's own upload comes as a signed link relative to the API origin (dev storage); once it
   // expires (a cart kept from yesterday) and fails to load, the drawn dish shows instead.
   const photo = usePhotoFallback(apiPhoto(photoUrl));
-  if (photo.uri && !lite) return <Image source={{ uri: photo.uri }} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
+  // Cached on the phone (expo-image via PhotoImageProvider): a menu seen yesterday doesn't download again.
+  if (photo.uri && !lite) return <PhotoImage uri={photo.uri} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as StyleProp<ImageStyle>]} />;
   const hero = variant === 'hero';
   if (variant === 'wide') {
     return (
@@ -64,7 +71,7 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
     );
   }
   return (
-    <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+    <View style={[{ width: '100%', height: '100%', backgroundColor: !hero && stage ? stage : SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
       <Svg width="100%" height="100%" viewBox={hero ? '0 0 400 220' : '0 0 200 200'} preserveAspectRatio="xMidYMid slice">
         {hero ? (
           <G>
@@ -79,7 +86,7 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
           </G>
         ) : (
           <G transform="translate(8 6) scale(0.92)">
-            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} />
+            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} window={!stage} />
           </G>
         )}
       </Svg>

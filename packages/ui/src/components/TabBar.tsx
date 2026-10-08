@@ -55,7 +55,7 @@ export function TabBar({ state, navigation, tabs }: TabBarProps) {
           const spec = tabs.find((t) => t.name === route.name);
           if (!spec) return null;
           const focused = state.index === index;
-          const color = focused ? 'accentText' : 'textMuted';
+          const color = focused ? 'onTabSelected' : 'textMuted';
           const badge = spec.badge ?? 0;
           return (
             <Pressable
@@ -81,7 +81,7 @@ export function TabBar({ state, navigation, tabs }: TabBarProps) {
                   borderRadius: theme.radius.pill,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: focused ? theme.colors.accentTint : 'transparent',
+                  backgroundColor: focused ? theme.colors.tabSelected : 'transparent',
                 }}
               >
                 <Icon name={spec.icon} size={22} color={color} strokeWidth={focused ? 2.1 : 1.75} />

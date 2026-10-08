@@ -6,7 +6,7 @@ import type {
   RequestState,
 } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { BookingRecord, DemandPostRecord, DepartureRecord, PinAttemptRecord, RequestRecord } from './model.js';
+import { FINISHED_RUN, type BookingRecord, type DemandPostRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 
 /**
  * Persistence of the routes module: departures (with their run state), seat bookings, demand posts
@@ -49,6 +49,22 @@ export interface RiderRecordStats {
   cashStrikes: number;
 }
 
+/** A driver's track record (the rider-facing profile, x12–x17). */
+export interface DriverRecord {
+  /** His finished runs (arrived or closed), oldest first. */
+  runs: DepartureRecord[];
+  /** Rated bookings on his runs, oldest rating first. */
+  rated: BookingRecord[];
+}
+
+export interface ReviewFilter {
+  /** true: only hidden; false: only shown; undefined: both. */
+  hidden?: boolean;
+  /** Written before this (paging). */
+  before?: Date;
+  limit: number;
+}
+
 export interface RoutesRepository {
   saveDeparture(d: DepartureRecord, tx?: Tx): Promise<void>;
   getDeparture(id: string, tx?: Tx): Promise<DepartureRecord | null>;
@@ -63,14 +79,24 @@ export interface RoutesRepository {
     tx?: Tx,
   ): Promise<BookingRecord[]>;
   riderStats(riderId: string, tx?: Tx): Promise<RiderRecordStats>;
+  driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord>;
+  /** Bookings with a written review, newest review first. */
+  reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]>;
 
   saveDemand(p: DemandPostRecord, tx?: Tx): Promise<void>;
   getDemand(id: string, tx?: Tx): Promise<DemandPostRecord | null>;
   listDemand(f: DemandFilter, tx?: Tx): Promise<DemandPostRecord[]>;
 
   saveRequest(r: RequestRecord, tx?: Tx): Promise<void>;
+  /**
+   * y4: adds the driver to `seenDriverIds` only, and only while the request is open and he isn't
+   * counted yet; never rewrites the state, the pick, the deposit or the offers. True when it added him.
+   */
+  markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean>;
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
+  /** y5: completed private trips per driver (his offer was picked and the trip completed). */
+  privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>>;
 
   /** Appends one seat-PIN attempt (the log is never updated or deleted). */
   addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void>;
@@ -161,6 +187,30 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     };
   }
 
+  async driverRecord(driverId: string): Promise<DriverRecord> {
+    const runs = [...this.departures.values()]
+      .filter((d) => d.driverId === driverId && FINISHED_RUN.includes(d.state))
+      .sort((a, b) => a.departAt.getTime() - b.departAt.getTime());
+    const ids = new Set(runs.map((d) => d.id));
+    const rated = [...this.bookings.values()]
+      .filter((b) => ids.has(b.departureId) && b.rating)
+      .sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(clone), rated: rated.map(clone) };
+  }
+
+  async reviews(f: ReviewFilter): Promise<BookingRecord[]> {
+    return [...this.bookings.values()]
+      .filter(
+        (b) =>
+          b.review &&
+          (f.hidden === undefined || (b.review.hiddenAt !== null) === f.hidden) &&
+          (!f.before || b.review.at.getTime() < f.before.getTime()),
+      )
+      .sort((a, b) => b.review!.at.getTime() - a.review!.at.getTime())
+      .slice(0, f.limit)
+      .map(clone);
+  }
+
   async saveDemand(p: DemandPostRecord): Promise<void> {
     this.demand.set(p.id, clone(p));
   }
@@ -193,6 +243,13 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     this.requests.set(r.id, clone(r));
   }
 
+  async markRequestSeen(id: string, driverId: string): Promise<boolean> {
+    const r = this.requests.get(id);
+    if (!r || r.state !== 'open' || r.seenDriverIds.includes(driverId)) return false;
+    r.seenDriverIds.push(driverId);
+    return true;
+  }
+
   async getRequest(id: string): Promise<RequestRecord | null> {
     const r = this.requests.get(id);
     return r ? clone(r) : null;
@@ -208,6 +265,16 @@ export class InMemoryRoutesRepository implements RoutesRepository {
           a.when.getTime() - b.when.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
       )
       .map(clone);
+  }
+
+  async privateTripCounts(driverIds: readonly string[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    for (const r of this.requests.values()) {
+      if (r.state !== 'completed') continue;
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (picked && picked.driverId in out) out[picked.driverId]! += 1;
+    }
+    return out;
   }
 
   async addPinAttempt(a: PinAttemptRecord): Promise<void> {

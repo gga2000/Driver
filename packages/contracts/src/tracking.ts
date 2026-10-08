@@ -183,6 +183,8 @@ export const OrderHistoryRow = z.object({
   items: z.array(OrderHistoryItem),
   /** Rides, errands, parcels: the zone the trip went to (`aziziyah-zones` key); null otherwise. */
   dropoffZoneKey: z.string().nullable(),
+  /** Rides: taxi or tuktuk, from the ride's trip, so the row wears that service's colour (o8); null otherwise. */
+  rideVertical: z.enum(['taxi', 'tuktuk']).nullable().optional(),
 });
 export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
 

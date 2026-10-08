@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestHour, busiestWindow, clampShift, perHour, startOfLocalHour, tomorrowAndLastWeek } from './shift.js';
+import { bestDay, bestHour, bestWindow, busiestWindow, clampShift, perHour, startOfLocalHour, straightLineKm, tomorrowAndLastWeek } from './shift.js';
 
 const job = (iso: string, netIqd: number, orderId: string | null = `o-${iso}`) => ({ at: new Date(iso), netIqd, tripId: null, orderId });
 
@@ -55,5 +55,50 @@ describe('end of shift (Partner S-4): window, per hour, best hour, tomorrow', ()
     counts[20] = 4; // 19–21 has 8, 13–15 has 8: the earlier wins
     expect(busiestWindow(counts, tomorrow)).toEqual({ from: new Date('2026-10-06T10:00:00Z'), to: new Date('2026-10-06T12:00:00Z'), orders: 8 });
     expect(busiestWindow(new Array<number>(24).fill(0).map((_, h) => (h === 9 ? 2 : 0)), tomorrow)).toBeNull();
+  });
+});
+
+describe('his best (partner redesign e3 / e4) and «يومك» km (e7)', () => {
+  // Baghdad = UTC+3: 16:00Z is 19:00 local. 1 and 8 October 2026 are Thursdays.
+  const thursdayNight = [
+    job('2026-10-01T16:10:00Z', 3_000),
+    job('2026-10-01T17:20:00Z', 2_500),
+    job('2026-10-01T19:40:00Z', 3_500),
+    job('2026-10-08T16:30:00Z', 3_000),
+    job('2026-10-08T18:05:00Z', 2_000),
+  ];
+
+  it('best time: the weekday hours that paid most, edges trimmed, per hour over the four weeks', () => {
+    const w = bestWindow([...thursdayNight, job('2026-10-04T06:00:00Z', 1_000)], 28);
+    // Thursday (4) 19:00–23:00: 14,000 over 4 h × 4 Thursdays = 875 → 900 (nearest 50).
+    expect(w).toEqual({ weekday: 4, fromHour: 19, toHour: 23, perHourIqd: 900, jobs: 5, days: 2 });
+  });
+
+  it('best time trims hours that earned little off the 4-hour window, never below 2 hours', () => {
+    const w = bestWindow([job('2026-10-01T16:10:00Z', 5_000), job('2026-10-01T17:10:00Z', 5_000), job('2026-10-08T16:20:00Z', 5_000), job('2026-10-08T17:30:00Z', 4_000)], 28);
+    expect(w).toMatchObject({ weekday: 4, fromHour: 19, toHour: 21, jobs: 4, days: 2 });
+  });
+
+  it('best time is a habit: null with fewer than 4 jobs or all on one night', () => {
+    expect(bestWindow(thursdayNight.slice(0, 3), 28)).toBeNull();
+    expect(bestWindow([job('2026-10-01T16:10:00Z', 3_000), job('2026-10-01T16:40:00Z', 3_000), job('2026-10-01T17:10:00Z', 3_000), job('2026-10-01T18:10:00Z', 3_000)], 28)).toBeNull();
+    // Adjustments (no trip, no order) never make a best time.
+    expect(bestWindow([...thursdayNight.map((j) => ({ ...j, orderId: null }))], 28)).toBeNull();
+  });
+
+  it('best day: the Baghdad day with the most net, tips and adjustments counted, jobs only from real jobs', () => {
+    const d = bestDay([...thursdayNight, job('2026-10-01T20:30:00Z', 1_000, null)]);
+    // 1 Oct local: 3,000 + 2,500 + 3,500 + 1,000 adjustment (23:30 local, same day).
+    expect(d).toEqual({ at: new Date('2026-09-30T21:00:00Z'), netIqd: 10_000, jobs: 3 });
+    expect(bestDay([])).toBeNull();
+  });
+
+  it('«يومك» km: straight lines between each trip\'s pinned stops, rounded down; null without a leg', () => {
+    const a = { lat: 32.91, lng: 45.06 };
+    const b = { lat: 32.92, lng: 45.06 }; // ≈ 1.1 km north
+    const c = { lat: 32.92, lng: 45.08 }; // ≈ 1.9 km east of b
+    expect(straightLineKm([{ stops: [{ target: a }, { target: b }] }, { stops: [{ target: b }, { target: null }, { target: c }] }])).toBe(3);
+    expect(straightLineKm([{ stops: [{ target: a }] }])).toBeNull();
+    expect(straightLineKm([])).toBeNull();
   });
 });

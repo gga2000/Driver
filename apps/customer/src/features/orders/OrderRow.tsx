@@ -58,7 +58,17 @@ export function OrderArt({ row, size = 48 }: { row: OrderHistoryRow; size?: numb
       </View>
     );
   }
-  const icon: IconName = row.order.type === 'seat' ? 'seat' : row.order.type === 'ride' ? 'car' : row.order.type === 'parcel' ? 'parcel' : 'food';
+  if (row.order.type === 'ride') {
+    // o8: a ride wears its service's tile colour from home — taxi yellow or tuktuk plum (taxi when unknown).
+    const tuktuk = row.rideVertical === 'tuktuk';
+    const swatch = theme.services[tuktuk ? 'tuktuk' : 'taxi'];
+    return (
+      <View style={{ width: size, height: size, borderRadius: theme.radius.lg, backgroundColor: swatch.fill, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={tuktuk ? 'tuktuk-fringe' : 'taxi'} size={Math.round(size * 0.56)} color={swatch.on} strokeWidth={1.8} />
+      </View>
+    );
+  }
+  const icon: IconName = row.order.type === 'seat' ? 'seat' : row.order.type === 'parcel' ? 'parcel' : 'food';
   return (
     <View style={{ width: size, height: size, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
       <Icon name={icon} size={Math.round(size * 0.5)} color="textMuted" strokeWidth={1.8} />

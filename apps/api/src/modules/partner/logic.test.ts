@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { QuoteComponent } from '@driver/contracts';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, nearestLandmark, offerClimate, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
 
 const food = (deliveryFeeIqd: number, tipIqd = 0) => ({ type: 'food' as const, deliveryFeeIqd, tipIqd, totalIqd: 15_000 + deliveryFeeIqd + tipIqd });
 const comp = (key: QuoteComponent['key'], amount: number): QuoteComponent => ({ key, amount, label_ar: key, label_en: key, driverShareRule: 'driver_full', visibility: 'shown' });
@@ -138,5 +138,24 @@ describe('demandZones (maps program d5)', () => {
     expect(w).toHaveLength(4);
     expect(w[0]).toEqual({ from: new Date('2026-09-28T18:00:00Z'), to: new Date('2026-09-28T19:00:00Z') });
     expect(w[3]!.from).toEqual(new Date('2026-09-07T18:00:00Z'));
+  });
+});
+
+describe('offer hints (partner redesign o7, o12)', () => {
+  it('names the nearest town landmark within 600 m, and nothing farther', () => {
+    // 50 m from the Grand Mosque gate, closer to it than to the garages around the centre.
+    expect(nearestLandmark({ lat: 32.9049, lng: 45.0596 })).toBe('باب الجامع الكبير');
+    expect(nearestLandmark({ lat: 32.98, lng: 45.2 })).toBeNull();
+    expect(nearestLandmark(null)).toBeNull();
+  });
+
+  it('says AC on a hot-day car ride only', () => {
+    const hot = new Date('2026-07-14T11:00:00Z'); // 14:00 in Baghdad, July
+    const mild = new Date('2026-10-07T11:00:00Z');
+    expect(offerClimate('taxi', 'car', hot)).toBe('ac');
+    expect(offerClimate('taxi', 'car', mild)).toBeNull();
+    expect(offerClimate('tuktuk', 'tuktuk', hot)).toBeNull();
+    expect(offerClimate('food', 'car', hot)).toBeNull();
+    expect(offerClimate('taxi', 'car', new Date('2026-01-14T07:00:00Z'))).toBe('heating');
   });
 });

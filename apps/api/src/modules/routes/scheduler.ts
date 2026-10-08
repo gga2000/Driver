@@ -1,8 +1,9 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { RequestBoardService } from './request-board.service.js';
 import { RoutesWriter } from './writer.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 export interface RoutesTickResult {
   expiredHolds: number;
@@ -31,9 +32,12 @@ export class RoutesScheduler implements OnModuleInit, OnModuleDestroy {
     private readonly departures: DeparturesService,
     private readonly demand: DemandService,
     private readonly requests: RequestBoardService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), 15_000);
     this.timer.unref?.();
   }

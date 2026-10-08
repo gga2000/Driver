@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
-import type { PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
+import type { PartnerBookedRecord, PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
 
 const NOW = new Date('2026-10-03T10:00:00Z');
 const actor = { personId: 'drv1', sessionId: 's1' };
@@ -119,6 +119,8 @@ function harness(
     startCodeFor?: string[];
     rideCargo?: Order['rideCargo'];
     climate?: PartnerDeps['climate'];
+    booked?: { online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] };
+    answers?: Array<{ driverId: string; tripId: string; answer: string }>;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -145,6 +147,14 @@ function harness(
             }
           : null,
       waitingZones: async () => ['centre', 'centre', 'centre'],
+      ...(opts.booked
+        ? {
+            bookedJobs: async () => opts.booked!,
+            answerBookedJob: async (driverId: string, tripId: string, answer: string) => {
+              opts.answers?.push({ driverId, tripId, answer });
+            },
+          }
+        : {}),
     },
     trips: {
       forDriver: async () => opts.trips ?? [],
@@ -334,6 +344,36 @@ describe('PartnerService', () => {
     const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
     expect((await harness({ online: true, offerTrip: t, offerPolicy: 'favourite' }).currentOffer(actor))!.favourite).toBe(true);
     expect((await harness({ online: true, offerTrip: t }).currentOffer(actor))!.favourite).toBe(false);
+  });
+
+  it('«مشاوير باچر» (review #28): time, zones, km and pay — never a door; his own say confirmed', async () => {
+    const ride = trip('tb', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'created', courierId: null, vertical: 'taxi' });
+    const at = new Date('2026-10-04T02:00:00Z');
+    const record = (held: boolean, favourite: boolean): PartnerBookedRecord => ({
+      request: { tripId: 'tb', vertical: 'taxi', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
+      scheduledFor: at,
+      confirmBy: new Date('2026-10-03T19:00:00Z'),
+      startFrom: new Date('2026-10-04T01:00:00Z'),
+      showBy: new Date('2026-10-04T01:30:00Z'),
+      favourite,
+      held,
+    });
+    const answers: Array<{ driverId: string; tripId: string; answer: string }> = [];
+    const svc = harness({ online: true, rideOrder: true, trips: [ride], booked: { online: true, mine: [record(true, false)], open: [record(false, true)] }, answers });
+    const view = await svc.bookedJobs(actor);
+    expect(view.online).toBe(true);
+    expect(view.mine[0]).toMatchObject({ tripId: 'tb', vertical: 'taxi', state: 'confirmed', scheduledFor: at, pickup: { zoneId: 'street_30' }, dropoff: { zoneId: 'zakur' }, favourite: false, collectIqd: 15_500 });
+    expect(view.mine[0]!.pay.totalIqd).toBeGreaterThan(0);
+    expect(view.mine[0]!.tripKm).toBeGreaterThan(2);
+    expect(view.open[0]).toMatchObject({ state: 'open', favourite: true, showBy: new Date('2026-10-04T01:30:00Z') });
+    expect(JSON.stringify(view)).not.toContain(String(HOME.lat));
+    expect(JSON.stringify(view)).not.toContain('باب أخضر');
+    await svc.answerBookedJob(actor, { tripId: 'tb', answer: 'confirm' });
+    expect(answers).toEqual([{ driverId: 'drv1', tripId: 'tb', answer: 'confirm' }]);
+  });
+
+  it('«مشاوير باچر» without dispatch wiring (fakes) is empty', async () => {
+    expect(await harness().bookedJobs(actor)).toEqual({ online: false, mine: [], open: [] });
   });
 
   it("an offer names zones, never the customer's exact door (review 2026-10-04 #13)", async () => {

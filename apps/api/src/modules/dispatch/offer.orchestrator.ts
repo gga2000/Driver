@@ -1,14 +1,37 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
-import { CLIMATE_DISPATCH_RULES, climateAt, DriverError, NUDGE_RULES, RIDE_HABIT_RULES, type BoardPolicy, type DispatchBoard, type DispatchConfig, type DispatchPolicyKind, type DispatchStatus, type VehicleFeature, type Vertical } from '@driver/contracts';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  AZIZIYAH_MONEY_RULES,
+  bookedFallbackCompensationIqd,
+  bookedFavouriteUntil,
+  bookedRideWindow,
+  CLIMATE_DISPATCH_RULES,
+  climateAt,
+  DriverError,
+  NUDGE_RULES,
+  RIDE_HABIT_RULES,
+  rideSearchStartsAt,
+  type BoardPolicy,
+  type DispatchBoard,
+  type DispatchConfig,
+  type DispatchPolicyKind,
+  type DispatchStatus,
+  type MoneyRules,
+  type PartnerBookedAnswer,
+  type VehicleFeature,
+  type Vertical,
+} from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
+import type { TimerStore, TimerSweeper } from '../../shared/timers/index.js';
 import { ConfigService } from '../config/index.js';
+import { MONEY_RULES } from '../ledger/index.js';
 import { vehicleFits } from '../trips/index.js';
 import { canBatch, type BatchOrder } from './batching.js';
+import { bookedStep, isHeld, newBookedJob, openTo, type BookedJob } from './booked.js';
 import { buildCard, sortCards } from './board.js';
 import { DISPATCH_REPOSITORY, OPEN_STATES, type DispatchRepository, type NewOffer, type OfferRecord } from './dispatch.repository.js';
-import { DISPATCH_STORE, lockKey, type DispatchRequest, type DispatchStore, type PolicyOverride } from './dispatch.store.js';
+import { bookedLockKey, DISPATCH_STORE, lockKey, type DispatchRequest, type DispatchStore, type PolicyOverride } from './dispatch.store.js';
 import type { LiveJobs } from './driver-pins.js';
 import { DISPATCH_EVENTS, type DispatchEventEmitter } from './events.adapter.js';
 import { etaMin, haversineKm } from './geo.js';
@@ -34,7 +57,11 @@ export type TimerKind =
   | 'override_timeout'
   | 'low_fill_check'
   | 'broadcast_start'
-  | 'favourite_end';
+  | 'favourite_end'
+  | 'booked_open'
+  | 'booked_fav_end'
+  | 'booked_deadline'
+  | 'booked_remind';
 
 export interface TimerJob {
   kind: TimerKind;
@@ -43,7 +70,22 @@ export interface TimerJob {
   epoch: number;
   /** Wave or pass the timer belongs to. */
   step: number;
+  /** Also written to the durable timer table (`bindDurableTimers`): marked fired there once it ran. */
+  durable?: true;
+  /** Durable timers only: who to name when the request itself is gone (`dispatch.needs_dispatcher`, `request_lost`). */
+  cityId?: string;
+  vertical?: Vertical;
+  orderId?: string;
 }
+
+/**
+ * Timers due this far ahead (rides booked for later, scheduled departures) also get a row in
+ * `scheduled_timers`, so losing their Redis job (a restart, a wiped Redis) only delays them; short wave
+ * timers stay Redis-only (they are many, and a lost one is caught by the next wave or the dispatcher).
+ */
+export const DURABLE_TIMER_MIN_DELAY_MS = 5 * 60_000;
+/** The durable copy is due this long after the Redis job, so it fires only when that job did not run. */
+export const DURABLE_TIMER_GRACE_MS = 60_000;
 
 export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
 
@@ -52,6 +94,11 @@ export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
  * when the search for his booked ride starts (wave 0, before the normal waves).
  */
 export const FAVOURITE_OFFER_POLICY = 'favourite';
+/**
+ * Review #28: the confirmed driver of a booked ride starts it (his tap from T−60, or dispatch at T−30):
+ * a one-driver offer accepted on his behalf — he confirmed it the evening before.
+ */
+export const BOOKED_OFFER_POLICY = 'booked';
 export const DISPATCH_QUEUE_NAME = 'dispatch';
 
 /** The first-accept lock is the assignment claim; it outlives any trip. */
@@ -78,6 +125,25 @@ interface CandidateFilter {
 
 export type DispatchRequestInput = DispatchJob;
 
+/** A booked ride as the Partner app's «مشاوير باچر» needs it (review #28). */
+export interface BookedJobInfo {
+  request: DispatchRequest;
+  job: BookedJob;
+  /** He may start toward the pickup from here (the reminder, T−60). */
+  startFrom: Date;
+  /** It starts for him then if he is online and free, or goes to someone else (T−30). */
+  showBy: Date;
+  /** The rider asked for him. */
+  favourite: boolean;
+}
+
+/** A booked ride's pre-assignment as its rider's view needs it (review #28). */
+export interface BookedRideInfo {
+  job: BookedJob | null;
+  scheduledFor: Date;
+  searchAt: Date;
+}
+
 /**
  * The offer lifecycle (plan Step 5, dispatch & pricing spec §3, edge-case decisions §6).
  *
@@ -97,10 +163,15 @@ export type DispatchRequestInput = DispatchJob;
  */
 @Injectable()
 export class OfferOrchestrator {
+  private readonly logger = new Logger(OfferOrchestrator.name);
+
   private readonly ranker: DriverRanker;
 
   /** Ride step 3: the rider's avoid list, favourites and drivers' standing (bound by ride habits). */
   private riders: RiderPrefsPort | null = null;
+
+  private timers: TimerStore | null = null;
+  private readonly rules: MoneyRules;
 
   constructor(
     private readonly config: ConfigService,
@@ -119,9 +190,26 @@ export class OfferOrchestrator {
     @Optional() @Inject(DISPATCH_HOLDS) private readonly holds?: DispatchHoldsPort,
     /** Ride step 3: confirmed car features for n6 (weather) and s6 («عوائل»); without it nobody is preferred. */
     @Optional() @Inject(VEHICLE_FACTS) private readonly facts?: VehicleFactsPort,
+    @Optional() @Inject(MONEY_RULES) rules?: MoneyRules,
   ) {
     this.ranker = ranker ?? new DriverRanker();
-    this.queue.process(async (job) => this.onTimer(job.data));
+    this.rules = rules ?? AZIZIYAH_MONEY_RULES;
+    this.queue.process(async (job) => {
+      await this.onTimer(job.data);
+      // Ran on time: its durable copy must not run again (it only waits for a lost Redis job).
+      if (job.data.durable && this.timers) await this.timers.markFired(DISPATCH_QUEUE_NAME, job.id, this.clock.now());
+    });
+  }
+
+  /**
+   * NTF-05: far-ahead timers (the T−30 `broadcast_start` of a ride booked for later, its offer and
+   * reminder timers, a departure's start and low-fill check) are also kept in the durable timer table,
+   * and the timer sweeper fires them through `onTimer` when their Redis job was lost. Every handler
+   * checks the request's state and epoch, so a late or second run changes nothing.
+   */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers = store;
+    sweeper?.register<TimerJob>(DISPATCH_QUEUE_NAME, (job) => this.onTimer(job.data, 'sweeper'));
   }
 
   /** The ride-habits module binds the rider's preferences at start-up (it imports this module). */
@@ -228,9 +316,13 @@ export class OfferOrchestrator {
       startAt: job.startAt?.getTime() ?? null,
       preferDriverIds: job.preferDriverIds ? [...job.preferDriverIds] : [],
       riderId: job.riderId ?? null,
+      orderId: job.orderId ?? null,
       familyPreferred: job.familyPreferred ?? false,
       // s5 / s4: read once when the search is asked for; a rider's ride never reaches a driver he avoids.
       ...(await this.riderLists(job)),
+      scheduledFor: job.scheduledFor?.getTime() ?? null,
+      booked: null,
+      fallbackCompensationIqd: 0,
     };
 
     return this.uow.run(async () => {
@@ -264,8 +356,12 @@ export class OfferOrchestrator {
           if (r.startAt != null && r.startAt > now) {
             r.status = 'scheduled';
             r.nextTimerAt = r.startAt;
+            // Review #28: offered the evening before to fitting drivers; the T−30 search is the fallback.
+            r.booked = this.bookedPlan(job, cfg, now);
+            r.fallbackCompensationIqd = bookedFallbackCompensationIqd(this.rules);
             await this.store.saveRequest(r);
             await this.schedule('broadcast_start', r, r.startAt, 0);
+            if (r.booked) await this.scheduleBooked(r, r.booked, cfg);
             break;
           }
           await this.beginBroadcast(r, cfg);
@@ -303,13 +399,16 @@ export class OfferOrchestrator {
    * usual timers, exactly as for any ride.
    */
   private async beginBroadcast(r: DispatchRequest, cfg: DispatchConfig): Promise<void> {
-    const prefer = r.preferDriverIds ?? [];
+    // Review #28: a favourite who dropped the booked job (or didn't show) is not asked first again.
+    const dropped = r.booked?.releasedBy ?? [];
+    const prefer = (r.preferDriverIds ?? []).filter((d) => !dropped.includes(d));
+    const favourites = (r.favouriteDriverIds ?? []).filter((d) => !dropped.includes(d));
     if (prefer.length > 0) {
       const chosen = await this.candidates(r, cfg, { requireIdle: true, only: prefer });
       if (chosen.length > 0) return this.offerFavourite(r, chosen, false);
-    } else if ((r.favouriteDriverIds ?? []).length > 0) {
+    } else if (favourites.length > 0) {
       // s4: no favourite asked for, but one of his favourites is free close by — he gets it first, alone.
-      const near = await this.candidates(r, cfg, { requireIdle: true, only: r.favouriteDriverIds ?? [], radiusKm: RIDE_HABIT_RULES.favourite.autoFirstKm });
+      const near = await this.candidates(r, cfg, { requireIdle: true, only: favourites, radiusKm: RIDE_HABIT_RULES.favourite.autoFirstKm });
       if (near.length > 0) return this.offerFavourite(r, near.slice(0, 1), true);
     }
     await this.startWaves(r, cfg);
@@ -325,7 +424,7 @@ export class OfferOrchestrator {
     r.wave = 0;
     r.pass = 0;
     r.nextTimerAt = expiresAt;
-    await this.createOffers(r, FAVOURITE_OFFER_POLICY, chosen, { wave: 0, pass: 0, expiresAt, compensation: () => 0 });
+    await this.createOffers(r, FAVOURITE_OFFER_POLICY, chosen, { wave: 0, pass: 0, expiresAt, compensation: () => r.fallbackCompensationIqd ?? 0 });
     await this.trips.offer(r.tripId, ids, seconds);
     await this.emit('dispatch.wave_sent', r, { wave: 0, driverIds: ids, seconds, radiusKm: auto ? RIDE_HABIT_RULES.favourite.autoFirstKm : null, favourite: true, ...(auto ? { auto: true } : {}) });
     await this.store.saveRequest(r);
@@ -370,7 +469,7 @@ export class OfferOrchestrator {
       // An empty wave does not wait out its window: the next, wider wave opens at once.
       if (chosen.length === 0) continue;
       const expiresAt = this.now() + w.seconds * 1000;
-      await this.createOffers(r, 'smart_broadcast', chosen, { wave: i + 1, pass: 1, expiresAt, compensation: () => 0 });
+      await this.createOffers(r, 'smart_broadcast', chosen, { wave: i + 1, pass: 1, expiresAt, compensation: () => r.fallbackCompensationIqd ?? 0 });
       await this.trips.offer(r.tripId, chosen.map((c) => c.ranked.driverId), w.seconds);
       await this.emit('dispatch.wave_sent', r, { wave: i + 1, driverIds: chosen.map((c) => c.ranked.driverId), seconds: w.seconds, radiusKm: w.radiusKm ?? null, ...(climate ? { only: climate.feature } : {}) });
       r.nextTimerAt = expiresAt;
@@ -403,7 +502,7 @@ export class OfferOrchestrator {
     const inWaves12 = new Set(offers.filter((o) => o.pass === 1 && (o.wave === 1 || o.wave === 2)).map((o) => o.driverId));
     const excluded = new Set(offers.filter(isDeclinedOrIgnored).map((o) => o.driverId));
     const ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
-    const compensation = (driverId: string) => (inWaves12.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd);
+    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
     const expiresAt = (r.searchStartedAt ?? r.createdAt) + cfg.customerFreeCancelAfterSec * 1000;
 
     r.status = 'rebroadcast';
@@ -429,7 +528,8 @@ export class OfferOrchestrator {
     if (r.status !== 'searching' && r.status !== 'rebroadcast') return;
     await this.expireOpen(r, () => true);
     r.customerMayCancelFree = true;
-    await this.emit('dispatch.free_cancel_available', r, { afterSec: Math.round((this.now() - (r.searchStartedAt ?? r.createdAt)) / 1000) });
+    // NTF-04: carries the order so the rider hears «ما لگينا سايق هسة» with his choices.
+    await this.emit('dispatch.free_cancel_available', r, { afterSec: Math.round((this.now() - (r.searchStartedAt ?? r.createdAt)) / 1000), ...(r.orderId ? { orderId: r.orderId } : {}) });
     await this.needsDispatcher(r, 'no_acceptance');
   }
 
@@ -486,7 +586,7 @@ export class OfferOrchestrator {
       let batchWith: string[] = [];
       let departAt: number | null = null;
       if (c.jobs.length > 0) {
-        const current = await this.batchOrders(c.jobs);
+        const current = await this.batchOrders(c.jobs, c.ranked.driverId);
         if (!current) continue;
         const verdict = canBatch(
           current,
@@ -510,10 +610,16 @@ export class OfferOrchestrator {
     await this.schedule('assign_timeout', r, expiresAt, pass);
   }
 
-  /** The courier's current orders as batching sees them; null when one of them is not batchable (e.g. a ride). */
-  private async batchOrders(tripIds: string[]): Promise<BatchOrder[] | null> {
+  /**
+   * The courier's current orders as batching sees them, in the order he works them (trips' `jobOrder`,
+   * the order he took them — the route the partner app and the simulator follow); null when one of them
+   * is not batchable (e.g. a ride).
+   */
+  private async batchOrders(tripIds: string[], driverId: string): Promise<BatchOrder[] | null> {
+    const order = (await this.trips.jobOrder?.(driverId)) ?? [];
+    const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
     const out: BatchOrder[] = [];
-    for (const id of tripIds) {
+    for (const id of [...tripIds].sort((a, b) => rank(a) - rank(b))) {
       const job = await this.store.getRequest(id);
       if (!job || job.policy !== 'auto_assign' || job.readyAt === null) return null;
       out.push({ tripId: id, pickup: job.pickup, dropoffZoneId: job.dropoffZoneId ?? job.zoneId, readyAt: new Date(job.readyAt), hot: job.hot, pickedUp: job.pickedUp });
@@ -610,18 +716,291 @@ export class OfferOrchestrator {
           return;
         }
         r.status = 'assigned';
-        await this.store.retireRequest(r);
+        await this.retire(r);
         await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats, lowFillRefused: true });
         return;
       }
       r.status = 'cancelled';
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.low_fill_cancelled', r, { departureId: r.departureId, seats, minSeats: cfg.minSeatsByTMinus30 });
       return;
     }
     r.status = 'assigned';
-    await this.store.retireRequest(r);
+    await this.retire(r);
     await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats });
+  }
+
+  // ───────────────────────── booked rides (review #28) ─────────────────────────
+
+  /** The pre-assignment of a ride booked for later, when the city has one and the booking leaves time for it. */
+  private bookedPlan(job: DispatchRequestInput, cfg: DispatchConfig, now: number): BookedJob | null {
+    const rules = cfg.bookedRides;
+    if (!rules || !job.scheduledFor || !job.orderId) return null;
+    const w = bookedRideWindow(job.scheduledFor, new Date(now), rules);
+    if (!w) return null;
+    return newBookedJob({
+      orderId: job.orderId,
+      scheduledFor: job.scheduledFor.getTime(),
+      offerAt: w.offerAt.getTime(),
+      confirmBy: w.confirmBy.getTime(),
+      favouriteId: job.preferDriverIds?.[0] ?? null,
+      favouriteUntil: bookedFavouriteUntil(w, rules).getTime(),
+    });
+  }
+
+  /** Its timers: open, the favourite's time, the deadline and the reminder (T−30 is `broadcast_start`). */
+  private async scheduleBooked(r: DispatchRequest, b: BookedJob, cfg: DispatchConfig): Promise<void> {
+    const reminderLeadMin = cfg.bookedRides?.reminderLeadMin ?? 0;
+    await this.schedule('booked_open', r, b.offerAt, 0);
+    if (b.favouriteId && b.favouriteUntil > b.offerAt) await this.schedule('booked_fav_end', r, b.favouriteUntil, 0);
+    await this.schedule('booked_deadline', r, b.confirmBy, 0);
+    await this.schedule('booked_remind', r, b.scheduledFor - reminderLeadMin * 60_000, 0);
+  }
+
+  private async onBookedOpen(r: DispatchRequest): Promise<void> {
+    if (r.status !== 'scheduled' || !r.booked || r.booked.state !== 'waiting') return;
+    r.booked = bookedStep(r.booked, { kind: 'open' }, this.now());
+    await this.store.saveRequest(r);
+    if (r.booked.openedAt === null && r.booked.favouriteId) {
+      await this.emit('dispatch.booked_offered', r, { orderId: r.booked.orderId, scheduledFor: new Date(r.booked.scheduledFor).toISOString(), confirmBy: new Date(r.booked.confirmBy).toISOString(), driverIds: [r.booked.favouriteId], favourite: true });
+      return;
+    }
+    await this.announceBooked(r);
+  }
+
+  private async onBookedFavouriteEnd(r: DispatchRequest): Promise<void> {
+    if (r.status !== 'scheduled' || !r.booked || r.booked.state !== 'offered' || r.booked.openedAt !== null) return;
+    r.booked = bookedStep(r.booked, { kind: 'open_to_all' }, this.now());
+    await this.store.saveRequest(r);
+    await this.announceBooked(r);
+  }
+
+  /** Everyone may confirm it now: a push to the best-placed fitting drivers online (`notifyDrivers`). */
+  private async announceBooked(r: DispatchRequest): Promise<void> {
+    const b = r.booked;
+    if (!b) return;
+    const cfg = this.baseConfig(r.cityId, r.vertical);
+    const max = cfg.bookedRides?.notifyDrivers ?? 0;
+    const skip = new Set([...b.passedBy, ...b.releasedBy, ...(b.favouriteId ? [b.favouriteId] : [])]);
+    const pool: Array<{ p: DriverPresence; distanceKm: number; fit: number }> = [];
+    for (const { presence: p, distanceKm } of await this.presence.nearby(r.cityId, r.pickup, CITY_RADIUS_KM)) {
+      if (skip.has(p.driverId)) continue;
+      const fit = await this.bookedFit(r, p);
+      if (fit > 0) pool.push({ p, distanceKm, fit });
+    }
+    const ranked = this.ranker
+      .withWeights(cfg.rankWeights)
+      .rank(pool.map((c) => ({ driverId: c.p.driverId, distanceKm: c.distanceKm, activeTrips: 0, tier: c.p.tier, vetted: c.p.vetted, vehicleFit: c.fit, minutesInZone: 0 })));
+    const driverIds = ranked.slice(0, max).map((d) => d.driverId);
+    await this.emit('dispatch.booked_opened', r, { orderId: b.orderId, scheduledFor: new Date(b.scheduledFor).toISOString(), confirmBy: new Date(b.confirmBy).toISOString(), driverIds });
+  }
+
+  /** 22:00 (or the same-day deadline): nobody confirmed — the rider hears we'll find one before his time. */
+  private async onBookedDeadline(r: DispatchRequest): Promise<void> {
+    if (r.status !== 'scheduled' || !r.booked || (r.booked.state !== 'waiting' && r.booked.state !== 'offered')) return;
+    // The deadline takes the confirm lock: a driver confirming at the same moment either won it first
+    // (and the job is his) or finds it closed.
+    if (!(await this.store.tryLock(bookedLockKey(r.tripId), SYSTEM, this.bookedLockTtl(r.booked)))) return;
+    const fresh = (await this.store.getRequest(r.tripId)) ?? r;
+    if (!fresh.booked || (fresh.booked.state !== 'waiting' && fresh.booked.state !== 'offered')) return;
+    fresh.booked = bookedStep(fresh.booked, { kind: 'deadline' }, this.now());
+    await this.store.saveRequest(fresh);
+    await this.emit('dispatch.booked_unconfirmed', fresh, { orderId: fresh.booked.orderId, scheduledFor: new Date(fresh.booked.scheduledFor).toISOString(), searchAt: rideSearchStartsAt(new Date(fresh.booked.scheduledFor)).toISOString() });
+  }
+
+  /** T−60: the confirmed driver is reminded (a push he gets even at night: he committed to it). */
+  private async onBookedRemind(r: DispatchRequest): Promise<void> {
+    if (r.status !== 'scheduled' || !r.booked || r.booked.state !== 'confirmed' || !r.booked.driverId) return;
+    r.booked = bookedStep(r.booked, { kind: 'remind' }, this.now());
+    await this.store.saveRequest(r);
+    const at = new Date(r.booked.scheduledFor);
+    await this.emit('dispatch.booked_reminder', r, { orderId: r.booked.orderId, driverId: r.booked.driverId, scheduledFor: at.toISOString(), showBy: rideSearchStartsAt(at).toISOString() });
+  }
+
+  /**
+   * T−30: the confirmed driver online, free and with cap room gets the trip now; otherwise the job is
+   * released (`no_show`) and the fallback search starts at once (favourite first unless it was him).
+   */
+  private async onBookedShowTime(r: DispatchRequest): Promise<void> {
+    const driverId = r.booked?.driverId;
+    if (!driverId) return;
+    const ready = await this.readyToStart(r, driverId);
+    if (ready) {
+      try {
+        await this.store.withDriverLock(driverId, () => this.startBooked(r.tripId, driverId));
+        return;
+      } catch (err) {
+        // Trips refused him (the trip moved on, his vehicle): the job goes to the search below.
+        if (!(err instanceof DriverError)) throw err;
+      }
+    }
+    const fresh = (await this.store.getRequest(r.tripId)) ?? r;
+    if (!fresh.booked || !isHeld(fresh.booked) || fresh.status !== 'scheduled') return;
+    fresh.booked = bookedStep(fresh.booked, { kind: 'no_show' }, this.now());
+    await this.store.saveRequest(fresh);
+    await this.emit('dispatch.booked_released', fresh, { orderId: fresh.booked.orderId, driverId, reason: ready ? 'refused' : 'no_show', reopened: false });
+    await this.beginBroadcast(fresh, this.baseConfig(fresh.cityId, fresh.vertical));
+  }
+
+  /** Online, no job in hand, the vehicle and cap fit: he can head to the pickup now. */
+  private async readyToStart(r: DispatchRequest, driverId: string): Promise<boolean> {
+    const p = await this.presence.get(driverId);
+    if (!p || (await this.store.driverJobs(driverId)).length > 0 || (await this.caps.isOverCap(driverId))) return false;
+    return (await this.bookedFit(r, p)) > 0;
+  }
+
+  /**
+   * The confirmed driver starts his booked ride: a one-driver `booked` offer accepted for him through
+   * the normal accept path (first-accept lock, trips, `dispatch.assigned`). Runs under his driver lock.
+   * If trips refuses, the job is his again as before and the error goes back to the caller.
+   */
+  private async startBooked(tripId: string, driverId: string): Promise<void> {
+    const r = await this.store.getRequest(tripId);
+    if (!r?.booked || r.status !== 'scheduled') throw new DriverError('booked_job_not_found');
+    const before: DispatchRequest = { ...r };
+    const cfg = this.baseConfig(r.cityId, r.vertical);
+    const p = await this.presence.get(driverId);
+    if (!p) throw new DriverError('booked_start_not_ready');
+    const now = this.now();
+    const expiresAt = now + cfg.acceptTimeoutSec * 1000;
+    r.booked = bookedStep(r.booked, { kind: 'start', driverId }, now);
+    r.status = 'searching';
+    r.searchStartedAt = now;
+    r.nextTimerAt = expiresAt;
+    const c: Candidate = { ranked: { driverId, distanceKm: haversineKm(p, r.pickup), activeTrips: 0, tier: p.tier, score: 0 }, presence: p, jobs: [] };
+    const [offer] = await this.createOffers(r, BOOKED_OFFER_POLICY, [c], { wave: 0, pass: 0, expiresAt, compensation: () => 0 });
+    if (!offer) throw new DriverError('booked_job_not_found');
+    await this.store.saveRequest(r);
+    try {
+      await this.trips.offer(r.tripId, [driverId], cfg.acceptTimeoutSec);
+      await this.acceptOffer(driverId, offer.id);
+    } catch (err) {
+      await this.withdrawOpen(r);
+      await this.store.saveRequest(before);
+      throw err;
+    }
+  }
+
+  /** Vehicle, roles, the tuktuk edge rule, the order cap and his cash room — normal dispatch's fit (0 = no). */
+  private async bookedFit(r: DispatchRequest, p: DriverPresence): Promise<number> {
+    const fit = this.staticFit(r, p);
+    if (fit === 0) return 0;
+    return (await this.caps.canOffer(p.driverId, this.exposure(r))) ? fit : 0;
+  }
+
+  /** The confirm lock lives until a day after the ride. */
+  private bookedLockTtl(b: BookedJob): number {
+    return Math.max(60_000, b.scheduledFor + LOCK_TTL_MS - this.now());
+  }
+
+  private bookedInfo(r: DispatchRequest, job: BookedJob, driverId: string): BookedJobInfo {
+    const lead = this.baseConfig(r.cityId, r.vertical).bookedRides?.reminderLeadMin ?? 0;
+    return { request: r, job, startFrom: new Date(job.scheduledFor - lead * 60_000), showBy: rideSearchStartsAt(new Date(job.scheduledFor)), favourite: job.favouriteId === driverId };
+  }
+
+  /** A booked job of his within `minGapMin` of this one's time (he can't be in two places). */
+  private async clashes(r: DispatchRequest, at: number, driverId: string): Promise<boolean> {
+    const gap = (this.baseConfig(r.cityId, r.vertical).bookedRides?.minGapMin ?? 0) * 60_000;
+    for (const other of await this.store.activeRequests(r.cityId)) {
+      if (other.tripId === r.tripId || !other.booked || !isHeld(other.booked) || other.booked.driverId !== driverId) continue;
+      if (Math.abs(other.booked.scheduledFor - at) < gap) return true;
+    }
+    return false;
+  }
+
+  /**
+   * «مشاوير باچر» (Partner app): the booked rides he confirmed, and — while he is online, so his vehicle
+   * is known — the ones open to him that fit him and don't clash with his own. Soonest first. Read-only.
+   */
+  async bookedFor(driverId: string, cityId: string): Promise<{ online: boolean; mine: BookedJobInfo[]; open: BookedJobInfo[] }> {
+    const p = await this.presence.get(driverId);
+    const now = this.now();
+    const mine: BookedJobInfo[] = [];
+    const open: BookedJobInfo[] = [];
+    for (const r of await this.store.activeRequests(p?.cityId ?? cityId)) {
+      const job = r.booked;
+      if (!job || r.status !== 'scheduled') continue;
+      if (isHeld(job) && job.driverId === driverId) mine.push(this.bookedInfo(r, job, driverId));
+      else if (p && openTo(job, driverId, now) && (await this.bookedFit(r, p)) > 0 && !(await this.clashes(r, job.scheduledFor, driverId))) open.push(this.bookedInfo(r, job, driverId));
+    }
+    const soonest = (a: BookedJobInfo, b: BookedJobInfo) => a.job.scheduledFor - b.job.scheduledFor;
+    return { online: p !== null, mine: mine.sort(soonest), open: open.sort(soonest) };
+  }
+
+  /**
+   * His answer on a booked ride: `confirm` (first confirm wins; online and fitting, no clash), `pass`
+   * («مو إلي»), `release` («ما أگدر أجي»: before the deadline it goes back on offer, after it the T−30
+   * search), `start` («طالع هسة», from the reminder on, online and free).
+   */
+  async answerBooked(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void> {
+    const r = await this.store.getRequest(tripId);
+    const job = r?.booked;
+    if (!r || !job || r.status !== 'scheduled') throw new DriverError('booked_job_not_found');
+    const now = this.now();
+    switch (answer) {
+      case 'confirm':
+        return this.uow.run(() => this.confirmBooked(r, job, driverId));
+      case 'pass':
+        return this.uow.run(async () => {
+          if (!openTo(job, driverId, now)) throw new DriverError('booked_job_not_found');
+          r.booked = bookedStep(job, { kind: 'pass', driverId }, now);
+          await this.store.saveRequest(r);
+          await this.emit('dispatch.booked_passed', r, { orderId: job.orderId, driverId }, driverId);
+          // The favourite said no: everyone may take it now.
+          if (job.openedAt === null && r.booked.openedAt !== null) await this.announceBooked(r);
+        });
+      case 'release':
+        return this.uow.run(async () => {
+          const next = bookedStep(job, { kind: 'release', driverId }, now);
+          r.booked = next;
+          await this.store.saveRequest(r);
+          await this.store.unlock(bookedLockKey(tripId));
+          const reopened = next.state === 'offered';
+          await this.emit('dispatch.booked_released', r, { orderId: next.orderId, driverId, reason: 'driver', reopened }, driverId);
+          if (reopened) await this.announceBooked(r);
+        });
+      case 'start': {
+        if (!isHeld(job) || job.driverId !== driverId) throw new DriverError('booked_job_not_found');
+        if (now < this.bookedInfo(r, job, driverId).startFrom.getTime()) throw new DriverError('booked_start_too_early');
+        if (!(await this.readyToStart(r, driverId))) throw new DriverError('booked_start_not_ready');
+        return this.store.withDriverLock(driverId, () => this.startBooked(tripId, driverId));
+      }
+    }
+  }
+
+  private async confirmBooked(r: DispatchRequest, job: BookedJob, driverId: string): Promise<void> {
+    const now = this.now();
+    if (isHeld(job) && job.driverId === driverId) return;
+    // Refusals in the machine's words first (taken, closed, not his yet), then his fit.
+    bookedStep(job, { kind: 'confirm', driverId }, now);
+    const p = await this.presence.get(driverId);
+    if (!p || (await this.bookedFit(r, p)) === 0) throw new DriverError('booked_job_not_fit');
+    if (await this.clashes(r, job.scheduledFor, driverId)) throw new DriverError('booked_job_clash');
+    // First confirm wins (SET NX), and the 22:00 deadline takes the same lock.
+    if (!(await this.store.tryLock(bookedLockKey(r.tripId), driverId, this.bookedLockTtl(job)))) {
+      const fresh = (await this.store.getRequest(r.tripId))?.booked;
+      if (fresh && isHeld(fresh) && fresh.driverId === driverId) return;
+      throw new DriverError(fresh && isHeld(fresh) ? 'booked_job_taken' : 'booked_job_closed');
+    }
+    const fresh = (await this.store.getRequest(r.tripId)) ?? r;
+    let next: BookedJob;
+    try {
+      next = bookedStep(fresh.booked ?? job, { kind: 'confirm', driverId }, now);
+    } catch (err) {
+      await this.store.unlock(bookedLockKey(r.tripId));
+      throw err;
+    }
+    fresh.booked = next;
+    await this.store.saveRequest(fresh);
+    await this.emit('dispatch.booked_confirmed', fresh, { orderId: next.orderId, driverId, scheduledFor: new Date(next.scheduledFor).toISOString(), favourite: next.favouriteId === driverId }, driverId);
+  }
+
+  /** The rider's view of his booked ride: the pre-assignment (if any) and when the search starts. Read-only. */
+  async bookedRide(tripId: string): Promise<BookedRideInfo | null> {
+    const r = await this.store.getRequest(tripId);
+    if (!r || r.startAt == null) return null;
+    const scheduledFor = new Date(r.scheduledFor ?? r.startAt + RIDE_HABIT_RULES.schedule.searchLeadMin * 60_000);
+    return { job: r.booked ?? null, scheduledFor, searchAt: new Date(r.startAt) };
   }
 
   // ───────────────────────── driver responses ─────────────────────────
@@ -742,7 +1121,7 @@ export class OfferOrchestrator {
     const cfg = this.baseConfig(r.cityId, r.vertical);
     const p = await this.presence.get(driverId);
     if (jobs.length >= batchLimit(p?.vehicle ?? 'bike', cfg.maxBatch)) return false;
-    const current = await this.batchOrders(jobs);
+    const current = await this.batchOrders(jobs, driverId);
     if (!current) return false;
     const verdict = canBatch(
       current,
@@ -910,11 +1289,18 @@ export class OfferOrchestrator {
       await this.withdrawOpen(r);
       if (r.assignedDriverId) await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.store.unlock(lockKey(tripId));
+      // Review #28: the driver who confirmed this booked ride hears it is off.
+      const holder = r.booked && isHeld(r.booked) ? r.booked.driverId : null;
+      if (r.booked) {
+        r.booked = bookedStep(r.booked, { kind: 'cancel' }, this.now());
+        await this.store.unlock(bookedLockKey(tripId));
+      }
       r.status = 'cancelled';
       r.epoch += 1;
       r.nextTimerAt = null;
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.cancelled', r, { freeCancel: r.customerMayCancelFree }, actorId);
+      if (holder && r.booked) await this.emit('dispatch.booked_cancelled', r, { orderId: r.booked.orderId, driverId: holder, scheduledFor: new Date(r.booked.scheduledFor).toISOString() }, actorId);
     });
   }
 
@@ -934,7 +1320,7 @@ export class OfferOrchestrator {
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
-    await this.store.retireRequest(r);
+    await this.retire(r);
   }
 
   async board(cityId: string): Promise<DispatchBoard> {
@@ -1061,9 +1447,18 @@ export class OfferOrchestrator {
 
   // ───────────────────────── timers ─────────────────────────
 
-  async onTimer(job: TimerJob): Promise<void> {
+  /** `from`: the Redis job, or its durable copy run by the timer sweeper because the job was lost. */
+  async onTimer(job: TimerJob, from: 'queue' | 'sweeper' = 'queue'): Promise<void> {
     const r = await this.store.getRequest(job.tripId);
-    if (!r || r.epoch !== job.epoch) return;
+    if (!r) {
+      // The durable copy runs only when its Redis job was lost, and a finished or cancelled ride
+      // settles its copies (`retire`): so a copy that finds no request means Redis lost the request
+      // too. Nobody would look for a driver; a dispatcher must (review of NTF-05). A Redis job that
+      // finds none is a ride retired long ago (its record expires after a day): nothing to do.
+      if (from === 'sweeper') await this.onRequestLost(job);
+      return;
+    }
+    if (r.epoch !== job.epoch) return;
     await this.uow.run(async () => {
       switch (job.kind) {
         case 'wave_end':
@@ -1088,11 +1483,48 @@ export class OfferOrchestrator {
           return this.onLowFillCheck(r);
         case 'broadcast_start':
           if (r.status !== 'scheduled') return;
+          // Review #28: T−30 — the confirmed driver's trip starts, or the fallback search does.
+          if (r.booked && isHeld(r.booked)) return this.onBookedShowTime(r);
+          if (r.booked && (r.booked.state === 'waiting' || r.booked.state === 'offered')) r.booked = bookedStep(r.booked, { kind: 'deadline' }, this.now());
+          // NTF-05: the rider who booked yesterday hears that the search for his driver started now.
+          if (r.orderId && r.scheduledFor) await this.emit('dispatch.booked_search_started', r, { orderId: r.orderId, scheduledFor: new Date(r.scheduledFor).toISOString() });
           return this.beginBroadcast(r, this.baseConfig(r.cityId, r.vertical));
         case 'favourite_end':
           return this.onFavouriteEnd(r);
+        case 'booked_open':
+          return this.onBookedOpen(r);
+        case 'booked_fav_end':
+          return this.onBookedFavouriteEnd(r);
+        case 'booked_deadline':
+          return this.onBookedDeadline(r);
+        case 'booked_remind':
+          return this.onBookedRemind(r);
       }
     });
+  }
+
+  /** Off the board (finished, cancelled, assigned for good); its far-ahead timers will never be needed. */
+  private async retire(r: DispatchRequest): Promise<void> {
+    await this.store.retireRequest(r);
+    if (this.timers) await this.timers.settlePending(DISPATCH_QUEUE_NAME, `${r.tripId}.`, this.clock.now(), this.uow.current());
+  }
+
+  private async onRequestLost(job: TimerJob): Promise<void> {
+    this.logger.error(`dispatch request ${job.tripId} is gone (its ${job.kind} timer ran): a dispatcher must take it`);
+    await this.uow.run((tx) =>
+      this.events.emit(
+        tx,
+        {
+          actorId: SYSTEM,
+          type: 'dispatch.needs_dispatcher',
+          occurredAt: this.clock.now(),
+          tripId: job.tripId,
+          payload: { cityId: job.cityId ?? null, vertical: job.vertical ?? null, reason: 'request_lost', timer: job.kind, ...(job.orderId ? { orderId: job.orderId } : {}) },
+          idempotencyKey: `dispatch.request_lost.${job.tripId}.${job.epoch}`,
+        },
+        { name: 'trip', id: job.tripId },
+      ),
+    );
   }
 
   // ───────────────────────── helpers ─────────────────────────
@@ -1103,13 +1535,34 @@ export class OfferOrchestrator {
 
   private async schedule(kind: TimerKind, r: DispatchRequest, atMs: number, step: number): Promise<void> {
     // BullMQ custom ids may not contain ':'.
-    await this.queue.add(kind, { kind, tripId: r.tripId, epoch: r.epoch, step }, { delayMs: Math.max(0, atMs - this.now()), jobId: `${r.tripId}.${kind}.${r.epoch}.${step}` });
+    const jobId = `${r.tripId}.${kind}.${r.epoch}.${step}`;
+    const delayMs = Math.max(0, atMs - this.now());
+    const data: TimerJob = { kind, tripId: r.tripId, epoch: r.epoch, step };
+    if (this.timers && delayMs >= DURABLE_TIMER_MIN_DELAY_MS) {
+      Object.assign(data, { durable: true, cityId: r.cityId, vertical: r.vertical, ...(r.orderId ? { orderId: r.orderId } : {}) });
+      // Same transaction as the request it belongs to: rolled back together.
+      await this.timers.schedule({ queue: DISPATCH_QUEUE_NAME, name: kind, jobId, data, dueAt: new Date(atMs + DURABLE_TIMER_GRACE_MS) }, this.uow.current());
+    }
+    await this.queue.add(kind, data, { delayMs, jobId });
   }
 
   /** Tuktuks never get edge-zone jobs (pickup or drop-off) unless they opted in. */
   private edgeBlocked(r: DispatchRequest, p: DriverPresence): boolean {
     if (p.vehicle !== 'tuktuk' || p.edgeOptIn) return false;
     return this.zones.isEdge(r.cityId, r.zoneId) || this.zones.isEdge(r.cityId, r.dropoffZoneId ?? undefined);
+  }
+
+  /**
+   * The vehicle fits the vertical (0 = not at all), his roles allow it on his registered vehicle (review
+   * 2026-10-04 #20, set at goOnline), the tuktuk edge rule and the order cap. Cap room is checked apart.
+   */
+  private staticFit(r: DispatchRequest, p: DriverPresence): number {
+    const fit = vehicleFit(r.vertical, p.vehicle);
+    if (fit === 0) return 0;
+    if (p.verticals && !p.verticals.includes(r.vertical)) return 0;
+    if (this.edgeBlocked(r, p)) return 0;
+    if (!vehicleFits(p.vehicle, r.minVehicleClass ?? null)) return 0;
+    return fit;
   }
 
   /**
@@ -1126,12 +1579,8 @@ export class OfferOrchestrator {
       if (avoided.has(p.driverId)) continue;
       if (f.only && !f.only.includes(p.driverId)) continue;
       if (f.onlyVetted && !p.vetted) continue;
-      const fit = vehicleFit(r.vertical, p.vehicle);
+      const fit = this.staticFit(r, p);
       if (fit === 0) continue;
-      // Review 2026-10-04 #20: only what his roles allow on his registered vehicle (set at goOnline).
-      if (p.verticals && !p.verticals.includes(r.vertical)) continue;
-      if (this.edgeBlocked(r, p)) continue;
-      if (!vehicleFits(p.vehicle, r.minVehicleClass ?? null)) continue;
       const jobs = await this.store.driverJobs(p.driverId);
       if (f.requireIdle && jobs.length > 0) continue;
       if (jobs.length > 0 && jobs.length >= batchLimit(p.vehicle, cfg.maxBatch)) continue;

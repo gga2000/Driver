@@ -2,6 +2,7 @@ import { DEFAULT_SAFETY_PREFS, EmergencyRelation, SafetyPrefs, TRUSTED_CONTACTS_
 import { Prisma, type TrustTier } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
+import { STAFF_READ_PURPOSES, VaultLogWriteError, accessorOf, recordSwallowedVaultLogFailure, type AccessorKind } from './vault-log.js';
 
 /**
  * The identity module's persistence port. This file (and `prisma.repository.ts`, which implements
@@ -108,7 +109,10 @@ export interface EmergencyContactRecord {
 export interface VaultAccessLogRecord {
   id: string;
   personId: string;
+  /** Who read: a person id, or a synthetic reader's id ("system:notify", "share:<linkId>"). */
   accessorId: string;
+  /** 'person' for a person; the synthetic reader's kind otherwise (`accessorOf`). */
+  accessorKind: AccessorKind;
   purpose: string;
   fieldsRead: string[];
   /** Set when a child's identity was read (personId is then the guardian). */
@@ -151,9 +155,17 @@ export interface IdentityRepository {
   /** Batched `readIdentity` (one query); people without a vault row are left out. */
   readIdentities(personIds: readonly string[], tx?: Tx): Promise<IdentityRecord[]>;
   updateIdentity(personId: string, patch: Partial<Pick<IdentityRecord, 'phoneE164' | 'phoneHash' | 'name' | 'emergencyContact' | 'mainPhotoRef' | 'mainPhotoAt' | 'trustedContacts' | 'safetyPrefs'>>, tx?: Tx): Promise<IdentityRecord>;
-  logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx): Promise<VaultAccessLogRecord>;
-  /** One VaultAccessLog row per entry, written in one statement; returns how many were written. */
-  logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx): Promise<number>;
+  /**
+   * One VaultAccessLog row. A synthetic accessor (`system:*`, `share:<id>`, `sos_link:<id>`) is written as
+   * its kind and ref with a null accessor_id (vault_accessor_fk). Inside a transaction the insert runs in
+   * a SAVEPOINT, so a failed insert never aborts the caller's transaction. A failure is swallowed
+   * (counted, logged with `vault_log_write_failed`, null returned) unless the read is an interactive
+   * staff read (`STAFF_READ_PURPOSES`, or `opts.failClosed`): then it throws `VaultLogWriteError` and
+   * the read returns no data.
+   */
+  logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx, opts?: VaultLogOptions): Promise<VaultAccessLogRecord | null>;
+  /** One VaultAccessLog row per entry, written in one statement; returns how many were written (0 when a swallowed failure). */
+  logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx, opts?: VaultLogOptions): Promise<number>;
   vaultAccessLogs(personId: string, tx?: Tx): Promise<VaultAccessLogRecord[]>;
   createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx): Promise<ChildIdentityRecord>;
   readChildIdentities(childRefs: readonly string[], tx?: Tx): Promise<ChildIdentityRecord[]>;
@@ -210,11 +222,18 @@ export interface IdentityRepository {
   createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date; attempts?: number }, tx?: Tx): Promise<OtpRecord>;
   updateOtp(id: string, patch: Partial<Pick<OtpRecord, 'attempts' | 'verifiedAt' | 'lockedAt'>>, tx?: Tx): Promise<OtpRecord>;
   /**
-   * Counts one wrong code (atomic increment) and stamps `lockedAt` once `attempts` reaches
-   * `maxAttempts`. Deliberately takes NO `tx`: it commits on its own connection, immediately, so the
-   * caller's transaction rolling back (it is about to throw `otp_invalid`) can never undo it.
+   * Claims one attempt before a code is compared (audit SEC-01): a single conditional increment
+   * that succeeds only while the challenge is unused, unlocked and under `maxAttempts`; `null`
+   * otherwise. Deliberately takes NO `tx`: it commits on its own connection, immediately, so the
+   * caller's transaction rolling back (it is about to throw `otp_invalid`) can never undo it, and
+   * parallel guesses each see the others' claims. `attempts`: the count this claim made it (1…max),
+   * as the UPDATE returned it, not as a later read sees it.
    */
-  recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }): Promise<OtpRecord>;
+  claimOtpAttempt(id: string, input: { maxAttempts: number }): Promise<{ attempts: number } | null>;
+  /** Stamps `lockedAt` if the attempts are used up and it is not yet locked or used (no `tx`, as above); the row as it now stands. */
+  lockOtp(id: string, input: { now: Date; maxAttempts: number }): Promise<OtpRecord | null>;
+  /** Marks the challenge used, only if it is still unused and unlocked; `null` when another request got there first. */
+  consumeOtp(id: string, now: Date, tx?: Tx): Promise<OtpRecord | null>;
 
   // guardian links
   createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx): Promise<GuardianLinkRecord>;
@@ -232,6 +251,60 @@ export interface RosterPage {
 }
 
 export const IDENTITY_REPOSITORY = Symbol('IDENTITY_REPOSITORY');
+
+export interface VaultLogOptions {
+  /** Throw (no data) when the row cannot be written; default: the purpose is a staff read. */
+  failClosed?: boolean;
+}
+
+/** Whether a log failure for this read throws (staff reads) or is swallowed. */
+export function vaultLogFailsClosed(purpose: string, opts?: VaultLogOptions): boolean {
+  return opts?.failClosed ?? STAFF_READ_PURPOSES.has(purpose);
+}
+
+/** The vault_access_logs columns for one read: a person in accessor_id, anyone else as kind + ref. */
+export function vaultLogRow(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null }) {
+  const who = accessorOf(entry.accessorId);
+  return { personId: entry.personId, accessorId: who.personId, accessorKind: who.kind, accessorRef: who.ref, purpose: entry.purpose, fieldsRead: entry.fieldsRead, childRef: entry.childRef ?? null };
+}
+
+/** The record of a stored row: `accessorId` is the person, or the synthetic reader's ref. */
+function vaultLogRecord(row: { id: string; personId: string; accessorId: string | null; accessorKind: string; accessorRef: string | null; purpose: string; fieldsRead: string[]; childRef: string | null; createdAt: Date }): VaultAccessLogRecord {
+  return { id: row.id, personId: row.personId, accessorId: row.accessorId ?? row.accessorRef ?? '', accessorKind: row.accessorKind as AccessorKind, purpose: row.purpose, fieldsRead: row.fieldsRead, childRef: row.childRef, createdAt: row.createdAt };
+}
+
+/** Savepoint writes are queued per transaction, so two reads joined to one transaction never interleave their savepoints. */
+const savepointQueues = new WeakMap<object, Promise<unknown>>();
+let savepointSeq = 0;
+
+/**
+ * Runs `fn` inside a SAVEPOINT of `tx`: on failure the savepoint is rolled back (the transaction stays
+ * usable, so the caller's own writes still commit) and the error is rethrown. A JS try/catch alone is
+ * not enough: a failed statement aborts the whole Postgres transaction (25P02). Only log writes are
+ * queued: don't run other queries in parallel (`Promise.all`) on a transaction that reads the vault, or
+ * one could land inside the savepoint and be rolled back with a failed log write.
+ */
+async function inSavepoint<T>(tx: Tx, fn: () => Promise<T>): Promise<T> {
+  const key = tx as object;
+  const run = (savepointQueues.get(key) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      savepointSeq = (savepointSeq + 1) % 1_000_000_000;
+      const name = `vault_log_${savepointSeq}`;
+      await tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+      try {
+        const out = await fn();
+        await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+        return out;
+      } catch (err) {
+        await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+        await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+        throw err;
+      }
+    });
+  savepointQueues.set(key, run);
+  return run;
+}
 
 // ───────────────────────── Prisma implementation ─────────────────────────
 
@@ -299,16 +372,27 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return identityRecord(row);
   }
 
-  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
-    const { personId, accessorId, purpose, fieldsRead } = entry;
-    const data = { personId, accessorId, purpose, fieldsRead, childRef: entry.childRef ?? null };
-    return this.db(tx).vaultAccessLog.create({ data });
+  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx, opts?: VaultLogOptions) {
+    const row = await this.writeLog(entry, tx, opts, (db) => db.vaultAccessLog.create({ data: vaultLogRow(entry) }));
+    return row ? vaultLogRecord(row) : null;
   }
 
-  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx) {
-    if (entries.length === 0) return 0;
-    const data = entries.map(({ personId, accessorId, purpose, fieldsRead }) => ({ personId, accessorId, purpose, fieldsRead, childRef: null }));
-    return (await this.db(tx).vaultAccessLog.createMany({ data })).count;
+  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx, opts?: VaultLogOptions) {
+    const first = entries[0];
+    if (!first) return 0;
+    const data = entries.map((e) => vaultLogRow(e));
+    return (await this.writeLog(first, tx, opts, async (db) => (await db.vaultAccessLog.createMany({ data })).count)) ?? 0;
+  }
+
+  /** The log write in its own savepoint (or on its own, outside a transaction); see `logVaultAccess`. */
+  private async writeLog<T>(entry: { personId: string; accessorId: string; purpose: string }, tx: Tx | undefined, opts: VaultLogOptions | undefined, write: (db: Tx) => Promise<T>): Promise<T | null> {
+    try {
+      return tx ? await inSavepoint(tx, () => write(tx)) : await write(this.db());
+    } catch (err) {
+      if (vaultLogFailsClosed(entry.purpose, opts)) throw new VaultLogWriteError(err);
+      recordSwallowedVaultLogFailure(err, entry);
+      return null;
+    }
   }
 
   async createChildIdentity(input: { guardianId: string; name: string; now: Date }, tx?: Tx) {
@@ -343,7 +427,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
   }
 
   async vaultAccessLogs(personId: string, tx?: Tx) {
-    return this.db(tx).vaultAccessLog.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } });
+    return (await this.db(tx).vaultAccessLog.findMany({ where: { personId }, orderBy: { createdAt: 'asc' } })).map(vaultLogRecord);
   }
 
   async appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx) {
@@ -498,13 +582,28 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 
-  async recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }) {
-    // Outside any transaction on purpose (see the port): the base client auto-commits.
+  async claimOtpAttempt(id: string, input: { maxAttempts: number }) {
+    // Outside any transaction on purpose (see the port): one UPDATE … RETURNING, atomic in Postgres.
+    const rows = await this.prisma.prisma.$queryRaw<Array<{ attempts: number }>>`
+      UPDATE "public"."otp_challenges"
+         SET "attempts" = "attempts" + 1, "updated_at" = now()
+       WHERE "id" = ${id} AND "verified_at" IS NULL AND "locked_at" IS NULL AND "attempts" < ${input.maxAttempts}
+   RETURNING "attempts"`;
+    return rows[0] ? { attempts: Number(rows[0].attempts) } : null;
+  }
+
+  async lockOtp(id: string, input: { now: Date; maxAttempts: number }) {
     const db = this.prisma.prisma;
-    let row = await db.otpChallenge.update({ where: { id }, data: { attempts: { increment: 1 } } });
-    if (row.attempts >= input.maxAttempts && !row.lockedAt) {
-      row = await db.otpChallenge.update({ where: { id }, data: { lockedAt: input.now } });
-    }
+    await db.otpChallenge.updateMany({ where: { id, verifiedAt: null, lockedAt: null, attempts: { gte: input.maxAttempts } }, data: { lockedAt: input.now } });
+    const row = await db.otpChallenge.findUnique({ where: { id } });
+    return row ? { ...row, purpose: fromDbPurpose(row.purpose) } : null;
+  }
+
+  async consumeOtp(id: string, now: Date, tx?: Tx) {
+    const db = this.db(tx);
+    const { count } = await db.otpChallenge.updateMany({ where: { id, verifiedAt: null, lockedAt: null }, data: { verifiedAt: now } });
+    if (count === 0) return null;
+    const row = await db.otpChallenge.findUniqueOrThrow({ where: { id } });
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 

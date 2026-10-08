@@ -171,6 +171,11 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
   };
 }
 
+/** A card can add the dish in one tap: no option group asks for a choice (home's band +; else the dish opens). */
+export function oneTap(item: Pick<MenuItem, 'modifierGroups'>): boolean {
+  return item.modifierGroups.every((g) => g.min === 0);
+}
+
 /**
  * The most ordered dishes (joy o8): per dish, how many orders had it (`counts`), those with at least
  * `minOrders`, most first (ties by menu order), at most `top`. Only dishes still on the menu.

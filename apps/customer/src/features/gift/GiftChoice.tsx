@@ -19,7 +19,7 @@ export function GiftChoice({ name, payment, value, onChange }: { name: string | 
   const t = useT();
   const canHide = hidePricesAllowed(payment);
   const switchProps = (on: boolean) => ({
-    trackColor: { true: theme.colors.accent, false: theme.colors.border },
+    trackColor: { true: theme.colors.accent, false: theme.colors.borderStrong },
     ...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {}),
     value: on,
   });

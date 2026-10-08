@@ -31,8 +31,17 @@ config.resolver.unstable_enablePackageExports = true;
 // ours. Two Reacts in one bundle = "Objects are not valid as a React child". Every import of these
 // packages (and their subpaths, e.g. react/jsx-runtime) resolves from this app instead.
 const SINGLETONS = ['react', 'react-dom', 'react-native', 'react-native-web', 'react-native-reanimated', 'react-native-worklets', 'react-native-safe-area-context', 'react-native-svg', 'react-native-gesture-handler', 'react-native-screens', '@tanstack/react-query'];
+// Speed s1: a production build leaves out the other apps' strings (scripts/locale-subset.cjs), about
+// two thirds of the shared tables. Dev keeps the full tables so a newly added key shows at once.
+let localeSubset = null;
+const subsetLocales = () =>
+  (localeSubset ??= require('./scripts/locale-subset.cjs').writeCustomerLocales({ repoRoot: workspaceRoot, outDir: path.join(projectRoot, 'node_modules/.cache/customer-locale') }));
+const LOCALE_FILE = /^\.\/locales\/(ar-IQ|en)\.json$/;
+
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const locale = process.env.NODE_ENV === 'production' ? LOCALE_FILE.exec(moduleName) : null;
+  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
   if (pkg) {
     const origin = path.join(projectRoot, 'package.json');
