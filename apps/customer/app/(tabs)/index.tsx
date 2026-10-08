@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, useWindowDimensions, View } from 'react-native';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
 import { agoText, Button, Card, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
@@ -13,7 +13,6 @@ import { CartBar } from '@/features/food/CartBar';
 import { artOf } from '@/features/food/FoodArt';
 import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle } from '@/features/food/FlyToCart';
-import { RestaurantRow, RestaurantRowSkeleton } from '@/features/food/RestaurantRow';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { CollapsedBar } from '@/features/home/CollapsedBar';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
@@ -24,12 +23,14 @@ import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
 import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
 import { useDinnerChance } from '@/features/ride-habits/queries';
-import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
-import { DaypartBand, type BandBasket } from '@/features/home/DaypartBand';
+import { bandTitleKey, bandWords, daypart, kitchenRank } from '@/features/home/daypart';
+import type { BandBasket } from '@/features/home/DaypartBand';
+import { HOUR_PICKS } from '@/features/home/gallery';
+import { HourFood, useHourFood } from '@/features/home/HourFood';
+import { dishKind } from '@/features/home/dish-photos';
 import { useHomeIntro } from '@/features/home/intro';
 import { useUsuals } from '@/features/home/habit-queries';
 import { fridayAhead, usualNow } from '@/features/home/habits';
-import { PotsStrip } from '@/features/home/PotsStrip';
 import { FridayCard, UsualCard } from '@/features/home/UsualCard';
 import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
@@ -38,8 +39,9 @@ import { SimpleHomeRedirect } from '@/features/simple/SimpleHome';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
-import { ComingSoonStrip, ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
-import { CuisineCircles } from '@/features/home/CuisineCircles';
+import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
+import { KitchenRows, KitchenRowsSkeleton } from '@/features/home/KitchenRows';
+import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { lastReorderable } from '@/features/orders/history';
 import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
@@ -50,27 +52,24 @@ import { useActiveBooking } from '@/features/rajaa/queries';
 import { BaghdadModeCard } from '@/features/ride/BaghdadModeCard';
 import { RideHomeCard } from '@/features/ride/RideHomeCard';
 import { startRide } from '@/features/ride/WhereToBar';
-import { popularTerms } from '@/features/search/logic';
 import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
 import { profile, selectedPlace, useProfile } from '@/lib/profile';
 import { useSeason } from '@/lib/use-season';
 
-/** Restaurants listed on home before "شوف الكل". */
-const HOME_LIST = 5;
-
 /**
  * Home (spec §1, audit C-09) in Date & Saffron (Ali, 2026-10-06; v3 artifact), food-led: the hour's sky
  * behind a header (where we deliver, the points chip, the hand-lettered greeting) and the floating
  * search (opens /search); the services as a bento (أكل، تكسي، تكتك، بغداد والكوت، الرجعة), each with a
- * live fact; what is in progress (order, ride, booked seat) else ONE of the usual/reorder cards; the
- * town's pots and the hour's dishes; «شنو بخاطرك؟» food types; the kitchens open now; and «جاي بالطريق»
- * at the end. Offline, one date-brown line says the page is the last copy. Guests browse it all (C-18).
+ * live fact; what is in progress (order, ride, booked seat) else ONE of the usual/reorder cards; then
+ * concept C (Ali 2026-10-08): the hour's dishes as a photo gallery and «أكلات ثانية», a few kitchens open
+ * now as plain rows, and a quiet «جاي قريب» line with «بالعافية» at the end. Offline, one date-brown
+ * line says the page is the last copy. Guests browse it all (C-18).
  *
  * How it feels (step 2, Ali's Yes votes 2026-10-07): it builds itself in when the app opens; as it
  * scrolls the greeting fades and a slim bar with the search and the services slides down; the food
- * drawing floats; pulling down fills a glass of tea; the band's + adds a dish into a basket bar that
- * floats over the page.
+ * drawing floats; pulling down fills a glass of tea; a dish's + adds it into a basket bar that floats
+ * over the page.
  */
 export default function Home() {
   const theme = useTheme();
@@ -98,7 +97,10 @@ export default function Home() {
   const quiet = useSeason().quiet;
   // h7: the welcome-home moment, once, right after setup.
   const prof = useProfile();
-  const picks = usePicks(bandWords(dp));
+  const picks = usePicks(bandWords(dp), HOUR_PICKS);
+  const { width: screenW } = useWindowDimensions();
+  // The page column: the screen up to the content cap, less the gutters.
+  const columnW = Math.min(screenW, MAX_CONTENT_WIDTH) - theme.space[5] * 2;
   const [refreshing, setRefreshing] = useState(false);
 
   const list = restaurants.data;
@@ -118,7 +120,6 @@ export default function Home() {
   );
   // f12: at night (no kitchen open) the chips come from every kitchen, and the first to open is named.
   const night = useMemo(() => nightHome(list ?? []), [list]);
-  const cuisines = useMemo(() => orderForDaypart(popularTerms((open.length > 0 ? open : (list ?? [])).map((r) => r.cuisine), 8), dp.key), [open, list, dp.key]);
   const last = useMemo(() => lastReorderable(history.data ?? [], now, me), [history.data, now, me]);
   // Joy t1: «اطلب نفس الطلب» from the app icon lands here with `?reorder=last` — the reorder sheet opens once.
   const { reorder: reorderParam } = useLocalSearchParams<{ reorder?: string }>();
@@ -144,6 +145,11 @@ export default function Home() {
   const food = foodFact({ loading, openCount: open.length, firstOpensAt: night.first?.opensAt ?? null });
   const foodOff = !loading && !!list && open.length === 0;
   const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last), friday: Boolean(friday), usual: Boolean(usual) });
+  // The kitchen the card above already offers: the hour's food shows it last, not a fourth time.
+  const offered = cards.includes('usual') ? usual?.row.order.merchantOrgId : cards.includes('friday') ? friday?.usual.row.order.merchantOrgId : cards.includes('reorder') ? last?.order.merchantOrgId : null;
+  const hour = useHourFood({ picks: picks.data, picksPending: picks.isPending, words: bandWords(dp), later: offered ?? null, now });
+  // The stand-in photos the hour's dishes show, so the kitchens below pick others.
+  const showing = useMemo(() => [...hour.food.slides, ...hour.food.more].flatMap((h) => (h.dish.photoUrl ? [] : [dishKind(h.dish.name)].filter((k) => k !== null))), [hour.food]);
 
   // The basket on home (Ali's Yes, "addfly"): the band's + drops a dish in and it flies to the bar.
   const cart = useCart();
@@ -250,72 +256,58 @@ export default function Home() {
         {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
         <SeasonCard />
 
-        {/* «العزيزية اليوم» (joy h2): what the town's kitchens cook today; hidden when none is open with one. */}
-        <PotsStrip now={now} />
+        {/* The hour's food (concept C, Ali 2026-10-08): the town's pots and the hour's dishes as one
+            photo gallery that shows itself once, then «أكلات ثانية» in two columns. */}
+        {open.length > 0 ? <HourFood title={t(bandTitleKey(dp, quiet))} food={hour.food} pending={hour.pending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} /> : null}
 
-        {/* «وقت العزيزية»: real dishes for the hour from kitchens open now (hidden below two). */}
-        {open.length > 0 ? <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={picks.data} basket={basket} /> : null}
-
-        <View testID="home-food" style={{ gap: theme.space[6] }}>
-          {/* «شنو بخاطرك؟»: food types as round dish pictures, each opens search for the word. */}
-          {cuisines.length > 1 ? (
-            <View style={{ gap: theme.space[3] }}>
-              <SectionHeader big title={t('home.cravings')} />
-              <CuisineCircles cuisines={cuisines} onPick={(c) => router.push({ pathname: '/search', params: { q: c } })} />
-            </View>
-          ) : null}
-          <View style={{ gap: theme.space[3] }}>
-            <SectionHeader big title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} action={open.length > 0 ? { label: t('action.see_all'), onPress: () => router.push({ pathname: '/restaurants', params: { preset: 'open' } }) } : undefined} />
-            {loading ? (
-              <View accessibilityLabel={t('status.loading')} style={{ gap: theme.space[3] }}>
-                <RestaurantRowSkeleton />
-                <RestaurantRowSkeleton />
-              </View>
-            ) : failed && !list ? (
-              <Card lift padding={4}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                  <Icon name="x" size={20} color="dangerText" />
-                  <Text variant="label" style={{ flex: 1 }}>
-                    {t('home.load_failed')}
-                  </Text>
-                  <Button size="sm" variant="secondary" label={t('action.retry')} onPress={retry} />
-                </View>
-              </Card>
-            ) : open.length === 0 && night.first ? (
-              <Card lift padding={4} testID="home-night">
-                <View style={{ gap: theme.space[4] }}>
+        {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات». */}
+        <View testID="home-food" style={{ gap: theme.space[3] }}>
+          {open.length > 0 ? (
+            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} />
+          ) : (
+            <>
+              <SectionHeader big title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} />
+              {loading ? (
+                <KitchenRowsSkeleton />
+              ) : failed && !list ? (
+                <Card lift padding={4}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                    <NightMoon />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text variant="title" face="display">
-                        {t('home.night_title')}
-                      </Text>
-                      <Text variant="footnote" color="textMuted">
-                        {t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
-                      </Text>
-                    </View>
+                    <Icon name="x" size={20} color="dangerText" />
+                    <Text variant="label" style={{ flex: 1 }}>
+                      {t('home.load_failed')}
+                    </Text>
+                    <Button size="sm" variant="secondary" label={t('action.retry')} onPress={retry} />
                   </View>
-                  <Button label={t('home.night_menu')} onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })} testID="home-night-menu" />
-                </View>
-              </Card>
-            ) : open.length === 0 ? (
-              <Card lift padding={4}>
-                <View style={{ gap: theme.space[3], alignItems: 'center' }}>
-                  <Text variant="label" color="textMuted" align="center">
-                    {t('home.rail_empty')}
-                  </Text>
-                  <Button size="sm" variant="secondary" label={t('action.see_all')} onPress={() => router.push('/restaurants')} />
-                </View>
-              </Card>
-            ) : (
-              <View style={{ gap: theme.space[3] }} testID="rail-open">
-                {open.slice(0, HOME_LIST).map((r) => (
-                  <RestaurantRow key={r.id} r={r} testID={`restaurant-${r.id}`} />
-                ))}
-                {open.length > HOME_LIST ? <Button variant="ghost" label={t('action.see_all')} onPress={() => router.push({ pathname: '/restaurants', params: { preset: 'open' } })} /> : null}
-              </View>
-            )}
-          </View>
+                </Card>
+              ) : night.first ? (
+                <Card lift padding={4} testID="home-night">
+                  <View style={{ gap: theme.space[4] }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+                      <NightMoon />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text variant="title" face="display">
+                          {t('home.night_title')}
+                        </Text>
+                        <Text variant="footnote" color="textMuted">
+                          {t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
+                        </Text>
+                      </View>
+                    </View>
+                    <Button label={t('home.night_menu')} onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })} testID="home-night-menu" />
+                  </View>
+                </Card>
+              ) : (
+                <Card lift padding={4}>
+                  <View style={{ gap: theme.space[3], alignItems: 'center' }}>
+                    <Text variant="label" color="textMuted" align="center">
+                      {t('home.rail_empty')}
+                    </Text>
+                    <Button size="sm" variant="secondary" label={t('action.see_all')} onPress={() => router.push('/restaurants')} />
+                  </View>
+                </Card>
+              )}
+            </>
+          )}
         </View>
 
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
@@ -323,8 +315,8 @@ export default function Home() {
           <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list.filter((r) => !!r.deal)} showDeal seeAll="deals" loading={false} error={false} onRetry={retry} />
         ) : null}
 
-        {/* «جاي بالطريق» (discovery §6): what isn't open yet, quiet at the end, after the food. */}
-        <ComingSoonStrip onPress={onService} />
+        {/* The ending (concept C): «جاي قريب» as one quiet line, then «بالعافية». */}
+        <QuietEnd onSoon={onService} bye={open.length > 0} />
 
       </TeaPullScroll>
 
