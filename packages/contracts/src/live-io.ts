@@ -31,10 +31,16 @@ export const LIVE_RULES = {
   positionThrottleMs: 2_000,
   /** Scoping (role, store, order party) and the session are re-checked this often on an open stream. */
   recheckMs: 30_000,
-  /** Server keep-alive comment: proxies that cut idle connections at 30–60 s see traffic. */
-  pingMs: 15_000,
-  /** Clients reconnect when nothing (not even a ping) arrived for this long. */
-  inactivityMs: 45_000,
+  /**
+   * Server keep-alive comment: proxies that cut idle connections at 30–60 s see traffic, and a
+   * silently dead stream shows within `inactivityMs`. A few bytes every 5 s (≈ 15 KB/h per stream).
+   */
+  pingMs: 5_000,
+  /**
+   * Clients reconnect when nothing (not even a ping) arrived for this long: two missed pings plus
+   * slack for a slow network. Was 45 s; a food offer lasts only 15 s (speed audit, day one).
+   */
+  inactivityMs: 12_000,
   /** Stream tokens live at most this long (and never past the access token they were minted with). */
   streamTokenTtlSec: 15 * 60,
   /** Clients: no `hello` this long after opening = the network/proxy buffers SSE; treat as a failure. */

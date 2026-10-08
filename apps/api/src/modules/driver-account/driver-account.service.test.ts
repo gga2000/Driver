@@ -89,6 +89,20 @@ describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #
     const other = await h.person('07700000012', ['field_ops']);
     await expect(h.service.reviewDocument(other, { documentId: doc.id, decision: 'approve' })).resolves.toMatchObject({ status: 'approved' });
   });
+
+  it('driver.document_* carry the city (Console "Today" list)', async () => {
+    const h = setup();
+    const d = await h.person('07700000013', ['driver']);
+    const doc = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    const ops = await h.person('07700000014', ['field_ops']);
+    await h.service.reviewDocument(ops, { documentId: doc.id, decision: 'reject', reason: 'الصورة مو واضحة' });
+    const mine = (await h.ev.events.forAggregate('person', d.personId)).filter((e) => e.type.startsWith('driver.document_'));
+    expect(mine.map((e) => [e.type, e.payload['cityId']])).toEqual([
+      ['driver.document_submitted', 'aziziyah'],
+      ['driver.document_reviewed', 'aziziyah'],
+    ]);
+    expect(mine[1]!.payload).toMatchObject({ documentId: doc.id, personId: d.personId, kind: 'licence', decision: 'reject' });
+  });
 });
 
 describe('driverAccount.earnings', () => {

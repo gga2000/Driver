@@ -19,6 +19,11 @@ import path from 'node:path';
 const PLURAL = /_(zero|one|two|few|many|other)$/;
 const SOURCE = /\.(tsx?|mjs)$/;
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'e2e']);
+/**
+ * Shared files whose keys only the server or the phones render: the notification catalog names every
+ * push / WhatsApp / SMS text (`push.order_ops_cancelled.title`, …), which the Console never shows.
+ */
+const SERVER_ONLY = new Set([path.join('packages', 'contracts', 'src', 'notify-io.ts')]);
 
 /** Every `'ns.key'`, `"ns:key"` or `` `ns.key_${…}` `` in a source text: whole keys and key prefixes. */
 export function keyRefs(source, into = { exact: new Set(), prefixes: new Set() }) {
@@ -35,7 +40,7 @@ function walk(dir, refs) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name)) walk(p, refs);
-    } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.')) {
+    } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.') && ![...SERVER_ONLY].some((f) => p.endsWith(f))) {
       keyRefs(fs.readFileSync(p, 'utf8'), refs);
     }
   }

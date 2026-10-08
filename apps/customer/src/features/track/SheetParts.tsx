@@ -16,10 +16,10 @@ import {
   StatusPill,
   Text,
   useTheme,
-  withAlpha,
   type IconName,
   type PriceItem,
   type StatusTone,
+  useAnnounce,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -80,6 +80,8 @@ export function SheetHeader({
   const theme = useTheme();
   const t = useT();
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - now) / 60_000)) : null;
+  // REL-17: iOS VoiceOver hears each new status too (Android reads the live region).
+  useAnnounce(status);
   const live = phase !== 'done' && phase !== 'arrived' && phase !== 'cancelled' && phase !== 'failed' && phase !== 'disputed';
   const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
@@ -155,8 +157,8 @@ export function EtaBox({ eta, now, late }: { eta: Date; now: number; late: boole
 
 export function DegradedBanner({ icon, tone, title, body, testID }: { icon: IconName; tone: 'warning' | 'info'; title: string; body?: string; testID?: string }) {
   const theme = useTheme();
-  const bg = tone === 'warning' ? theme.colors.warningTint : theme.colors.infoTint;
-  const fg = tone === 'warning' ? 'warningText' : 'infoText';
+  // A structural warning is the inverse ink banner (VIS-10), never a pale tint; the icon carries the colour.
+  const mark = tone === 'warning' ? theme.colors.onInverseCaution : theme.colors.onInverseMuted;
   return (
     <View
       testID={testID}
@@ -168,22 +170,20 @@ export function DegradedBanner({ icon, tone, title, body, testID }: { icon: Icon
         paddingHorizontal: theme.space[3],
         paddingVertical: theme.space[2],
         borderRadius: theme.radius.lg,
-        backgroundColor: bg,
-        borderWidth: 1,
-        borderColor: withAlpha(tone === 'warning' ? theme.colors.warning : theme.colors.info, 0.35),
+        backgroundColor: theme.colors.inverse,
         shadowColor: color.neutral[1000],
         shadowOpacity: 0.08,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
       }}
     >
-      <Icon name={icon} size={18} color={fg} strokeWidth={2.2} />
+      <Icon name={icon} size={18} color={mark} strokeWidth={2.2} />
       <View style={{ flex: 1 }}>
-        <Text variant="label" weight={600} color={fg}>
+        <Text variant="label" weight={600} color="onInverse">
           {title}
         </Text>
         {body ? (
-          <Text variant="caption" color="textMuted">
+          <Text variant="caption" color="onInverseMuted">
             {body}
           </Text>
         ) : null}

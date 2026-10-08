@@ -17,7 +17,7 @@
     "ios": {
       "bundleIdentifier": "iq.driver.partner",
       "supportsTablet": true,
-      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"], "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"] }
+      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"], "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"], "UIBackgroundModes": ["audio"] }
     },
     "android": {
       "package": "iq.driver.partner"

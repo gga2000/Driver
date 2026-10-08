@@ -5,6 +5,7 @@ import { Button, Card, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Te
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { lateStages, passPhase } from '@/features/rajaa/pass';
+import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
 import { endGarageFor, roadLine, type RoadPoint } from '@/features/rajaa/road';
 import { RoadCard, type Watching } from '@/features/rajaa/RoadParts';
@@ -85,6 +86,8 @@ export default function BoardingPassScreen() {
   const dinner = useDinnerChance(live && b?.departure.direction === 'to_aziziyah');
   const prof = useProfile();
   const me = useMe();
+  // CRIT2-05: the notification ask for a seat, while the car hasn't left (the pushes that matter come before).
+  const pushAsk = usePushAsk(b?.state === 'booked');
 
   if (booking.isPending) {
     return (
@@ -319,6 +322,9 @@ export default function BoardingPassScreen() {
         </View>
         )}
       </Card>
+
+      {/* CRIT2-05: a seat-only customer is asked too, under the ticket, so a moved or cancelled car reaches him. */}
+      {pushAsk.visible ? <PushAskCard kind="seat" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
 
       {/* t2: the first-trip sticker comes after the pass, never pushing it down. */}
       <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />

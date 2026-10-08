@@ -41,7 +41,7 @@ export interface DishCardProps {
 /**
  * A menu row: name, description, price, and a thumbnail with the + button on its corner. Under a
  * live percent deal with no minimum (f10, the server's `item.deal`) the price is the deal price in
- * the success colour with the menu price struck through, as the cart will charge it. A sweet sold by
+ * the deal colour (saffron, never the success green) with the menu price struck through, as the cart will charge it. A sweet sold by
  * weight shows ربع · نص · كيلو right on the card (s1, m2); the price follows the weight picked and the
  * + adds that weight.
  */
@@ -119,7 +119,7 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: 2 }}>
           {dealPrice !== null && dealPrice < price.amount ? (
             <>
-              <Text variant="label" weight={700} color="successText" tabular testID={`dish-deal-${item.id}`}>
+              <Text variant="label" weight={700} color="accentText" tabular testID={`dish-deal-${item.id}`}>
                 {price.varies ? t('restaurant.price_from', { amount: amountParam(dealPrice) }) : iqd(dealPrice, { locale })}
               </Text>
               <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>

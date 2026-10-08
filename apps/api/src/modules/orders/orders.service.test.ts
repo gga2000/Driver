@@ -158,10 +158,28 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     // A street hand-over is a −250 option the server applies.
     const street = await h.orders.place('c1', h.foodInput({ options: { streetHandover: true }, deliveryFeeIqd: undefined }));
     expect(street.deliveryFeeIqd).toBe(750);
+    // HUNT-02: the order keeps «بالشارع» as priced, so the courier and the receipt know it.
+    expect(street.streetHandover).toBe(true);
+    expect((await h.repo.find(street.id))!.order.dropoff).toMatchObject({ streetHandover: true });
+    expect(near.streetHandover).toBeUndefined();
+    // The client cannot set it on the point itself: only the priced option counts.
+    const sneaky = await h.orders.place('c1', h.foodInput({ dropoff: { ...h.foodInput().dropoff!, streetHandover: true }, deliveryFeeIqd: undefined }));
+    expect(sneaky.streetHandover).toBeUndefined();
+    expect(sneaky.deliveryFeeIqd).toBe(1000);
     // No drop-off place, or a merchant without a place on file: nothing to price from.
     expect(await code(h.orders.place('c1', h.foodInput({ dropoff: undefined })))).toBe('quote_location_required');
     h.merchants.add('rest_nowhere');
     expect(await code(h.orders.place('c1', h.foodInput({ merchantOrgId: 'rest_nowhere' })))).toBe('quote_location_required');
+  });
+
+  it('FOOD-15: the drop-off zone is the server\'s reading of the pin; a pin outside the city is refused', async () => {
+    const h = ordersHarness();
+    h.placeZones.resolve = (_city, pin) => (pin.lat > 40 ? null : 'zakur');
+    // The app says the near zone, the pin is in Zakur: the fee is Zakur's.
+    const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: h.foodInput().dropoff!.pin! }, deliveryFeeIqd: undefined }));
+    expect(o.deliveryFeeIqd).toBe(1000);
+    expect((await h.repo.find(o.id))!.order.dropoff).toMatchObject({ zoneKey: 'zakur' });
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: { lat: 41, lng: 45 } } })))).toBe('outside_zone');
   });
 
   it('night delivery: the server adds the +250 night component itself', async () => {
@@ -285,6 +303,15 @@ describe('OrdersService — merchant acceptance', () => {
     expect(h.events.ofType('order.rejected')).toHaveLength(0);
   });
 
+  it('l4 (Ali 2026-10-08): from 15 waiting orders a kitchen\'s promise carries the busy +10 min', async () => {
+    const h = ordersHarness();
+    const placed = [];
+    for (let i = 0; i < 15; i += 1) placed.push(await h.orders.place(`c${i + 1}`, h.foodInput()));
+    await h.advance(21_000); // the waiting count is read at most every 20 s
+    const acc = await h.orders.merchantAccept('m1', { orderId: placed[14]!.id, prepMinutes: 15 });
+    expect(acc.promisedReadyAt).toEqual(new Date(h.clock.now().getTime() + 25 * MIN));
+  });
+
   it('merchants with the auto-accept flag skip acceptance', async () => {
     const h = ordersHarness();
     h.merchants.add('rest_auto', { autoAccept: true, defaultPrepMin: 25, location: { zoneKey: 'centre' } });
@@ -307,14 +334,32 @@ describe('OrdersService — merchant acceptance', () => {
     expect(h.events.last('order.rejected')!.payload).toMatchObject({ auto: true, scored: false, pauseWindow: 'صلاة الجمعة' });
   });
 
-  it('late rejection after accepting: scoring hit and 500 customer credit funded by the merchant', async () => {
+  it('M-17 (on, Ali 2026-10-08): a late rejection takes a scoring hit and carries 500 customer credit funded by the merchant; a rejection before accepting carries none', async () => {
+    expect(AZIZIYAH_MONEY_RULES.merchantLateRejectCredit.enabled).toBe(true);
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
     await h.orders.markPreparing('m1', { orderId: o.id });
     const r = await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
     expect(r.state).toBe('merchant_rejected');
-    expect(h.events.last('order.rejected')!.payload).toMatchObject({ afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant', scored: true });
+    expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, customerId: 'c1', merchantOrgId: expect.any(String), afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant', scored: true });
+    const early = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantReject('m1', { orderId: early.id, reason: 'زحمة' });
+    expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: early.id, afterAccept: false, customerCreditIqd: 0, creditFundedBy: null });
+  });
+
+  it('M-17 switch off (ops can stop it without a release): a late rejection claims no credit', async () => {
+    const rule = AZIZIYAH_MONEY_RULES.merchantLateRejectCredit;
+    rule.enabled = false;
+    try {
+      const h = ordersHarness();
+      const o = await h.orders.place('c1', h.foodInput());
+      await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+      await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
+      expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, afterAccept: true, customerCreditIqd: 0, creditFundedBy: null });
+    } finally {
+      rule.enabled = true;
+    }
   });
 });
 
@@ -459,7 +504,7 @@ describe('OrdersService — merchant heartbeat and courier release (review A.2)'
     await h.advance(20 * MIN - 1000);
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(0);
     await h.advance(1000);
-    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true });
+    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true, cityId: 'aziziyah' });
     await h.advance(5 * MIN);
     expect(h.events.last('order.courier_released')!.payload).toMatchObject({ courierId: 'd1', compensationIqd: 500, chargedTo: 'merchant', tripId: t.id });
     expect((await h.trips.get(t.id)).orders[0]!.reason).toBe('merchant_unresponsive');

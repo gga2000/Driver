@@ -35,7 +35,7 @@ git tag v1.0.3 && git push origin v1.0.3
 
 GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
-and starts a new machine; it takes traffic only after `/trpc/health.ping` passes; the old one drains
+and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
 and stops) → smoke test (`db: ok`, `redis: ok`) → **Console** and **web apps**. A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
@@ -102,9 +102,14 @@ tokens, and remove them from Supabase, Fly, Cloudflare, Expo and GitHub.
 - **Supabase daily backups** (Pro): Database → Backups, 7 days. One-click restore of the whole project
   to that day (everything after it is lost — use it for disasters only).
 - **Nightly logical dump** (`.github/workflows/backup.yml`, 01:17 UTC): `pg_dump` of `public` and
-  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), 14 days in GitHub and, with the
-  `BACKUP_S3_*` secrets, copied to a bucket you own (Cloudflare R2: free egress, $0.015/GB). Set
-  secrets `DIRECT_URL` (already there), `BACKUP_PASSPHRASE`; run it once by hand to see it work.
+  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), copied to a bucket you own
+  (Cloudflare R2: free egress, $0.015/GB; secrets `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
+  `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`). The repository is public, so no copy is
+  kept as a GitHub artifact (anyone signed in could download it); on a private repository the variable
+  `BACKUP_KEEP_ARTIFACT=true` adds a 14-day one. Set secrets `DIRECT_URL` (already there),
+  `BACKUP_PASSPHRASE` and the bucket ones; run it once by hand to see it work. Once production exists
+  (the variable `API_PUBLIC_URL` is set), a missing secret turns the nightly run **red** instead of
+  skipping, so a night without a backup is never silent (SEC-13).
 - **PITR**: off at launch (≈$100/month). Turn it on once a lost hour of orders would cost more.
 - **Redis** holds only queues and caches; it is rebuilt from the database. Its AOF survives restarts.
 
@@ -135,16 +140,33 @@ What exists today, from the narrowest to the widest:
 | --- | --- | --- |
 | One restaurant overwhelmed / closed | **Busy mode** (+10 min prep, 60 min) or **close early** with a reason | merchant app (owner/staff) — `merchant.setBusy`, `merchant.setOpen` |
 | A courier, driver or staff member must stop working | revoke the role (`identity.revokeRole`, admin only) | Console / API — the person keeps the account, loses the job |
-| Per-zone / per-vertical throttles and a status banner to every app | the launch playbook's kill switches (`docs/specs/2026-10-03-launch-playbook.md`) | being built with the Console ops tools — use them once merged |
+| Stop a service (food, taxi…), one kitchen, a zone or a الرجعة corridor; cap active orders in a zone | **kill switches** and the **zone throttle** (launch playbook §3), with an Arabic note for customers | Console → التحكم (`/controls`, dispatcher or admin; every change is in the audit). A stopped kitchen shows «موقوف» with the note on its card, and checkout's price check and placing both refuse with the note (REL-16) |
 | Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count app=0 worker=0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count app=2 worker=1 --config deploy/fly/api.toml` |
 | A bad mobile update | `eas update:roll-back-to-embedded --channel production` | Expo |
 
 Stopping the API is safe for data: orders already placed stay in the database, outbox rows wait, and
 timers resume when it is back (late timers fire on start). Tell restaurants and couriers on WhatsApp.
 
+## Deploying while the database is down
+
+Fly and the bluegreen swap watch `/trpc/health.live`, which answers 503 once the database has been
+unreachable for 30 seconds without a break (shorter blips are ridden out, so one failover does not pull
+every machine from rotation at once). A bluegreen deploy then never finishes: the new machines never pass their check and the
+old ones keep serving. When a fix must ship anyway (for example a wrong `DATABASE_URL`), the on-call
+person deploys without waiting for the check, and tells Ali:
+
+```bash
+fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only --strategy immediate
+```
+
+`immediate` replaces every machine at once, with no health gate and a short gap in service. Use it
+only for this case. The game day rehearses it.
+
 ## Incident checklist
 
-1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ping` → `db` and `redis` must be `ok`.
+1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ready` → `db` and `redis` must be `ok`.
+   `health.live` answering 503 means the machines have not reached the database for 30 seconds (see "Deploying while the
+   database is down" below).
    Fly dashboard → driver-api → Monitoring. Supabase → status / Reports. <https://status.flyio.net>,
    <https://status.supabase.com>.
 2. **What changed?** Last deploy (GitHub Actions), last OTA update (expo.dev), last secret change

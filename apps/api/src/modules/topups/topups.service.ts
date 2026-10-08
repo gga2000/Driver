@@ -1,5 +1,5 @@
 import { createHash, randomInt } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   TERMINAL_ORDER_STATES,
@@ -21,6 +21,7 @@ import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, LedgerService, type PostingGroup } from '../ledger/index.js';
+import { ORDER_OUTCOME_RULES, type OrderOutcomeRules } from '../orders/index.js';
 import { TOPUPS_REPOSITORY, type TopUpRecord, type TopUpsRepository } from './topups.repository.js';
 
 /** Does this courier carry an order of this customer right now (his "next order")? Bound over orders + trips. */
@@ -99,6 +100,8 @@ export class TopUpService implements TopUpPort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(TOPUP_COURIER_CHECK) private readonly couriers: TopUpCourierCheck,
     @Inject(TOPUP_PEOPLE) private readonly people: TopUpPeople,
+    /** THIN-12 / M-13: `agentCashAccounts` (off by default) keeps an agent's top-up cash on his own account. */
+    @Optional() @Inject(ORDER_OUTCOME_RULES) private readonly outcomes?: Pick<OrderOutcomeRules, 'agentCashAccounts'>,
   ) {}
 
   async request(actor: Actor, input: RequestTopUpInput): Promise<TopUpView> {
@@ -166,7 +169,8 @@ export class TopUpService implements TopUpPort {
       const ok = await this.repo.confirm(row.id, { confirmedAt: now, confirmedById: actor.personId, channel, reference, idempotencyKey: input.idempotencyKey ?? null }, tx);
       if (!ok) throw new DriverError('topup_code_used');
       // The cash is now with the company (agent → bank) or in the courier's hand (counts on his cap).
-      const from = channel === 'courier' ? Accounts.cash(actor.personId) : Accounts.bank;
+      // THIN-12 / M-13 (switch off by default): the agent holds it on his own cash account until handed in.
+      const from = channel === 'courier' || (channel === 'ops_agent' && this.outcomes?.agentCashAccounts) ? Accounts.cash(actor.personId) : Accounts.bank;
       const group: PostingGroup = {
         id: `topup:${row.id}`,
         kind: 'money',

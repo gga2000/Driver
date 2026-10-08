@@ -11,7 +11,7 @@ import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { usePushRegistration } from '@/features/notify/usePush';
+import { usePushLaunch, usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
@@ -29,6 +29,7 @@ import { useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
+import { useScreenSpeed } from '@/lib/speed';
 
 enforceRtl();
 // Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
@@ -122,6 +123,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const ready = status !== 'loading' && prof.loaded;
+  // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
+  useScreenSpeed(segments, ready && !fontsPending);
 
   useEffect(() => {
     if (!ready) return;
@@ -134,6 +137,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
     if (target.remember) void profile.setReturnTo(target.remember);
     router.replace(target.to as never);
   }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
+  // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
+  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>

@@ -176,6 +176,15 @@ export class ControlsService implements ControlsPort {
   }
 
   /**
+   * REL-16: what menus and lists say about a kitchen a switch has stopped (the same words `place`
+   * refuses with), or null when nothing stops it.
+   */
+  async stoppedNotice(gate: Omit<OrderGate, 'customerZone' | 'scheduledFor'>): Promise<string | null> {
+    const s = await this.blockingSwitch(gate);
+    return s ? this.refusalFor(s, gate.cityId) : null;
+  }
+
+  /**
    * The customer's refusal when the switch has no message of its own (UI/UX audit K-13): with an end
    * time it says when the service is back ("لحد الساعة 11:30 م"); never "إن شاء الله" in a time. The
    * Console sends its preview as `message_ar`, so this is the fallback for other callers.

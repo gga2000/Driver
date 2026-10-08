@@ -38,7 +38,8 @@ export const OtpInput = forwardRef<TextInput, OtpInputProps>(function OtpInput(
       <View style={{ flexDirection: 'row', direction: 'ltr', gap: theme.space[2], justifyContent: 'center' }}>
         {cells.map((d, i) => {
           const isActive = focused && i === active && !disabled;
-          const borderColor = error ? theme.colors.danger : isActive ? theme.colors.accent : d ? theme.colors.borderStrong : theme.colors.border;
+          // The cell being typed shows the ink focus ring (VIS-04: orange was 2:1); every cell keeps a 3:1 edge.
+          const borderColor = error ? theme.colors.danger : isActive ? theme.colors.focusRing : theme.colors.borderStrong;
           return (
             <View
               key={i}

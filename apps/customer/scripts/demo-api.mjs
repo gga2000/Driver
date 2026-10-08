@@ -9,7 +9,8 @@
 // their storefronts and menus — the same seed `pnpm db:seed` writes (@driver/contracts/seeds) — and
 // plays the kitchen:
 //   - an order a customer places is accepted after DEMO_KITCHEN_MS (default 20000; 0 = never);
-//   - POST /demo/kitchen?orderId=<id>&action=accept|reject  decides one order now;
+//   - POST /demo/kitchen?orderId=<id>&action=accept|reject|partial  decides one order now (partial: its last dish
+//     ran out — the customer has a minute to send the rest or cancel, BENCH-03);
 //   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
@@ -161,8 +162,13 @@ app.use('/demo/kitchen', async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     const orderId = url.searchParams.get('orderId');
     const action = url.searchParams.get('action');
-    if (req.method !== 'POST' || !orderId || !['accept', 'reject'].includes(action ?? '')) return json(res, 400, { error: 'POST /demo/kitchen?orderId=…&action=accept|reject' });
-    const order = action === 'accept' ? await accept(orderId) : await orders.merchantReject('demo-staff', { orderId, reason: 'المطبخ مزدحم' });
+    if (req.method !== 'POST' || !orderId || !['accept', 'reject', 'partial'].includes(action ?? '')) return json(res, 400, { error: 'POST /demo/kitchen?orderId=…&action=accept|reject|partial' });
+    const order =
+      action === 'accept'
+        ? await accept(orderId)
+        : action === 'partial'
+          ? await orders.merchantAccept('demo-staff', { orderId, prepMinutes: 20, unavailableLineIds: [(await orders.get(orderId)).lines.at(-1).id] })
+          : await orders.merchantReject('demo-staff', { orderId, reason: 'المطبخ مزدحم' });
     json(res, 200, { orderId: order.id, state: order.state });
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });

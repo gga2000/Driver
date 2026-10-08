@@ -6,10 +6,10 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
-import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
-import { ControlsModule, ControlsService } from '../controls/index.js';
+import { Accounts, CapsService, LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
+import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { PromotionsModule, PromotionsService } from '../promotions/index.js';
@@ -21,7 +21,7 @@ import { ORDERS_HOUSEHOLDS, orgsHouseholds } from './households.port.js';
 import { MERCHANT_DIRECTORY, OrgsMerchantDirectory, type MerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository, ORDERS_REPOSITORY, PrismaOrdersRepository, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_ROLE_CHECKER, OrdersRpc } from './orders.rpc.js';
-import { ORDERS_CASH_RISK, ORDERS_PLACES, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
+import { ORDERS_CASH_RISK, ORDERS_PLACES, ORDERS_PRICING, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_WALLET, ORDERS_WALLET_HOLDS, OrdersService, type OrderTimerJob, type OrdersWalletPort } from './orders.service.js';
 import { BLOB_STORE, PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTICIPANT_RESOLVER, type ParticipantResolver } from './participants.js';
 import { identityRiders } from './riders.js';
@@ -32,6 +32,15 @@ import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
 import { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, PrismaOrderComplimentsRepository, type OrderComplimentsRepository } from './compliments.repository.js';
 import { ReferralsModule, ReferralsService } from '../referrals/index.js';
+import { ORDERS_STAFF_PORTS, OrdersStaffService, STUCK_BOARD, type OrdersStaffPorts, type OrderEventLog } from './orders.staff.js';
+import { OrdersStaffJob } from './orders.staff.job.js';
+import { CASH_LIMITS, CashLimits } from './cash-limits.js';
+import { ORDER_OUTCOME_RULES, outcomeRulesFromEnv, type OrderOutcomeRules } from './outcomes.config.js';
+
+/** The order's own events, oldest first (the W3 toolkit's "when did this dispute open"). */
+function eventLogOf(events: EventsService): OrderEventLog {
+  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ id: e.id, type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
+}
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -59,19 +68,47 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     // Discounts only from the server: merchant deals from the promotions module (best one, spend reserved
     // atomically in the order's transaction); platform codes resolve nothing yet.
     { provide: ORDERS_PROMOTIONS, useFactory: (promotions: PromotionsService) => new MerchantDealsPromotions(promotions), inject: [PromotionsService] },
-    // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
-    { provide: ORDERS_CASH_RISK, useExisting: CapsService },
+    // W3: the money-outcome switches (M-1 … M-4, M-10, M-13), all off unless the environment turns one on.
+    { provide: ORDER_OUTCOME_RULES, useFactory: (): OrderOutcomeRules => outcomeRulesFromEnv() },
+    // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders;
+    // W3 (SEC-10/THIN-01) wraps it with the open-cash-order cap and unpaid-fee rule (switches off).
+    {
+      provide: CASH_LIMITS,
+      useFactory: (caps: CapsService, repo: OrdersRepository, ledger: LedgerService, events: EventsService, rules: OrderOutcomeRules) =>
+        new CashLimits(caps, repo, { balanceIqd: async (a) => (await ledger.balance(a)).amount, eventsFor: (a) => ledger.eventsFor(a) }, eventLogOf(events), rules),
+      inject: [CapsService, ORDERS_REPOSITORY, LedgerService, EventsService, ORDER_OUTCOME_RULES],
+    },
+    { provide: ORDERS_CASH_RISK, useExisting: CASH_LIMITS },
+    // W3 staff way-out: the ledger, the Console audit log, role checks and the order's event log.
+    {
+      provide: ORDERS_STAFF_PORTS,
+      useFactory: (ledger: LedgerService, audit: AuditLogService, identity: IdentityService, events: EventsService): OrdersStaffPorts => ({
+        ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id, tx) => ledger.hasGroup(id, tx), eventsForOrder: (id) => ledger.eventsForOrder(id) },
+        audit: { record: (input, tx) => audit.record(input, tx) },
+        roles: { hasRole: (personId, kind) => identity.hasRole(personId, kind) },
+        eventLog: eventLogOf(events),
+        stuckBoard: {
+          marks: async () => (await events.forAggregate(STUCK_BOARD.name, STUCK_BOARD.id)).map((e) => ({ type: e.type, orderId: e.orderId ?? e.aggregateId, occurredAt: e.occurredAt, payload: e.payload })),
+          emit: async (tx, event) => void (await events.emit(tx, event, STUCK_BOARD)),
+        },
+      }),
+      inject: [LedgerService, AuditLogService, IdentityService, EventsService],
+    },
+    OrdersStaffService,
+    OrdersStaffJob,
     // Maps program SP3d: an order links to the saved place it goes to only when the orderer may use it.
     { provide: ORDERS_PLACES, useExisting: SavedPlacesService },
     // C-04: wallet payments at checkout are checked against the ledger balance of the paying wallet.
     {
       provide: ORDERS_WALLET,
-      useFactory: (ledger: LedgerService): OrdersWalletPort => ({
+      useFactory: (ledger: LedgerService, holds: WalletHolds): OrdersWalletPort => ({
         balanceIqd: async ({ customerId, householdId }) => (await ledger.balance(householdId ? Accounts.household(householdId) : Accounts.customer(customerId))).amount,
         // W-02: points at checkout read the customer's own points account.
         pointsBalance: async (customerId) => (await ledger.balance(Accounts.points(customerId))).amount,
+        // SEC-07: prepaid seats and request deposits on the same wallet.
+        heldElsewhere: (customerId, tx) => holds.heldExcept(ORDERS_WALLET_HOLDS, customerId, tx),
       }),
-      inject: [LedgerService],
+      inject: [LedgerService, WalletHolds],
     },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
     { provide: ORDERS_CATALOG, useExisting: CatalogService },
@@ -100,6 +137,14 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     },
     // Merchant-uploaded dish photos (`upload:<id>`) reach customers as signed links from the blob store.
     { provide: STOREFRONT_PHOTOS, useExisting: BLOB_STORE },
+    // REL-16: menus and lists show a kitchen the kill switches stopped, with place()'s own words.
+    {
+      provide: STOREFRONT_SWITCHES,
+      useFactory: (controls: ControlsService): StorefrontSwitches => ({
+        stopped: ({ cityId, merchantOrgId, kitchenZone, dropoffZone }) => controls.stoppedNotice({ cityId, vertical: 'food', zones: [kitchenZone, dropoffZone], merchantOrgId }),
+      }),
+      inject: [ControlsService],
+    },
     CatalogRpc,
     OrdersService,
     // «تحب تكرم عباس؟»: the tip after a 4–5 rating, wallet → driver (docs/api/tips.md).
@@ -113,7 +158,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     OrderComplimentsService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService],
+  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService, OrdersStaffService, ORDER_OUTCOME_RULES],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);
@@ -132,9 +177,17 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly referrals: ReferralsService,
     private readonly identity: IdentityService,
     private readonly orgs: OrgsService,
+    private readonly staff: OrdersStaffService,
+    private readonly eventsService: EventsService,
+    private readonly walletHolds: WalletHolds,
   ) {}
 
+  private unsubscribeFailure: (() => void) | undefined;
+  private unregisterHolds: (() => void) | undefined;
+
   onModuleInit(): void {
+    // SEC-07: open orders on his own wallet are a hold every other wallet spend (seat, deposit, tip) sees.
+    this.unregisterHolds = this.walletHolds.register(ORDERS_WALLET_HOLDS, (customerId) => this.orders.openWalletHoldIqd(customerId));
     // The throttle and the console's zone gauges count active orders here (orders owns them).
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
     // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.
@@ -149,6 +202,9 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     this.households.bindDecision((req) => (req.state === 'approved' || req.state === 'declined' ? this.orders.onPayerDecision(req.orderId, req.state) : Promise.resolve()));
     // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
     this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
+    // W3 M-2: free cancel when we failed, and the kitchen's pay for food it cooked (switches off by default).
+    this.orders.bindPlatformFailure(this.staff);
+    this.unsubscribeFailure = this.eventsService.subscribe('orders:platform-failure', ['order.cancelled'], (e) => this.staff.onOrderCancelled(e.payload));
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {
@@ -160,6 +216,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
+    this.unsubscribeFailure?.();
+    this.unregisterHolds?.();
     if (this.poller) clearInterval(this.poller);
   }
 }

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { OrderTracking } from '@driver/contracts';
-import { formatClock, Icon, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import { formatClock, formatClockInline, Icon, Text, useTheme, useToast, withAlpha } from '@driver/ui';
 import { color } from '@driver/design-tokens';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -75,7 +75,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
             {bar?.apologized ? t('promise.apology_title') : t('track.running_late', { minutes: lateMin })}
           </Text>
           <Text variant="caption" color="onInverseMuted">
-            {t('track.note_late', { minutes: lateMin, time: formatClock(eta) })}
+            {t('track.note_late', { minutes: lateMin, time: formatClockInline(eta) })}
           </Text>
         </View>
       </View>
@@ -92,7 +92,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
             {credited ? <Icon name="check" size={14} color="onInverseSuccess" strokeWidth={2.4} /> : null}
             <Text variant="caption" weight={600} color={credited ? 'onInverseSuccess' : 'onInverse'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
-              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
+              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClockInline(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
             </Text>
           </View>
         </View>

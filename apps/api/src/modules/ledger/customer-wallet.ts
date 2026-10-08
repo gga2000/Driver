@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_ZONES,
   LATE_PROMISE_MEMO,
@@ -313,12 +313,40 @@ export interface WalletHouseholds {
 export const WALLET_PEOPLE = Symbol('WALLET_PEOPLE');
 export const WALLET_HOUSEHOLDS = Symbol('WALLET_HOUSEHOLDS');
 
-/** Agent shops for cash top-up (customer spec §9). Placeholder until the agent network is signed. */
-const AGENTS = [
-  { id: 'agent_centre', zoneId: 'centre', name_ar: 'وكيل شحن — مركز العزيزية', name_en: 'Top-up agent — town centre', hours_ar: 'كل يوم 9 الصبح – 10 الليل', hours_en: 'Daily 9am–10pm' },
-  { id: 'agent_street_30', zoneId: 'street_30', name_ar: 'وكيل شحن — شارع 30', name_en: 'Top-up agent — Street 30', hours_ar: 'كل يوم 8 الصبح – 12 الليل', hours_en: 'Daily 8am–midnight' },
-  { id: 'agent_hashimi', zoneId: 'hashimi', name_ar: 'وكيل شحن — الهاشمي', name_en: 'Top-up agent — Al-Hashimi', hours_ar: 'السبت – الخميس 9 – 9', hours_en: 'Sat–Thu 9–9' },
-] as const;
+/** A signed top-up agent shop (customer spec §9): where, its name and its hours. */
+export interface TopupAgentDef {
+  id: string;
+  zoneId: string;
+  name_ar: string;
+  name_en: string;
+  hours_ar: string;
+  hours_en: string;
+}
+
+export const TOPUP_AGENTS = Symbol('TOPUP_AGENTS');
+
+/**
+ * FLOW-24 (W3): only real, signed agents are ever listed — from `TOPUP_AGENTS_JSON` (an array of
+ * `TopupAgentDef`, set when the agent network is signed). None set = the agent channel is shown as not
+ * available yet and no shop is listed (the three placeholder shops are gone: people walked to them).
+ * Rows with a zone the city does not know are dropped.
+ */
+export function topupAgentsFromEnv(env: Readonly<Record<string, string | undefined>> = process.env): TopupAgentDef[] {
+  const raw = env['TOPUP_AGENTS_JSON'];
+  if (!raw) return [];
+  try {
+    const rows: unknown = JSON.parse(raw);
+    if (!Array.isArray(rows)) return [];
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return rows.flatMap((r: Record<string, unknown>) => {
+      const a = { id: str(r['id']), zoneId: str(r['zoneId']), name_ar: str(r['name_ar']), name_en: str(r['name_en']), hours_ar: str(r['hours_ar']), hours_en: str(r['hours_en']) };
+      if (Object.values(a).some((v) => v === null) || !AZIZIYAH_ZONES.some((z) => z.id === a.zoneId)) return [];
+      return [a as TopupAgentDef];
+    });
+  } catch {
+    return [];
+  }
+}
 
 /**
  * `ctx.wallet` (customer spec §9, domain §10, decisions §2): the caller's money balance, points and
@@ -334,6 +362,7 @@ export class CustomerWalletService implements WalletPort {
     @Inject(WALLET_PEOPLE) private readonly people: WalletPeople,
     @Inject(WALLET_HOUSEHOLDS) private readonly households: WalletHouseholds,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(TOPUP_AGENTS) private readonly agents: readonly TopupAgentDef[] = topupAgentsFromEnv(),
   ) {}
 
   async balance(actor: Actor): Promise<WalletBalanceView> {
@@ -362,14 +391,19 @@ export class CustomerWalletService implements WalletPort {
   }
 
   async topupOptions(_actor: Actor): Promise<TopupOptionsView> {
+    const agentsLive = this.agents.length > 0;
     return {
-      placeholder: true,
+      // FLOW-24: never placeholder shops any more; agents are listed only once signed (`TOPUP_AGENTS_JSON`).
+      placeholder: false,
       channels: [
-        { id: 'agent', available: true, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'ادفع كاش بأقرب وكيل ويوصل رصيدك بنفس الوقت', body_en: 'Pay cash at a nearby agent; the credit lands at once' },
-        { id: 'driver', available: true, title_ar: 'اشحن كاش عن طريق السايق', title_en: 'Top up with your driver', body_ar: 'انطي السايق الفلوس ويوصل رصيدك بعد ما يأكد', body_en: 'Hand cash to your driver; credit lands when he confirms' },
+        agentsLive
+          ? { id: 'agent', available: true, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'ادفع كاش بأقرب وكيل ويوصل رصيدك بنفس الوقت', body_en: 'Pay cash at a nearby agent; the credit lands at once' }
+          : { id: 'agent', available: false, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'قريباً', body_en: 'Coming soon' },
+        // THIN-11: only the courier bringing a live delivery can take the cash (taxi and tuktuk drivers cannot yet).
+        { id: 'driver', available: true, title_ar: 'اشحن عن طريق الدليفري', title_en: 'Top up with your courier', body_ar: 'انطي الفلوس للدليفري اللي جايب طلبك، قبل ما يسلّمك الطلب. يوصل رصيدك بعد ما يأكد', body_en: 'Hand cash to the courier bringing your order, before he hands it over; credit lands when he confirms' },
         { id: 'zaincash', available: false, title_ar: 'زين كاش', title_en: 'ZainCash', body_ar: 'قريباً', body_en: 'Coming soon' },
       ],
-      agents: AGENTS.map((a) => {
+      agents: this.agents.map((a) => {
         const z = AZIZIYAH_ZONES.find((x) => x.id === a.zoneId)!;
         return {
           ...a,

@@ -78,11 +78,14 @@ export default async function run(s) {
   await p.shot('details', { full: true, settle: 800 });
   await p.byTestId('segment-seats').click();
 
-  // حسين checks in late → nothing blocks: انطلقنا.
-  await p.byTestId('gseat-middle_left').click();
-  await p.wait('rider-sheet');
+  // حسين checks in late through «دخّل رمز صعود» (f1): four boxes, his name and seat in green, then done.
+  await p.byTestId('code-open').click();
+  await p.wait('code-sheet');
+  await p.shot('code-sheet', { settle: 600 });
   for (const d of seed.pins.hussein) await p.byTestId(`pin-key-${d}`).click();
-  await p.page.getByText('صعد حسين').first().waitFor({ timeout: 10_000 });
+  await p.wait('code-ok');
+  await p.shot('code-ok', { settle: 600 });
+  await p.byTestId('code-next').click();
   await p.page.waitForTimeout(1500);
   await p.shot('ready-to-go', { settle: 800 });
   await p.slide('depart');
@@ -96,7 +99,13 @@ export default async function run(s) {
   await p.goto(`/intercity/departure/${seed.runB}`);
   await p.wait('garage-seatmap');
   await p.page.getByText('سجاد').first().waitFor({ timeout: 15_000 });
-  await p.shot('evening-run', { full: true, settle: 1500 });
+  await p.shot('evening-run', { settle: 1500 });
+  await p.shot('evening-run-full', { full: true, settle: 400 });
+  // His painted car: سجاد's seat (a door pickup waiting for his answer) opens his sheet.
+  await p.byTestId('gseat-back_left').click();
+  await p.wait('rider-sheet');
+  await p.shot('evening-run-sheet', { settle: 600 });
+  await escape();
   await p.byTestId('segment-details').click();
   await p.page.waitForTimeout(600);
   await p.shot('evening-run-details', { full: true, settle: 800 });
