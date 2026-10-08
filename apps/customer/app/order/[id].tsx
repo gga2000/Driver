@@ -68,6 +68,9 @@ const SWITCH_OFFER_H = 290;
 /** Simple mode's larger status line (heading, up to 3 lines) needs this much more collapsed sheet. */
 const SIMPLE_HEADER_EXTRA_H = 28;
 
+/** How often the live screen's clock moves while nothing on it counts seconds (speed h2). */
+const LIVE_MINUTES_TICK_MS = 15_000;
+
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -105,8 +108,13 @@ export default function OrderLiveScreen() {
   const pos = useCourierPosition(id, Boolean(live && v?.courier));
   const fix = live && v?.courier ? (pos.data ?? null) : null;
 
-  // Server-corrected clock for countdowns and ages.
-  const tick = useNow(1000);
+  // Server-corrected clock for countdowns and ages. Speed h2: the whole screen (map included) used to
+  // redraw every second; now only a ride phase that shows seconds ticks each second (the search counter,
+  // the wait at the pickup, the free-cancel minute). Otherwise minutes are all that show, so every 15 s
+  // is enough, and new data from the server redraws at once anyway.
+  const ridePhase = v?.order.type === 'ride' ? phaseOf(v) : null;
+  const secondsPhase = ridePhase === 'searching' || ridePhase === 'at_pickup' || (ridePhase === 'to_pickup' && v?.trip ? freeCancelLeftSec(v.trip.acceptedAt, Date.now()) !== null : false);
+  const tick = useNow(secondsPhase ? 1000 : LIVE_MINUTES_TICK_MS);
   const offset = useMemo(() => (v ? v.serverNow.getTime() - track.dataUpdatedAt : 0), [v, track.dataUpdatedAt]);
   const now = tick + offset;
   const clock = useMemo(() => () => Date.now() + offset, [offset]);

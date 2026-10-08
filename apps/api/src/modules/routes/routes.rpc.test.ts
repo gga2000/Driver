@@ -45,8 +45,8 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
       'mp_garage_kut',
     ]);
     expect(net.corridors.map((c) => [c.id, c.seatPriceIqd, c.placeholderPrice])).toEqual([
-      ['aziziyah_baghdad', 10_000, true],
-      ['aziziyah_kut', 5_000, true],
+      ['aziziyah_baghdad', 5_000, false],
+      ['aziziyah_kut', 5_000, false],
     ]);
 
     const dep = await driver.driver.announce({
@@ -67,7 +67,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect(board.garage?.nameAr).toBe('كراج البوابة 1');
     expect(board.departures.map((d) => d.id)).toEqual([dep.id]);
     expect(board.departures[0]!.seats.map((s) => [s.id, s.state, s.premiumIqd])).toEqual([
-      ['front', 'free', 2_000],
+      ['front', 'free', 1_000],
       ['back_left', 'free', 0],
       ['back_middle', 'free', 0],
       ['back_right', 'free', 0],
@@ -81,7 +81,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     });
     expect(held).toMatchObject({
       state: 'held',
-      totalIqd: 12_000,
+      totalIqd: 6_000,
       prepayRail: null,
       departure: { id: dep.id, garageId: BAB1.id },
     });
@@ -160,6 +160,8 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect((await rider.myDemand())[0]).toMatchObject({ state: 'claimed' });
     const bookings = await rider.myBookings();
     expect(bookings[0]).toMatchObject({ origin: 'demand_claim', state: 'held' });
+    // The ticket names its far city itself, so طلباتي never guesses the road when the network read fails.
+    expect(bookings[0]!.departure).toMatchObject({ corridorId: 'aziziyah_baghdad', cityId: 'baghdad' });
 
     const rq = await rider.requestBoard.post({
       from: { label: 'كراج البوابة ١', garageId: BAB1.id },

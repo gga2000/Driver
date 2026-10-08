@@ -95,6 +95,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
             const [o] = await orders.withRecipients([await orders.get(orderId)], driverId, 'partner_recipient');
             return o?.participants.find((p) => p.role === 'recipient')?.label ?? null;
           },
+          riderTrips: (orderId) => orders.finishedRidesBefore(orderId),
         },
         merchants: {
           name: async (orgId) => (await orgs.find(orgId))?.name ?? null,
