@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, useWindowDimensions, View, type Dimension
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
-import type { ServiceCard } from '@driver/design-tokens';
+import { lift, type ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
 import { CornerFill, Icon, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
@@ -54,8 +54,9 @@ const FLOAT = 0.18;
 const FLOAT_MAX = 26;
 /** How far a vehicle pulls forward in its tile's moment (px). */
 const PULL = 12;
-/** بغداد والكوت's share of the round-trip card (الرجعة has 1). */
+/** بغداد والكوت's share of the round-trip row (الرجعة has 1), and the there-and-back sign between them. */
 const TRIPS_FLEX = 1.75;
+const SIGN = 30;
 /** The live dot, and one beat of its ring. */
 const DOT = 7;
 const PULSE_MS = 2400;
@@ -75,7 +76,7 @@ const PLACE = {
   food: { width: '66%', end: '-2%', bottom: '-20%' },
   taxi: { width: '62%', end: '-22%', text: '50%' },
   tuktuk: { width: '52%', end: '-8%', text: '50%' },
-  trips: { width: '36%', end: '2%', bottom: '8%', text: '58%' },
+  trips: { width: '33%', end: '5%', bottom: '9%', text: '61%' },
   rajaa: { width: '80%', end: '-40%', bottom: '7%', text: '52%' },
 } as const satisfies Record<string, Placement>;
 
@@ -197,17 +198,19 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           </Tile>
         </View>
       </View>
-      {/* Out to Baghdad and Kut and back home: one card in two colours, each half its own button (Ali
-          picked it over the torn ticket, 2026-10-08). */}
+      {/* Out to Baghdad and Kut and back home: two cards with the there-and-back sign between them
+          (Ali picked it over the torn ticket and one two-colour card, 2026-10-08). */}
       <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
-        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} joint="end" style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
+        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
           <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
           <SideWords text={PLACE.trips.text}>
             <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
           </SideWords>
         </Tile>
-        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} joint="start" style={{ flex: 1 }} onPress={() => press('rajaa')}>
-          <Seam color={ride(s.back.card).on} />
+        <View pointerEvents="none" style={{ width: GAP, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+          <RoundTripSign card={ride(s.trips.card)} />
+        </View>
+        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1 }} onPress={() => press('rajaa')}>
           <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
           <SideWords text={PLACE.rajaa.text}>
             <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
@@ -220,8 +223,7 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
 
 /**
  * One card: its wash with the light falling on its top corner and a fine edge, the picture and words
- * clipped inside; it sinks a little under the finger. `joint` is the side where it meets the other
- * half of the round-trip card: square there, no edge, and it barely sinks so the card stays whole.
+ * clipped inside; it sinks a little under the finger.
  */
 function Tile({
   id,
@@ -229,7 +231,6 @@ function Tile({
   label,
   fact,
   disabled,
-  joint,
   style,
   onPress,
   children,
@@ -239,7 +240,6 @@ function Tile({
   label: string;
   fact: string | null;
   disabled?: boolean;
-  joint?: 'start' | 'end';
   style: StyleProp<ViewStyle>;
   onPress: () => void;
   children: ReactNode;
@@ -248,22 +248,7 @@ function Tile({
   // The soft spring press (Ali's Yes, "press"): the card sinks, then springs back with one small
   // overshoot when the finger lifts.
   const p = useSharedValue(0);
-  const depth = joint ? 0.015 : 0.04;
-  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - depth * p.value }] }));
-  const r = theme.radius.xl;
-  const corners: ViewStyle = {
-    borderTopStartRadius: joint === 'start' ? 0 : r,
-    borderBottomStartRadius: joint === 'start' ? 0 : r,
-    borderTopEndRadius: joint === 'end' ? 0 : r,
-    borderBottomEndRadius: joint === 'end' ? 0 : r,
-  };
-  const edge: ViewStyle = {
-    borderColor: withAlpha(card.on, 0.07),
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderStartWidth: joint === 'start' ? 0 : 1,
-    borderEndWidth: joint === 'end' ? 0 : 1,
-  };
+  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * p.value }] }));
   return (
     <Animated.View style={[style, sink]}>
       <Pressable
@@ -279,7 +264,7 @@ function Tile({
         onPressOut={() => {
           p.value = withSpring(0, theme.motion.spring.select);
         }}
-        style={[{ flex: 1, backgroundColor: card.bg, overflow: 'hidden' }, corners, edge]}
+        style={{ flex: 1, backgroundColor: card.bg, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: withAlpha(card.on, 0.07), overflow: 'hidden' }}
       >
         {card.top ? <CornerFill base={card.bg} light={card.top} /> : null}
         {children}
@@ -362,9 +347,35 @@ function SideWords({ text, children }: { text: DimensionValue; children: ReactNo
   return <View style={{ position: 'absolute', top: 0, bottom: 0, start: theme.space[3], width: text, justifyContent: 'center' }}>{children}</View>;
 }
 
-/** Where the round-trip card's two colours meet: a faint line, short of its top and bottom. */
-function Seam({ color }: { color: string }) {
-  return <View pointerEvents="none" style={{ position: 'absolute', start: 0, top: 16, bottom: 16, width: 1, backgroundColor: withAlpha(color, 0.12) }} />;
+/**
+ * The there-and-back sign between بغداد والكوت and الرجعة: a small round chip over the gap with two
+ * arrows going opposite ways, so the two cards read as one trip out and home again.
+ */
+function RoundTripSign({ card }: { card: ServiceCard }) {
+  const theme = useTheme();
+  return (
+    <View
+      testID="home-round-trip-sign"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        width: SIGN,
+        height: SIGN,
+        borderRadius: SIGN / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: withAlpha(card.on, 0.1),
+        boxShadow: theme.scheme === 'light' ? lift.card : undefined,
+      }}
+    >
+      {/* The swap mark is drawn upright; turned, its arrows run along the row. */}
+      <View style={{ transform: [{ rotate: '90deg' }] }}>
+        <Icon name="swap" size={15} color={card.dot} strokeWidth={2.2} />
+      </View>
+    </View>
+  );
 }
 
 /**
