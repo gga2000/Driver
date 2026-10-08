@@ -95,7 +95,7 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
     const id = `sos_it_${Date.now()}`;
     alerts.push(id);
     const t = new Date('2026-10-09T21:00:00Z');
-    const brief = { raiserId: 'p_rider', role: 'customer', subjectKind: 'order', orderId: 'ord_x' };
+    const brief = { raiserId: 'p_rider', role: 'customer', subjectKind: 'order', orderId: 'ord_x', subjectLabel: 'طلب أكل #123' };
     expect(
       await repo.openLadder({
         alertId: id,

@@ -330,6 +330,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         role: str('role'),
         subjectKind: str('subjectKind'),
         orderId: str('orderId'),
+        subjectLabel: str('subjectLabel')?.slice(0, 60) ?? null,
       };
       await this.repo.openLadder(
         {
@@ -475,6 +476,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
   }
 
   private what(b: AlertBrief): string {
+    if (b.subjectLabel) return b.subjectLabel;
     if (b.orderId) return `${SUBJECT_AR['order']} #${orderTicketNumber(b.orderId)}`;
     return SUBJECT_AR[b.subjectKind ?? ''] ?? 'طوارئ';
   }

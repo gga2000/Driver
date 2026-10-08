@@ -149,7 +149,9 @@ function harness(watchCities: readonly string[] = []) {
       startsAt: new Date(new Date(T0).getTime() + fromSec * 1000),
       endsAt: new Date(new Date(T0).getTime() + toSec * 1000),
     });
-  return { svc, make, repo, watchRepo, clock, ev, vault, controls, emit, raise, at, sent, shift };
+  const whats = async (personId: string) =>
+    (await nrepo.log({ personId, limit: 100 })).map((d) => d.payload.params['what']);
+  return { svc, make, repo, watchRepo, clock, ev, vault, controls, emit, raise, at, sent, shift, whats };
 }
 
 describe('OnCallService — the SOS ladder (CON-02)', () => {
@@ -225,6 +227,21 @@ describe('OnCallService — the SOS ladder (CON-02)', () => {
     expect(await h.svc.ladder(HAIDER, { alertId: 'sos_a' })).toMatchObject({ unanswered: false });
     expect(await h.svc.ladder(HAIDER, { alertId: 'sos_b' })).toMatchObject({ unanswered: false });
     expect(await h.at(90)).toEqual({ rings: 0, onCall: 0 });
+  });
+
+  it("says what the SOS is about in the SOS's own label when it sends one, the ticket otherwise", async () => {
+    const h = harness();
+    await h.shift('p_noor', 1);
+    await h.emit('sos.raised', 'sos_lab', {
+      role: 'customer',
+      subjectKind: 'trip',
+      subjectLabel: 'مشوار خاص',
+    });
+    await h.raise('sos_plain');
+    await h.at(60);
+    const whats = await h.whats('p_noor');
+    expect(whats).toContain('مشوار خاص');
+    expect(whats.some((w) => /^طلب #\d+$/.test(w ?? ''))).toBe(true);
   });
 
   it('with nobody on the roster, reaches the admins on every channel instead (never an empty list)', async () => {
