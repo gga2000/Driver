@@ -1,5 +1,5 @@
 // Staff section (wave 2): مطعم خالد's team. خالد (owner, the demo login), مصطفى (staff, also at الحاج
-// كريم), زينب on the till and أبو حيدر the second owner — all signed in — plus two invites still
+// كريم), علي (staff), زينب on the till and أبو حيدر the second owner — all signed in — plus two invites still
 // waiting for a first sign-in (one never set a name).
 //
 //   POST /demo/staff/reset      back to this team (undo invites/removals from a shot run)
@@ -24,6 +24,7 @@ export default async function register(ctx) {
   // The owner and مصطفى have signed in on their phones (not "waiting").
   await signIn(ctx.people.owner.phone);
   await signIn(ctx.people.multi.phone);
+  await signIn(ctx.people.ali.phone);
 
   const ids = [];
   async function seed() {
@@ -49,10 +50,10 @@ export default async function register(ctx) {
   ctx.route('/demo/staff/reset', async () => {
     // Anyone added during a shot run is dropped; the seeded team comes back.
     const holders = await identity.orgRoleHolders(khalid.orgId, ['merchant_owner', 'merchant_staff']);
-    const keep = new Set([ctx.people.owner.id, ctx.people.multi.id]);
+    const keep = new Set([ctx.people.owner.id, ctx.people.multi.id, ctx.people.ali.id]);
     for (const h of holders) if (!keep.has(h.personId)) await identity.revokeRole(SYSTEM, { personId: h.personId, kind: h.kind, orgId: khalid.orgId }).catch(() => undefined);
     ids.length = 0;
     await seed();
-    return { team: ids.length + 2 };
+    return { team: ids.length + 3 };
   });
 }

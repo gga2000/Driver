@@ -8,6 +8,8 @@ import { MIcon, type MIconName } from '@/components/MIcon';
 import { COUNTER } from '@/lib/counter';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { useUrgentSeconds } from './alarm';
+import { useServerSelect } from './clock';
 import type { AlarmStage } from './ladder';
 import { dishLine, hasAllergy, type NewOrderSummary } from './logic';
 
@@ -32,10 +34,10 @@ export interface NewOrderBannerProps {
   /** Orders quiet under "سكّت 30 ثانية". */
   snoozedCount: number;
   stage: AlarmStage | null;
-  /** The order with the least time left, for "باقي 10 ثواني على #3912". */
-  mostUrgent: { number: string; seconds: number | null } | null;
-  /** Seconds until a snoozed order rings again. */
-  snoozeSeconds: number | null;
+  /** The order with the least time left, for "باقي 10 ثواني على #3912" (its seconds are read live here). */
+  mostUrgent: { number: string } | null;
+  /** When the snoozed orders ring again (server ms), or null; counted down here. */
+  snoozeEndsAt: number | null;
   /** The browser hasn't allowed sound yet, or it is off in settings. */
   soundBlocked: boolean;
   onSnooze: () => void;
@@ -101,7 +103,7 @@ export function summaryTitle(t: ReturnType<typeof useT>, s: NewOrderSummary): st
  * 30 s, where it names the order and counts down ("باقي 24 ثانية على #3912"). "سكّت 30 ثانية"
  * snoozes; while snoozed it says when it rings again and offers "رجّع الصوت". If the browser blocks sound it offers "شغّل صوت الطلبات" first.
  */
-export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeSeconds, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false, featured = null, acceptAll = null }: NewOrderBannerProps) {
+export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeEndsAt, soundBlocked, onSnooze, onUnsnooze, onEnableSound, compact = false, summary, storeClosed = false, featured = null, acceptAll = null }: NewOrderBannerProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -122,7 +124,9 @@ export function NewOrderBanner({ count, snoozedCount, stage, mostUrgent, snoozeS
   const glow = useAnimatedStyle(() => ({ opacity: 0.55 + p.value * 0.45 }));
 
   const total = count + snoozedCount;
-  const seconds = mostUrgent?.seconds ?? null;
+  // h3: only this strip re-draws each second, and only while it shows a countdown.
+  const seconds = useUrgentSeconds(stage === 'final' || stage === 'urgent');
+  const snoozeSeconds = useServerSelect((now) => (ringing || snoozeEndsAt === null ? null : Math.ceil((snoozeEndsAt - now) / 1000)));
   const title =
     stage === 'final' && mostUrgent && seconds !== null
       ? seconds <= 1
