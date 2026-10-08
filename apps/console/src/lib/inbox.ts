@@ -53,7 +53,7 @@ const REASON_KEY: Record<string, MessageKey> = {
   request_lost: 'console.today.reason_request_lost',
 };
 
-const STUCK_KEY: Record<string, MessageKey> = {
+export const STUCK_KEY: Record<string, MessageKey> = {
   merchant_no_answer: 'console.today.stuck_merchant_no_answer',
   kitchen_silent: 'console.today.stuck_kitchen_silent',
   no_courier: 'console.today.stuck_no_courier',
