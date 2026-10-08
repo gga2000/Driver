@@ -33,7 +33,6 @@ describe('W3 switches', () => {
       PLATFORM_FAILURE_FREE_CANCEL: 'true',
       PLATFORM_FAILURE_FOOD_PAYER: 'merchant',
       CASH_DEBT_BLOCK: '1',
-      CASH_DEBT_COLLECT: 'on',
       OPEN_CASH_CAP: 'yes',
       PREPAY_AFTER_NO_ANSWER: 'on',
       COURIER_LOST_REFUND: 'on',

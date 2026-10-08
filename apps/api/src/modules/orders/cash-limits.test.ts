@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
 import type { OrdersCashRiskPort } from './orders.service.js';
+import { outcomeRulesFromEnv } from './outcomes.config.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import { staffHarness } from './staff-harness.js';
 
@@ -69,8 +70,10 @@ describe('cash standing (THIN-01 / M-3, SEC-10 / M-4)', () => {
     expect(await big.cashLimits.standing('c2')).toMatchObject({ owedIqd: 15_000, unpaidFees: 1, blockedBy: 'cash_debt_blocked' });
   });
 
-  it('M-3 collect off: what he owes stays owed, the next order carries nothing', async () => {
-    const h = make();
+  it('M-3 collect: on by default (Ali 2026-10-08); CASH_DEBT_COLLECT=off leaves it owed and the next order carries nothing', async () => {
+    expect(outcomeRulesFromEnv({}).cashDebt.collectOnNext).toBe(true);
+    expect(outcomeRulesFromEnv({ CASH_DEBT_COLLECT: 'off' }).cashDebt.collectOnNext).toBe(false);
+    const h = make({ cashDebt: { collectOnNext: false } });
     (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
     await lateCancel(h, 'c1');
     expect(await h.cashLimits.debtToCollect('c1')).toBe(0);
@@ -79,7 +82,7 @@ describe('cash standing (THIN-01 / M-3, SEC-10 / M-4)', () => {
   });
 
   it('M-3 collect on («ينضاف لطلبك الجاي»): the owed fee rides on the next cash order once and settles back onto his wallet', async () => {
-    const h = make({ cashDebt: { collectOnNext: true } });
+    const h = make();
     (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
     await lateCancel(h, 'c1');
     expect(await h.balance('customer:c1')).toBe(-500);
@@ -111,7 +114,7 @@ describe('cash standing (THIN-01 / M-3, SEC-10 / M-4)', () => {
   });
 
   it('M-3 collect on: paying only the price leaves the fee owed for the next order', async () => {
-    const h = make({ cashDebt: { collectOnNext: true } });
+    const h = make();
     (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
     await lateCancel(h, 'c1');
     const o = await h.orders.place('c1', h.foodInput());

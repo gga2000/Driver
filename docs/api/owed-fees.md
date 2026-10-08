@@ -4,8 +4,9 @@ The wallet tells a customer who owes money «نقص كاش من طلب سابق.
 (`wallet.owe_body`). Before this change nothing added it: an unpaid cancellation fee stayed on his
 wallet until he topped up. With the switch on, his next cash food or shop order collects it.
 
-**Switch:** `CASH_DEBT_COLLECT` (`OrderOutcomeRules.cashDebt.collectOnNext`), **off by default**. It is a
-money rule: it waits for Ali. Off, nothing below happens and the wallet line is the only reminder.
+**Switch:** `CASH_DEBT_COLLECT` (`OrderOutcomeRules.cashDebt.collectOnNext`), **on by default**: Ali said
+"yes" on 2026-10-08 (16:39Z). `CASH_DEBT_COLLECT=off` stops it without a code change; off, nothing below
+happens and the wallet line is the only reminder.
 
 ## The rule
 
@@ -49,5 +50,5 @@ The order is still one line for what it cost; the fees are their own line:
 
 ## Simulator
 
-`customer_cash_rounds_to_250` counts `debt_settled` as part of the cash he handed over. Run with
-`CASH_DEBT_COLLECT=on pnpm sim --orders 2000 --seed 1 --ci` to exercise it.
+`customer_cash_rounds_to_250` counts `debt_settled` as part of the cash he handed over. The default
+run exercises it (seed 1: 13 orders settle 77,000); `CASH_DEBT_COLLECT=off` runs without it.
