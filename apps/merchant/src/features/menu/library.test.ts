@@ -1,4 +1,8 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { LIBRARY } from './library-data';
 import { libraryMatches, normaliseAr, type LibraryDishLike } from './library';
 
 const LIB: LibraryDishLike[] = [
@@ -27,5 +31,20 @@ describe('dish photo library', () => {
     expect(libraryMatches(LIB, 'صحن الشيف', 'سلطات').map((d) => d.slug)).toEqual([]);
     expect(libraryMatches(LIB, 'صحن اليوم', 'السلطة').map((d) => d.slug)).toEqual(['salad']);
     expect(libraryMatches(LIB, 'مشروب غازي')).toEqual([]);
+  });
+});
+
+describe('library photos on the API', () => {
+  it('every photo is a file the API serves (`apps/api/media/food`), with a name its route accepts', () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '../../../../api/media/food');
+    const paths = LIBRARY.flatMap((d) => d.photos);
+    expect(paths.length).toBe(95);
+    expect(new Set(paths).size).toBe(paths.length);
+    for (const p of paths) {
+      const name = p.replace('/media/food/', '');
+      expect(p).toBe(`/media/food/${name}`);
+      expect(name).toMatch(/^lib-[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/);
+      expect(existsSync(join(dir, name)), name).toBe(true);
+    }
   });
 });

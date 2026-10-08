@@ -190,3 +190,51 @@ describe('launch controls', () => {
     expect((await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'season', limit: 10 })).map((a) => a.action)).toEqual(['season.clear', 'season.iftar', 'season.iftar', 'season.set']);
   });
 });
+
+describe('screen switches (W6)', () => {
+  const NONE = { basket_v2: false, checkout_v2: false, track_v2: false, orders_v2: false };
+
+  it('every new screen is off until someone turns it on, and nobody is asked for roles', async () => {
+    const h = await harness();
+    let asked = 0;
+    const staff = async () => {
+      asked += 1;
+      return true;
+    };
+    expect(await h.svc.screens({}, staff)).toEqual(NONE);
+    expect(asked).toBe(0);
+    expect((await h.svc.screenSwitches('aziziyah')).map((s) => [s.key, s.audience, s.setAt])).toEqual([
+      ['basket_v2', 'off', null],
+      ['checkout_v2', 'off', null],
+      ['track_v2', 'off', null],
+      ['orders_v2', 'off', null],
+    ]);
+  });
+
+  it('staff first, then everyone, then back off; each change is audited and leaves orders alone', async () => {
+    const h = await harness();
+    const staff = async () => true;
+    const customer = async () => false;
+    const set = await h.svc.setScreen(ALI, { cityId: 'aziziyah', key: 'basket_v2', audience: 'staff', reason: 'نجرّبها بموبايلاتنا' });
+    expect(set).toMatchObject({ key: 'basket_v2', audience: 'staff', setByName: 'علي', reason: 'نجرّبها بموبايلاتنا' });
+    expect(await h.svc.screens({}, staff)).toEqual({ ...NONE, basket_v2: true });
+    expect(await h.svc.screens({}, customer)).toEqual(NONE);
+
+    await h.svc.setScreen(ALI, { cityId: 'aziziyah', key: 'basket_v2', audience: 'all', reason: 'زينة' });
+    let asked = 0;
+    expect(await h.svc.screens({}, async () => (asked += 1) > 0)).toEqual({ ...NONE, basket_v2: true });
+    expect(asked).toBe(0);
+    expect(await h.svc.screens({ cityId: 'kut' }, customer)).toEqual(NONE);
+
+    await h.svc.setScreen(ALI, { cityId: 'aziziyah', key: 'basket_v2', audience: 'off', reason: 'مشكلة بالسلة' });
+    expect(await h.svc.screens({}, staff)).toEqual(NONE);
+    expect((await h.svc.screenSwitches('aziziyah'))[0]).toMatchObject({ audience: 'off', reason: 'مشكلة بالسلة' });
+
+    const audit = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'screen', limit: 10 });
+    expect(audit.map((a) => a.action)).toEqual(['screen.set', 'screen.set', 'screen.set']);
+    expect(audit[0]?.summary_ar).toBe('الشاشة الجديدة «السلة» صارت مطفّية: مشكلة بالسلة');
+    // Screen rows never stop an order nor show on the kill-switch board.
+    await expect(h.svc.assertOrderAllowed(gate())).resolves.toBeUndefined();
+    expect((await h.svc.view('aziziyah')).switches).toEqual([]);
+  });
+});

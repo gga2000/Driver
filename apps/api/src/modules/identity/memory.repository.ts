@@ -349,6 +349,12 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return out;
   }
 
+  async rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx) {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s || s.refreshTokenHash !== expectRefreshHash || s.revokedAt) return null;
+    return this.updateSession(id, patch, tx);
+  }
+
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
     let n = 0;
     for (const s of this.sessions) {

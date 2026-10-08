@@ -9,7 +9,7 @@ import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
 import { LIBRARY, type LibraryDish } from '@/features/menu/library-data';
 import { libraryMatches } from '@/features/menu/library';
-import { libraryPhoto, LibrarySheet } from '@/features/menu/LibrarySheet';
+import { LibraryImage, libraryPhoto, LibrarySheet } from '@/features/menu/LibrarySheet';
 import { parsePrice } from '@/features/menu/logic';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from '@/features/menu/photo';
 import { usePhotoUpload } from '@/features/menu/queries';
@@ -25,7 +25,7 @@ import { useMenuCards, useSetup, useSetupActions } from './queries';
 import { SetupBar } from './SetupRing';
 
 /** The photo kept for a card: one of Driver's library photos (marked «صورة توضيحية»), his own, or none. */
-type CardPhoto = { kind: 'library'; slug: string; src: number | string } | { kind: 'own'; photo: PickedPhoto } | null;
+type CardPhoto = { kind: 'library'; slug: string; src: string } | { kind: 'own'; photo: PickedPhoto } | null;
 
 function libraryChoice(dish: LibraryDish | null): CardPhoto {
   const src = dish?.photos[0];
@@ -244,7 +244,7 @@ function CardStack({ cards, voice }: { cards: MenuCards; voice: SetupVoice }) {
       let uploadId: string | undefined;
       let librarySlug: string | undefined;
       if (kind === 'ok' && keep) {
-        uploadId = await upload(keep.kind === 'library' ? await libraryPhoto(keep.src) : keep.photo);
+        uploadId = await upload(keep.kind === 'library' ? libraryPhoto(keep.src) : keep.photo);
         if (keep.kind === 'library') librarySlug = keep.slug;
       }
       await answer.mutateAsync({
@@ -307,7 +307,11 @@ function DishCard({ card, photo, voice, wide }: { card: MenuCard; photo: CardPho
     <View testID={`setup-card-${card.index}`} style={{ backgroundColor: COUNTER.paper, borderRadius: theme.radius['2xl'], overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border, shadowColor: COUNTER.date, shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 }}>
       <View style={{ aspectRatio: wide ? 16 / 9 : 4 / 3, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
         {photo ? (
-          <Image source={photo.kind === 'library' ? photo.src : { uri: photo.photo.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+          photo.kind === 'library' ? (
+            <LibraryImage path={photo.src} recyclingKey={`setup-card-${card.index}`} />
+          ) : (
+            <Image source={{ uri: photo.photo.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+          )
         ) : (
           <View style={{ alignItems: 'center', gap: theme.space[2] }}>
             <MIcon name="camera" size={34} color={COUNTER.date} />
@@ -397,7 +401,7 @@ function FixSheet({ visible, card, photo, busy, onClose, onSave }: { visible: bo
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {choices.map((c, i) => (
               <Pressable key={`${c.slug}-${i}`} accessibilityRole="radio" accessibilityState={{ checked: pick?.kind === 'library' && pick.src === c.src }} accessibilityLabel={t('merchant.library.photo_label', { name: name, n: i + 1 })} onPress={() => setPick({ kind: 'library', slug: c.slug, src: c.src })} style={tile(pick?.kind === 'library' && pick.src === c.src)}>
-                <Image source={c.src} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                <LibraryImage path={c.src} recyclingKey={`setup-fix-${c.slug}-${i}`} />
               </Pressable>
             ))}
             {pick?.kind === 'own' ? (

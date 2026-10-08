@@ -606,10 +606,10 @@ export class CatalogRpc implements CustomerCatalogPort {
     const stoppedNote = this.switches ? await this.switches.stopped({ cityId: s.cityId, merchantOrgId: s.orgId, kitchenZone: location?.zoneKey ?? null, dropoffZone: dropoff?.zoneKey ?? null }) : null;
     const state = holiday
       ? { open: false, closedReason: 'hours' as const, opensAt: null }
-      : closed && !stoppedNote
-        ? { open: false, closedReason: 'paused' as const, opensAt: reopensAt ? localTwelveHour(reopensAt, this.merchants.timeZone) : null }
-        : stoppedNote
-          ? { open: false, closedReason: 'paused' as const, opensAt: null }
+      : stoppedNote
+        ? { open: false, closedReason: 'paused' as const, opensAt: null }
+        : closed
+          ? { open: false, closedReason: 'paused' as const, opensAt: reopensAt ? localTwelveHour(reopensAt, this.merchants.timeZone) : null }
         : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,

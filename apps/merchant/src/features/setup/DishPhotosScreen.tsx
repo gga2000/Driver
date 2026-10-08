@@ -1,5 +1,4 @@
 import { router } from 'expo-router';
-import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
@@ -8,7 +7,7 @@ import { both, Loadable } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
 import { LIBRARY } from '@/features/menu/library-data';
-import { libraryPhoto } from '@/features/menu/LibrarySheet';
+import { LibraryImage, libraryPhoto } from '@/features/menu/LibrarySheet';
 import { pickPhotos } from '@/features/menu/photo';
 import { useMenu, usePhotoUpload } from '@/features/menu/queries';
 import { useCurrentStore } from '@/features/store/queries';
@@ -39,8 +38,8 @@ export function DishPhotosScreen() {
   const [working, setWorking] = useState<string | null>(null);
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
 
-  const keep = async (merchantOrgId: string, item: AdminMenuItem, src: number | string, slug: string) => {
-    const uploadId = await upload(await libraryPhoto(src));
+  const keep = async (merchantOrgId: string, item: AdminMenuItem, src: string, slug: string) => {
+    const uploadId = await upload(libraryPhoto(src));
     await dishPhoto.mutateAsync({ merchantOrgId, itemId: item.id, uploadId, librarySlug: slug });
   };
 
@@ -148,7 +147,7 @@ export function DishPhotosScreen() {
                               }}
                               style={({ pressed }) => ({ width: 104, height: 80, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: COUNTER.sand, opacity: pressed ? 0.8 : 1 })}
                             >
-                              <Image source={src} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                              <LibraryImage path={src} recyclingKey={`setup-photo-${item.id}-${i + 1}`} />
                             </Pressable>
                           ))}
                           <Pressable testID={`setup-photo-own-${item.id}`} accessibilityRole="button" disabled={working !== null} onPress={() => void own()} style={({ pressed }) => ({ width: 104, height: 80, borderRadius: theme.radius.md, borderWidth: 2, borderStyle: 'dashed', borderColor: COUNTER.saffron, backgroundColor: withAlpha(COUNTER.saffron, 0.08), alignItems: 'center', justifyContent: 'center', gap: 2, opacity: pressed ? 0.8 : 1 })}>

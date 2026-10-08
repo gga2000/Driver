@@ -965,14 +965,14 @@ async function habitsShots() {
   if (!personId) throw new Error('no person after sign-in');
   await demoPost(`/demo/usuals?personId=${encodeURIComponent(personId)}`);
   await page.reload(LOADED);
-  await byTestId('home-pots').waitFor({ timeout: 15_000 }).catch(() => errors.push('pots strip not shown'));
+  await byTestId('home-gallery').waitFor({ timeout: 15_000 }).catch(() => errors.push('hour gallery not shown'));
   await byTestId('home-usual').waitFor({ timeout: 15_000 }).catch(() => errors.push('usual card not shown'));
   await shot('habits-home');
   await fullShot('habits-home-full');
-  await byTestId('home-pot-follow-0').click();
+  // The hour's gallery in view: its one tour plays, then it rests on the first dish.
+  await byTestId('home-gallery').scrollIntoViewIfNeeded();
   await settle(900);
-  await byTestId('home-pots').scrollIntoViewIfNeeded();
-  await shot('habits-pot-followed');
+  await shot('habits-gallery');
 
   // Thursday 20:00 in Baghdad (the next one): «باچر الجمعة» for the Friday lunch usual.
   const local = new Date(Date.now() + 3 * 3_600_000);

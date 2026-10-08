@@ -1833,5 +1833,8 @@
   "merchant.printer.scheduled_at": "ينطبع وحده الساعة {time}",
   "merchant.printer.preview_hint": "هذا شكل الوصل بالحجم الحقيقي",
   "merchant.printer.width_n": "رقم {n} بالمسطرة",
-  "merchant.printer.body_web_sizes": "بالتابلت تنربط طابعة بلوتوث 58 أو 80 ملم، وكل طلب تقبله ينطبع وحده. بالمتصفح تشوف الوصل بحجمه الحقيقي وتطبعه من الكمبيوتر."
+  "merchant.printer.body_web_sizes": "بالتابلت تنربط طابعة بلوتوث 58 أو 80 ملم، وكل طلب تقبله ينطبع وحده. بالمتصفح تشوف الوصل بحجمه الحقيقي وتطبعه من الكمبيوتر.",
+  "merchant.update.title": "حدّث التطبيق",
+  "merchant.update.body": "هالنسخة صارت قديمة، والجديدة موجودة بالمتجر. حدّثها حتى تكمّل شغلك.",
+  "merchant.update.open_store": "افتح المتجر"
 }

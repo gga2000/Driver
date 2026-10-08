@@ -1,9 +1,9 @@
-import { Image } from 'expo-image';
 import { Pressable, View } from 'react-native';
 import type { FoodDoor } from '@driver/contracts';
 import { Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { LIBRARY } from '@/features/menu/library-data';
+import { LibraryImage } from '@/features/menu/LibrarySheet';
 import { COUNTER } from '@/lib/counter';
 import { useT, type TKey } from '@/lib/i18n';
 
@@ -79,7 +79,11 @@ export function DoorTile({ door, selected, onPress }: { door: FoodDoor; selected
         {t(`merchant.setup.door_${door}` as TKey)}
       </Text>
       <View style={{ width: 76, height: 60, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: c.fill, padding: 4 }}>
-        {photo !== undefined ? <Image source={photo} contentFit="cover" style={{ flex: 1, borderRadius: theme.radius.md }} /> : null}
+        {photo !== undefined ? (
+          <View style={{ flex: 1, borderRadius: theme.radius.md, overflow: 'hidden' }}>
+            <LibraryImage path={photo} recyclingKey={`setup-door-${door}`} />
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );

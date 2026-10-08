@@ -3,11 +3,17 @@ import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { IftarOverrides } from './prayer-times.js';
 
+/**
+ * What a row in `ops_kill_switches` is: a kill switch, or (`screen`) one audience of a redesigned
+ * customer screen, keyed `ui.<name>@staff` / `ui.<name>@all` (W6; `active` = shown to that audience).
+ */
+export type SwitchScope = KillScope | 'screen';
+
 /** `ops_kill_switches`: one row per `<scope>:<key>:<vertical|*>` target in a city. */
 export interface KillSwitchRecord {
   id: string;
   cityId: string;
-  scope: KillScope;
+  scope: SwitchScope;
   key: string;
   vertical: Vertical | null;
   target: string;
@@ -100,7 +106,7 @@ export interface AuditRecord {
   at: Date;
 }
 
-export function targetOf(scope: KillScope, key: string, vertical: Vertical | null): string {
+export function targetOf(scope: SwitchScope, key: string, vertical: Vertical | null): string {
   return `${scope}:${key}:${vertical ?? '*'}`;
 }
 

@@ -167,6 +167,12 @@ process only). The
 h5 pause («متوقف للزباين») is the app's own count from its last answered heartbeat (kept on the device
 as `driver.merchant.beat`); the shots stop the API from answering on a fake clock.
 
+Minimum app version (CORE-05, `docs/api/app-version.md`): native builds send `x-driver-app:
+merchant/<store version>` on every call and the live stream (`src/lib/app-version.ts`); an
+`update_required` answer swaps the whole app for «حدّث التطبيق» (`features/update/UpdateRequired.tsx`)
+until a restart, with no retries and no stream. The demo API refuses merchant builds below 0.0.2, and
+a dev-tools web export opened with `?demoBuild=0.0.1` reports that build. Shots: `SHOTS=app-version`.
+
 ## Native notes
 
 - Alarm (UI/UX audit S-01, M-02, M-04): the ladder in `features/board/ladder.ts` — a chime every 4 s,

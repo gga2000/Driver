@@ -1833,5 +1833,8 @@
   "merchant.printer.scheduled_at": "Prints by itself at {time}",
   "merchant.printer.preview_hint": "This is the ticket at real size",
   "merchant.printer.width_n": "No. {n} on the ruler",
-  "merchant.printer.body_web_sizes": "On the tablet a 58 or 80 mm Bluetooth printer is paired and every order you accept prints by itself. In the browser you see the ticket at real size and print it from the computer."
+  "merchant.printer.body_web_sizes": "On the tablet a 58 or 80 mm Bluetooth printer is paired and every order you accept prints by itself. In the browser you see the ticket at real size and print it from the computer.",
+  "merchant.update.title": "Update the app",
+  "merchant.update.body": "This version is out of date and the new one is on the store. Update it to keep working.",
+  "merchant.update.open_store": "Open the store"
 }

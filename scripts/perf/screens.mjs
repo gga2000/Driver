@@ -3,7 +3,8 @@
  * Screens budget (speed audit g3 + h4): opens the customer app's main screens and the restaurant board
  * in Chromium, like an installed app (files local, API = the in-memory demo API), and measures:
  *   - open_kb       data the screen downloads to open (and while it settles: 5 s, home 25 s) (uncompressed JSON; the server squeezes it later);
- *                   photos from the API (/files/…) are reported apart as open_photo_kb, with no budget
+ *                   photos from the API (/files/…, and the stock food photos /media/…) are reported apart as
+ *                   open_photo_kb, with no budget
  *   - idle_commits  React redraws per minute while nobody touches the screen
  *   - idle_fps      animation frames the app asks for per second while idle
  *   - idle_kb       data per minute while idle (polling, live updates)
@@ -60,8 +61,10 @@ async function newPage(apiBase, viewport) {
           () => 0,
         );
     // Photos (/files/…: a courier's face, a gate photo) are counted apart: the demo gives only some
-    // couriers a photo, so counting them in open_kb made live_order pass or fail at random.
-    if (new URL(r.url()).pathname.includes('/files/')) net.fileBytes += size;
+    // couriers a photo, so counting them in open_kb made live_order pass or fail at random. The stock
+    // food photos (/media/food/…, #107) used to ship inside the app; a phone keeps them once seen.
+    const path = new URL(r.url()).pathname;
+    if (path.includes('/files/') || path.startsWith('/media/')) net.fileBytes += size;
     else net.bytes += size;
   });
   return { page, net };

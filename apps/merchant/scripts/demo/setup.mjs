@@ -89,10 +89,10 @@ function menuBoardPng() {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-/** The first photo the library keeps of a dish (some keep only their 2nd or 3rd take). */
+/** The first photo the library keeps of a dish (some keep only their 2nd or 3rd take), from the API's media folder. */
 const libraryFile = (slug) => {
   for (const n of [1, 2, 3]) {
-    const p = fileURLToPath(new URL(`../../assets/dish-library/${slug}-${n}.webp`, import.meta.url));
+    const p = fileURLToPath(new URL(`../../../api/media/food/lib-${slug}-${n}.webp`, import.meta.url));
     if (existsSync(p)) return p;
   }
   throw new Error(`no library photo for ${slug}`);
