@@ -10,6 +10,8 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { Shutter } from '@/features/doors/Shutter';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
+import type { FoodPhotoSource } from '@/features/food-landing/photos';
 
 const ART = 84;
 
@@ -22,7 +24,8 @@ const ART = 84;
  * that put it in «أحسن 3» (food doors r3/k3), in the accent over the cuisine. With a `dish` (a craving's
  * «أحسن 3 للكنافة»), the row is about that dish: its drawing, its name and price (per kilo when sold by
  * weight) in place of the cuisine line, and a tap opens it on the menu. `cold` says the door time the
- * way the cold drinks door does: «توصل باردة» (j3).
+ * way the cold drinks door does: «توصل باردة» (j3). `photo` puts a real photo in the art's place (the
+ * food doors, Ali 2026-10-08).
  */
 export function RestaurantRow({
   r,
@@ -31,6 +34,7 @@ export function RestaurantRow({
   reason,
   dish,
   cold,
+  photo,
 }: {
   r: RestaurantSummary;
   testID?: string;
@@ -38,6 +42,7 @@ export function RestaurantRow({
   reason?: string;
   dish?: CatalogSearchDish;
   cold?: boolean;
+  photo?: FoodPhotoSource;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -64,7 +69,11 @@ export function RestaurantRow({
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
         {/* The kitchen's dish, the same drawing as its menu hero (joy S2-13): food, not a letter. */}
         <View testID={`${testID ?? `restaurant-row-${r.id}`}-art`} style={{ width: ART, height: ART, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
-          <FoodArt motif={dish ? motifForDish(dish.name) : motifForKitchen(r.tags, r.cuisine)} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} photoUrl={dish?.photoUrl ?? null} />
+          {photo !== undefined ? (
+            <FoodPhoto photo={photo} style={{ width: ART, height: ART }} />
+          ) : (
+            <FoodArt motif={dish ? motifForDish(dish.name) : motifForKitchen(r.tags, r.cuisine)} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} photoUrl={dish?.photoUrl ?? null} />
+          )}
           {r.open ? null : <Shutter size={ART} />}
         </View>
         <View style={{ flex: 1, gap: 2, minWidth: 0 }}>

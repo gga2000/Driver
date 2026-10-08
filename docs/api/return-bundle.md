@@ -6,7 +6,7 @@ Migration `20261010320000_seat_return_bundle` (three columns on `seat_bookings`,
 
 ## Return bundle — switch `MoneyRules.intercityReturnBundle` (off as shipped)
 
-`{ enabled: false, percent: 10, fundedBy: 'platform' }`. Turning it on, or changing the percent or who funds it, is Ali's call.
+`{ enabled: false, percent: 10, fundedBy: 'platform' }`. Ali decided on 2026-10-08 that the company funds it (`fundedBy: 'platform'`). Turning it on or changing the percent is his call.
 
 - **When a pair forms:** the rider holds a booked seat one way and books a seat the other way on the same corridor,
   while the first car has not left yet (both departures still open). Same direction or another road never pairs.

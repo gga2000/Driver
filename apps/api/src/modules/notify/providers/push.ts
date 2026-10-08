@@ -279,14 +279,45 @@ export class FcmPushProvider implements PushPort {
 
 // ───────────────────────── by token kind ─────────────────────────
 
-/** Expo tokens go to `PUSH_PROVIDER` (dev | expo); raw FCM tokens to FCM when configured, else dev. */
+/**
+ * OPS-02: a live host that is not staging. There a pretend push would report every message delivered
+ * while no phone hears anything (and the SMS twin, waiting on a failed push, would never go), so the
+ * API refuses to boot on the dev provider. Staging (`DEPLOY_ENVIRONMENT=staging`) may keep it.
+ */
+export function isLiveProduction(env: NodeJS.ProcessEnv): boolean {
+  return env['NODE_ENV'] === 'production' && env['DEPLOY_ENVIRONMENT'] !== 'staging';
+}
+
+/**
+ * Where no real transport is set up on a live host: every message fails (not `ok`), so the engine
+ * falls back to SMS and the miss shows in the delivery log, instead of a dev ticket that lies.
+ */
+export class UnconfiguredPushProvider implements PushPort {
+  readonly hasReceipts = false;
+  constructor(readonly name: string) {}
+
+  async send(messages: readonly PushMessage[]): Promise<PushTicket[]> {
+    return messages.map((m) => ({ token: m.token, ok: false, id: null, error: 'push_not_configured' }));
+  }
+
+  async receipts(): Promise<PushReceipt[]> {
+    return [];
+  }
+}
+
+/**
+ * Expo tokens go to `PUSH_PROVIDER` (dev | expo); raw FCM tokens to FCM when configured. Without FCM
+ * set up they go to dev on a laptop or staging, and fail (`UnconfiguredPushProvider`) on a live host.
+ */
 export type PushPorts = Readonly<Record<PushTokenKind, PushPort>>;
 
 export function pushPortsFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fetchImpl?: FetchLike; log?: boolean } = {}): PushPorts {
-  const dev = new DevPushProvider(opts.log ?? true);
+  const live = isLiveProduction(env);
   const choice = (env['PUSH_PROVIDER'] ?? (env['EXPO_ACCESS_TOKEN'] ? 'expo' : 'dev')).toLowerCase();
-  const expo = choice === 'expo' ? new ExpoPushProvider({ accessToken: env['EXPO_ACCESS_TOKEN'], baseUrl: env['EXPO_PUSH_URL'] ?? 'https://exp.host' }, opts.fetchImpl) : dev;
-  let fcm: PushPort = dev;
+  if (live && choice !== 'expo') throw new Error(`PUSH_PROVIDER must be expo on a live host (got ${choice}): a dev push reports messages delivered that no phone gets; refusing to boot`);
+  const fallback: PushPort = live ? new UnconfiguredPushProvider('fcm') : new DevPushProvider(opts.log ?? true);
+  const expo = choice === 'expo' ? new ExpoPushProvider({ accessToken: env['EXPO_ACCESS_TOKEN'], baseUrl: env['EXPO_PUSH_URL'] ?? 'https://exp.host' }, opts.fetchImpl) : fallback;
+  let fcm: PushPort = fallback;
   if (env['FCM_PROJECT_ID'] && (env['FCM_SERVICE_ACCOUNT_JSON'] || env['FCM_ACCESS_TOKEN'])) {
     let serviceAccount: FcmConfig['serviceAccount'];
     if (env['FCM_SERVICE_ACCOUNT_JSON']) {

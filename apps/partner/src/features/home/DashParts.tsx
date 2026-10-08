@@ -61,7 +61,7 @@ export function DashTop({
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
-  const dash = partnerDash.sun;
+  const dash = partnerDash[theme.scheme === 'dark' ? 'ember' : 'sun'];
   const pulse = usePulse(state === 'working');
   const working = state === 'working';
   const cut = state === 'cut';
@@ -156,7 +156,7 @@ export function DashTop({
 /** A dashboard card: white, a firm warm edge, generous radius (the slip's cousin). */
 export function DashCard({ children, tone = 'plain', testID }: { children: ReactNode; tone?: 'plain' | 'saffron' | 'danger'; testID?: string }) {
   const theme = useTheme();
-  const bg = tone === 'saffron' ? partnerDash.sun.cashNear : tone === 'danger' ? theme.colors.dangerTint : theme.colors.surface;
+  const bg = tone === 'saffron' ? partnerDash[theme.scheme === 'dark' ? 'ember' : 'sun'].cashNear : tone === 'danger' ? theme.colors.dangerTint : theme.colors.surface;
   const edge = tone === 'saffron' ? theme.colors.accent : tone === 'danger' ? theme.colors.danger : theme.colors.border;
   return (
     <View testID={testID} style={{ backgroundColor: bg, borderWidth: 1.5, borderColor: edge, borderRadius: 20, padding: theme.space[4], gap: theme.space[3] }}>

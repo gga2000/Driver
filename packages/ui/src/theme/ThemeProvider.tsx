@@ -9,6 +9,8 @@ import {
   fontFamily,
   fontScale,
   haptic as hapticTokens,
+  textScale as textScaleTokens,
+  type TextScale,
   hitTarget,
   identity,
   liveStages,
@@ -67,6 +69,8 @@ export interface Theme {
   hitTarget: number;
   /** Large-text caps for compact controls (`fontScale.compact`). */
   fontScale: typeof fontScale;
+  /** The app's text size factor (`textScale`, 1 = normal), on top of the phone's text size. */
+  textScale: number;
   direction: Direction;
   isRTL: boolean;
   fonts: FontMode;
@@ -114,7 +118,7 @@ function semanticIdentity(c: ThemeColors): readonly IdentityColor[] {
 
 export function createTheme(
   name: ThemeName = 'light',
-  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler; colors?: ThemeColors } = {},
+  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler; colors?: ThemeColors; textScale?: TextScale } = {},
 ): Theme {
   const direction = opts.direction ?? 'rtl';
   const fonts = opts.fonts ?? 'plex';
@@ -137,6 +141,7 @@ export function createTheme(
     state,
     hitTarget,
     fontScale,
+    textScale: textScaleTokens[opts.textScale ?? 'normal'],
     direction,
     isRTL: direction === 'rtl',
     fonts,
@@ -163,6 +168,8 @@ export interface ThemeProviderProps {
    * ember, `partnerThemes`). `theme` still decides everything else (scheme, haptics, monograms).
    */
   colors?: ThemeColors;
+  /** The app's own text size setting («حجم الخط»): `normal` (default), `large` or `largest`. */
+  textScale?: TextScale;
   children: ReactNode;
 }
 
@@ -193,12 +200,12 @@ function useWebFocusRing(color: string) {
   }, [color]);
 }
 
-export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, colors, children }: ThemeProviderProps) {
+export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, colors, textScale, children }: ThemeProviderProps) {
   const osReduceMotion = useReducedMotion();
   const dir: Direction = direction ?? (Platform.OS === 'web' || I18nManager.isRTL ? 'rtl' : 'ltr');
   const value = useMemo(
-    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion, colors }),
-    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion, colors],
+    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion, colors, textScale }),
+    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion, colors, textScale],
   );
   useWebFocusRing(value.colors.focusRing);
   return (

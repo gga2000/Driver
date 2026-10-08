@@ -33,3 +33,18 @@ The customer site is an installable web app: `apps/customer/public/index.html` (
 `public/icons/*.png`. The icons are the placeholder wordmark drawn by `apps/customer/scripts/web-icons.mjs`;
 re-run it when the brand symbol is chosen. Colours are the theme's cream `bg`;
 `src/lib/web-shell.test.ts` keeps app.json, the manifest and the tokens in step.
+
+First paint: `index.html` itself carries a cream background, the wordmark (a small inline picture, also
+drawn by `web-icons.mjs`) and «لحظة…» inside `#root`, so a first visit shows the brand at once instead
+of a white page while the 1 MB app downloads (4 s on Iraqi 4G, up to 24 s on weak 3G). The app
+replaces it when it draws.
+
+## Live check
+
+`.github/workflows/web-smoke.yml` opens the live site in a real browser after every production deploy
+(Vercel reports it to GitHub as a deployment) and every 6 hours, using `scripts/deploy/web-smoke.mjs`:
+the page draws with no script error, the API answers a call from that origin (so a missing
+`CORS_ORIGINS` entry shows up here), and the customer manifest and icons are served. A red run emails
+the repo owner. It always checks the public addresses (driver-customer-iota.vercel.app and
+driver-merchant.vercel.app), never a deploy's one-off address, which the API rightly refuses. If the
+restaurant site moves to its own domain, set the repo variable `MERCHANT_WEB_URL`. Run it by hand: Actions → Web live check → Run workflow.

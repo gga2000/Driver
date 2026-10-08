@@ -6,7 +6,8 @@ export interface StatusFacts {
   name: string;
   now: Date;
   busyUntil: Date | null;
-  closed: { reason: string; note: string | null; at: Date } | null;
+  /** The hand close in force at `now` (already through `closedNow`). */
+  closed: { reason: string; note: string | null; at: Date; until?: Date | null } | null;
   printer: { state: 'connected' | 'disconnected'; name: string | null; at: Date } | null;
   /** The pause window in force now (Friday prayer), if any. */
   pause: { reason?: string | undefined; end: string } | null;
@@ -26,7 +27,7 @@ export function busyUntilFor(on: boolean, now: Date): Date | null {
 /** The status header. Busy mode past its hour reads as off (it expires by itself, no job needed). */
 export function toStoreStatus(f: StatusFacts): StoreStatusView {
   const busyOn = f.busyUntil !== null && f.busyUntil.getTime() > f.now.getTime();
-  const closed = f.closed ? { reason: (REASONS.has(f.closed.reason) ? f.closed.reason : 'other') as EarlyCloseReason, note: f.closed.note, at: f.closed.at } : null;
+  const closed = f.closed ? { reason: (REASONS.has(f.closed.reason) ? f.closed.reason : 'other') as EarlyCloseReason, note: f.closed.note, at: f.closed.at, until: f.closed.until ?? null } : null;
   return {
     merchantOrgId: f.merchantOrgId,
     name: f.name,

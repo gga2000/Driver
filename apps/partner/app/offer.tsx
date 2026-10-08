@@ -11,6 +11,7 @@ import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { arrivedTooLate, batchMinutes, riderTripsKey, serviceOf, SLIP_URGENT_S, speakText, timeShare } from '@/features/offer/slip';
 import { KitchenTime, PayChips, SERVICE_ICON, SlipBand, SlipNote, TimeBar } from '@/features/offer/SlipParts';
 import { speakOffer, stopSpeaking } from '@/features/offer/speak';
+import { PracticeBand, PracticeTip, useWorkRoutes } from '@/features/practice/Practice';
 import { cargoLine, isRide, KIND_KEY, km, msToNextSecond, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { RouteNodes } from '@/features/work/OfferParts';
@@ -59,9 +60,11 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const qc = useQueryClient();
   const api = useApi();
   const answered = useRef(false);
+  // l4: inside «البروفة» the slip stays on the practice routes.
+  const routes = useWorkRoutes();
   const ride = isRide(offer.vertical);
   const service = serviceOf(offer.vertical);
-  const color = partnerServices.sun[service];
+  const color = partnerServices[theme.scheme === 'dark' ? 'ember' : 'sun'][service];
   const cargo = cargoLine(offer.rideCargo ?? [], t);
   const [now, setNow] = useState(() => Date.now());
   const left = secondsLeft(offer.expiresAt, now);
@@ -71,7 +74,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const dropoffZone = zoneName(offer.dropoff.zoneId, locale, t);
   const pickupTitle = offer.pickup.label ?? (ride ? t('partner.offer_rider') : pickupZone);
 
-  const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  const close = () => (router.canGoBack() ? router.back() : router.replace(routes.home));
   const drop = (message: string | null) => {
     qc.setQueryData(api.partner.currentOffer.queryKey(), null);
     void refresh();
@@ -172,7 +175,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
         void refresh();
         theme.haptic('success');
         toast.show({ message: t('partner.offer_accepted'), tone: 'success', icon: 'check' });
-        router.replace('/job');
+        router.replace(routes.job);
       } else {
         void refresh();
         toast.show({ message: t('partner.slip_gone'), tone: 'neutral' });
@@ -212,6 +215,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
 
   return (
     <View testID="offer" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <PracticeBand />
       <View style={{ height: mapHeight }}>
         <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} topInset={24} bottomInset={36} maxZoom={15.4} testID="offer-map" />
       </View>
@@ -230,6 +234,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
         <TimeBar share={share} remainingMs={remainingMs} urgent={left <= SLIP_URGENT_S} ink={color.ink} label={t('partner.slip_time_left', { seconds: Math.max(0, left) })} />
 
         <ScrollView contentContainerStyle={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[4], paddingBottom: theme.space[3], gap: layout.compact ? theme.space[3] : theme.space[4] }]}>
+          <PracticeTip />
           {/* o2 · what he earns, the biggest thing, with its named parts under it */}
           <View style={{ gap: theme.space[2] }}>
             <Text testID="offer-pay" tabular weight={700} accessibilityLabel={`${t('partner.offer_you_earn')}: ${amountParam(offer.pay.totalIqd)} ${t('quote.currency')}`} style={{ fontSize: layout.payFontSize + 6, lineHeight: layout.payLineHeight + 6, letterSpacing: -1 }}>

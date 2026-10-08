@@ -16,6 +16,18 @@ export interface WindowCounter {
    * until the oldest hit leaves the window (when refused).
    */
   hit(key: string, windowMs: number, limit: number): Promise<{ allowed: boolean; count: number; retryAfterSec: number }>;
+  /**
+   * Counts this call in `key`'s current fixed window (windows start at multiples of `windowMs`) and
+   * returns the window's count so far, this call included, and the seconds until it ends. One small
+   * counter per key instead of one entry per hit, so it suits limits on every request (SCALE-20).
+   */
+  tally(key: string, windowMs: number): Promise<{ count: number; retryAfterSec: number }>;
+}
+
+/** The fixed window `now` falls in: its index and the seconds until it ends. */
+function fixedWindow(now: number, windowMs: number): { index: number; retryAfterSec: number } {
+  const index = Math.floor(now / windowMs);
+  return { index, retryAfterSec: Math.max(1, Math.ceil(((index + 1) * windowMs - now) / 1000)) };
 }
 
 export const WINDOW_COUNTER = Symbol('WINDOW_COUNTER');
@@ -42,6 +54,17 @@ export class InMemoryWindowCounter implements WindowCounter {
     list.push(now);
     if (this.hits.size > 10_000) this.sweep(now - windowMs);
     return { allowed: true, count: list.length, retryAfterSec: 0 };
+  }
+
+  private readonly tallies = new Map<string, number>();
+
+  async tally(key: string, windowMs: number): Promise<{ count: number; retryAfterSec: number }> {
+    const { index, retryAfterSec } = fixedWindow(this.clock.now().getTime(), windowMs);
+    const k = `${key}:${index}`;
+    const count = (this.tallies.get(k) ?? 0) + 1;
+    this.tallies.set(k, count);
+    if (this.tallies.size > 10_000) for (const old of this.tallies.keys()) if (!old.endsWith(`:${index}`)) this.tallies.delete(old);
+    return { count, retryAfterSec };
   }
 
   private sweep(from: number): void {
@@ -82,6 +105,14 @@ export class RedisWindowCounter implements WindowCounter {
     await this.redis.zrem(key, member);
     const oldest = Number((res?.[3]?.[1] as string[] | undefined)?.[1] ?? now);
     return { allowed: false, count: count - 1, retryAfterSec: Math.max(1, Math.ceil((oldest + windowMs - now) / 1000)) };
+  }
+
+  /** `INCR` on the window's own key and `PEXPIRE` to two windows, in one MULTI. */
+  async tally(key: string, windowMs: number): Promise<{ count: number; retryAfterSec: number }> {
+    const { index, retryAfterSec } = fixedWindow(this.clock.now().getTime(), windowMs);
+    const k = `${key}:${index}`;
+    const res = await this.redis.multi().incr(k).pexpire(k, windowMs * 2).exec();
+    return { count: Number(res?.[0]?.[1] ?? 0), retryAfterSec };
   }
 
   onModuleDestroy(): void {

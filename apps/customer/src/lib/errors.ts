@@ -1,3 +1,4 @@
+import { isUpdateRequiredError } from '@driver/contracts';
 import { classifyError, type ErrorClass } from '@driver/contracts/net-client';
 
 export { classifyError, type ErrorClass };
@@ -22,6 +23,8 @@ export const RETRY_RULES = {
 /** React Query `retry` for queries: transient errors only, and a rate limit only when its wait is short. */
 export function shouldRetryQuery(failureCount: number, err: unknown): boolean {
   if (failureCount >= RETRY_RULES.queryRetries) return false;
+  // CORE-05: an old build is refused on every call; the «حدّث التطبيق» screen takes over instead.
+  if (isUpdateRequiredError(err)) return false;
   const c = classifyError(err);
   if (!c.transient) return false;
   if (c.kind === 'busy') return c.retryAfterSec !== null && c.retryAfterSec <= RETRY_RULES.maxRetryAfterSec;

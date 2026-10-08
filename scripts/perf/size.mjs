@@ -13,6 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
+  existsSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -21,17 +22,31 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { judge, report } from './lib.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const budgets = JSON.parse(readFileSync(join(import.meta.dirname, 'budgets.json'), 'utf8')).size;
 const apps = (process.env.APPS ?? 'customer,partner,merchant').split(',');
 const mb = (bytes) => Math.round(bytes / 10_000) / 100;
-const total = (dir) =>
-  readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((e) => e.isFile())
-    .reduce((s, e) => s + statSync(join(e.parentPath, e.name)).size, 0);
+/** Files under `dir`, as paths relative to it (none when it doesn't exist). */
+const files = (dir) =>
+  existsSync(dir)
+    ? readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => relative(dir, join(e.parentPath, e.name)))
+    : [];
+/**
+ * Bytes under the export's assets/, without what Expo copied from the app's public/ folder: public/ is the
+ * website's (index.html, web fonts under public/assets/fonts); every export carries a copy, but a phone
+ * build never ships it.
+ */
+const phoneAssets = (dir, publicAssets) => {
+  const webOnly = new Set(files(publicAssets));
+  return files(dir)
+    .filter((f) => !webOnly.has(f))
+    .reduce((s, f) => s + statSync(join(dir, f)).size, 0);
+};
 
 const measured = {};
 for (const app of apps) {
@@ -51,7 +66,9 @@ for (const app of apps) {
       .filter((f) => f.endsWith('.hbc'))
       .reduce((s, f) => s + statSync(join(js, f)).size, 0),
   );
-  measured[`${app}.assets_mb`] = mb(total(join(out, 'assets')));
+  measured[`${app}.assets_mb`] = mb(
+    phoneAssets(join(out, 'assets'), join(root, 'apps', app, 'public', 'assets')),
+  );
   rmSync(out, { recursive: true, force: true });
 }
 

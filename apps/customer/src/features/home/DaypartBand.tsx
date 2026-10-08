@@ -59,7 +59,7 @@ export function DaypartBand({ title, dishes, basket, testID = 'home-daypart' }: 
 const CARD_W = 148;
 const STAGE_H = 104;
 /** The + and the counter's keys are drawn 32 px; their tap areas are the full 44. */
-const KEY = 32;
+export const KEY = 32;
 /** The counter open: − on the start side, the count, + on the end side. */
 const COUNTER_W = KEY * 3;
 
@@ -109,14 +109,15 @@ function DishCard({ d, count, basket, testID }: { d: CatalogSearchDish; count: n
 
 /**
  * The saffron + on the plate's bottom end corner; with the dish in the basket it springs open into
- * − n + (the count pops on each change). Keys are 32 px with 44 px tap areas.
+ * − n + (the count pops on each change). Keys are 32 px with 44 px tap areas. `place` puts it on
+ * another picture (home's dish grid): its top and end inside the card.
  *
  * It opens by moving, not by resizing (speed audit m2, 2026-10-07: a width animation lays the card out
  * again on every frame): the pill slides out from behind a fixed rounded window while the keys inside
  * slide back by the same amount, so they stay put and only the saffron grows. The lift under it fades
  * from the closed shape to the open one.
  */
-function Counter({ dish, count, onAdd, onRemove, testID }: { dish: string; count: number; onAdd: () => void; onRemove: () => void; testID: string }) {
+export function Counter({ dish, count, onAdd, onRemove, testID, place }: { dish: string; count: number; onAdd: () => void; onRemove: () => void; testID: string; place?: { top: number; end: number } }) {
   const theme = useTheme();
   const t = useT();
   const dir = theme.isRTL ? -1 : 1;
@@ -142,7 +143,7 @@ function Counter({ dish, count, onAdd, onRemove, testID }: { dish: string; count
   const num = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }], opacity: Math.max(0, open.value) }));
   const slop = (theme.hitTarget - KEY) / 2;
   const key = (pressed: boolean) => ({ width: KEY, height: KEY, alignItems: 'center' as const, justifyContent: 'center' as const, opacity: pressed ? 0.7 : 1 });
-  const at = { position: 'absolute' as const, end: theme.space[2] + 6, top: theme.space[2] + STAGE_H - KEY - 6, height: KEY, borderRadius: KEY / 2 };
+  const at = { position: 'absolute' as const, end: place?.end ?? theme.space[2] + 6, top: place?.top ?? theme.space[2] + STAGE_H - KEY - 6, height: KEY, borderRadius: KEY / 2 };
   return (
     <>
       {theme.scheme === 'light' ? (

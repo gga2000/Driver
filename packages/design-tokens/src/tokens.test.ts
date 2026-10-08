@@ -133,6 +133,19 @@ describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
     expect([s.trips.light, s.trips.pattern, s.back.light]).toEqual(['#5A3118', '#FFC155', '#FFE3A6']);
     expect(decor.istikan.stages.length).toBeGreaterThanOrEqual(6);
   });
+  it('dish plates stay warm: no teal, blue or lilac (Ali: no teal)', () => {
+    const hue = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+      const max = Math.max(r, g, b);
+      const d = max - Math.min(r, g, b);
+      if (d === 0) return 0;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    for (const n of Object.keys(decor) as ThemeName[]) {
+      for (const c of decor[n].stages) expect(hue(c) < 150 || hue(c) > 320, `${n} ${c}`).toBe(true);
+    }
+  });
 });
 
 describe('motion and haptics (report 5 §6)', () => {

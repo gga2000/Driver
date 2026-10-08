@@ -16,6 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
+import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
@@ -133,6 +134,8 @@ export interface AppContext {
   authError: ErrorCode | null;
   /** The caller as the transport saw it (client IP behind the configured proxy); absent in tests. */
   client?: { ip: string | null };
+  /** Per-person and per-address request limits (SCALE-20), checked before every call; absent in tests. */
+  limits?: RequestLimitsPort;
   env: { nodeEnv: string };
   now(): Date;
   version: string;
@@ -175,21 +178,97 @@ export const t = initTRPC.context<AppContext>().meta<ProcedureMeta>().create({
 
 export const router = t.router;
 
+/** One finished procedure call, for the API's request log and metrics (`observeProcedures`). */
+export interface ProcedureCall {
+  /** e.g. `orders.place`. */
+  path: string;
+  type: 'query' | 'mutation' | 'subscription';
+  /** `OK`, or the tRPC error code the caller got (`BAD_REQUEST`, `CONFLICT`, `INTERNAL_SERVER_ERROR`…). */
+  code: string;
+  /** The Driver error code inside it (`offer_taken`, `rate_limited`…), when there is one. */
+  driverCode?: string;
+  ms: number;
+  /** The signed-in person's id (pseudonymous; names and phones live in the vault), null when signed out. */
+  personId: string | null;
+}
+
+let procedureObserver: ((call: ProcedureCall) => void) | undefined;
+
+/**
+ * The API registers one observer at boot (`shared/request-log.ts`); every call through
+ * `publicProcedure` reports to it once it settles. An observer that throws is ignored: the request
+ * log must never fail a request.
+ */
+export function observeProcedures(observer: ((call: ProcedureCall) => void) | undefined): void {
+  procedureObserver = observer;
+}
+
+function report(call: ProcedureCall): void {
+  try {
+    procedureObserver?.(call);
+  } catch {
+    // The log is best-effort.
+  }
+}
+
+let procedureGate: ((call: { path: string; type: ProcedureCall['type'] }) => DriverError | null) | undefined;
+
+/**
+ * The API registers one gate at boot: asked before every call through `publicProcedure`; a
+ * DriverError it returns refuses the call (CORE-05: a build older than the minimum gets
+ * `update_required`). A gate that throws lets the call through.
+ */
+export function gateProcedures(gate: typeof procedureGate): void {
+  procedureGate = gate;
+}
+
+function refusal(path: string, type: ProcedureCall['type']): DriverError | null {
+  try {
+    return procedureGate?.({ path, type }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Maps a DriverError thrown anywhere below to its tRPC code (and so its HTTP status: offer_taken →
  * 409, dev_only → 403…). tRPC v11 does not throw out of `next()`: a failing resolver or middleware
  * comes back as `{ ok: false, error }` with the DriverError wrapped as INTERNAL_SERVER_ERROR's
  * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
- * tRPC with the new code.
+ * tRPC with the new code. Each call is first asked of the API's gate (`gateProcedures`) and then
+ * reported to its observer (`observeProcedures`).
  */
-export const publicProcedure = t.procedure.use(async ({ next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next, getRawInput }) => {
+  const started = Date.now();
+  const done = (code: string, driverCode?: string) =>
+    procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
+  // The gate is asked once the call's input has fully arrived (tRPC reads it lazily and remembers it):
+  // a caller who stalls a POST body never gets as far as the gate, so it never holds a place in the
+  // API's busy cap (x3). An unreadable body is left for the input parser to answer.
+  if (procedureGate) await getRawInput().catch(() => undefined);
+  const refused = refusal(path, type);
+  if (refused) {
+    const mapped = toTrpcError(refused);
+    done(mapped.code, refused.code);
+    throw mapped;
+  }
   let result;
   try {
+    if (ctx.limits && type !== 'subscription') await ctx.limits.check({ path, type, personId: ctx.auth?.sub ?? null, ip: ctx.client?.ip ?? null });
     result = await next();
   } catch (err) {
-    throw toTrpcError(err);
+    const mapped = toTrpcError(err);
+    done(mapped.code, isDriverError(err) ? err.code : undefined);
+    throw mapped;
   }
-  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) throw toTrpcError(result.error.cause);
+  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) {
+    const cause = result.error.cause;
+    const mapped = toTrpcError(cause);
+    done(mapped.code, cause.code);
+    throw mapped;
+  }
+  if (result.ok) done('OK');
+  else done(result.error.code, isDriverError(result.error.cause) ? result.error.cause.code : undefined);
   return result;
 });
 
@@ -223,10 +302,17 @@ async function allowedFor(ctx: AppContext, personId: string, roles: readonly Rol
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, next }) => {
+  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
     if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
+    if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
+      try {
+        await ctx.limits.checkStaff({ path, type, personId: actor.personId, ip: ctx.client?.ip ?? null });
+      } catch (err) {
+        throw toTrpcError(err);
+      }
+    }
     return next({ ctx: { ...ctx, actor } });
   });
 }

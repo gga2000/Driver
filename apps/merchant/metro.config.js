@@ -41,4 +41,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return (upstream ?? context.resolveRequest)(context, moduleName, platform);
 };
 
+// Speed (perf s4): on phones and tablets a module runs the first time it is used, not all at start-up,
+// so a screen nobody opened costs nothing at launch (React Native's own default). The web build splits
+// each screen into its own file instead (expo-router asyncRoutes in app.json).
+const transformOptions = config.transformer.getTransformOptions;
+config.transformer.getTransformOptions = async (entryPoints, options, getDependenciesOf) => {
+  const base = transformOptions ? await transformOptions(entryPoints, options, getDependenciesOf) : {};
+  return { ...base, transform: { ...base.transform, inlineRequires: options.platform !== 'web' } };
+};
+
 module.exports = config;
