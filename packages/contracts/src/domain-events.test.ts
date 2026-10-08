@@ -67,4 +67,13 @@ describe('domain event contracts', () => {
     expect(isDomainEventType('order.placed')).toBe(false);
     expect(Object.keys(DOMAIN_EVENT_PAYLOADS).length).toBeGreaterThan(15);
   });
+
+  it('registers the safety incident events the on-call module reads', () => {
+    const opened = encodeDomainEvent('safety.incident_opened', { incidentId: 'si1', kind: 'sos', cityId: 'aziziyah', zoneKey: null, orderId: 'o1', rideId: null, tripId: 't1', createdAt: at });
+    expect(opened).toMatchObject({ createdAt: '2026-10-03T12:00:00.000Z' });
+    expect(decodeDomainEvent('safety.incident_opened', opened).createdAt).toEqual(at);
+    expect(decodeDomainEvent('safety.incident_acked', encodeDomainEvent('safety.incident_acked', { incidentId: 'si1', byPersonId: 'p1' }))).toEqual({ incidentId: 'si1', byPersonId: 'p1' });
+    expect(decodeDomainEvent('safety.incident_closed', encodeDomainEvent('safety.incident_closed', { incidentId: 'si1', outcome: 'false_alarm', byPersonId: null }))).toMatchObject({ outcome: 'false_alarm' });
+    expect(() => encodeDomainEvent('safety.incident_acked', { incidentId: 'si1' } as never)).toThrow();
+  });
 });

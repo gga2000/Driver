@@ -7,8 +7,10 @@ import { replay, untilLoaded } from './audio-player';
  * answers or the offer expires, plus a vibration pattern that repeats with it — a phone in a handlebar
  * mount or a pocket on a noisy road. iOS plays it with the ringer switch on silent
  * (`playsInSilentMode`, the `.playback` session); Android plays on the media stream (not muted by the
- * ringer's silent mode) and takes audio focus without ducking for music (`doNotMix`). With the app
- * closed the push channel `offers` rings instead. Same API as alert.ts.
+ * ringer's silent mode) and takes audio focus without ducking for music (`doNotMix`). It also rings
+ * with the app in the background or the screen locked (`shouldPlayInBackground`; iOS needs
+ * `UIBackgroundModes: audio`, set in app.json — Android keeps the process alive through the online
+ * location service). With the app closed the push channel `offers` rings instead. Same API as alert.ts.
  */
 
 export const OFFER_REPEAT_MS = 1_600;
@@ -28,14 +30,25 @@ function setLoaded(s: SoundState) {
   for (const cb of listeners) cb(s);
 }
 
+/**
+ * The audio mode every alert plays under (speed audit, day one: a phone in a pocket or a locked
+ * screen must still ring for an offer that lasts 15 s).
+ */
+export const ALERT_AUDIO_MODE = {
+  playsInSilentMode: true,
+  shouldPlayInBackground: true,
+  interruptionMode: 'doNotMix',
+  shouldRouteThroughEarpiece: false,
+} as const;
+
+/** Voice notes change the mode while recording; the offer takes it back before it rings. */
+function claimAudioMode(): Promise<void> {
+  return setAudioModeAsync(ALERT_AUDIO_MODE).catch(() => undefined);
+}
+
 function ready(): Promise<void> {
   loading ??= (async () => {
-    await setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: false,
-      interruptionMode: 'doNotMix',
-      shouldRouteThroughEarpiece: false,
-    }).catch(() => undefined);
+    await claimAudioMode();
     if (!sound) {
       sound = createAudioPlayer(OFFER_LOOP);
       sound.volume = 1;
@@ -120,6 +133,8 @@ export function startOfferAlert(): void {
   Vibration.vibrate(OFFER_VIBRATION, true);
   void ready().then(async () => {
     if (!sound || !wanted) return;
+    await claimAudioMode();
+    if (!wanted) return;
     sound.volume = 1;
     sound.loop = true;
     await replay(sound);

@@ -147,7 +147,9 @@ function OfferWatcher() {
   const online = status.data?.online ?? false;
   // The driver's live channel: a new offer, job changes, gate and cash arrive as events.
   useLivePartner(Boolean(status.data?.canDrive));
-  const offer = useCurrentOffer(online);
+  // Speed audit o3: on a cold start (from an offer push) the offer loads alongside his status, not
+  // after it; once the status is in, only while online.
+  const offer = useCurrentOffer(status.data ? online : status.isPending);
   // On a job: his fixes feed the customer's map and the kitchen's courier ETA (trips.reportPosition).
   useJobPositions(Boolean(status.data?.activeTripId));
   // Online or on a job with the app in the background: the OS location service keeps both going.

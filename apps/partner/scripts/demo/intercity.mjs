@@ -7,7 +7,7 @@
 //          checked in at the garage. Seats: front زهراء (checked in), middle-left حسين (prepaid, late:
 //          the meter runs), middle-middle free, middle-right a walk-up, rear-left+middle مريم's family
 //          (door pickup, accepted), rear-right أحمد (cash, past his 3-minute grace: no-show allowed).
-//   Run B  saloon (4) · كراج النهضة → العزيزية · in 4.5 h: نور (front, prepaid), سجاد (door pickup
+//   Run B  Elantra (4, his painted car) · كراج النهضة → العزيزية · in 4.5 h: نور (front, prepaid), سجاد (door pickup
 //          waiting for his answer), علي (on-the-way: جسر ديالى), ياسر holding back-middle.
 //   Demand from Aziziyah: 12 seats in the next-hour window, 5 in the one after, 2 at البوابة ٢ later;
 //          3 seats from Baghdad tonight.
@@ -124,7 +124,7 @@ export default async function register(demo) {
       corridorId: 'aziziyah_baghdad',
       departAt: new Date(Math.ceil((now + 270 * MIN) / (15 * MIN)) * 15 * MIN),
       latestDepartureAt: new Date(Math.ceil((now + 270 * MIN) / (15 * MIN)) * 15 * MIN + 30 * MIN),
-      vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 88412', modelKey: 'sonata', color: 'فضي' },
+      vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 88412', modelKey: 'elantra', color: 'بيضة' },
       familyOnly: false,
     });
     await book('noor', b.id, ['front'], 'nisa', 'wallet');

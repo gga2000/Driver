@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES, isNightAt, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
+import { isNightAt, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
@@ -49,6 +49,7 @@ import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostTher
 import { KITCHEN_PROGRESS_H, KitchenProgress } from '@/features/track/KitchenProgress';
 import { kitchenStages, showKitchenProgress } from '@/features/track/kitchen-progress';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
+import { streetSwitchOffered } from '@/features/track/street-switch';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -66,6 +67,9 @@ const PUSH_ASK_H = 136;
 const SWITCH_OFFER_H = 290;
 /** Simple mode's larger status line (heading, up to 3 lines) needs this much more collapsed sheet. */
 const SIMPLE_HEADER_EXTRA_H = 28;
+
+/** How often the live screen's clock moves while nothing on it counts seconds (speed h2). */
+const LIVE_MINUTES_TICK_MS = 15_000;
 
 function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -104,8 +108,13 @@ export default function OrderLiveScreen() {
   const pos = useCourierPosition(id, Boolean(live && v?.courier));
   const fix = live && v?.courier ? (pos.data ?? null) : null;
 
-  // Server-corrected clock for countdowns and ages.
-  const tick = useNow(1000);
+  // Server-corrected clock for countdowns and ages. Speed h2: the whole screen (map included) used to
+  // redraw every second; now only a ride phase that shows seconds ticks each second (the search counter,
+  // the wait at the pickup, the free-cancel minute). Otherwise minutes are all that show, so every 15 s
+  // is enough, and new data from the server redraws at once anyway.
+  const ridePhase = v?.order.type === 'ride' ? phaseOf(v) : null;
+  const secondsPhase = ridePhase === 'searching' || ridePhase === 'at_pickup' || (ridePhase === 'to_pickup' && v?.trip ? freeCancelLeftSec(v.trip.acceptedAt, Date.now()) !== null : false);
+  const tick = useNow(secondsPhase ? 1000 : LIVE_MINUTES_TICK_MS);
   const offset = useMemo(() => (v ? v.serverNow.getTime() - track.dataUpdatedAt : 0), [v, track.dataUpdatedAt]);
   const now = tick + offset;
   const clock = useMemo(() => () => Date.now() + offset, [offset]);
@@ -357,7 +366,8 @@ export default function OrderLiveScreen() {
   const timeline = v ? buildTimeline(v, { eta, lateMin, courierName }, t, formatClock) : null;
   // Rides: cancel until the rider is in the car (L-16; rides never set pickedUpAt).
   const canCancel = v && phase ? (ride ? rideCanCancel(phase) : !v.order.pickedUpAt) && live && phase !== 'unreachable' : false;
-  const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
+  // Off until orders.switchHandover exists (HUNT-01): see LIVE_STREET_SWITCH_ENABLED.
+  const canStreet = v ? streetSwitchOffered(v.order, live) : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
