@@ -141,6 +141,16 @@ export default async function run(s) {
   await p.goto(`/intercity/request/${seed.posts.stranded}`);
   await p.wait('request-offer');
   await p.shot('request-stranded', { settle: 1000 });
+  // Step 4b a6: a rider asks to book and pay cash (no deposit); he says yes; the ride he booked that way.
+  await p.goto(`/intercity/request/${seed.posts.cashAsk}`);
+  await p.wait('offer-cash-ask');
+  await p.shot('request-cash-ask', { settle: 1000 });
+  await p.byTestId('offer-cash-yes').click();
+  await p.wait('offer-cash-accepted');
+  await p.shot('request-cash-accepted', { settle: 800 });
+  await p.goto(`/intercity/request/${seed.cashRide}`);
+  await p.wait('ride-money');
+  await p.shot('ride-cash', { full: true, settle: 1000 });
 
   // The ride the rider picked.
   await p.goto(`/intercity/request/${seed.rideId}`);

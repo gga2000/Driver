@@ -280,7 +280,7 @@ export class RoutesRpc implements RoutesPort {
 
   /** A request as its viewer sees it, the waiting clock read with this board's money rules (w4's switch). */
   private requestView(r: RequestRecord, viewerDriverId?: string, drivers?: ReadonlyMap<string, RequestOfferDriver>, usualRange: UsualRange | null = null, riderName: string | null = null): RequestPostView {
-    return requestViewOf(r, viewerDriverId, drivers, usualRange, this.requests.moneyRules.requestWaitExtra, riderName);
+    return requestViewOf(r, viewerDriverId, drivers, usualRange, this.requests.moneyRules, riderName);
   }
 
   /**
@@ -313,7 +313,11 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async pickOffer(actor: Actor, input: In<'pickOffer'>): Promise<RequestPostView> {
-    return this.riderRequestView(await this.requests.pick(actor.personId, input.postId, input.offerId), actor.personId);
+    return this.riderRequestView(await this.requests.pick(actor.personId, input.postId, input.offerId, input.cash), actor.personId);
+  }
+
+  async askCash(actor: Actor, input: In<'askCash'>): Promise<RequestPostView> {
+    return this.riderRequestView(await this.requests.askCash(actor.personId, input.postId, input.offerId), actor.personId);
   }
 
   async cancelRequest(actor: Actor, input: In<'cancelRequest'>): Promise<RequestPostView> {
@@ -633,6 +637,10 @@ export class RoutesRpc implements RoutesPort {
     );
   }
 
+  async answerCash(actor: Actor, input: In<'answerCash'>): Promise<RequestPostView> {
+    return this.driverRequestView(await this.requests.answerCash(actor.personId, input.postId, input.offerId, input.accept), actor.personId);
+  }
+
   async requestArrived(actor: Actor, input: In<'requestArrived'>): Promise<RequestPostView> {
     return this.pickedDriverView(await this.requests.arrived(actor.personId, input.postId, { lat: input.lat, lng: input.lng }), actor.personId);
   }
@@ -677,7 +685,8 @@ export class RoutesRpc implements RoutesPort {
     const names = await this.fetchNames(mine, actor.personId, 'driver');
     for (const r of mine) {
       const picked = r.offers.find((o) => o.id === r.pickedOfferId)!;
-      const deposit = r.depositIqd ?? 0;
+      // 4b: a cash reservation held nothing on the wallet, so all of it is cash.
+      const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
       out.push({
         ...this.requestView(r, actor.personId, undefined, null, names[r.id] ?? null),
         priceIqd: picked.priceIqd,

@@ -15,6 +15,8 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
+//   cash-*   step 4b «احجز وادفع كاش» on a private car: owed first, the ask, waiting, his yes on the
+//            offer, the panel with the no-show line, booked with no deposit     POST /demo/rajaa/cash
 //   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
 //            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
@@ -133,7 +135,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -268,6 +270,7 @@ try {
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
   if (wants('agree')) await agreeShots(personId);
+  if (wants('cash')) await cashShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
@@ -1278,6 +1281,51 @@ async function whileFailing(proc, flow) {
 }
 
 /** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
+/**
+ * Step 4b a6 «احجز وادفع كاش» (docs/api/agreed-trip-prices.md): a rider with no wallet money posts a
+ * private car, owes from an earlier no-show first, then asks the 42,000 driver, waits, and books on his
+ * yes with no deposit. The demo hook switches the rule on for this demo only.
+ */
+async function cashShots(personId) {
+  if (!personId) throw new Error('cash: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
+  await byTestId('req-from-aziziyah').click();
+  await byTestId('req-place-najaf').click();
+  await byTestId('rajaa-request-submit').click();
+  await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/offers?${q}`);
+  const { offers } = await demoPost(`/demo/rajaa/cash?${q}&answer=none&owe=5000`);
+  const id = offers[0];
+  const open = async () => {
+    await page.reload(LOADED);
+    await byTestId(`offer-${id}`).waitFor({ timeout: 20_000 });
+    await byTestId(`offer-${id}`).click();
+  };
+  const show = async (testId, name) => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(600);
+    await shot(name);
+  };
+  await open();
+  await show('rajaa-cash-owed', 'cash-owed');
+  // He pays what he owed; the wallet is back to 0, short of the deposit, so the ask shows.
+  await demoPost(`/demo/rajaa/topup?${q}&amount=5000`);
+  await open();
+  await show('rajaa-cash-ask', 'cash-ask');
+  await byTestId('rajaa-cash-ask').click();
+  await show('rajaa-cash-asked', 'cash-asked');
+  await demoPost(`/demo/rajaa/cash?${q}&answer=accept`);
+  await page.reload(LOADED);
+  await show(`offer-cash-${id}`, 'cash-offer-yes');
+  await byTestId(`offer-${id}`).click();
+  await show('rajaa-cash-accepted', 'cash-accepted');
+  await byTestId('rajaa-cash-book').click();
+  await show('rajaa-req-deposit', 'cash-matched');
+}
+
 /**
  * Step 4 agreed trip prices (docs/api/agreed-trip-prices.md): on a car from Baghdad the rider asks the
  * driver about his own spot on the road (the pin screen), the driver prices it and a door drop near

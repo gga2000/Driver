@@ -26,7 +26,7 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import { haversineMeters } from '../trips/index.js';
 import { ROUTES_EVENTS, type RoutesEventEmitter } from './events.adapter.js';
 import type { IntercityNetworkConfig, IntercityRules } from './intercity.config.js';
-import type { RequestRecord } from './model.js';
+import type { RequestOfferRecord, RequestRecord } from './model.js';
 import { ROUTES_REQUEST_RIDERS, type RequestRidersPort } from './request-riders.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS, ROUTES_IDS, roundUpTo, walletHolds, type IdSource } from './support.js';
@@ -47,6 +47,12 @@ type PostInput = z.output<typeof PostRequestInput>;
  * completion → `order.closed` (kind `ride`, `intercity_private`), rider no-show → `order.cancelled`
  * (fee = deposit, beneficiary the driver), driver no-show → `departure.cancelled` (fee = 2× deposit,
  * driver → rider). The request id (`rq_…`) stands in for the order / departure id in those payloads.
+ *
+ * Step 4b a6 «احجز وادفع كاش» (switch `requestCashReservation`): the rider asks a driver who offered,
+ * the driver says yes, and the pick holds nothing. The deposit amount is still worked out and kept: a
+ * rider no-show or late cancel posts the same `order.cancelled` fee, which with nothing held stays on
+ * his wallet as debt (the platform's wallet-debt rule) while the driver is paid; a driver no-show
+ * credits the rider that amount once (nothing of his was held to give back).
  */
 @Injectable()
 export class RequestBoardService {
@@ -62,8 +68,8 @@ export class RequestBoardService {
     @Optional() @Inject(ROUTES_REQUEST_RIDERS) readonly riders: RequestRidersPort | null = null,
   ) {}
 
-  /** The money rules this board reads (w4's switch); a field so tests can switch it on. */
-  moneyRules: Pick<MoneyRules, 'requestWaitExtra'> = AZIZIYAH_MONEY_RULES;
+  /** The money rules this board reads (w4's and 4b's switches); a field so tests can switch them on. */
+  moneyRules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation'> = AZIZIYAH_MONEY_RULES;
 
   private now(): Date {
     return this.clock.now();
@@ -205,28 +211,63 @@ export class RequestBoardService {
     return this.repo.listRequests({ riderId });
   }
 
-  pick(riderId: string, postId: string, offerId: string): Promise<RequestRecord> {
+  /**
+   * The rider picks an offer: 20 % of it (min 5,000) is held on his wallet, or with `cash` (4b a6) on
+   * the driver's «احجز وادفع كاش» yes nothing is held and the amount is only owed on a no-show.
+   */
+  pick(riderId: string, postId: string, offerId: string, cash = false): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.mustOwn(riderId, postId, tx);
       if (r.state !== 'open') throw new DriverError('request_state_conflict');
       const offer = r.offers.find((o) => o.id === offerId && o.state === 'open');
       if (!offer) throw new DriverError('request_state_conflict');
       const deposit = this.depositFor(offer.priceIqd);
-      const available =
-        (await this.wallet.balance(riderId)) - (await walletHolds(this.repo, riderId, tx));
-      if (available < deposit) throw new DriverError('wallet_insufficient');
+      if (cash) {
+        if (offer.cash !== 'accepted') throw new DriverError('request_state_conflict');
+        await this.assertMayReserveCash(riderId, tx);
+      } else {
+        const available =
+          (await this.wallet.balance(riderId)) - (await walletHolds(this.repo, riderId, tx));
+        if (available < deposit) throw new DriverError('wallet_insufficient');
+      }
       for (const o of r.offers)
         o.state = o.id === offerId ? 'picked' : o.state === 'open' ? 'lost' : o.state;
       r.state = 'matched';
       r.pickedOfferId = offerId;
       r.depositIqd = deposit;
+      r.cashReserved = cash;
       await this.repo.saveRequest(r, tx);
       await this.emit(tx, 'request.matched', riderId, r, {
         driverId: offer.driverId,
         priceIqd: offer.priceIqd,
         depositIqd: deposit,
+        cashReserved: cash,
         // k2: whom a «جيب واحد» trip fetches (lane D's `request_for_rider` SMS reads it); never a phone.
         fetchPersonId: r.fetchPersonId,
+      });
+      return r;
+    });
+  }
+
+  /**
+   * 4b a6: the rider asks the driver behind one open offer whether he may book and pay all of it in
+   * cash. Once per offer: a no stands (a new price from the driver is a new offer).
+   */
+  askCash(riderId: string, postId: string, offerId: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.mustOwn(riderId, postId, tx);
+      if (r.state !== 'open') throw new DriverError('request_state_conflict');
+      const offer = r.offers.find((o) => o.id === offerId && o.state === 'open');
+      if (!offer) throw new DriverError('request_state_conflict');
+      await this.assertMayReserveCash(riderId, tx);
+      if (offer.cash === 'asked' || offer.cash === 'accepted') return r;
+      if (offer.cash === 'declined') throw new DriverError('request_state_conflict');
+      offer.cash = 'asked';
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.cash_asked', riderId, r, {
+        offerId,
+        driverId: offer.driverId,
+        noShowIqd: this.depositFor(offer.priceIqd),
       });
       return r;
     });
@@ -258,7 +299,10 @@ export class RequestBoardService {
     });
   }
 
-  /** The rider reports the driver did not come: 2× the deposit from the driver's balance. */
+  /**
+   * The rider reports the driver did not come: 2× the deposit from the driver's balance (his held
+   * deposit back and the same again). On a cash reservation nothing was held, so it is 1× (Ali, 50).
+   */
   driverNoShow(riderId: string, postId: string): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.mustOwn(riderId, postId, tx);
@@ -269,6 +313,7 @@ export class RequestBoardService {
       )
         throw new DriverError('no_show_not_allowed');
       const offer = this.picked(r);
+      const creditIqd = (r.cashReserved ? 1 : 2) * (r.depositIqd ?? 0);
       r.state = 'driver_no_show';
       r.closedAt = this.now();
       await this.repo.saveRequest(r, tx);
@@ -277,12 +322,12 @@ export class RequestBoardService {
         occurredAt: this.now(),
         driverId: offer.driverId,
         cancelledBy: 'driver',
-        feeIqd: 2 * (r.depositIqd ?? 0),
+        feeIqd: creditIqd,
         riderIds: [r.riderId],
       });
       await this.emit(tx, 'request.driver_no_show', riderId, r, {
         driverId: offer.driverId,
-        creditIqd: 2 * (r.depositIqd ?? 0),
+        creditIqd,
       });
       return r;
     });
@@ -341,15 +386,18 @@ export class RequestBoardService {
         throw new DriverError('offer_wait_terms_invalid');
       // The contract already floors it at 0; checked here too because -5000 % 1000 is -0, which passes the step.
       if (wait && (wait.extraHourIqd < 0 || wait.extraHourIqd % step !== 0)) throw new DriverError('offer_wait_terms_invalid');
+      // 4b: a new price replaces his offer; a cash ask on it, and his yes, carry over to the new one.
+      const before = r.offers.find((o) => o.driverId === driverId && o.state === 'open');
       for (const o of r.offers)
         if (o.driverId === driverId && o.state === 'open') o.state = 'withdrawn';
-      const offer = {
+      const offer: RequestOfferRecord = {
         id: this.ids.id('rqo'),
         driverId,
         priceIqd,
         wait: wait ? { includedHours: wait.includedHours, extraHourIqd: wait.extraHourIqd } : null,
         at: this.now(),
-        state: 'open' as const,
+        state: 'open',
+        cash: before?.cash ?? null,
       };
       r.offers.push(offer);
       // An offer means he read it, even from a list that never opened the detail.
@@ -360,6 +408,26 @@ export class RequestBoardService {
         priceIqd,
         riderId: r.riderId,
         ...(offer.wait ? { wait: offer.wait } : {}),
+      });
+      return r;
+    });
+  }
+
+  /** 4b a6: the driver answers «احجز وادفع كاش» on his own open offer. */
+  answerCash(driverId: string, postId: string, offerId: string, accept: boolean): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.must(postId, tx);
+      if (!this.moneyRules.requestCashReservation.enabled) throw new DriverError('forbidden');
+      const offer = r.offers.find((o) => o.id === offerId);
+      if (!offer || offer.driverId !== driverId) throw new DriverError('request_not_found');
+      if (r.state !== 'open' || offer.state !== 'open' || offer.cash !== 'asked')
+        throw new DriverError('request_state_conflict');
+      offer.cash = accept ? 'accepted' : 'declined';
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.cash_answered', driverId, r, {
+        offerId,
+        riderId: r.riderId,
+        accepted: accept,
       });
       return r;
     });
@@ -430,7 +498,8 @@ export class RequestBoardService {
       if (r.state !== 'matched' && r.state !== 'driver_arrived')
         throw new DriverError('request_state_conflict');
       const offer = this.picked(r);
-      const deposit = r.depositIqd ?? 0;
+      // The held deposit was paid from the wallet; a cash reservation held nothing, so all of it is cash.
+      const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
       if (r.waitStartedAt && !r.waitEndedAt) r.waitEndedAt = this.now();
       const fareIqd = offer.priceIqd + this.waitExtra(r);
       r.state = 'completed';
@@ -463,7 +532,10 @@ export class RequestBoardService {
     return clock ? waitExtraIqd(clock, now) : 0;
   }
 
-  /** The driver waited at the pickup: the deposit is his (review C-50). */
+  /**
+   * The driver waited at the pickup: the deposit is his (review C-50). On a cash reservation the same
+   * amount is posted with nothing held, so it stays on the rider's wallet as debt.
+   */
   riderNoShow(driverId: string, postId: string): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.mustDrive(driverId, postId, tx);
@@ -476,7 +548,7 @@ export class RequestBoardService {
       r.closedAt = this.now();
       await this.repo.saveRequest(r, tx);
       await this.forfeitDeposit(tx, r, 'request_board_rider_no_show');
-      await this.emit(tx, 'request.rider_no_show', driverId, r, { depositIqd: r.depositIqd });
+      await this.emit(tx, 'request.rider_no_show', driverId, r, { depositIqd: r.depositIqd, cashReserved: r.cashReserved });
       return r;
     });
   }
@@ -540,6 +612,7 @@ export class RequestBoardService {
       | 'offers'
       | 'pickedOfferId'
       | 'depositIqd'
+      | 'cashReserved'
       | 'driverArrivedAt'
       | 'driverArrivedPin'
       | 'waitStartedAt'
@@ -558,6 +631,7 @@ export class RequestBoardService {
       offers: [],
       pickedOfferId: null,
       depositIqd: null,
+      cashReserved: false,
       driverArrivedAt: null,
       driverArrivedPin: null,
       waitStartedAt: null,
@@ -566,6 +640,17 @@ export class RequestBoardService {
       closedAt: null,
       createdAt: this.now(),
     };
+  }
+
+  /**
+   * 4b: «احجز وادفع كاش» needs the switch on, nothing owed on his wallet (a past no-show is paid
+   * first), and his seat cash bookings not revoked for no-shows.
+   */
+  private async assertMayReserveCash(riderId: string, tx: Tx): Promise<void> {
+    if (!this.moneyRules.requestCashReservation.enabled) throw new DriverError('forbidden');
+    if ((await this.wallet.balance(riderId)) < 0) throw new DriverError('cash_reservation_owed');
+    const stats = await this.repo.riderStats(riderId, tx);
+    if (stats.cashStrikes >= this.rules.cashNoShowsToRevoke) throw new DriverError('cash_reservation_revoked');
   }
 
   private picked(r: RequestRecord) {

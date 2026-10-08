@@ -13,7 +13,7 @@ way 2 (price cards in the chat plus a pinned «اللي اتفقنا عليه» 
 - **4a (this spec, built now):** agreements as their own server records, the seat booking side (pin
   pickup, door drop), totals, the rider's booking screen and the driver's passenger list. Usable
   without chat: the rider asks from the booking flow, the driver answers from his list.
-- **4b:** the private-car «احجز وادفع كاش» card and the no-show debt (a money rule, behind
+- **4b (built, off):** the private-car «احجز وادفع كاش» ask and the no-show debt (a money rule, behind
   `MoneyRules.requestCashReservation`, off).
 - **4c (needs Ali's yes on taking over chat):** the same agreements shown as cards inside the chat,
   the pinned strip, «اسأله» on private-car offers. Chat only *renders* agreements; the rules stay here.

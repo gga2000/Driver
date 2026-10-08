@@ -228,6 +228,14 @@ export const MoneyRules = z.object({
    */
   requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
   /**
+   * Step 4b, a6 «احجز وادفع كاش» on a private car (Ali, 2026-10-07 23:07; design vote 2026-10-08): the
+   * rider asks the driver who offered, the driver accepts, and the pick holds no deposit. The deposit
+   * amount (20 %, at least 5,000) stays the no-show amount: a rider no-show or late cancel puts it on his
+   * wallet as debt, paid to the driver; a driver no-show credits it to the rider from the driver. Off
+   * until Ali switches it on: no ask is taken and every pick holds the deposit.
+   */
+  requestCashReservation: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
    * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
    * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
    * company, not the rider. Ali said "yes" on 2026-10-07. It applies whether or not the seat hold
@@ -294,6 +302,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   driverCancelCredit: { enabled: true },
   // w4: built 2026-10-08, off until Ali switches it on.
   requestWaitExtra: { enabled: false, freeMin: 15 },
+  // Step 4b a6: built 2026-10-08, off until Ali switches it on.
+  requestCashReservation: { enabled: false },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
   lateTaxiPaysMeter: { enabled: true },
 });

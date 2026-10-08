@@ -128,6 +128,8 @@ export function useRequestActions() {
     // No invalidate: nothing on the driver's screens changes when he is counted as having seen it.
     seen: useMutation(api.routes.requestBoard.seen.mutationOptions()),
     offer: useMutation({ ...api.routes.requestBoard.offer.mutationOptions(), ...opts }),
+    /** 4b a6: his answer to a rider's «احجز وادفع كاش». */
+    answerCash: useMutation({ ...api.routes.requestBoard.answerCash.mutationOptions(), ...opts }),
     arrived: useMutation({ ...api.routes.requestBoard.arrived.mutationOptions(), ...opts }),
     waitStart: useMutation({ ...api.routes.requestBoard.waitStart.mutationOptions(), ...opts }),
     waitEnd: useMutation({ ...api.routes.requestBoard.waitEnd.mutationOptions(), ...opts }),

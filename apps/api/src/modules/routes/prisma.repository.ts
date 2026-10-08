@@ -1,4 +1,4 @@
-import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestPlaceId, type RequestTripKind, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -312,6 +312,7 @@ export class PrismaRoutesRepository implements RoutesRepository {
       priceCapIqd: r.priceCapIqd,
       pickedOfferId: r.pickedOfferId,
       depositIqd: r.depositIqd,
+      cashReserved: r.cashReserved,
       driverArrivedAt: r.driverArrivedAt,
       driverArrivedPin: r.driverArrivedPin
         ? (r.driverArrivedPin as unknown as Prisma.InputJsonObject)
@@ -337,9 +338,10 @@ export class PrismaRoutesRepository implements RoutesRepository {
           waitIncludedHours: o.wait?.includedHours ?? null,
           extraHourIqd: o.wait?.extraHourIqd ?? null,
           state: o.state,
+          cashState: o.cash,
           createdAt: o.at,
         },
-        update: { state: o.state },
+        update: { state: o.state, cashState: o.cash },
       });
     }
   }
@@ -706,9 +708,11 @@ function toRequest(r: RequestRow): RequestRecord {
           : null,
       at: o.createdAt,
       state: o.state,
+      cash: (o.cashState as OfferCashState | null) ?? null,
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
+    cashReserved: r.cashReserved,
     driverArrivedAt: r.driverArrivedAt,
     driverArrivedPin: (r.driverArrivedPin as unknown as RequestRecord['driverArrivedPin']) ?? null,
     waitStartedAt: r.waitStartedAt,

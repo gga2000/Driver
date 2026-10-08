@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
-import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, waitExtraIqd, type DriverRequestRide, type RequestPostView } from '@driver/contracts';
+import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, waitExtraIqd, type DriverRequestRide, type OfferCashState, type RequestPostView } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast, WaitClock } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SosControl } from '@/features/safety/SosControl';
@@ -97,7 +97,7 @@ function OfferView({ post }: { post: RequestPostView }) {
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
-  const { offer, seen } = useRequestActions();
+  const { offer, seen, answerCash } = useRequestActions();
   const mine = post.offers.find((o) => o.state === 'open') ?? null;
   // y4: opening a request tells the rider one more driver saw it (once per driver; the server dedupes).
   const markSeen = seen.mutate;
@@ -133,6 +133,17 @@ function OfferView({ post }: { post: RequestPostView }) {
     }
   };
 
+  const answer = async (accept: boolean) => {
+    if (!mine) return;
+    try {
+      await answerCash.mutateAsync({ postId: post.id, offerId: mine.id, accept });
+      theme.haptic(accept ? 'success' : 'selection');
+      toast.show({ message: t('partner.ic_cash_sent'), tone: 'success' });
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    }
+  };
+
   const same = mine?.priceIqd === price && (!needsWait || (mine.wait?.includedHours === included && mine.wait.extraHourIqd === extraHour));
   return (
     <Screen
@@ -152,6 +163,7 @@ function OfferView({ post }: { post: RequestPostView }) {
     >
       <Stack.Screen options={{ title: t('partner.ic_req_title') }} />
       <TripCard post={post} />
+      {mine?.cash ? <CashAsk cash={mine.cash} priceIqd={mine.priceIqd} busy={answerCash.isPending ? (answerCash.variables?.accept ?? null) : undefined} onAnswer={(a) => void answer(a)} /> : null}
 
       <Card padding={5} testID="offer-price">
         <View style={{ gap: theme.space[4] }}>
@@ -200,7 +212,10 @@ function OfferView({ post }: { post: RequestPostView }) {
           ) : null}
           <Rule />
           <View style={{ gap: theme.space[2] }}>
-            <MoneyLine icon="wallet" text={t('partner.ic_req_deposit_note', { deposit: amountParam(deposit), cash: amountParam(price - deposit) })} />
+            <MoneyLine
+              icon="wallet"
+              text={mine?.cash === 'accepted' ? t('partner.ic_cash_accepted', { price: amountParam(price) }) : t('partner.ic_req_deposit_note', { deposit: amountParam(deposit), cash: amountParam(price - deposit) })}
+            />
             <MoneyLine icon="receipt" text={t('partner.ic_req_net', { net: amountParam(privateRideNet(price)) })} strong />
           </View>
         </View>
@@ -259,6 +274,50 @@ function MoneyLine({ icon, text, strong = false }: { icon: 'wallet' | 'receipt';
   );
 }
 
+/**
+ * Step 4b a6: a rider asked to book and pay all of it in cash (no deposit). He answers once; the
+ * no-show amount (the deposit) is said before he does.
+ */
+function CashAsk({ cash, priceIqd, busy, onAnswer }: { cash: OfferCashState; priceIqd: number; busy: boolean | null | undefined; onAnswer: (accept: boolean) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const amount = amountParam(depositFor(priceIqd));
+  if (cash !== 'asked')
+    return (
+      <View testID={`offer-cash-${cash}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: cash === 'accepted' ? theme.colors.successTint : theme.colors.surfaceSunken }}>
+        <Icon name="cash" size={18} color={cash === 'accepted' ? 'successText' : 'textMuted'} strokeWidth={2} />
+        <Text variant="footnote" color={cash === 'accepted' ? 'successText' : 'textMuted'} style={{ flex: 1 }} tabular>
+          {cash === 'accepted' ? t('partner.ic_cash_accepted_short') : t('partner.ic_cash_declined', { amount })}
+        </Text>
+      </View>
+    );
+  return (
+    <Card padding={5} testID="offer-cash-ask" style={{ borderWidth: 1.5, borderColor: theme.colors.accent }}>
+      <View style={{ gap: theme.space[3] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+          <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentTint }}>
+            <Icon name="cash" size={20} color="accentText" strokeWidth={2} />
+          </View>
+          <Text variant="bodyStrong" style={{ flex: 1 }}>
+            {t('partner.ic_cash_ask_title')}
+          </Text>
+        </View>
+        <Text variant="footnote" color="textMuted" tabular>
+          {t('partner.ic_cash_ask_body', { price: amountParam(priceIqd), amount })}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          <View style={{ flex: 1 }}>
+            <Button testID="offer-cash-yes" label={t('partner.ic_cash_yes')} icon="check" fullWidth loading={busy === true} disabled={busy !== undefined} onPress={() => onAnswer(true)} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button testID="offer-cash-no" label={t('partner.ic_cash_no')} variant="secondary" fullWidth loading={busy === false} disabled={busy !== undefined} onPress={() => onAnswer(false)} />
+          </View>
+        </View>
+      </View>
+    </Card>
+  );
+}
+
 function RideView({ ride }: { ride: DriverRequestRide }) {
   const theme = useTheme();
   const t = useT();
@@ -280,7 +339,8 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
   const clock = ride.waitClock;
   const extraIqd = clock ? waitExtraIqd(clock, now) : 0;
   const fareIqd = ride.priceIqd + extraIqd;
-  const collectIqd = Math.max(0, fareIqd - deposit);
+  // 4b: on a cash reservation nothing came from the wallet; the deposit is only the no-show amount.
+  const collectIqd = Math.max(0, fareIqd - (ride.cashReserved ? 0 : deposit));
 
   const arrived = async () => {
     const fix = await currentFix(5000);
@@ -420,7 +480,7 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
             </Text>
           </View>
           <Text variant="footnote" color="textMuted" tabular>
-            {[t('partner.ic_ride_deposit', { amount: amountParam(deposit) }), t('partner.ic_req_net', { net: amountParam(privateRideNet(fareIqd)) })].join(' · ')}
+            {[ride.cashReserved ? t('partner.ic_ride_cash_reserved', { amount: amountParam(deposit) }) : t('partner.ic_ride_deposit', { amount: amountParam(deposit) }), t('partner.ic_req_net', { net: amountParam(privateRideNet(fareIqd)) })].join(' · ')}
           </Text>
         </View>
       </Card>

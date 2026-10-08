@@ -1933,6 +1933,8 @@ model RideRequest {
   priceCapIqd      Int?             @map("price_cap_iqd")
   pickedOfferId    String?          @map("picked_offer_id")
   depositIqd       Int?             @map("deposit_iqd")
+  /// Step 4b a6 «احجز وادفع كاش»: picked on the driver's yes; the deposit is not held, only owed on a no-show
+  cashReserved     Boolean          @default(false) @map("cash_reserved")
   driverArrivedAt  DateTime?        @map("driver_arrived_at")
   /// {lat, lng} of the driver's arrival tap
   driverArrivedPin Json?            @map("driver_arrived_pin")
@@ -1962,6 +1964,8 @@ model RideRequestOffer {
   waitIncludedHours Int?          @map("wait_included_hours")
   extraHourIqd      Int?          @map("extra_hour_iqd")
   state     RideRequestOfferState @default(open)
+  /// Step 4b a6: the rider's «احجز وادفع كاش» ask on this offer — asked | accepted | declined (null = never asked)
+  cashState String?               @map("cash_state")
   createdAt DateTime              @default(now()) @map("created_at")
   updatedAt DateTime              @updatedAt @map("updated_at")
 

@@ -9,6 +9,7 @@ import type {
   IntercitySeatId,
   IntercitySeatLayout,
   IntercityVehicleKind,
+  OfferCashState,
   PickupStatus,
   PinAlertKind,
   PinAttemptResult,
@@ -226,6 +227,8 @@ export interface RequestOfferRecord {
   wait: { includedHours: number; extraHourIqd: number } | null;
   at: Date;
   state: 'open' | 'picked' | 'withdrawn' | 'lost';
+  /** Step 4b a6 «احجز وادفع كاش»: the rider asked this driver, and his answer; null when never asked. */
+  cash: OfferCashState | null;
 }
 
 export interface RequestRecord {
@@ -248,7 +251,10 @@ export interface RequestRecord {
   priceCapIqd: number | null;
   offers: RequestOfferRecord[];
   pickedOfferId: string | null;
+  /** The deposit amount: held on the wallet, or on a cash reservation only owed on a no-show. */
   depositIqd: number | null;
+  /** Step 4b a6: picked on the driver's «احجز وادفع كاش» yes, so nothing is held on the wallet. */
+  cashReserved: boolean;
   driverArrivedAt: Date | null;
   driverArrivedPin: { lat: number; lng: number } | null;
   /** w2: the waiting clock on a «يستناك وترجع» trip, started and stopped by the driver. */

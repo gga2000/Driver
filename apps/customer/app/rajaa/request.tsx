@@ -4,14 +4,16 @@ import { IntercityVehicleKind, REQUEST_WAIT_HOURS_MAX, requestDetailsProblem, ty
 import type { MessageKey } from '@driver/i18n';
 import { Button, Card, Chip, ChipGroup, Icon, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, WaitClock, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { useHousehold, useMe } from '@/features/account/queries';
+import { useHousehold, useMe, useWalletBalance } from '@/features/account/queries';
 import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/labels';
+import { cashPhase } from '@/features/rajaa/cash';
+import { CashPanel } from '@/features/rajaa/CashParts';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, RIDER_TRAVELLING_AS, type RequestDay } from '@/features/rajaa/logic';
 import { FETCH_TYPED, fetchOptions, fetchPick, fetchRiderInput, type FetchDrop } from '@/features/rajaa/fetch';
 import { FetchWho, TripKindCards } from '@/features/rajaa/FetchParts';
 import { RuleList, Section } from '@/features/rajaa/Option';
-import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest, useUsualRange } from '@/features/rajaa/queries';
+import { useAskCash, useCancelRequest, useMyRequests, usePickOffer, usePostRequest, useUsualRange } from '@/features/rajaa/queries';
 import { REQUEST_PLACES, OFFER_SORTS, offerWinners, placeIdFor, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
 import { DetailPills, OfferCard, SeenLine, UsualRangeLine } from '@/features/rajaa/RequestParts';
 import { SwitchRow } from '@/features/rajaa/SeatParts';
@@ -41,7 +43,13 @@ function RequestCard({ r }: { r: RequestPostView }) {
   const toast = useToast();
   const locale = useLocale();
   const pick = usePickOffer();
+  const askCash = useAskCash();
   const cancel = useCancelRequest();
+  // 4b a6: «احجز وادفع كاش» is offered when the wallet can't hold the deposit (read only while it's on).
+  const wallet = useWalletBalance();
+  // A balance that failed to load is unknown: the ask is offered and the server decides.
+  const walletIqd = r.cashReservationOn && !wallet.isError ? (wallet.data?.moneyIqd ?? null) : null;
+  const failed = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [sort, setSort] = useState<OfferSort>('best');
   const live = r.offers.filter((o) => o.state === 'open' || o.state === 'picked');
@@ -75,13 +83,17 @@ function RequestCard({ r }: { r: RequestPostView }) {
             </Text>
             <RajaaDriver dep={{ vehicle: picked.driver?.vehicle ?? null }} card={picked.driver} testID="rajaa-req-matched-driver" />
             {r.depositIqd ? (
-              <Text variant="footnote" color="textMuted">
-                {t('request.deposit', { amount: amountParam(r.depositIqd) })}
+              <Text variant="footnote" color="textMuted" testID="rajaa-req-deposit">
+                {r.cashReserved ? t('rajaa.cash_reserved', { amount: amountParam(picked.priceIqd) }) : t('request.deposit', { amount: amountParam(r.depositIqd) })}
               </Text>
             ) : null}
             {/* w2: the same live clock the driver sees, once he starts waiting. */}
             {r.waitClock ? <WaitClock clock={r.waitClock} now={now} side="rider" locale={locale} testID="rajaa-wait-clock" /> : null}
-            {r.waitClock ? null : <RuleList items={[t('rajaa.deposit_rule_driver'), t('rajaa.deposit_rule_rider')]} />}
+            {r.waitClock ? null : r.cashReserved && r.depositIqd ? (
+              <RuleList items={[t('rajaa.cash_rule_driver', { amount: amountParam(r.depositIqd) }), t('rajaa.cash_rule_rider', { amount: amountParam(r.depositIqd) })]} />
+            ) : (
+              <RuleList items={[t('rajaa.deposit_rule_driver'), t('rajaa.deposit_rule_rider')]} />
+            )}
           </View>
         ) : null}
 
@@ -109,6 +121,8 @@ function RequestCard({ r }: { r: RequestPostView }) {
             {offers.map((o) => {
               const deposit = depositFor(o.priceIqd);
               const open = confirming === o.id;
+              const cash = cashPhase(r.cashReservationOn, o, walletIqd, deposit);
+              const name = o.driver?.firstName ?? t('rajaa.driver_unnamed');
               return (
                 <OfferCard
                   key={o.id}
@@ -116,11 +130,48 @@ function RequestCard({ r }: { r: RequestPostView }) {
                   details={r.details}
                   wins={wins.get(o.id) ?? []}
                   range={r.usualRange}
-                  action={!open ? <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} /> : null}
+                  action={
+                    !open ? (
+                      <View style={{ gap: theme.space[2] }}>
+                        {cash === 'accepted' ? <StatusPill size="sm" tone="success" icon="cash" label={t('rajaa.cash_pill')} testID={`offer-cash-${o.id}`} /> : null}
+                        <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} />
+                      </View>
+                    ) : null
+                  }
                 >
-                  {open ? (
+                  {open && cash === 'accepted' ? (
+                    <View style={{ gap: theme.space[2] }}>
+                      <CashPanel
+                        phase="accepted"
+                        name={name}
+                        priceIqd={o.priceIqd}
+                        noShowIqd={deposit}
+                        owedIqd={0}
+                        asking={false}
+                        askError={null}
+                        booking={pick.isPending}
+                        onAsk={() => undefined}
+                        onBook={() => pick.mutate({ postId: r.id, offerId: o.id, cash: true }, { onSuccess: () => setConfirming(null), onError: failed })}
+                      />
+                      <Button variant="ghost" size="sm" label={t('action.back')} onPress={() => setConfirming(null)} />
+                    </View>
+                  ) : open ? (
                     <Card tone="sunken" elevation={0} padding={4} testID="rajaa-deposit">
                       <View style={{ gap: theme.space[3] }}>
+                        {cash !== 'none' ? (
+                          <CashPanel
+                            phase={cash}
+                            name={name}
+                            priceIqd={o.priceIqd}
+                            noShowIqd={deposit}
+                            owedIqd={walletIqd !== null && walletIqd < 0 ? -walletIqd : 0}
+                            asking={askCash.isPending}
+                            askError={askCash.isError && askCash.variables?.offerId === o.id ? apiErrorMessage(askCash.error, t('error.network'), locale) : null}
+                            booking={false}
+                            onAsk={() => askCash.mutate({ postId: r.id, offerId: o.id })}
+                            onBook={() => undefined}
+                          />
+                        ) : null}
                         <Text variant="label" weight={600}>
                           {t('rajaa.deposit_title', { amount: amountParam(deposit) })}
                         </Text>
@@ -132,15 +183,14 @@ function RequestCard({ r }: { r: RequestPostView }) {
                           <Button
                             testID="rajaa-deposit-confirm"
                             style={{ flex: 1 }}
+                            // 4b: when the wallet can't hold it, the deposit stays possible (after a top-up) but isn't the lead.
+                            variant={cash === 'none' ? 'primary' : 'secondary'}
                             label={t('rajaa.deposit_confirm')}
                             loading={pick.isPending}
                             onPress={() =>
                               pick.mutate(
                                 { postId: r.id, offerId: o.id },
-                                {
-                                  onSuccess: () => setConfirming(null),
-                                  onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000),
-                                },
+                                { onSuccess: () => setConfirming(null), onError: failed },
                               )
                             }
                           />

@@ -264,6 +264,13 @@ export function usePickOffer() {
   return useMutation(api.routes.requestBoard.pick.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/** Step 4b a6: ask the driver behind an offer for «احجز وادفع كاش». */
+export function useAskCash() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.askCash.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
 export function useCancelRequest() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();

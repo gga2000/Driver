@@ -5,7 +5,9 @@ import {
   AgreementIdInput,
   AgreementView,
   AnnounceInput,
+  AnswerCashInput,
   AskAgreementInput,
+  AskCashInput,
   BoardingPass,
   BoardInput,
   BookingIdInput,
@@ -169,11 +171,21 @@ export const routesRouter = router({
       .input(RequestOfferInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.offerOnRequest(ctx.actor, input)),
-    /** Rider: pick an offer; 20 % deposit (min 5,000) held on the wallet. */
+    /** Rider: pick an offer; 20 % deposit (min 5,000) held on the wallet, or none on a cash reservation (4b). */
     pick: protectedProcedure()
       .input(PickOfferInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.pickOffer(ctx.actor, input)),
+    /** Rider (4b a6): ask the driver behind an offer for «احجز وادفع كاش». */
+    askCash: protectedProcedure()
+      .input(AskCashInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.askCash(ctx.actor, input)),
+    /** Driver (4b a6): answer «احجز وادفع كاش» on his own offer. */
+    answerCash: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(AnswerCashInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.answerCash(ctx.actor, input)),
     cancel: protectedProcedure()
       .input(RequestIdInput)
       .output(RequestPostView)

@@ -863,6 +863,10 @@ export function usualRangeOf(prices: readonly number[]): UsualRange | null {
   return { lowIqd: round(at(0.2)), highIqd: round(at(0.8)), trips: sorted.length };
 }
 
+/** Step 4b a6: a rider's «احجز وادفع كاش» ask on one offer, and the driver's answer. */
+export const OfferCashState = z.enum(['asked', 'accepted', 'declined']);
+export type OfferCashState = z.infer<typeof OfferCashState>;
+
 export const RequestOfferView = z.object({
   id: z.string(),
   driverId: z.string(),
@@ -872,6 +876,8 @@ export const RequestOfferView = z.object({
   at: z.coerce.date(),
   state: z.enum(['open', 'picked', 'withdrawn', 'lost']),
   driver: RequestOfferDriver.nullable(),
+  /** Step 4b a6 «احجز وادفع كاش»: the rider asked this driver, and his answer; null when never asked. */
+  cash: OfferCashState.nullable().default(null),
 });
 export type RequestOfferView = z.infer<typeof RequestOfferView>;
 
@@ -897,8 +903,15 @@ export const RequestPostView = z.object({
   priceCapIqd: Iqd.nullable(),
   offers: z.array(RequestOfferView),
   pickedOfferId: z.string().nullable(),
-  /** 20 % of the picked price, min 5,000, held on the wallet (review C-50). */
+  /**
+   * 20 % of the picked price, min 5,000 (review C-50): held on the wallet, or on a cash reservation
+   * (step 4b) not held and only owed on a no-show.
+   */
   depositIqd: Iqd.nullable(),
+  /** Step 4b a6: picked as «احجز وادفع كاش» (the driver agreed): no deposit held, all of it in cash. */
+  cashReserved: z.boolean().default(false),
+  /** Step 4b: whether «احجز وادفع كاش» can be asked on this post now (the money switch is on). */
+  cashReservationOn: z.boolean().default(false),
   /** w2: the waiting clock once the driver started it («يستناك وترجع» only). */
   waitClock: RequestWaitClock.nullable().default(null),
   /**
@@ -922,8 +935,21 @@ export const RequestOfferInput = z.object({
 });
 export type RequestOfferInput = z.infer<typeof RequestOfferInput>;
 
-export const PickOfferInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1) });
+export const PickOfferInput = z.object({
+  postId: z.string().min(1),
+  offerId: z.string().min(1),
+  /** Step 4b a6: book on the driver's «احجز وادفع كاش» yes (no deposit held). */
+  cash: z.boolean().default(false),
+});
 export type PickOfferInput = z.infer<typeof PickOfferInput>;
+
+/** Step 4b a6: the rider asks one driver who offered whether he may book and pay it all in cash. */
+export const AskCashInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1) });
+export type AskCashInput = z.infer<typeof AskCashInput>;
+
+/** Step 4b a6: the driver's answer to «احجز وادفع كاش» on his own offer. */
+export const AnswerCashInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1), accept: z.boolean() });
+export type AnswerCashInput = z.infer<typeof AnswerCashInput>;
 
 export const RequestListInput = z.object({ cityId: CityId.optional() }).default({});
 
@@ -1336,7 +1362,7 @@ export const DriverRequestRide = RequestPostView.extend({
   driverArrivedAt: z.coerce.date().nullable(),
   /** From when "الراكب ما إجا" is allowed (arrival or trip time, the later, + the wait); null before arrival. */
   riderNoShowAt: z.coerce.date().nullable(),
-  /** Cash the driver collects at the end (price minus the wallet deposit). */
+  /** Cash the driver collects at the end (price minus the wallet deposit; all of it on a cash reservation). */
   cashToCollectIqd: Iqd,
 });
 export type DriverRequestRide = z.infer<typeof DriverRequestRide>;
@@ -1389,6 +1415,7 @@ export interface RoutesPort {
   myRequests(actor: Actor): Promise<RequestPostView[]>;
   usualRange(actor: Actor, input: UsualRangeInput): Promise<UsualRange | null>;
   pickOffer(actor: Actor, input: PickOfferInput): Promise<RequestPostView>;
+  askCash(actor: Actor, input: AskCashInput): Promise<RequestPostView>;
   cancelRequest(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportDriverNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   // driver
@@ -1422,6 +1449,7 @@ export interface RoutesPort {
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
   requestSeen(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
+  answerCash(actor: Actor, input: AnswerCashInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
   requestWaitStart(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   requestWaitEnd(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;

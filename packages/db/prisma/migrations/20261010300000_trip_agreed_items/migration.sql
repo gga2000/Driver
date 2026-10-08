@@ -6,6 +6,15 @@
 ALTER TABLE "public"."seat_bookings" ADD COLUMN "dropoff" JSONB,
 ADD COLUMN "dropoff_fee_iqd" INTEGER NOT NULL DEFAULT 0;
 
+-- Step 4b a6 «احجز وادفع كاش» on a private car (money switch requestCashReservation, off): the rider asks
+-- the driver who offered, the driver accepts, the pick holds no deposit.
+-- AlterTable
+ALTER TABLE "public"."ride_requests" ADD COLUMN "cash_reserved" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "public"."ride_request_offers" ADD COLUMN "cash_state" TEXT,
+ADD CONSTRAINT "ride_request_offers_cash_state_check" CHECK ("cash_state" IS NULL OR "cash_state" IN ('asked', 'accepted', 'declined'));
+
 -- CreateTable
 CREATE TABLE "public"."trip_agreements" (
     "id" TEXT NOT NULL,

@@ -64,7 +64,7 @@ export function AgreementSlot({
   );
 }
 
-function AskRow({ icon, title, hint, onPress, testID }: { icon: IconName; title: string; hint: string; onPress: () => void; testID: string }) {
+export function AskRow({ icon, title, hint, onPress, testID }: { icon: IconName; title: string; hint: string; onPress: () => void; testID: string }) {
   const theme = useTheme();
   return (
     <Pressable

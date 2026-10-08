@@ -303,7 +303,7 @@ export function requestView(
   viewerDriverId?: string,
   drivers?: ReadonlyMap<string, RequestOfferDriver>,
   usualRange: UsualRange | null = null,
-  waitRule: MoneyRules['requestWaitExtra'] = AZIZIYAH_MONEY_RULES.requestWaitExtra,
+  rules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation'> = AZIZIYAH_MONEY_RULES,
   /** k2: the fetched person's name, read from the vault for the poster or the picked driver only. */
   riderName: string | null = null,
 ): RequestPostView {
@@ -333,10 +333,13 @@ export function requestView(
       at: o.at,
       state: o.state,
       driver: drivers?.get(o.driverId) ?? null,
+      cash: o.cash,
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
-    waitClock: waitClockOf(r, waitRule),
+    cashReserved: r.cashReserved,
+    cashReservationOn: rules.requestCashReservation.enabled,
+    waitClock: waitClockOf(r, rules.requestWaitExtra),
     rider: r.fetchPersonId && riderName !== null ? { name: riderName } : null,
     createdAt: r.createdAt,
   };

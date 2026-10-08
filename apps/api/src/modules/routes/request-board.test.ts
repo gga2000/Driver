@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PostRequestInput, type DriverError } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, PostRequestInput, type DriverError } from '@driver/contracts';
 import { LEDGER_SUBSCRIBED_EVENTS } from '../ledger/index.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import type { RecordedRoutesEvent } from './events.adapter.js';
@@ -326,6 +326,130 @@ describe('request board no-shows and settlement through the ledger', () => {
   });
 });
 
+describe('step 4b a6: «احجز وادفع كاش» on a private car (switch requestCashReservation)', () => {
+  const on = (h: RoutesHarness) => {
+    h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestCashReservation: { enabled: true } };
+  };
+  /** r1 (no wallet money) posts; d1 offers 28,000; r1 asks for cash, d1 says yes, r1 picks with cash. */
+  async function cashMatched(h: RoutesHarness) {
+    on(h);
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    await h.requests.askCash('r1', r.id, o.id);
+    await h.requests.answerCash('d1', r.id, o.id, true);
+    await h.requests.pick('r1', r.id, o.id, true);
+    return r;
+  }
+
+  it('off (the default): no ask is taken, no answer, and a cash pick is refused', async () => {
+    const h = routesHarness();
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    expect(await code(h.requests.askCash('r1', r.id, o.id))).toBe('forbidden');
+    expect(await code(h.requests.answerCash('d1', r.id, o.id, true))).toBe('forbidden');
+    expect(await code(h.requests.pick('r1', r.id, o.id, true))).toBe('request_state_conflict');
+    const [view] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(view).toMatchObject({ cashReservationOn: false, cashReserved: false });
+  });
+
+  it('the rider asks, only that driver answers, once; the ask follows his new price; the pick holds nothing', async () => {
+    const h = routesHarness();
+    on(h);
+    const r = await postRequest(h);
+    const o1 = (await h.requests.offer('d1', r.id, 30_000)).offers.at(-1)!;
+    const o2 = (await h.requests.offer('d2', r.id, 26_000)).offers.at(-1)!;
+    // Not before the driver says yes.
+    expect(await code(h.requests.pick('r1', r.id, o1.id, true))).toBe('request_state_conflict');
+    await h.requests.askCash('r1', r.id, o1.id);
+    await h.requests.askCash('r1', r.id, o2.id);
+    expect(h.events.last('request.cash_asked')?.payload).toMatchObject({ offerId: o2.id, driverId: 'd2', noShowIqd: 5_500 });
+    expect(await code(h.requests.answerCash('d2', r.id, o1.id, true))).toBe('request_not_found');
+    await h.requests.answerCash('d2', r.id, o2.id, false);
+    expect(await code(h.requests.answerCash('d2', r.id, o2.id, true))).toBe('request_state_conflict');
+    // A no stands: asking again is refused.
+    expect(await code(h.requests.askCash('r1', r.id, o2.id))).toBe('request_state_conflict');
+    // d1 lowers his price: the ask is still on his new offer, and he says yes there.
+    const o1b = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    expect(o1b.cash).toBe('asked');
+    await h.requests.answerCash('d1', r.id, o1b.id, true);
+    // Each driver sees only his own offer's answer.
+    const forD1 = await h.rpc.openRequests({ personId: 'd1', sessionId: 's' }, {});
+    expect(forD1[0]!.offers.map((o) => [o.priceIqd, o.cash])).toEqual([[30_000, 'asked'], [28_000, 'accepted']]);
+    // No wallet money at all, and the pick goes through with nothing held.
+    const m = await h.requests.pick('r1', r.id, o1b.id, true);
+    expect(m).toMatchObject({ state: 'matched', cashReserved: true, depositIqd: 6_000 });
+    expect(h.events.last('request.matched')?.payload).toMatchObject({ cashReserved: true, depositIqd: 6_000 });
+    expect(await h.departures.walletAvailable('r1')).toBe(0);
+    const [view] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(view).toMatchObject({ cashReservationOn: true, cashReserved: true });
+  });
+
+  it('a rider who still owes (wallet below 0) or whose cash seats were revoked cannot ask or pick with cash', async () => {
+    const h = routesHarness();
+    on(h);
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    await h.requests.askCash('r1', r.id, o.id);
+    await h.requests.answerCash('d1', r.id, o.id, true);
+    h.wallet.set('r1', -5_000);
+    expect(await code(h.requests.askCash('r1', r.id, o.id))).toBe('cash_reservation_owed');
+    expect(await code(h.requests.pick('r1', r.id, o.id, true))).toBe('cash_reservation_owed');
+    h.wallet.set('r1', 0);
+    expect((await h.requests.pick('r1', r.id, o.id, true)).cashReserved).toBe(true);
+  });
+
+  it('rider no-show on a cash reservation: the driver is paid the amount and it stays on the rider as wallet debt', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    h.advance(12);
+    await h.requests.riderNoShow('d1', r.id);
+    expect(h.events.last('request.rider_no_show')?.payload).toMatchObject({ depositIqd: 6_000, cashReserved: true });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'driver:d1')).toBe(6_000);
+    expect(await bal(l, 'customer:r1')).toBe(-6_000);
+    expect(await bal(l, 'platform')).toBe(0);
+    expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('a late cancel on a cash reservation owes the same; an early one is free', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(61);
+    await h.requests.cancel('r1', r.id);
+    expect(await bal(await deliverToLedger(h.events.events), 'customer:r1')).toBe(-6_000);
+    const h2 = routesHarness();
+    const r2 = await cashMatched(h2);
+    await h2.requests.cancel('r1', r2.id);
+    expect(h2.events.ofType('order.cancelled')).toHaveLength(0);
+  });
+
+  it('driver no-show on a cash reservation: the rider gets the amount once, from the driver', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(140);
+    await h.requests.driverNoShow('r1', r.id);
+    expect(h.events.last('request.driver_no_show')?.payload).toMatchObject({ creditIqd: 6_000 });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'customer:r1')).toBe(6_000);
+    expect(await bal(l, 'driver:d1')).toBe(-6_000);
+  });
+
+  it('completed: the whole fare is cash (nothing came from the wallet)', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ ride: { fareIqd: 28_000, cashCollectedIqd: 28_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'customer:r1')).toBe(0);
+    expect(await bal(l, 'cash:d1')).toBe(-28_000);
+    expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+});
+
 describe('private car round 2: the waiting clock (w2) and the fair extra-hour count (w4)', () => {
   async function waitTrip(h: RoutesHarness) {
     const r = await h.requests.post(
@@ -374,7 +498,7 @@ describe('private car round 2: the waiting clock (w2) and the fair extra-hour co
     ];
     for (const [waited, extra] of cases) {
       const h = routesHarness();
-      h.requests.moneyRules = { requestWaitExtra: { enabled: true, freeMin: 15 } };
+      h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestWaitExtra: { enabled: true, freeMin: 15 } };
       const r = await waitTrip(h);
       h.advance(waited);
       await h.requests.waitEnd('d1', r.id);
@@ -390,7 +514,7 @@ describe('private car round 2: the waiting clock (w2) and the fair extra-hour co
 
   it('a clock still running stops at completion; the extra is cash and the 8 % private take covers it', async () => {
     const h = routesHarness();
-    h.requests.moneyRules = { requestWaitExtra: { enabled: true, freeMin: 15 } };
+    h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestWaitExtra: { enabled: true, freeMin: 15 } };
     const r = await waitTrip(h);
     h.advance(6 * 60);
     // Both apps read the same switch the money uses.

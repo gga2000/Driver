@@ -409,6 +409,24 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect((await repo.getAgreement(late.id))?.state).toBe('expired');
   });
 
+  it('step 4b: the «احجز وادفع كاش» ask, the answer and a cash pick survive the round-trip', async () => {
+    requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
+    try {
+      const r = await requests.post(ids.r2, PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(500), seats: 1, travellingAs: 'aila' }));
+      const o = (await requests.offer(ids.driver, r.id, 20_000)).offers.at(-1)!;
+      wallet.set(ids.r2, 0);
+      await requests.askCash(ids.r2, r.id, o.id);
+      expect((await repo.getRequest(r.id))?.offers.map((x) => x.cash)).toEqual(['asked']);
+      await requests.answerCash(ids.driver, r.id, o.id, true);
+      await requests.pick(ids.r2, r.id, o.id, true);
+      const back = await repo.getRequest(r.id);
+      expect(back).toMatchObject({ state: 'matched', cashReserved: true, depositIqd: 5_000 });
+      expect(back?.offers.map((x) => [x.state, x.cash])).toEqual([['picked', 'accepted']]);
+    } finally {
+      requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: false } };
+    }
+  });
+
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
     // A second writer stands in for a second API machine: its own in-process mutex, the same database,
     // so only the transaction's advisory lock keeps «seen» and «pick» apart. Its reads are slowed, so

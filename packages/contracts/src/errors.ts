@@ -339,6 +339,8 @@ export const ERROR_TABLE = {
   hold_expired: { i18n: 'intercity.hold_expired', retryHint: 'never', status: 'CONFLICT' },
   wallet_insufficient: { retryHint: 'never', status: 'CONFLICT' },
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
+  // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
+  cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
   seat_cancel_too_late: { retryHint: 'never', status: 'CONFLICT' },
   pin_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   walkup_seat_taken: { retryHint: 'never', status: 'CONFLICT' },

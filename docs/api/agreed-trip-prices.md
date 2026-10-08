@@ -21,3 +21,22 @@ Errors: `agreement_not_found`, `agreement_state_conflict`, `agreement_amount_inv
 
 Events: `agreement.asked|proposed|accepted|declined|expired|withdrawn` and `seat.agreement_applied`
 (aggregate `departure`). No pushes yet: chat cards (4c) or lane D add them.
+
+## Step 4b: «احجز وادفع كاش» on a private car (a6; switch `MoneyRules.requestCashReservation`, off)
+
+| Procedure | Who | What |
+|---|---|---|
+| `routes.requestBoard.askCash({ postId, offerId })` | rider | Asks the driver behind one open offer. Once per offer; a no stands. A new price from the same driver carries the ask (and his yes) over. |
+| `routes.requestBoard.answerCash({ postId, offerId, accept })` | that driver | Answers an `asked` ask on his own open offer. |
+| `routes.requestBoard.pick({ postId, offerId, cash: true })` | rider | Books on the driver's yes: nothing is held on the wallet. |
+
+Refused with `forbidden` while the switch is off, `cash_reservation_owed` while the rider's wallet is
+below 0 (a past no-show is paid first), `cash_reservation_revoked` after his seat cash no-shows.
+Views: `RequestOfferView.cash` (`asked` · `accepted` · `declined` · null), `RequestPostView.cashReserved`
+and `cashReservationOn`. Events: `request.cash_asked` {offerId, driverId, noShowIqd},
+`request.cash_answered` {offerId, riderId, accepted}; `request.matched` adds `cashReserved`.
+
+Money (Ali 2026-10-07, rules 49/50): the deposit amount (20 %, min 5,000) stays the no-show amount.
+A rider no-show or a cancel inside the last hour posts the same `order.cancelled` fee to the driver; with
+nothing held it stays on the rider's wallet as debt (the existing wallet-debt rule). A driver no-show
+credits the rider that amount once, from the driver. A completed trip is all cash.

@@ -13,6 +13,7 @@ function offer(id: string, priceIqd: number, rating: number | null, vehicle: Int
     wait: null,
     at: new Date(1_000 + at++),
     state: 'open',
+    cash: null,
     driver: {
       firstName: id,
       verifiedTodayAt: null,

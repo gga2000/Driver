@@ -48,7 +48,10 @@ export async function walletHolds(
     .reduce((s, b) => s + bookingTotal(b), 0);
   const deposits = (
     await repo.listRequests({ riderId, states: ['matched', 'driver_arrived'] }, tx)
-  ).reduce((s, r) => s + (r.depositIqd ?? 0), 0);
+  )
+    // A cash reservation (step 4b) holds nothing on the wallet.
+    .filter((r) => !r.cashReserved)
+    .reduce((s, r) => s + (r.depositIqd ?? 0), 0);
   return seats + deposits;
 }
 

@@ -733,6 +733,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/waiting?personId=…&min=…[&charged=1]   the picked driver is waiting (w2 clock)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 //   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
+//   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1218,7 +1219,7 @@ const rajaa = await (async () => {
       if (req.method !== 'POST' || live.length === 0) return json(res, 400, { error: 'POST with a personId that has a picked request' });
       const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
       const repo = app.get(ROUTES_REPOSITORY);
-      requests.moneyRules = { requestWaitExtra: { enabled: url.searchParams.get('charged') === '1', freeMin: 15 } };
+      requests.moneyRules = { ...requests.moneyRules, requestWaitExtra: { enabled: url.searchParams.get('charged') === '1', freeMin: 15 } };
       for (const r of live) {
         const driverId = r.offers.find((o) => o.id === r.pickedOfferId)?.driverId;
         if (!driverId) continue;
@@ -1231,6 +1232,43 @@ const rajaa = await (async () => {
         await repo.saveRequest(back);
       }
       json(res, 200, { requests: live.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/cash?personId=…[&answer=accept|decline|ask|none][&owe=5000] — step 4b a6 «احجز وادفع كاش»:
+  // switches the rule on for this demo only (the launch rule stays off), asks the 42,000 driver on each of
+  // the person's open requests and answers as given (`ask` leaves it waiting, `none` only switches it
+  // on and names the offer); `owe` puts a past
+  // no-show on his wallet so the «عليك» line shows.
+  app.use('/demo/rajaa/cash', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const answer = url.searchParams.get('answer') ?? 'accept';
+      const open = personId ? (await requests.mine(personId)).filter((r) => r.state === 'open') : [];
+      if (req.method !== 'POST' || open.length === 0) return json(res, 400, { error: 'POST with a personId that has an open request with offers' });
+      requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
+      const asked = [];
+      for (const r of open) {
+        const o = r.offers.find((x) => x.state === 'open' && x.driverId === D.drv_3C5N) ?? r.offers.find((x) => x.state === 'open');
+        if (!o) continue;
+        if (answer === 'none') {
+          asked.push(o.id);
+          continue;
+        }
+        if (!o.cash) await requests.askCash(personId, r.id, o.id);
+        if (answer !== 'ask' && (o.cash ?? 'asked') === 'asked') await requests.answerCash(o.driverId, r.id, o.id, answer === 'accept');
+        asked.push(o.id);
+      }
+      const owe = Number(url.searchParams.get('owe') ?? 0);
+      if (owe > 0) {
+        const { LedgerService } = await load('modules/ledger/index.js');
+        const { postCancellation } = await load('modules/ledger/postings.js');
+        await app.get(LedgerService).recordAll(postCancellation({ from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: `demo_owe_${Date.now()}`, occurredAt: new Date(), customerId: personId, by: 'customer', reason: 'request_board_rider_no_show', free: false, feeIqd: owe, beneficiaries: [{ kind: 'driver', id: D.drv_7K2Q, amountIqd: owe }] }));
+      }
+      json(res, 200, { offers: asked });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
