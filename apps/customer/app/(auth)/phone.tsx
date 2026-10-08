@@ -37,8 +37,9 @@ export default function PhoneEntry() {
     setTouched(true);
     if (!e164 || requestOtp.isPending) return;
     try {
+      // No channel: SMS, or WhatsApp on a day the SMS budget is spent; the code screen says which.
       const res = await requestOtp.mutateAsync({ phone: e164, purpose: 'login', device: await getDeviceInfo() });
-      router.push({ pathname: '/otp', params: { phone: e164, masked: res.phoneMasked, resendAfter: String(res.resendAfterSec) } });
+      router.push({ pathname: '/otp', params: { phone: e164, masked: res.phoneMasked, resendAfter: String(res.resendAfterSec), channel: res.channel ?? 'sms' } });
     } catch {
       /* shown under the field */
     }
