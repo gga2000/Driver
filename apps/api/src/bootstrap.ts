@@ -23,6 +23,14 @@ export function corsOriginFromEnv(env: Record<string, string | undefined> = proc
 }
 
 /**
+ * The API's CORS options. `Date` is exposed so the web app can read the server's clock from any response
+ * (THIN-10: the iftar countdown); phones read headers without CORS.
+ */
+export function corsOptions(env: Record<string, string | undefined> = process.env): { origin: true | string[]; exposedHeaders: string[] } {
+  return { origin: corsOriginFromEnv(env), exposedHeaders: ['Date'] };
+}
+
+/**
  * SEC-20: headers on every answer. The API serves JSON, images and no pages, so nothing may frame or
  * script it, browsers must not guess content types, and no referrer leaves with a link. HSTS in
  * production only (TLS ends at Fly's proxy; a laptop speaks plain HTTP).
@@ -65,9 +73,9 @@ export async function createApp(opts: { logger?: LoggerService } = {}): Promise<
   const production = process.env['NODE_ENV'] === 'production';
   app.disable('x-powered-by');
   app.use(securityHeaders(production));
-  const origin = corsOriginFromEnv();
-  if (production && origin === true) new Logger('Bootstrap').warn('CORS_ORIGINS is not set: any web origin may call the API (set it once the web domains exist)');
-  app.enableCors({ origin });
+  const cors = corsOptions();
+  if (production && cors.origin === true) new Logger('Bootstrap').warn('CORS_ORIGINS is not set: any web origin may call the API (set it once the web domains exist)');
+  app.enableCors(cors);
   app.use(compression(compressionOptions));
   // Per-IP OTP limits need the client's address: behind a load balancer set TRUST_PROXY (hop count,
   // e.g. "1", or an Express trust-proxy value) so req.ip comes from X-Forwarded-For.
