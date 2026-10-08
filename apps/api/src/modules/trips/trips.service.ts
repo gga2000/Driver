@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import {
   DriverError,
@@ -52,6 +52,18 @@ export const TRIPS_QUEUE = Symbol('TRIPS_QUEUE');
 export const RIDE_AUTOCOMPLETE_AFTER_MS = 10 * 60_000;
 const RIDE_VERTICALS: readonly Vertical[] = ['taxi', 'tuktuk'];
 const SYSTEM = 'system';
+
+/** A ride pickup a position fix came close to; its ETA is asked after the fix's transaction commits. */
+interface RideNearCheck {
+  tripId: string;
+  stopId: string;
+  orderId: string;
+}
+
+/** A ride still on its way to the pickup («السايق قريب» can still fire). */
+function rideNearState(trip: TripRecord): boolean {
+  return RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'accepted' || trip.state === 'en_route_to_pickup');
+}
 
 export type TripTimerJob =
   | { tripId: string; stopId: string | null; startedAtMs: number }
@@ -107,6 +119,7 @@ export interface DeviceStamp {
  */
 @Injectable()
 export class TripsService implements OnModuleInit {
+  private readonly logger = new Logger(TripsService.name);
   private readonly positionListeners = new Set<(report: PositionReport) => void>();
   /** Fake-GPS and jump counts per driver per day (maps program SP4a). */
   private readonly suspicion = new SuspicionCounter();
@@ -325,7 +338,10 @@ export class TripsService implements OnModuleInit {
    */
   async reportPosition(driverId: string, input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined }): Promise<ReportPositionOutput> {
     let tripIds: string[] = [];
-    const out = await this.reportPositionTx(driverId, input, (ids) => (tripIds = ids));
+    const nearChecks: RideNearCheck[] = [];
+    const out = await this.reportPositionTx(driverId, input, (ids) => (tripIds = ids), (c) => nearChecks.push(c));
+    // After the commit, so a GPS ping never holds a database connection while the router answers (perf item 14).
+    for (const check of nearChecks) await this.noteRideNear(check, driverId, input);
     // After the commit: observers (the live channel) see the fix. Positions are not domain events (domain §6).
     if (this.positionListeners.size > 0) {
       const report: PositionReport = { driverId, pin: input.pin, at: input.at, bearing: input.bearing ?? null, speedKmh: input.speedKmh ?? null, tripIds };
@@ -467,6 +483,7 @@ export class TripsService implements OnModuleInit {
     driverId: string,
     input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined },
     seen: (tripIds: string[]) => void,
+    nearCheck: (check: RideNearCheck) => void,
   ): Promise<ReportPositionOutput> {
     return this.uow.run(async (tx) => {
       const trips = input.tripId ? [await this.load(input.tripId, tx)] : await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx);
@@ -496,7 +513,8 @@ export class TripsService implements OnModuleInit {
             await this.emit(tx, 'stop.geofence_entered', driverId, trip.id, { stopId: s.id, stopType: s.type, distanceM: Math.round(d) }, { orderId: s.orderId ?? undefined, occurredAt: input.at, location: input.pin });
           }
         }
-        await this.noteRideNear(trip, stops, driverId, input, now, tx);
+        const near = this.rideNearCheck(trip, stops, input.pin);
+        if (near) nearCheck(near);
         if (RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'in_transit' || trip.state === 'arrived_dropoff')) {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
@@ -514,16 +532,37 @@ export class TripsService implements OnModuleInit {
    * `RIDE_NEAR_RULES.etaSec` of the pickup stamps `courierNearAt` on it and emits `stop.driver_near`
    * (the notify module pushes it to the rider; the live channel refreshes his screen). The ETA is only
    * asked for within `checkWithinM` of the pickup, so most fixes cost nothing.
+   *
+   * Perf item 14: the ETA is a routing (OSRM) call of up to 1.5 s, so it runs after the position's
+   * transaction commits (`rideNearCheck` only picks the candidate inside it). The stamp then gets its
+   * own short transaction that re-checks the trip and the stop, so it still lands once per ride.
    */
-  private async noteRideNear(trip: TripRecord, stops: readonly StopRecord[], driverId: string, input: { pin: LatLng; at: Date }, now: Date, tx: Tx): Promise<void> {
-    if (!this.rideNear || !RIDE_VERTICALS.includes(trip.vertical) || (trip.state !== 'accepted' && trip.state !== 'en_route_to_pickup')) return;
+  private rideNearCheck(trip: TripRecord, stops: readonly StopRecord[], pin: LatLng): RideNearCheck | null {
+    if (!this.rideNear || !rideNearState(trip)) return null;
     const pickup = stops.find((s) => s.type === 'pickup' && s.state === 'pending' && !s.courierNearAt && s.target && s.orderId);
-    if (!pickup?.target || !pickup.orderId || haversineMeters(input.pin, pickup.target) > RIDE_NEAR_RULES.checkWithinM) return;
-    // A routing hiccup only skips this fix: the next one asks again.
-    const sec = await this.rideNear.secondsToPickup(await this.view(trip.id, tx), pickup.orderId, input.pin, now).catch(() => null);
-    if (sec === null || sec > RIDE_NEAR_RULES.etaSec) return;
-    await this.repo.updateStop(pickup.id, { courierNearAt: input.at }, now, tx);
-    await this.emit(tx, 'stop.driver_near', driverId, trip.id, { stopId: pickup.id, etaSec: Math.max(0, Math.round(sec)) }, { orderId: pickup.orderId, occurredAt: input.at, location: input.pin });
+    if (!pickup?.target || !pickup.orderId || haversineMeters(pin, pickup.target) > RIDE_NEAR_RULES.checkWithinM) return null;
+    return { tripId: trip.id, stopId: pickup.id, orderId: pickup.orderId };
+  }
+
+  private async noteRideNear(check: RideNearCheck, driverId: string, input: { pin: LatLng; at: Date }): Promise<void> {
+    if (!this.rideNear) return;
+    try {
+      const now = this.clock.now();
+      // A routing hiccup only skips this fix: the next one asks again.
+      const sec = await this.rideNear.secondsToPickup(await this.view(check.tripId), check.orderId, input.pin, now).catch(() => null);
+      if (sec === null || sec > RIDE_NEAR_RULES.etaSec) return;
+      await this.uow.run(async (tx) => {
+        const trip = await this.load(check.tripId, tx);
+        if (trip.courierId !== driverId || !rideNearState(trip)) return;
+        const pickup = (await this.repo.stopsOf(trip.id, tx)).find((s) => s.id === check.stopId);
+        if (!pickup || pickup.state !== 'pending' || pickup.courierNearAt) return;
+        await this.repo.updateStop(pickup.id, { courierNearAt: input.at }, now, tx);
+        await this.emit(tx, 'stop.driver_near', driverId, trip.id, { stopId: pickup.id, etaSec: Math.max(0, Math.round(sec)) }, { orderId: check.orderId, occurredAt: input.at, location: input.pin });
+      });
+    } catch (err) {
+      // The position is already stored: a failed «قريب» stamp never fails the driver's report; the next fix tries again.
+      this.logger.warn(`ride near check failed for trip ${check.tripId}: ${(err as Error).message}`);
+    }
   }
 
   /**
