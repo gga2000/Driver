@@ -35,7 +35,7 @@ git tag v1.0.3 && git push origin v1.0.3
 
 GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
-and starts a new machine; it takes traffic only after `/trpc/health.ping` passes; the old one drains
+and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
 and stops) → smoke test (`db: ok`, `redis: ok`) → **Console** and **web apps**. A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
@@ -142,9 +142,26 @@ What exists today, from the narrowest to the widest:
 Stopping the API is safe for data: orders already placed stay in the database, outbox rows wait, and
 timers resume when it is back (late timers fire on start). Tell restaurants and couriers on WhatsApp.
 
+## Deploying while the database is down
+
+Fly and the bluegreen swap watch `/trpc/health.live`, which answers 503 once the database has been
+unreachable for 30 seconds without a break (shorter blips are ridden out, so one failover does not pull
+every machine from rotation at once). A bluegreen deploy then never finishes: the new machines never pass their check and the
+old ones keep serving. When a fix must ship anyway (for example a wrong `DATABASE_URL`), the on-call
+person deploys without waiting for the check, and tells Ali:
+
+```bash
+fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only --strategy immediate
+```
+
+`immediate` replaces every machine at once, with no health gate and a short gap in service. Use it
+only for this case. The game day rehearses it.
+
 ## Incident checklist
 
-1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ping` → `db` and `redis` must be `ok`.
+1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ready` → `db` and `redis` must be `ok`.
+   `health.live` answering 503 means the machines have not reached the database for 30 seconds (see "Deploying while the
+   database is down" below).
    Fly dashboard → driver-api → Monitoring. Supabase → status / Reports. <https://status.flyio.net>,
    <https://status.supabase.com>.
 2. **What changed?** Last deploy (GitHub Actions), last OTA update (expo.dev), last secret change

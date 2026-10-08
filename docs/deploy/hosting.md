@@ -139,8 +139,8 @@ fly secrets set --config deploy/fly/api.toml --stage \
 fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only
 fly scale count app=2 worker=1 --config deploy/fly/api.toml
 
-# 5. Check: both must say "ok"
-curl -s https://driver-api.fly.dev/trpc/health.ping
+# 5. Check: db and redis must both say "ok"
+curl -s https://driver-api.fly.dev/trpc/health.ready
 ```
 
 Then, for GitHub to deploy for you: `fly tokens create deploy -a driver-api` → copy the token into
@@ -242,8 +242,9 @@ never rotated.
   → Better Stack / Axiom free tiers).
 - **Uptime checks**: Fly's own checks restart a sick machine but tell nobody. Before launch, add a free
   external monitor (Better Stack Uptime or UptimeRobot) that checks every minute and alerts the on-call
-  phone: the API at `https://driver-api.fly.dev/trpc/health.ping` (status 200 and the text
-  `"db":"ok"`), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
+  phone: the API at `https://driver-api.fly.dev/trpc/health.live` (status 200; 503 means the
+  database has been unreachable for 30 seconds), `https://driver-api.fly.dev/trpc/health.ready` for the dependencies
+  (the text `"ok":true`; `"redis":"unavailable"` alone does not take the API down), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
   custom domains once they exist.
 - **Metrics**: the Fly dashboard shows CPU, memory, HTTP status codes and response times per machine;
   Supabase → Reports shows database load and slow queries.
