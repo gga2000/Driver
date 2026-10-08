@@ -6,5 +6,5 @@ export { OTP_WHATSAPP_TEMPLATE } from './otp.service.js';
 export type { SmsProvider } from './sms/provider.js';
 export { ROLE_READER } from './role-reader.js';
 export type { RoleReader } from './role-reader.js';
-export { STAFF_READ_PURPOSES, VAULT_LOG_FAILED, VaultLogWriteError, accessorOf, swallowedVaultLogFailures } from './vault-log.js';
+export { CONSOLE_ORDER_RECIPIENT_PURPOSE, STAFF_READ_PURPOSES, VAULT_LOG_FAILED, VaultLogWriteError, accessorOf, swallowedVaultLogFailures } from './vault-log.js';
 export type { Accessor, AccessorKind } from './vault-log.js';

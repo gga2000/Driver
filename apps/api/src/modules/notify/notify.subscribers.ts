@@ -36,6 +36,18 @@ export const BOOKED_RIDE_EVENTS = [
   'dispatch.booked_search_started',
 ] as const;
 
+/** W3: what staff did to a customer's order, told to him (docs/api/staff-ops.md). */
+export const STAFF_OUTCOME_EVENTS = ['order.ops_cancelled', 'order.dispute_resolved', 'order.free_cancel_offered', 'order.courier_lost'] as const;
+
+/** W3: the push for each complaint outcome. */
+const DISPUTE_TEMPLATES = {
+  stands: 'order_dispute_stands',
+  refund_full: 'order_dispute_refunded',
+  refund_partial: 'order_dispute_refunded',
+  redelivery: 'order_dispute_redelivery',
+  void: 'order_dispute_void',
+} as const;
+
 export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
   'order.auto_accepted',
@@ -68,6 +80,7 @@ export const NOTIFY_EVENT_TYPES = [
   'khat.child_tapped_out',
   'khat.sweep_missed',
   'dispatch.offer_sent',
+  'dispatch.wave_sent',
   'dispatch.zone_nudged',
   // Ride step 3 (n4): the waiting rider tapped «نبّهه» on a driver his ride was sent to.
   'dispatch.offer_nudged',
@@ -87,6 +100,8 @@ export const NOTIFY_EVENT_TYPES = [
   'same_ride.due',
   // Review #28: rides booked for later, offered to drivers the evening before.
   ...BOOKED_RIDE_EVENTS,
+  // W3 staff way-out: staff ended the order, a complaint's outcome, a free cancel when we failed, food lost.
+  ...STAFF_OUTCOME_EVENTS,
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -508,6 +523,23 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!customerId || amount === null) return [];
       return [{ ...base, template: 'wallet_topup_receipt', to: customerId, params: { amount: iqd(amount), date: localDate(e.occurredAt), reference: str(p['reference']) ?? '' } }];
     }
+    case 'order.ops_cancelled':
+    case 'order.free_cancel_offered':
+    case 'order.courier_lost': {
+      // W3: «آسفين، ألغينا طلبك» / «تگدر تلغي ببلاش» / «صار خلل بطلبك» — the order's customer, its number.
+      const customerId = str(p['customerId']);
+      if (!customerId || !e.orderId) return [];
+      const template = e.type === 'order.ops_cancelled' ? ('order_ops_cancelled' as const) : e.type === 'order.free_cancel_offered' ? ('order_free_cancel' as const) : ('order_courier_lost' as const);
+      return [{ ...base, template, to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), orderId: e.orderId }, data: { orderId: e.orderId } }];
+    }
+    case 'order.dispute_resolved': {
+      // W3 / NTF-01: the complaint's outcome (a refund names its amount).
+      const customerId = str(p['customerId']);
+      const outcome = str(p['outcome']);
+      if (!customerId || !e.orderId || !outcome || !(outcome in DISPUTE_TEMPLATES)) return [];
+      const template = DISPUTE_TEMPLATES[outcome as keyof typeof DISPUTE_TEMPLATES];
+      return [{ ...base, template, to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), amount: iqd(num(p['refundIqd']) ?? 0), orderId: e.orderId }, data: { orderId: e.orderId } }];
+    }
     case 'order.change_to_wallet': {
       // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" — the courier had no change.
       const customerId = str(p['customerId']);
@@ -592,6 +624,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'dispatch.wave_sent': {
+      // A ride's wave offers it to several drivers at once (no per-driver offer_sent): each gets the
+      // same «طلب جديد» push, so a driver not looking at the app still hears about it.
+      const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
+      if (ids.length === 0 || !e.tripId) return [];
+      const zones = await L.tripZones(e.tripId);
+      const tripId = e.tripId;
+      return [...new Set(ids)].map((to) => ({ ...base, template: 'partner_new_job' as const, to, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId } }));
     }
     case 'dispatch.offer_nudged': {
       // «راكب ينتظرك»: one soft push to the nudged driver (the server allows one per driver per ride).

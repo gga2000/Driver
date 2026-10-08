@@ -8,6 +8,8 @@ export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
 export * from './order.js';
+export * from './order-staff-io.js';
+export * from './departure-staff-io.js';
 export * from './order-tip.js';
 export * from './order-compliment.js';
 export * from './rajaa-pass-push.js';
@@ -72,7 +74,7 @@ export * from './control-room-io.js';
 export * from './support-io.js';
 export * from './errors.js';
 export { transformer } from './transformer.js';
-export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
+export { HealthPing, HealthLive, HealthReady, DependencyStatus, CityConfigInput, LIVE_DB_GRACE_MS, liveDbGate } from './router-io.js';
 export type { AppRouter, AppContext, IdentityPort, Actor } from './router.js';
 export {
   MeView,

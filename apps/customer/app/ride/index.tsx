@@ -394,7 +394,7 @@ function EndRow({
               borderRadius: theme.radius.md,
               backgroundColor: theme.colors.surfaceSunken,
               borderWidth: 1.5,
-              borderColor: theme.colors.accent,
+              borderColor: theme.colors.focusRing,
               color: theme.colors.text,
               fontSize: 15,
               // Native RTL swaps left/right (left = start); the web needs the physical side.

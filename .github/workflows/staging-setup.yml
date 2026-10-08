@@ -13,7 +13,8 @@
 # Running it again is safe: existing apps, volumes and secrets are kept, the database steps are
 # idempotent. It deploys no API machine: that is the Deploy workflow (environment: staging).
 #
-# Staging environment — secrets: DIRECT_URL, FLY_API_TOKEN (an org deploy token). Variables:
+# Staging environment — secrets: DIRECT_URL, FLY_API_TOKEN (an org deploy token); optional
+# STAGING_TEST_OTP (the staging test numbers' code, chosen by a person). Variables:
 # DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
 # (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
 # CORS_ORIGINS (default the customer web version on Vercel; the staging Console is added when FLY_CONSOLE_APP is set).
@@ -101,6 +102,9 @@ jobs:
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app' }}
           CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
+          # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
+          # and kept only as this environment's secret: never generated, printed or written anywhere here.
+          STAGING_TEST_OTP: ${{ secrets.STAGING_TEST_OTP }}
         run: |
           names() { flyctl secrets list --app "$1" --json | jq -r '(. // [])[] | (.Name // .name)'; }
           api=$(names "$API_APP"); redis=$(names "$REDIS_APP")
@@ -128,6 +132,12 @@ jobs:
           [ -z "$CONSOLE_APP" ] || origins="$origins,https://${CONSOLE_APP}.fly.dev"
           set_api+=("CORS_ORIGINS=$origins")
           echo "CORS_ORIGINS: $origins"
+          # The API host itself knows it is staging: staging-only sign-in helpers refuse to boot without it.
+          set_api+=("DEPLOY_ENVIRONMENT=staging")
+          if [ -n "$STAGING_TEST_OTP" ]; then
+            echo "::add-mask::$STAGING_TEST_OTP"
+            set_api+=("STAGING_TEST_OTP=$STAGING_TEST_OTP"); echo "staging test code: set from the environment secret"
+          else echo "staging test code: none (add the secret STAGING_TEST_OTP to the staging environment to turn on the test numbers)"; fi
 
           # A Fly secret can't be read back, so the Redis password is only (re)made when either side lacks it.
           if ! has "$redis" REDIS_PASSWORD || ! has "$api" REDIS_URL; then

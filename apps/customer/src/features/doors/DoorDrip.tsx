@@ -17,6 +17,8 @@ import { useTheme } from '@driver/ui';
 const GROW_MS = 2600;
 const FALL_MS = 900;
 const REST_MS = 3200;
+const STEM_MIN = 4;
+const STEM_MAX = 13;
 const STEM = 6;
 const DROP = 7;
 
@@ -88,7 +90,8 @@ export function DoorDrip({ width, top }: { width: number; top: number }) {
     };
   }, [theme.reduceMotion, grow, fall]);
 
-  const stemStyle = useAnimatedStyle(() => ({ height: 4 + 9 * grow.value }));
+  // Speed m2: the stem grows by scaling from its top (a transform), not by changing its height.
+  const stemStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: (STEM_MIN + (STEM_MAX - STEM_MIN) * grow.value) / STEM_MAX }] }));
   const dropStyle = useAnimatedStyle(() => ({
     opacity: fall.value === 0 ? 0 : 1 - fall.value,
     transform: [{ translateY: 6 + 30 * fall.value }],
@@ -108,6 +111,8 @@ export function DoorDrip({ width, top }: { width: number; top: number }) {
             top: tip - 4,
             start: mid - STEM / 2,
             width: STEM,
+            height: STEM_MAX,
+            transformOrigin: 'top',
             borderBottomStartRadius: STEM / 2,
             borderBottomEndRadius: STEM / 2,
             backgroundColor: colour,

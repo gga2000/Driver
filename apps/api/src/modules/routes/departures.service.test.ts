@@ -123,6 +123,25 @@ describe('seat state machine: held (10 min) → booked → checked_in → comple
     expect(await code(h.hold('r1', dep.id, ['back_left']))).toBe('booking_state_conflict');
   });
 
+  it('SEC-07: wallet prepay and the deposit also leave room for what the rest of the platform holds', async () => {
+    const h = routesHarness();
+    const a = await h.announce();
+    h.wallet.set('r1', 7_000);
+    // An open food order on the same wallet holds 3,000 of it.
+    h.wallet.elsewhere.set('r1', 3_000);
+    const seat = await h.hold('r1', a.id, ['back_left']);
+    expect(await code(h.departures.book('r1', seat.id, 'wallet'))).toBe('wallet_insufficient');
+    expect(await h.departures.walletAvailable('r1')).toBe(4_000);
+    h.wallet.elsewhere.set('r1', 2_000);
+    expect((await h.departures.book('r1', seat.id, 'wallet')).prepaid).toBe(true);
+  });
+
+  it('SEC-07: a nested routes write may only spend wallets the outer write declared', async () => {
+    const h = routesHarness();
+    await expect(h.writer.run(() => h.writer.run(async () => 1, { walletLocks: ['r9'] }), { walletLocks: ['r1'] })).rejects.toThrow(/undeclared wallets \(r9\)/);
+    expect(await h.writer.run(() => h.writer.run(async () => 2, { walletLocks: ['r1'] }), { walletLocks: ['r1'] })).toBe(2);
+  });
+
   it('wallet prepay needs the balance not already held by other prepaid seats', async () => {
     const h = routesHarness();
     const a = await h.announce();
@@ -754,5 +773,83 @@ describe('low fill at T−30 (domain §2; this module owns the rule)', () => {
     h.clock.set(new Date(thin.departAt.getTime() - 10 * 60_000));
     expect(await port.cancelLowFill(thin.id)).toBe(true);
     expect((await h.departures.departure(thin.id)).state).toBe('cancelled_low_fill');
+  });
+});
+
+describe('x3 seat hold: our taxi to the garage runs late (RIDE_SEAT_HOLD)', () => {
+  /** Minutes after the 12:00 start (h.at counts from now). */
+  const T = (m: number) => new Date(Date.parse('2026-10-03T12:00:00Z') + m * 60_000);
+  /** Leaves 12:30 (latest 13:30); r1 cash, r2 prepaid; the driver and r3 are in. */
+  async function lateTaxi(on: boolean) {
+    const h = routesHarness({ rules: { seatHoldForLateTaxi: on, maxLatestDepartureMin: 120 } });
+    const dep = await h.announce({ departAt: h.at(30), latestDepartureAt: h.at(90) });
+    const cash = await h.book('r1', dep.id, ['front'], { payment: 'cash' });
+    const paid = await h.book('r2', dep.id, ['back_left']);
+    const other = await h.book('r3', dep.id, ['back_right']);
+    await h.driverAt(dep.id);
+    h.advance(29);
+    await h.checkIn(dep.id, other.id); // 12:29: the meter can run for r2 from 12:30
+    return { h, dep, cash, paid };
+  }
+
+  it('off (today): the seat is recorded but not held — the usual 3-minute cash grace and the 20-minute meter cap', async () => {
+    const { h, dep, cash, paid } = await lateTaxi(false);
+    await h.departures.taxiLate('r1', cash.id, T(45));
+    await h.departures.taxiLate('r2', paid.id, T(45));
+    expect((await h.departures.booking(cash.id)).taxiLateUntil).toEqual(T(45));
+    h.advance(4); // 12:33
+    const row = (await h.rpc.driverDeparture({ personId: 'd1', sessionId: 's' }, { departureId: dep.id })).bookings.find((x) => x.bookingId === cash.id);
+    expect(row).toMatchObject({ taxiDueAt: T(45), seatHeld: false, canNoShow: true });
+    await h.departures.markNoShow('d1', dep.id, cash.id);
+    expect((await h.departures.booking(cash.id)).state).toBe('no_show');
+  });
+
+  it('on: neither rider can be left behind until our taxi is due; then the usual rules apply', async () => {
+    const { h, dep, cash, paid } = await lateTaxi(true);
+    await h.departures.taxiLate('r1', cash.id, T(41)); // due 12:41
+    await h.departures.taxiLate('r2', paid.id, T(41));
+    h.advance(4); // 12:33: past the cash grace, but held
+    const row = (await h.rpc.driverDeparture({ personId: 'd1', sessionId: 's' }, { departureId: dep.id })).bookings.find((x) => x.bookingId === cash.id);
+    expect(row).toMatchObject({ taxiDueAt: T(41), seatHeld: true, canNoShow: false });
+    expect(await code(h.departures.markNoShow('d1', dep.id, cash.id))).toBe('no_show_not_allowed');
+    expect(await code(h.departures.depart('d1', dep.id))).toBe('depart_blocked');
+    h.advance(8); // 12:41: due — the hold ends
+    await h.departures.markNoShow('d1', dep.id, cash.id);
+    expect((await h.departures.booking(cash.id)).state).toBe('no_show');
+  });
+
+  it('on: never past the meter cap (20 min after the car’s time), however late the taxi', async () => {
+    const { h, dep, paid } = await lateTaxi(true);
+    await h.departures.taxiLate('r2', paid.id, T(80)); // due 13:20
+    h.advance(20); // 12:49
+    expect(await code(h.departures.markNoShow('d1', dep.id, paid.id))).toBe('no_show_not_allowed');
+    h.advance(2); // 12:51: the cap (12:50) passed — the meter's forfeit applies again
+    expect(await code(h.departures.markNoShow('d1', dep.id, paid.id))).toBe('no error');
+  });
+
+  it('the meter minutes our late taxi caused are reported with the settled meter, so the company pays them', async () => {
+    const { h, dep, paid } = await lateTaxi(true);
+    await h.departures.taxiLate('r2', paid.id, T(41)); // due 12:41; the meter runs from 12:30
+    h.advance(15); // 12:44: he checks in 14 minutes late, 11 of them ours
+    await h.checkIn(dep.id, paid.id);
+    expect(h.events.last('seat.late_meter_settled')?.payload).toMatchObject({ minutesLate: 14, taxiLateMinutes: 11, late: { kind: 'rider', id: 'r2' } });
+  });
+
+  it('a rider late on his own (no late taxi of ours) pays his whole meter: no company minutes', async () => {
+    const { h, dep, paid } = await lateTaxi(true);
+    h.advance(16); // 12:45: 15 minutes late, our taxi was never late
+    await h.checkIn(dep.id, paid.id);
+    expect(h.events.last('seat.late_meter_settled')?.payload).toMatchObject({ minutesLate: 15, taxiLateMinutes: 0 });
+  });
+
+  it('on: cleared (taxi on time again or gone) → no hold; a seat that is no longer booked is left alone', async () => {
+    const { h, dep, cash } = await lateTaxi(true);
+    await h.departures.taxiLate('r1', cash.id, T(41));
+    await h.departures.taxiLate('r1', cash.id, null);
+    h.advance(4);
+    await h.departures.markNoShow('d1', dep.id, cash.id);
+    await h.departures.taxiLate('r1', cash.id, T(50));
+    expect((await h.departures.booking(cash.id)).taxiLateUntil ?? null).toBeNull();
+    expect(await code(h.departures.taxiLate('someone_else', cash.id, T(50)))).not.toBe('no error');
   });
 });

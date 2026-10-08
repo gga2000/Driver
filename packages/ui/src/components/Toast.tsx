@@ -7,6 +7,7 @@ import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
 import { enqueueToast, remainingAfterPause, toastDuration, yieldsToNext } from '../logic/toast';
 import { withAlpha } from '../theme/color';
+import { useAnnounce } from '../a11y/announce';
 import { useTheme } from '../theme/ThemeProvider';
 import { STATUS_TONES, type StatusTone } from './StatusPill';
 import { Text } from './Text';
@@ -85,6 +86,7 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
   const bg = theme.scheme === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
   const fg = theme.scheme === 'light' ? theme.colors.bg : theme.colors.text;
   const hold = (held: boolean) => () => onHold?.(held);
+  useAnnounce(detail ? `${message}. ${detail}` : message, { initial: true });
   return (
     <Animated.View
       accessibilityRole="alert"
@@ -197,7 +199,19 @@ function useScreenReader(): boolean {
  * Hosts toasts at the bottom of the screen, one at a time with a short waiting line (audit S-21):
  * timers pause while the toast is touched, hovered or focused, and every toast leaves with an exit.
  */
-export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { children: ReactNode; bottomOffset?: number; /** Centred column on wide screens (tablets). */ maxWidth?: number }) {
+export function ToastProvider({
+  children,
+  bottomOffset = 24,
+  maxWidth,
+  placement: defaultPlacement = 'bottom',
+}: {
+  children: ReactNode;
+  bottomOffset?: number;
+  /** Centred column on wide screens (tablets). */
+  maxWidth?: number;
+  /** Where toasts go unless one asks otherwise: `top` in the Partner app, so none covers a slide or a button (h11). */
+  placement?: 'bottom' | 'top';
+}) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const screenReader = useScreenReader();
@@ -258,11 +272,11 @@ export function ToastProvider({ children, bottomOffset = 24, maxWidth }: { child
           pointerEvents="box-none"
           style={[
             { position: 'absolute', start: theme.space[4], end: theme.space[4], alignItems: 'center' },
-            current.placement === 'top' ? { top: insets.top + theme.space[2] } : { bottom: bottomOffset },
+            (current.placement ?? defaultPlacement) === 'top' ? { top: insets.top + theme.space[2] } : { bottom: bottomOffset },
           ]}
         >
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>
-            <Toast key={current.id} {...current} leaving={leaving} onExited={onExited} onHold={setHeld} onDismiss={hide} />
+            <Toast key={current.id} {...current} placement={current.placement ?? defaultPlacement} leaving={leaving} onExited={onExited} onHold={setHeld} onDismiss={hide} />
           </View>
         </View>
       ) : null}

@@ -529,6 +529,26 @@ export interface ServiceSwatch {
   sub?: string;
   /** The coloured shadow under the tile (drawn translucent). */
   glow: string;
+  /** The home tile itself, in the soft-tint look. */
+  card: ServiceCard;
+}
+
+/**
+ * A home service tile in the soft-tint look (Ali, 2026-10-07, concept C): a pale wash of the
+ * service's own colour with ink type and the service's picture, no shadow. `fill` stays the
+ * service's full colour for the screens that wear it (ride sheets, food doors, the slim bar).
+ */
+export interface ServiceCard {
+  /** The tile's wash. */
+  bg: string;
+  /** A lighter wash in the tile's top corner, where the light falls; `off` leaves it out (flat). */
+  top?: string;
+  /** The service's name (AA on `bg` and `top`). */
+  on: string;
+  /** The live fact under the name (AA on `bg` and `top`). */
+  sub: string;
+  /** The live dot before the fact (3:1 on `bg` and `top`). */
+  dot: string;
 }
 
 /**
@@ -550,21 +570,63 @@ export interface ServicePalette {
 }
 
 const servicesDay: ServicePalette = {
-  food: { fill: '#F7A33B', on: '#2A1404', glow: '#F38A1B', mesh: ['#FFD27A', '#FF9F43', '#F0731A'] },
-  taxi: { fill: '#FFD84D', on: '#2A1D00', glow: '#DCAA0A' },
-  tuktuk: { fill: '#8A3F93', on: '#FFFFFF', glow: '#8A3F93' },
-  trips: { fill: '#2A170C', light: '#5A3118', on: '#FFF3E2', sub: '#FFD27A', glow: '#2A170C', pattern: '#FFC155' },
-  back: { fill: '#FFC155', light: '#FFE3A6', on: '#3A2006', sub: '#6B4A12', glow: '#E09A2A' },
-  off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2' },
+  food: {
+    fill: '#F7A33B',
+    on: '#2A1404',
+    glow: '#F38A1B',
+    mesh: ['#FFD27A', '#FF9F43', '#F0731A'],
+    card: { bg: '#FFE0B0', top: '#FFF1D9', on: '#24170E', sub: '#5E4632', dot: '#B85F0A' },
+  },
+  taxi: { fill: '#FFD84D', on: '#2A1D00', glow: '#DCAA0A', card: { bg: '#FFF1B8', top: '#FFF9DE', on: '#24170E', sub: '#5E4A2A', dot: '#9A7400' } },
+  tuktuk: { fill: '#8A3F93', on: '#FFFFFF', glow: '#8A3F93', card: { bg: '#F3E3F4', top: '#FBF3FB', on: '#24170E', sub: '#5A4058', dot: '#8A3F93' } },
+  trips: {
+    fill: '#2A170C',
+    light: '#5A3118',
+    on: '#FFF3E2',
+    sub: '#FFD27A',
+    glow: '#2A170C',
+    pattern: '#FFC155',
+    card: { bg: '#F0DECB', top: '#F9EFE4', on: '#24170E', sub: '#5E4632', dot: '#8A4C22' },
+  },
+  back: {
+    fill: '#FFC155',
+    light: '#FFE3A6',
+    on: '#3A2006',
+    sub: '#6B4A12',
+    glow: '#E09A2A',
+    card: { bg: '#FFEBC2', top: '#FFF6E0', on: '#24170E', sub: '#5E4632', dot: '#A8680A' },
+  },
+  off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2', card: { bg: '#EFE6DA', on: '#4E4036', sub: '#5E4E42', dot: '#8A7A6C' } },
 };
 
 const servicesNight: ServicePalette = {
-  food: { fill: '#F5A13A', on: '#1A1004', glow: '#000000', mesh: ['#FFC155', '#FF9F43', '#F08A1F'] },
-  taxi: { fill: '#F2C94C', on: '#1A1004', glow: '#000000' },
-  tuktuk: { fill: '#7E3A88', on: '#FFFFFF', glow: '#000000' },
-  trips: { fill: '#2E1A0E', light: '#4A2914', on: '#FFF3E2', sub: '#FFD27A', glow: '#000000', pattern: '#FFC155' },
-  back: { fill: '#F2B444', light: '#FFD98A', on: '#2A1404', sub: '#5C3D0C', glow: '#000000' },
-  off: { fill: '#2E241C', on: '#BFA892', glow: '#000000' },
+  food: {
+    fill: '#F5A13A',
+    on: '#1A1004',
+    glow: '#000000',
+    mesh: ['#FFC155', '#FF9F43', '#F08A1F'],
+    card: { bg: '#3A2512', top: '#4A3018', on: '#FFF3E2', sub: '#EBCFA8', dot: '#FFB547' },
+  },
+  taxi: { fill: '#F2C94C', on: '#1A1004', glow: '#000000', card: { bg: '#363012', top: '#443C1A', on: '#FFF3E2', sub: '#E8D9A0', dot: '#F2C94C' } },
+  tuktuk: { fill: '#7E3A88', on: '#FFFFFF', glow: '#000000', card: { bg: '#33203A', top: '#412A48', on: '#FFF3E2', sub: '#E3C8E6', dot: '#D49ADC' } },
+  trips: {
+    fill: '#2E1A0E',
+    light: '#4A2914',
+    on: '#FFF3E2',
+    sub: '#FFD27A',
+    glow: '#000000',
+    pattern: '#FFC155',
+    card: { bg: '#34241A', top: '#422F22', on: '#FFF3E2', sub: '#E9C9A0', dot: '#E0A06A' },
+  },
+  back: {
+    fill: '#F2B444',
+    light: '#FFD98A',
+    on: '#2A1404',
+    sub: '#5C3D0C',
+    glow: '#000000',
+    card: { bg: '#3A2A12', top: '#48361A', on: '#FFF3E2', sub: '#EBD2A0', dot: '#FFC155' },
+  },
+  off: { fill: '#2E241C', on: '#BFA892', glow: '#000000', card: { bg: '#2E241C', on: '#D9C6B2', sub: '#BFA892', dot: '#8A7560' } },
 };
 
 export const services: Record<ThemeName, ServicePalette> = { light: servicesDay, dark: servicesNight, istikan: servicesDay, istikanNight: servicesNight };
@@ -591,7 +653,8 @@ const decorDay: HomeDecor = {
   haloDot: '#E2B98A',
   haloGlow: '#FFC155',
   wash: { dawn: '#FFD9B8', noon: '#DDEFF7', sunset: '#F7C3C0', late: '#DCD6F2' },
-  stages: ['#FFE5BD', '#FFD6CF', '#D6EEF0', '#EFE3F5', '#E6F0D2', '#FBEBC8'],
+  // Apricot, blush, date cream, pomegranate blush, sage, sand: warm only, no teal or lilac (Ali's no-teal rule).
+  stages: ['#FFE5BD', '#FFD6CF', '#F2DCC2', '#F8D8DC', '#E6F0D2', '#FBEBC8'],
   grain: '#5A3819',
   teaGlass: { tea: '#B4471A', glass: '#2A170C', rim: '#E0A526', shine: '#FFFFFF', steam: '#B9A288' },
 };
@@ -600,7 +663,7 @@ const decorNight: HomeDecor = {
   haloDot: '#4A3020',
   haloGlow: '#FFB547',
   wash: { dawn: '#5A3A2A', noon: '#2A3A44', sunset: '#5A2A2E', late: '#463A8C' },
-  stages: ['#4A3218', '#4A2A26', '#1E3A3E', '#3A2C42', '#2E3A22', '#463A1E'],
+  stages: ['#4A3218', '#4A2A26', '#3E2C20', '#4A2430', '#2E3A22', '#463A1E'],
   grain: '#000000',
   teaGlass: { tea: '#D0602A', glass: '#F7EADB', rim: '#FFC155', shine: '#FFFFFF', steam: '#8A7560' },
 };
@@ -870,6 +933,13 @@ export const minFontSize = 12;
  */
 export const fontScale = { compact: 1.3 } as const;
 
+/**
+ * The app's own text size setting («حجم الخط», courier n6), applied on top of the phone's text size:
+ * `normal` changes nothing, the other two grow every line by these factors.
+ */
+export const textScale = { normal: 1, large: 1.15, largest: 1.3 } as const;
+export type TextScale = keyof typeof textScale;
+
 export const motion = {
   duration: {
     instant: 80,
@@ -1080,6 +1150,7 @@ export const tokens = {
   hitTarget,
   minFontSize,
   fontScale,
+  textScale,
   art,
   scheme,
   identity,

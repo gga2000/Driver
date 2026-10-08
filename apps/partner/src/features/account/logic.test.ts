@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { DriverDocumentView, EarningsJobLine, MainPhotoView } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import {
+  memberSpan,
+  papersReminder,
+  papersPill,
+  checkInPill,
+  scoreParts,
+  weakestPart,
+  bestWindowLabel,
+  dayPart,
+  jobTipIqd,
   breakdownRows,
   capTone,
   cashTruth,
@@ -242,5 +251,78 @@ describe('main photo (Ali, 2026-10-06)', () => {
     expect(mainPhotoNote(view('rejected', { approved, latest: latest('rejected', 'x') }))).toBe('partner.mainphoto_rejected_keep');
     expect(mainPhotoNote(view('approved', { approved }))).toBe('partner.mainphoto_customers_see');
     expect(mainPhotoNote(view('none'))).toBe('partner.mainphoto_customers_see_initial');
+  });
+});
+
+describe('r4: how long he has driven here', () => {
+  const now = Date.UTC(2026, 9, 7);
+  it('says new, months, then years, and nothing without a date', () => {
+    expect(memberSpan(new Date(now - 10 * 86_400_000), now)).toEqual({ unit: 'new', n: 0 });
+    expect(memberSpan(new Date(now - 95 * 86_400_000), now)).toEqual({ unit: 'months', n: 3 });
+    expect(memberSpan(new Date(now - 800 * 86_400_000), now)).toEqual({ unit: 'years', n: 2 });
+    expect(memberSpan(null, now)).toBeNull();
+  });
+});
+
+describe('his best (partner redesign e3 / e5)', () => {
+  const t = createT('ar-IQ');
+  it('parts of the day the Iraqi way', () => {
+    expect([5, 11, 12, 14, 15, 17, 18, 23, 0, 3].map(dayPart)).toEqual(['morning', 'morning', 'noon', 'noon', 'afternoon', 'afternoon', 'night', 'night', 'night', 'night']);
+  });
+  it('«الخميس 7–11 بالليل»: the part said once when both ends share it, twice when not', () => {
+    // The range sits in a right-to-left isolate (formatRange); compare the words.
+    const plain = (x: string) => x.replace(/[\u2066-\u2069]/g, '');
+    expect(plain(bestWindowLabel({ weekday: 4, fromHour: 19, toHour: 23 }, t))).toBe('الخميس 7–11 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 5, fromHour: 16, toHour: 20 }, t))).toBe('الجمعة 4 العصر – 8 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 0, fromHour: 22, toHour: 24 }, t))).toBe('الأحد 10–12 بالليل');
+    expect(plain(bestWindowLabel({ weekday: 2, fromHour: 12, toHour: 15 }, t))).toBe('الثلاثاء 12–3 الظهر');
+  });
+  it('a job line\'s tip is the sum of its tip lines', () => {
+    const c = (type: string, amountIqd: number) => ({ type, amountIqd, label_ar: '', label_en: '', memo: null }) as never;
+    expect(jobTipIqd({ components: [c('delivery_fee', 2000), c('tip', 1000), c('tip', 500)] })).toBe(1500);
+    expect(jobTipIqd({ components: [c('delivery_fee', 2000)] })).toBe(0);
+  });
+});
+
+describe('the score in five parts (partner redesign a4 / f6)', () => {
+  const m = (key: string, value: number | null, score: number, weight: number) => ({ key, value, score, weight }) as never;
+  const metrics = [m('acceptance', 0.68, 0.514, 20), m('completion', 1, 1, 15), m('on_time', 0.7, 0.333, 20), m('rating', 4.6, 0.75, 15), m('cash_return', 0.99, 1, 5)];
+
+  it('maxima add up to 100 and points to his index, biggest part first', () => {
+    // index = 100 × (0.514·20 + 15 + 0.333·20 + 0.75·15 + 5) / 75 = 64.4 → 64
+    const parts = scoreParts(metrics, 64);
+    expect(parts.reduce((s, p) => s + p.max, 0)).toBe(100);
+    expect(parts.reduce((s, p) => s + p.points, 0)).toBe(64);
+    expect(parts.map((p) => p.key)).toEqual(['acceptance', 'on_time', 'completion', 'rating', 'cash_return']);
+    expect(parts.find((p) => p.key === 'cash_return')).toMatchObject({ max: 6, points: 6 });
+    expect(weakestPart(parts)?.key).toBe('on_time');
+  });
+
+  it('a part without data is left out of the 100; a near-full card has no weakest part', () => {
+    const parts = scoreParts([m('acceptance', 0.9, 1, 20), m('completion', 1, 1, 15), m('on_time', null, 1, 20), m('rating', 4.8, 1, 15), m('cash_return', 0.96, 1, 5)], 100);
+    expect(parts.filter((p) => !p.noData).reduce((s, p) => s + p.max, 0)).toBe(100);
+    expect(parts.at(-1)).toMatchObject({ key: 'on_time', noData: true, max: 0 });
+    expect(weakestPart(parts)).toBeNull();
+  });
+});
+
+describe('account hub and home papers (partner redesign a1 / a3)', () => {
+  const t = createT('ar-IQ');
+  const doc = (kind: string, status: string, daysToExpiry: number | null) => ({ kind, status, daysToExpiry }) as never;
+  it('home hears of papers only in their last 14 days, the soonest first', () => {
+    expect(papersReminder({ documents: [doc('licence', 'expiring', 20)] })).toBeNull();
+    expect(papersReminder({ documents: [doc('licence', 'expiring', 12), doc('vehicle_registration', 'expiring', 5), doc('insurance', 'approved', null)] })).toEqual({ kind: 'vehicle_registration', days: 5 });
+    // Expired is the online gate's job, not a reminder.
+    expect(papersReminder({ documents: [doc('licence', 'expired', -3)] })).toBeNull();
+    expect(papersReminder(undefined)).toBeNull();
+  });
+  it('the papers and check-in pills say the one thing that matters', () => {
+    const base = (documents: never[], missing: string[] = []) => ({ documents, missing, blocksOnline: false }) as never;
+    expect(papersPill(base([doc('national_id_front', 'approved', null), doc('national_id_back', 'approved', null), doc('photo', 'approved', null)]), t)?.tone).toBe('success');
+    expect(papersPill(base([doc('national_id_front', 'approved', null), doc('national_id_back', 'approved', null), doc('photo', 'approved', null), doc('licence', 'expiring', 12)]), t)).toEqual({ label: 'وحدة تخلص بعد 12 يوم', tone: 'warning' });
+    expect(papersPill(base([doc('licence', 'rejected', null)]), t)?.tone).toBe('danger');
+    expect(checkInPill({ verifiedToday: true, lockedOut: false, required: true }, t)?.tone).toBe('success');
+    expect(checkInPill({ verifiedToday: false, lockedOut: true, required: true }, t)?.tone).toBe('danger');
+    expect(checkInPill({ verifiedToday: false, lockedOut: false, required: false }, t)).toBeNull();
   });
 });

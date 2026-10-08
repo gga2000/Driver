@@ -70,8 +70,8 @@ export class PrismaLedgerRepository implements LedgerRepository {
     return rows.map(fromRow);
   }
 
-  async byAccount(accountId: string): Promise<LedgerEvent[]> {
-    const rows = await this.delegate.findMany({
+  async byAccount(accountId: string, tx?: Tx): Promise<LedgerEvent[]> {
+    const rows = await this.db(tx).findMany({
       where: { OR: [{ fromAccount: accountId }, { toAccount: accountId }] },
       orderBy: { occurredAt: 'asc' },
     });

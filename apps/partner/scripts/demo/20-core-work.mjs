@@ -12,6 +12,7 @@
 //                                              never delivered to before ("اتصل قبل لا توصل", maps f6/a5)
 //        …&tender=25000                        the customer said "راح أدفع بـ 25,000" at checkout
 //                                              ("الخردة علينا": the job card and the door helper show it)
+//        …&street=1                            the customer chose «بالشارع» (HUNT-02): he comes out to the street
 //        …&gift=1                              a «عزيمة» paid from the sender's wallet with the prices hidden:
 //                                              «هدية · لا تذكر السعر» at the door, no receipt in the bag (joy g1)
 //   POST /demo/online?who=…                    puts him online where his persona works
@@ -96,7 +97,7 @@ export default async function register(demo) {
   }
 
   /** An accepted food job for him, moved to `step`. */
-  async function job(personId, step, tender, door, gift = false) {
+  async function job(personId, step, tender, door, gift = false, street = false) {
     const { order, trip } = await placeAccepted(
       'khalid',
       [
@@ -109,7 +110,10 @@ export default async function register(demo) {
       gift ? 'wallet' : 'cash',
       'باب أخضر يم جامع الرسول، اتصل من توصل',
       gift ? undefined : tender,
-      gift ? { participants: [{ ref: 'mum', role: 'recipient', label: 'أم علي', phone: '07801112233' }], gift: { hidePrices: true } } : {},
+      {
+        ...(gift ? { participants: [{ ref: 'mum', role: 'recipient', label: 'أم علي', phone: '07801112233' }], gift: { hidePrices: true } } : {}),
+        ...(street ? { options: { streetHandover: true } } : {}),
+      },
     );
     const offerId = await offerTo(trip.id, personId);
     await dispatch.respond({ personId, sessionId: 'demo' }, { offerId, accept: true });
@@ -164,7 +168,7 @@ export default async function register(demo) {
     await clear(p.personId);
     await ensureOnline(query.who, p.personId, p.vehicle ?? 'bike');
     const tender = query.tender ? Number(query.tender) : undefined;
-    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1', query.gift === '1')) });
+    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1', query.gift === '1', query.street === '1')) });
   });
 
   demo.route('/demo/offer', async ({ res, query }) => {
@@ -186,7 +190,8 @@ export default async function register(demo) {
         rideVertical: 'tuktuk',
         pickup: { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } },
         dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
-        scheduledFor: new Date(Date.now() + 25 * 60_000),
+        // On the 5-minute booking grid (rideScheduleProblem 'off_grid'), 25–30 minutes ahead.
+        scheduledFor: new Date(Math.ceil((Date.now() + 25 * 60_000) / 300_000) * 300_000),
         favouriteId: fav.id,
       });
       const trip = await trips.activeForOrder(ride.id);

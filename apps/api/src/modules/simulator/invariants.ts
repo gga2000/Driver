@@ -324,7 +324,8 @@ export const INVARIANTS: readonly Definition[] = [
           sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'commission_accrued') -
           // Merchant-funded deals (domain §11): items discounts and free deliveries the merchant pays for.
           sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'promo_funded');
-        const fees = sum(s.ledger, (e) => e.toAccount === acct && e.type === 'cancellation_fee');
+        // Fees received, less a late-reject credit he paid the customer (M-17, off until Ali says yes).
+        const fees = sum(s.ledger, (e) => e.toAccount === acct && e.type === 'cancellation_fee') - sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'cancellation_fee');
         const paidLedger = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_paid_by_courier');
         const payouts = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_payout');
         const paidSim = s.handovers.filter((h) => h.merchantId === m.merchantId).reduce((a, h) => a + h.amountIqd, 0);

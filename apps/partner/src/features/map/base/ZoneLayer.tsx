@@ -1,13 +1,13 @@
 import { memo, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Platform, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
-import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, labelsClearOf, MAP_COLORS_LIGHT, obstaclesOnScreen, ZONE_LABEL_FONT_PX, type LabelObstacle, type PlacedLabel } from '@driver/map';
+import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCentroidsGeoJSON, buildZonesGeoJSON, labelsClearOf, obstaclesOnScreen, ZONE_LABEL_FONT_PX, type LabelObstacle, type PlacedLabel } from '@driver/map';
 import { layerTransform, pathD, project, type Camera, type Size } from '../geo';
 import { toWesternDigits } from '@/lib/phone';
 import type { CameraValues } from './types';
-import { useApi } from '@/lib/api';
+import { useZoneMap } from './useZoneMap';
+import { useMapColors } from './mapColors';
 
 const ZONES = buildZonesGeoJSON();
 const CENTROIDS = buildZoneCentroidsGeoJSON();
@@ -30,8 +30,7 @@ export interface ZoneLayerProps {
 
 /** The zone outlines and their centres: the live placements once loaded, the built-in ones before. */
 function useZoneShapes() {
-  const api = useApi();
-  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const liveZones = useZoneMap();
   const zones = useMemo(() => (liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES), [liveZones.data]);
   const centroids = useMemo(() => (liveZones.data ? buildPlacedZoneCentroidsGeoJSON(liveZones.data) : CENTROIDS), [liveZones.data]);
   return { zones, centroids };
@@ -64,6 +63,7 @@ export function useZoneNames(drawn: Camera, size: Size, avoid: readonly LabelObs
  */
 export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = true, labels = true, opacity, avoid = NO_OBSTACLES }: ZoneLayerProps) {
   const { zones } = useZoneShapes();
+  const mc = useMapColors().map;
   const shapes = useMemo(
     () =>
       zones.features.map((f) => ({
@@ -102,8 +102,8 @@ export const ZoneLayer = memo(function ZoneLayer({ drawn, cam, size, fills = tru
               fontSize={ZONE_LABEL_FONT_PX}
               fontWeight="500"
               fontFamily={LABEL_FONT}
-              fill={MAP_COLORS_LIGHT.muted}
-              {...(halo ? { stroke: MAP_COLORS_LIGHT.labelHalo, strokeWidth: 3, strokeLinejoin: 'round' as const } : {})}
+              fill={mc.muted}
+              {...(halo ? { stroke: mc.labelHalo, strokeWidth: 3, strokeLinejoin: 'round' as const } : {})}
               textAnchor="middle"
             >
               {n.name}

@@ -17,6 +17,7 @@ import {
   tenderProblem,
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
+  iceCreamTooFar,
   isDomainEventType,
   orderTicketNumber,
   parseOrderTicket,
@@ -50,12 +51,18 @@ import {
   type TripState,
   type VehicleClass,
   type Vertical,
+  MERCHANT_BUSY_RULES,
+  localClock,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { lockWallets } from '../ledger/index.js';
+import { ShopLoad, tabletOffline } from './shop-load.js';
+import { foodScheduleProblem } from './orders.config.js';
+import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
@@ -90,6 +97,8 @@ import { startCodeForNewOrder } from './start-code.js';
 import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type PromotionsPort, type ResolvedPromotion } from './promotions.port.js';
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
+import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
+import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 /** A household member as placement reads them (role and limits). */
 type HouseholdMember = NonNullable<Awaited<ReturnType<OrdersHouseholdsPort['member']>>>;
@@ -128,11 +137,15 @@ export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
  */
 export interface OrdersWalletPort {
   balanceIqd(payer: { customerId: string; householdId: string | null }): Promise<number>;
+  /** SEC-07: what the rest of the platform holds against the customer's own wallet (prepaid seats, request deposits). */
+  heldElsewhere?(customerId: string, tx?: Tx): Promise<number>;
   /** W-02: the customer's own points balance (points are personal, also on a household order). */
   pointsBalance?(customerId: string): Promise<number>;
 }
 
 export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
+/** The orders module's name in the wallet-holds registry (open orders on the customer's own wallet). */
+export const ORDERS_WALLET_HOLDS = 'orders';
 
 /**
  * Saved places (maps program SP3d): an order keeps the link to the place it goes to only when the
@@ -141,6 +154,8 @@ export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
  */
 export interface OrdersPlacesPort {
   deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null>;
+  /** FOOD-15: pin → zone on the server (the places module's resolver); null = outside the service area. */
+  readonly zones?: { resolve(cityId: string, pin: LatLng): string | null };
 }
 
 export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
@@ -242,11 +257,27 @@ export class OrdersService implements OnModuleInit {
 
   private readonly logger = new Logger(OrdersService.name);
 
+  private repoForLoad(): Pick<OrdersRepository, 'findMany'> {
+    return { findMany: (filter) => this.repo.findMany(filter) };
+  }
+
+  /**
+   * The kitchen's busy extra right now: busy mode switched on in the Merchant app, or (l4) 15 orders
+   * already waiting, which slows new orders the same +10 min so the promise stays honest.
+   */
+  private async busyExtra(profile: MerchantProfile | null, now: Date): Promise<number> {
+    const manual = busyExtraMinutes(profile, now);
+    if (manual > 0 || !profile) return manual;
+    return (await this.shopLoad.crowded(profile.orgId, now)) ? MERCHANT_BUSY_RULES.extraPrepMinutes : 0;
+  }
+
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
+  /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
+  private readonly shopLoad = new ShopLoad(this.repoForLoad());
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
   slotCaps: SlotCapRules = SLOT_CAP_RULES;
   /**
@@ -278,9 +309,38 @@ export class OrdersService implements OnModuleInit {
     this.riders = port;
   }
 
+  /** W3 M-2 (NTF-11): free cancel when we failed; bound by the module (`OrdersStaffService`). */
+  private platformFailure: PlatformFailurePort | null = null;
+
+  bindPlatformFailure(port: PlatformFailurePort): void {
+    this.platformFailure = port;
+  }
+
+  /** W3 staff toolkit (`orders.staff.ts`): the internals it drives, so there is one copy of each. */
+  staffBridge(): OrdersStaffBridge {
+    return {
+      move: (order, to, actorId, tx, patch, payload, eventType) => this.move(order, to, actorId, tx, patch, payload, eventType),
+      close: (order, actorId, reason, tx) => this.close(order, actorId, reason, tx),
+      delivered: (order, e, tx) => this.delivered(order, e, tx),
+      cancelled: (order, c) => this.cancelled(order, c),
+      feeFor: (order) => this.feeFor(order),
+      emit: (tx, type, actorId, order, payload) => this.emit(tx, type, actorId, order, payload),
+      view: (orderId, tx) => this.view(orderId, tx),
+    };
+  }
+
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
     return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
+  }
+
+  /** Partner redesign o10: rides the orderer of `orderId` finished before it (a count only); null when unknown. */
+  async finishedRidesBefore(orderId: string): Promise<number | null> {
+    const agg = await this.repo.find(orderId);
+    // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
+    if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
+    const order = agg.order;
+    return (await this.repo.forPerson(order.ordererId)).filter((o) => o.id !== orderId && o.ordererId === order.ordererId && o.type === 'ride' && o.state === 'completed').length;
   }
 
   onModuleInit(): void {
@@ -314,11 +374,14 @@ export class OrdersService implements OnModuleInit {
   /**
    * A point's saved-place link, kept only when the orderer may use that place (maps program SP3d),
    * with the door learned for it (a3). A place someone else owns, or one deleted since, drops the
-   * link; a client's own `door` is never kept; the pin and zone stay as sent.
+   * link; a client's own `door` is never kept. FOOD-15: a pinned point's zone is the server's own
+   * reading of the pin (it sets the fee), and a pin outside the service area is refused.
    */
-  private async placeLink(ordererId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
+  private async placeLink(ordererId: string, cityId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
     if (!point) return point;
-    const base: DeliveryPoint = point.pin ? { zoneKey: point.zoneKey, pin: point.pin } : { zoneKey: point.zoneKey };
+    const zoneKey = point.pin && this.places?.zones ? this.places.zones.resolve(cityId, point.pin) : point.zoneKey;
+    if (!zoneKey) throw new DriverError('outside_zone');
+    const base: DeliveryPoint = point.pin ? { zoneKey, pin: point.pin } : { zoneKey };
     if (!point.placeId || !this.places) return base;
     const place = await this.places.deliveryPlace(ordererId, point.placeId);
     if (!place) return base;
@@ -337,7 +400,7 @@ export class OrdersService implements OnModuleInit {
 
   /** `carried`: a ride switched to the other vehicle keeps the rider it was booked for (J-D7 × c9). */
   private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>, carried: { rider?: ResolvedRider } = {}): Promise<Order> {
-    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.dropoff) };
+    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.cityId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.cityId, raw.dropoff) };
     const now = this.clock.now();
     // c9/s3: a ride for someone else is a ride, with one rider (the legacy `participants` rider or this, not both).
     if (input.rider || carried.rider) {
@@ -348,14 +411,7 @@ export class OrdersService implements OnModuleInit {
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
-    await this.controls?.assertOrderAllowed({
-      cityId: input.cityId,
-      vertical: orderVertical(input.type, input.rideVertical),
-      zones: [merchantType ? profile?.location?.zoneKey : input.pickup?.zoneKey, input.dropoff?.zoneKey],
-      customerZone: THROTTLED_ORDER_TYPES.includes(input.type) ? (input.dropoff?.zoneKey ?? null) : null,
-      merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
-      scheduledFor: input.scheduledFor ?? null,
-    });
+    await this.assertControls(input, merchantType, profile);
     // J6: a kitchen capped per slot (Ramadan's iftar rush) refuses one order too many for that slot.
     if (merchantType && input.scheduledFor && input.merchantOrgId) {
       const merchantOrgId = input.merchantOrgId;
@@ -392,7 +448,10 @@ export class OrdersService implements OnModuleInit {
     // the payer is asked is decided inside the transaction below, under the member's lock.
     const member = input.householdOrgId ? await this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : null;
     const spendKey = input.householdOrgId ? householdSpendKey(input.householdOrgId, ordererId) : null;
-    // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders.
+    // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders
+    // (and, on his own wallet, everything else held on it). Checked again inside the transaction
+    // below under his wallet lock (SEC-07); this early answer spares the routing call.
+    const spendsOwnWallet = input.paymentMethod === 'wallet' && !input.householdOrgId && total > 0;
     if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
       const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
       if (available < total) throw new DriverError('wallet_insufficient');
@@ -404,12 +463,16 @@ export class OrdersService implements OnModuleInit {
 
     const write = () =>
       this.uow.run(async (tx) => {
+        // SEC-07: his wallet lock first (the lock-order rule), then the re-check every other spend of
+        // the same wallet (a seat, a deposit, a tip, another order) waits behind.
+        if (spendsOwnWallet && this.wallet) await lockWallets(tx, [ordererId]);
         if (input.clientRequestId) {
           // Another API instance placing with the same key commits (or rolls back) before we look.
           await advisoryXactLock(tx, `orders.place:${ordererId}:${input.clientRequestId}`);
           const prior = await this.replay(ordererId, input, tx);
           if (prior) return prior;
         }
+        if (spendsOwnWallet && this.wallet && (await this.walletAvailable(ordererId, null, tx)) < total) throw new DriverError('wallet_insufficient');
         // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
         if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
@@ -455,7 +518,9 @@ export class OrdersService implements OnModuleInit {
             giftHidePrices: Boolean(input.gift?.hidePrices),
             scheduledFor: input.scheduledFor ?? null,
             minVehicleClass: caps?.minVehicleClass ?? null,
-            dropoff: input.dropoff ?? null,
+            // HUNT-02: «بالشارع» is kept on the order exactly as it was priced, so the courier and the
+            // receipt say it too (the client's own flag never reaches the stored point).
+            dropoff: input.dropoff ? { ...input.dropoff, ...(fees.streetHandover ? { streetHandover: true as const } : {}) } : null,
             promisedRideMin,
             // s1: a ride for the night starts only with the code the rider reads out.
             startCode: startCodeForNewOrder(input.type, input.scheduledFor ?? now),
@@ -468,7 +533,7 @@ export class OrdersService implements OnModuleInit {
           },
           newLines,
           [
-            ...participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: pp.label, note: pp.note })),
+            ...participants.map((pp) => ({ ref: pp.ref, role: pp.role, personId: pp.personId, phoneHash: pp.phoneHash, label: publicLabel(pp), note: pp.note })),
             ...(rider ? [{ ref: RIDER_REF, role: 'rider' as const, personId: rider.personId, phoneHash: rider.phoneHash, label: null, note: null }] : []),
           ],
           tx,
@@ -476,6 +541,7 @@ export class OrdersService implements OnModuleInit {
         const order = agg.order;
         const riderParticipant = rider ? agg.participants.find((pp) => pp.role === 'rider') : undefined;
         if (rider && riderParticipant && this.riders) await this.riders.remember(riderParticipant.id, rider, ordererId);
+        await rememberRecipients(this.riders, agg.participants, participants, ordererId); // SEC-14: names to the vault
         await this.emit(tx, 'order.placed', ordererId, order, {
           type: order.type,
           cityId: order.cityId,
@@ -563,12 +629,12 @@ export class OrdersService implements OnModuleInit {
   async kitchenTiming(merchantOrgId: string): Promise<{ prepMin: number; leadMin: number; pin: LatLng | null } | null> {
     const profile = await this.merchants.profile(merchantOrgId);
     if (!profile) return null;
-    return { prepMin: profile.defaultPrepMin + busyExtraMinutes(profile, this.clock.now()), leadMin: ORDERS_RULES.scheduledLeadMin, pin: profile.location?.pin ?? null };
+    return { prepMin: profile.defaultPrepMin + (await this.busyExtra(profile, this.clock.now())), leadMin: ORDERS_RULES.scheduledLeadMin, pin: profile.location?.pin ?? null };
   }
 
   /** The kitchen sees the order now, or at T − prep − lead for a scheduled one (review A.12). */
   private async scheduleOffer(order: OrderRecord, profile: MerchantProfile, now: Date, tx: Tx): Promise<void> {
-    const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
+    const leadMin = profile.defaultPrepMin + (await this.busyExtra(profile, now)) + ORDERS_RULES.scheduledLeadMin;
     const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
     if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
     else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
@@ -628,6 +694,22 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * Launch controls (playbook §3): a kill switch (service, kitchen, zone) or the zone throttle refuses
+   * with its own message. `place` asks before writing; `quote` asks too (REL-16), so checkout says
+   * «موقوف» the moment the customer opens it, not only when they press the button.
+   */
+  private async assertControls(input: PlaceOrderInput, merchantType: boolean, profile: { location?: { zoneKey?: string | null } | null } | null | undefined): Promise<void> {
+    await this.controls?.assertOrderAllowed({
+      cityId: input.cityId,
+      vertical: orderVertical(input.type, input.rideVertical),
+      zones: [merchantType ? profile?.location?.zoneKey : input.pickup?.zoneKey, input.dropoff?.zoneKey],
+      customerZone: THROTTLED_ORDER_TYPES.includes(input.type) ? (input.dropoff?.zoneKey ?? null) : null,
+      merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
+      scheduledFor: input.scheduledFor ?? null,
+    });
+  }
+
+  /**
    * `orders.quote` — the checkout summary: exactly what `place` would charge for this input now
    * (menu prices, server fees, the merchant's best deal, the rounded total) plus what each line
    * saves and the next deal the cart could unlock. Nothing is stored or reserved.
@@ -636,6 +718,7 @@ export class OrdersService implements OnModuleInit {
     const input = PlaceOrderInput.parse(raw);
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
+    await this.assertControls(input, p.merchantType, p.profile);
     const d = p.discount;
     const next = p.merchantType && !d && input.merchantOrgId ? await this.promotions.nextMerchantDeal(dealQuery(input.merchantOrgId, p.newLines, p.itemsTotal, p.fees.deliveryFeeIqd, now)) : null;
     return {
@@ -682,13 +765,17 @@ export class OrdersService implements OnModuleInit {
     return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
   }
 
-  private async walletAvailable(customerId: string, householdId: string | null): Promise<number> {
+  private async walletAvailable(customerId: string, householdId: string | null, tx?: Tx): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
-    const [balance, mine] = await Promise.all([this.wallet.balanceIqd({ customerId, householdId }), this.repo.forPerson(customerId)]);
+    const [balance, mine, elsewhere] = await Promise.all([
+      this.wallet.balanceIqd({ customerId, householdId }),
+      this.repo.forPerson(customerId),
+      householdId === null && this.wallet.heldElsewhere ? this.wallet.heldElsewhere(customerId, tx) : Promise.resolve(0),
+    ]);
     const held = mine
       .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
       .reduce((a, o) => a + o.totalIqd, 0);
-    return balance - held;
+    return balance - held - elsewhere;
   }
 
   /**
@@ -732,12 +819,20 @@ export class OrdersService implements OnModuleInit {
         // Backend review 2026-10-04 (apps #10): the server is open exactly when the card says so —
         // opening hours (a scheduled order is checked at its time: opening time itself is fine), then
         // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
+        // FOOD-03: a pre-order is for a real slot — from the kitchen's scheduling lead to the end of
+        // «باچر» — never a past time (that dodged the hours, the hand-close and the night fee).
+        if (input.scheduledFor && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
-        // Closed by hand from the Merchant app (early close): refused like a pause window.
-        if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
+        // Closed by hand from the Merchant app (early close) or a holiday today, or its tablet offline
+        // for 5 minutes (h5, Ali 2026-10-08): refused like a pause window. A pre-order for a later day
+        // still goes in; one for later today does not while the shop is closed (FOOD-03).
+        if (!input.scheduledFor && (profile.closed || tabletOffline(profile, now))) throw new DriverError('merchant_paused');
+        if (input.scheduledFor && profile.closed && localClock(input.scheduledFor, DEFAULT_TIMEZONE).date === localClock(now, DEFAULT_TIMEZONE).date) throw new DriverError('merchant_paused');
       }
+      // k7 (Ali, 2026-10-08): an ice cream shop delivers within 3 km by road; quoted and placed alike.
+      if (storefront?.tags && iceCreamTooFar(storefront.tags, profile.location?.pin, input.dropoff?.pin)) throw new DriverError('too_far_for_ice_cream');
     }
 
     // Review C2: every line is priced here from the merchant's menu, never from the client.
@@ -923,14 +1018,18 @@ export class OrdersService implements OnModuleInit {
       if (!MERCHANT_ORDER_TYPES.includes(order.type)) throw new DriverError('order_state_conflict');
       const late = order.state === 'merchant_accepted' || order.state === 'preparing';
       const now = this.clock.now();
+      // M-17 (awaiting Ali's yes): the late-reject credit reaches the wallet (ledger, from the merchant)
+      // only while the money rule is on; off, the event claims no credit.
+      const creditIqd = late && order.merchantOrgId && AZIZIYAH_MONEY_RULES.merchantLateRejectCredit.enabled ? ORDERS_RULES.merchantLateRejectCreditIqd : 0;
       const next = await this.move(order, 'merchant_rejected', actorId, tx, { cancelledAt: now, cancellationReason: input.reason }, {
+        ...this.rejected(order, now),
         reason: input.reason,
         auto: false,
         scored: true,
         afterAccept: late,
-        customerCreditIqd: late ? ORDERS_RULES.merchantLateRejectCreditIqd : 0,
-        creditFundedBy: late ? 'merchant' : null,
-      });
+        customerCreditIqd: creditIqd,
+        creditFundedBy: creditIqd > 0 ? 'merchant' : null,
+      } satisfies Omit<DomainEventInput<'order.rejected'>, 'from' | 'to'>);
       await this.releaseTrip(next, 'merchant_rejected');
       return this.view(order.id, tx);
     });
@@ -1118,12 +1217,22 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
-   * Rating closes the order early (domain §2). With scores (customer app §4 two-tap rating) it also
+   * Rating no longer closes the order (FLOW-20, W3): the 2-h complaint window stays open and the
+   * auto-close settles it. With scores (customer app §4 two-tap rating) it also
    * stores them: delivery for the courier/driver, food only on kitchen/shop orders. The first rating
    * stands (a replay returns the order unchanged); an order auto-closed before the customer rated can
    * still take its rating.
    */
   async rate(actorId: string, input: RateOrderInput): Promise<Order> {
+    // A double tap racing the first rating (RDB-04): the loser reads the order the winner rated.
+    return this.rateOnce(actorId, input).catch(async (err: unknown) => {
+      const again = isUniqueViolation(err) || (err instanceof DriverError && err.code === 'order_state_conflict') ? await this.repo.find(input.orderId) : null;
+      if (!again?.order.ratedAt || again.order.ordererId !== actorId) throw err;
+      return this.view(again.order.id);
+    });
+  }
+
+  private async rateOnce(actorId: string, input: RateOrderInput): Promise<Order> {
     return this.uow.run(async (tx) => {
       const { order } = await this.load(input.orderId, tx);
       if (order.ordererId !== actorId) throw new DriverError('forbidden');
@@ -1133,6 +1242,8 @@ export class OrdersService implements OnModuleInit {
       if (rating && ratingWindowClosed(order, now)) throw new DriverError('rating_window_closed');
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
+      // The Console's "Today" list: the first scored rating, in its own transaction.
+      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1140,8 +1251,8 @@ export class OrdersService implements OnModuleInit {
         return this.view(order.id, tx);
       }
       if (!DISPUTABLE_STATES.includes(order.state)) throw new DriverError('order_state_conflict');
-      const updated = await this.repo.update(order.id, { ratedAt: this.clock.now(), ...(rating ? { rating } : {}) }, tx);
-      await this.close(updated, actorId, 'rated', tx);
+      await this.repo.update(order.id, { ratedAt: this.clock.now(), ...(rating ? { rating } : {}) }, tx);
+      // FLOW-20 (W3): rating no longer closes it, so the 2-h complaint window stays open; the auto-close settles it.
       return this.view(order.id, tx);
     });
   }
@@ -1350,7 +1461,8 @@ export class OrdersService implements OnModuleInit {
    * reads the ride as his own, the driver reads the name through `riderOf`. The first read of each name
    * is a logged vault read.
    */
-  async withRiders(orders: Order[], accessorId: string, purpose = 'ride_rider_name'): Promise<Order[]> {
+  async withRiders(input: Order[], accessorId: string, purpose = 'ride_rider_name'): Promise<Order[]> {
+    const orders = await this.withRecipients(input, accessorId, 'order_recipient_name', (o) => o.ordererId === accessorId || o.participants.some((p) => p.personId === accessorId));
     const riderOf = (o: Order) => (o.type === 'ride' && o.ordererId === accessorId ? o.participants.find((p) => p.role === 'rider' && p.personId) : undefined);
     const ids = orders.flatMap((o) => riderOf(o)?.id ?? []);
     if (ids.length === 0 || !this.riders) return orders;
@@ -1360,6 +1472,12 @@ export class OrdersService implements OnModuleInit {
       const name = p ? names[p.id] : null;
       return name ? { ...o, rider: { name } } : o;
     });
+  }
+
+  /** SEC-14: recipients' names (vault, logged per reader) on the orders `which` allows; the caller authorises. */
+  async withRecipients(orders: Order[], accessorId: string, purpose: string, which: (o: Order) => boolean = () => true): Promise<Order[]> {
+    const ids = recipientIds(orders.filter(which));
+    return ids.length === 0 || !this.riders ? orders : withRecipientLabels(orders, await this.riderNames(ids, accessorId, purpose));
   }
 
   /**
@@ -1583,6 +1701,7 @@ export class OrdersService implements OnModuleInit {
           // Review A.1: an auto-reject inside a declared pause window does not score.
           const pause = profile ? (activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE) ?? activePauseWindow(offeredAt, profile.pauseWindows, DEFAULT_TIMEZONE)) : null;
           await this.move(order, 'merchant_rejected', SYSTEM, tx, { cancelledAt: now, cancellationReason: 'merchant_timeout' }, {
+            ...this.rejected(order, now),
             reason: 'merchant_timeout',
             auto: true,
             scored: pause === null,
@@ -1605,7 +1724,7 @@ export class OrdersService implements OnModuleInit {
           const present = profile?.lastHeartbeatAt && now.getTime() - profile.lastHeartbeatAt.getTime() <= ORDERS_RULES.heartbeatStaleMs;
           if (present) return;
           if (name === ORDER_JOBS.readyOverdue) {
-            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
+            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
             return;
           }
           const trip = await this.trips.activeForOrder(order.id);
@@ -1655,9 +1774,9 @@ export class OrdersService implements OnModuleInit {
   private async accept(order: OrderRecord, pickedPrepMinutes: number, actorId: string, tx: Tx, opts: { auto: boolean; partial?: boolean }): Promise<OrderRecord> {
     const now = this.clock.now();
     const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
-    // Busy mode: +10 min on whatever the kitchen picked (or its default), so the promised ready time,
-    // the courier's timing and the customer's ETA all carry it.
-    const prepMinutes = pickedPrepMinutes + busyExtraMinutes(profile, now);
+    // Busy mode (or 15 orders waiting, l4): +10 min on whatever the kitchen picked (or its default), so
+    // the promised ready time, the courier's timing and the customer's ETA all carry it.
+    const prepMinutes = pickedPrepMinutes + (await this.busyExtra(profile, now));
     const promisedReadyAt = new Date(now.getTime() + prepMinutes * 60_000);
     // Contract `order.accepted`: what dispatch needs to time and route the courier (auto-assign).
     const accepted: Omit<DomainEventInput<'order.accepted'>, 'from' | 'to'> = {
@@ -1979,6 +2098,13 @@ export class OrdersService implements OnModuleInit {
   }
 
   private async feeFor(order: OrderRecord): Promise<{ fee: CancellationFee; trip: Trip | null }> {
+    const out = await this.ruleFeeFor(order);
+    // W3 M-2 (NTF-11): when we failed and that switch is on, the customer cancels free.
+    const free = this.platformFailure ? await this.platformFailure.freeFeeFor(order, out.trip, out.fee) : null;
+    return free ? { fee: free, trip: out.trip } : out;
+  }
+
+  private async ruleFeeFor(order: OrderRecord): Promise<{ fee: CancellationFee; trip: Trip | null }> {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {
@@ -2023,6 +2149,17 @@ export class OrdersService implements OnModuleInit {
       beneficiaries: c.beneficiaries ?? [],
       ...(c.label_ar ? { label_ar: c.label_ar } : {}),
       ...(c.reason_ar ? { reason_ar: c.reason_ar } : {}),
+    };
+  }
+
+  /** The ids every `order.rejected` carries (M-17: the ledger needs them for a late-reject credit). */
+  private rejected(order: OrderRecord, at: Date): Pick<DomainEventInput<'order.rejected'>, 'orderId' | 'occurredAt' | 'customerId' | 'householdId' | 'merchantOrgId'> {
+    return {
+      orderId: order.id,
+      occurredAt: at,
+      customerId: order.ordererId,
+      ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
+      ...(order.merchantOrgId ? { merchantOrgId: order.merchantOrgId } : {}),
     };
   }
 
@@ -2395,6 +2532,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     refundState: order.refundState,
     note: order.note,
     courierNote: order.courierNote ?? null,
+    ...(order.dropoff?.streetHandover ? { streetHandover: true } : {}),
     clientRequestId: order.clientRequestId ?? null,
     rating: order.rating ?? null,
     discount: discountView(order),

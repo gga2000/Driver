@@ -3,7 +3,6 @@ import { Pressable, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { Button, Icon, ModalSheet, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { pluralKey } from '@driver/i18n';
-import { Glyph } from '@/features/account/Glyph';
 import { playTestSound } from '@/lib/alert';
 import { useT, type TFn } from '@/lib/i18n';
 import { askGps, openSettings } from '@/lib/readiness-probe';
@@ -32,8 +31,9 @@ function labelOf(item: ReadyItem, t: TFn): string {
 }
 
 /**
- * "جاهز تستلم طلبات" above the online switch (UI/UX audit S-8, every shift): GPS · النت · صوت الطلبات ·
- * البطارية 64%, each with its own icon in its state colour (never a ✓ glyph — IBM Plex Sans Arabic has
+ * "جاهز تستلم طلبات" above the start slide (UI/UX audit S-8, every shift; dashboard idea h6): when all is
+ * well, one quiet line «كلشي جاهز: GPS، النت، الصوت · 82%»; when something isn't, four big chips — GPS ·
+ * النت · الصوت · البطارية — with only the bad ones in colour (never a ✓ glyph: IBM Plex Sans Arabic has
  * none). The whole row is one 44-px+ target: it opens a sheet where every item that needs a look says
  * why in a sentence and carries its fix (allow location, open settings, play the sound).
  */
@@ -45,51 +45,55 @@ export function ReadinessRow({ enabled = true }: { enabled?: boolean }) {
   const ok = r.issues === 0;
   const title = ok ? t('partner.ready_title') : t(pluralKey('partner.ready_issues', r.issues), { n: r.issues });
   const spoken = r.items.map((i) => t(i.tone === 'ok' ? 'partner.ready_ok_a11y' : 'partner.ready_bad_a11y', { item: labelOf(i, t) })).join('، ');
+  // h6: all good = one quiet line; anything wrong = the four chips, only the bad ones in colour.
+  const open_ = () => {
+    theme.haptic('selection');
+    r.recheck();
+    setOpen(true);
+  };
+  const battery = r.items.find((i) => i.key === 'battery');
   return (
     <>
       <Pressable
         testID="readiness"
         accessibilityRole="button"
         accessibilityLabel={`${title}. ${spoken}`}
-        onPress={() => {
-          theme.haptic('selection');
-          r.recheck();
-          setOpen(true);
-        }}
-        style={({ pressed }) => ({
-          minHeight: 48,
-          gap: 4,
-          paddingVertical: theme.space[2],
-          paddingHorizontal: theme.space[3],
-          borderRadius: theme.radius.lg,
-          backgroundColor: pressed ? theme.colors.surfaceSunken : ok ? theme.colors.surface : theme.colors.warningTint,
-          borderWidth: 1,
-          borderColor: ok ? theme.colors.border : theme.colors.warning,
-        })}
+        onPress={open_}
+        style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', borderRadius: theme.radius.lg, opacity: pressed ? 0.8 : 1 })}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          {ok ? (
-            <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.success, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="check" size={12} color="surface" strokeWidth={3} />
-            </View>
-          ) : (
-            <Glyph name="alert" size={18} color="warningText" />
-          )}
-          <Text testID="readiness-title" variant="label" weight={600} color={ok ? 'successText' : 'warningText'} style={{ flex: 1 }}>
-            {title}
-          </Text>
-          <Icon name="chevron-forward" size={16} color="textMuted" />
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[3], rowGap: 2 }}>
-          {r.items.map((i) => (
-            <View key={i.key} testID={`ready-${i.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name={iconOf(i)} size={14} color={TONE[i.tone].fg} strokeWidth={2.2} />
-              <Text variant="caption" weight={i.tone === 'ok' ? 400 : 600} color={i.tone === 'ok' ? 'textMuted' : TONE[i.tone].fg} tabular>
-                {labelOf(i, t)}
+        {ok ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[1] }}>
+            <Icon name="check" size={18} color="successText" strokeWidth={2.6} />
+            <Text testID="readiness-title" variant="footnote" weight={600} color="text" style={{ flex: 1 }}>
+              {t('partner.ready_all_ok')}
+            </Text>
+            {battery?.percent != null ? (
+              <Text variant="footnote" weight={600} color="textMuted" tabular>
+                {pct(battery.percent)}
               </Text>
+            ) : null}
+          </View>
+        ) : (
+          <View style={{ gap: theme.space[2] }}>
+            <Text testID="readiness-title" variant="label" weight={700} color="warningText">
+              {title}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+              {r.items.map((i) => (
+                <View
+                  key={i.key}
+                  testID={`ready-${i.key}`}
+                  style={{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: 14, backgroundColor: theme.colors[TONE[i.tone].bg], borderWidth: i.tone === 'ok' ? 0 : 1.5, borderColor: theme.colors[TONE[i.tone].fg] }}
+                >
+                  <Icon name={iconOf(i)} size={18} color={TONE[i.tone].fg} strokeWidth={2.2} />
+                  <Text variant="caption" weight={700} color={TONE[i.tone].fg} tabular numberOfLines={1}>
+                    {i.key === 'battery' ? pct(i.percent ?? 0) : t(`partner.ready_chip_${i.key}` as `partner.ready_chip_${Exclude<ReadyKey, 'battery'>}`)}
+                  </Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        )}
       </Pressable>
       <ReadinessSheet visible={open} onClose={() => setOpen(false)} title={title} items={r.items} onFixed={r.recheck} setGps={r.setGps} setSound={r.setSound} />
     </>

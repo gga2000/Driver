@@ -6,7 +6,7 @@ import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
@@ -17,6 +17,8 @@ import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lock
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { CachedPhoto } from '@/lib/cached-photo';
+import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
@@ -27,6 +29,7 @@ import { useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
+import { useScreenSpeed } from '@/lib/speed';
 
 enforceRtl();
 // Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
@@ -83,6 +86,7 @@ export default function RootLayout() {
         >
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+            <PhotoImageProvider component={CachedPhoto}>
             <ToastProvider bottomOffset={96}>
               <ApiProvider>
                 <StatusBar style="dark" />
@@ -93,9 +97,12 @@ export default function RootLayout() {
                 <SeasonWatcher />
                 {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
                 <SosOutboxSync />
+                {/* The first slow connection offers low-data mode once (speed g4). */}
+                <LiteHint />
                 <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
               </ApiProvider>
             </ToastProvider>
+            </PhotoImageProvider>
           </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -116,6 +123,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const ready = status !== 'loading' && prof.loaded;
+  // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
+  useScreenSpeed(segments, ready && !fontsPending);
 
   useEffect(() => {
     if (!ready) return;

@@ -21,6 +21,7 @@ import {
 } from '@driver/contracts';
 import { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
+import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { EventsService } from '../events/index.js';
 import { doorPoint, withSample } from './door-point.js';
 import { cityLandmarks, nearestLandmarks } from './landmarks.js';
@@ -231,7 +232,16 @@ export class SavedPlacesService implements OnModuleInit {
       createdAt: now,
       updatedAt: now,
     };
-    await this.repo.put(rec);
+    try {
+      await this.repo.put(rec);
+    } catch (err) {
+      // A double tap raced this save past the check above (RDB-04): the first save stands.
+      const winner = input.clientRef && isUniqueViolation(err) ? (await this.repo.byOwners([personId])).find((r) => r.clientRef === input.clientRef) : undefined;
+      if (!winner) throw err;
+      // This twin's label demote may have run after the winner was written: give it its label back.
+      if (winner.label !== input.label) await this.repo.put({ ...winner, label: input.label, updatedAt: now });
+      return this.viewOf({ ...winner, label: input.label }, personId);
+    }
     this.emit('place.saved', personId, { placeId: rec.id, ownerId: personId, cityId: rec.cityId, zoneId, label: rec.label, photos: photoIds.length, shared: rec.shareWithHousehold }, rec.id);
     if (rec.shareWithHousehold) this.emit('place.shared', personId, { placeId: rec.id, ownerId: personId, scope: 'household' }, rec.id);
     return this.viewOf(rec, personId);

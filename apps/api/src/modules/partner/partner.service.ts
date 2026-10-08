@@ -34,7 +34,7 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
@@ -203,8 +203,9 @@ export class PartnerService implements PartnerPort {
       seen: offer.seenAt !== null || offer.state === 'seen',
       // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the
       // dropoff, a ride's pickup) stays off it; the one who accepts gets the pins on `activeJob`.
-      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null },
-      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null },
+      // o7: the public landmark each stop is near («يم باب الجامع الكبير») — a town place, never the door.
+      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null, landmark: nearestLandmark(request.pickup) },
+      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null, landmark: nearestLandmark(dropPin) },
       distanceToPickupKm: offer.distanceKm ?? (presence ? kmBetween(presence, request.pickup) : null),
       tripKm: dropPin ? kmBetween(request.pickup, dropPin) : null,
       pay,
@@ -219,6 +220,10 @@ export class PartnerService implements PartnerPort {
       rideCargo: cargoOf(orders),
       // c9/s3: booked for someone else — «المشوار لـ أم علي».
       rider: await this.riderOf(orders[0], id),
+      // o12: «يوم حار · المكيّفة» on a car ride when x1 routes rides by AC (heating).
+      climate: offerClimate(request.vertical, presence?.vehicle ?? null, now),
+      // o10: how many rides the rider finished before («أول مشوار له» / «ركب 12 مشوار»); rides only.
+      riderTrips: orders[0]?.type === 'ride' && this.deps.orders.riderTrips ? await this.deps.orders.riderTrips(orders[0].id) : null,
     };
   }
 
@@ -349,6 +354,7 @@ export class PartnerService implements PartnerPort {
     const codes = await this.startCodesOf(trip);
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
+    const recipients = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.recipientOf(o, actor.personId)] as const)));
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -367,6 +373,8 @@ export class PartnerService implements PartnerPort {
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
+          ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
@@ -382,6 +390,10 @@ export class PartnerService implements PartnerPort {
           ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
           // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
           rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
+          // SEC-14: whom he hands it to, on the drop-off, when someone else receives the order.
+          recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
+          // j2: the public landmark it is near, for the headline and the spoken prompt.
+          landmark: s.target ? nearestLandmark(s.target) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -465,6 +477,13 @@ export class PartnerService implements PartnerPort {
   private async riderOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
     if (order?.type !== 'ride' || !order.participants.some((p) => p.role === 'rider') || !this.deps.orders.riderName) return null;
     const name = await this.deps.orders.riderName(order.id, driverId);
+    return name ? { name } : null;
+  }
+
+  /** SEC-14: the recipient of an order someone else receives, by the name the sender gave; null otherwise. */
+  private async recipientOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
+    if (!order?.participants.some((p) => p.role === 'recipient') || !this.deps.orders.recipientName) return null;
+    const name = await this.deps.orders.recipientName(order.id, driverId);
     return name ? { name } : null;
   }
 

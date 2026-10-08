@@ -107,3 +107,14 @@ export function driverMeter(dep: DepartureRecord, departedAt: Date, waived: bool
     minutes: arrivalMin + pastLatestMin,
   };
 }
+
+/**
+ * x3: until when a garage rider's seat is held because our taxi bringing him runs late — the taxi's
+ * expected arrival, capped at `capMin` after the announced time (the late meter's cap); null when the
+ * hold is off, he has no late taxi, or he is not a garage pickup. Pure.
+ */
+export function seatHoldUntil(dep: DepartureRecord, b: BookingRecord, capMin: number, on: boolean): Date | null {
+  if (!on || b.pickup.kind !== 'garage' || !b.taxiLateUntil) return null;
+  const cap = dep.departAt.getTime() + capMin * MIN;
+  return new Date(Math.min(b.taxiLateUntil.getTime(), cap));
+}

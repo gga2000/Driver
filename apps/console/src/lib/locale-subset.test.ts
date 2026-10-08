@@ -33,6 +33,8 @@ describe('the Console strings subset (CON-13)', () => {
     expect(missing).toEqual([]);
     expect(subset['console.sup_view_mine']).toBe(ar['console.sup_view_mine']);
     expect(Object.keys(subset).some((k) => k.startsWith('home.'))).toBe(false);
+    // The notification catalog's push texts are the server's and the phones', not the Console's.
+    expect(subset['push.order_ops_cancelled.title']).toBeUndefined();
     expect(gzipSync(JSON.stringify(subset)).length).toBeLessThan(60_000);
   });
 });

@@ -418,10 +418,11 @@ model ChildIdentity {
 /// Ride ideas c9/s3: the name an orderer gave the person he booked a ride for («ماما», «أم علي»),
 /// keyed by the opaque participant id the public side carries. The rider's number is that person's
 /// own identity (`person_identities`); every read is a VaultAccessLog row against the rider.
+/// SEC-14: also the name a sender gave the recipient of his order (a gift), keyed the same way.
 model ParticipantIdentity {
   id            String   @id @default(cuid())
   participantId String   @unique @map("participant_id")
-  /// The person on the order (the rider).
+  /// The person on the order (the rider; a recipient with an account), else the orderer who named them.
   personId      String   @map("person_id")
   /// Who gave the name (the orderer).
   givenById     String   @map("given_by_id")
@@ -1192,6 +1193,8 @@ model Participant {
   personId  String?         @map("person_id")
   phoneHash String?         @map("phone_hash")
   /// Orderer-chosen grouping tag shown on the merchant ticket (e.g. "الكبير"), not an identifier.
+  /// Always null on a `recipient`: the name the sender gave them lives in the vault (SEC-14,
+  /// identity_vault.participant_identities).
   label     String?
   note      String?
   createdAt DateTime        @default(now()) @map("created_at")
@@ -1816,6 +1819,8 @@ model SeatBooking {
   cancelledAt        DateTime?        @map("cancelled_at")
   /// Server-computed late-meter minutes when settled (decisions §8).
   lateMinutes        Int?             @map("late_minutes")
+  /// x3: when our taxi to this seat's garage is due while it runs late for the car (garage-taxi module).
+  taxiLateUntil      DateTime?        @map("taxi_late_until")
   demandPostId       String?          @map("demand_post_id")
   movedFromBookingId String?          @map("moved_from_booking_id")
   movedToBookingId   String?          @map("moved_to_booking_id")
@@ -2884,15 +2889,17 @@ model KhatSweepAlert {
 
 /// A driver working for a fleet org (partner spec: fleet owner dashboard). Vehicles stay in `vehicles`.
 model FleetDriver {
-  id         String    @id @default(cuid())
-  fleetOrgId String    @map("fleet_org_id")
-  personId   String    @map("person_id")
-  addedById  String    @map("added_by_id")
+  id               String    @id @default(cuid())
+  fleetOrgId       String    @map("fleet_org_id")
+  personId         String    @map("person_id")
+  addedById        String    @map("added_by_id")
   /// Review 2026-10-04: the driver's own yes to the fleet; null = invited, the owner sees nothing yet.
-  acceptedAt DateTime? @map("accepted_at")
-  removedAt  DateTime? @map("removed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  acceptedAt       DateTime? @map("accepted_at")
+  removedAt        DateTime? @map("removed_at")
+  /// Partner redesign f5: the car the owner picked with the invite; assigned when he accepts (if still free).
+  plannedVehicleId String?   @map("planned_vehicle_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@unique([fleetOrgId, personId])
   @@index([personId])

@@ -40,8 +40,19 @@ async function samplePhotos(s) {
     <div style="position:absolute;left:0;top:545px;width:800px;height:6px;background:repeating-linear-gradient(90deg,#f4efe4 0 40px,transparent 40px 80px)"></div></body>`);
   const street = join(dir, 'landmark.jpg');
   await p.page.screenshot({ path: street, type: 'jpeg', quality: 80 });
+  // f8: a bakery's door with its sign, and the pharmacy next door couriers know.
+  await p.page.setContent(`<body style="margin:0;width:800px;height:600px;position:relative;background:linear-gradient(#cfd8dc,#eef1f2 55%)">
+    <div style="position:absolute;left:40px;top:120px;width:470px;height:400px;background:#e8dcc6"></div>
+    <div style="position:absolute;left:60px;top:140px;width:430px;height:80px;background:#7a3e12;color:#fbe7c6;font:700 52px 'Noto Naskh Arabic',serif;display:flex;align-items:center;justify-content:center" dir="rtl">فرن الأمير</div>
+    <div style="position:absolute;left:150px;top:260px;width:250px;height:260px;background:#5b4a3a;border:10px solid #3f3227"></div>
+    <div style="position:absolute;left:540px;top:170px;width:230px;height:350px;background:#f3f1ea"></div>
+    <div style="position:absolute;left:555px;top:185px;width:200px;height:70px;background:#1f7a4a;color:#fff;font:700 38px 'Noto Naskh Arabic',serif;display:flex;align-items:center;justify-content:center" dir="rtl">صيدلية</div>
+    <div style="position:absolute;left:630px;top:290px;width:50px;height:50px;background:#1f7a4a;clip-path:polygon(35% 0,65% 0,65% 35%,100% 35%,100% 65%,65% 65%,65% 100%,35% 100%,35% 65%,0 65%,0 35%,35% 35%)"></div>
+    <div style="position:absolute;left:0;top:520px;width:800px;height:80px;background:#8a8378"></div></body>`);
+  const door = join(dir, 'door.jpg');
+  await p.page.screenshot({ path: door, type: 'jpeg', quality: 80 });
   await p.close();
-  return { menus: files, street };
+  return { menus: files, street, door };
 }
 
 /** Clicks `testId`, which opens the browser's file chooser, and hands it `files`. */
@@ -58,6 +69,13 @@ export default async function run(s) {
   await p.goto('/ops');
   await p.wait('ops-tasks');
   await p.shot('home', { full: true, settle: 1200 });
+  // f5: the network drops in the street: the list stays, and says from when.
+  await p.page.context().setOffline(true);
+  await p.wait('ops-stale', 8000);
+  await p.page.locator('[data-testid="ops-stale"]').scrollIntoViewIfNeeded();
+  await p.shot('home-offline', { settle: 800 });
+  await p.page.context().setOffline(false);
+  await p.page.waitForTimeout(1500);
 
   // Cash: pick the over-cap courier, full amount, his code, confirm → receipt.
   await p.byTestId('ops-go-cash').click();
@@ -106,9 +124,34 @@ export default async function run(s) {
   await p.byTestId('ops-onboard-here').click();
   await p.page.getByText('الدبوس على موقعك').waitFor({ timeout: 10_000 });
   await p.shot('onboard-location', { settle: 1800 });
+  // f8: the door photo. The first send drops (a street with a weak network), then one tap sends it.
+  await p.page.locator('[data-testid="ops-onboard-door"]').scrollIntoViewIfNeeded();
+  p.expectRefusal();
+  await p.page.route('**/*', (route) => (route.request().method() === 'PUT' ? route.fulfill({ status: 400, body: '' }) : route.continue()));
+  await choose(p, 'ops-onboard-door-add', photos.door);
+  await p.wait('ops-onboard-door-failed');
+  await p.page.unroute('**/*');
+  p.expectRefusal(false);
+  await p.page.locator('[data-testid="ops-onboard-door"]').scrollIntoViewIfNeeded();
+  await p.shot('onboard-door-failed', { settle: 500 });
+  await p.byTestId('ops-onboard-door-retry').click();
+  await p.wait('ops-onboard-door-sent');
+  await p.page.locator('[data-testid="ops-onboard-door"]').scrollIntoViewIfNeeded();
+  await p.shot('onboard-door-sent', { settle: 500 });
   await p.byTestId('ops-onboard-next').click();
   await p.wait('ops-onboard-menu');
+  // f8: the last menu page doesn't send; it stays, marked, and one tap sends it again.
+  p.expectRefusal();
+  let puts = 0;
+  await p.page.route('**/*', (route) => (route.request().method() === 'PUT' && ++puts === 3 ? route.fulfill({ status: 400, body: '' }) : route.continue()));
   await choose(p, 'ops-onboard-add-photo', photos.menus);
+  await p.wait('ops-onboard-photos-failed');
+  await p.page.unroute('**/*');
+  p.expectRefusal(false);
+  await p.page.waitForTimeout(800);
+  await p.shot('onboard-menu-failed', { settle: 600 });
+  await p.byTestId('ops-onboard-photo-retry-2').click();
+  await p.page.locator('[data-testid="ops-onboard-photos-failed"]').waitFor({ state: 'detached', timeout: 10_000 });
   await p.page.waitForFunction(() => document.querySelectorAll('[role="progressbar"]').length === 0, null, { timeout: 15_000 }).catch(() => undefined);
   await p.page.waitForTimeout(1200);
   await p.shot('onboard-menu', { settle: 600 });
