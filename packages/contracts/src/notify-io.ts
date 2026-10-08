@@ -146,6 +146,7 @@ export const NotifyTemplateId = z.enum([
   'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
+  'order_late_credit',
   'rajaa_boarding_pass',
   'rajaa_pass_update',
   'khat_child_arrived',
@@ -631,6 +632,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.cash_change_credit.title', body: 'push.cash_change_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-22: the honest-delay credit (step two) is in his wallet — told like the change credit above.
+  order_late_credit: {
+    id: 'order_late_credit',
+    category: 'receipts',
+    app: 'customer',
+    push: { title: 'push.order_late_credit.title', body: 'push.order_late_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
     primary: ['push'],
     quietHours: 'send',
   },

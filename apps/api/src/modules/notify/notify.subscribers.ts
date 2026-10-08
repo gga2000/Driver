@@ -48,6 +48,7 @@ export const NOTIFY_EVENT_TYPES = [
   'order.auto_accepted',
   'order.prep_extended',
   'order.late_apology',
+  'order.late_credit',
   'order.offered_to_merchant',
   'order.delivered',
   // W2 CRIT1-01 / NTF-03: the turns that left the customer staring at a screen — the kitchen said no or
@@ -600,6 +601,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!customerId || amount === null || amount <= 0) return [];
       // Signed and isolated (\u2066+7,250\u2069) so the plus stays left of the digits in Arabic.
       return [{ ...base, template: 'cash_change_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
+    }
+    case 'order.late_credit': {
+      // NTF-22, the honest-delay promise's step two: "+1,000 دينار رصيد، لأن تأخرنا عليك".
+      const customerId = str(p['customerId']);
+      const amount = num(p['amountIqd']);
+      if (!customerId || amount === null || amount <= 0) return [];
+      return [{ ...base, template: 'order_late_credit', to: customerId, ...(e.orderId ? { orderId: e.orderId } : {}), params: { amount: `\u2066+${iqd(amount)}\u2069` } }];
     }
     case 'order.tipped': {
       // «علي كرمك 1,000 دينار»: the customer's tip after a 4–5 rating, to the driver who carried it.

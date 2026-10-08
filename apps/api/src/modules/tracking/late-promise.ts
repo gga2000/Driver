@@ -12,12 +12,16 @@ export { LATE_PROMISE_MEMO };
 /** Posting group of an order's honest-delay credit: one per order, so a replay posts nothing. */
 export const latePromiseGroupId = (orderId: string): string => `${LATE_PROMISE_MEMO}:${orderId}`;
 
+/** The credit's event (NTF-22): the notify module tells the customer the money is in his wallet. */
+export const LATE_CREDIT_EVENT = 'order.late_credit';
+
 /**
  * The honest-delay credit through the ledger's public API (audit d-5): a balanced group per order —
  * `credit_issued` from the platform to the customer's wallet, the amount the tracking read decided
- * (the delivery fee). Idempotent by order.
+ * (the delivery fee). Idempotent by order. With `events`, the same transaction logs one
+ * `order.late_credit` per order (NTF-22), so the push goes out only when the money did.
  */
-export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'eventsForOrder'>): TrackingLateCreditPort {
+export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'eventsForOrder'>, events?: Pick<EventsService, 'emit'>): TrackingLateCreditPort {
   return {
     issued: async (orderId) => {
       const line = (await ledger.eventsForOrder(orderId)).find((e) => e.postingGroupId === latePromiseGroupId(orderId) && e.type === 'credit_issued');
@@ -34,6 +38,18 @@ export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'even
           controls: [{ account: Accounts.customer(c.customerId), net: c.amountIqd }],
         },
         tx,
+      );
+      await events?.emit(
+        tx,
+        {
+          type: LATE_CREDIT_EVENT,
+          actorId: 'system',
+          occurredAt: c.at,
+          orderId: c.orderId,
+          idempotencyKey: `late_credit:${c.orderId}`,
+          payload: { customerId: c.customerId, amountIqd: c.amountIqd },
+        },
+        { name: 'late_promise', id: c.orderId },
       );
     },
   };

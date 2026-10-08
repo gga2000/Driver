@@ -8135,5 +8135,7 @@
   "push.support_refund.wallet": "to your wallet",
   "push.support_refund.points": "to your points",
   "push.support_resolved.title": "Your complaint is closed",
-  "push.support_resolved.body": "{text}"
+  "push.support_resolved.body": "{text}",
+  "push.order_late_credit.title": "{amount} IQD credit, because we were late",
+  "push.order_late_credit.body": "We missed the time we promised you, so it is in your wallet for any order"
 }

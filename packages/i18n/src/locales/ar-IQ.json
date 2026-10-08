@@ -8135,5 +8135,7 @@
   "push.support_refund.wallet": "بمحفظتك",
   "push.support_refund.points": "نقاط بحسابك",
   "push.support_resolved.title": "سكّرنا شكوتك",
-  "push.support_resolved.body": "{text}"
+  "push.support_resolved.body": "{text}",
+  "push.order_late_credit.title": "{amount} دينار رصيد، لأن تأخرنا عليك",
+  "push.order_late_credit.body": "عدّينا الوقت اللي وعدناك بيه، فحطيناها بمحفظتك وتنصرف بأي طلب"
 }

@@ -71,6 +71,9 @@ describe('notify subscribers: events → notifications', () => {
     // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 7_250, collectedIqd: 25_000, totalIqd: 17_750 }, { orderId: 'ord_1' }))).toEqual([{ template: 'cash_change_credit', to: 'cust', params: { amount: '\u2066+7,250\u2069' } }]);
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
+    // NTF-22: the honest-delay credit is in his wallet — "+1,000 دينار رصيد، لأن تأخرنا عليك".
+    expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_late_credit', to: 'cust', params: { amount: '\u2066+1,000\u2069' } }]);
+    expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // The tip after a 4–5 rating (Ali, 2026-10-06): «علي كرمك 1,000 دينار» to the driver who carried it.
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'الزبون', amount: '1,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'drv', courierId: 'courier', tripId: 't1', amountIqd: 2000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'حيدر', amount: '2,000', id: '1284' } }]);

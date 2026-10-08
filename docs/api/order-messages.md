@@ -27,6 +27,14 @@ A customer's complaint answered by phone, WhatsApp or in the app (`support.repli
 A second test checks that every notify template has a sender in the API (or a written reason, such as
 `marketing_offer`, whose sender is not built yet).
 
+## Money landing in the wallet (NTF-22)
+- The honest-delay credit: `order.late_credit` → `order_late_credit` «+1,000 دينار رصيد، لأن تأخرنا
+  عليك», like the change credit (`cash_change_credit`). See `late-promise.md`.
+- Invite rewards: none are paid while `MoneyRules.referral.enabled` is off (M-5 waits for Ali); their
+  message is added together with the switch.
+- Points per order: no push. They show on the delivered order's screen and in the wallet, and a push
+  for every order would be noise.
+
 ## Push on a live host (OPS-02)
 
 With `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot unless
