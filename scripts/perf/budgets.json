@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74"
     },
     "customer.assets_mb": {
-      "max": 6.55,
-      "why": "door page photos kubba, cocktail, laban (+0.13, #67); dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
+      "max": 5.45,
+      "why": "dish photos for /food, the door pages and home served by the API (/media/food), 6.64 -> ~5.3 (#107); web fonts w3 live in public/ (web only); size.mjs leaves public/ out since #110; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.15,
@@ -21,18 +21,19 @@
       "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
-      "max": 6.35,
+      "max": 6.55,
       "target": 5.5,
-      "why": "s1 per-app words"
+      "why": "#19 counter redesign: 6.35 -> 6.53; s1 per-app words comes in the merchant follow-up right after #19 and brings it back under 6.35"
     },
     "merchant.assets_mb": {
-      "max": 2.85,
-      "why": "dish photos moved behind @driver/ui/dishes (the merchant app draws none): 4.3 -> 2.73"
+      "max": 8.95,
+      "why": "#19 menu: Ali's 95-photo dish library (640 px WebP) and the menu's dish drawings (@driver/ui/dishes): 2.73 -> 8.9; the library moves to the API (/media/food) in the merchant follow-up right after #19, back to about 3"
     }
   },
   "screens": {
     "home.open_kb": {
-      "max": 40
+      "max": 44,
+      "why": "home concept C (#70, Ali approved): the dish gallery, kitchen rows and more dishes read more of the list: 42 KB on main fda13a3"
     },
     "home.idle_commits": {
       "max": 6,

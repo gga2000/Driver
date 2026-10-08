@@ -10,15 +10,22 @@ import {
   type BannerSeverity,
   type ControlsPort,
   type ControlsView,
+  type KillScope,
   type KillSwitchView,
   type PublicBanner,
+  type PublicScreens,
   type PublicSeason,
   type QuietDaysView,
+  ScreenSwitch,
+  type ScreenAudience,
+  type ScreenSwitchView,
+  type ScreensInput,
   type SeasonInput,
   type SetBannerInput,
   type SetKillSwitchInput,
   type SetIftarTimeInput,
   type SetQuietDaysInput,
+  type SetScreenSwitchInput,
   type SetSeasonInput,
   type SeasonView,
   type SetZoneCapacityInput,
@@ -49,6 +56,17 @@ export const VERTICAL_AR: Record<Vertical, string> = {
   intercity: 'الرجعة',
   khat: 'الخطوط',
 };
+
+/** Arabic names of the redesigned screens, as the Console and the audit log say them. */
+export const SCREEN_AR: Record<ScreenSwitch, string> = {
+  basket_v2: 'السلة',
+  checkout_v2: 'الدفع',
+  track_v2: 'متابعة الطلب',
+  orders_v2: 'طلباتي',
+};
+const AUDIENCE_AR: Record<ScreenAudience, string> = { off: 'مطفّية', staff: 'للموظفين بس', all: 'لكل الزبائن' };
+/** The two rows behind one screen switch: shown to staff, shown to everyone. */
+const screenKey = (key: ScreenSwitch, who: 'staff' | 'all') => `ui.${key}@${who}`;
 
 /** The default throttle wait: "جرّب بعد ربع ساعة". */
 export const DEFAULT_THROTTLE_ETA_MIN = 15;
@@ -209,6 +227,9 @@ export class ControlsService implements ControlsPort {
       }
       case 'corridor':
         return say('corridor', this.corridors.find((c) => c.id === s.key)?.name_ar ?? t('rajaa.fallback_corridor'));
+      case 'screen':
+        // Never reached: no gate matches a screen row. The vertical's words are the safe fallback.
+        return say('vertical', s.key);
     }
   }
 
@@ -269,7 +290,8 @@ export class ControlsService implements ControlsPort {
     return {
       id: s.id,
       cityId: s.cityId,
-      scope: s.scope,
+      // view() and setSwitch only pass kill-switch rows; screen rows have their own view.
+      scope: s.scope as KillScope,
       key: s.key,
       label_ar: label,
       vertical: s.vertical,
@@ -307,7 +329,7 @@ export class ControlsService implements ControlsPort {
     const [rows, caps, counts, t] = await Promise.all([this.repo.switches(cityId), this.repo.capacities(cityId), this.activeOrders(cityId), this.targets(cityId)]);
     const names = await this.names.of(rows.map((r) => r.setById));
     const views = rows
-      .filter((s) => s.active || now.getTime() - s.setAt.getTime() < RECENT_MS)
+      .filter((s) => s.scope !== 'screen' && (s.active || now.getTime() - s.setAt.getTime() < RECENT_MS))
       .map((s) => this.switchView(s, this.labelOf(s, t), names, now))
       .sort((a, b) => Number(b.active) - Number(a.active) || b.setAt.getTime() - a.setAt.getTime());
     const on = views.filter((v) => v.active);
@@ -431,6 +453,92 @@ export class ControlsService implements ControlsPort {
 
   audit(input: z.output<typeof AuditInput>): Promise<AuditEntry[]> {
     return this.audits.list({ cityId: input.cityId, subjectKind: input.subjectKind, limit: input.limit });
+  }
+
+  // ───────────────────────── screen switches (W6) ─────────────────────────
+
+  private static audienceOf(rows: KillSwitchRecord[], key: ScreenSwitch): ScreenAudience {
+    const on = (who: 'staff' | 'all') => rows.some((r) => r.scope === 'screen' && r.key === screenKey(key, who) && r.active);
+    return on('all') ? 'all' : on('staff') ? 'staff' : 'off';
+  }
+
+  /** Which redesigned screens this caller sees: on for everyone, or on for staff and the caller is staff. */
+  async screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens> {
+    const live = await this.liveSwitches(input.cityId ?? 'aziziyah');
+    const audience = Object.fromEntries(ScreenSwitch.options.map((k) => [k, ControlsService.audienceOf(live, k)])) as Record<ScreenSwitch, ScreenAudience>;
+    const staff = Object.values(audience).includes('staff') ? await isStaff() : false;
+    const shown = (k: ScreenSwitch) => audience[k] === 'all' || (audience[k] === 'staff' && staff);
+    return { basket_v2: shown('basket_v2'), checkout_v2: shown('checkout_v2'), track_v2: shown('track_v2'), orders_v2: shown('orders_v2') };
+  }
+
+  async screenSwitches(cityId: string): Promise<ScreenSwitchView[]> {
+    const rows = (await this.repo.switches(cityId)).filter((r) => r.scope === 'screen');
+    const names = await this.names.of(rows.map((r) => r.setById));
+    return ScreenSwitch.options.map((key) => this.screenView(cityId, key, rows, names));
+  }
+
+  private screenView(cityId: string, key: ScreenSwitch, rows: KillSwitchRecord[], names: Record<string, string | null>): ScreenSwitchView {
+    // Both rows are written together; the newer one carries who changed it last and why.
+    const last = rows.filter((r) => r.key === screenKey(key, 'staff') || r.key === screenKey(key, 'all')).sort((a, b) => b.setAt.getTime() - a.setAt.getTime())[0];
+    return {
+      cityId,
+      key,
+      audience: ControlsService.audienceOf(rows, key),
+      reason: last?.reason ?? null,
+      setBy: last?.setById ?? null,
+      setByName: last ? (names[last.setById] ?? null) : null,
+      setAt: last?.setAt ?? null,
+    };
+  }
+
+  async setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView> {
+    const now = this.clock.now();
+    const rows = await this.uow.run(async (tx) => {
+      const saved: KillSwitchRecord[] = [];
+      for (const who of ['staff', 'all'] as const) {
+        const key = screenKey(input.key, who);
+        saved.push(
+          await this.repo.upsertSwitch(
+            {
+              cityId: input.cityId,
+              scope: 'screen',
+              key,
+              vertical: null,
+              target: targetOf('screen', key, null),
+              // Everyone includes staff.
+              active: who === 'staff' ? input.audience !== 'off' : input.audience === 'all',
+              holdDispatch: false,
+              messageAr: null,
+              reason: input.reason,
+              setById: actor.personId,
+              setAt: now,
+              expiresAt: null,
+            },
+            tx,
+          ),
+        );
+      }
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'ops.screen_switch_set', occurredAt: now, payload: { cityId: input.cityId, key: input.key, audience: input.audience, reason: input.reason } },
+        { name: 'ops_control', id: `${input.cityId}:screen:${input.key}` },
+      );
+      await this.audits.record(
+        {
+          cityId: input.cityId,
+          actorId: actor.personId,
+          action: 'screen.set',
+          subjectKind: 'screen',
+          subjectId: input.key,
+          summaryAr: `الشاشة الجديدة «${SCREEN_AR[input.key]}» صارت ${AUDIENCE_AR[input.audience]}: ${input.reason}`,
+          detail: { key: input.key, audience: input.audience },
+        },
+        tx,
+      );
+      return saved;
+    });
+    this.switchCache.delete(input.cityId);
+    return this.screenView(input.cityId, input.key, rows, await this.names.of([actor.personId]));
   }
 
   // ───────────────────────── status banner ─────────────────────────

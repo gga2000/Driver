@@ -235,10 +235,14 @@ function refusal(path: string, type: ProcedureCall['type']): DriverError | null 
  * tRPC with the new code. Each call is first asked of the API's gate (`gateProcedures`) and then
  * reported to its observer (`observeProcedures`).
  */
-export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next, getRawInput }) => {
   const started = Date.now();
   const done = (code: string, driverCode?: string) =>
     procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
+  // The gate is asked once the call's input has fully arrived (tRPC reads it lazily and remembers it):
+  // a caller who stalls a POST body never gets as far as the gate, so it never holds a place in the
+  // API's busy cap (x3). An unreadable body is left for the input parser to answer.
+  if (procedureGate) await getRawInput().catch(() => undefined);
   const refused = refusal(path, type);
   if (refused) {
     const mapped = toTrpcError(refused);

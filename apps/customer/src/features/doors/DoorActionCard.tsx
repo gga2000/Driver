@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Icon, Text, useTheme, type DishKind } from '@driver/ui';
 import { photoForMotif } from '@/features/food-landing/photos';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
 
 /**
  * One calm way in from a door (k10 «اختارلي», s2 «ضيوف جايين؟», q1 «قهوتك المعتادة»): a dark strip
@@ -29,12 +30,7 @@ export function DoorActionCard({
   const ink = theme.colors.inverse;
   const inner = (
     <>
-      <Image
-        source={photoForMotif(art)}
-        resizeMode="cover"
-        accessible={false}
-        style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }}
-      />
+      <FoodPhoto photo={photoForMotif(art)} style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }} />
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>

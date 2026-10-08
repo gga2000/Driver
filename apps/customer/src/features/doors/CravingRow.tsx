@@ -1,8 +1,9 @@
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
 import { Text, useTheme } from '@driver/ui';
 import { distinctPhotos, photoForMotif } from '@/features/food-landing/photos';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
 import { countKey } from '@/lib/plural';
 import { useT } from '@/lib/i18n';
 import type { DoorCraving } from './cravings';
@@ -84,12 +85,7 @@ export function CravingRow({
                   borderColor: theme.colors.accent,
                 }}
               >
-                <Image
-                  source={photo}
-                  resizeMode="cover"
-                  accessible={false}
-                  style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }}
-                />
+                <FoodPhoto photo={photo} style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }} />
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <Svg width="100%" height="100%" preserveAspectRatio="none">
                     <Defs>
