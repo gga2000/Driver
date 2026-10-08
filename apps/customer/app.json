@@ -29,7 +29,7 @@
       "package": "iq.driver.customer"
     },
     "plugins": [
-      "expo-router",
+      ["expo-router", { "asyncRoutes": { "web": "production", "default": false } }],
       ["expo-localization", {}],
       [
         "expo-image-picker",
