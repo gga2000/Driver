@@ -33,7 +33,7 @@ import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
-export { protectedProcedure, publicProcedure, router, t, toTrpcError } from './trpc.js';
+export { observeProcedures, protectedProcedure, publicProcedure, router, t, toTrpcError, type ProcedureCall } from './trpc.js';
 
 /**
  * The router lives here so every client shares one `AppRouter` type without
