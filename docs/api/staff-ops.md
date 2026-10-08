@@ -146,6 +146,50 @@ and the cap are off.
 - `departure`: `departure.ops_cancel` (`system` when automatic), `departure.ops_arrive`,
   `departure.ops_close`.
 
+## Events for the Console "Today" list
+
+Registered in `packages/contracts/src/domain-events.ts` (`DOMAIN_EVENT_PAYLOADS`): each producer
+encodes its payload with `encodeDomainEvent`, so a payload that drifts fails in its own
+transaction. Read them from the event log (`events` / outbox). None of them posts money or changes
+an amount.
+
+| Event | Payload | Emitted by, and when | Aggregate |
+|---|---|---|---|
+| `order.rated` | `{ orderId, stars: 1..5, cityId }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
+| `courier.cash_over_cap` | `{ courierId, cashIqd, capIqd, cityId }` | `LedgerService.recordAll`, in the posting's transaction, when the posting takes the driver from under his cash cap to at or over it (in practice a cash collection, `order.cash_collected`). Actor: `system`. | `driver` |
+| `courier.cash_under_cap` | same as above | the same place, when a posting takes him from over the cap to under it (a hand-in: agent, ZainCash, ops round, or paying a merchant). | `driver` |
+| `order.stuck` | `{ orderId, cityId, reason: StuckReason, since }` | the W3 watchdog (`OrdersStaffJob`, every 5 min, `OrdersStaffService.watchStuck`), when an order is on `orders.ops.stuck` and was not on it at the last look. `since` is when the state's clock started (ISO time). Actor: `system`. | `stuck_board` / `orders` |
+| `order.unstuck` | `{ orderId, cityId, by }` | the same watchdog, when an order that went on the list is no longer on it, whatever moved it. `by` is the actor of the order's latest event after it went on the list (the staff member who cancelled, the merchant who answered, the customer), or `system`. | `stuck_board` / `orders` |
+
+Fields that were added to existing events (optional, so older events still parse):
+
+| Event | Added | Set by |
+|---|---|---|
+| `order.merchant_unresponsive` | `cityId?` | the order's city |
+| `order.late_apology` | `cityId?` | the order's city |
+| `driver.document_submitted`, `driver.document_reviewed` | `cityId?` | `aziziyah` (single-city launch, like the shift summary) |
+
+How each one is detected:
+
+- **Cash cap.** The cap is computed, not stored, so the check runs on every ledger posting
+  (`CashCapWatch`, `apps/api/src/modules/ledger/cap-watch.ts`). Before the lines are written it
+  reads the driver's `cash:` and `driver:` balances inside the same transaction, then applies the
+  new lines. It emits only if he changed sides of the cap. Exactly at the cap counts as over (money
+  §4). `cashIqd` is what counts against the cap after the posting: the cash he holds that is not
+  his, minus what the platform owes him. `capIqd` is his cap by role and tier. A replayed posting
+  group writes nothing, so it emits nothing. The idempotency key is
+  `<type>:<driverId>:<first posting group id>`. `cityId` is `aziziyah`, because the money rules
+  are still Aziziyah's. The Console's and the partner app's `overCap` reads are unchanged.
+- **Stuck.** The stuck list is computed on read, so the existing W3 watchdog is the detection
+  point. A change takes up to 5 minutes to show. Both events go on their own aggregate
+  (`stuck_board` / `orders`), the way `order.late_apology` does, because they change no order
+  state. They still carry `orderId`, so the order's own log shows them. The watchdog reads the
+  board's open marks, so an order that left the live states (cancelled, closed) is still seen
+  leaving. Each mark is made once per stuck episode: the idempotency key is
+  `order.stuck:<orderId>:<since>` and `order.unstuck:<orderId>:<since>`. A second pod or a restart
+  repeats nothing. A change of reason while the order stays on the list (`dispute_open` →
+  `dispute_overdue`) emits nothing new. The watchdog runs whatever the money switches say.
+
 ## Other server changes in W3
 
 - **FLOW-20.** A rating no longer closes the order. The 2-h complaint window stays open and the

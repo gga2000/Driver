@@ -1,7 +1,7 @@
 import { decodeDomainEvent } from '@driver/contracts';
 import { LedgerService, PostingService, MerchantCashService } from '../ledger/index.js';
 import { CashLimits } from './cash-limits.js';
-import { OrdersStaffService, type OrderEventLog, type OrdersStaffPorts } from './orders.staff.js';
+import { OrdersStaffService, STUCK_BOARD, type OrderEventLog, type OrdersStaffPorts } from './orders.staff.js';
 import { outcomeRules, type OrderOutcomeRules } from './outcomes.config.js';
 import { ordersHarness } from './test-harness.js';
 
@@ -19,7 +19,7 @@ export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: Ledger
   const audits: Array<{ id: string; action: string; actorId: string; subjectId: string; summaryAr: string; detail: Record<string, unknown> }> = [];
   const admins = new Set<string>(['ali']);
   const eventLog: OrderEventLog = {
-    eventsOf: async (orderId) => h.events.events.filter((e) => e.orderId === orderId).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload })),
+    eventsOf: async (orderId) => h.events.events.filter((e) => e.orderId === orderId).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })),
   };
   const ports: OrdersStaffPorts = {
     ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id) => ledger.hasGroup(id), eventsForOrder: (id) => ledger.eventsForOrder(id) },
@@ -32,6 +32,10 @@ export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: Ledger
     },
     roles: { hasRole: async (personId) => admins.has(personId) },
     eventLog,
+    stuckBoard: {
+      marks: async () => h.events.events.filter((e) => e.aggregate.name === STUCK_BOARD.name).map((e) => ({ type: e.type, orderId: e.orderId, occurredAt: e.occurredAt, payload: e.payload })),
+      emit: (tx, event) => h.events.emit(tx, event, STUCK_BOARD),
+    },
   };
   const staff = new OrdersStaffService(h.orders, h.repo, h.uow, h.clock, h.trips, h.merchants, rules, ports);
   h.orders.bindPlatformFailure(staff);

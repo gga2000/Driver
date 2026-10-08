@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
+  encodeDomainEvent,
   orderTicketNumber,
   type Actor,
   type CancellationFee,
@@ -22,6 +23,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import type { PostingGroup } from '../ledger/index.js';
+import type { OrderDomainEvent } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory } from './merchants.port.js';
 import { MERCHANT_ORDER_TYPES } from './order.machine.js';
 import { ORDERS_RULES } from './orders.config.js';
@@ -48,14 +50,30 @@ export interface StaffAuditPort {
 
 /** The order's own event log (events module), oldest first: when a dispute opened, what was already sent. */
 export interface OrderEventLog {
-  eventsOf(orderId: string): Promise<Array<{ type: string; occurredAt: Date; payload: Record<string, unknown> }>>;
+  /** The order's events, oldest first (`actorId` where the log has it). */
+  eventsOf(orderId: string): Promise<Array<{ type: string; occurredAt: Date; payload: Record<string, unknown>; actorId?: string }>>;
 }
+
+/**
+ * Where `order.stuck` / `order.unstuck` live: one aggregate of their own (`STUCK_BOARD`), not the
+ * order's, because they change no order state; each still carries its `orderId`. The watchdog reads
+ * the board to know which orders are on the list now, including ones that since left the live states.
+ */
+export interface StuckBoardPort {
+  /** Every mark on the board, oldest first. */
+  marks(): Promise<Array<{ type: string; orderId: string; occurredAt: Date; payload: Record<string, unknown> }>>;
+  emit(tx: Tx | undefined, event: OrderDomainEvent): Promise<void>;
+}
+
+export const STUCK_BOARD = { name: 'stuck_board', id: 'orders' } as const;
 
 export interface OrdersStaffPorts {
   ledger: StaffLedgerPort;
   audit: StaffAuditPort;
   roles: { hasRole(personId: string, kind: 'admin'): Promise<boolean> };
   eventLog: OrderEventLog;
+  /** Without it the watchdog emits no stuck/unstuck events. */
+  stuckBoard?: StuckBoardPort;
 }
 
 export const ORDERS_STAFF_PORTS = Symbol('ORDERS_STAFF_PORTS');
@@ -71,6 +89,8 @@ const NOT_CLOSED_GRACE_MIN = 10;
 /** A complaint nobody answered for this long is overdue (the Console's red queue). */
 const DISPUTE_OVERDUE_H = 24;
 
+/** States an order can be stuck in (the stuck list reads only these). */
+const STUCK_WATCH_STATES: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up', 'delivered', 'matched', 'completed', 'disputed'];
 const CANCELLABLE: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'matched'];
 const COOKED: readonly OrderState[] = ['preparing', 'ready'];
 
@@ -378,7 +398,7 @@ export class OrdersStaffService implements PlatformFailurePort {
   /** NTF-10: every live order past its state's deadline, oldest first, with the actions that apply. */
   async stuck(input: StuckOrdersInput): Promise<StuckOrder[]> {
     const now = this.clock.now();
-    const live = await this.repo.findMany({ cityId: input.cityId, states: ['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up', 'delivered', 'matched', 'completed', 'disputed'] });
+    const live = await this.repo.findMany({ cityId: input.cityId, states: STUCK_WATCH_STATES });
     const out: StuckOrder[] = [];
     for (const o of live) {
       const s = await this.stuckOf(o, now);
@@ -484,6 +504,54 @@ export class OrdersStaffService implements PlatformFailurePort {
       }
     }
     return done;
+  }
+
+  /**
+   * The Console's "Today" list: `order.stuck` when an order enters the stuck list (`stuck()`), and
+   * `order.unstuck` when it leaves it, whatever moved it (a staff action, the customer, a timer).
+   * Stuck is computed on read, so this watchdog (`OrdersStaffJob`, every 5 minutes) is the detection
+   * point: it compares the list now with the board's open marks. Each mark is once per stuck episode
+   * (idempotency key on the order and the episode's `since`), so a second pod or a restart repeats
+   * nothing. Runs whatever the money switches say: it only records, never moves an order.
+   */
+  async watchStuck(cityId?: string): Promise<number> {
+    const board = this.ports.stuckBoard;
+    if (!board) return 0;
+    const now = this.clock.now();
+    const open = new Map<string, { cityId: string; since: string; at: Date }>();
+    for (const m of await board.marks()) {
+      if (m.type === 'order.unstuck') open.delete(m.orderId);
+      else if (m.type === 'order.stuck') open.set(m.orderId, { cityId: String(m.payload['cityId']), since: String(m.payload['since']), at: m.occurredAt });
+    }
+    const live = await this.repo.findMany({ ...(cityId ? { cityId } : {}), states: STUCK_WATCH_STATES });
+    const stuckNow = new Set<string>();
+    let done = 0;
+    for (const o of live) {
+      const s = await this.stuckOf(o, now);
+      if (!s) continue;
+      stuckNow.add(o.id);
+      if (open.has(o.id)) continue;
+      const since = s.since.toISOString();
+      await this.uow.run((tx) =>
+        board.emit(tx, { type: 'order.stuck', actorId: SYSTEM, occurredAt: now, orderId: o.id, idempotencyKey: `order.stuck:${o.id}:${since}`, payload: encodeDomainEvent('order.stuck', { orderId: o.id, cityId: o.cityId, reason: s.reason, since: s.since }) }),
+      );
+      done++;
+    }
+    for (const [orderId, mark] of open) {
+      if (stuckNow.has(orderId) || (cityId && mark.cityId !== cityId)) continue;
+      const by = await this.leftStuckBy(orderId, mark.at);
+      await this.uow.run((tx) =>
+        board.emit(tx, { type: 'order.unstuck', actorId: by, occurredAt: now, orderId, idempotencyKey: `order.unstuck:${orderId}:${mark.since}`, payload: encodeDomainEvent('order.unstuck', { orderId, cityId: mark.cityId, by }) }),
+      );
+      done++;
+    }
+    return done;
+  }
+
+  /** Who moved the order off the list: the actor of its latest own event after it went on it (`system` when none). */
+  private async leftStuckBy(orderId: string, stuckAt: Date): Promise<string> {
+    const after = (await this.ports.eventLog.eventsOf(orderId)).filter((e) => e.occurredAt.getTime() >= stuckAt.getTime() && e.type !== 'order.stuck' && e.type !== 'order.unstuck' && e.actorId);
+    return after.length > 0 ? after[after.length - 1]!.actorId! : SYSTEM;
   }
 
   // ───────────────────────── helpers ─────────────────────────

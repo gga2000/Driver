@@ -1167,6 +1167,8 @@ export class OrdersService implements OnModuleInit {
       if (rating && ratingWindowClosed(order, now)) throw new DriverError('rating_window_closed');
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
+      // The Console's "Today" list: the first scored rating, in its own transaction.
+      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1646,7 +1648,7 @@ export class OrdersService implements OnModuleInit {
           const present = profile?.lastHeartbeatAt && now.getTime() - profile.lastHeartbeatAt.getTime() <= ORDERS_RULES.heartbeatStaleMs;
           if (present) return;
           if (name === ORDER_JOBS.readyOverdue) {
-            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
+            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
             return;
           }
           const trip = await this.trips.activeForOrder(order.id);

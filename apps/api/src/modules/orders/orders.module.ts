@@ -32,14 +32,14 @@ import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
 import { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, PrismaOrderComplimentsRepository, type OrderComplimentsRepository } from './compliments.repository.js';
 import { ReferralsModule, ReferralsService } from '../referrals/index.js';
-import { ORDERS_STAFF_PORTS, OrdersStaffService, type OrdersStaffPorts, type OrderEventLog } from './orders.staff.js';
+import { ORDERS_STAFF_PORTS, OrdersStaffService, STUCK_BOARD, type OrdersStaffPorts, type OrderEventLog } from './orders.staff.js';
 import { OrdersStaffJob } from './orders.staff.job.js';
 import { CASH_LIMITS, CashLimits } from './cash-limits.js';
 import { ORDER_OUTCOME_RULES, outcomeRulesFromEnv, type OrderOutcomeRules } from './outcomes.config.js';
 
 /** The order's own events, oldest first (the W3 toolkit's "when did this dispute open"). */
 function eventLogOf(events: EventsService): OrderEventLog {
-  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
+  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
 }
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
@@ -87,6 +87,10 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
         audit: { record: (input, tx) => audit.record(input, tx) },
         roles: { hasRole: (personId, kind) => identity.hasRole(personId, kind) },
         eventLog: eventLogOf(events),
+        stuckBoard: {
+          marks: async () => (await events.forAggregate(STUCK_BOARD.name, STUCK_BOARD.id)).map((e) => ({ type: e.type, orderId: e.orderId ?? e.aggregateId, occurredAt: e.occurredAt, payload: e.payload })),
+          emit: async (tx, event) => void (await events.emit(tx, event, STUCK_BOARD)),
+        },
       }),
       inject: [LedgerService, AuditLogService, IdentityService, EventsService],
     },

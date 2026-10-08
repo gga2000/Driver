@@ -1,13 +1,14 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { OrdersStaffService } from './orders.staff.js';
 
-/** How often the W3 watchdog looks (free-cancel offers on platform failure, dispute deadlines). */
+/** How often the W3 watchdog looks (free-cancel offers on platform failure, dispute deadlines, the stuck list's enter/leave events). */
 export const ORDERS_STAFF_SWEEP_MS = 5 * 60_000;
 
 /**
  * The W3 watchdog: every 5 minutes, `OrdersStaffService.sweep()`. It reads the database each time
  * (no in-memory timers to lose on a restart), and every effect is once per order (checked against the
- * order's event log), so a second pod or a restart never repeats one. With every switch off it does nothing.
+ * order's event log), so a second pod or a restart never repeats one. With every money switch off it
+ * only records `order.stuck` / `order.unstuck` (`watchStuck`).
  */
 @Injectable()
 export class OrdersStaffJob implements OnModuleInit, OnModuleDestroy {
@@ -26,8 +27,8 @@ export class OrdersStaffJob implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  tick(): Promise<number> {
-    return this.staff.sweep();
+  async tick(): Promise<number> {
+    return (await this.staff.sweep()) + (await this.staff.watchStuck());
   }
 
   private async safeTick(): Promise<void> {
