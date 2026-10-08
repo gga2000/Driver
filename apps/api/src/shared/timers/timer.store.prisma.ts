@@ -96,6 +96,12 @@ export class PrismaTimerStore implements TimerStore {
       WHERE "queue" = ${queue} AND "job_id" = ${jobId} AND "status" = 'pending'`;
   }
 
+  async settlePending(queue: string, jobIdPrefix: string, now: Date, tx?: Tx): Promise<number> {
+    return this.db(tx).$executeRaw`
+      UPDATE "public"."scheduled_timers" SET "status" = 'fired', "fired_at" = ${ts(now)}, "claimed_until" = NULL, "updated_at" = ${ts(now)}
+      WHERE "queue" = ${queue} AND "status" = 'pending' AND starts_with("job_id", ${jobIdPrefix})`;
+  }
+
   async prune(now: Date, limit = 5_000): Promise<number> {
     return this.prisma.prisma.$executeRaw`
       DELETE FROM "public"."scheduled_timers" WHERE "id" IN (

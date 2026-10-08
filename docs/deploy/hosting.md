@@ -169,7 +169,7 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `DATABASE_STATEMENT_TIMEOUT_MS` | no | default `5000`: a query made while answering a phone is cancelled after 5 s ([Database time limits](#database-time-limits)). `0` = no limit |
 | `DATABASE_JOB_STATEMENT_TIMEOUT_MS` | no | default `120000`: the limit for jobs, sweeps and outbox deliveries (their transactions may stay open as long). `0` = no limit |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
-| `TIMERS_SWEEPER` | no | `off` (default) or `on`: a sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. `TIMERS_SWEEP_MS` default 5000 |
+| `TIMERS_SWEEPER` | no | `on` (toml); unset = `off`. A sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. Today it holds dispatch's far-ahead timers (a booked ride's evening offer, deadline, reminder and T−30 search; a departure's start and low-fill check), each due a minute after its Redis job and marked fired when that job ran. `TIMERS_SWEEP_MS` default 5000 |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
