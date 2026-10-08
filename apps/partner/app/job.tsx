@@ -12,6 +12,7 @@ import { CALLS_LIVE } from '@/features/chat/calls';
 import { useChatPing } from '@/features/chat/useChatPing';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
+import { PracticeBand, PracticeDone, PracticeTip, useInPractice, useWorkRoutes } from '@/features/practice/Practice';
 import { SosControl } from '@/features/safety/SosControl';
 import { uploadPhoto, type PickedPhoto } from '@/features/account/photo';
 import { useGuarantee } from '@/features/account/queries';
@@ -72,7 +73,10 @@ export default function JobScreen() {
   const locale = useLocale();
   const [done, setDone] = useState<(JobDone & { at: number }) | null>(null);
   const finish = (d: JobDone) => setDone({ ...d, at: Date.now() });
-  const goHome = () => router.replace('/');
+  // l4: «البروفة» runs this screen on a pretend order and ends on its own done screen.
+  const practice = useInPractice();
+  const routes = useWorkRoutes();
+  const goHome = () => router.replace(routes.home);
   // S-3: the day line counts this job, so it waits for a status read that started after the job ended.
   const refetchStatus = status.refetch;
   useEffect(() => {
@@ -105,6 +109,7 @@ export default function JobScreen() {
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
   const view = job.data ? applyQueued(job.data, queue.items) : null;
 
+  if (practice && (done || view?.allDone)) return <PracticeDone />;
   if (done || view?.allDone) {
     const queued = done ? Boolean(done.queued) : true;
     return (
@@ -202,6 +207,8 @@ function JobView({
   // n7: no good GPS for 30 s, he hears that the customer's map has stopped moving.
   const gpsWeak = useGpsWeak(true);
   const net = useNetwork();
+  const practice = useInPractice();
+  const routes = useWorkRoutes();
   const [tapping, setTapping] = useState(false);
   const refresh = useRefreshWork();
   const [panel, setPanel] = useState<'none' | 'handover' | 'start_code'>('none');
@@ -430,7 +437,7 @@ function JobView({
   }, [prepState]);
 
   const problems: ProblemItem[] = [
-    ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),
+    ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride && !practice ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),
     ...(kitchenThread ? [{ key: 'kitchen', icon: 'bag' as const, title: t('partner.problem_kitchen'), body: t('partner.problem_kitchen_sub'), onPress: () => openChat('merchant_courier') }] : []),
     ...(customerThread ? [{ key: 'customer', icon: 'chat' as const, title: t('partner.problem_customer'), body: t('partner.problem_customer_sub'), onPress: () => openChat('customer_courier') }] : []),
     { key: 'safety', icon: 'shield', title: t('partner.problem_safety'), body: t('partner.problem_safety_sub'), tone: 'danger', onPress: () => setSafetyAsk((n) => n + 1) },
@@ -438,6 +445,7 @@ function JobView({
 
   return (
     <View testID="job" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <PracticeBand />
       <NavChooser
         visible={choosingNav}
         current={nav.app}
@@ -465,9 +473,9 @@ function JobView({
           landmarkNameZoom={LANDMARK_RULES.driverNameZoom}
           testID="job-map"
         />
-        <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
+        <SafeAreaView edges={practice ? [] : ['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
           <View style={[column, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
-            <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate('/')} />
+            <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate(routes.home)} />
             <StatusPill label={t(KIND_KEY[job.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} />
             <SosControl subject={{ kind: 'trip', id: job.tripId }} openSignal={safetyAsk} />
           </View>
@@ -491,6 +499,7 @@ function JobView({
 
       <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
         <ScrollView contentContainerStyle={[column, { padding: theme.space[5], gap: theme.space[4] }]}>
+          <PracticeTip />
           {panel === 'start_code' && stop ? (
             <StartCodePanel busy={tapping} wrongCount={codeWrong} onSubmit={(code) => void startWithCode(code)} onClose={() => setPanel('none')} />
           ) : panel === 'handover' && stop ? (
