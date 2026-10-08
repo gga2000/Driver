@@ -7638,5 +7638,9 @@
   "auth.code_title": "We sent you a code",
   "auth.code_accent_sms": "by text",
   "auth.code_accent_whatsapp": "on WhatsApp",
-  "auth.code_ok": "That's the code"
+  "auth.code_ok": "That's the code",
+  "auth.setup_go": "Save and continue",
+  "auth.setup_go_order": "Save and finish your order",
+  "auth.setup_later": "Later",
+  "auth.name_placeholder": "e.g. Ali"
 }

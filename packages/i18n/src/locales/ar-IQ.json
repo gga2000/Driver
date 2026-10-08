@@ -7638,5 +7638,9 @@
   "auth.code_title": "دزينالك رمز",
   "auth.code_accent_sms": "برسالة",
   "auth.code_accent_whatsapp": "على واتساب",
-  "auth.code_ok": "تمام، هذا هو الرمز"
+  "auth.code_ok": "تمام، هذا هو الرمز",
+  "auth.setup_go": "احفظ وكمّل",
+  "auth.setup_go_order": "احفظ وكمّل طلبك",
+  "auth.setup_later": "بعدين",
+  "auth.name_placeholder": "مثلاً: علي"
 }

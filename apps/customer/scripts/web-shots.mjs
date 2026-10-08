@@ -214,8 +214,15 @@ try {
   ]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await shot('app-setup');
     await byTestId('setup-save').click();
     // The welcome-home moment (joy h7) plays once after setup: shot, then tapped away.
@@ -435,8 +442,7 @@ async function simpleShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
-    await byTestId('setup-next').click();
-    await byTestId('setup-skip-place').click();
+    await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
       await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
@@ -527,8 +533,15 @@ async function freshSignIn(phoneNumber) {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أبو زهراء');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -811,8 +824,15 @@ async function laterShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -920,8 +940,15 @@ async function habitsShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();

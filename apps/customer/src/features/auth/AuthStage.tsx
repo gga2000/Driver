@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useId, type ReactNode } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Icon, MAX_CONTENT_WIDTH, Text, useTheme, withAlpha } from '@driver/ui';
@@ -43,6 +43,9 @@ export function AuthStage({ step, title, accent, subtitle, back = true, onBack, 
   const theme = useTheme();
   const t = useT();
   const night = theme.colors.inverse;
+  // A short phone (360×640) gives the sheet the room: a smaller headline.
+  const short = useWindowDimensions().height < 700;
+  const headline = short ? { fontSize: 26, lineHeight: 36 } : { fontSize: 32, lineHeight: 42 };
   // One id per mounted screen: the stack keeps the phone screen under the code screen, and on the web
   // a gradient id shared with a hidden screen paints nothing (the code screen lost its veil).
   const veilId = `auth-veil-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -92,13 +95,13 @@ export function AuthStage({ step, title, accent, subtitle, back = true, onBack, 
               <StepBars step={step} />
             </View>
             {ticket ? <OrderTicket /> : null}
-            <View style={{ gap: theme.space[2], paddingTop: ticket ? 0 : theme.space[4] }}>
-              <Text accessibilityRole="header" weight={700} color="onInverse" maxFontSizeMultiplier={1.3} style={{ fontSize: 32, lineHeight: 42 }}>
+            <View style={{ gap: theme.space[2], paddingTop: ticket || short ? 0 : theme.space[4] }}>
+              <Text accessibilityRole="header" weight={700} color="onInverse" maxFontSizeMultiplier={1.3} style={headline}>
                 {title}
                 {accent ? (
                   <>
                     {'\n'}
-                    <Text weight={700} color="onInverseAccent" maxFontSizeMultiplier={1.3} style={{ fontSize: 32, lineHeight: 42 }}>
+                    <Text weight={700} color="onInverseAccent" maxFontSizeMultiplier={1.3} style={headline}>
                       {accent}
                     </Text>
                   </>
@@ -118,20 +121,20 @@ export function AuthStage({ step, title, accent, subtitle, back = true, onBack, 
 
           <View style={{ flexGrow: 1, minHeight: theme.space[8] }} />
 
-          <SafeAreaView
-            edges={['bottom']}
+          <View
             style={{
               backgroundColor: theme.colors.bg,
               borderTopStartRadius: theme.radius['2xl'],
               borderTopEndRadius: theme.radius['2xl'],
             }}
           >
-            <View style={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[6], paddingBottom: theme.space[3], gap: theme.space[5] }]}>
-              {children}
-              {footer}
-            </View>
-          </SafeAreaView>
+            <View style={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[6], paddingBottom: footer ? theme.space[2] : theme.space[3], gap: theme.space[5] }]}>{children}</View>
+          </View>
         </ScrollView>
+        {/* The main button stays in reach however long the sheet is (the name and place step scrolls). */}
+        <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.colors.bg }}>
+          {footer ? <View style={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[2], paddingBottom: theme.space[3] }]}>{footer}</View> : null}
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </View>
   );
