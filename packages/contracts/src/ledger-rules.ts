@@ -227,6 +227,7 @@ export const MoneyRules = z.object({
    * switches it on: the clock still runs and shows, nothing is added.
    */
   requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
+  /**
    * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
    * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
    * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
