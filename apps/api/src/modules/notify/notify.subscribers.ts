@@ -43,6 +43,18 @@ export const BOOKED_RIDE_EVENTS = [
   'dispatch.booked_search_started',
 ] as const;
 
+/** W3: what staff did to a customer's order, told to him (docs/api/staff-ops.md). */
+export const STAFF_OUTCOME_EVENTS = ['order.ops_cancelled', 'order.dispute_resolved', 'order.free_cancel_offered', 'order.courier_lost'] as const;
+
+/** W3: the push for each complaint outcome. */
+const DISPUTE_TEMPLATES = {
+  stands: 'order_dispute_stands',
+  refund_full: 'order_dispute_refunded',
+  refund_partial: 'order_dispute_refunded',
+  redelivery: 'order_dispute_redelivery',
+  void: 'order_dispute_void',
+} as const;
+
 export const NOTIFY_EVENT_TYPES = [
   'order.accepted',
   'order.auto_accepted',
@@ -108,6 +120,8 @@ export const NOTIFY_EVENT_TYPES = [
   'same_ride.due',
   // Review #28: rides booked for later, offered to drivers the evening before.
   ...BOOKED_RIDE_EVENTS,
+  // W3 staff way-out: staff ended the order, a complaint's outcome, a free cancel when we failed, food lost.
+  ...STAFF_OUTCOME_EVENTS,
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -342,6 +356,8 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
       if (p['cancelledState'] !== 'platform_cancelled') return [];
+      // Staff ending an order (W3) is told by its own `order.ops_cancelled` «آسفين، ألغينا طلبك»: never twice.
+      if (p['reason'] === 'staff_cancelled') return [];
       const order = e.orderId ? await L.order(e.orderId) : null;
       if (!order) return [];
       const template =
@@ -604,6 +620,23 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const amount = num(p['amountIqd']);
       if (!customerId || amount === null) return [];
       return [{ ...base, template: 'wallet_topup_receipt', to: customerId, params: { amount: iqd(amount), date: localDate(e.occurredAt), reference: str(p['reference']) ?? '' } }];
+    }
+    case 'order.ops_cancelled':
+    case 'order.free_cancel_offered':
+    case 'order.courier_lost': {
+      // W3: «آسفين، ألغينا طلبك» / «تگدر تلغي ببلاش» / «صار خلل بطلبك» — the order's customer, its number.
+      const customerId = str(p['customerId']);
+      if (!customerId || !e.orderId) return [];
+      const template = e.type === 'order.ops_cancelled' ? ('order_ops_cancelled' as const) : e.type === 'order.free_cancel_offered' ? ('order_free_cancel' as const) : ('order_courier_lost' as const);
+      return [{ ...base, template, to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), orderId: e.orderId }, data: { orderId: e.orderId } }];
+    }
+    case 'order.dispute_resolved': {
+      // W3 / NTF-01: the complaint's outcome (a refund names its amount).
+      const customerId = str(p['customerId']);
+      const outcome = str(p['outcome']);
+      if (!customerId || !e.orderId || !outcome || !(outcome in DISPUTE_TEMPLATES)) return [];
+      const template = DISPUTE_TEMPLATES[outcome as keyof typeof DISPUTE_TEMPLATES];
+      return [{ ...base, template, to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), amount: iqd(num(p['refundIqd']) ?? 0), orderId: e.orderId }, data: { orderId: e.orderId } }];
     }
     case 'order.change_to_wallet': {
       // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" — the courier had no change.

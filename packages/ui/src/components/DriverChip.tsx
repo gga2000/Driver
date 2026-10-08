@@ -57,13 +57,13 @@ export function PlateChip({ plate, accessibilityLabel, size = 'md', style, testI
     >
       {region ? (
         <View style={{ justifyContent: 'center', paddingHorizontal: m.regionPad, backgroundColor: palette.neutral[100], borderEndWidth: 1, borderColor: palette.neutral[900] }}>
-          <Text variant="caption" weight={700} style={{ color: palette.neutral[900], fontSize: m.region, lineHeight: m.regionLine }}>
+          <Text fixed variant="caption" weight={700} style={{ color: palette.neutral[900], fontSize: m.region, lineHeight: m.regionLine }}>
             {region}
           </Text>
         </View>
       ) : null}
       <View style={{ justifyContent: 'center', paddingHorizontal: m.pad }}>
-        <Text weight={700} tabular style={{ color: palette.neutral[900], fontSize: m.number, lineHeight: m.numberLine, letterSpacing: 1 }}>
+        <Text fixed weight={700} tabular style={{ color: palette.neutral[900], fontSize: m.number, lineHeight: m.numberLine, letterSpacing: 1 }}>
           {ltr(number)}
         </Text>
       </View>

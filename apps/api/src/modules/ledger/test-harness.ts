@@ -1,6 +1,7 @@
 import { AZIZIYAH_MONEY_RULES, type MoneyRules, type OrderMoneyPayload } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { AdjustmentService } from './adjustments.service.js';
+import { CashCapWatch } from './cap-watch.js';
 import { CapsService, StaticCapProfiles } from './caps.js';
 import { RecordingLedgerBus } from './events.adapter.js';
 import { ShiftGuaranteeService, type ShiftActivity, type ShiftActivitySource } from './guarantee.js';
@@ -42,6 +43,7 @@ export function ledgerHarness(opts: { start?: string; rules?: MoneyRules; repo?:
   const incidents = new LedgerIncidents(bus, clock);
   const profiles = new StaticCapProfiles();
   const ledger = new LedgerService(repo);
+  ledger.watchCaps(new CashCapWatch(profiles, rules, bus));
   const caps = new CapsService(ledger, rules, profiles);
   const settings = new InMemoryMerchantSettingsRepository();
   const merchantCash = new MerchantCashService(ledger, settings, bus, incidents, clock, rules);

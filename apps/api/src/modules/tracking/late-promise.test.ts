@@ -180,7 +180,7 @@ describe('honest-delay apology (step one, Ali 2026-10-06)', () => {
     expect(await tracking.sweepLateApologies()).toBe(0);
     const sent = await apologies(orderId);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.payload).toMatchObject({ customerId: 'c1', promisedAt: promisedAt!.toISOString() });
+    expect(sent[0]!.payload).toMatchObject({ customerId: 'c1', promisedAt: promisedAt!.toISOString(), cityId: 'aziziyah' });
     expect(await wallet('c1')).toBe(1000); // the step-two credit, not the apology
   });
 

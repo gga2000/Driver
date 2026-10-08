@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
-import { DishDrawing, Icon, Text, useTheme, type DishKind } from '@driver/ui';
+import { Icon, Text, useTheme, type DishKind } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import type { DoorSwatch } from './palette';
 
 const ART = 56;

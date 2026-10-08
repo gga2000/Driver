@@ -307,14 +307,32 @@ describe('OrdersService — merchant acceptance', () => {
     expect(h.events.last('order.rejected')!.payload).toMatchObject({ auto: true, scored: false, pauseWindow: 'صلاة الجمعة' });
   });
 
-  it('late rejection after accepting: scoring hit and 500 customer credit funded by the merchant', async () => {
+  it('M-17 (on, Ali 2026-10-08): a late rejection takes a scoring hit and carries 500 customer credit funded by the merchant; a rejection before accepting carries none', async () => {
+    expect(AZIZIYAH_MONEY_RULES.merchantLateRejectCredit.enabled).toBe(true);
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
     await h.orders.markPreparing('m1', { orderId: o.id });
     const r = await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
     expect(r.state).toBe('merchant_rejected');
-    expect(h.events.last('order.rejected')!.payload).toMatchObject({ afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant', scored: true });
+    expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, customerId: 'c1', merchantOrgId: expect.any(String), afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant', scored: true });
+    const early = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantReject('m1', { orderId: early.id, reason: 'زحمة' });
+    expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: early.id, afterAccept: false, customerCreditIqd: 0, creditFundedBy: null });
+  });
+
+  it('M-17 switch off (ops can stop it without a release): a late rejection claims no credit', async () => {
+    const rule = AZIZIYAH_MONEY_RULES.merchantLateRejectCredit;
+    rule.enabled = false;
+    try {
+      const h = ordersHarness();
+      const o = await h.orders.place('c1', h.foodInput());
+      await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+      await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
+      expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, afterAccept: true, customerCreditIqd: 0, creditFundedBy: null });
+    } finally {
+      rule.enabled = true;
+    }
   });
 });
 
@@ -459,7 +477,7 @@ describe('OrdersService — merchant heartbeat and courier release (review A.2)'
     await h.advance(20 * MIN - 1000);
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(0);
     await h.advance(1000);
-    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true });
+    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true, cityId: 'aziziyah' });
     await h.advance(5 * MIN);
     expect(h.events.last('order.courier_released')!.payload).toMatchObject({ courierId: 'd1', compensationIqd: 500, chargedTo: 'merchant', tripId: t.id });
     expect((await h.trips.get(t.id)).orders[0]!.reason).toBe('merchant_unresponsive');

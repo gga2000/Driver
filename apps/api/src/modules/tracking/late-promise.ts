@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { LATE_PROMISE_MEMO } from '@driver/contracts';
+import { LATE_PROMISE_MEMO, encodeDomainEvent } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, type LedgerService } from '../ledger/index.js';
@@ -56,7 +56,7 @@ export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'even
 }
 
 /** The honest-delay apology's event (step one): the notify module turns it into the push and its SMS twin. */
-export const LATE_APOLOGY_EVENT = 'order.late_apology';
+export const LATE_APOLOGY_EVENT = 'order.late_apology' as const;
 
 /** Its idempotency key: one apology per order, whoever (track read, sweep, another instance) gets there first. */
 export const lateApologyKey = (orderId: string): string => `late_apology:${orderId}`;
@@ -83,7 +83,7 @@ export function eventsLateApology(events: Pick<EventsService, 'emit' | 'forOrder
           occurredAt: c.at,
           orderId: c.orderId,
           idempotencyKey: lateApologyKey(c.orderId),
-          payload: { customerId: c.customerId, promisedAt: c.promisedAt.toISOString(), etaAt: c.etaAt.toISOString() },
+          payload: encodeDomainEvent(LATE_APOLOGY_EVENT, { customerId: c.customerId, promisedAt: c.promisedAt.toISOString(), etaAt: c.etaAt.toISOString(), ...(c.cityId ? { cityId: c.cityId } : {}) }),
         },
         { name: 'late_promise', id: c.orderId },
       );

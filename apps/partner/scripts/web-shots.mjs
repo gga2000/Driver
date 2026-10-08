@@ -72,6 +72,9 @@ async function demoPost(path) {
 async function openPage(group, { prePrompt = false } = {}) {
   const context = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   if (!prePrompt) await context.addInitScript(() => localStorage.setItem('driver.partner.push-preprompt', String(Date.now())));
+  // The night look (n2) follows the clock; shots pin it so they don't change with the time they run.
+  // SHOTS_LOOK=night shows every screen in the ember palette.
+  await context.addInitScript((look) => localStorage.setItem('driver.partner.appearance', look), process.env.SHOTS_LOOK === 'night' ? 'night' : 'day');
   const page = await context.newPage();
   // A refusal the flow provokes on purpose (p.expectRefusal()): the browser's "400" line is not an error.
   let refusalExpected = false;
