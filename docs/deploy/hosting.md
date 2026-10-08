@@ -231,7 +231,8 @@ fly secrets set --config deploy/fly/api.toml JWT_SECRET="$(openssl rand -hex 32)
 Fly restarts the API with the new secret. Every phone's current access token stops verifying, the app
 gets a 401, refreshes once with its refresh token, gets a new pair, and carries on. Do it when someone
 who knew the secret leaves, or after a leak. (With `UPLOADS_SECRET` set separately, photo links keep
-working.) `PHONE_HASH_PEPPER` is never rotated.
+working; share-trip and SOS links have their own secrets and are never affected.) `PHONE_HASH_PEPPER` is
+never rotated.
 
 ## Logs and errors
 

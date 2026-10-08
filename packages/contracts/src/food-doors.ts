@@ -1,3 +1,6 @@
+import type { LatLng } from './common.js';
+import { haversineM, ROAD_FACTOR } from './tracking.js';
+
 /**
  * The four food doors (Ali, 2026-10-07, «أبواب الأكل»): behind the home food tile the town's shops sit
  * behind four doors instead of one long list — meals (مطاعم), قهوة وچاي (cafés), عصير وبارد (juice and
@@ -44,6 +47,19 @@ export function sellsIceCream(tags: readonly string[]): boolean {
 /** Only ice cream (no kunafa, no cake): the shop whose whole order would melt on a long ride. */
 export function onlyIceCream(tags: readonly string[]): boolean {
   return sellsIceCream(tags) && !tags.some((t) => t !== 'ice_cream' && DOOR_TAGS.sweet.includes(t));
+}
+
+/**
+ * How far ice cream travels (Ali, shop rules k7, 2026-10-08: "3 km"): a shop that sells only ice cream
+ * delivers to doors at most this far by road from it (straight line × the town's road factor). Beyond
+ * that it drops out of the lists for that address and the order is refused (`too_far_for_ice_cream`).
+ * Without both pins nothing is refused.
+ */
+export const ICE_CREAM_MAX_KM = 3;
+
+export function iceCreamTooFar(tags: readonly string[], shop: LatLng | null | undefined, door: LatLng | null | undefined): boolean {
+  if (!onlyIceCream(tags) || !shop || !door) return false;
+  return (haversineM(shop, door) * ROAD_FACTOR) / 1000 > ICE_CREAM_MAX_KM;
 }
 
 /**
