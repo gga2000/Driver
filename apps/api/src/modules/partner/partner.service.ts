@@ -354,6 +354,7 @@ export class PartnerService implements PartnerPort {
     const codes = await this.startCodesOf(trip);
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
+    const recipients = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.recipientOf(o, actor.personId)] as const)));
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -372,6 +373,8 @@ export class PartnerService implements PartnerPort {
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
+          ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
@@ -387,6 +390,8 @@ export class PartnerService implements PartnerPort {
           ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
           // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
           rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
+          // SEC-14: whom he hands it to, on the drop-off, when someone else receives the order.
+          recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
           // j2: the public landmark it is near, for the headline and the spoken prompt.
           landmark: s.target ? nearestLandmark(s.target) : null,
         };
@@ -472,6 +477,13 @@ export class PartnerService implements PartnerPort {
   private async riderOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
     if (order?.type !== 'ride' || !order.participants.some((p) => p.role === 'rider') || !this.deps.orders.riderName) return null;
     const name = await this.deps.orders.riderName(order.id, driverId);
+    return name ? { name } : null;
+  }
+
+  /** SEC-14: the recipient of an order someone else receives, by the name the sender gave; null otherwise. */
+  private async recipientOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
+    if (!order?.participants.some((p) => p.role === 'recipient') || !this.deps.orders.recipientName) return null;
+    const name = await this.deps.orders.recipientName(order.id, driverId);
     return name ? { name } : null;
   }
 

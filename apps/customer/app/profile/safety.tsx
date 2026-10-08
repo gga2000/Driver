@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Switch, View } from 'react-native';
+import { View } from 'react-native';
 import { TRUSTED_CONTACTS_MAX, type SafetyPrefs, type UpdateProfileInput } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Avatar, Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, TextField, useTheme, useToast, type IconName } from '@driver/ui';
+import { Avatar, Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, TextField, Toggle, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useMe, useUpdateProfile } from '@/features/account/queries';
@@ -156,13 +156,11 @@ export default function Safety() {
                     {t(s.body)}
                   </Text>
                 </View>
-                <Switch
+                <Toggle
                   testID={`safety-switch-${s.key}`}
                   accessibilityLabel={t(s.title)}
                   value={on}
                   disabled={needsPeople || update.isPending}
-                  trackColor={{ false: theme.colors.borderStrong, true: theme.colors.selected }}
-                  thumbColor={theme.colors.surface}
                   onValueChange={(v) => void save({ safety: { [s.key]: v } }, v ? 'safety.switch_on' : 'safety.switch_off')}
                 />
               </View>

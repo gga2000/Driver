@@ -73,6 +73,7 @@ import {
   Textarea,
   useToast,
 } from './ui';
+import { ScreensCard } from './screens-card';
 import { SeasonsCard } from './seasons-card';
 import { UnmetSearchesCard } from './unmet-searches-card';
 
@@ -168,6 +169,7 @@ export function ControlsPage() {
       )}
       {view.data && (
         <div className="mt-6 space-y-5">
+          <ScreensCard signedIn={signedIn} canShow={roles.has('admin')} canOff={canSwitch} />
           <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
           <UnmetSearchesCard signedIn={signedIn} />
         </div>
@@ -222,7 +224,10 @@ export function ControlsBoard({
   const liveBanner = banners.find((b) => b.active);
   const controlLog = audit.filter(
     (a) =>
-      a.subjectKind === 'kill_switch' || a.subjectKind === 'capacity' || a.subjectKind === 'banner',
+      a.subjectKind === 'kill_switch' ||
+      a.subjectKind === 'capacity' ||
+      a.subjectKind === 'banner' ||
+      a.subjectKind === 'screen',
   );
   return (
     <div className="space-y-5">

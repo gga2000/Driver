@@ -220,7 +220,7 @@ describe('status → timeline', () => {
     const inside = buildTimeline(v, { eta: at(40), lateMin: lateMinutes(at(40), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
     expect(inside.note).toContain('إذا تعدّى التأخير 20 دقيقة');
     const past = buildTimeline(v, { eta: at(53), lateMin: lateMinutes(at(53), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
-    expect(past.note).toContain('الوقت الجديد بعد الموعد، فنرجعلك 1,000 دينار رصيد الساعة 09:45');
+    expect(past.note).toContain('فات الموعد، فالساعة 09:45 نرجعلك 1,000 دينار رصيد');
     expect(past.note).not.toContain('إذا');
   });
 
@@ -236,6 +236,8 @@ describe('status → timeline', () => {
   it('courier at my door: "الدليفري عند بابك", not "on the way"', () => {
     const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff'), courier });
     expect(statusLine(v, t)).toBe(t('track.courier_at_door'));
+    // HUNT-02: placed «بالشارع», he waits on the street.
+    expect(statusLine(view({ state: 'picked_up', pickedUpAt: at(16), streetHandover: true }, { trip: trip('arrived_dropoff'), courier }), t)).toBe(t('track.courier_at_street'));
     expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
   });
 

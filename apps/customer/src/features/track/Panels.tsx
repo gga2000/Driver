@@ -182,6 +182,7 @@ export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking
 /** Street hand-over saves 250 (pricing: `streetHandover` −250). */
 export const STREET_SAVING_IQD = 250;
 
+/** Not offered while `LIVE_STREET_SWITCH_ENABLED` (./street-switch) is off: it calls no server yet (HUNT-01). */
 export function StreetPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const toast = useToast();
@@ -246,7 +247,7 @@ export function UnreachablePanel({
         <View style={{ flex: 1, gap: theme.space[1] }}>
           <Text variant="title">{t('unreachable.customer_title')}</Text>
           <Text variant="label" weight={600} testID="unreachable-standing">
-            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door))}
+            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door), view.order.streetHandover === true)}
           </Text>
         </View>
         {/* The timer, small (L-10): guidance first. It counts to the server's fail time, extended or not. */}

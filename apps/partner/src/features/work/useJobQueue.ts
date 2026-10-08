@@ -5,6 +5,7 @@ import { isNetworkError } from '@driver/contracts/net-client';
 import { getNetwork, useToast } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { useInPractice } from '@/features/practice/Practice';
 import { storage } from '@/lib/storage';
 import { createActionQueue, stampTap, type ActionQueue, type JobTap, type QueuedAction } from './offline-queue';
 
@@ -47,10 +48,13 @@ export type TapResult = { status: 'sent'; trip: Trip } | { status: 'queued' };
 /** Screens: the waiting taps and `run(tap)` — sent now when it can be, queued otherwise. */
 export function useJobQueue() {
   const c = useApiClient();
+  // l4: a practice tap is answered on this phone at once; it never joins the real queue.
+  const practice = useInPractice();
   const list = useSyncExternalStore(subscribe, items, items);
   const isSending = useSyncExternalStore(subscribe, sending, sending);
   const run = useCallback(
     async (tap: JobTap): Promise<TapResult> => {
+      if (practice) return { status: 'sent', trip: await send(c, stampTap(tap)) };
       await hydrated;
       const action = stampTap(tap);
       const online = getNetwork().getSnapshot().state === 'online';
@@ -68,9 +72,9 @@ export function useJobQueue() {
         return { status: 'queued' };
       }
     },
-    [c],
+    [c, practice],
   );
-  return { items: list, sending: isSending, run };
+  return practice ? { items: [], sending: false, run } : { items: list, sending: isSending, run };
 }
 
 /**

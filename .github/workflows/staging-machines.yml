@@ -75,7 +75,7 @@ jobs:
       - name: Smoke (only when on)
         if: inputs.mode != 'off'
         run: |
-          url="https://${API_APP}.fly.dev/trpc/health.ping"
+          url="https://${API_APP}.fly.dev/trpc/health.ready"
           for _ in $(seq 1 30); do body=$(curl -fsS "$url" 2>/dev/null) && break; sleep 2; done
           echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
             echo "::error title=Staging smoke::$url must report db: ok and redis: ok"; exit 1; }

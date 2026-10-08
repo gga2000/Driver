@@ -65,6 +65,9 @@ minutes.
 - Wallet: `wallet.transactions` reads that line as kind `late_credit`, «تعويض التأخير · طلب #3808»
   ("Late delivery credit · Order #3808"), for the fee back and the flat 1,000 alike; other
   `credit_issued` lines stay «رصيد مضاف».
+- Push (NTF-22): the same transaction logs one `order.late_credit` {customerId, amountIqd} per order
+  (idempotency key `late_credit:<orderId>`); notify sends `order_late_credit` «+1,000 دينار رصيد، لأن
+  تأخرنا عليك», opening the wallet. No money posted → no event → no push.
 - Simulator invariant `late_credit_once_per_delivery` checks once / deliveries only / payer / amount.
 
 ## Outputs

@@ -45,7 +45,7 @@ we can't open to the public without it.
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |
 | Road routing server (OSRM), until then times are straight-line estimates | No | `docs/deploy/hosting.md` |
 | Apple developer account (iPhone comes after Android) | No | `docs/deploy/mobile.md` |
-| Our own domain; Sentry crash reports (server, three apps and the Console are built and switched off: only a Sentry account and the DSNs are needed) | No | `docs/deploy/web.md`, `docs/deploy/hosting.md` "Logs and errors" |
+| Our own domain; Sentry crash reports (server, three apps and the Console are built and switched off: only a Sentry account and the DSNs are needed; the customer app's speed reports ride the same DSN) | No | `docs/deploy/web.md`, `docs/deploy/hosting.md` "Logs and errors" |
 
 ## 3. Built, but not finished for real phones
 
@@ -54,6 +54,7 @@ we can't open to the public without it.
 | Phones show a simple zone sketch, not a real street map (the web version has the real map) | Yes | maps spec §2 |
 | The driver app's location with the app closed: built 2026-10-07 (Android foreground service + background task), **not yet tried on a real phone**; Google Play needs the background-location declaration (disclosure screen + short video) | Yes | `apps/partner/README.md` "Known gaps" |
 | Live updates on phones tested on web only, not on a device | Probably | `docs/api/live.md` |
+| The food screens (/food street, the four door pages, the night look) checked on the web only: on a real phone, check the photo sizes and crops, the hero's settle-in, scrolling smoothness and that dish photos from the server load and stay cached (Ali 2026-10-08: "have in the to do later") | Probably | `apps/customer/src/features/food-landing/`, `apps/customer/src/features/doors/` |
 | Selfie check and face match accept any photo; menu import from a photo is a stub | Probably | `docs/api/partner-merchant-wave2.md` |
 | Receipt printer (Bluetooth) and the restaurant's camera for evidence photos | Probably | `apps/merchant/README.md` |
 | School-run (خطوط) daily runs aren't created automatically from a subscription | Probably | `docs/api/partner-merchant-wave2.md` |

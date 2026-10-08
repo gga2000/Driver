@@ -51,6 +51,20 @@ describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service 
       }
     }
   });
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s card: AA name and fact, 3:1 dot, on its wash', (k) => {
+    const card = p[k].card;
+    for (const bg of [card.bg, ...(card.top ? [card.top] : [])]) {
+      for (const [ink, min, what] of [[card.on, 4.5, 'name'], [card.sub, 4.5, 'fact'], [card.dot, 3, 'dot']] as const) {
+        const ratio = contrastRatio(ink, bg);
+        if (ratio < min) throw new Error(`${name}: ${k} card ${what} ${ink} on ${bg} is ${ratio.toFixed(2)}:1 (< ${min}:1)`);
+        expect(ratio).toBeGreaterThanOrEqual(min);
+      }
+    }
+  });
+  it('no two service cards share a wash', () => {
+    const all = [p.food.card.bg, p.taxi.card.bg, p.tuktuk.card.bg, p.trips.card.bg, p.back.card.bg];
+    expect(new Set(all).size).toBe(all.length);
+  });
   it('the tuktuk is not the error red, and no two services share a fill', () => {
     expect(p.tuktuk.fill).not.toBe(themes[name].danger);
     const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill];
@@ -87,6 +101,18 @@ describe('warning is not the brand (joy S2-02)', () => {
     expect(themes.light.warning).not.toBe(themes.light.accent);
     expect(themes.light.inverse).toBe(themes.light.text);
     expect(contrastRatio(themes.light.onInverseCaution, themes.light.inverse)).toBeGreaterThan(7);
+  });
+});
+
+describe('controls stay visible (W12: REL-18, VIS-04)', () => {
+  it('a switched-off toggle track and every code cell edge are 3:1 on the page and on a card, in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) {
+      expect(contrastRatio(t.borderStrong, t.bg), `${name} borderStrong/bg`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(t.borderStrong, t.surface), `${name} borderStrong/surface`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('the focus ring is 3:1 on a card in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) expect(contrastRatio(t.focusRing, t.surface), name).toBeGreaterThanOrEqual(3);
   });
 });
 

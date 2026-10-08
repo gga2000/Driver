@@ -16,8 +16,8 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
-import { Accounts, LedgerService } from '../ledger/index.js';
-import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
+import { Accounts, LedgerService, WalletHolds } from '../ledger/index.js';
+import { ORDERS_TRIPS, ORDERS_WALLET_HOLDS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 
 /** The tip rules in force (`MoneyRules.afterTip`); Aziziyah's unless a test binds others. */
 export const TIP_RULES = Symbol('TIP_RULES');
@@ -25,7 +25,7 @@ export const TIP_RULES = Symbol('TIP_RULES');
 /** The event the notify module turns into «علي كرمك 1,000 دينار» for the driver. */
 export const ORDER_TIPPED_EVENT = 'order.tipped';
 
-/** States where the order reached the customer: food delivered (then closed by the rating), a ride completed. */
+/** States where the order reached the customer: food delivered (closed later by the 2-h auto-close or staff, not by the rating since FLOW-20), a ride completed. */
 const TIPPABLE: readonly OrderState[] = ['delivered', 'closed', 'completed'];
 
 const HOUR_MS = 3_600_000;
@@ -56,9 +56,12 @@ export class OrderTipsService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() uow?: UnitOfWork,
     @Optional() @Inject(TIP_RULES) rules?: Rules,
+    @Optional() private readonly holds?: WalletHolds,
   ) {
     this.rules = rules ?? AZIZIYAH_MONEY_RULES.afterTip;
-    this.lock = new DistributedKeyedLock(uow, 'orders.tip');
+    // SEC-07: the customer's wallet lock itself (`wallet:<id>`), the one every other spend of his
+    // wallet takes first: a tip, a seat, a deposit and an order are serialised against each other.
+    this.lock = new DistributedKeyedLock(uow, 'wallet');
   }
 
   /** The tip already given on this order, from the ledger (null when none). */
@@ -69,13 +72,17 @@ export class OrderTipsService {
     return line ? { amountIqd: line.amount, at: line.occurredAt } : null;
   }
 
-  /** What his own wallet can spend: the ledger balance less his open wallet orders (charged at close). */
-  async walletIqd(customerId: string): Promise<number> {
-    const [balance, held] = await Promise.all([
+  /**
+   * What his own wallet can spend: the ledger balance less his open wallet orders (charged at close)
+   * and everything else held on it (prepaid seats, request deposits; SEC-07).
+   */
+  async walletIqd(customerId: string, tx?: Tx): Promise<number> {
+    const [balance, held, elsewhere] = await Promise.all([
       this.ledger.balance(Accounts.customer(customerId)),
       this.orders.openWalletHoldIqd(customerId),
+      this.holds ? this.holds.heldExcept(ORDERS_WALLET_HOLDS, customerId, tx) : Promise.resolve(0),
     ]);
-    return balance.amount - held;
+    return balance.amount - held - elsewhere;
   }
 
   /** Why the prompt does not show for this order now (null: it shows). Pure rules over the order. */
@@ -137,7 +144,7 @@ export class OrderTipsService {
       if (reason) throw new DriverError('tip_not_offered');
       const courier = await this.trips.courierOf(order.id);
       if (!courier) throw new DriverError('tip_not_offered');
-      const before = await this.walletIqd(customerId);
+      const before = await this.walletIqd(customerId, tx);
       if (before < input.amountIqd) throw new DriverError('wallet_insufficient');
       await this.post(
         {

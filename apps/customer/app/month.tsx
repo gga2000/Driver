@@ -141,9 +141,9 @@ function MonthBody({ v }: { v: MonthInsightsView }) {
       {v.savedIqd > 0 ? (
         <Card padding={4} tone="tint" testID="month-saved">
           <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'flex-start' }}>
-            <Icon name="gift" size={22} color="successText" />
+            <Icon name="gift" size={22} color="accentText" />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text variant="bodyStrong" color="successText" tabular>
+              <Text variant="bodyStrong" color="accentText" tabular>
                 {t('month.saved_title', { amount: amountParam(v.savedIqd) })}
               </Text>
               <Text variant="footnote" color="textMuted">

@@ -134,7 +134,7 @@ export function UploadDocumentSheet({ kind, onClose }: { kind: DriverDocumentKin
 
   const pick = async (source: PhotoSource) => {
     setError(null);
-    const got = await pickPhoto(source);
+    const got = await pickPhoto(source, { document: true });
     if (got === 'denied') setError(t('partner.docs_camera_denied'));
     else if (got) setPhoto(got);
   };

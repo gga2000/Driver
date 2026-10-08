@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { Module } from '@nestjs/common';
+import { linkSecretFromEnv } from '../../shared/secrets.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { DevCallBridge, isDevEnvironment, ProxyCallBridge } from '../chat/index.js';
 import { ControlsModule } from '../controls/index.js';
@@ -7,6 +7,7 @@ import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { LiveModule } from '../live/index.js';
 import { emergencyContactOwner, NotifyModule } from '../notify/index.js';
+import { OnCallModule } from '../on-call/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { DeparturesService, RequestBoardService, RoutesModule } from '../routes/index.js';
 import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
@@ -32,16 +33,18 @@ function envInt(name: string, fallback: number): number {
  * SOS (scoring & safety §3). Owns `safety_incidents`, `safety_incident_entries` and
  * `safety_incident_fixes` (Prisma with DATABASE_URL, in memory otherwise). Reads trips, orders,
  * الرجعة departures and private rides through their public services; names, numbers and the
- * emergency contact through identity (logged vault reads); pages and messages through notify; the
+ * emergency contact through identity (logged vault reads); the first page from the on-call rota
+ * (`ON_CALL_PORT`, which also owns escalation after it); pages and messages through notify; the
  * Console hears it on the live `safety` channel. Masked calls use the chat module's bridge classes
  * (development: the real number, logged; otherwise the platform's proxy number).
  *
  * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, default https://driver.iq/sos/),
- * CONSOLE_BASE_URL (dispatcher WhatsApp link), SAFETY_LINK_SECRET (else SHARE_LINK_SECRET / JWT_SECRET),
+ * CONSOLE_BASE_URL (dispatcher WhatsApp link), SAFETY_LINK_SECRET (required in production; elsewhere it falls
+ * back to SHARE_LINK_SECRET / JWT_SECRET),
  * SAFETY_SWEEP_MS (default 5000; 0 turns the sweep off), SAFETY_TIMERS=0 turns the in-process timers off.
  */
 @Module({
-  imports: [ControlsModule, EventsModule, IdentityModule, LiveModule, NotifyModule, OrdersModule, RoutesModule, TrackingModule, TripsModule],
+  imports: [ControlsModule, EventsModule, IdentityModule, LiveModule, NotifyModule, OnCallModule, OrdersModule, RoutesModule, TrackingModule, TripsModule],
   providers: [
     {
       provide: SAFETY_REPOSITORY,
@@ -110,7 +113,8 @@ function envInt(name: string, fallback: number): number {
     {
       provide: SAFETY_CONFIG,
       useFactory: (): SafetyConfig => ({
-        secret: process.env['SAFETY_LINK_SECRET'] ?? process.env['SHARE_LINK_SECRET'] ?? process.env['JWT_SECRET'] ?? randomBytes(32).toString('hex'),
+        // SEC-15: production needs its own SAFETY_LINK_SECRET (not JWT_SECRET's, not SHARE_LINK_SECRET's).
+        secret: linkSecretFromEnv(process.env, 'SAFETY_LINK_SECRET', { fallbacks: ['SHARE_LINK_SECRET', 'JWT_SECRET'], distinctFrom: ['SHARE_LINK_SECRET'] }),
         linkBase: process.env['SAFETY_LINK_BASE_URL'] ?? 'https://driver.iq/sos/',
         consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
         timers: process.env['SAFETY_TIMERS'] !== '0',

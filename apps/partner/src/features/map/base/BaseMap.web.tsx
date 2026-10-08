@@ -1,16 +1,16 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useLiteMode } from '@driver/ui';
-import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
-import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
-import { useApi } from '@/lib/api';
+import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, SOURCE } from '@driver/map';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { LandmarkLayer } from './LandmarkLayer';
 import { ZoneLayer } from './ZoneLayer';
+import { MAP_COLORS_NIGHT, useMapColors } from './mapColors';
+import { useZoneMap } from './useZoneMap';
 
 /** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
 export function BaseMap(props: BaseMapProps) {
@@ -29,7 +29,24 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
  */
 const CONSOLE_ONLY: ReadonlySet<string> = new Set([LAYER.garages, LAYER.tripLines, LAYER.tripStops, LAYER.drivers, LAYER.driverHalo]);
 const LIGHT = buildMapStyle({ theme: 'light' });
+const DARK = buildMapStyle({ theme: 'dark' });
 const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l.id)) } as unknown as StyleSpecification;
+/**
+ * Night look (n2): the shared dark style (inverted, desaturated tiles) laid over the ember ground, a
+ * little see-through so the streets take the warm brown instead of a cold grey.
+ */
+const NIGHT_STYLE = {
+  ...DARK,
+  layers: DARK.layers
+    .filter((l) => !CONSOLE_ONLY.has(l.id))
+    .map((l) =>
+      l.id === LAYER.background
+        ? { ...l, paint: { 'background-color': MAP_COLORS_NIGHT.background } }
+        : l.id === LAYER.osm
+          ? { ...l, paint: { ...(l as { paint?: object }).paint, 'raster-opacity': 0.72 } }
+          : l,
+    ),
+} as unknown as StyleSpecification;
 
 /**
  * The camera lives in the shared values (`cam`): every frame the map is jumped to them, so the
@@ -37,8 +54,10 @@ const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
 function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, onFail }: BaseMapProps & { onFail: () => void }) {
-  const api = useApi();
-  const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zonesQuery = useZoneMap();
+  const { map: mapColors, night } = useMapColors();
+  const nightRef = useRef(night);
+  nightRef.current = night;
   const zonesRef = useRef(zonesQuery.data);
   zonesRef.current = zonesQuery.data;
   const container = useRef<HTMLDivElement | null>(null);
@@ -59,7 +78,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         try {
           map = new maplibregl.Map({
             container: container.current,
-            style: STYLE,
+            style: nightRef.current ? NIGHT_STYLE : STYLE,
             center: [cam.lng.value, cam.lat.value],
             zoom: cam.zoom.value,
             attributionControl: false,
@@ -129,12 +148,24 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     mapRef.current?.resize();
   }, [size.w, size.h]);
 
+  // Sunset or sunrise while the map is open: swap the style, then put the zones back on it.
+  const shownNight = useRef(night);
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || shownNight.current === night) return;
+    shownNight.current = night;
+    m.setStyle(night ? NIGHT_STYLE : STYLE);
+    m.once('style.load', () => {
+      if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
+    });
+  }, [night]);
+
   useEffect(() => {
     if (zonesQuery.data) mapRef.current?.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesQuery.data));
   }, [zonesQuery.data]);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: mapColors.background }]}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
       {/* MapLibre has no glyphs until the PMTiles basemap lands: neighbourhood names come from SVG. */}
       <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />

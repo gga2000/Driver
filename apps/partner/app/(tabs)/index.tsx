@@ -19,6 +19,8 @@ import { ClimateCheckCard } from '@/features/work/ClimateCheck';
 import { mapsUrl } from '@/features/work/logic';
 import { openNav, useNavApp } from '@/features/work/nav';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
+import { practiceKindFor } from '@/features/practice/scenario';
+import { usePracticeDone } from '@/features/practice/store';
 import { PrePromptGate } from '@/features/notify/Push';
 import { useBookedJobs, useDemandMap, useMe, useStatus } from '@/features/work/queries';
 import { bookedHome } from '@/features/work/booked-logic';
@@ -69,6 +71,9 @@ export default function Home() {
   // Review #28: «مشاوير باچر» for taxi and tuktuk drivers.
   const bookedJobs = useBookedJobs(s?.modes.includes('city') ?? false);
   const booked = bookedHome(bookedJobs.data, new Date());
+  // l4: «جرّب طلب تجريبي» until he has done one on this phone, while he is off shift (then it lives in Account).
+  const practiceDone = usePracticeDone();
+  const practice = s?.canDrive && !online && !s.activeTripId && !gate && practiceDone === null && practiceKindFor(s.vehicleClass) !== null;
 
   const state = dashState(online, !cut);
   const hint = s?.canDrive ? workHint(s.demand, s.position) : null;
@@ -146,6 +151,7 @@ export default function Home() {
               {/* s7: a rider looking for something left in the car (the chat is open again for 24 h). */}
               {s.canDrive ? <LostItemStrips /> : null}
               {hint ? <WorkHintCard hint={hint} onGo={goThere} onMap={() => setPeek(true)} /> : null}
+              {practice ? <ModeTile testID="mode-practice" icon="play" title={t('partner.practice_card_title')} body={t('partner.practice_card_body')} cta={t('partner.practice_card_cta')} onPress={() => router.push('/practice')} /> : null}
 
               {s.modes.includes('intercity') ? (
                 <ModeTile testID="mode-intercity" icon="garage" title={t('partner.intercity_card_title')} body={t('partner.intercity_card_body')} cta={t('partner.intercity_card_cta')} onPress={() => router.push('/intercity')} />
