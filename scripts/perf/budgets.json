@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73"
     },
     "customer.assets_mb": {
-      "max": 6.65,
-      "why": "dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.1; home card pictures, food landing photos; home gallery's own 4 rice-dish photos (concept C, +0.24): 6.25 -> 6.49"
+      "max": 6.6,
+      "why": "dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos; home gallery rice-dish photos +0.24 MB (concept C): 6.49"
     },
     "partner.code_mb": {
       "max": 6.15,

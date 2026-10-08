@@ -5,6 +5,8 @@ import type { PartnerMode } from '@driver/contracts';
 import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, Toggle, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { AppearanceCard } from '@/features/account/AppearanceCard';
+import { practiceKindFor } from '@/features/practice/scenario';
+import { usePracticeDone } from '@/features/practice/store';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
@@ -56,6 +58,9 @@ export default function Account() {
   const canDrive = s?.canDrive ?? false;
   const invites = splitInvites(useFleetInvites(canDrive).data ?? []);
   const contact = me?.emergencyContact ?? null;
+  // l4: «البروفة» stays here once he has done it, to run again any time.
+  const practiceDone = usePracticeDone();
+  const practiceKind = canDrive ? practiceKindFor(s?.vehicleClass) : null;
   // His main photo (Ali, 2026-10-06): the approved one is what customers see; the row says where the latest stands.
   const photo = useMainPhoto().data;
   const photoState = mainPhotoStatus(photo, t, { short: true });
@@ -197,6 +202,16 @@ export default function Account() {
             onPress={() => router.push('/emergency')}
             divider
           />
+          {practiceKind ? (
+            <ListRow
+              testID="hub-practice"
+              leading="play"
+              title={t('partner.practice_row')}
+              subtitle={t(practiceDone ? 'partner.practice_row_done' : 'partner.practice_row_hint')}
+              onPress={() => router.push('/practice')}
+              divider
+            />
+          ) : null}
           <ListRow
             testID="test-sound"
             leading="bell"
