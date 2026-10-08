@@ -9,14 +9,15 @@ import { errorText } from '@/lib/network';
 import {
   ACTION_KEY,
   consequences,
-  DISPUTE_OUTCOMES,
   DONE_KEY,
   OUTCOME_HINT_KEY,
   OUTCOME_KEY,
+  outcomesFor,
   QUICK_REASONS,
   REASON_MAX,
   REASON_MIN,
   type DisputeOutcomeChoice,
+  type OpsSwitches,
   type StaffAction,
 } from '@/lib/staff-actions';
 import { useTRPC } from '@/lib/trpc';
@@ -38,10 +39,13 @@ const FAULT_KEY: Record<FaultParty, MessageKey> = {
 export function StaffActionDialog({
   order,
   action,
+  switches = null,
   onClose,
 }: {
   order: Pick<StuckOrder, 'orderId' | 'ticket' | 'totalIqd' | 'paymentMethod'>;
   action: StaffAction;
+  /** Lane A's `orders.ops.switches`; null until it is on main (money lines then read "waits on Ali"). */
+  switches?: OpsSwitches | null;
   onClose: () => void;
 }) {
   const trpc = useTRPC();
@@ -104,7 +108,7 @@ export function StaffActionDialog({
     }
   };
 
-  const lines = consequences(action, order);
+  const lines = consequences(action, order, switches);
   const danger = action === 'cancel' || action === 'courierLost';
   return (
     <Dialog
@@ -148,7 +152,7 @@ export function StaffActionDialog({
                 label={t('console.stuck.dispute_outcome')}
                 value={outcome}
                 onChange={setOutcome}
-                options={DISPUTE_OUTCOMES.map((o) => ({ value: o, label: t(OUTCOME_KEY[o]) }))}
+                options={outcomesFor(switches).map((o) => ({ value: o, label: t(OUTCOME_KEY[o]) }))}
               />
             </Field>
             {outcome === 'refund_partial' ? (
@@ -157,7 +161,7 @@ export function StaffActionDialog({
               </Field>
             ) : null}
             {refund ? (
-              <Field label={t('console.stuck.fault')} hint={t('console.stuck.over_limit')}>
+              <Field label={t('console.stuck.fault')} hint={switches ? t('console.stuck.over_limit_amt', { amount: formatIqd(switches.agentLimitIqd) }) : t('console.stuck.over_limit')}>
                 <Segmented<FaultParty>
                   label={t('console.stuck.fault')}
                   value={fault}
