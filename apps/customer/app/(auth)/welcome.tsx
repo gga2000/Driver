@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { Button, Icon, MAX_CONTENT_WIDTH, Text, useTheme, withAlpha } from '@driver/ui';
+import { Button, MAX_CONTENT_WIDTH, Text, useTheme, withAlpha } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { CITY_ID } from '@/features/food/queries';
+import { shadeStops, streetLift } from '@/features/welcome/street';
 import { nowLine } from '@/features/welcome/today';
 import { useApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -20,8 +22,10 @@ const STREET = require('../../assets/welcome/golden-street.webp') as number;
  * market street at golden hour (samoon oven, Corolla taxi, plum tuktuk, delivery bike) under a
  * date-brown fade, the line «العزيزية كلها بدوسة وحدة», and the same two ways in: "يلا نبدي" opens
  * home as a guest (menus and prices before any phone number, C-18), "عندك حساب؟" goes to the
- * number. The live pill (`catalog.today`) and the honest-delay promise only show when the server
- * answered; offline the screen still reads whole without them.
+ * number. The live pill (`catalog.today`) only shows when the server answered; offline the screen
+ * still reads whole without it. On a short phone the photo slides up so the street clears the words
+ * (`streetLift`), and the shade starts where the words do. The honest-delay promise is told at checkout,
+ * where it applies, not here (one message per first screen).
  */
 export default function Welcome() {
   const theme = useTheme();
@@ -39,6 +43,12 @@ export default function Welcome() {
     router.push('/phone');
   };
   const night = theme.colors.inverse;
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [wordsTop, setWordsTop] = useState(0);
+  const lift = streetLift(width, height, wordsTop);
+  const short = height < 700;
+  const title = short ? { fontSize: 34, lineHeight: 44 } : { fontSize: 40, lineHeight: 50 };
   return (
     <View style={{ flex: 1, overflow: 'hidden', backgroundColor: night }}>
       <StatusBar style="light" />
@@ -47,19 +57,16 @@ export default function Welcome() {
         resizeMode="cover"
         accessibilityRole="image"
         accessibilityLabel={t('welcome.photo_a11y')}
-        style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }}
+        style={{ position: 'absolute', top: -lift, start: 0, width: '100%', height: height + lift }}
       />
       {/* Shade: a light veil under the status bar, the street clear in the middle, date brown under the words. */}
       <View pointerEvents="none" style={StyleSheet.absoluteFill} aria-hidden accessible={false}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="welcome-shade" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={night} stopOpacity={0.4} />
-              <Stop offset="0.16" stopColor={night} stopOpacity={0} />
-              <Stop offset="0.42" stopColor={night} stopOpacity={0} />
-              <Stop offset="0.64" stopColor={night} stopOpacity={0.74} />
-              <Stop offset="0.84" stopColor={night} stopOpacity={1} />
-              <Stop offset="1" stopColor={night} stopOpacity={1} />
+              {shadeStops(height, wordsTop).map(([offset, opacity], i) => (
+                <Stop key={i} offset={offset} stopColor={night} stopOpacity={opacity} />
+              ))}
             </LinearGradient>
           </Defs>
           <Rect x="0" y="0" width="100%" height="100%" fill="url(#welcome-shade)" />
@@ -106,26 +113,18 @@ export default function Welcome() {
             ) : null}
           </View>
 
-          <View style={{ gap: theme.space[5] }}>
+          <View style={{ gap: theme.space[5] }} onLayout={(e) => setWordsTop(insets.top + e.nativeEvent.layout.y)}>
             <View style={{ gap: theme.space[3] }}>
-              <Text accessibilityRole="header" weight={700} color="onInverse" maxFontSizeMultiplier={1.3} style={{ fontSize: 40, lineHeight: 50 }}>
+              <Text accessibilityRole="header" weight={700} color="onInverse" maxFontSizeMultiplier={1.3} style={title}>
                 {t('welcome.title_1')}
                 {'\n'}
-                <Text weight={700} color="onInverseAccent" maxFontSizeMultiplier={1.3} style={{ fontSize: 40, lineHeight: 50 }}>
+                <Text weight={700} color="onInverseAccent" maxFontSizeMultiplier={1.3} style={title}>
                   {t('welcome.title_2')}
                 </Text>
               </Text>
               <Text color={withAlpha(theme.colors.onInverse, 0.84)} style={{ fontSize: 16, lineHeight: 26 }}>
                 {t('welcome.body')}
               </Text>
-              {today.data ? (
-                <View testID="welcome-promise" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                  <Icon name="shield" size={16} color="onInverseAccent" />
-                  <Text variant="footnote" color={withAlpha(theme.colors.onInverse, 0.72)} style={{ flexShrink: 1 }}>
-                    {t('promise.line', { minutes: today.data.latePromiseMin })}
-                  </Text>
-                </View>
-              ) : null}
             </View>
 
             <View style={{ gap: theme.space[1] }}>
