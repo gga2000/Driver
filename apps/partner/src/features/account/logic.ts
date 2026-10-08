@@ -11,7 +11,7 @@ import type {
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
-import { formatRange, type MessageKey } from '@driver/i18n';
+import { formatRange, type Locale, type MessageKey } from '@driver/i18n';
 import { pluralForm } from '@/features/work/logic';
 
 /**
@@ -509,4 +509,144 @@ export function mainPhotoNote(view: MainPhotoView | undefined): MessageKey {
   if (view?.state === 'pending') return view.approved ? 'partner.mainphoto_pending_keep' : 'partner.mainphoto_pending_first';
   if (view?.state === 'rejected' && view.approved) return 'partner.mainphoto_rejected_keep';
   return view?.approved ? 'partner.mainphoto_customers_see' : 'partner.mainphoto_customers_see_initial';
+}
+
+/**
+ * Partner redesign r4: «يسوق ويانا من 3 أشهر» on his public page — the same rule the rider's profile
+ * uses (whole 30.44-day months; a year from 12). Null without a start date.
+ */
+export function memberSpan(since: Date | null, now: number): { unit: 'new' | 'months' | 'years'; n: number } | null {
+  if (!since) return null;
+  const months = Math.floor((now - since.getTime()) / (30.44 * 86_400_000));
+  if (months < 1) return { unit: 'new', n: 0 };
+  if (months < 12) return { unit: 'months', n: months };
+  return { unit: 'years', n: Math.floor(months / 12) };
+}
+
+// ───────────────────────── his best (partner redesign e3 / e4 / e5) ─────────────────────────
+
+export type DayPart = 'morning' | 'noon' | 'afternoon' | 'night';
+
+/** Iraqi parts of the day for an hour 0–24: الصبح 4–12, الظهر 12–15, العصر 15–18, بالليل 18–4. */
+export function dayPart(hour: number): DayPart {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 4 && h < 12) return 'morning';
+  if (h >= 12 && h < 15) return 'noon';
+  if (h >= 15 && h < 18) return 'afternoon';
+  return 'night';
+}
+
+/**
+ * «الخميس 7–11 بالليل» / «الجمعة 4 العصر – 8 بالليل»: the weekday and the window on the 12-hour clock,
+ * the part of the day said once when both ends share it. The end hour names the part the window
+ * reaches into (11 بالليل is the hour that ends at 11).
+ */
+export function bestWindowLabel(w: { weekday: number; fromHour: number; toHour: number }, t: T, locale: Locale = 'ar-IQ'): string {
+  const day = t(`partner.weekday_${w.weekday}` as MessageKey);
+  const fromPart = dayPart(w.fromHour);
+  const toPart = dayPart(w.toHour - 1);
+  const part = (p: DayPart) => t(`partner.best_part_${p}` as MessageKey);
+  // formatRange keeps the start on the right in Arabic, whatever surrounds it.
+  const range =
+    fromPart === toPart
+      ? t('partner.best_range_one', { range: formatRange(hour12(w.fromHour), hour12(w.toHour), locale), part: part(fromPart) })
+      : t('partner.best_range_two', { range: formatRange(`${hour12(w.fromHour)} ${part(fromPart)}`, `${hour12(w.toHour)} ${part(toPart)}`, locale, { spaced: true }) });
+  return `${day} ${range}`;
+}
+
+/** The order's tip on a job line (green, e5): the sum of its tip components; 0 without one. */
+export function jobTipIqd(job: Pick<EarningsJobLine, 'components'>): number {
+  return job.components.filter((c) => c.type === 'tip').reduce((s, c) => s + c.amountIqd, 0);
+}
+
+// ───────────────────────── the score in five parts (partner redesign a4 / f6) ─────────────────────────
+
+export interface ScorePart {
+  key: ScoreMetric['key'];
+  /** Points he has of this part, whole; the five add up to his index. */
+  points: number;
+  /** What this part is worth of the 100, whole; the parts with data add up to 100. */
+  max: number;
+  /** No samples yet: the part is left out of the 100 (the server leaves it out of the index too). */
+  noData: boolean;
+}
+
+/** Whole numbers that add up to `total`, closest to `exact` (largest remainder). */
+function apportion(exact: readonly number[], total: number): number[] {
+  const floors = exact.map((x) => Math.floor(x));
+  let left = total - floors.reduce((s, x) => s + x, 0);
+  const order = exact.map((x, i) => ({ i, r: x - Math.floor(x) })).sort((a, b) => b.r - a.r || a.i - b.i);
+  for (const o of order) {
+    if (left <= 0) break;
+    floors[o.i]! += 1;
+    left -= 1;
+  }
+  return floors;
+}
+
+/**
+ * His index as five parts of 100 (f6): each part's weight over the parts that have data (the server's
+ * own formula: index = 100 × Σ score·weight ÷ Σ weight), in whole points that add up exactly — the
+ * maxima to 100 and the points to his index. Biggest part first.
+ */
+export function scoreParts(metrics: readonly Pick<ScoreMetric, 'key' | 'value' | 'score' | 'weight'>[], index: number): ScorePart[] {
+  const withData = metrics.filter((m) => m.value !== null);
+  const possible = withData.reduce((s, m) => s + m.weight, 0);
+  if (possible <= 0) return metrics.map((m) => ({ key: m.key, points: 0, max: 0, noData: true }));
+  const maxes = apportion(
+    withData.map((m) => (100 * m.weight) / possible),
+    100,
+  );
+  const points = apportion(
+    withData.map((m) => (100 * m.score * m.weight) / possible),
+    Math.round(index),
+  );
+  const parts: ScorePart[] = withData.map((m, i) => ({ key: m.key, max: maxes[i]!, points: Math.min(points[i]!, maxes[i]!), noData: false }));
+  for (const m of metrics) if (m.value === null) parts.push({ key: m.key, points: 0, max: 0, noData: true });
+  return parts.sort((a, b) => Number(a.noData) - Number(b.noData) || b.max - a.max);
+}
+
+/**
+ * a4: the part that costs him most this week, when it costs 3 points or more; null when nothing does
+ * (the card then says he is doing well).
+ */
+export function weakestPart(parts: readonly ScorePart[]): ScorePart | null {
+  let worst: ScorePart | null = null;
+  for (const p of parts) if (!p.noData && (!worst || p.max - p.points > worst.max - worst.points)) worst = p;
+  return worst && worst.max - worst.points >= 3 ? worst : null;
+}
+
+// ───────────────────────── account hub and home papers (partner redesign a1 / a3) ─────────────────────────
+
+/** a3: papers reach home only in their last 14 days (the papers page warns from 30). */
+export const HOME_PAPERS_DAYS = 14;
+
+/** a3: the paper that runs out soonest within `HOME_PAPERS_DAYS`, still valid; null when none does. */
+export function papersReminder(view: Pick<DocumentsView, 'documents'> | undefined, days = HOME_PAPERS_DAYS): { kind: DriverDocumentKind; days: number } | null {
+  let best: { kind: DriverDocumentKind; days: number } | null = null;
+  for (const d of view?.documents ?? []) {
+    if (d.status !== 'expiring' || d.daysToExpiry === null || d.daysToExpiry < 0 || d.daysToExpiry > days) continue;
+    if (!best || d.daysToExpiry < best.days) best = { kind: d.kind, days: d.daysToExpiry };
+  }
+  return best;
+}
+
+export type HubTone = 'success' | 'warning' | 'danger' | 'info' | 'neutral' | 'accent';
+
+/** a1: the papers row's pill: the one thing that matters most about his papers. */
+export function papersPill(view: Pick<DocumentsView, 'documents' | 'missing' | 'blocksOnline'> | undefined, t: T): { label: string; tone: HubTone } | null {
+  if (!view) return null;
+  const rows = documentRows(view).filter((r) => r.required);
+  const worst = rows[0];
+  if (!worst || worst.status === 'approved') return { label: t('partner.a1_papers_ok'), tone: 'success' };
+  if (worst.status === 'expiring' && worst.doc?.daysToExpiry != null) return { label: t('partner.a1_papers_days', { n: worst.doc.daysToExpiry }), tone: 'warning' };
+  return { label: t(DOC_STATUS_KEY[worst.status]), tone: DOC_TONE[worst.status] };
+}
+
+/** a1: the check-in row's pill. */
+export function checkInPill(s: { verifiedToday: boolean; lockedOut: boolean; required: boolean } | undefined, t: T): { label: string; tone: HubTone } | null {
+  if (!s) return null;
+  if (s.lockedOut) return { label: t('partner.a1_checkin_locked'), tone: 'danger' };
+  if (s.verifiedToday) return { label: t('partner.a1_checkin_done'), tone: 'success' };
+  return s.required ? { label: t('partner.a1_checkin_needed'), tone: 'accent' } : null;
 }
