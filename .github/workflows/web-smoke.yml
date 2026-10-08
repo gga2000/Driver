@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# Its own group (never deploy-staging's), so a check never queues behind a long load run.
+concurrency:
+  group: web-live-check
+  cancel-in-progress: true
+
 env:
   API_URL: https://driver-api-staging.fly.dev/trpc
   CUSTOMER_URL: https://driver-customer-iota.vercel.app

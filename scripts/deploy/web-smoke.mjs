@@ -54,9 +54,10 @@ if (errors.length) fail(`script errors: ${errors.slice(0, 3).join(' | ')}`);
 else ok('no script errors');
 
 // A cross-origin call from the page: a CORS refusal throws, any HTTP answer below 500 means the API is up.
+// A sleeping staging machine can take ~20 s to wake, so the call gets 30 s before it counts as down.
 const api = await page.evaluate(async (url) => {
   try {
-    const r = await fetch(`${url}/system.season`);
+    const r = await fetch(`${url}/system.season`, { signal: AbortSignal.timeout(30_000) });
     return { status: r.status };
   } catch (e) {
     return { error: String(e) };
