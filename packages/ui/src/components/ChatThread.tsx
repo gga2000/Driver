@@ -14,6 +14,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
 import { Chip } from './Chip';
 import { EmptyState } from './EmptyState';
+import { CallSoonIcon } from './CallSoon';
 import { IconButton } from './IconButton';
 import { PermissionPrompt } from './PermissionPrompt';
 import { Skeleton } from './Skeleton';
@@ -93,6 +94,8 @@ export interface ChatThreadProps {
   /** Masked call (see `useMaskedCall`). */
   call: () => void;
   calling: boolean;
+  /** Calls aren't live yet (G0-10): the header's call button shows greyed with «قريباً»; `call` explains. */
+  callSoon?: boolean;
   onBack: () => void;
   /** The API error's copy in this locale, or `fallback`. */
   errorMessage: (err: unknown, fallback: string) => string;
@@ -131,6 +134,7 @@ export function ChatThread({
   refresh,
   call,
   calling,
+  callSoon = false,
   onBack,
   errorMessage,
   errorCode,
@@ -420,7 +424,13 @@ export function ChatThread({
                 <Skeleton width={140} height={20} />
               )}
             </View>
-            {v?.canCall ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" /> : null}
+            {v?.canCall ? (
+              callSoon ? (
+                <CallSoonIcon locale={locale} onPress={call} testID="chat-call" />
+              ) : (
+                <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" />
+              )
+            ) : null}
           </View>
         </View>
 

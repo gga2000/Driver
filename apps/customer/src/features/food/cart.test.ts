@@ -222,6 +222,29 @@ describe('cart store (persisted)', () => {
     expect(b.getSnapshot().placed).toBeNull();
   });
 
+  it('a dish added before the saved cart has loaded is kept, and nothing saved is lost (FOOD-29)', async () => {
+    const storage = createMemoryStorage();
+    const a = createCartStore(storage);
+    await a.load();
+    a.addPerson('سارة', '+9647701234567');
+    a.markPlaced('ord_9');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const b = createCartStore(storage);
+    const loading = b.load();
+    expect(b.add(KHALID, kebabWrap()).ok).toBe(true);
+    await loading;
+    expect(b.getSnapshot().cart.lines).toHaveLength(1);
+    expect(b.getSnapshot().people.map((p) => p.name)).toEqual(['سارة']);
+    expect(b.getSnapshot().placed?.orderId).toBe('ord_9');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const c = createCartStore(storage);
+    await c.load();
+    expect(c.getSnapshot().cart.lines).toHaveLength(1);
+    expect(c.getSnapshot().people.map((p) => p.name)).toEqual(['سارة']);
+  });
+
   it('undo puts a removed line back with its key', async () => {
     const s = createCartStore(createMemoryStorage());
     await s.load();
