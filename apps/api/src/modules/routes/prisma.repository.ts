@@ -311,6 +311,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
       driverArrivedPin: r.driverArrivedPin
         ? (r.driverArrivedPin as unknown as Prisma.InputJsonObject)
         : Prisma.DbNull,
+      waitStartedAt: r.waitStartedAt,
+      waitEndedAt: r.waitEndedAt,
       closedAt: r.closedAt,
     };
     await db.rideRequest.upsert({
@@ -638,6 +640,8 @@ function toRequest(r: RequestRow): RequestRecord {
     depositIqd: r.depositIqd,
     driverArrivedAt: r.driverArrivedAt,
     driverArrivedPin: (r.driverArrivedPin as unknown as RequestRecord['driverArrivedPin']) ?? null,
+    waitStartedAt: r.waitStartedAt,
+    waitEndedAt: r.waitEndedAt,
     closedAt: r.closedAt,
     createdAt: r.createdAt,
   };

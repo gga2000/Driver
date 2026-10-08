@@ -1450,6 +1450,16 @@ async function rajaaShots(personId) {
     await byTestId('rajaa-deposit').waitFor({ state: 'detached', timeout: 15_000 });
     await page.waitForTimeout(1000);
     await shot('rajaa-request-matched');
+    // w2/w3/w4: the driver waits; the same clock as his. 1 h in, then 10 minutes before the included
+    // 4 hours end, then 5 h 20 min with the charge as it will look once switched on (2 extra hours).
+    for (const [min, name, charged] of [[62, 'rajaa-wait-clock', 0], [231, 'rajaa-wait-ending', 0], [320, 'rajaa-wait-extra', 1]]) {
+      await demoPost(`/demo/rajaa/waiting?personId=${encodeURIComponent(personId)}&min=${min}&charged=${charged}`);
+      await page.reload(LOADED);
+      await byTestId('rajaa-wait-clock').waitFor({ timeout: 20_000 }).catch(() => errors.push(`${name}: no waiting clock`));
+      await byTestId('rajaa-wait-clock').evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+      await settle(500);
+      await shot(name);
+    }
   }
 
   // Home: the الرجعة card now reads the live board (and the booked trip).

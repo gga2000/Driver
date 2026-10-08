@@ -24,3 +24,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010100000 | inbox | lane E | #14 |
 | 20261010130000 | fleet_planned_vehicle | partner app thread | #15 |
 | 20261010140000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41) |
+| 20261010250000 | request_wait_clock | trips thread | private car round 2 step 2 |

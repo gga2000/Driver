@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DEFAULT_REQUEST_DETAILS,
   DriverError,
   encodeDomainEvent,
@@ -8,9 +9,13 @@ import {
   PostRequestInput,
   USUAL_RANGE_DAYS,
   usualRangeOf,
+  waitExtraIqd,
+  waitedMinutes,
+  type MoneyRules,
   type OfferWaitTerms,
   type RequestPlaceId,
   type RequestTripKind,
+  type RequestWaitClock,
   type TravellingAs,
   type UsualRange,
 } from '@driver/contracts';
@@ -53,6 +58,9 @@ export class RequestBoardService {
     @Inject(ROUTES_RULES) private readonly rules: IntercityRules,
     @Inject(ROUTES_IDS) private readonly ids: IdSource,
   ) {}
+
+  /** The money rules this board reads (w4's switch); a field so tests can switch it on. */
+  moneyRules: Pick<MoneyRules, 'requestWaitExtra'> = AZIZIYAH_MONEY_RULES;
 
   private now(): Date {
     return this.clock.now();
@@ -350,7 +358,40 @@ export class RequestBoardService {
     });
   }
 
-  /** Completed: a private intercity ride (8 %); the deposit was paid from the wallet, the rest in cash. */
+  /** w2: the driver dropped the rider and starts waiting («يستناك وترجع» only, once). */
+  waitStart(driverId: string, postId: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.mustDrive(driverId, postId, tx);
+      if (r.state !== 'matched' && r.state !== 'driver_arrived')
+        throw new DriverError('request_state_conflict');
+      if (!offerNeedsWaitTerms(r.details) || r.waitStartedAt) throw new DriverError('request_state_conflict');
+      r.waitStartedAt = this.now();
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.wait_started', driverId, r, {});
+      return r;
+    });
+  }
+
+  /** w2: the rider is back in the car; the clock stops and the extra hours (if any) are fixed. */
+  waitEnd(driverId: string, postId: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.mustDrive(driverId, postId, tx);
+      if ((r.state !== 'matched' && r.state !== 'driver_arrived') || !r.waitStartedAt || r.waitEndedAt)
+        throw new DriverError('request_state_conflict');
+      r.waitEndedAt = this.now();
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.wait_ended', driverId, r, {
+        waitedMin: waitedMinutes({ startedAt: r.waitStartedAt, endedAt: r.waitEndedAt }, r.waitEndedAt),
+        extraIqd: this.waitExtra(r),
+      });
+      return r;
+    });
+  }
+
+  /**
+   * Completed: a private intercity ride (8 %); the deposit was paid from the wallet, the rest in cash.
+   * A clock still running stops here; extra waiting (w4, when switched on) is added to the fare and the cash.
+   */
   complete(driverId: string, postId: string): Promise<RequestRecord> {
     return this.writer.run(async (tx) => {
       const r = await this.mustDrive(driverId, postId, tx);
@@ -358,6 +399,8 @@ export class RequestBoardService {
         throw new DriverError('request_state_conflict');
       const offer = this.picked(r);
       const deposit = r.depositIqd ?? 0;
+      if (r.waitStartedAt && !r.waitEndedAt) r.waitEndedAt = this.now();
+      const fareIqd = offer.priceIqd + this.waitExtra(r);
       r.state = 'completed';
       r.closedAt = this.now();
       await this.repo.saveRequest(r, tx);
@@ -366,20 +409,26 @@ export class RequestBoardService {
         from: 'completed',
         to: 'closed',
         reason: 'request_board_completed',
-        totalIqd: offer.priceIqd,
+        totalIqd: fareIqd,
         ride: {
           tripId: r.id,
           occurredAt: this.now(),
           customerId: r.riderId,
           payment: 'cash',
-          cashCollectedIqd: offer.priceIqd - deposit,
+          cashCollectedIqd: fareIqd - deposit,
           driverId,
           takeClass: 'intercity_private',
-          fareIqd: offer.priceIqd,
+          fareIqd,
         },
       });
       return r;
     });
+  }
+
+  /** w4: what the waiting adds, from the picked offer's terms and the two clock times (0 while off). */
+  waitExtra(r: RequestRecord, now: Date = this.now()): number {
+    const clock = waitClockOf(r, this.moneyRules.requestWaitExtra);
+    return clock ? waitExtraIqd(clock, now) : 0;
   }
 
   /** The driver waited at the pickup: the deposit is his (review C-50). */
@@ -461,6 +510,8 @@ export class RequestBoardService {
       | 'depositIqd'
       | 'driverArrivedAt'
       | 'driverArrivedPin'
+      | 'waitStartedAt'
+      | 'waitEndedAt'
       | 'closedAt'
       | 'createdAt'
     >,
@@ -476,6 +527,8 @@ export class RequestBoardService {
       depositIqd: null,
       driverArrivedAt: null,
       driverArrivedPin: null,
+      waitStartedAt: null,
+      waitEndedAt: null,
       closedAt: null,
       createdAt: this.now(),
     };
@@ -521,4 +574,19 @@ export class RequestBoardService {
       { name: 'ride_request', id: r.id },
     );
   }
+}
+
+/** w2: a request's waiting clock as both apps show it; null before the driver starts it. */
+export function waitClockOf(r: RequestRecord, rule: MoneyRules['requestWaitExtra']): RequestWaitClock | null {
+  if (!r.waitStartedAt) return null;
+  const terms = r.offers.find((o) => o.id === r.pickedOfferId)?.wait;
+  if (!terms) return null;
+  return {
+    startedAt: r.waitStartedAt,
+    endedAt: r.waitEndedAt,
+    includedHours: terms.includedHours,
+    extraHourIqd: terms.extraHourIqd,
+    freeMin: rule.freeMin,
+    charged: rule.enabled,
+  };
 }

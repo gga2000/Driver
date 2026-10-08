@@ -14,7 +14,7 @@
 //   Request board: a family to الحلة (private car), a ziyara to النجف tomorrow, a stranded rider at
 //          her seat price, and a ride to الصويرة where the rider already picked his offer.
 //
-//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, posts, pins }
+//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, waitRides, posts, pins }
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
 import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
@@ -170,12 +170,28 @@ export default async function register(demo) {
     const suwaira = await postRequest(actor('rusul'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'الصويرة' }, when: new Date(now + 40 * MIN), seats: 2, privateCar: true, travellingAs: 'nisa' });
     const offered = await rpc.offerOnRequest(driver, { postId: suwaira.id, priceIqd: 25_000 });
     await rpc.pickOffer(actor('rusul'), { postId: suwaira.id, offerId: offered.offers[0].id });
+    // w2: two «يستناك وترجع» rides to Karbala picked by this driver: one he just reached (the start
+    // button), one where he has waited 3 h 51 min of the 4 included hours (the 10-minute reminder).
+    const waitRide = async (who, waitedMin) => {
+      const r = await postRequest(actor(who), { from: { label: 'العزيزية، حي الزهراء' }, to: { label: 'كربلاء', placeId: 'karbala' }, when: new Date(now + 10 * MIN), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4 } });
+      const o = await rpc.offerOnRequest(driver, { postId: r.id, priceIqd: 70_000, wait: { includedHours: 4, extraHourIqd: 5_000 } });
+      await rpc.pickOffer(actor(who), { postId: r.id, offerId: o.offers.at(-1).id });
+      await rpc.requestArrived(driver, { postId: r.id, lat: 32.9105, lng: 45.0611 });
+      if (waitedMin !== null) {
+        await rpc.requestWaitStart(driver, { postId: r.id });
+        const w = await repo.getRequest(r.id);
+        await repo.saveRequest({ ...w, waitStartedAt: new Date(now - waitedMin * MIN) });
+      }
+      return r.id;
+    };
+    const waitReady = await waitRide('poster6', null);
+    const waiting = await waitRide('poster7', 231);
 
     state.runA = a.id;
     state.runB = b.id;
     state.pins = { hussein: hussein.pin, maryam: maryam.pin, ahmed: ahmed.pin };
     state.bookings = { hussein: hussein.id, maryam: maryam.id, ahmed: ahmed.id };
-    return { runA: a.id, runB: b.id, rideId: suwaira.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id }, pins: state.pins, bookings: state.bookings };
+    return { runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id }, pins: state.pins, bookings: state.bookings };
   }
 
   await seed({ who: 'intercity' });

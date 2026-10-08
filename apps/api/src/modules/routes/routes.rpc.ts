@@ -50,7 +50,7 @@ import {
   graceEndsAt,
   pickupView,
   prepayRail,
-  requestView,
+  requestView as requestViewOf,
 } from './views.js';
 
 type In<K extends keyof RoutesPort> = Parameters<RoutesPort[K]>[1];
@@ -274,10 +274,15 @@ export class RoutesRpc implements RoutesPort {
     return this.riderRequestView(await this.requests.post(actor.personId, input), actor.personId);
   }
 
+  /** A request as its viewer sees it, the waiting clock read with this board's money rules (w4's switch). */
+  private requestView(r: RequestRecord, viewerDriverId?: string, drivers?: ReadonlyMap<string, RequestOfferDriver>, usualRange: UsualRange | null = null): RequestPostView {
+    return requestViewOf(r, viewerDriverId, drivers, usualRange, this.requests.moneyRules.requestWaitExtra);
+  }
+
   async myRequests(actor: Actor): Promise<RequestPostView[]> {
     const mine = await this.requests.mine(actor.personId);
     const [drivers, ranges] = await Promise.all([this.offerDrivers(mine, actor.personId), this.requests.usualRanges(mine)]);
-    return mine.map((r) => requestView(r, undefined, drivers, ranges.get(r.id) ?? null));
+    return mine.map((r) => this.requestView(r, undefined, drivers, ranges.get(r.id) ?? null));
   }
 
   async usualRange(_actor: Actor, input: In<'usualRange'>): Promise<UsualRange | null> {
@@ -294,12 +299,12 @@ export class RoutesRpc implements RoutesPort {
 
   private async riderRequestView(r: RequestRecord, riderId: string): Promise<RequestPostView> {
     const [drivers, ranges] = await Promise.all([this.offerDrivers([r], riderId), this.requests.usualRanges([r])]);
-    return requestView(r, undefined, drivers, ranges.get(r.id) ?? null);
+    return this.requestView(r, undefined, drivers, ranges.get(r.id) ?? null);
   }
 
   /** p2: a driver sees the same usual range the rider does, so offers start fair. */
   private async driverRequestView(r: RequestRecord, driverId: string): Promise<RequestPostView> {
-    return requestView(r, driverId, undefined, (await this.requests.usualRanges([r])).get(r.id) ?? null);
+    return this.requestView(r, driverId, undefined, (await this.requests.usualRanges([r])).get(r.id) ?? null);
   }
 
   /**
@@ -556,7 +561,7 @@ export class RoutesRpc implements RoutesPort {
   async openRequests(actor: Actor, input: In<'openRequests'>): Promise<RequestPostView[]> {
     const open = await this.requests.listOpen(actor.personId, input?.cityId);
     const ranges = await this.requests.usualRanges(open);
-    return open.map((r) => requestView(r, actor.personId, undefined, ranges.get(r.id) ?? null));
+    return open.map((r) => this.requestView(r, actor.personId, undefined, ranges.get(r.id) ?? null));
   }
 
   async requestSeen(actor: Actor, input: In<'requestSeen'>): Promise<RequestPostView> {
@@ -571,18 +576,26 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async requestArrived(actor: Actor, input: In<'requestArrived'>): Promise<RequestPostView> {
-    return requestView(
+    return this.requestView(
       await this.requests.arrived(actor.personId, input.postId, { lat: input.lat, lng: input.lng }),
       actor.personId,
     );
   }
 
+  async requestWaitStart(actor: Actor, input: In<'requestWaitStart'>): Promise<RequestPostView> {
+    return this.requestView(await this.requests.waitStart(actor.personId, input.postId), actor.personId);
+  }
+
+  async requestWaitEnd(actor: Actor, input: In<'requestWaitEnd'>): Promise<RequestPostView> {
+    return this.requestView(await this.requests.waitEnd(actor.personId, input.postId), actor.personId);
+  }
+
   async requestCompleted(actor: Actor, input: In<'requestCompleted'>): Promise<RequestPostView> {
-    return requestView(await this.requests.complete(actor.personId, input.postId), actor.personId);
+    return this.requestView(await this.requests.complete(actor.personId, input.postId), actor.personId);
   }
 
   async reportRiderNoShow(actor: Actor, input: In<'reportRiderNoShow'>): Promise<RequestPostView> {
-    return requestView(
+    return this.requestView(
       await this.requests.riderNoShow(actor.personId, input.postId),
       actor.personId,
     );
@@ -602,7 +615,7 @@ export class RoutesRpc implements RoutesPort {
       if (r.closedAt && now - r.closedAt.getTime() > 12 * 3600_000) continue;
       const deposit = r.depositIqd ?? 0;
       out.push({
-        ...requestView(r, actor.personId),
+        ...this.requestView(r, actor.personId),
         priceIqd: picked.priceIqd,
         driverArrivedAt: r.driverArrivedAt,
         riderNoShowAt: r.driverArrivedAt
@@ -611,7 +624,8 @@ export class RoutesRpc implements RoutesPort {
                 rb.riderNoShowWaitMin * MIN_MS,
             )
           : null,
-        cashToCollectIqd: Math.max(0, picked.priceIqd - deposit),
+        // w4: extra waiting (when switched on) is cash too: counted so far, fixed once the clock stops.
+        cashToCollectIqd: Math.max(0, picked.priceIqd + this.requests.waitExtra(r) - deposit),
       });
     }
     return out.sort((a, b) => a.when.getTime() - b.when.getTime());
@@ -662,7 +676,7 @@ export class RoutesRpc implements RoutesPort {
       await this.repo.listRequests({ states: ['open', 'matched', 'driver_arrived'] })
     )
       .filter((r) => r.from.garageId === g.id || r.cityId === g.cityId)
-      .map((r) => requestView(r));
+      .map((r) => this.requestView(r));
     return { garage: garageView(g), departures, demand, openRequests, stranded };
   }
 

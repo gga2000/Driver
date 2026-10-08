@@ -210,6 +210,9 @@ export interface RequestRecord {
   depositIqd: number | null;
   driverArrivedAt: Date | null;
   driverArrivedPin: { lat: number; lng: number } | null;
+  /** w2: the waiting clock on a «يستناك وترجع» trip, started and stopped by the driver. */
+  waitStartedAt: Date | null;
+  waitEndedAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
 }

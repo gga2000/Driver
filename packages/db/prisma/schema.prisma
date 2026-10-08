@@ -1927,6 +1927,9 @@ model RideRequest {
   driverArrivedAt  DateTime?        @map("driver_arrived_at")
   /// {lat, lng} of the driver's arrival tap
   driverArrivedPin Json?            @map("driver_arrived_pin")
+  /// w2: the waiting clock on a «يستناك وترجع» trip (driver starts it at the drop, stops it on the way back)
+  waitStartedAt    DateTime?        @map("wait_started_at")
+  waitEndedAt      DateTime?        @map("wait_ended_at")
   closedAt         DateTime?        @map("closed_at")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")

@@ -220,6 +220,13 @@ export const MoneyRules = z.object({
    * "yes" on 2026-10-07; the switch lets ops stop it without a release.
    */
   driverCancelCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * w4, a private «يستناك وترجع» trip: waiting past the driver's included hours adds his own extra-hour
+   * price per started hour, after `freeMin` free minutes (Ali, 2026-10-08: "do what is best and fair").
+   * Paid in cash at the end with the rest, part of the fare (the private take applies). Off until Ali
+   * switches it on: the clock still runs and shows, nothing is added.
+   */
+  requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -277,6 +284,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
   // M-15: on (Ali, 2026-10-07, "yes").
   driverCancelCredit: { enabled: true },
+  // w4: built 2026-10-08, off until Ali switches it on.
+  requestWaitExtra: { enabled: false, freeMin: 15 },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

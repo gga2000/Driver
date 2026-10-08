@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { IntercityVehicleKind, REQUEST_WAIT_HOURS_MAX, requestDetailsProblem, type RequestDetails, type RequestPostView, type RequestTripKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
+import { Button, Card, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, WaitClock, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
@@ -12,6 +12,7 @@ import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest, useUsual
 import { REQUEST_PLACES, OFFER_SORTS, offerWinners, placeIdFor, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
 import { DetailPills, OfferCard, SeenLine, UsualRangeLine } from '@/features/rajaa/RequestParts';
 import { SwitchRow } from '@/features/rajaa/SeatParts';
+import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -43,7 +44,8 @@ function RequestCard({ r }: { r: RequestPostView }) {
   const offers = sortOffers(live, r.details, sort);
   const wins = offerWinners(live, r.details);
   const picked = r.offers.find((o) => o.id === r.pickedOfferId) ?? null;
-  const now = new Date();
+  // The waiting clock moves while the screen is open (h:mm, so every 15 s is plenty).
+  const now = useNow(15_000);
 
   return (
     <Card testID={`request-${r.id}`} padding={4} elevation={1}>
@@ -58,11 +60,11 @@ function RequestCard({ r }: { r: RequestPostView }) {
               {r.privateCar ? ` · ${t('rajaa.req_private_short')}` : ''}
             </Text>
           </View>
-          <StatusPill size="sm" tone={TONE[r.state] ?? 'neutral'} live={r.state === 'open'} label={requestStateLabel(t, r.state)} />
+          <StatusPill size="sm" tone={TONE[r.state] ?? 'neutral'} live={r.state === 'open'} label={r.waitClock && !r.waitClock.endedAt && r.state === 'driver_arrived' ? t('rajaa.wait_title_rider') : requestStateLabel(t, r.state)} />
         </View>
         <DetailPills details={r.details} when={r.when} testID="rajaa-req-details" />
 
-        {r.state === 'matched' && picked ? (
+        {(r.state === 'matched' || r.state === 'driver_arrived') && picked ? (
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="successText" testID="rajaa-req-matched">
               {t('rajaa.req_matched', { name: picked.driver?.firstName ?? t('rajaa.driver_unnamed'), amount: amountParam(picked.priceIqd) })}
@@ -73,7 +75,9 @@ function RequestCard({ r }: { r: RequestPostView }) {
                 {t('request.deposit', { amount: amountParam(r.depositIqd) })}
               </Text>
             ) : null}
-            <RuleList items={[t('rajaa.deposit_rule_driver'), t('rajaa.deposit_rule_rider')]} />
+            {/* w2: the same live clock the driver sees, once he starts waiting. */}
+            {r.waitClock ? <WaitClock clock={r.waitClock} now={now} side="rider" locale={locale} testID="rajaa-wait-clock" /> : null}
+            {r.waitClock ? null : <RuleList items={[t('rajaa.deposit_rule_driver'), t('rajaa.deposit_rule_rider')]} />}
           </View>
         ) : null}
 

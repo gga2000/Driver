@@ -1,8 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
-import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, type DriverRequestRide, type RequestPostView } from '@driver/contracts';
-import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, waitExtraIqd, type DriverRequestRide, type RequestPostView } from '@driver/contracts';
+import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast, WaitClock } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SosControl } from '@/features/safety/SosControl';
 import { countedKey, requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
@@ -267,6 +267,12 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
   const noShowOpen = ride.riderNoShowAt !== null && ride.riderNoShowAt.getTime() <= now.getTime();
   const deposit = ride.depositIqd ?? 0;
+  // w2/w4: a «يستناك وترجع» trip has a waiting clock; extra waiting (when the charge is on) is cash too.
+  const waitTrip = offerNeedsWaitTerms(ride.details);
+  const clock = ride.waitClock;
+  const extraIqd = clock ? waitExtraIqd(clock, now) : 0;
+  const fareIqd = ride.priceIqd + extraIqd;
+  const collectIqd = Math.max(0, fareIqd - deposit);
 
   const arrived = async () => {
     const fix = await currentFix(5000);
@@ -283,11 +289,27 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
       fail(err);
     }
   };
+  const waitStart = async () => {
+    try {
+      await actions.waitStart.mutateAsync({ postId: ride.id });
+      theme.haptic('success');
+    } catch (err) {
+      fail(err);
+    }
+  };
+  const waitEnd = async () => {
+    try {
+      await actions.waitEnd.mutateAsync({ postId: ride.id });
+      theme.haptic('success');
+    } catch (err) {
+      fail(err);
+    }
+  };
   const complete = async () => {
     try {
       await actions.complete.mutateAsync({ postId: ride.id });
       theme.haptic('success');
-      toast.show({ message: t('partner.ic_ride_done', { amount: amountParam(privateRideNet(ride.priceIqd)) }), tone: 'success' });
+      toast.show({ message: t('partner.ic_ride_done', { amount: amountParam(privateRideNet(fareIqd)) }), tone: 'success' });
     } catch (err) {
       fail(err);
     }
@@ -305,9 +327,23 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
   const footer =
     ride.state === 'matched' ? (
       <Button testID="ride-arrived" label={t('partner.ic_ride_arrived_cta')} icon="map-pin" size="lg" fullWidth loading={actions.arrived.isPending} onPress={() => void arrived()} />
+    ) : ride.state === 'driver_arrived' && waitTrip && clock && !clock.endedAt ? (
+      <Button testID="ride-wait-end" label={t('partner.ic_ride_wait_end_cta')} icon="check" size="lg" fullWidth loading={actions.waitEnd.isPending} onPress={() => void waitEnd()} />
     ) : ride.state === 'driver_arrived' ? (
       <View style={{ gap: theme.space[2] }}>
-        <Button testID="ride-complete" label={t('partner.ic_ride_complete_cta')} icon="check" size="lg" fullWidth loading={actions.complete.isPending} onPress={() => void complete()} />
+        {waitTrip && !clock ? (
+          <Button testID="ride-wait-start" label={t('partner.ic_ride_wait_start_cta')} icon="clock" size="lg" fullWidth loading={actions.waitStart.isPending} onPress={() => void waitStart()} />
+        ) : null}
+        <Button
+          testID="ride-complete"
+          label={t('partner.ic_ride_complete_cta')}
+          icon="check"
+          size="lg"
+          variant={waitTrip && !clock ? 'secondary' : 'primary'}
+          fullWidth
+          loading={actions.complete.isPending}
+          onPress={() => void complete()}
+        />
         <Button
           testID="ride-noshow"
           label={noShowOpen || !ride.riderNoShowAt ? t('partner.ic_ride_noshow_cta') : t('partner.ic_ride_noshow_wait', { time: timeWithPeriod(t, ride.riderNoShowAt) })}
@@ -325,14 +361,15 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
     <Screen testID="request-ride" edges={['bottom']} footer={footer}>
       <Stack.Screen options={{ title: t('partner.ic_ride_title'), headerRight: live ? () => <SosControl subject={{ kind: 'request', id: ride.id }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <StatusPill label={rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
+        <StatusPill label={clock && !clock.endedAt && live ? t('rajaa.wait_title_driver') : rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
       </View>
       <TripCard post={ride} />
+      {clock ? <WaitClock clock={clock} now={now} side="driver" locale={locale} testID="ride-wait-clock" /> : null}
       <Card padding={5} testID="ride-money">
         <View style={{ gap: theme.space[3] }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
             <Text variant="amount" tabular>
-              {amountParam(ride.priceIqd)}
+              {amountParam(fareIqd)}
             </Text>
             <Text variant="label" color="textMuted">
               {t('quote.currency')}
@@ -341,11 +378,11 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>
             <Icon name="wallet" size={20} color="accentText" />
             <Text variant="label" weight={700} color="accentText" style={{ flex: 1 }} tabular>
-              {t('partner.ic_ride_collect', { amount: amountParam(ride.cashToCollectIqd) })}
+              {t('partner.ic_ride_collect', { amount: amountParam(collectIqd) })}
             </Text>
           </View>
           <Text variant="footnote" color="textMuted" tabular>
-            {[t('partner.ic_ride_deposit', { amount: amountParam(deposit) }), t('partner.ic_req_net', { net: amountParam(privateRideNet(ride.priceIqd)) })].join(' · ')}
+            {[t('partner.ic_ride_deposit', { amount: amountParam(deposit) }), t('partner.ic_req_net', { net: amountParam(privateRideNet(fareIqd)) })].join(' · ')}
           </Text>
         </View>
       </Card>

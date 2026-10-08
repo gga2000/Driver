@@ -325,3 +325,81 @@ describe('request board no-shows and settlement through the ledger', () => {
     expect(await h.departures.walletAvailable('r1')).toBe(20_000);
   });
 });
+
+describe('private car round 2: the waiting clock (w2) and the fair extra-hour count (w4)', () => {
+  async function waitTrip(h: RoutesHarness) {
+    const r = await h.requests.post(
+      'r1',
+      PostRequestInput.parse({ from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: h.at(60), seats: 1, travellingAs: 'rijal', details: { trip: 'wait_return', waitHours: 4 } }),
+    );
+    const o = (await h.requests.offer('d1', r.id, 60_000, { includedHours: 4, extraHourIqd: 5_000 })).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    h.advance(60);
+    await h.requests.arrived('d1', r.id, BAB1);
+    h.advance(150);
+    await h.requests.waitStart('d1', r.id);
+    return r;
+  }
+
+  it('only the picked driver starts it, once, on a «يستناك وترجع» trip; both see the same clock', async () => {
+    const h = routesHarness();
+    const oneWay = await matched(h);
+    expect(await code(h.requests.waitStart('d1', oneWay.id))).toBe('request_state_conflict');
+    const r = await waitTrip(h);
+    expect(await code(h.requests.waitStart('d1', r.id))).toBe('request_state_conflict');
+    expect(await code(h.requests.waitStart('d2', r.id))).not.toBe('no error');
+    const [mine] = (await h.rpc.myRequests({ personId: 'r1', sessionId: 's' })).filter((x) => x.id === r.id);
+    expect(mine!.waitClock).toMatchObject({ endedAt: null, includedHours: 4, extraHourIqd: 5_000, freeMin: 15, charged: false });
+    h.advance(250);
+    await h.requests.waitEnd('d1', r.id);
+    expect(await code(h.requests.waitEnd('d1', r.id))).toBe('request_state_conflict');
+  });
+
+  it('switched off: the clock runs past the included hours and nothing is added', async () => {
+    const h = routesHarness();
+    const r = await waitTrip(h);
+    h.advance(5 * 60 + 40);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ totalIqd: 60_000, ride: { fareIqd: 60_000, cashCollectedIqd: 48_000 } });
+  });
+
+  it('switched on: 15 minutes past the included hours are free, then each started hour is the driver’s own price', async () => {
+    const cases: Array<[number, number]> = [
+      [4 * 60, 0],
+      [4 * 60 + 15, 0],
+      [5 * 60 + 10, 5_000],
+      [5 * 60 + 15, 5_000],
+      [5 * 60 + 20, 10_000],
+    ];
+    for (const [waited, extra] of cases) {
+      const h = routesHarness();
+      h.requests.moneyRules = { requestWaitExtra: { enabled: true, freeMin: 15 } };
+      const r = await waitTrip(h);
+      h.advance(waited);
+      await h.requests.waitEnd('d1', r.id);
+      // Time after the rider is back in the car never counts.
+      h.advance(90);
+      await h.requests.complete('d1', r.id);
+      expect(h.events.last('order.closed')?.payload, `${waited} min`).toMatchObject({
+        totalIqd: 60_000 + extra,
+        ride: { fareIqd: 60_000 + extra, cashCollectedIqd: 48_000 + extra },
+      });
+    }
+  });
+
+  it('a clock still running stops at completion; the extra is cash and the 8 % private take covers it', async () => {
+    const h = routesHarness();
+    h.requests.moneyRules = { requestWaitExtra: { enabled: true, freeMin: 15 } };
+    const r = await waitTrip(h);
+    h.advance(6 * 60);
+    // Both apps read the same switch the money uses.
+    const [mine] = (await h.rpc.myRequests({ personId: 'r1', sessionId: 's' })).filter((x) => x.id === r.id);
+    expect(mine!.waitClock).toMatchObject({ charged: true, endedAt: null });
+    await h.requests.complete('d1', r.id);
+    expect((await h.requests.get(r.id))!.waitEndedAt).not.toBeNull();
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ ride: { fareIqd: 70_000, cashCollectedIqd: 58_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'platform')).toBe(5_600);
+  });
+});

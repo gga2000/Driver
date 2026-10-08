@@ -672,6 +672,49 @@ export function offerNeedsWaitTerms(d: RequestDetails): boolean {
 }
 
 /**
+ * w2–w4: the waiting clock on a «يستناك وترجع» trip. The driver starts it when he drops the rider and
+ * stops it when the rider is back in the car; both apps show the same clock from these two times.
+ * Extra waiting (w4, Ali 2026-10-08 "do what is best and fair"): the first `freeMin` minutes past the
+ * included hours are free, then each started hour costs the driver's own extra-hour price. The server
+ * counts it; nobody types it. `charged` is false while the money rule is switched off.
+ */
+export const RequestWaitClock = z.object({
+  startedAt: z.coerce.date(),
+  endedAt: z.coerce.date().nullable(),
+  includedHours: z.number().int().min(0).max(REQUEST_WAIT_HOURS_MAX),
+  extraHourIqd: Iqd.min(0),
+  freeMin: z.number().int().nonnegative(),
+  charged: z.boolean(),
+});
+export type RequestWaitClock = z.infer<typeof RequestWaitClock>;
+
+/** w3: both sides hear this long before the included hours run out. */
+export const WAIT_REMINDER_MIN = 10;
+
+/** Whole minutes waited so far (or in all, once stopped). */
+export function waitedMinutes(c: Pick<RequestWaitClock, 'startedAt' | 'endedAt'>, now: Date): number {
+  const end = c.endedAt ?? now;
+  return Math.max(0, Math.floor((end.getTime() - c.startedAt.getTime()) / 60_000));
+}
+
+/** When the included hours end. */
+export function includedWaitEndsAt(c: Pick<RequestWaitClock, 'startedAt' | 'includedHours'>): Date {
+  return new Date(c.startedAt.getTime() + c.includedHours * 3_600_000);
+}
+
+/** Extra hours for a wait: 0 within the included hours and the free minutes after them, then each started hour. */
+export function extraWaitHours(waitedMin: number, includedHours: number, freeMin: number): number {
+  const over = waitedMin - includedHours * 60 - freeMin;
+  return over > 0 ? Math.ceil(over / 60) : 0;
+}
+
+/** What the extra waiting adds to the cash (0 while the rule is off). */
+export function waitExtraIqd(c: RequestWaitClock, now: Date): number {
+  if (!c.charged) return 0;
+  return extraWaitHours(waitedMinutes(c, now), c.includedHours, c.freeMin) * c.extraHourIqd;
+}
+
+/**
  * p1–p3 (Ali 2026-10-07): «عادةً بين … و …» from real finished private trips only, to the same known
  * place with the same trip kind, at least 5 in the last 90 days; never a made-up number. The middle
  * of what people paid (20th to 80th percentile), rounded to 1,000.
@@ -739,6 +782,8 @@ export const RequestPostView = z.object({
   pickedOfferId: z.string().nullable(),
   /** 20 % of the picked price, min 5,000, held on the wallet (review C-50). */
   depositIqd: Iqd.nullable(),
+  /** w2: the waiting clock once the driver started it («يستناك وترجع» only). */
+  waitClock: RequestWaitClock.nullable().default(null),
   createdAt: z.coerce.date(),
 });
 export type RequestPostView = z.infer<typeof RequestPostView>;
@@ -1243,6 +1288,8 @@ export interface RoutesPort {
   requestSeen(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
+  requestWaitStart(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  requestWaitEnd(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   requestCompleted(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportRiderNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   myRequestRides(actor: Actor): Promise<DriverRequestRide[]>;

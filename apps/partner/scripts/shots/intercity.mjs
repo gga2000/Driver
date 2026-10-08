@@ -128,6 +128,16 @@ export default async function run(s) {
   await p.wait('ride-complete');
   await p.shot('ride-arrived', { settle: 1000 });
 
+  // w2/w3: a «يستناك وترجع» ride: the start button once he drops the rider, then the live clock 10
+  // minutes before the included hours end, with «رجع الراكب · وقّف العداد».
+  await p.goto(`/intercity/request/${seed.waitRides.ready}`);
+  await p.wait('ride-wait-start');
+  await p.shot('ride-wait-start', { settle: 1000 });
+  await p.goto(`/intercity/request/${seed.waitRides.waiting}`);
+  await p.wait('ride-wait-clock');
+  await p.wait('ride-wait-end');
+  await p.shot('ride-waiting', { full: true, settle: 1000 });
+
   await p.goto('/intercity');
   await p.wait('intercity-board');
   await p.shot('board-after', { full: true, settle: 1500 });

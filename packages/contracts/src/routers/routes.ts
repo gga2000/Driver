@@ -178,6 +178,16 @@ export const routesRouter = router({
       .input(RequestPositionInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.requestArrived(ctx.actor, input)),
+    /** w2: the driver dropped the rider on a «يستناك وترجع» trip; the waiting clock starts. */
+    waitStart: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestWaitStart(ctx.actor, input)),
+    /** w2: the rider is back in the car; the clock stops. */
+    waitEnd: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestWaitEnd(ctx.actor, input)),
     complete: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestIdInput)
       .output(RequestPostView)

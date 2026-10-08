@@ -14,7 +14,9 @@ import type {
   RequestPostView,
   TravellingAs,
   UsualRange,
+  MoneyRules,
 } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { haversineMeters } from '../trips/index.js';
 import type { DeparturesService } from './departures.service.js';
 import type { CorridorConfig, GarageConfig } from './intercity.config.js';
@@ -28,6 +30,7 @@ import {
   type PickupRecord,
   type RequestRecord,
 } from './model.js';
+import { waitClockOf } from './request-board.service.js';
 import { adjacencyViolation, hasFrontSeat, seatsOf } from './seat-map.js';
 
 /** Wire views of the routes records (contracts `routes-io.ts`). Pure apart from reading the clock and config through `DeparturesService`. */
@@ -294,6 +297,7 @@ export function requestView(
   viewerDriverId?: string,
   drivers?: ReadonlyMap<string, RequestOfferDriver>,
   usualRange: UsualRange | null = null,
+  waitRule: MoneyRules['requestWaitExtra'] = AZIZIYAH_MONEY_RULES.requestWaitExtra,
 ): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
@@ -324,6 +328,7 @@ export function requestView(
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
+    waitClock: waitClockOf(r, waitRule),
     createdAt: r.createdAt,
   };
 }

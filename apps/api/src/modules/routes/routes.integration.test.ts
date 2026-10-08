@@ -303,7 +303,15 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect((await repo.getRequest(r.id))?.to).toEqual({ label: 'مدينة الطب', placeId: 'medical_city' });
     wallet.set(ids.r1, 100_000);
     await requests.pick(ids.r1, r.id, offered.offers[0]!.id);
+    // w2: the waiting clock's two times survive the round-trip; completion keeps the stop time.
+    await requests.waitStart(ids.driver, r.id);
+    const started = (await repo.getRequest(r.id))?.waitStartedAt;
+    expect(started).toBeInstanceOf(Date);
+    await requests.waitEnd(ids.driver, r.id);
+    const ended = (await repo.getRequest(r.id))?.waitEndedAt;
+    expect(ended!.getTime()).toBeGreaterThanOrEqual(started!.getTime());
     await requests.complete(ids.driver, r.id);
+    expect((await repo.getRequest(r.id))?.waitEndedAt?.getTime()).toBe(ended!.getTime());
     const after = await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since });
     expect(after.length).toBe(pricesBefore.length + 1);
     expect(after).toContain(47_000);

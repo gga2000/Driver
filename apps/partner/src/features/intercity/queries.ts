@@ -113,6 +113,8 @@ export function useRequestActions() {
     seen: useMutation(api.routes.requestBoard.seen.mutationOptions()),
     offer: useMutation({ ...api.routes.requestBoard.offer.mutationOptions(), ...opts }),
     arrived: useMutation({ ...api.routes.requestBoard.arrived.mutationOptions(), ...opts }),
+    waitStart: useMutation({ ...api.routes.requestBoard.waitStart.mutationOptions(), ...opts }),
+    waitEnd: useMutation({ ...api.routes.requestBoard.waitEnd.mutationOptions(), ...opts }),
     complete: useMutation({ ...api.routes.requestBoard.complete.mutationOptions(), ...opts }),
     riderNoShow: useMutation({ ...api.routes.requestBoard.riderNoShow.mutationOptions(), ...opts }),
   };

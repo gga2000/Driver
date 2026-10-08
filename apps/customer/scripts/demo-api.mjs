@@ -730,6 +730,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
 //   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and five offer
 //   POST /demo/rajaa/history             finished private trips to Najaf (the usual range, p1)
+//   POST /demo/rajaa/waiting?personId=…&min=…[&charged=1]   the picked driver is waiting (w2 clock)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
@@ -1199,6 +1200,36 @@ const rajaa = await (async () => {
         await requests.offer(D.drv_9B3H, r.id, 80_000, wait(asked + 1, 5_000));
       }
       json(res, 200, { requests: open.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/waiting?personId=…&min=…[&charged=1] — w2: the driver of that person's picked
+  // «يستناك وترجع» request dropped them `min` minutes ago and is waiting; `charged=1` shows the extra
+  // hours as they will look once Ali switches the charge on (the demo only; the launch rule stays off).
+  app.use('/demo/rajaa/waiting', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const min = Number(url.searchParams.get('min') ?? 60);
+      const live = personId ? (await requests.mine(personId)).filter((r) => r.state === 'matched' || r.state === 'driver_arrived') : [];
+      if (req.method !== 'POST' || live.length === 0) return json(res, 400, { error: 'POST with a personId that has a picked request' });
+      const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+      const repo = app.get(ROUTES_REPOSITORY);
+      requests.moneyRules = { requestWaitExtra: { enabled: url.searchParams.get('charged') === '1', freeMin: 15 } };
+      for (const r of live) {
+        const driverId = r.offers.find((o) => o.id === r.pickedOfferId)?.driverId;
+        if (!driverId) continue;
+        if (r.state === 'matched') await requests.arrived(driverId, r.id, { lat: 32.9105, lng: 45.0611 });
+        const now = await requests.get(r.id);
+        if (!now.waitStartedAt) await requests.waitStart(driverId, r.id);
+        const back = await requests.get(r.id);
+        back.waitStartedAt = new Date(Date.now() - min * 60_000);
+        back.waitEndedAt = null;
+        await repo.saveRequest(back);
+      }
+      json(res, 200, { requests: live.map((r) => r.id) });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

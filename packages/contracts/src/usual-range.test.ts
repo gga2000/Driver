@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OfferWaitTerms, offerNeedsWaitTerms, pricierThanUsual, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
+import { extraWaitHours, OfferWaitTerms, offerNeedsWaitTerms, waitExtraIqd, pricierThanUsual, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
 
 describe('the usual private-car price (p1–p3, Ali 2026-10-07)', () => {
   it('needs at least 5 finished trips; below that there is no number at all', () => {
@@ -34,5 +34,21 @@ describe('offer waiting terms (w1)', () => {
     expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: -5_000 }).success).toBe(false);
     expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: 0 }).success).toBe(true);
     expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: 50_001 }).success).toBe(false);
+  });
+});
+
+describe('extra waiting (w4)', () => {
+  it('the first 15 minutes past the included hours are free, then each started hour counts', () => {
+    expect(extraWaitHours(4 * 60, 4, 15)).toBe(0);
+    expect(extraWaitHours(4 * 60 + 15, 4, 15)).toBe(0);
+    expect(extraWaitHours(4 * 60 + 16, 4, 15)).toBe(1);
+    expect(extraWaitHours(5 * 60 + 10, 4, 15)).toBe(1);
+    expect(extraWaitHours(5 * 60 + 16, 4, 15)).toBe(2);
+    expect(extraWaitHours(30, 0, 15)).toBe(1);
+  });
+  it('adds nothing while the rule is off', () => {
+    const c = { startedAt: new Date('2026-10-08T08:00:00Z'), endedAt: new Date('2026-10-08T14:00:00Z'), includedHours: 4, extraHourIqd: 5_000, freeMin: 15 };
+    expect(waitExtraIqd({ ...c, charged: false }, new Date())).toBe(0);
+    expect(waitExtraIqd({ ...c, charged: true }, new Date())).toBe(10_000);
   });
 });
