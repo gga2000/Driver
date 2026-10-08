@@ -275,7 +275,7 @@ export function DriverRow({ driver, vehicle, onPress, divider }: { driver: Fleet
  * An invite still waiting for the driver's yes: "دعوة مرسلة إلى 0770 ••• 4567" and when it went out.
  * No name, money or live state (he hasn't agreed to share them), so the row doesn't open.
  */
-export function PendingDriverRow({ driver, divider }: { driver: FleetDriver; divider: boolean }) {
+export function PendingDriverRow({ driver, divider, plannedPlate }: { driver: FleetDriver; divider: boolean; plannedPlate?: string | undefined }) {
   const theme = useTheme();
   const t = useT();
   const phone = phoneHintText(driver.phoneHint);
@@ -317,6 +317,14 @@ export function PendingDriverRow({ driver, divider }: { driver: FleetDriver; div
             {t('partner.fleet_invite_sent_on', { date: baghdadDate(driver.invitedAt) })}
           </Text>
         ) : null}
+        {plannedPlate ? (
+          <View testID={`fleet-pending-car-${driver.driverId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Icon name="car" size={14} color="accentText" strokeWidth={2.2} />
+            <Text variant="caption" weight={600} color="accentText" tabular>
+              {t('partner.f5_pending_car', { plate: `\u2068${plannedPlate}\u2069` })}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View
         accessibilityLabel={t('partner.fleet_pending_badge')}
@@ -332,5 +340,68 @@ export function PendingDriverRow({ driver, divider }: { driver: FleetDriver; div
         <Icon name="clock" size={16} color="warningText" strokeWidth={2.2} />
       </View>
     </View>
+  );
+}
+
+/** One radio row of a pick list (a driver for a car, a car for an invite): accent tint when chosen. */
+export function PickOption({
+  title,
+  subtitle,
+  leading,
+  selected,
+  onPress,
+  divider,
+  warn,
+  testID,
+}: {
+  title: string;
+  subtitle?: string;
+  leading: ReactNode;
+  selected: boolean;
+  onPress: () => void;
+  divider: boolean;
+  warn?: boolean;
+  testID?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        paddingHorizontal: theme.space[4],
+        paddingVertical: theme.space[3],
+        backgroundColor: selected ? theme.colors.accentTint : 'transparent',
+        borderBottomWidth: divider ? 1 : 0,
+        borderBottomColor: theme.colors.border,
+      }}
+    >
+      {leading}
+      <View style={{ flex: 1 }}>
+        <Text variant="bodyStrong" numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text variant="footnote" color={warn ? 'warningText' : 'textMuted'} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 11,
+          borderWidth: selected ? 7 : 2,
+          borderColor: selected ? theme.colors.accent : theme.colors.borderStrong,
+          backgroundColor: theme.colors.surface,
+        }}
+      />
+    </Pressable>
   );
 }

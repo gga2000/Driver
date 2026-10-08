@@ -10,6 +10,15 @@ export default async function run(s) {
   await guest.goto('/');
   await guest.wait('welcome-start', 30_000);
   await guest.shot('welcome');
+  // f4: sign-in in two plain steps, the number kept private; then the code.
+  await guest.byTestId('welcome-start').click();
+  await guest.wait('phone-input');
+  // A number of its own: each number may ask for only so many codes a minute.
+  await guest.page.locator('[data-testid="phone-input"]').fill('0770 111 0077');
+  await guest.shot('signin-phone', { settle: 600 });
+  await guest.byTestId('phone-submit').click();
+  await guest.wait('otp-dev-strip');
+  await guest.shot('signin-code', { settle: 600 });
   await guest.close();
 
   // A customer-only number lands on the gate.
@@ -23,8 +32,15 @@ export default async function run(s) {
   const c = await s.signIn(PHONES.courier);
   await c.wait('online-switch');
   await c.shot('home-offline', { settle: 1500 });
+  // f4: before the phone asks for location "all the time", one screen says why, in his words.
+  await c.goto('/location-why');
+  await c.wait('location-why');
+  await c.shot('location-why', { settle: 900 });
+  await c.goto('/');
+  await c.wait('online-switch');
   await c.byTestId('online-switch').click();
-  await c.page.getByText('شغّال، ندورلك طلب').waitFor({ timeout: 15_000 });
+  await c.page.getByTestId('check-go').click({ timeout: 4000 }).catch(() => undefined);
+  await c.page.getByText('شغّال · ندورلك طلب').waitFor({ timeout: 15_000 });
   await c.shot('home-online', { settle: 4500 });
 
   await s.demoPost('/demo/offer?who=courier&kind=food');

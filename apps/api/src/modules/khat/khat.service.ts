@@ -30,6 +30,7 @@ import { formatMinuteCount, t } from '@driver/i18n';
 import type { CallBridgePort } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { nearestLandmark } from '../../shared/landmarks.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { AuditLogService } from '../controls/index.js';
@@ -150,6 +151,7 @@ export function runTripView(trip: Trip, names: Record<string, RunChild>, absence
         zoneKey: s.zoneKey,
         windowStart: s.windowStart,
         windowEnd: s.windowEnd,
+        landmark: s.target ? nearestLandmark(s.target) : null,
         child: s.childRef ? { childRef: s.childRef, firstName: names[s.childRef]?.firstName ?? '—', photoUrl: names[s.childRef]?.photoUrl ?? null } : null,
         tappedInAt: s.childTapInAt,
         tappedOutAt: s.childTapOutAt,

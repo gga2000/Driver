@@ -9,15 +9,17 @@
 //   POST /demo/khat/seed?who=khat     → { tripId, substituteOfferId }
 //   POST /demo/khat/finish?who=khat   → taps every remaining child in and out (the summary screen)
 //
-//   Child photos (Ali, 2026-10-06): the guardian (أم زينب) added a photo of زينب, حسن and مريم; the
-//   others show their initial. Only this run's driver sees them.
+//   Child photos (Ali, 2026-10-06): only this run's driver sees a photo the guardian added. Partner
+//   redesign k1: the demo has no real photos, so by default every child shows the initial; seed with
+//   `&photos=1` to see the photo path (drawn stand-ins for زينب, حسن and مريم).
 import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
 
 const MIN = 60_000;
 const WITH_PHOTO = new Set(['زينب علي حسين', 'حسن جاسم', 'مريم عادل']);
 const PLACES = {
   hashimi: [{ lat: 32.8962, lng: 45.0671 }, { lat: 32.8957, lng: 45.0682 }],
-  shukri: [{ lat: 32.8946, lng: 45.0548 }, { lat: 32.8941, lng: 45.0539 }],
+  // الشكري's two doors sit near باب كلية التربية الأساسية, so the next-child card names it (k2).
+  shukri: [{ lat: 32.8978, lng: 45.0512 }, { lat: 32.8973, lng: 45.0505 }],
   zakur: [{ lat: 32.8872, lng: 45.0763 }, { lat: 32.8866, lng: 45.0771 }],
   school: { lat: 32.905, lng: 45.06 },
   saadouniya: [{ lat: 32.9006, lng: 45.0464 }, { lat: 32.9011, lng: 45.0471 }],
@@ -42,9 +44,9 @@ export default async function register(demo) {
   const dispatcher = { personId: 'demo-dispatcher', sessionId: 'demo' };
   const state = { tripId: null };
 
-  async function child(name) {
+  async function child(name, withPhotos) {
     const { childRef } = await services.identity.registerChild({ personId: guardian }, { name });
-    if (WITH_PHOTO.has(name)) {
+    if (withPhotos && WITH_PHOTO.has(name)) {
       const bytes = avatarPng(name, { child: true });
       const ticket = await blobs.createUpload({ ownerId: guardian, contentType: 'image/png', sizeBytes: bytes.length });
       const u = new URL(ticket.uploadUrl, 'http://x');
@@ -71,7 +73,8 @@ export default async function register(demo) {
     const now = Date.now();
     const w = (m) => new Date(now + m * MIN);
     const refs = [];
-    for (const [, , name] of CHILDREN) refs.push(await child(name));
+    const photos = query.photos === '1';
+    for (const [, , name] of CHILDREN) refs.push(await child(name, photos));
     const offsets = { hashimi: -25, shukri: -3, zakur: 12 };
     const stops = CHILDREN.map(([place, i], k) => ({ type: 'pickup', zoneKey: place, target: PLACES[place][i], childRef: refs[k], windowStart: w(offsets[place]), windowEnd: w(offsets[place] + 5) }));
     for (const ref of refs) stops.push({ type: 'dropoff', zoneKey: 'centre', target: PLACES.school, childRef: ref, windowStart: w(30), windowEnd: w(40) });
@@ -89,7 +92,7 @@ export default async function register(demo) {
 
     // Another driver's run today needs a substitute: offered to him (dispatcher override).
     const subRefs = [];
-    for (const name of ['سجى أحمد', 'يوسف حيدر', 'رقية سالم', 'أمير كريم']) subRefs.push(await child(name));
+    for (const name of ['سجى أحمد', 'يوسف حيدر', 'رقية سالم', 'أمير كريم']) subRefs.push(await child(name, photos));
     const subStops = subRefs.map((ref, k) => ({ type: 'pickup', zoneKey: 'saadouniya', target: PLACES.saadouniya[k % 2], childRef: ref, windowStart: w(50 + k), windowEnd: w(55 + k) }));
     for (const ref of subRefs) subStops.push({ type: 'dropoff', zoneKey: 'centre', target: PLACES.school, childRef: ref, windowStart: w(75), windowEnd: w(85) });
     const sub = await services.trips.createForOrders({ cityId: CITY, vertical: 'khat', orders: [], stops: subStops });
