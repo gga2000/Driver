@@ -8,6 +8,7 @@ import { Button, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useTo
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { issueKinds } from '@/features/help/issue';
 import { useCancellationPreview, useCancelOrder, useOpenDispute } from './queries';
 import { metresFromDoor, standingLine, unreachableLeftMs } from './unreachable-logic';
 import { color } from '@driver/design-tokens';
@@ -118,6 +119,9 @@ const DISPUTE_KINDS: ReadonlyArray<{ kind: DisputeKind; key: MessageKey }> = [
   { kind: 'other', key: 'dispute.reason_other' },
 ];
 
+/** BENCH-13: a ride's problems (fare, the driver's behaviour, unsafe driving), as in Help. */
+const RIDE_DISPUTE_KINDS: ReadonlyArray<{ kind: DisputeKind; key: MessageKey }> = issueKinds('ride').map((k) => ({ kind: k.kind, key: k.key as MessageKey }));
+
 /** "بلّغ عن مشكلة": a complaint once the order reached him; before that, the order's support chat. */
 export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking; onClose: () => void; onSupport?: (() => void) | undefined }) {
   const t = useT();
@@ -126,7 +130,7 @@ export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking
   const open = useOpenDispute(view.order.id);
   const [kind, setKind] = useState<DisputeKind | null>(null);
   const deliveredish = view.order.state === 'delivered' || view.order.state === 'completed';
-  const kinds = view.order.type === 'ride' ? [{ kind: 'ride_fare' as const, key: 'dispute.reason_fare' as MessageKey }, DISPUTE_KINDS[4]!] : DISPUTE_KINDS;
+  const kinds = view.order.type === 'ride' ? RIDE_DISPUTE_KINDS : DISPUTE_KINDS;
   return (
     <BottomPanel onClose={onClose} testID="dispute-panel">
       <Text variant="heading">{t('dispute.title')}</Text>

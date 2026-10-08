@@ -214,6 +214,12 @@ export const MoneyRules = z.object({
    * decides. See `bookedFallbackCompensationIqd` and docs/api/ride-habits.md.
    */
   bookedRideFallback: z.object({ enabled: z.boolean().default(false), pickupCompensationIqd: Iqd.nonnegative().default(0) }).default({ enabled: false, pickupCompensationIqd: 0 }),
+  /**
+   * M-15, a ride's driver cancels after reaching the pickup: the cancellation rule's credit
+   * (`driverAfterArrivalCreditIqd`, 500) goes to the customer's wallet, paid by the driver. Ali said
+   * "yes" on 2026-10-07; the switch lets ops stop it without a release.
+   */
+  driverCancelCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -269,6 +275,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   afterTip: { amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 },
   // Review #28's pickup compensation: the amount is Ali's open decision — off and 0, nothing is paid.
   bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
+  // M-15: on (Ali, 2026-10-07, "yes").
+  driverCancelCredit: { enabled: true },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

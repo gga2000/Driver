@@ -56,6 +56,8 @@ export interface DispatchRequest {
   startAt?: number | null;
   /** Joy l9: the rider's favourite, offered the job alone for a minute when the search starts. */
   preferDriverIds?: string[];
+  /** NTF-04: the order the job serves, so the rider can be told when no driver is found; null/absent on older records. */
+  orderId?: string | null;
   /** Ride step 3: who asked for the ride (its orderer); null/absent for jobs that are not a rider's. */
   riderId?: string | null;
   /** s5: drivers the rider keeps off his rides, read when the request starts; never offered this job. */

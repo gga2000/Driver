@@ -3,6 +3,7 @@ import { CityId, DeliveryPoint, Iqd, Vertical } from './common.js';
 import { ComplimentKey } from './order-compliment.js';
 import {
   DepartureCancelledPayload,
+  DriverCancelledPayload,
   ErrandMoneyPayload,
   LateMeterPayload,
   MerchantSettlementRequestedPayload,
@@ -339,6 +340,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'seat.no_show': SeatMoneyPayload,
   'seat.late_meter_settled': LateMeterPayload,
   'departure.cancelled': DepartureCancelledPayload,
+  'order.driver_cancelled': DriverCancelledPayload,
   'subscription.started': SubscriptionChargePayload,
   'subscription.renewed': SubscriptionChargePayload,
   'subscription.prorated': SubscriptionChargePayload,

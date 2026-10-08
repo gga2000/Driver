@@ -3,6 +3,7 @@ import {
   guaranteeMemo,
   pointsRedemption,
   DepartureCancelledPayload,
+  DriverCancelledPayload,
   OrderCancelledPayload,
   ErrandMoneyPayload,
   LateMeterPayload,
@@ -378,6 +379,19 @@ export function postCancellation(input: z.input<typeof OrderCancelledPayload>): 
   const b = new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId });
   for (const to of c.beneficiaries) b.add('cancellation_fee', to.amountIqd, payer, to.kind === 'merchant' ? Accounts.merchantCash(to.id) : Accounts.driver(to.id), to.kind);
   return b.control(payer, -c.feeIqd).build();
+}
+
+/**
+ * M-15: a ride's driver cancelled after reaching the pickup; the customer's credit comes from the
+ * driver (memo `driver_cancel`). One group per trip, so a redelivered event or a second driver who
+ * cancels the re-matched ride each post once. Nothing when there is no credit.
+ */
+export function postDriverCancelled(input: DriverCancelledPayload): PostingGroup | null {
+  const d = DriverCancelledPayload.parse(input);
+  if (d.customerCreditIqd === 0) return null;
+  return new GroupBuilder(`order:${d.orderId}:driver_cancel:${d.tripId ?? d.driverId}`, 'money', d.occurredAt, { orderId: d.orderId, ...(d.tripId ? { tripId: d.tripId } : {}) })
+    .add('cancellation_fee', d.customerCreditIqd, Accounts.driver(d.driverId), Accounts.customer(d.customerId), 'driver_cancel')
+    .build();
 }
 
 /** Driver cancels inside 2 h: his fee is shared by the booked riders as credit; low-fill cancels post nothing. */

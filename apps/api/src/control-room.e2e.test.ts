@@ -407,6 +407,20 @@ describe('launch control room (e2e)', () => {
   });
 
   describe('cash desk and the wall', () => {
+    it('BENCH-13: «سياقته خطرة» opens a safety case at the top of the queue, not an ordinary dispute', async () => {
+      const agent = await person(['support']);
+      const customer = await person();
+      const placed = await order(customer.client, 'zakur');
+      await app.get(EventsService).emit(
+        undefined,
+        { type: 'order.disputed', actorId: customer.personId, occurredAt: new Date(), orderId: placed.id, payload: { kind: 'unsafe_driving', note: null, openedBy: 'customer' } },
+        { name: 'order', id: placed.id },
+      );
+      const ticket = (await agent.client.support.list.query({})).rows.find((r) => r.orderId === placed.id)!;
+      expect(ticket).toMatchObject({ kind: 'incident', subject: 'سياقة خطرة' });
+      expect(ticket.urgencyReasons).toContain('سلامة');
+    });
+
     it('finance reads the desk and exports CSV (audited); the wall shows the six week-one metrics', async () => {
       const finance = await person(['finance']);
       const dispatcher = await person(['dispatcher']);

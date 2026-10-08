@@ -21,6 +21,7 @@ describe('ledger subscribers', () => {
         'merchant.settlement_requested',
         'order.cancelled',
         'order.closed',
+        'order.driver_cancelled',
         'seat.completed',
         'seat.late_meter_settled',
         'seat.no_show',
@@ -143,6 +144,18 @@ describe('ledger subscribers', () => {
     // Khat: 8 % + 1,000 → 3,400 on the cash month, 1,960 on the prorated wallet one; the prepaid month covers what he owes.
     expect(await h.caps.status('d3')).toMatchObject({ earningsIqd: 26600 + 10040, cashIqd: -30000, owedIqd: 0, payoutDueIqd: 0 });
     expect((await h.ledger.eventsFor('customer:g2')).map((e) => e.type)).toEqual(['subscription_proration']);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-15: a driver cancelling after arriving credits the customer 500 from the driver, once even if the event repeats', async () => {
+    const h = ledgerHarness();
+    const ev = wire({ orderId: 'o7', tripId: 't7', occurredAt: at, customerId: 'c7', driverId: 'd7', scoringHit: true, customerCreditIqd: 500, creditFundedBy: 'driver' });
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', wire({ orderId: 'o8', tripId: 't8', occurredAt: at, customerId: 'c8', driverId: 'd8', scoringHit: false }));
+    expect((await h.ledger.balance('customer:c7')).amount).toBe(500);
+    expect((await h.ledger.balance('driver:d7')).amount).toBe(-500);
+    expect((await h.ledger.balance('customer:c8')).amount).toBe(0);
     expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 
