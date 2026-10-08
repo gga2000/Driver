@@ -1,15 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router, usePathname } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import type { NotifyPreferences } from '@driver/contracts';
 import { useApi, useApiClient } from '@/lib/api';
 import { pushDevice, type PushPermission } from '@/lib/push';
 import { useSignedIn } from '@/lib/session';
-import { deepLinkPath, permissionSignal } from './prompt';
+import { permissionSignal, pushRoute } from './prompt';
+import type { PushData } from '@/lib/push';
 
 /** The token this install registered for the current session (dropped on sign-out). */
 let registeredToken: string | null = null;
+
+/** Notifications already opened in this run: the listener and the launch read can both report one tap. */
+const opened = new Set<string>();
+
+/** One tap → its ack and its screen, once per notification. */
+function openPush(client: ReturnType<typeof useApiClient>, id: string, data: PushData, currentPath: string | null): void {
+  if (opened.has(id)) return;
+  opened.add(id);
+  if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: true }).catch(() => undefined);
+  const route = pushRoute(data.deepLink, currentPath);
+  if (route?.how === 'push') router.push(route.path as never);
+  else if (route) router.replace(route.path as never);
+}
 
 /**
  * Mounted once at the root while signed in: creates the Android channels, registers this install's
@@ -19,6 +33,9 @@ let registeredToken: string | null = null;
 export function usePushRegistration(): void {
   const client = useApiClient();
   const signedIn = useSignedIn();
+  const pathname = usePathname();
+  const here = useRef<string | null>(pathname);
+  here.current = pathname;
 
   useEffect(() => {
     if (!signedIn) return;
@@ -35,11 +52,7 @@ export function usePushRegistration(): void {
     const offReceive = pushDevice.onReceive((data) => {
       if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: false }).catch(() => undefined);
     });
-    const offOpen = pushDevice.onOpen((data) => {
-      if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: true }).catch(() => undefined);
-      const path = deepLinkPath(data.deepLink);
-      if (path) router.push(path as never);
-    });
+    const offOpen = pushDevice.onOpen((data, id) => openPush(client, id, data, here.current));
     return () => {
       cancelled = true;
       unsub();
@@ -47,6 +60,27 @@ export function usePushRegistration(): void {
       offOpen();
     };
   }, [client, signedIn]);
+}
+
+/**
+ * CORE-08: a push tapped while the app was closed opens its screen once the app has settled
+ * (`settled`: signed in, and the sign-in guard has nothing left to redirect), so the guard never
+ * replaces it. Read once per run.
+ */
+export function usePushLaunch(settled: boolean): void {
+  const client = useApiClient();
+  const pathname = usePathname();
+  const done = useRef(false);
+  useEffect(() => {
+    if (!settled || done.current) return;
+    done.current = true;
+    void pushDevice
+      .launchOpen()
+      .then((tap) => {
+        if (tap) openPush(client, tap.id, tap.data, pathname);
+      })
+      .catch(() => undefined);
+  }, [settled, client, pathname]);
 }
 
 /** Sign-out: forget this install's token server-side (the API also drops it with the session). */

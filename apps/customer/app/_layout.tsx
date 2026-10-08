@@ -11,7 +11,7 @@ import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { usePushRegistration } from '@/features/notify/usePush';
+import { usePushLaunch, usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
@@ -137,6 +137,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
     if (target.remember) void profile.setReturnTo(target.remember);
     router.replace(target.to as never);
   }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
+  // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
+  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>
