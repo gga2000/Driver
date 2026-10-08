@@ -223,10 +223,18 @@ export const MoneyRules = z.object({
   /**
    * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
    * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
-   * **Awaiting Ali's yes:** built switched off. While off the rejected event carries no credit,
-   * nothing posts and the customer's push promises nothing. See docs/api/merchant-late-reject.md.
+   * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
+   * See docs/api/merchant-late-reject.md.
    */
   merchantLateRejectCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
+   * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
+   * company, not the rider. Ali said "yes" on 2026-10-07. It applies whether or not the seat hold
+   * (`RIDE_SEAT_HOLD`) is on: the minutes before our taxi was due are ours either way. Our taxi's due
+   * time stops at its arrival at his door + the ride, so his own wait after that is his.
+   */
+  lateTaxiPaysMeter: z.object({ enabled: z.boolean() }).default({ enabled: false }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
 
@@ -284,8 +292,10 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
   // M-15: on (Ali, 2026-10-07, "yes").
   driverCancelCredit: { enabled: true },
-  // M-17: built, off until Ali says yes — nothing posts.
-  merchantLateRejectCredit: { enabled: false },
+  // M-17: on (Ali, 2026-10-08, "Yes, 500").
+  merchantLateRejectCredit: { enabled: true },
+  // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
+  lateTaxiPaysMeter: { enabled: true },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

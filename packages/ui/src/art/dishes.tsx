@@ -56,6 +56,8 @@ export const DISH_KINDS = [
   'biryani',
   'breakfast',
   'manakish',
+  // Ali 2026-10-08: kunafa had been showing the baklava picture.
+  'kunafa',
 ] as const;
 export type DishKind = (typeof DISH_KINDS)[number];
 

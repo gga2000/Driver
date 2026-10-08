@@ -51,6 +51,8 @@ function row(over: Partial<DriverBookingRow> & { bookingId: string }): DriverBoo
     checkedInAt: null,
     meterMinutes: null,
     canNoShow: false,
+    taxiDueAt: null,
+    seatHeld: false,
     ...over,
   };
 }

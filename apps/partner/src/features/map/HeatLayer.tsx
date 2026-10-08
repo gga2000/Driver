@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -8,7 +7,7 @@ import { buildPlacedZonesGeoJSON, buildZonesGeoJSON } from '@driver/map';
 import { useTheme } from '@driver/ui';
 import type { CameraValues } from './base/types';
 import { layerTransform, pathD, project, type Camera, type Size } from './geo';
-import { useApi } from '@/lib/api';
+import { useZoneMap } from './base/useZoneMap';
 
 const ZONES = buildZonesGeoJSON();
 const FILL: Record<DemandLevel, number> = { hot: 0.36, warm: 0.16, calm: 0 };
@@ -20,8 +19,7 @@ const FILL: Record<DemandLevel, number> = { hot: 0.36, warm: 0.16, calm: 0 };
  */
 export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones }: { drawn: Camera; cam: CameraValues; size: Size; zones: ReadonlyArray<{ zoneId: string; level: DemandLevel }> }) {
   const theme = useTheme();
-  const api = useApi();
-  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const liveZones = useZoneMap();
   const geometry = useMemo(() => liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES, [liveZones.data]);
   const level = useMemo(() => new Map(zones.map((z) => [z.zoneId, z.level])), [zones]);
   const shapes = useMemo(

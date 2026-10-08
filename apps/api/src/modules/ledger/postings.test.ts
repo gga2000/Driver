@@ -24,6 +24,7 @@ import {
   roundCustomerTotal,
   takeOf,
   type PostingGroup,
+  LATE_TAXI_MEMO,
 } from './postings.js';
 import { workedExample } from './test-harness.js';
 
@@ -273,6 +274,19 @@ describe('late meter — 100 % to the wronged party', () => {
     validateGroup(g);
     expect(nets(g)).toEqual({ 'customer:r9': -4000, 'driver:d2': 2000, 'customer:r1': 1000, 'customer:r2': 1000 });
     expect(g.lines.every((l) => l.fromAccount !== 'platform' && l.toAccount !== 'platform')).toBe(true);
+  });
+
+  it('x3: the blocks that ran while our own late taxi was due are the company\'s; the rider pays only the rest', () => {
+    const late = { departureId: 'dep1', occurredAt: at, minutesLate: 18, late: { kind: 'rider' as const, id: 'r9' }, driverId: 'd2', waitingRiderIds: ['r1'] };
+    const g = postLateMeter({ ...late, taxiLateMinutes: 12 }, rules)!; // 2 blocks: 1 ours (12 min), 1 his
+    validateGroup(g);
+    expect(nets(g)).toEqual({ 'customer:r9': -1500, platform: -1500, 'driver:d2': 2000, 'customer:r1': 1000 });
+    expect(g.lines.filter((l) => l.fromAccount === 'platform').every((l) => l.memo === LATE_TAXI_MEMO)).toBe(true);
+    // Taxi due after he arrived: the whole meter is ours.
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 30 }, rules)!)).toEqual({ platform: -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
+    // Switched off: the rider pays it all, as before.
+    const off = { ...rules, lateTaxiPaysMeter: { enabled: false } };
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 12 }, off)!)).toEqual({ 'customer:r9': -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
   });
 
   it('late driver pays each waiting rider from his balance; inside the grace nothing posts', () => {
