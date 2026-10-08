@@ -171,6 +171,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `NODE_ENV` | no | `production` (toml). With it, the API refuses to boot without strong `JWT_SECRET` and `PHONE_HASH_PEPPER`. |
 | `PORT` | no | `3000` (toml) |
 | `DEPLOY_ENVIRONMENT` | no | `staging` on the staging app (Staging setup sets it). Unset means production rules |
+| `MIN_APP_VERSIONS` | no | e.g. `customer:1.0.3,partner:1.0.0`: builds older than this get «أكو نسخة جديدة لازم تحدّثها» on every call (CORE-05, `docs/api/app-version.md`). Unset = nobody is turned away. A typo stops boot |
 | `DATABASE_URL` | **yes** | Supabase transaction pooler, port 6543 |
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
 | `DATABASE_POOL_MAX` | no | `10` (toml), per lane per process. Each process has a request lane and a background lane (below), opened on first use: web machines mostly use the request lane, the worker the background lane, so 3 processes stay well under Small compute's 400 pooled clients |

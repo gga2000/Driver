@@ -34,7 +34,7 @@ import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
-export { observeProcedures, protectedProcedure, publicProcedure, router, t, toTrpcError, type ProcedureCall } from './trpc.js';
+export { gateProcedures, observeProcedures, protectedProcedure, publicProcedure, router, t, toTrpcError, type ProcedureCall } from './trpc.js';
 
 /** One per process: `health.live` rides out short database blips (`LIVE_DB_GRACE_MS`). */
 const liveGate = liveDbGate();

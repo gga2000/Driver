@@ -4,6 +4,7 @@
  * so browser and native bundles never pull server code.
  */
 export * from './common.js';
+export * from './app-version.js';
 export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
