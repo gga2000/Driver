@@ -15,10 +15,28 @@ import { MoreDishes } from './MoreDishes';
 import type { RestaurantSummary } from './restaurant-summary';
 
 /** The hour's food (`hourFood`) from the town's pots and the hour's picks, while either is still loading. */
-export function useHourFood({ picks, picksPending, words, later, now }: { picks: readonly CatalogSearchDish[] | undefined; picksPending: boolean; words: readonly string[]; later: string | null; now: Date }) {
+export function useHourFood({
+  picks,
+  picksPending,
+  words,
+  later,
+  taken,
+  now,
+}: {
+  picks: readonly CatalogSearchDish[] | undefined;
+  picksPending: boolean;
+  words: readonly string[];
+  later: string | null;
+  /** The usual card's dish photo, so the gallery doesn't show it a second time. */
+  taken: number | string | null;
+  now: Date;
+}) {
   const pots = usePots();
   // Each dish's picture: its kitchen's photo, else the library's photo of that dish; none, and it stays on its menu.
-  const food = useMemo(() => hourFood({ pots: pots.data, picks, now, later, words, pictureOf: (d) => apiPhoto(d.photoUrl) ?? dishPhoto(d.name) }), [pots.data, picks, now, later, words]);
+  const food = useMemo(
+    () => hourFood({ pots: pots.data, picks, now, later, words, pictureOf: (d) => apiPhoto(d.photoUrl) ?? dishPhoto(d.name), taken: taken === null ? [] : [taken] }),
+    [pots.data, picks, now, later, words, taken],
+  );
   return { food, pending: picksPending || pots.isPending };
 }
 

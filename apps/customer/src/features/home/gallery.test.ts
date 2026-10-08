@@ -94,6 +94,18 @@ describe('hourFood', () => {
     expect(more).toEqual([]);
   });
 
+  it('a picture the usual card already shows is not shown again', () => {
+    const pics: Record<string, number> = { dolma: 5, kebab: 3, tikka: 9 };
+    const { slides } = hourFood({
+      pots: [],
+      picks: [pick('a', 'dolma'), pick('b', 'kebab'), pick('c', 'tikka')],
+      now: NOON,
+      pictureOf: (d) => pics[d.id] ?? null,
+      taken: [5],
+    });
+    expect(ids(slides)).toEqual(['kebab', 'tikka']);
+  });
+
   it('only dishes that start with an hour word, short vowels aside', () => {
     const { slides } = hourFood({
       pots: [],

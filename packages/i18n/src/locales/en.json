@@ -3180,6 +3180,8 @@
   "home.soon_line": "Coming soon",
   "home.bye": "Enjoy your meal",
   "home.bye_from": "Driver, from Aziziyah",
+  "home.again": "Order it again",
+  "home.reorder_kicker": "Your last order",
   "home.points_chip": "{n} pts",
   "home.points_chip_a11y": "You have {n} points, open the wallet",
   "home.welcome_hello": "Welcome, {name}",

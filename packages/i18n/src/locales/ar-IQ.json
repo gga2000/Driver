@@ -3180,6 +3180,8 @@
   "home.soon_line": "جاي قريب",
   "home.bye": "بالعافية",
   "home.bye_from": "درايفر، من العزيزية",
+  "home.again": "اطلبه نفسه",
+  "home.reorder_kicker": "طلبك الأخير",
   "home.points_chip": "{n} نقطة",
   "home.points_chip_a11y": "عندك {n} نقطة، افتح المحفظة",
   "home.welcome_hello": "هلا بيك {name}",
