@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n';
 import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { useAmbient } from './ambient';
-import { backFact, rideFact, soonNames, tripsFact, type Fact } from './service-facts';
+import { backFact, rideFact, tripsFact, type Fact } from './service-facts';
 import { MOMENT_LEAD_MS, MOMENT_MS, nudge, steamWisp, tuktukHop } from './tile-moments';
 import { TILE_PICTURES, type TilePicture } from './tile-pictures';
 import { grownTileHeight } from './tile-size';
@@ -25,7 +25,7 @@ export interface ServiceDef {
   id: ServiceId;
   label: MessageKey;
   icon: IconName;
-  /** Not open yet: listed in the quiet «جاي بالطريق» card, opens the "خبرني" sheet (audit C-03). */
+  /** Not open yet: a soft chip in the quiet «جاي قريب» line at the end of home, opens the "خبرني" sheet (audit C-03). */
   soon?: boolean;
 }
 
@@ -114,7 +114,7 @@ function useNextCar(direction: IntercityDirection, enabled: boolean) {
  * stacked beside it, then بغداد والكوت wide and الرجعة smaller. Each card shows one live fact from the
  * server, with a softly beating dot while it is live. Offline the ride cards turn grey and say they
  * need the internet; with every kitchen closed the food card goes quiet. The coming-soon services
- * are in `ComingSoonStrip` at the end.
+ * are in `QuietEnd` at the end.
  */
 export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: (id: ServiceId) => void; foodFact: Fact | null; foodOff: boolean; scrollY?: SharedValue<number> }) {
   const theme = useTheme();
@@ -430,68 +430,6 @@ function LiveDot({ color, beat, top }: { color: string; beat: boolean; top: numb
     <View testID="service-live" style={{ width: DOT, height: DOT, marginTop: top }}>
       <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: DOT / 2, backgroundColor: color }, halo]} />
       <View style={{ width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: color }} />
-    </View>
-  );
-}
-
-/**
- * «جاي بالطريق»: the services that aren't open yet, quiet at the end of home (discovery §6) as one
- * dashed card — their icons, «جاي بالطريق», «سوق، خطوط وطرود» and «خبّرني لمن تنفتح». Each icon opens the
- * "خبرني" sheet.
- */
-export function ComingSoonStrip({ onPress }: { onPress: (id: ServiceId) => void }) {
-  const theme = useTheme();
-  const t = useT();
-  const soon = SERVICES.filter((s) => s.soon);
-  return (
-    <View
-      testID="home-soon"
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: theme.space[3],
-        padding: theme.space[3],
-        borderRadius: theme.radius.xl,
-        borderWidth: 1.5,
-        borderStyle: 'dashed',
-        borderColor: theme.colors.border,
-      }}
-    >
-      <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
-        {soon.map((s) => (
-          <Pressable
-            key={s.id}
-            testID={`service-${s.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={t('soon.a11y', { name: t(s.label) })}
-            onPress={() => {
-              theme.haptic('selection');
-              onPress(s.id);
-            }}
-            style={({ pressed }) => ({
-              width: theme.hitTarget,
-              height: theme.hitTarget,
-              borderRadius: theme.radius.lg,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: pressed ? theme.colors.border : theme.colors.accentTint,
-            })}
-          >
-            <Icon name={s.icon} size={20} color="accentText" strokeWidth={2} />
-          </Pressable>
-        ))}
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text variant="bodyStrong" accessibilityRole="header" numberOfLines={1}>
-          {t('home.soon_coming')}
-        </Text>
-        <Text variant="footnote" color="textMuted" numberOfLines={1}>
-          {soonNames(soon.map((s) => t(s.label)), t)}
-        </Text>
-        <Text variant="footnote" weight={600} color="accentText" numberOfLines={1}>
-          {t('home.soon_notify')}
-        </Text>
-      </View>
     </View>
   );
 }
