@@ -5,7 +5,8 @@ import { Button, Chip, ChipGroup, Icon, Skeleton, Text, TextField, useTheme, use
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
-import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource } from './device';
+import { isRoughFix } from './place-fix';
+import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource, locationDeniedToast } from './device';
 import { nearestZone, zoneCentre } from './geo';
 import { PLACE_CITY_ID, useLandmarksNear } from './queries';
 import { LANDMARK_NONE, landmarkChips, landmarkLeftBehind, landmarkName } from '@/features/places/landmark-chips';
@@ -98,9 +99,13 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
     setLocating(true);
     const fix = await currentFix();
     setLocating(false);
-    if (fix === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger' });
+    if (fix === 'denied') toast.show(locationDeniedToast(t));
     else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
-    else moveTo(fix.pin, fix.accuracyM);
+    else {
+      moveTo(fix.pin, fix.accuracyM);
+      // A rough fix puts the pin near, not on, the door: ask for the last step by hand (HUNT-04).
+      if (isRoughFix(fix.accuracyM)) toast.show({ message: t('place.fix_rough_move'), tone: 'info' }, 6000);
+    }
   };
 
   const addPhoto = async (source: PhotoSource) => {
