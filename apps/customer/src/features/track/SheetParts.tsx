@@ -349,7 +349,8 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
   // A ride is one fare (the locked quote), not items + delivery.
   if (o.type === 'ride') items.push({ key: 'fare', label: t('ride.fare'), amount: Math.max(0, o.totalIqd - o.tipIqd) });
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
-  if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
+  // HUNT-02: an order placed «بالشارع» says so next to its lower delivery fee.
+  if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t(o.streetHandover ? 'track.price_delivery_street' : 'quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
   // J-D6: the small-order fee the order was placed with.
   if ((o.smallOrderFeeIqd ?? 0) > 0) items.push({ key: 'small_order', label: t('quote.small_order_fee'), amount: o.smallOrderFeeIqd ?? 0 });

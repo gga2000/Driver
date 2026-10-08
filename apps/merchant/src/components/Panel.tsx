@@ -82,7 +82,7 @@ const PILL: Record<StatusTone, { bg: 'surfaceSunken' | 'accentTint' | 'successTi
   success: { bg: 'successTint', fg: 'successText' },
   warning: { bg: 'warningTint', fg: 'warningText' },
   danger: { bg: 'dangerTint', fg: 'dangerText' },
-  info: { bg: 'infoTint', fg: 'infoText' },
+  info: { bg: 'surfaceSunken', fg: 'text' }, // no blue on the counter
 };
 
 /** Small status tag (icon optional) — "بالرمز", "بانتظار ردك", "مالك". */

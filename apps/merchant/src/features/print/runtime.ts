@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { BoardOrder, PrinterState } from '@driver/contracts';
-import { useToast } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { createPrinter } from '@/print/printer';
@@ -34,7 +34,7 @@ export function useReceipt(storeName: string) {
 
 /** "اطبع": prints on the tablet's printer; the browser opens the 80 mm preview instead. */
 export function usePrintOrder(storeName: string) {
-  const toast = useToast();
+  const toast = useCounterToast();
   const t = useT();
   const receipt = useReceipt(storeName);
   return useCallback(

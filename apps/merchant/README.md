@@ -144,7 +144,9 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 ```
 
 Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board), `0770 999 0000` staff at two
-stores (picker), `0770 555 0000` no store (gate). The board section seeds 3 new orders (a group order
+stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate). مصطفى and
+علي accept, add time, reject and mark ready on the seeded orders and mark dishes sold out, so the
+owner's «مين سوّى شنو» card (يومك → اليوم) has names. The board section seeds 3 new orders (a group order
 for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,500 دينار cash balance
 and a disconnected printer. New orders auto-reject after 90 s as in production:
 `POST /demo/board/fresh` puts 3 fresh ones on the board; `POST /demo/board/missed?count=2` adds orders
@@ -154,6 +156,12 @@ that just timed out (the "طلبات فاتتك" strip, the "فاتك اليوم
 minute, one group order with an allergy and a courier note). Shots: `SHOTS=rush`. The board opens
 behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
 keepGate: true })` keeps it for a shot).
+
+Minimum app version (CORE-05, `docs/api/app-version.md`): native builds send `x-driver-app:
+merchant/<store version>` on every call and the live stream (`src/lib/app-version.ts`); an
+`update_required` answer swaps the whole app for «حدّث التطبيق» (`features/update/UpdateRequired.tsx`)
+until a restart, with no retries and no stream. The demo API refuses merchant builds below 0.0.2, and
+a dev-tools web export opened with `?demoBuild=0.0.1` reports that build. Shots: `SHOTS=app-version`.
 
 ## Native notes
 

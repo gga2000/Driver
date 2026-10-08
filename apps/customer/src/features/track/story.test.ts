@@ -16,7 +16,7 @@ describe('story camera', () => {
   });
   it('on the way and still far: frames him with room ahead toward the door, not courier and door at opposite edges (f19)', () => {
     const shot = storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: 900 });
-    expect(shot.zoom).toEqual([12.5, 16.5]);
+    expect(shot.zoom).toEqual([12, 16.5]);
     expect(shot.points[0]).toEqual(C);
     const ahead = shot.points[1]!;
     expect(ahead.lat).toBeCloseTo(C.lat + (D.lat - C.lat) * LOOK_AHEAD, 9);

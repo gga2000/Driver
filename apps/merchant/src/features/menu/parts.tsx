@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react';
-import { Image, Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
+import Svg, { G } from 'react-native-svg';
 import { Text, useTheme, type StatusTone } from '@driver/ui';
+import { DishDrawing, dishLook, motifForDish } from '@driver/ui/dishes';
+import { COUNTER } from '@/lib/counter';
 import { Glyph, type GlyphName } from './Glyph';
 import { absoluteUrl } from './photo';
 import { color as palette } from '@driver/design-tokens';
 
 /**
  * Small building blocks shared by the menu and deals screens: a big kitchen switch, round glyph
- * buttons, tappable pills, the dish thumbnail (photo or a warm placeholder) and panel cards.
+ * buttons, tappable pills, the dish thumbnail (photo or its drawing) and panel cards.
  */
 
 export function Toggle({ value, onChange, testID, label, disabled }: { value: boolean; onChange: (v: boolean) => void; testID?: string; label: string; disabled?: boolean }) {
@@ -69,7 +73,7 @@ const TONE_BG: Record<StatusTone, 'surfaceSunken' | 'accentTint' | 'successTint'
   success: 'successTint',
   warning: 'warningTint',
   danger: 'dangerTint',
-  info: 'infoTint',
+  info: 'surfaceSunken', // no blue on the counter
 };
 export const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' | 'warningText' | 'dangerText' | 'infoText'> = {
   neutral: 'text',
@@ -77,7 +81,7 @@ export const TONE_FG: Record<StatusTone, 'text' | 'accentText' | 'successText' |
   success: 'successText',
   warning: 'warningText',
   danger: 'dangerText',
-  info: 'infoText',
+  info: 'text',
 };
 const TONE_DOT: Record<StatusTone, 'textMuted' | 'accent' | 'success' | 'warning' | 'danger' | 'info'> = {
   neutral: 'textMuted',
@@ -85,7 +89,7 @@ const TONE_DOT: Record<StatusTone, 'textMuted' | 'accent' | 'success' | 'warning
   success: 'success',
   warning: 'warning',
   danger: 'danger',
-  info: 'info',
+  info: 'textMuted',
 };
 
 /** A pill: a tag when `onPress` is absent, a small button when present (min 36 px tall). */
@@ -130,22 +134,28 @@ export function Pill({ label, tone = 'neutral', glyph, onPress, dot, testID, siz
   );
 }
 
-/** Dish photo, or a warm placeholder with the dish's first letter (most menus start without photos). */
-export function Thumb({ url, name, size = 64, dim, radius }: { url: string | null; name: string; size?: number; dim?: boolean; radius?: number }) {
-  const theme = useTheme();
+/**
+ * Dish photo, or (p2, until a photo arrives) the drawing customers see for that dish: the locked Date &
+ * Saffron set, picked from the dish's name and section by the same rules as the customer app.
+ */
+export function Thumb({ url, name, size = 64, dim, radius, id, section }: { url: string | null; name: string; size?: number; dim?: boolean; radius?: number; id?: string; section?: string | null }) {
   const r = radius ?? Math.round(size * 0.22);
-  const letter = name.trim().replace(/^(لفة|صحن|وجبة)\s+/, '').charAt(0) || '·';
   return (
-    <View style={{ width: size, height: size, borderRadius: r, overflow: 'hidden', backgroundColor: theme.colors.accentTint, opacity: dim ? 0.5 : 1 }}>
-      {url ? (
-        <Image source={{ uri: absoluteUrl(url) }} style={{ width: size, height: size }} resizeMode="cover" accessibilityIgnoresInvertColors />
-      ) : (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text weight={700} color="accentText" style={{ fontSize: Math.round(size * 0.4), lineHeight: Math.round(size * 0.62) }}>
-            {letter}
-          </Text>
-        </View>
-      )}
+    <View style={{ width: size, height: size, borderRadius: r, overflow: 'hidden', backgroundColor: COUNTER.sand, opacity: dim ? 0.5 : 1 }}>
+      {url ? <Image source={{ uri: absoluteUrl(url) }} recyclingKey={id ?? url} transition={120} style={{ width: size, height: size }} contentFit="cover" accessibilityIgnoresInvertColors /> : <DishArt name={name} id={id} section={section} />}
+    </View>
+  );
+}
+
+/** The drawn dish, filling its box (no photo yet). Decorative: the name is always written beside it. */
+export function DishArt({ name, id, section }: { name: string; id?: string | undefined; section?: string | null | undefined }) {
+  return (
+    <View style={{ width: '100%', height: '100%' }} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+      <Svg width="100%" height="100%" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+        <G transform="translate(8 6) scale(0.92)">
+          <DishDrawing kind={motifForDish(name, section ?? undefined)} look={dishLook(id ?? name)} />
+        </G>
+      </Svg>
     </View>
   );
 }

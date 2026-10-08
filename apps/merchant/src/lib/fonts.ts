@@ -1,15 +1,15 @@
-import { useFonts } from '@expo-google-fonts/ibm-plex-sans-arabic';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { useFonts } from 'expo-font';
 import { Platform } from 'react-native';
-import { PLEX_FILES } from './font-files';
+import { FONT_FILES } from './font-files';
 
 /**
  * Loads IBM Plex Sans Arabic (one family per weight file on native, matching `fontFace` in
- * @driver/design-tokens). Screens render immediately with the system face and switch once the
- * files are in. Web: see fonts.web.ts.
+ * @driver/design-tokens) and Alexandria (`brandFace.display`). Screens render immediately with the
+ * system face and switch once the files are in. Web: see fonts.web.ts.
  */
 function useRuntimeFonts(): boolean {
-  const [loaded] = useFonts(PLEX_FILES);
+  const [loaded] = useFonts(FONT_FILES);
   return loaded;
 }
 

@@ -17,7 +17,8 @@
 # STAGING_TEST_OTP (the staging test numbers' code, chosen by a person). Variables:
 # DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
 # (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
-# CORS_ORIGINS (default the customer web version on Vercel; the staging Console is added when FLY_CONSOLE_APP is set).
+# CORS_ORIGINS (default the customer and restaurant web versions on Vercel; the staging Console is added when FLY_CONSOLE_APP is set),
+# SENTRY_DSN (optional: the API's error reports go to Sentry, EU region).
 # Secrets are staged: they reach the API on its next deploy (Actions → Deploy → staging).
 name: Staging setup
 
@@ -100,11 +101,13 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
-          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app' }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app' }}
           CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
           # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
           # and kept only as this environment's secret: never generated, printed or written anywhere here.
           STAGING_TEST_OTP: ${{ secrets.STAGING_TEST_OTP }}
+          # Error reports from the API (Sentry, EU region); the same variable the deploy gives the apps.
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
         run: |
           names() { flyctl secrets list --app "$1" --json | jq -r '(. // [])[] | (.Name // .name)'; }
           api=$(names "$API_APP"); redis=$(names "$REDIS_APP")
@@ -134,6 +137,8 @@ jobs:
           echo "CORS_ORIGINS: $origins"
           # The API host itself knows it is staging: staging-only sign-in helpers refuse to boot without it.
           set_api+=("DEPLOY_ENVIRONMENT=staging")
+          if [ -n "$SENTRY_DSN" ]; then set_api+=("SENTRY_DSN=$SENTRY_DSN"); echo "error reports: on (vars.SENTRY_DSN)"
+          else echo "error reports: off (set the variable SENTRY_DSN in the staging environment)"; fi
           if [ -n "$STAGING_TEST_OTP" ]; then
             echo "::add-mask::$STAGING_TEST_OTP"
             set_api+=("STAGING_TEST_OTP=$STAGING_TEST_OTP"); echo "staging test code: set from the environment secret"

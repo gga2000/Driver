@@ -19,6 +19,8 @@ import { keepScreenOn } from '@/features/work/logic';
 import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
+import { useUpdateRequired } from '@/lib/app-update';
+import { UpdateRequired } from '@/features/update/UpdateRequired';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
@@ -75,9 +77,7 @@ export default function RootLayout() {
               <PhotoImageProvider component={CachedPhoto}>
                 <ApiProvider>
                   <StatusBar style={night ? 'light' : 'dark'} />
-                  {/* Launch status banner from the Console (system.banner), above every screen. */}
-                  <SystemBanner />
-                  <RootNavigator />
+                  <AppBody />
                 </ApiProvider>
               </PhotoImageProvider>
             </ToastProvider>
@@ -85,6 +85,21 @@ export default function RootLayout() {
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/**
+ * The app, or only «حدّث التطبيق» once the server refuses this build (CORE-05): nothing behind it stays
+ * mounted, so no offer, live channel or job screen keeps going.
+ */
+function AppBody() {
+  if (useUpdateRequired()) return <UpdateRequired />;
+  return (
+    <>
+      {/* Launch status banner from the Console (system.banner), above every screen. */}
+      <SystemBanner />
+      <RootNavigator />
+    </>
   );
 }
 

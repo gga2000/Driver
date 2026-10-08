@@ -5,9 +5,9 @@ Source: Ali's courier-company location list for cluster "العزيزيه" (34 e
 | Ext ID | Area (as listed) | Proposed group | Tier (draft) |
 |---|---|---|---|
 | 5854 | العزيزية (مركز) | centre | centre |
-| 5060 | شارع ٣٠ | centre | centre |
+| 5060 | شارع 30 | centre | centre |
 | 5090 | شارع نخيل | centre | centre |
-| 5066 | داخل محدود اولى | محدود | near |
+| 5066 | داخل محدود أولى | محدود | near |
 | 5067 | داخل محدود ثانية | محدود | near |
 | 5059 | منطقة 150 | centre-east | near |
 | 4874 | الهاشمي | ? | near |

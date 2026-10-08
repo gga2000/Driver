@@ -10,7 +10,6 @@
     "userInterfaceStyle": "light",
     "locales": { "ar": "./locales/native/ar.json" },
     "extra": {
-      "apiUrl": "http://localhost:3000/trpc",
       "supportsRTL": true,
       "forcesRTL": true
     },
@@ -30,11 +29,11 @@
     },
     "web": { "name": "درايفر للمطاعم", "shortName": "درايفر للمطاعم", "lang": "ar", "themeColor": "#FBF6EE", "backgroundColor": "#FBF6EE" },
     "plugins": [
-      "expo-router",
+      ["expo-router", { "asyncRoutes": { "web": "production", "default": false } }],
       ["expo-localization", {}],
       ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }],
       ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],
-      ["expo-font", {"android": {"fonts": ["./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/400Regular/IBMPlexSansArabic_400Regular.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/500Medium/IBMPlexSansArabic_500Medium.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/600SemiBold/IBMPlexSansArabic_600SemiBold.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/700Bold/IBMPlexSansArabic_700Bold.ttf"]}}],
+      ["expo-font", {"android": {"fonts": ["./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/400Regular/IBMPlexSansArabic_400Regular.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/500Medium/IBMPlexSansArabic_500Medium.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/600SemiBold/IBMPlexSansArabic_600SemiBold.ttf", "./node_modules/@expo-google-fonts/ibm-plex-sans-arabic/700Bold/IBMPlexSansArabic_700Bold.ttf", "./node_modules/@expo-google-fonts/alexandria/700Bold/Alexandria_700Bold.ttf"]}}],
       ["expo-build-properties", {"android": {"enableMinifyInReleaseBuilds": true, "enableShrinkResourcesInReleaseBuilds": true}}],
       "expo-secure-store",
       ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": false }],

@@ -411,14 +411,7 @@ export class OrdersService implements OnModuleInit {
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
-    await this.controls?.assertOrderAllowed({
-      cityId: input.cityId,
-      vertical: orderVertical(input.type, input.rideVertical),
-      zones: [merchantType ? profile?.location?.zoneKey : input.pickup?.zoneKey, input.dropoff?.zoneKey],
-      customerZone: THROTTLED_ORDER_TYPES.includes(input.type) ? (input.dropoff?.zoneKey ?? null) : null,
-      merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
-      scheduledFor: input.scheduledFor ?? null,
-    });
+    await this.assertControls(input, merchantType, profile);
     // J6: a kitchen capped per slot (Ramadan's iftar rush) refuses one order too many for that slot.
     if (merchantType && input.scheduledFor && input.merchantOrgId) {
       const merchantOrgId = input.merchantOrgId;
@@ -701,6 +694,22 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * Launch controls (playbook §3): a kill switch (service, kitchen, zone) or the zone throttle refuses
+   * with its own message. `place` asks before writing; `quote` asks too (REL-16), so checkout says
+   * «موقوف» the moment the customer opens it, not only when they press the button.
+   */
+  private async assertControls(input: PlaceOrderInput, merchantType: boolean, profile: { location?: { zoneKey?: string | null } | null } | null | undefined): Promise<void> {
+    await this.controls?.assertOrderAllowed({
+      cityId: input.cityId,
+      vertical: orderVertical(input.type, input.rideVertical),
+      zones: [merchantType ? profile?.location?.zoneKey : input.pickup?.zoneKey, input.dropoff?.zoneKey],
+      customerZone: THROTTLED_ORDER_TYPES.includes(input.type) ? (input.dropoff?.zoneKey ?? null) : null,
+      merchantOrgId: merchantType ? (input.merchantOrgId ?? null) : null,
+      scheduledFor: input.scheduledFor ?? null,
+    });
+  }
+
+  /**
    * `orders.quote` — the checkout summary: exactly what `place` would charge for this input now
    * (menu prices, server fees, the merchant's best deal, the rounded total) plus what each line
    * saves and the next deal the cart could unlock. Nothing is stored or reserved.
@@ -709,6 +718,7 @@ export class OrdersService implements OnModuleInit {
     const input = PlaceOrderInput.parse(raw);
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
+    await this.assertControls(input, p.merchantType, p.profile);
     const d = p.discount;
     const next = p.merchantType && !d && input.merchantOrgId ? await this.promotions.nextMerchantDeal(dealQuery(input.merchantOrgId, p.newLines, p.itemsTotal, p.fees.deliveryFeeIqd, now)) : null;
     return {

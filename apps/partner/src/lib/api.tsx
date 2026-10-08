@@ -2,11 +2,13 @@ import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
-import { transformer, type AppRouter } from '@driver/contracts';
+import { REQUEST_LIMITS, isUpdateRequiredError, transformer, type AppRouter } from '@driver/contracts';
 import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
+import { nativeBuildVersion } from './app-build';
+import { appBuildHeaders, updateGateLink } from './app-update';
 import { countingEventSource, countingFetch } from './data-usage';
 import { session as appSession, type SessionStore } from './session';
 
@@ -49,27 +51,37 @@ const countedFetch = countingFetch(networkFetch);
 /** Stream tokens per client (`live.*` subscriptions): `useLiveTokens()` drops it after a 401. */
 const liveTokens = new WeakMap<object, StreamTokenCache>();
 
+/**
+ * `x-driver-app: partner/<store version>` on every call (CORE-05). The live stream can't send headers;
+ * its stream token is fetched with one, so a refused build never gets a stream.
+ */
+const buildHeaders = appBuildHeaders(nativeBuildVersion());
+
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: countedFetch })] });
+  const bare = createTRPCClient<AppRouter>({ links: [updateGateLink(), httpBatchLink({ url, transformer, fetch: countedFetch, headers: () => buildHeaders, maxItems: REQUEST_LIMITS.clientBatchItems })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
     url,
     transformer,
     fetch: countedFetch,
+    // The API takes at most REQUEST_LIMITS.maxBatchSize calls per request (SEC-03); split well below it.
+    maxItems: REQUEST_LIMITS.clientBatchItems,
     async headers() {
       const token = await store.getAccessToken();
-      return token ? { authorization: `Bearer ${token}` } : {};
+      return token ? { ...buildHeaders, authorization: `Bearer ${token}` } : buildHeaders;
     },
   });
   // `live.*` subscriptions go over SSE. EventSource cannot send headers, so each connection carries a
   // short-lived stream token (`live.token`, Bearer-authenticated) in tRPC connection params.
-  const authed = createTRPCClient<AppRouter>({ links: [authRetryLink(store), batch] });
+  const authed = createTRPCClient<AppRouter>({ links: [updateGateLink(), authRetryLink(store), batch] });
   const tokens = createStreamTokenCache(() => authed.live.token.mutate());
   store.onSignOut(() => tokens.clear());
   const client = createTRPCClient<AppRouter>({
     links: [
+      // A build the server refused (`update_required`) stops calling it at all: «حدّث التطبيق».
+      updateGateLink(),
       splitLink({
         condition: (op) => op.type === 'subscription',
         true: httpSubscriptionLink({ url, transformer, EventSource: EventSourceImpl, connectionParams: async () => ({ streamToken: await tokens.get() }) }),
@@ -92,7 +104,7 @@ export function makeQueryClient() {
       queries: {
         staleTime: 15_000,
         // Don't hammer a refused request; the auth link already retried a 401 once.
-        retry: (count, err) => count < 2 && !(err instanceof TRPCClientError && (err.data as { httpStatus?: number } | undefined)?.httpStatus === 401),
+        retry: (count, err) => count < 2 && !isUpdateRequiredError(err) && !(err instanceof TRPCClientError && (err.data as { httpStatus?: number } | undefined)?.httpStatus === 401),
       },
       // A tap offline fails at once with a clear message instead of spinning until the network is back
       // (React Query's default pauses it). Work that must survive offline is queued explicitly.

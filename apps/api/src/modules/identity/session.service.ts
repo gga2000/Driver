@@ -40,9 +40,17 @@ export function phonePepperFromEnv(env: NodeJS.ProcessEnv = process.env): string
 const ISSUER = 'driver-api';
 
 /**
+ * How long a just-retired refresh token still works for the same device (audit SEC-09). Covers an
+ * app that retries a timed-out refresh with the token it still holds (the apps give up after about
+ * 65 s), with room to spare.
+ */
+export const REFRESH_REUSE_GRACE_SEC = 120;
+
+/**
  * Access tokens: jose HS256 JWT with a `kid` header, 15-minute life, claims {sub, sid, did}.
  * Refresh tokens: 256-bit random, stored as SHA-256 hash, 30-day life, rotated on every use.
- * Reusing an already-rotated refresh token revokes the whole session (token theft signal).
+ * Reusing an already-rotated refresh token revokes the whole session (token theft signal), except
+ * the same device retrying within the reuse grace (`refresh`).
  */
 export class SessionService {
   private readonly keys = new Map<string, Uint8Array>();
@@ -71,30 +79,66 @@ export class SessionService {
   /**
    * Rotating refresh: the presented token is retired and a fresh pair is issued. `patch` may
    * change the session's device (new fingerprint) before the access token is minted.
+   *
+   * The rotation is a compare-and-swap on the current token hash (audit SEC-18), so two refreshes
+   * racing with the same token cannot both win. A retired token presented again is theft, except
+   * inside the reuse grace (audit SEC-09): within `REFRESH_REUSE_GRACE_SEC` of that rotation and
+   * from the same device (`callerDeviceId`), it is the same phone retrying a refresh whose answer
+   * was lost on a bad network. It then gets a fresh pair instead of being signed out; the pair the
+   * lost answer carried dies unused. The window is counted from the first rotation, so retries
+   * never stretch it.
    */
-  async refresh(refreshToken: string, tx?: Tx, patch?: (session: SessionRecord) => Promise<{ deviceId?: string | null } | void>): Promise<{ session: SessionRecord; tokens: TokenPair }> {
+  async refresh(
+    refreshToken: string,
+    tx?: Tx,
+    patch?: (session: SessionRecord) => Promise<{ deviceId?: string | null } | void>,
+    callerDeviceId?: (session: SessionRecord) => Promise<string | null>,
+  ): Promise<{ session: SessionRecord; tokens: TokenPair }> {
     const now = this.clock.now();
     const presented = hashToken(refreshToken);
     const session = await this.repo.findSessionByRefreshHash(presented, tx);
-    if (!session) {
-      // A token the last rotation retired: someone else holds the current one. End the session for
-      // both holders. Written OUTSIDE `tx`, which the thrown error rolls back.
-      const stolen = await this.repo.findSessionByPreviousRefreshHash(presented);
-      if (!stolen) throw new DriverError('token_invalid');
-      if (!stolen.revokedAt) await this.repo.updateSession(stolen.id, { revokedAt: now });
-      throw new DriverError('refresh_reused');
-    }
+    if (!session) return this.reused(presented, now, tx, callerDeviceId);
     if (session.revokedAt) throw new DriverError('refresh_reused');
     if (session.expiresAt.getTime() <= now.getTime()) throw new DriverError('session_expired');
     const extra = (await patch?.(session)) ?? {};
     const next = newRefreshToken();
-    const updated = await this.repo.updateSession(
+    const updated = await this.repo.rotateSession(
       session.id,
+      presented,
       { refreshTokenHash: hashToken(next), previousRefreshTokenHash: presented, rotatedAt: now, expiresAt: addSec(now, REFRESH_TOKEN_TTL_SEC), ...(extra.deviceId !== undefined ? { deviceId: extra.deviceId } : {}) },
       tx,
     );
+    // Another refresh with the same token rotated first: this one is now a retired token.
+    if (!updated) return this.reused(presented, now, tx, callerDeviceId);
     const tokens = await this.tokensFor(updated, next, now);
     return { session: updated, tokens };
+  }
+
+  /** A token the last rotation retired: the same phone retrying inside the grace, or theft. */
+  private async reused(
+    presented: string,
+    now: Date,
+    tx: Tx | undefined,
+    callerDeviceId?: (session: SessionRecord) => Promise<string | null>,
+  ): Promise<{ session: SessionRecord; tokens: TokenPair }> {
+    const prior = await this.repo.findSessionByPreviousRefreshHash(presented, tx);
+    if (!prior) throw new DriverError('token_invalid');
+    if (!prior.revokedAt && prior.expiresAt.getTime() > now.getTime() && (await this.inGrace(prior, now, callerDeviceId))) {
+      const next = newRefreshToken();
+      const updated = await this.repo.rotateSession(prior.id, prior.refreshTokenHash, { refreshTokenHash: hashToken(next) }, tx);
+      if (updated) return { session: updated, tokens: await this.tokensFor(updated, next, now) };
+    }
+    // Someone else holds the current token. End the session for both holders. Written OUTSIDE
+    // `tx`, which the thrown error rolls back.
+    if (!prior.revokedAt) await this.repo.updateSession(prior.id, { revokedAt: now });
+    throw new DriverError('refresh_reused');
+  }
+
+  private async inGrace(session: SessionRecord, now: Date, callerDeviceId?: (session: SessionRecord) => Promise<string | null>): Promise<boolean> {
+    if (!session.rotatedAt || now.getTime() - session.rotatedAt.getTime() > REFRESH_REUSE_GRACE_SEC * 1000) return false;
+    const caller = callerDeviceId ? await callerDeviceId(session) : null;
+    // No known device on either side proves nothing: no grace.
+    return caller !== null && caller === session.deviceId;
   }
 
   async revoke(sessionId: string, tx?: Tx): Promise<void> {

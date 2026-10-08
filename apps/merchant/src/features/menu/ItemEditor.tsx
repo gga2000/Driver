@@ -1,8 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
-import { Button, ChipGroup, EmptyState, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, ChipGroup, EmptyState, SegmentedControl, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
+import { LoadPending } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -10,10 +13,13 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { Glyph } from './Glyph';
-import { GroupSheet, HistorySheet, PriceSheet, ruleText } from './ItemSheets';
+import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
 import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, toDraftGroups, type DraftGroup } from './logic';
+import { LibrarySheet, libraryPhoto } from './LibrarySheet';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
-import { Panel, PanelTitle, Pill, Thumb, Toggle } from './parts';
+import { DishArt, Panel, PanelTitle, Pill, Toggle } from './parts';
+import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKind } from './tiers';
+import { COUNTER } from '@/lib/counter';
 import { useMenu, useMenuActions, usePhotoUpload, usePriceHistory } from './queries';
 import { color } from '@driver/design-tokens';
 
@@ -48,9 +54,11 @@ export function ItemEditor() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
-  const params = useLocalSearchParams<{ id?: string; category?: string }>();
+  const params = useLocalSearchParams<{ id?: string; category?: string; photo?: string }>();
+  // p1: opened from a tray's «ماكو صورة · دوس وصوّر»: the photo panel leads.
+  const forPhoto = params.photo === '1';
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const menu = useMenu(storeId);
@@ -66,12 +74,15 @@ export function ItemEditor() {
   const [groups, setGroups] = useState<DraftGroup[]>([]);
   const [newSection, setNewSection] = useState(false);
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tried, setTried] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [groupEdit, setGroupEdit] = useState<{ group: DraftGroup; isNew: boolean } | null>(null);
+  const [tierEdit, setTierEdit] = useState<TierKind | null>(null);
+  const [tierBusy, setTierBusy] = useState(false);
   const history = usePriceHistory(storeId, historyOpen ? itemId : null);
 
   // Fill the form once the dish arrives (and again if another dish opens in this screen).
@@ -97,20 +108,33 @@ export function ItemEditor() {
       toast.show({ message: t('merchant.item.photo_denied'), tone: 'warning' });
       return;
     }
-    if (!picked?.[0] || !storeId) return;
+    if (picked?.[0]) await applyPhoto(picked[0]);
+  };
+  // A new dish keeps the photo until it is saved; a saved one swaps its photo now.
+  const applyPhoto = async (picked: PickedPhoto): Promise<boolean> => {
+    if (!storeId) return false;
     if (isNew || !item) {
-      setPhoto(picked[0]);
-      return;
+      setPhoto(picked);
+      return true;
     }
     setUploading(true);
     try {
-      const uploadId = await upload(picked[0]);
+      const uploadId = await upload(picked);
       await actions.replacePhoto.mutateAsync({ merchantOrgId: storeId, itemId: item.id, uploadId });
       toast.show({ message: t('merchant.item.photo_done'), tone: 'success' });
+      return true;
     } catch (err) {
       fail(err);
+      return false;
     } finally {
       setUploading(false);
+    }
+  };
+  const pickFromLibrary = async (path: string) => {
+    try {
+      if (await applyPhoto(libraryPhoto(path))) setLibraryOpen(false);
+    } catch (err) {
+      fail(err);
     }
   };
 
@@ -196,10 +220,55 @@ export function ItemEditor() {
     );
   };
 
+  // k2 / k3: sold by weight or by size. The dish's price becomes the cheapest one and a required
+  // «الوزن» / «الحجم» choice adds the rest (tiers.ts); a new dish keeps both in the form until it saves.
+  const tiers = draftTiersOf(isNew ? price : (item?.priceIqd ?? null), groups);
+  const soldBy: 'one' | TierKind = tiers?.kind ?? 'one';
+
+  const saveTiers = async (kind: TierKind, list: Tier[]) => {
+    const next = applyTiers(kind, list, groups);
+    if (isNew || !item || !storeId) {
+      setGroups(next.groups);
+      set('price', String(next.priceIqd));
+      setTierEdit(null);
+      return;
+    }
+    setTierBusy(true);
+    try {
+      const saved = await actions.setModifiers.mutateAsync({ merchantOrgId: storeId, itemId: item.id, groups: fromDraftGroups(next.groups) });
+      setGroups(toDraftGroups(saved.modifierGroups));
+      if (next.priceIqd !== item.priceIqd) await actions.updatePrice.mutateAsync({ merchantOrgId: storeId, itemId: item.id, priceIqd: next.priceIqd });
+      setTierEdit(null);
+      toast.show({ message: t('merchant.tiers.saved'), tone: 'success' });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setTierBusy(false);
+    }
+  };
+
+  const chooseSoldBy = (v: 'one' | TierKind) => {
+    if (v !== 'one') {
+      setTierEdit(v);
+      return;
+    }
+    if (!tiers) return;
+    const cheapest = tiers.tiers[0]!.priceIqd;
+    if (isNew || !item) {
+      setGroups(dropTiers(groups));
+      return;
+    }
+    saveGroups(dropTiers(groups), () => toast.show({ message: t('merchant.tiers.one_done', { price: amountParam(cheapest) }), tone: 'success' }));
+  };
+
   if (!isNew && !item) {
     return (
       <Page title={t('merchant.item.title')} back testID="item-editor">
-        {menu.isLoading ? <Skeleton height={320} radius={theme.radius.xl} /> : <EmptyState icon="x" title={t('merchant.item.not_found')} action={{ label: t('merchant.item.back_to_menu'), onPress: () => router.replace('/menu') }} />}
+        {!menu.data ? (
+          <LoadPending query={menu} skeleton={<Skeleton height={320} radius={theme.radius.xl} />} failed={t('merchant.menu.load_failed')} testID="item-editor" />
+        ) : (
+          <EmptyState icon="x" title={t('merchant.item.not_found')} action={{ label: t('merchant.item.back_to_menu'), onPress: () => router.replace('/menu') }} />
+        )}
       </Page>
     );
   }
@@ -209,15 +278,18 @@ export function ItemEditor() {
 
   // ── panels ──
   const photoPanel = (
-    <Panel padded={false} style={{ overflow: 'hidden' }}>
-      <View style={{ aspectRatio: wide ? 4 / 3 : 16 / 9, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
+    <Panel testID="photo-panel" padded={false} style={[{ overflow: 'hidden' }, forPhoto && !photoUri ? { borderWidth: 2, borderColor: theme.colors.accent } : null]}>
+      <View style={{ aspectRatio: wide ? 4 / 3 : 16 / 9, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
         {photoUri ? (
-          <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors />
+          <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors />
         ) : (
-          <View style={{ alignItems: 'center', gap: theme.space[2] }}>
-            <Thumb url={null} name={form.nameAr || '·'} size={88} />
-            <Text variant="footnote" color="accentText" align="center" style={{ maxWidth: 240 }}>
-              {t('merchant.item.photo_none')}
+          <View style={{ alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[4] }}>
+            {/* p2: until a photo arrives, the drawing customers see for this dish (from its name). */}
+            <View style={{ width: wide ? 150 : 112, height: wide ? 150 : 112 }}>
+              <DishArt name={form.nameAr || '·'} id={item?.id} section={form.categoryAr || null} />
+            </View>
+            <Text variant="footnote" color="text" align="center" style={{ maxWidth: 260 }}>
+              {t('merchant.item.photo_drawing')}
             </Text>
           </View>
         )}
@@ -228,24 +300,80 @@ export function ItemEditor() {
         ) : null}
       </View>
       <View style={{ flexDirection: 'row', gap: theme.space[2], padding: theme.space[3] }}>
-        <Button testID="photo-library" size="sm" variant="secondary" label={photoUri ? t('merchant.item.photo_replace') : t('merchant.item.photo_add')} trailing={<Glyph name="photo" size={18} strokeWidth={2} />} onPress={() => void choosePhoto('library')} style={{ flex: 1 }} />
+        <Button testID="photo-library" size="sm" variant={photoUri ? 'secondary' : 'primary'} label={photoUri ? t('merchant.item.photo_replace') : t('merchant.item.photo_add')} trailing={<Glyph name="photo" size={18} strokeWidth={2} color={photoUri ? 'text' : 'onAccent'} />} onPress={() => void choosePhoto('library')} style={{ flex: 1 }} />
         {Platform.OS !== 'web' ? <Button size="sm" variant="secondary" label={t('merchant.item.photo_camera')} trailing={<Glyph name="camera" size={18} strokeWidth={2} />} onPress={() => void choosePhoto('camera')} style={{ flex: 1 }} /> : null}
       </View>
-      <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3] }}>
-        {t('merchant.item.photo_tip')}
-      </Text>
+      {/* «من صورنا»: no time for a photo yet, take one of Driver's own until the shop's arrives. */}
+      <View style={{ paddingHorizontal: theme.space[3], paddingBottom: theme.space[3], marginTop: -theme.space[1] }}>
+        <Button testID="photo-from-library" size="sm" variant="ghost" label={t('merchant.library.open')} trailing={<Glyph name="sparkle" size={18} strokeWidth={2} />} onPress={() => setLibraryOpen(true)} />
+      </View>
+      {photoUri ? (
+        <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3] }}>
+          {t('merchant.item.photo_tip')}
+        </Text>
+      ) : (
+        // p1: the three things that make a dish photo sell, before the first one is taken.
+        <View testID="photo-tips" style={{ gap: theme.space[1], paddingHorizontal: theme.space[4], paddingBottom: theme.space[4] }}>
+          <Text variant="label" weight={700}>
+            {t('merchant.item.photo_tips_title')}
+          </Text>
+          {(['photo_tip_light', 'photo_tip_middle', 'photo_tip_real'] as const).map((k) => (
+            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.accent }} />
+              <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+                {t(`merchant.item.${k}`)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </Panel>
   );
+
+  const soldByControl = (
+    <View style={{ gap: theme.space[2] }} testID="sold-by">
+      <Text variant="label">{t('merchant.tiers.sold_by')}</Text>
+      <SegmentedControl
+        options={[
+          { value: 'one', label: t('merchant.tiers.one') },
+          { value: 'weight', label: t('merchant.tiers.weight') },
+          { value: 'size', label: t('merchant.tiers.size') },
+        ]}
+        value={soldBy}
+        onChange={chooseSoldBy}
+        accessibilityLabel={t('merchant.tiers.sold_by')}
+      />
+    </View>
+  );
+
+  const tierList = tiers ? (
+    <View testID="tier-list" style={{ gap: theme.space[2] }}>
+      {tiers.tiers.map((x) => (
+        <View key={x.name} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2], borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+          <Text variant="bodyStrong" style={{ flex: 1 }}>
+            {x.name}
+          </Text>
+          <Text variant="bodyStrong" tabular>
+            {iqd(x.priceIqd, { locale })}
+          </Text>
+        </View>
+      ))}
+      <Button testID="tier-edit" size="sm" variant="secondary" label={t('merchant.tiers.edit')} onPress={() => setTierEdit(tiers.kind)} style={{ alignSelf: 'flex-start' }} />
+    </View>
+  ) : null;
 
   const pricePanel = item ? (
     <Panel testID="price-panel">
       <PanelTitle glyph="cash" title={t('merchant.item.price')} />
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[3] }}>
-        <Text variant="amount" tabular style={{ flex: 1 }}>
-          {iqd(item.priceIqd, { locale })}
-        </Text>
-        <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} />
-      </View>
+      {soldByControl}
+      {tierList ?? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[3] }}>
+          <Text variant="amount" tabular style={{ flex: 1 }}>
+            {iqd(item.priceIqd, { locale })}
+          </Text>
+          <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} />
+        </View>
+      )}
       <Pressable testID="price-history" accessibilityRole="button" onPress={() => setHistoryOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], opacity: pressed ? 0.7 : 1 })}>
         <Glyph name="history" size={18} color="accentText" strokeWidth={2} />
         <Text variant="label" weight={600} color="accentText">
@@ -282,7 +410,9 @@ export function ItemEditor() {
       <PanelTitle glyph="pencil" title={t('merchant.item.basics')} />
       <TextField testID="item-name" label={t('merchant.item.name')} placeholder={t('merchant.item.name_placeholder')} value={form.nameAr} onChangeText={(v) => set('nameAr', v)} maxLength={80} error={tried && !nameOk ? t('merchant.item.name_missing') : undefined} />
       <TextField testID="item-description" label={t('merchant.item.description')} placeholder={t('merchant.item.description_placeholder')} value={form.description} onChangeText={(v) => set('description', v)} multiline maxLength={300} hint={t('merchant.item.description_hint')} />
-      {isNew ? (
+      {isNew ? soldByControl : null}
+      {isNew && tierList ? tierList : null}
+      {isNew && !tierList ? (
         <TextField
           testID="item-price"
           label={t('merchant.item.price')}
@@ -347,15 +477,17 @@ export function ItemEditor() {
     </Panel>
   );
 
+  // The weight or size choice shows in the price panel, not twice.
+  const extraGroups = tiers ? groups.filter((g) => g.nameAr.trim() !== TIER_GROUP[tiers.kind]) : groups;
   const groupsPanel = (
     <Panel testID="groups-panel">
       <PanelTitle glyph="sliders" title={t('merchant.item.options')} hint={t('merchant.item.options_hint')} />
-      {groups.length === 0 ? (
+      {extraGroups.length === 0 ? (
         <Text variant="body" color="textMuted">
           {t('merchant.item.options_none')}
         </Text>
       ) : (
-        groups.map((g, gi) => (
+        extraGroups.map((g, gi) => (
           <Pressable
             key={g.key}
             testID={`group-${gi}`}
@@ -448,6 +580,16 @@ export function ItemEditor() {
           <HistorySheet visible={historyOpen} name={item.nameAr} history={history.data} loading={history.isLoading} onClose={() => setHistoryOpen(false)} />
         </>
       ) : null}
+      <LibrarySheet visible={libraryOpen} name={form.nameAr} section={form.categoryAr || null} busy={uploading} onClose={() => setLibraryOpen(false)} onPick={(src) => void pickFromLibrary(src)} />
+      <TierSheet
+        visible={tierEdit !== null}
+        kind={tierEdit ?? 'weight'}
+        name={form.nameAr || t('merchant.item.new_title')}
+        initial={tiers && tierEdit === tiers.kind ? tiers.tiers : null}
+        busy={tierBusy}
+        onClose={() => setTierEdit(null)}
+        onSave={(list) => tierEdit && void saveTiers(tierEdit, list)}
+      />
       <GroupSheet
         visible={groupEdit !== null}
         group={groupEdit?.group ?? null}

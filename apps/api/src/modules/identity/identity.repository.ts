@@ -207,6 +207,11 @@ export interface IdentityRepository {
   findSessionByRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   findSessionByPreviousRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
+  /**
+   * Compare-and-swap: applies `patch` only while the session's current refresh hash is still
+   * `expectRefreshHash` and it is not revoked; `null` when another rotation got there first.
+   */
+  rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord | null>;
   revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
   /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
   lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
@@ -547,6 +552,12 @@ export class PrismaIdentityRepository implements IdentityRepository {
       if (!out[r.personId] || at > out[r.personId]!) out[r.personId] = at;
     }
     return out;
+  }
+
+  async rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx) {
+    const db = this.db(tx);
+    const { count } = await db.session.updateMany({ where: { id, refreshTokenHash: expectRefreshHash, revokedAt: null }, data: patch });
+    return count === 0 ? null : db.session.findUnique({ where: { id } });
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
