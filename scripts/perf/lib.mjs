@@ -61,8 +61,9 @@ export async function loadChromium(root) {
     const fromConsole = createRequire(join(root, 'apps', 'console', 'package.json'));
     mod = createRequire(fromConsole.resolve('@playwright/test')).resolve('playwright');
   }
-  const { chromium } = await import(mod);
-  return chromium;
+  // A CommonJS entry (playwright/index.js) re-exports playwright-core, so the names sit on `default`.
+  const m = await import(mod);
+  return m.chromium ?? m.default.chromium;
 }
 
 /** Visible element by test id (screens keep hidden copies mounted behind the stack). */
