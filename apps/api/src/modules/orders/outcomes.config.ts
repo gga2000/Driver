@@ -5,7 +5,8 @@
  * changes an existing amount or who is paid; with every switch off the money is what it was.
  *
  * Each switch reads an environment variable (`on` / `true` / `1` switches it on), so a deployment
- * turns one on without a code change. Tests pass their own `OrderOutcomeRules`.
+ * turns one on without a code change. Tests pass their own `OrderOutcomeRules`. A rule Ali has decided
+ * (c6 remake pay) is on by default and its variable switches it off.
  */
 export const DISPUTE_OUTCOMES = ['stands', 'refund_full', 'refund_partial', 'redelivery', 'void'] as const;
 export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
@@ -67,8 +68,8 @@ export interface OrderOutcomeRules {
   /**
    * c6 (Ali's shop pick, 2026-10-08): the food was ready and no courier reached the pass within
    * `afterReadyMin` of «جاهز», so the kitchen remakes it and Driver pays the first batch (items at menu
-   * price, once per order, `order:<id>:remake`). env `MERCHANT_REMAKE_PAY`: a money rule, off until Ali
-   * switches it on (his card: money changes come back to him before they go live).
+   * price, once per order, `order:<id>:remake`). Ali switched it ON on 2026-10-08 ("yes", 14:18Z);
+   * env `MERCHANT_REMAKE_PAY=off` turns it off without a code change.
    */
   remake: { pay: boolean; afterReadyMin: number };
   /** M-13 (THIN-12): env `AGENT_CASH_ACCOUNTS`: an agent's top-up cash sits on his own `cash:` account until handed in. */
@@ -82,11 +83,15 @@ export const DEFAULT_ORDER_OUTCOME_RULES: OrderOutcomeRules = {
   cashDebt: { block: false, maxUnpaidFees: 2, maxOwedIqd: 5_000 },
   openCash: { enabled: false, newAccountBelowCompleted: 3, newAccountMax: 1, regularMax: 2, prepayAfterNoAnswer: false },
   courierLost: { refund: false, chargeCourier: false },
-  remake: { pay: false, afterReadyMin: 10 },
+  remake: { pay: true, afterReadyMin: 10 },
   agentCashAccounts: false,
 };
 
 export const ORDER_OUTCOME_RULES = Symbol('ORDER_OUTCOME_RULES');
+
+function off(v: string | undefined): boolean {
+  return v !== undefined && ['off', 'false', '0', 'no'].includes(v.trim().toLowerCase());
+}
 
 function on(v: string | undefined): boolean {
   return v !== undefined && ['on', 'true', '1', 'yes'].includes(v.trim().toLowerCase());
@@ -104,7 +109,7 @@ export function outcomeRulesFromEnv(env: Readonly<Record<string, string | undefi
     cashDebt: { ...d.cashDebt, block: on(env['CASH_DEBT_BLOCK']) },
     openCash: { ...d.openCash, enabled: on(env['OPEN_CASH_CAP']), prepayAfterNoAnswer: on(env['PREPAY_AFTER_NO_ANSWER']) },
     courierLost: { refund: on(env['COURIER_LOST_REFUND']), chargeCourier: on(env['COURIER_LOST_CHARGE']) },
-    remake: { ...d.remake, pay: on(env['MERCHANT_REMAKE_PAY']) },
+    remake: { ...d.remake, pay: !off(env['MERCHANT_REMAKE_PAY']) },
     agentCashAccounts: on(env['AGENT_CASH_ACCOUNTS']),
   };
 }

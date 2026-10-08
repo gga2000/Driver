@@ -31,6 +31,8 @@ kill_timeout = 30
   # The worker fires far-ahead timers (booked rides' T−30 search, offers, reminders) from the durable
   # table when their Redis job was lost (NTF-05). Web machines never sweep (DRIVER_ROLE=web).
   TIMERS_SWEEPER = "on"
+  # RED metrics per procedure on a private port, scraped by Fly ([metrics] below); never public.
+  METRICS_PORT = "9091"
 
 # DRIVER_ROLE differs per group, and [env] is app-wide, so each command sets it. The heap cap is 75 % of
 # the machine (LOAD-10): past it Node fails fast and Fly restarts the machine instead of it swapping.
@@ -55,12 +57,16 @@ kill_timeout = 30
     soft_limit = 300
     hard_limit = 400
 
+  # `health.live`: the process and its database (probed on its own connection, so a busy pool never
+  # fails it). It fails only after 30 s of database loss, so a short blip does not pull every machine
+  # at once. Redis, SMS and push are not part of it: losing one must not pull machines from rotation.
+  # Database down blocks a bluegreen deploy; the override is in docs/deploy/runbook.md.
   [[http_service.checks]]
     grace_period = "20s"
     interval = "15s"
     timeout = "5s"
     method = "GET"
-    path = "/trpc/health.ping"
+    path = "/trpc/health.live"
 
 # The worker gets no [http_service]; this machine check is what Fly and the bluegreen swap watch.
 [checks.worker_alive]
@@ -68,10 +74,16 @@ kill_timeout = 30
   type = "http"
   port = 3000
   method = "GET"
-  path = "/trpc/health.ping"
+  path = "/trpc/health.live"
   grace_period = "20s"
   interval = "15s"
   timeout = "5s"
+
+# Fly scrapes every machine's /metrics into its managed Prometheus (Grafana at fly-metrics.net):
+# calls, errors and latency per procedure, heap and event-loop delay (docs/deploy/observability.md).
+[metrics]
+  port = 9091
+  path = "/metrics"
 
 [deploy]
   # New machines boot and pass their check before the old ones get SIGTERM: no downtime. For those

@@ -175,21 +175,66 @@ export const t = initTRPC.context<AppContext>().meta<ProcedureMeta>().create({
 
 export const router = t.router;
 
+/** One finished procedure call, for the API's request log and metrics (`observeProcedures`). */
+export interface ProcedureCall {
+  /** e.g. `orders.place`. */
+  path: string;
+  type: 'query' | 'mutation' | 'subscription';
+  /** `OK`, or the tRPC error code the caller got (`BAD_REQUEST`, `CONFLICT`, `INTERNAL_SERVER_ERROR`…). */
+  code: string;
+  /** The Driver error code inside it (`offer_taken`, `rate_limited`…), when there is one. */
+  driverCode?: string;
+  ms: number;
+  /** The signed-in person's id (pseudonymous; names and phones live in the vault), null when signed out. */
+  personId: string | null;
+}
+
+let procedureObserver: ((call: ProcedureCall) => void) | undefined;
+
+/**
+ * The API registers one observer at boot (`shared/request-log.ts`); every call through
+ * `publicProcedure` reports to it once it settles. An observer that throws is ignored: the request
+ * log must never fail a request.
+ */
+export function observeProcedures(observer: ((call: ProcedureCall) => void) | undefined): void {
+  procedureObserver = observer;
+}
+
+function report(call: ProcedureCall): void {
+  try {
+    procedureObserver?.(call);
+  } catch {
+    // The log is best-effort.
+  }
+}
+
 /**
  * Maps a DriverError thrown anywhere below to its tRPC code (and so its HTTP status: offer_taken →
  * 409, dev_only → 403…). tRPC v11 does not throw out of `next()`: a failing resolver or middleware
  * comes back as `{ ok: false, error }` with the DriverError wrapped as INTERNAL_SERVER_ERROR's
  * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
- * tRPC with the new code.
+ * tRPC with the new code. Each call is also reported to the API's observer (`observeProcedures`).
  */
-export const publicProcedure = t.procedure.use(async ({ next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
+  const started = Date.now();
+  const done = (code: string, driverCode?: string) =>
+    procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
   let result;
   try {
     result = await next();
   } catch (err) {
-    throw toTrpcError(err);
+    const mapped = toTrpcError(err);
+    done(mapped.code, isDriverError(err) ? err.code : undefined);
+    throw mapped;
   }
-  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) throw toTrpcError(result.error.cause);
+  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) {
+    const cause = result.error.cause;
+    const mapped = toTrpcError(cause);
+    done(mapped.code, cause.code);
+    throw mapped;
+  }
+  if (result.ok) done('OK');
+  else done(result.error.code, isDriverError(result.error.cause) ? result.error.cause.code : undefined);
   return result;
 });
 

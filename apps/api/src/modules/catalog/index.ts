@@ -1,6 +1,6 @@
 export { CatalogModule } from './catalog.module.js';
 export { CatalogService, itemOnSale } from './catalog.service.js';
-export { CatalogRpc, STOREFRONT_MERCHANTS, STOREFRONT_TODAY } from './catalog.rpc.js';
+export { CatalogRpc, STOREFRONT_MERCHANTS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches } from './catalog.rpc.js';
 export type { StorefrontMerchants, StorefrontPricing, StorefrontToday } from './catalog.rpc.js';
 export { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository } from './catalog.repository.js';
 export { seedStorefronts } from './seed.js';

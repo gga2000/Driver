@@ -679,3 +679,29 @@ describe('merchant-uploaded dish photos reach customers as working links', () =>
     expect(dish?.photoUrl).toBeNull();
   });
 });
+
+describe('kill switches on the cards (REL-16)', () => {
+  it('a kitchen a switch stopped looks closed, with the switch words, for that door only', async () => {
+    const w = await world();
+    const kareemId = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', filters: { query: 'كريم' } }))[0]!.id;
+    const asked: unknown[] = [];
+    const switches = {
+      stopped: async (input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }) => {
+        asked.push(input);
+        return input.merchantOrgId === kareemId && input.dropoffZone === 'zakur' ? 'مشويات الحاج كريم موقفة هسه' : null;
+      },
+    };
+    const rpc = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, null, null, switches);
+    const cards = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const kareem = cards.find((c) => c.id === kareemId)!;
+    expect(kareem).toMatchObject({ open: false, closedReason: 'paused', stoppedNote: 'مشويات الحاج كريم موقفة هسه', opensInMin: null });
+    expect(asked).toContainEqual({ cityId: 'aziziyah', merchantOrgId: kareemId, kitchenZone: 'centre', dropoffZone: 'zakur' });
+    for (const c of cards.filter((x) => x.id !== kareemId && x.name !== 'مطعم المسافر')) {
+      expect(c.open, c.name).toBe(true);
+      expect(c).not.toHaveProperty('stoppedNote');
+    }
+    // Another door the switch does not cover sees it open.
+    const elsewhere = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: CENTRE_HOME, filters: {} });
+    expect(elsewhere.find((c) => c.id === kareemId)?.open).toBe(true);
+  });
+});

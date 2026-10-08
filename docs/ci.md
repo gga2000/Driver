@@ -31,7 +31,7 @@ real secret is used anywhere in CI.
 | 9   | Unit tests        | `pnpm test` (turbo, then `pnpm test:scripts`: the node tests in `scripts/ci/` and `scripts/`)                           | any unit test, including the locale key-parity test               |
 | 10  | Integration tests | `pnpm test:integration`                                                                                                  | any integration test, **or** `DATABASE_URL` / `REDIS_URL` missing |
 | 11  | Build apps        | `pnpm turbo run build --filter=@driver/api --filter=@driver/console`                                                     | API `tsc` or `next build`                                         |
-| 12  | API smoke         | starts `apps/api/dist/main.js` on :3999, curls `/trpc/health.ping`                                                       | no answer in 20 s, or `db` / `redis` not `"ok"`                   |
+| 12  | API smoke         | starts `apps/api/dist/main.js` on :3999, curls `/trpc/health.live`, `ready`, `ping`                                      | `live` not 200 in 20 s, or ready's `db` / `redis` not `"ok"`      |
 | 13  | Simulate          | `pnpm sim --orders 2000 --seed 1 --ci`                                                                                   | the simulator exits non-zero (an invariant violation)             |
 | 14  | Artifacts         | `simulation-report` (always), `ci-logs` (`api.log`, `simulation.log`, on failure)                                        | —                                                                 |
 
@@ -98,7 +98,7 @@ table` mean the migrations do not reproduce `schema.prisma`. Either a schema cha
 - **Integration tests.** `integration tests: DATABASE_URL, REDIS_URL not set` means a service container
   did not start, so check "Initialize containers" at the top of the job. Otherwise read the failing suite.
   These suites run on the migrated and seeded database from steps 3–6.
-- **API smoke.** The step prints the `health.ping` JSON and then `api.log`. `"db":"unavailable"` or
+- **API smoke.** The step prints the `health.live` and `health.ready` JSON and then `api.log`. `"db":"unavailable"` or
   `"redis":"unavailable"` means the built API could not reach that service. The cause is a boot or
   configuration error, and the reason is in `api.log`, which is also in the `ci-logs` artifact.
 - **Simulate.** The log names the violation, for example `violation: ledger_money_balanced`, with its
@@ -125,7 +125,7 @@ pnpm db:seed
 pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration
 pnpm turbo run build --filter=@driver/api --filter=@driver/console
 PORT=3999 node apps/api/dist/main.js &  sleep 3
-curl -s localhost:3999/trpc/health.ping | jq '.result.data.json | {db, redis}'   # both "ok"
+curl -s localhost:3999/trpc/health.ready | jq '.result.data.json | {db, redis}'  # both "ok"
 kill %1
 pnpm sim --orders 2000 --seed 1 --ci
 ```
