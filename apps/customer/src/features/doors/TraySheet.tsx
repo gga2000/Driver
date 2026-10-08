@@ -198,7 +198,7 @@ export function TraySheet({ mode, shops, visible, onClose }: { mode: TrayMode; s
               return (
                 <View key={`${l.item.id}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }} testID={`tray-line-${i}`}>
                   <View style={{ width: THUMB, height: THUMB, borderRadius: theme.radius.md, overflow: 'hidden' }}>
-                    <FoodArt motif={motifForDish(l.item.name)} photoUrl={l.item.photoUrl} />
+                    <FoodArt motif={motifForDish(l.item.name)} photoUrl={l.item.photoUrl} stage={theme.colors.surface} />
                   </View>
                   <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text variant="label" weight={600} numberOfLines={2}>

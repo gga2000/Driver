@@ -77,8 +77,11 @@ export function coordsText(p: { lat: number; lng: number }): string {
 export function entryText(e: SafetyEntry, raiserName: string): string {
   const by = e.byName ?? t('console.safety.who_raiser');
   switch (e.kind) {
-    case 'raised':
-      return `${raiserName}: ${t('console.safety.ev_raised')}`;
+    case 'raised': {
+      const line = `${raiserName}: ${t('console.safety.ev_raised')}`;
+      // Past the hourly limit the alert still went out, flagged as possibly repeated (FLOW-08).
+      return e.data['repeated'] ? `${line} · ${t('console.safety.ev_raised_repeated', { count: e.data['repeated'] })}` : line;
+    }
     case 'cancelled':
       return `${raiserName}: ${t('console.safety.ev_cancelled')}`;
     case 'paged':

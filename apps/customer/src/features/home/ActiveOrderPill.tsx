@@ -54,8 +54,8 @@ const STAGE_MARK: Record<LiveStage, IconName> = {
  * bar ("liveride"); the mark glides to where the order is now and, once on the way, creeps toward
  * the house as the time nears; a changed arrival time rolls its digits ("flip"); a new stage spreads
  * its colour out from the picture while the card glows for a moment and the new title rises in
- * ("statusglow"). The loops run only while home is in front; under reduced motion everything simply
- * shows where it is.
+ * ("statusglow"). The loops play for a while when home comes to the front or the order reaches a new
+ * stage (`useAmbient`), then hold still; under reduced motion everything simply shows where it is.
  */
 export function ActiveOrderPill({ order }: { order: Order }) {
   const theme = useTheme();
@@ -81,7 +81,14 @@ export function ActiveOrderPill({ order }: { order: Order }) {
   const title = t(stageTitleKey(stage));
   const etaWord = t(stageEtaKey(stage));
   const progress = liveProgress(o, eta, now);
-  const clock = useDriftClock(useAmbient());
+  // A new stage plays its picture again for a while, then the card holds still (speed audit h1).
+  const playing = useAmbient(stage);
+  const clock = useDriftClock(playing);
+  // The live dot's ring and the light along the bar only mean something while they move: they fade out when it rests.
+  const live = useSharedValue(playing ? 1 : 0);
+  useEffect(() => {
+    live.value = withTiming(playing ? 1 : 0, { duration: theme.motion.duration.slow });
+  }, [playing, live, theme.motion.duration.slow]);
 
   // The stage it came from stays painted under the new one while the new colour spreads over it.
   const [fields, setFields] = useState({ from: stage, to: stage });
@@ -141,7 +148,7 @@ export function ActiveOrderPill({ order }: { order: Order }) {
             <StageScene stage={stage} clock={clock} plate={look.plate} arrived={motion} />
             <View style={{ flex: 1, gap: 2 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                <LiveDot clock={clock} color={look.accent} />
+                <LiveDot clock={clock} live={live} color={look.accent} />
                 <Text variant="footnote" weight={600} color={look.sub} numberOfLines={1} style={{ flexShrink: 1 }} testID="home-active-line">
                   {name}
                 </Text>
@@ -168,7 +175,7 @@ export function ActiveOrderPill({ order }: { order: Order }) {
               <Icon name="chevron-forward" size={20} color={look.sub} />
             )}
           </View>
-          <RideBar progress={progress} clock={clock} look={look} mark={STAGE_MARK[stage]} isRide={isRide} />
+          <RideBar progress={progress} clock={clock} live={live} look={look} mark={STAGE_MARK[stage]} isRide={isRide} />
         </View>
       </AnimatedPressable>
     </View>
@@ -176,10 +183,10 @@ export function ActiveOrderPill({ order }: { order: Order }) {
 }
 
 /** The live dot with a ring that keeps spreading out from it and fading. */
-function LiveDot({ clock, color }: { clock: SharedValue<number>; color: string }) {
+function LiveDot({ clock, live, color }: { clock: SharedValue<number>; live: SharedValue<number>; color: string }) {
   const ring = useAnimatedStyle(() => {
     const p = (clock.value % PULSE_S) / PULSE_S;
-    return { opacity: 0.55 * (1 - p), transform: [{ scale: 1 + 1.6 * p }] };
+    return { opacity: 0.55 * (1 - p) * live.value, transform: [{ scale: 1 + 1.6 * p }] };
   });
   return (
     <View style={{ width: 10, height: 10 }}>
@@ -190,7 +197,7 @@ function LiveDot({ clock, color }: { clock: SharedValue<number>; color: string }
 }
 
 /** The four segments, filled as far as the order has come, the light running along them, the stage's mark on them and the door at the end. */
-function RideBar({ progress, clock, look, mark, isRide }: { progress: number; clock: SharedValue<number>; look: LiveStageSwatch; mark: IconName; isRide: boolean }) {
+function RideBar({ progress, clock, live, look, mark, isRide }: { progress: number; clock: SharedValue<number>; live: SharedValue<number>; look: LiveStageSwatch; mark: IconName; isRide: boolean }) {
   const theme = useTheme();
   const dir = theme.isRTL ? -1 : 1;
   const width = useSharedValue(0);
@@ -215,7 +222,7 @@ function RideBar({ progress, clock, look, mark, isRide }: { progress: number; cl
       >
         <View style={{ flexDirection: 'row', gap: SEG_GAP }}>
           {Array.from({ length: LIVE_SEGMENTS }, (_, i) => (
-            <Segment key={i} i={i} p={p} width={width} clock={clock} look={look} />
+            <Segment key={i} i={i} p={p} width={width} clock={clock} live={live} look={look} />
           ))}
         </View>
         <Animated.View
@@ -251,7 +258,7 @@ function RideBar({ progress, clock, look, mark, isRide }: { progress: number; cl
  * track until it gets there (speed audit m2, 2026-10-07: moving it costs nothing, resizing it lays the
  * card out again on every frame of the spring).
  */
-function Segment({ i, p, width, clock, look }: { i: number; p: SharedValue<number>; width: SharedValue<number>; clock: SharedValue<number>; look: LiveStageSwatch }) {
+function Segment({ i, p, width, clock, live, look }: { i: number; p: SharedValue<number>; width: SharedValue<number>; clock: SharedValue<number>; live: SharedValue<number>; look: LiveStageSwatch }) {
   const theme = useTheme();
   const dir = theme.isRTL ? -1 : 1;
   // The web shares one id space across every SVG on the page.
@@ -271,7 +278,7 @@ function Segment({ i, p, width, clock, look }: { i: number; p: SharedValue<numbe
     // Where the light is along the whole bar, then where that falls inside this segment (the fill it
     // rides in is pulled back by what is still empty, so the light is pushed on by the same).
     const x = run >= 1 ? -SHEEN_W : -SHEEN_W + run * (lead + SHEEN_W);
-    return { transform: [{ translateX: dir * (x - i * (seg + SEG_GAP) + empty.value) }] };
+    return { opacity: live.value, transform: [{ translateX: dir * (x - i * (seg + SEG_GAP) + empty.value) }] };
   });
   return (
     <View style={{ flex: 1, height: SEG_H, borderRadius: 3, backgroundColor: withAlpha(look.sub, 0.3), overflow: 'hidden' }}>

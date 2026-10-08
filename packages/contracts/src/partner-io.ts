@@ -363,6 +363,12 @@ export const PartnerJobStop = z.object({
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
   /**
+   * SEC-14: the person he hands the order to when someone else receives it (a gift «عزيمة», food sent
+   * to someone): the name the sender gave, read from the vault for this courier (logged), on the
+   * drop-off only. Null/absent otherwise.
+   */
+  recipient: z.object({ name: z.string() }).nullable().optional(),
+  /**
    * Partner redesign j2: the public landmark the stop is near («يم جامع الرسول»), the way drivers give
    * directions — a town place from the landmark list, never a person's door; null when none is close.
    */

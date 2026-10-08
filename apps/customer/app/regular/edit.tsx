@@ -1,9 +1,9 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
-import { ScrollView, Switch, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
 import { formatClock, formatHourPart } from '@driver/i18n';
-import { Button, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { useMyPlaces } from '@/features/account/queries';
@@ -180,7 +180,7 @@ function RegularEdit() {
                 {t('habits.active_hint')}
               </Text>
             </View>
-            <Switch testID="regular-active" value={d.active} onValueChange={(active) => up({ active })} accessibilityLabel={t('habits.active')} />
+            <Toggle testID="regular-active" value={d.active} onValueChange={(active) => up({ active })} accessibilityLabel={t('habits.active')} />
           </View>
         ) : null}
 
@@ -267,7 +267,7 @@ function RidePart({ d, places, loading, up }: { d: RegularDraft; places: SavedPl
         <Text variant="bodyStrong" style={{ flex: 1 }}>
           {t('habits.door')}
         </Text>
-        <Switch testID="regular-door" value={d.ride.doorPickup} onValueChange={(doorPickup) => ride({ doorPickup })} accessibilityLabel={t('habits.door')} />
+        <Toggle testID="regular-door" value={d.ride.doorPickup} onValueChange={(doorPickup) => ride({ doorPickup })} accessibilityLabel={t('habits.door')} />
       </View>
     </>
   );

@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Share, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FOOD_RATED_TYPES, isNightAt, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
+import { isNightAt, orderTicketNumber, quickRepliesFor, quickReplyText, type QuickReplyKey, type ShareLink } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Button, EmptyState, formatClock, IconButton, Rule, Sheet, Skeleton, Text, Timeline, useTheme, useToast } from '@driver/ui';
 import { newClientId, threadOf } from '@/features/chat/logic';
@@ -49,6 +49,7 @@ import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostTher
 import { KITCHEN_PROGRESS_H, KitchenProgress } from '@/features/track/KitchenProgress';
 import { kitchenStages, showKitchenProgress } from '@/features/track/kitchen-progress';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
+import { streetSwitchOffered } from '@/features/track/street-switch';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -241,6 +242,7 @@ export default function OrderLiveScreen() {
   // "عباس وصل" (L-02): shown at the pickup until closed; "طالع هسة" goes once per order.
   const [hereClosedFor, setHereClosedFor] = useState<string | null>(null);
   const [hereH, setHereH] = useState(0);
+  const [revealH, setRevealH] = useState(0);
   // Rides only: «طالع هسة» goes as the chat's coming-out message (food's «أني نازل» is orders.comingOut).
   const [rideComingOut, setRideComingOut] = useState<{ orderId: string; state: 'sending' | 'sent' } | null>(null);
   const [arrivalSeen, setArrivalSeen] = useState(false);
@@ -365,7 +367,8 @@ export default function OrderLiveScreen() {
   const timeline = v ? buildTimeline(v, { eta, lateMin, courierName }, t, formatClock) : null;
   // Rides: cancel until the rider is in the car (L-16; rides never set pickedUpAt).
   const canCancel = v && phase ? (ride ? rideCanCancel(phase) : !v.order.pickedUpAt) && live && phase !== 'unreachable' : false;
-  const canStreet = v ? (FOOD_RATED_TYPES as readonly string[]).includes(v.order.type) && !v.order.pickedUpAt && live : false;
+  // Off until orders.switchHandover exists (HUNT-01): see LIVE_STREET_SWITCH_ENABLED.
+  const canStreet = v ? streetSwitchOffered(v.order, live) : false;
   const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
@@ -373,12 +376,13 @@ export default function OrderLiveScreen() {
   const kitchen = v && showKitchenProgress(v.order, phase) ? kitchenStages(v.order) : null;
   // «وصل، اطلع» is for whoever goes out to the car: not the booker of someone else's ride.
   const showHere = Boolean(ride && !riderFor && v?.courier && phase === 'at_pickup' && hereClosedFor !== id);
+  const showReveal = Boolean(v?.courier && reveal.show && !moments.card && !showHere);
   // s1: the trip code sits in the collapsed sheet, except while the arrived card (which carries it) is up.
   const sheetCode = showHere ? null : tripCode;
   const collapsed = COLLAPSED + insets.bottom + (searching && searchBar ? SEARCH_PROGRESS_H : 0) + (freeCancel ? FREE_CANCEL_H : 0) + (showTrip ? TRIP_PROGRESS_H : 0) + (pushAsk.visible ? PUSH_ASK_H : 0) + (kitchen ? KITCHEN_PROGRESS_H + theme.space[3] : 0) + (sheetCode ? TRIP_CODE_H : 0) + (simple ? SIMPLE_HEADER_EXTRA_H : 0);
   // The unreachable panel keeps the map visible (f18): the camera frames him above it.
   // The arrived card already shows him, the car and the plate: the float steps aside until it is closed.
-  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat && !showHere ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
+  const mapBottom = phase === 'unreachable' ? UNREACHABLE_PANEL_H + insets.bottom : collapsed + (showFloat && !showHere && !showReveal ? floatH : 0) + (offerDue ? SWITCH_OFFER_H : 0);
   const waitPerIqd = paidWaitPerIqd(city.data, rideVertical);
   const sayComingOut = async () => {
     setRideComingOut({ orderId: id, state: 'sending' });
@@ -415,8 +419,8 @@ export default function OrderLiveScreen() {
           view={v}
           fix={fix}
           stale={lostMin !== null}
-          // f1: the «السايق وصل» card sits over the top of the map: frame the pins below it.
-          topInset={insets.top + TOP_BAR + bannersH + (showHere && hereH > 0 ? hereH + 8 : 0)}
+          // f1: the «السايق وصل» card (and the driver reveal, VIS-13) sits over the top of the map: frame the pins below it.
+          topInset={insets.top + TOP_BAR + bannersH + (showHere && hereH > 0 ? hereH + 8 : showReveal && revealH > 0 ? revealH + 8 : 0)}
           bottomInset={mapBottom}
           searching={searching}
           minutes={mapMinutes}
@@ -451,7 +455,8 @@ export default function OrderLiveScreen() {
         {phase === 'reassigning' ? <DegradedBanner testID="reassigning" icon="user" tone="info" title={t('track.reassigning')} body={t('track.reassigning_note')} /> : null}
         {lateMin > 0 && phase !== 'reassigning' && eta && v ? <LateBanner view={v} lateMin={lateMin} eta={eta} now={now} /> : null}
       </TopBar>
-      {v?.courier && showFloat && !showHere ? (
+      {/* The reveal introduces him once; his docked card follows when it closes, not both at once (VIS-13). */}
+      {v?.courier && showFloat && !showHere && !showReveal ? (
         <CourierFloat
           courier={v.courier}
           ride={ride}
@@ -500,7 +505,7 @@ export default function OrderLiveScreen() {
           />
         </View>
       ) : null}
-      {v?.courier && reveal.show && !moments.card && !showHere ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} /> : null}
+      {v?.courier && showReveal ? <DriverRevealCard courier={v.courier} ride={ride} top={insets.top + TOP_BAR + bannersH + 8} onClose={reveal.close} onHeight={setRevealH} /> : null}
       {/* «قريب، اطلع هسة» is for whoever waits at the curb: on a ride for someone else that is the rider (her push). */}
       {v?.courier && moments.card === 'ride_near' && !riderFor ? (
         <RideNearCard
@@ -642,7 +647,7 @@ export default function OrderLiveScreen() {
               {ride && phase === 'on_the_way' ? (
                 <ActionRow icon="check" label={t('ride.confirm_arrived')} hint={t('ride.confirm_arrived_hint')} onPress={endRide} testID="action-ride-arrived" />
               ) : null}
-              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} testID="action-share" />}
+              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t(ride ? 'trip.share' : 'order.share')} onPress={() => void share()} testID="action-share" />}
               {gift && !happy && phase !== 'cancelled' ? (
                 <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
               ) : null}

@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Platform, Pressable, Switch, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import type { SavedPlaceView } from '@driver/contracts';
 import { settleWithin } from '@driver/contracts/net-client';
-import { Avatar, Button, Card, Icon, ListRow, PhotoImage, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, Icon, ListRow, PhotoImage, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { photoUri } from '@/features/account/device';
@@ -257,13 +257,11 @@ function Account() {
           subtitle={t('account.simple_hint')}
           chevron={false}
           trailing={
-            <Switch
+            <Toggle
               testID="account-simple-switch"
               accessibilityLabel={t('account.simple_title')}
               value={simple.on}
               onValueChange={toggleSimple}
-              trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-              {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
             />
           }
         />

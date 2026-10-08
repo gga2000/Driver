@@ -630,6 +630,10 @@ function JobNotes({ job, stop, ride }: { job: PartnerJob; stop: PartnerJobStop; 
           {...accent}
         />
       ) : null}
+      {/* SEC-14: whom he hands it to when someone else receives the order (a logged vault read). */}
+      {stop.type === 'dropoff' && stop.recipient ? (
+        <SlipNote testID="job-recipient" icon="user" title={t('partner.job_recipient', { name: stop.recipient.name })} bg={theme.colors.surfaceSunken} ink={theme.colors.text} />
+      ) : null}
       {ride && stop.type === 'pickup' && stop.rider ? (
         <SlipNote testID="job-rider" icon="user" title={t('partner.offer_for_rider_title', { name: stop.rider.name })} body={t('partner.offer_for_rider_body')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} />
       ) : null}

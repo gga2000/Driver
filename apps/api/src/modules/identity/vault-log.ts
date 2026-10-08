@@ -26,6 +26,9 @@ export function accessorOf(accessorId: string): Accessor {
   return { kind, personId: null, ref: accessorId };
 }
 
+/** SEC-14: the Console order detail (orders.get for staff) reads a gift recipient's name under this purpose. */
+export const CONSOLE_ORDER_RECIPIENT_PURPOSE = 'console_order_recipient';
+
 /**
  * Interactive staff reads in the Console (by the purpose the caller logs): these fail CLOSED — when the
  * access log row cannot be written, the read returns no data (it throws). Every other read fails open
@@ -49,6 +52,7 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'ops_cash_round',
   'finance_cash_desk',
   'approvals_queue',
+  CONSOLE_ORDER_RECIPIENT_PURPOSE,
 ]);
 
 /** The stable code an alert matches on (plan §7.4: alert when the count is above 0). */

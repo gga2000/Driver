@@ -98,6 +98,12 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1', driverId: 'drv', tripId: 'trp_1' }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_sweep_reminder', to: 'drv', params: {} }]);
     expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1' }, { tripId: 'trp_1' }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
+    // A ride's wave offers it to several drivers at once: each hears «طلب جديد», once.
+    expect(await one(event('dispatch.wave_sent', { wave: 1, driverIds: ['d1', 'd2', 'd1'], seconds: 15 }, { tripId: 'trp_1' }))).toEqual([
+      { template: 'partner_new_job', to: 'd1', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } },
+      { template: 'partner_new_job', to: 'd2', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } },
+    ]);
+    expect(await one(event('dispatch.wave_sent', { wave: 1, driverIds: [] }, { tripId: 'trp_1' }))).toEqual([]);
     // Maps program o5: "send drivers here" is one push per free driver around the zone.
     expect(await one(event('dispatch.zone_nudged', { zoneId: 'centre', zoneName_ar: 'العزيزية (مركز)', driverIds: ['d1', 'd2'] }))).toEqual([
       { template: 'partner_zone_nudge', to: 'd1', params: { zone: 'العزيزية (مركز)' } },

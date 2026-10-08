@@ -2,14 +2,17 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
-import { Button, Card, DepartureTime, EmptyState, Icon, Rule, SegmentedControl, Skeleton, SlideToConfirm, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, Rule, SegmentedControl, Skeleton, SlideToConfirm, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
-import { departureTone, SeatStrip, SectionHead } from '@/features/intercity/BoardParts';
+import { SeatStrip, SectionHead } from '@/features/intercity/BoardParts';
+import { carArtFor } from '@/features/intercity/car-art';
 import { PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/DepartureParts';
 import { GarageLegend, GarageSeatMap, RiderSheet, WalkUpSheet } from '@/features/intercity/GarageParts';
-import { blockerText, cityName, countdownLabel, departureState, riderName, seatName } from '@/features/intercity/labels';
+import { blockerText, cityName, countdownLabel, departureState, riderName, seatName, seatsList } from '@/features/intercity/labels';
+import { TripsActions } from '@/features/intercity/TripsColors';
+import { AboardList, BoardingCodeSheet, CarArtSeats, SeatRoster, seatCounts, TripsBand, type CodeMatch } from '@/features/intercity/TripsParts';
 import {
   ANNOUNCE_RULES,
   boardedSeats,
@@ -38,6 +41,11 @@ import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
 
 const POSITION_MS = 30_000;
+/**
+ * Riders no longer say who travels (Ali, 2026-10-07: no men / women / family), so a walk-up is booked
+ * the same way the rider app books (`aila`, the rule that never blocks a seat) and no seat says «رجال».
+ */
+const WALK_UP_AS: TravellingAs = 'aila';
 type Tab = 'seats' | 'details';
 
 /**
@@ -94,12 +102,17 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
   const [tab, setTab] = useState<Tab>(live ? 'seats' : 'details');
   const [sheetSeat, setSheetSeat] = useState<IntercitySeatId | null>(null);
-  const [walkUpAs, setWalkUpAs] = useState<TravellingAs>(dep.familyOnly ? 'aila' : 'rijal');
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
   // The general PIN pad in التفاصيل (a rider who doesn't know his seat).
   const [anyPin, setAnyPin] = useState('');
   const [anyPinError, setAnyPinError] = useState(false);
+  // The boarding-code sheet (f1): rider by rider, the match confirmed in green before the next one.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [codePin, setCodePin] = useState('');
+  const [codeError, setCodeError] = useState(false);
+  const [codeMatch, setCodeMatch] = useState<CodeMatch | null>(null);
+  const art = carArtFor(dep.vehicle);
 
   const sheetOcc: SeatOccupant | null = sheetSeat ? (occupants.get(sheetSeat) ?? null) : null;
   const riderOcc = sheetOcc?.kind === 'rider' ? sheetOcc : null;
@@ -214,9 +227,35 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
     }
   };
 
+  /** The boarding-code sheet's pad: whoever's PIN it is, confirmed by name and seat. */
+  const onCodeKey = async (key: string) => {
+    setCodeError(false);
+    const next = pinPress(codePin, key);
+    setCodePin(next);
+    if (next.length < 4) return;
+    try {
+      const after = await actions.checkIn.mutateAsync({ departureId: dep.id, pin: next });
+      const who = after.bookings.find((b) => b.state === 'checked_in' && !dep.bookings.some((x) => x.bookingId === b.bookingId && x.state === 'checked_in'));
+      theme.haptic('success');
+      setCodeMatch({ name: riderName(t, who ? names.get(who.bookingId) : null), seats: who ? seatsList(t, who.seatIds) : '', at: who?.checkedInAt ?? new Date() });
+      setCodePin('');
+    } catch (err) {
+      setCodeError(true);
+      if (apiErrorCode(err) !== 'pin_invalid') fail(err);
+      else theme.haptic('error');
+      setTimeout(() => setCodePin(''), 600);
+    }
+  };
+  const openCode = () => {
+    setCodePin('');
+    setCodeError(false);
+    setCodeMatch(null);
+    setCodeOpen(true);
+  };
+
   const markWalkUp = async (seatId: IntercitySeatId, remove: boolean) => {
     try {
-      await actions.walkUp.mutateAsync({ departureId: dep.id, seatId, ...(remove ? { remove: true } : { travellingAs: walkUpAs }) });
+      await actions.walkUp.mutateAsync({ departureId: dep.id, seatId, ...(remove ? { remove: true } : { travellingAs: WALK_UP_AS }) });
       theme.haptic('success');
       toast.show({ message: remove ? t('partner.ic_walkup_removed', { seat: seatName(t, seatId) }) : t('partner.walkup_marked'), tone: 'success' });
       closeSheet();
@@ -283,6 +322,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const stepsDone = !!dep.selfieAt && !!dep.driverCheckedInAt && dep.driverInsideGarage !== false;
   const blocker = blockerText(t, departBlockerNote(readiness), dep.departAt);
 
+  const counts = seatCounts(dep);
   const action = open ? (
     // Departing moves every rider's booking: a slide, never a pocket tap (P-08). Locked, it names the blocker.
     <SlideToConfirm testID="depart" label={t('partner.ic_depart_cta')} note={readiness.canDepart ? t('partner.gm_ready') : (blocker ?? undefined)} confirmHaptic="medium" disabled={!readiness.canDepart} loading={actions.depart.isPending} onConfirm={() => void depart()} />
@@ -293,15 +333,17 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   );
   // The seat colour key is pinned right above the slide, always whole: under the map it peeked out
   // half hidden behind «انطلقنا» (review p5a).
-  const footer =
-    tab === 'seats' ? (
+  // With his painted car the roster under it says every seat in words, so the key is only for the drawn map.
+  // The slide and «دخّل رمز صعود» in the trips' date brown and gold (i1, f1).
+  const footer = (
+    <TripsActions>
       <View style={{ gap: theme.space[3] }}>
-        <GarageLegend states={legendStates(occupants)} />
+        {tab === 'seats' && !art ? <GarageLegend states={legendStates(occupants)} /> : null}
+        {open && waitingPin ? <Button testID="code-open" label={t('partner.ic_code_cta')} icon="receipt" variant="secondary" size="lg" fullWidth onPress={openCode} /> : null}
         {action}
       </View>
-    ) : (
-      action
-    );
+    </TripsActions>
+  );
 
   return (
     <Screen testID="intercity-departure" edges={['bottom']} footer={footer}>
@@ -313,37 +355,15 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
         }}
       />
 
-      {/* The board: the time on split-flap tiles (audit d-2), where to, state and fill. */}
-      <Card testID="departure-hero" padding={4}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-          <DepartureTime
-            testID="departure-time"
-            at={dep.departAt}
-            now={now.getTime()}
-            size="card"
-            countdown={open}
-            note={open && dep.departAt.getTime() < now.getTime() ? countdownLabel(t, dep.departAt, now) : undefined}
-          />
-          <View style={{ flex: 1, alignItems: 'flex-end', gap: theme.space[2] }}>
-            <StatusPill label={departureState(t, dep.state)} tone={departureTone(dep.state)} live={dep.state === 'boarding' || dep.state === 'departed'} />
-            <Text variant="label" weight={700} tabular align="end">
-              {[t('intercity.fill', { filled: dep.fill.booked + dep.fill.walkUps, total: dep.fill.seatsTotal }), checkedIn > 0 ? t('partner.ic_fill_checked', { n: checkedIn }) : null].filter(Boolean).join(' · ')}
-            </Text>
-          </View>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: theme.space[3] }}>
-          <Icon name="garage" size={18} color="textMuted" />
-          <Text variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
-            {t('rajaa.route', { from: garage?.nameAr ?? '', to: cityName(t, toCity) })}
-          </Text>
-          {dep.familyOnly ? <StatusPill label={t('intercity.family_only')} tone="info" size="sm" /> : null}
-        </View>
-        {open ? (
-          <Text variant="caption" color="textMuted" tabular style={{ marginTop: theme.space[1] }}>
-            {t('partner.ic_dep_or_full', { time: clockLabel(dep.latestDepartureAt) })}
-          </Text>
-        ) : null}
-      </Card>
+      {/* i1: the garage band in date brown and gold, the time big on split-flap tiles. */}
+      <TripsBand
+        dep={dep}
+        from={garage?.nameAr ?? ''}
+        to={[cityName(t, toCity), dep.familyOnly ? t('intercity.family_only') : null].filter(Boolean).join(' · ')}
+        now={now}
+        note={open ? countdownLabel(t, dep.departAt, now) : undefined}
+        orFull={open ? t('partner.ic_dep_or_full', { time: clockLabel(dep.latestDepartureAt) }) : undefined}
+      />
 
       <SegmentedControl<Tab>
         value={tab}
@@ -380,8 +400,16 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
               />
             </Card>
           ) : null}
+          {dep.state === 'departed' ? <AboardList dep={dep} names={names} /> : null}
           <View testID="driver-seatmap" style={{ gap: theme.space[3] }}>
-            <GarageSeatMap layout={dep.vehicle.layout} occupants={occupants} editable={open} onSeat={openSeat} />
+            {art ? (
+              <>
+                <CarArtSeats art={art} layout={dep.vehicle.layout} occupants={occupants} editable={open} onSeat={openSeat} />
+                <SeatRoster dep={dep} occupants={occupants} editable={open} onSeat={openSeat} />
+              </>
+            ) : (
+              <GarageSeatMap layout={dep.vehicle.layout} occupants={occupants} editable={open} onSeat={openSeat} />
+            )}
             {open ? (
               <Text variant="footnote" color="textMuted" align="center">
                 {t('partner.gm_hint')}
@@ -508,13 +536,23 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
         onPickup={(accept) => riderOcc && void respondPickup(riderOcc.booking.bookingId, accept)}
         busy={busy}
       />
+      <BoardingCodeSheet
+        open={codeOpen}
+        onClose={() => setCodeOpen(false)}
+        boarded={counts.boarded - dep.walkUps.length}
+        total={counts.boarded - dep.walkUps.length + counts.toBoard}
+        pin={codePin}
+        error={codeError}
+        busy={actions.checkIn.isPending}
+        match={codeMatch}
+        onKey={(k) => void onCodeKey(k)}
+        onNext={() => setCodeMatch(null)}
+      />
       <WalkUpSheet
         dep={dep}
         occ={walkOcc}
         open={!!walkOcc}
         onClose={closeSheet}
-        as={walkUpAs}
-        onAs={setWalkUpAs}
         onConfirm={() => walkOcc && void markWalkUp(walkOcc.seatId, false)}
         onRemove={() => walkOcc && void markWalkUp(walkOcc.seatId, true)}
         busy={actions.walkUp.isPending}

@@ -409,13 +409,16 @@ function Words({ card, label, fact, live, beat, big }: { card: ServiceCard; labe
   );
 }
 
-/** The live dot: a ring grows out of it and fades, once per beat, while home is in front (`useAmbient`). */
+/**
+ * The live dot: a ring grows out of it and fades, once per beat, while home's ambient movement plays
+ * (`useAmbient`). When it rests, the ring on its way out finishes spreading instead of vanishing.
+ */
 function LiveDot({ color, beat, top }: { color: string; beat: boolean; top: number }) {
   const ring = useSharedValue(0);
   useEffect(() => {
     if (!beat) {
       cancelAnimation(ring);
-      ring.value = 0;
+      if (ring.value > 0 && ring.value < 1) ring.value = withTiming(1, { duration: (1 - ring.value) * PULSE_MS, easing: Easing.out(Easing.quad) });
       return;
     }
     ring.value = 0;
