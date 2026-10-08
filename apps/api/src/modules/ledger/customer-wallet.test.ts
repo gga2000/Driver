@@ -118,6 +118,13 @@ describe('customer wallet: readable lines', () => {
     ]);
   });
 
+  it('M-17: a merchant\'s late-reject credit paid to the customer reads as credit', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('order:o3:merchant_late_reject', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.merchantCash('m1'), toAccount: Accounts.customer('c1'), memo: 'merchant_late_reject' }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount])).toEqual([['credit', 500]]);
+  });
+
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {
     const h = walletHarness();
     await h.ledger.recordAll(group('topup:1', 'money', '2026-10-01T09:00:00Z', [{ type: 'credit_issued', amount: 20_000, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));

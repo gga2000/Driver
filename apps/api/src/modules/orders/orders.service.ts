@@ -956,14 +956,18 @@ export class OrdersService implements OnModuleInit {
       if (!MERCHANT_ORDER_TYPES.includes(order.type)) throw new DriverError('order_state_conflict');
       const late = order.state === 'merchant_accepted' || order.state === 'preparing';
       const now = this.clock.now();
+      // M-17 (awaiting Ali's yes): the late-reject credit reaches the wallet (ledger, from the merchant)
+      // only while the money rule is on; off, the event claims no credit.
+      const creditIqd = late && order.merchantOrgId && AZIZIYAH_MONEY_RULES.merchantLateRejectCredit.enabled ? ORDERS_RULES.merchantLateRejectCreditIqd : 0;
       const next = await this.move(order, 'merchant_rejected', actorId, tx, { cancelledAt: now, cancellationReason: input.reason }, {
+        ...this.rejected(order, now),
         reason: input.reason,
         auto: false,
         scored: true,
         afterAccept: late,
-        customerCreditIqd: late ? ORDERS_RULES.merchantLateRejectCreditIqd : 0,
-        creditFundedBy: late ? 'merchant' : null,
-      });
+        customerCreditIqd: creditIqd,
+        creditFundedBy: creditIqd > 0 ? 'merchant' : null,
+      } satisfies Omit<DomainEventInput<'order.rejected'>, 'from' | 'to'>);
       await this.releaseTrip(next, 'merchant_rejected');
       return this.view(order.id, tx);
     });
@@ -1635,6 +1639,7 @@ export class OrdersService implements OnModuleInit {
           // Review A.1: an auto-reject inside a declared pause window does not score.
           const pause = profile ? (activePauseWindow(now, profile.pauseWindows, DEFAULT_TIMEZONE) ?? activePauseWindow(offeredAt, profile.pauseWindows, DEFAULT_TIMEZONE)) : null;
           await this.move(order, 'merchant_rejected', SYSTEM, tx, { cancelledAt: now, cancellationReason: 'merchant_timeout' }, {
+            ...this.rejected(order, now),
             reason: 'merchant_timeout',
             auto: true,
             scored: pause === null,
@@ -2082,6 +2087,17 @@ export class OrdersService implements OnModuleInit {
       beneficiaries: c.beneficiaries ?? [],
       ...(c.label_ar ? { label_ar: c.label_ar } : {}),
       ...(c.reason_ar ? { reason_ar: c.reason_ar } : {}),
+    };
+  }
+
+  /** The ids every `order.rejected` carries (M-17: the ledger needs them for a late-reject credit). */
+  private rejected(order: OrderRecord, at: Date): Pick<DomainEventInput<'order.rejected'>, 'orderId' | 'occurredAt' | 'customerId' | 'householdId' | 'merchantOrgId'> {
+    return {
+      orderId: order.id,
+      occurredAt: at,
+      customerId: order.ordererId,
+      ...(order.householdOrgId ? { householdId: order.householdOrgId } : {}),
+      ...(order.merchantOrgId ? { merchantOrgId: order.merchantOrgId } : {}),
     };
   }
 

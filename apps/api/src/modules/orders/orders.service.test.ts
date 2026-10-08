@@ -307,14 +307,32 @@ describe('OrdersService — merchant acceptance', () => {
     expect(h.events.last('order.rejected')!.payload).toMatchObject({ auto: true, scored: false, pauseWindow: 'صلاة الجمعة' });
   });
 
-  it('late rejection after accepting: scoring hit and 500 customer credit funded by the merchant', async () => {
+  it('late rejection after accepting: a scoring hit; while the M-17 money rule is off the event claims no credit', async () => {
+    expect(AZIZIYAH_MONEY_RULES.merchantLateRejectCredit.enabled).toBe(false);
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
     await h.orders.markPreparing('m1', { orderId: o.id });
     const r = await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
     expect(r.state).toBe('merchant_rejected');
-    expect(h.events.last('order.rejected')!.payload).toMatchObject({ afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant', scored: true });
+    expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, customerId: 'c1', merchantOrgId: expect.any(String), afterAccept: true, customerCreditIqd: 0, creditFundedBy: null, scored: true });
+  });
+
+  it('M-17 switch on: a late rejection carries 500 customer credit funded by the merchant; a rejection before accepting carries none', async () => {
+    const rule = AZIZIYAH_MONEY_RULES.merchantLateRejectCredit;
+    rule.enabled = true;
+    try {
+      const h = ordersHarness();
+      const o = await h.orders.place('c1', h.foodInput());
+      await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+      await h.orders.merchantReject('m1', { orderId: o.id, reason: 'خلص الأكل' });
+      expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: o.id, customerId: 'c1', afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' });
+      const early = await h.orders.place('c1', h.foodInput());
+      await h.orders.merchantReject('m1', { orderId: early.id, reason: 'زحمة' });
+      expect(h.events.last('order.rejected')!.payload).toMatchObject({ orderId: early.id, afterAccept: false, customerCreditIqd: 0, creditFundedBy: null });
+    } finally {
+      rule.enabled = false;
+    }
   });
 });
 
