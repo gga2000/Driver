@@ -1,11 +1,12 @@
 import { Pressable, View, useWindowDimensions } from 'react-native';
-import type { DriverDepartureView, IntercitySeatId, IntercitySeatLayout, TravellingAs } from '@driver/contracts';
-import { Button, Chip, Icon, ModalSheet, SEAT_ROWS, StatusPill, Text, useTheme, type IconName, type Theme } from '@driver/ui';
+import type { DriverDepartureView, IntercitySeatId, IntercitySeatLayout } from '@driver/contracts';
+import { Button, Icon, ModalSheet, SEAT_ROWS, StatusPill, Text, useTheme, type IconName, type Theme } from '@driver/ui';
 import { CALLS_LIVE } from '@/features/chat/calls';
 import { useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { statusTone, PinPad } from './DepartureParts';
-import { legendLabel, paymentLabel, pickupLabel, riderName, seatName, statusLabel, travellingAsLabel } from './labels';
+import { TripsActions } from './TripsColors';
+import { legendLabel, paymentLabel, pickupLabel, riderName, seatName, statusLabel } from './labels';
 import { clockLabel, garageCell, meterMoney, walkUpCash, type LegendState, type SeatOccupant } from './logic';
 
 /**
@@ -46,7 +47,7 @@ export function seatLook(theme: Theme, t: TFn, occ: SeatOccupant, editable: bool
     };
   }
   if (occ.kind === 'walkup') {
-    return { bg: c.infoTint, border: c.info, dashed: false, fg: 'infoText', icon: 'garage', title: t('partner.ic_seat_walkup'), sub: occ.travellingAs ? travellingAsLabel(t, occ.travellingAs) : seatName(t, occ.seatId), extra: null };
+    return { bg: c.infoTint, border: c.info, dashed: false, fg: 'infoText', icon: 'garage', title: t('partner.ic_seat_walkup'), sub: seatName(t, occ.seatId), extra: null };
   }
   const s = occ.status;
   const name = riderName(t, occ.firstName);
@@ -268,7 +269,7 @@ export function RiderSheet({
       onClose={onClose}
       testID="rider-sheet"
       title={canPin ? t('partner.gm_pin_title', { name }) : name}
-      subtitle={[seatName(t, occ.seatId), travellingAsLabel(t, b.travellingAs), paymentLabel(t, b), pickupLabel(t, b)].join(' · ')}
+      subtitle={[seatName(t, occ.seatId), paymentLabel(t, b), pickupLabel(t, b)].join(' · ')}
       aside={<StatusPill size="sm" tone={statusTone(occ.status)} live={late} label={occ.status === 'checked_in' && b.checkedInAt ? t('partner.gm_boarded_at', { time: clockLabel(b.checkedInAt) }) : statusLabel(t, occ.status, b)} />}
     >
       <View style={{ gap: theme.space[4] }}>
@@ -285,7 +286,11 @@ export function RiderSheet({
                 </Text>
               ) : null}
             </View>
-            <Button testID="rider-call" label={CALLS_LIVE ? t('partner.gm_call_rider', { name }) : `${t('partner.gm_call_rider', { name })} · ${t('soon.badge')}`} icon="phone" variant={CALLS_LIVE ? 'secondary' : 'ghost'} size="lg" fullWidth loading={calling} onPress={onCall} style={CALLS_LIVE ? undefined : { opacity: 0.6 }} />
+            {/* f1: the call and «ما إجا» side by side, the way the late seat was drawn. */}
+            <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+              <Button testID="rider-call" label={CALLS_LIVE ? t('partner.gm_call') : `${t('partner.gm_call')} · ${t('soon.badge')}`} icon="phone" variant={CALLS_LIVE ? 'secondary' : 'ghost'} size="lg" loading={calling} onPress={onCall} style={{ flex: 1, ...(CALLS_LIVE ? null : { opacity: 0.6 }) }} />
+              {b.canNoShow ? <Button testID="sheet-noshow" label={t('partner.ic_noshow_cta')} icon="x" variant="secondary" size="lg" onPress={onNoShow} disabled={busy} style={{ flex: 1 }} /> : null}
+            </View>
           </View>
         ) : b.state === 'booked' ? (
           <Button testID="rider-call" label={CALLS_LIVE ? t('partner.gm_call_rider', { name }) : `${t('partner.gm_call_rider', { name })} · ${t('soon.badge')}`} icon="phone" variant="ghost" size="sm" loading={calling} onPress={onCall} style={{ alignSelf: 'flex-start', opacity: CALLS_LIVE ? 1 : 0.6 }} />
@@ -309,7 +314,11 @@ export function RiderSheet({
             <PinPad pin={pin} onKey={onPinKey} busy={checkingIn} error={pinError} />
           </View>
         ) : null}
-        {b.canNoShow ? (
+        {b.canNoShow && late ? (
+          <Text variant="caption" color="textMuted">
+            {b.prepaid || b.prepayRail === 'trusted_cash' ? t('partner.ic_noshow_rule_prepaid') : t('partner.ic_noshow_rule_cash')}
+          </Text>
+        ) : b.canNoShow ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
               {b.prepaid || b.prepayRail === 'trusted_cash' ? t('partner.ic_noshow_rule_prepaid') : t('partner.ic_noshow_rule_cash')}
@@ -324,16 +333,15 @@ export function RiderSheet({
 
 // ───────────────────────── the walk-up sheet ─────────────────────────
 
-const TRAVELLING_AS: readonly TravellingAs[] = ['rijal', 'nisa', 'aila'];
-
-/** Tap an empty seat: who sits (رجال / نساء / عائلة) and the cash to take, quoted by the server. A walk-up seat: remove. */
+/**
+ * Tap an empty seat: the cash to take, quoted by the server, and one tap to count the rider (no
+ * «رجال / نساء / عائلة»: riders stopped choosing, b7). A walk-up seat: remove.
+ */
 export function WalkUpSheet({
   dep,
   occ,
   open,
   onClose,
-  as,
-  onAs,
   onConfirm,
   onRemove,
   busy,
@@ -342,8 +350,6 @@ export function WalkUpSheet({
   occ: Extract<SeatOccupant, { kind: 'free' | 'walkup' }> | null;
   open: boolean;
   onClose: () => void;
-  as: TravellingAs;
-  onAs: (v: TravellingAs) => void;
   onConfirm: () => void;
   onRemove: () => void;
   busy: boolean;
@@ -363,27 +369,19 @@ export function WalkUpSheet({
         marked ? (
           <Button testID="walkup-remove" label={t('partner.ic_walkup_remove')} variant="secondary" size="lg" fullWidth onPress={onRemove} loading={busy} />
         ) : (
-          <Button testID="walkup-confirm" label={t('partner.ic_walkup_confirm')} icon="garage" size="lg" fullWidth onPress={onConfirm} loading={busy} />
+          <TripsActions>
+            <Button testID="walkup-confirm" label={t('partner.ic_walkup_confirm')} icon="garage" variant="ink" size="lg" fullWidth onPress={onConfirm} loading={busy} />
+          </TripsActions>
         )
       }
     >
       <View style={{ gap: theme.space[4] }}>
         {marked ? (
           <Text variant="body" color="textMuted">
-            {occ.travellingAs ? travellingAsLabel(t, occ.travellingAs) : t('partner.ic_seat_walkup')}
+            {t('partner.ic_seat_walkup')}
           </Text>
         ) : (
           <>
-            <View style={{ gap: theme.space[2] }}>
-              <Text variant="label" color="textMuted">
-                {t('partner.ic_walkup_as')}
-              </Text>
-              <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-                {TRAVELLING_AS.filter((v) => !dep.familyOnly || v === 'aila').map((v) => (
-                  <Chip key={v} testID={`walkup-as-${v}`} role="radio" label={travellingAsLabel(t, v)} selected={as === v} onPress={() => onAs(v)} style={{ flex: 1, minHeight: 48 }} />
-                ))}
-              </View>
-            </View>
             <View testID="walkup-cash" style={{ alignItems: 'center', gap: 2, backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
               <Icon name="wallet" size={22} color="text" />
               <Text variant="heading" tabular align="center">
