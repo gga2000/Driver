@@ -39,7 +39,7 @@ interface ErrorDef {
   message_en?: string;
   retryHint: RetryHint;
   /** tRPC / HTTP class the transport maps the code to. */
-  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
 }
 
 /** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
@@ -371,6 +371,8 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
+  update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

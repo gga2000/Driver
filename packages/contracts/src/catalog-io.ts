@@ -65,6 +65,11 @@ export const RestaurantCard = z.object({
   open: z.boolean(),
   /** Why it is closed: outside opening hours, or a scheduled pause (Friday prayer). */
   closedReason: z.enum(['hours', 'paused']).nullable(),
+  /**
+   * REL-16: when a launch kill switch (the service, this kitchen, or a zone) has stopped it, the words
+   * to show (the same ones checkout refuses with); `open` is false and `closedReason` 'paused'.
+   */
+  stoppedNote: z.string().optional(),
   /** Next local opening time, 12-hour "7:00", when closed. */
   opensAt: z.string().nullable(),
   /** f12: minutes until it opens (closed by hours or a pause window); null when open or unknown. */

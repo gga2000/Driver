@@ -149,6 +149,16 @@ function outOfReach(s: StorefrontRecord, card: RestaurantCard, dropoff: Delivery
  * and a fee preview from the pricing engine split exactly as `orders.place` charges it, so the
  * delivery fee on a card is the one the customer pays at checkout (door hand-over, now).
  */
+/**
+ * REL-16: the launch kill switches as menus and lists see them. Bound to the controls module by the
+ * orders module; unbound (tests, the demo) nothing is ever stopped.
+ */
+export const STOREFRONT_SWITCHES = Symbol('STOREFRONT_SWITCHES');
+export interface StorefrontSwitches {
+  /** The customer's words when a switch stops this kitchen for this door, else null. */
+  stopped(input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }): Promise<string | null>;
+}
+
 @Injectable()
 export class CatalogRpc implements CustomerCatalogPort {
   private readonly log = new Logger(CatalogRpc.name);
@@ -167,6 +177,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() eta?: EtaService,
     @Optional() @Inject(STOREFRONT_TODAY) private readonly todayFacts: StorefrontToday | null = null,
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
+    @Optional() @Inject(STOREFRONT_SWITCHES) private readonly switches: StorefrontSwitches | null = null,
   ) {
     this.photo = photoLink(photos);
     this.clock = clock ?? new SystemClock();
@@ -591,10 +602,14 @@ export class CatalogRpc implements CustomerCatalogPort {
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff) : null);
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
+    // REL-16: a kitchen a kill switch stops looks closed here, with the switch's words, not only at «اطلب».
+    const stoppedNote = this.switches ? await this.switches.stopped({ cityId: s.cityId, merchantOrgId: s.orgId, kitchenZone: location?.zoneKey ?? null, dropoffZone: dropoff?.zoneKey ?? null }) : null;
     const state = holiday
       ? { open: false, closedReason: 'hours' as const, opensAt: null }
-      : closed
+      : closed && !stoppedNote
         ? { open: false, closedReason: 'paused' as const, opensAt: reopensAt ? localTwelveHour(reopensAt, this.merchants.timeZone) : null }
+        : stoppedNote
+          ? { open: false, closedReason: 'paused' as const, opensAt: null }
         : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,
@@ -616,7 +631,8 @@ export class CatalogRpc implements CustomerCatalogPort {
       open: state.open,
       closedReason: state.closedReason,
       opensAt: state.opensAt,
-      opensInMin: holiday || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      opensInMin: holiday || stoppedNote || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      ...(stoppedNote ? { stoppedNote } : {}),
       busy,
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
