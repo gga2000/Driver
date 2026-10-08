@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, useWindowDimensions, View } from 'react-native';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
 import { agoText, Button, Card, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
@@ -25,11 +25,12 @@ import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/featu
 import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
 import { useDinnerChance } from '@/features/ride-habits/queries';
 import { bandTitleKey, bandWords, daypart, kitchenRank, orderForDaypart } from '@/features/home/daypart';
-import { DaypartBand, type BandBasket } from '@/features/home/DaypartBand';
+import type { BandBasket } from '@/features/home/DaypartBand';
+import { HOUR_PICKS } from '@/features/home/gallery';
+import { HourFood } from '@/features/home/HourFood';
 import { useHomeIntro } from '@/features/home/intro';
 import { useUsuals } from '@/features/home/habit-queries';
 import { fridayAhead, usualNow } from '@/features/home/habits';
-import { PotsStrip } from '@/features/home/PotsStrip';
 import { FridayCard, UsualCard } from '@/features/home/UsualCard';
 import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
@@ -98,7 +99,10 @@ export default function Home() {
   const quiet = useSeason().quiet;
   // h7: the welcome-home moment, once, right after setup.
   const prof = useProfile();
-  const picks = usePicks(bandWords(dp));
+  const picks = usePicks(bandWords(dp), HOUR_PICKS);
+  const { width: screenW } = useWindowDimensions();
+  // The page column: the screen up to the content cap, less the gutters.
+  const columnW = Math.min(screenW, MAX_CONTENT_WIDTH) - theme.space[5] * 2;
   const [refreshing, setRefreshing] = useState(false);
 
   const list = restaurants.data;
@@ -144,6 +148,8 @@ export default function Home() {
   const food = foodFact({ loading, openCount: open.length, firstOpensAt: night.first?.opensAt ?? null });
   const foodOff = !loading && !!list && open.length === 0;
   const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last), friday: Boolean(friday), usual: Boolean(usual) });
+  // The kitchen the card above already offers: the hour's food shows it last, not a fourth time.
+  const offered = cards.includes('usual') ? usual?.row.order.merchantOrgId : cards.includes('friday') ? friday?.usual.row.order.merchantOrgId : cards.includes('reorder') ? last?.order.merchantOrgId : null;
 
   // The basket on home (Ali's Yes, "addfly"): the band's + drops a dish in and it flies to the bar.
   const cart = useCart();
@@ -250,11 +256,9 @@ export default function Home() {
         {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
         <SeasonCard />
 
-        {/* «العزيزية اليوم» (joy h2): what the town's kitchens cook today; hidden when none is open with one. */}
-        <PotsStrip now={now} />
-
-        {/* «وقت العزيزية»: real dishes for the hour from kitchens open now (hidden below two). */}
-        {open.length > 0 ? <DaypartBand title={t(bandTitleKey(dp, quiet))} dishes={picks.data} basket={basket} /> : null}
+        {/* The hour's food (concept C, Ali 2026-10-08): the town's pots and the hour's dishes as one
+            photo gallery that shows itself once, then «أكلات ثانية» in two columns. */}
+        {open.length > 0 ? <HourFood title={t(bandTitleKey(dp, quiet))} words={bandWords(dp)} later={offered ?? null} picks={picks.data} picksPending={picks.isPending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} /> : null}
 
         <View testID="home-food" style={{ gap: theme.space[6] }}>
           {/* «شنو بخاطرك؟»: food types as round dish pictures, each opens search for the word. */}
