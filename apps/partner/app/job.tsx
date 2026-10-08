@@ -538,6 +538,11 @@ function JobView({
               {/* j6: the kitchen's time, live, until he has the food. */}
               {stop.type === 'pickup' && !ride && job.merchant ? <ReadyBar prep={job.merchant} /> : null}
 
+              {/* HUNT-02: the customer chose «بالشارع» (paid less): he comes out, so the courier calls instead of walking to the door. */}
+              {stop.type === 'dropoff' && stop.streetHandover ? (
+                <SlipNote testID="job-street" icon="location-arrow" title={t('partner.job_street_title')} body={t('partner.job_street_body')} bg={theme.colors.accentTint} ink={theme.colors.accentText} />
+              ) : null}
+
               {/* f3: a gift and the customer's wallet top-up are one ink card (the top-up confirms with a slide). */}
               <DoorExtras gift={giftNote(stop)} topUp={topUp} />
               <JobNotes job={job} stop={stop} ride={ride} />
