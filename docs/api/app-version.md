@@ -16,6 +16,10 @@ than a minimum, and the app shows «أكو نسخة جديدة لازم تحدّ
   header existed. The first store builds must therefore send it, or they can never be made to update.
 - Changing the minimum is an env change: `fly secrets set MIN_APP_VERSIONS=… --config
   deploy/fly/api.toml` (machines restart; no deploy).
+- **Raising the partner minimum**: do it off-peak, after the Console shows no active jobs on old
+  builds. A refused build can't send heartbeats, so the courier drops out of dispatch within 90 s
+  (`PRESENCE_TTL_SEC`; at most one offer lands meanwhile and times out), but a courier in the middle of
+  a job can't finish it in the app: ops finish any leftover job through the Console's staff actions.
 
 ## Apps (to wire, one change per app; owners: customer = lane C, partner, merchant)
 
