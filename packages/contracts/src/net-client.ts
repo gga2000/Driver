@@ -424,7 +424,7 @@ export function classifyError(err: unknown): ErrorClass {
   if (isNetworkError(err)) return of('network', true);
   const status = httpStatusOf(err);
   if (status === 401) return of('auth', false);
-  if (status === 429 || code === 'rate_limited') return of('busy', true);
+  if (status === 429 || code === 'rate_limited' || code === 'server_busy') return of('busy', true);
   if ((status !== undefined && status >= 500) || (code !== null && TRANSIENT_CODES.has(code))) return of('server', true);
   // Any other answer is the server's final word on this request (its retry hint is for the person, not
   // for an automatic retry); an error with no status at all is a bug on our side that a retry won't fix.

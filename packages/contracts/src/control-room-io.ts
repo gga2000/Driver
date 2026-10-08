@@ -128,7 +128,7 @@ export type AuditEntry = z.infer<typeof AuditEntry>;
 
 export const AuditInput = z.object({
   cityId: CityId.default('aziziyah'),
-  /** Filter by subject kind (`kill_switch`, `capacity`, `banner`, `approval`, `ticket`, `export`). */
+  /** Filter by subject kind (`kill_switch`, `capacity`, `screen`, `banner`, `approval`, `ticket`, `export`). */
   subjectKind: z.string().max(40).optional(),
   limit: z.number().int().min(1).max(200).default(50),
 });
@@ -180,6 +180,52 @@ export const SetBannerInput = z.object({
 export type SetBannerInput = z.input<typeof SetBannerInput>;
 
 export const ClearBannerInput = z.object({ bannerId: z.string().min(1) });
+
+// ───────────────────────── screen switches (W6, REL-16) ─────────────────────────
+
+/**
+ * The redesigned customer screens that ship beside the ones they replace (after-order design
+ * Steps 1–4) and show only while their switch is on, so a bad night goes back without an app update.
+ * Stored as `ui.<name>` rows in the kill-switch table; the apps see the bare names.
+ */
+export const ScreenSwitch = z.enum(['basket_v2', 'checkout_v2', 'track_v2', 'orders_v2']);
+export type ScreenSwitch = z.infer<typeof ScreenSwitch>;
+
+/** Who sees the new screen: nobody, staff only (anyone holding a Console role), or every customer. */
+export const ScreenAudience = z.enum(['off', 'staff', 'all']);
+export type ScreenAudience = z.infer<typeof ScreenAudience>;
+
+export const ScreensInput = z.object({ cityId: CityId.optional() });
+export type ScreensInput = z.infer<typeof ScreensInput>;
+
+/** `system.screens`: which new screens this caller sees. Anything missing or unreadable = the old screen. */
+export const PublicScreens = z.object({
+  basket_v2: z.boolean(),
+  checkout_v2: z.boolean(),
+  track_v2: z.boolean(),
+  orders_v2: z.boolean(),
+});
+export type PublicScreens = z.infer<typeof PublicScreens>;
+
+export const ScreenSwitchView = z.object({
+  cityId: z.string(),
+  key: ScreenSwitch,
+  audience: ScreenAudience,
+  /** Why it was last changed; null = never set (off). */
+  reason: z.string().nullable(),
+  setBy: z.string().nullable(),
+  setByName: z.string().nullable(),
+  setAt: z.coerce.date().nullable(),
+});
+export type ScreenSwitchView = z.infer<typeof ScreenSwitchView>;
+
+export const SetScreenSwitchInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  key: ScreenSwitch,
+  audience: ScreenAudience,
+  reason: z.string().trim().min(3).max(300),
+});
+export type SetScreenSwitchInput = z.input<typeof SetScreenSwitchInput>;
 
 // ───────────────────────── quiet days and the season (customer joy J1a) ─────────────────────────
 
@@ -579,6 +625,10 @@ export interface ControlsPort {
   setSeason(actor: Actor, input: z.output<typeof SetSeasonInput>): Promise<SeasonView>;
   clearSeason(actor: Actor, input: { seasonId: string }): Promise<SeasonView>;
   setIftarTime(actor: Actor, input: SetIftarTimeInput): Promise<SeasonView>;
+  /** `isStaff` is asked only when some screen is on for staff only (it costs a role read). */
+  screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens>;
+  screenSwitches(cityId: string): Promise<ScreenSwitchView[]>;
+  setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */

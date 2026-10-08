@@ -2,7 +2,9 @@
 /**
  * Screens budget (speed audit g3 + h4): opens the customer app's main screens and the restaurant board
  * in Chromium, like an installed app (files local, API = the in-memory demo API), and measures:
- *   - open_kb       data the screen downloads to open (and while it settles: 5 s, home 25 s) (uncompressed JSON; the server squeezes it later)
+ *   - open_kb       data the screen downloads to open (and while it settles: 5 s, home 25 s) (uncompressed JSON; the server squeezes it later);
+ *                   photos from the API (/files/…, and the stock food photos /media/…) are reported apart as
+ *                   open_photo_kb, with no budget
  *   - idle_commits  React redraws per minute while nobody touches the screen
  *   - idle_fps      animation frames the app asks for per second while idle
  *   - idle_kb       data per minute while idle (polling, live updates)
@@ -48,16 +50,22 @@ async function newPage(apiBase, viewport) {
   const page = await browser.newPage({ viewport, locale: 'ar-IQ' });
   await page.route(/tile|openfreemap|maptiler|\.pbf/, (r) => r.abort());
   await installCounters(page);
-  const net = { bytes: 0 };
+  const net = { bytes: 0, fileBytes: 0 };
   page.on('response', async (r) => {
     if (!r.url().startsWith(apiBase) || r.url().includes('/demo/')) return;
     const len = Number(r.headers()['content-length'] ?? NaN);
-    if (Number.isFinite(len)) net.bytes += len;
-    else
-      net.bytes += await r.body().then(
-        (b) => b.length,
-        () => 0,
-      );
+    const size = Number.isFinite(len)
+      ? len
+      : await r.body().then(
+          (b) => b.length,
+          () => 0,
+        );
+    // Photos (/files/…: a courier's face, a gate photo) are counted apart: the demo gives only some
+    // couriers a photo, so counting them in open_kb made live_order pass or fail at random. The stock
+    // food photos (/media/food/…, #107) used to ship inside the app; a phone keeps them once seen.
+    const path = new URL(r.url()).pathname;
+    if (path.includes('/files/') || path.startsWith('/media/')) net.fileBytes += size;
+    else net.bytes += size;
   });
   return { page, net };
 }
@@ -65,9 +73,12 @@ async function newPage(apiBase, viewport) {
 /** Opens a screen, lets it settle, then watches it untouched for IDLE_SECS. */
 async function measure(name, { page, net }, open, settleMs = SETTLE_MS) {
   net.bytes = 0;
+  net.fileBytes = 0;
   await open();
   await page.waitForTimeout(settleMs);
   measured[`${name}.open_kb`] = Math.round(net.bytes / 1024);
+  // Report-only (no budget): photos depend on which demo courier the screen got.
+  if (net.fileBytes > 0) measured[`${name}.open_photo_kb`] = Math.round(net.fileBytes / 1024);
   const before = await page.evaluate(() => ({ ...window.__perf }));
   net.bytes = 0;
   await page.waitForTimeout(IDLE_SECS * 1000);
@@ -125,8 +136,15 @@ try {
         ]);
         if (at === 'setup') {
           await page.locator('[data-testid="setup-name"]').fill('علي');
-          await by('setup-next').click();
-          await by('chip-street_30').click();
+          // Name and first place share one screen: drag the map a little so the pin settles.
+          const box = await by('place-map').boundingBox();
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, {
+            steps: 8,
+          });
+          await page.mouse.up();
+          await page.waitForTimeout(1_000);
           await by('setup-save').click();
           if (
             await by('welcome-home')

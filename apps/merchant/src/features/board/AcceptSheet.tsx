@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import type { BoardOrder } from '@driver/contracts';
-import { Button, Chip, CountdownRing, Icon, ModalSheet, Stepper, Text, useTheme, useToast } from '@driver/ui';
+import { mentionsAllergy, type BoardOrder } from '@driver/contracts';
+import { Button, Chip, CountdownRing, Icon, ModalSheet, Stepper, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { clampPrep, committedPrep, defaultPrepChoice, partialValid, PREP_MAX, PREP_MIN, PREP_OPTIONS } from './logic';
-import { PaymentPill } from './OrderCard';
+import { clampPrep, committedPrep, defaultPrepChoice, kitchenNotes, partialValid, PREP_MAX, PREP_MIN, PREP_OPTIONS } from './logic';
+import { KitchenNote, PaymentPill } from './OrderCard';
 import { useOrderActions } from './queries';
 
 export interface AcceptSheetProps {
@@ -29,7 +30,7 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { accept } = useOrderActions();
   const [choice, setChoice] = useState<number | 'custom'>(defaultPrepChoice(usualPrepMinutes));
   const [custom, setCustom] = useState(30);
@@ -66,6 +67,7 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
     }
   };
 
+  const allergyNotes = kitchenNotes(order).filter((n) => mentionsAllergy(n));
   return (
     <ModalSheet
       visible
@@ -90,6 +92,15 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
         )
       }
     >
+      {/* Ideas b1/a7: the allergy is never covered. The sheet hid the ticket behind it, so every note
+          that mentions an allergy is repeated here, first, before the prep time is chosen. */}
+      {allergyNotes.length > 0 ? (
+        <View testID="accept-allergy" style={{ gap: theme.space[2] }}>
+          {allergyNotes.map((n, i) => (
+            <KitchenNote key={i} note={n} />
+          ))}
+        </View>
+      ) : null}
       <View style={{ flexDirection: 'row' }}>
         <PaymentPill order={order} />
       </View>

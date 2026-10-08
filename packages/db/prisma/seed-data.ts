@@ -61,7 +61,7 @@ export const MEETING_POINTS: SeedMeetingPoint[] = [
   { key: 'mp_jami_kabir', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'باب الجامع الكبير', nameEn: 'Grand Mosque gate', lat: 32.9045, lng: 45.0595, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_hadiqat_shasha', cityId: 'aziziyah', zoneKey: 'mahdood_1', nameAr: 'حديقة الشاشة', nameEn: 'Al-Shasha park', lat: 32.9122, lng: 45.0552, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_kuliyat_tarbiya', cityId: 'aziziyah', zoneKey: 'saadouniya', nameAr: 'باب كلية التربية الأساسية', nameEn: 'College of Basic Education gate', lat: 32.9012, lng: 45.0478, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
-  { key: 'mp_shari_30', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'تقاطع شارع ٣٠', nameEn: 'Street 30 junction', lat: 32.9098, lng: 45.0628, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
+  { key: 'mp_shari_30', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'تقاطع شارع 30', nameEn: 'Street 30 junction', lat: 32.9098, lng: 45.0628, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_hawas_bridge', cityId: 'aziziyah', zoneKey: 'hawas_bridge', nameAr: 'رأس جسر حواس', nameEn: 'Hawas bridge head', lat: 32.9172, lng: 45.0378, garage: false, reachableBy: ['tuktuk', 'car'] },
   { key: 'mp_khamas_bridge', cityId: 'aziziyah', zoneKey: 'khamas_bridge', nameAr: 'رأس جسر خماس', nameEn: 'Khamas bridge head', lat: 32.9382, lng: 45.0812, garage: false, reachableBy: ['tuktuk', 'car'] },
 ];

@@ -1,0 +1,175 @@
+# Driver (درايفر) — the launch load test against the staging twin (plan §7.1, docs/launch/load-test.md).
+#
+# Run by hand only: Actions → Load test → Run workflow, pick a profile. Before 1x / 2x / 3x, put staging
+# at production's layout (Actions → Staging machines → launch); this run refuses otherwise. Afterwards,
+# Staging machines → everyday (or off).
+#
+# What it does, all from this runner:
+#   1. load people and fresh sessions in the staging database (scripts/load/prepare.mjs): made-up numbers,
+#      refresh tokens generated here; only their hashes reach the database;
+#   2. k6 (with the SSE extension, built here) plays the customer app, live orders and the kitchens
+#      (scripts/load/k6/launch.js) against the staging API; setup opens the kitchens all day for the run,
+#      teardown puts their hours back;
+#   3. every load session is ended, whatever happened, and the numbers go to this run's summary.
+# The tokens never leave the runner: nothing is printed, the only file uploaded is k6's summary
+# (timings and counts). The repository is public, so keep it that way when changing this file.
+#
+# Staging environment: secret DIRECT_URL (session pooler, 5432), optional DATABASE_CA_CERT; variables
+# DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging), FLY_API_TOKEN (secret) to
+# count the machines.
+name: Load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'smoke = 3 min check; 1x = 2 h at launch peak; 2x = 1 h at double; 3x = 15 min overload'
+        type: choice
+        options: [smoke, 1x, 2x, 3x]
+        default: smoke
+      duration:
+        description: Override the length (e.g. 30m); empty = the profile's
+        type: string
+        required: false
+      k:
+        description: Override the visit-rate multiplier (e.g. 1.5); empty = the profile's
+        type: string
+        required: false
+
+# Same lane as Deploy and the staging workflows: a deploy mid-run would spoil the numbers.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  K6_VERSION: v1.3.0
+  XK6_VERSION: v1.1.4
+  XK6_SSE: github.com/phymbert/xk6-sse@v0.1.11
+
+jobs:
+  load:
+    name: load test (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 200
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+      API_APP: ${{ vars.FLY_API_APP }}
+      PROFILE: ${{ inputs.profile }}
+      DURATION: ${{ inputs.duration }}
+      K: ${{ inputs.k }}
+      # The load database work runs as staging (prepare.mjs refuses any other remote database).
+      LOAD_TARGET: staging
+    steps:
+      - name: Staging never reaches production
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/launch/load-test.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [ -n "$DIRECT_URL" ] || fail "secret DIRECT_URL is not set on the staging environment"
+          [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref)"
+          [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database"
+          [[ -z "$DURATION" || "$DURATION" =~ ^[0-9]+[smh]$ ]] || fail "duration must look like 90s, 30m or 2h"
+          [[ -z "$K" || "$K" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "k must be a number like 1.5"
+
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Staging is at launch size and answering
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          web=$(flyctl machines list --app "$API_APP" --json | jq '[.[] | select(.state == "started" and .config.metadata.fly_process_group == "app")] | length')
+          echo "web machines running: $web"
+          if [ "$PROFILE" != smoke ] && [ "$web" -lt 2 ]; then
+            echo "::error title=Staging size::$PROFILE needs production's layout: run Actions → Staging machines → launch first"; exit 1
+          fi
+          body=$(curl -fsS "https://${API_APP}.fly.dev/trpc/health.ping") || { echo "::error title=Staging API::health.ping did not answer"; exit 1; }
+          echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
+            echo "::error title=Staging API::health.ping is not ok"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global corepack@latest && corepack enable
+      - name: Install (db package only, for pg)
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter=driver --filter=@driver/db...
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: k6 with the SSE extension (cached)
+        id: k6cache
+        uses: actions/cache@v4
+        with:
+          path: ~/k6bin
+          key: k6-${{ env.K6_VERSION }}-xk6-${{ env.XK6_VERSION }}-${{ env.XK6_SSE }}
+      - name: Build k6
+        if: steps.k6cache.outputs.cache-hit != 'true'
+        run: |
+          go install "go.k6.io/xk6/cmd/xk6@${XK6_VERSION}"
+          mkdir -p ~/k6bin
+          "$(go env GOPATH)/bin/xk6" build "$K6_VERSION" --with "$XK6_SSE" --output ~/k6bin/k6
+      - run: ~/k6bin/k6 version
+
+      - name: Supabase CA certificate (secret, else the public root CA in deploy/supabase/)
+        env:
+          CA_SECRET: ${{ secrets.DATABASE_CA_CERT }}
+        run: |
+          if [ -n "$CA_SECRET" ]; then pem="$CA_SECRET"; else pem=$(cat deploy/supabase/prod-ca-2021.crt); fi
+          { echo 'DATABASE_CA_CERT<<CA_EOF'; echo "$pem"; echo 'CA_EOF'; } >> "$GITHUB_ENV"
+
+      - name: Load people and sessions
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          umask 077
+          DATABASE_URL="$DIRECT_URL" node scripts/load/prepare.mjs --customers 1500 --profile "$PROFILE" \
+            ${DURATION:+--duration "$DURATION"} ${K:+--k "$K"} --out "$RUNNER_TEMP/load"
+
+      - name: Run k6
+        id: k6
+        continue-on-error: true
+        run: |
+          ~/k6bin/k6 run --quiet --no-color \
+            -e LOAD_PROFILE="$PROFILE" ${DURATION:+-e LOAD_DURATION="$DURATION"} ${K:+-e LOAD_K="$K"} \
+            -e LOAD_API_URL="https://${API_APP}.fly.dev/trpc" \
+            -e LOAD_TOKENS="$RUNNER_TEMP/load/tokens.json" -e LOAD_WORLD="$RUNNER_TEMP/load/world.json" \
+            --summary-export "$RUNNER_TEMP/summary.json" \
+            scripts/load/k6/launch.js
+
+      - name: End the load sessions
+        if: always()
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          rm -f "$RUNNER_TEMP/load/tokens.json"
+          DATABASE_URL="$DIRECT_URL" node scripts/load/prepare.mjs --revoke
+
+      - name: Summary
+        if: always()
+        run: node scripts/load/summary.mjs "$RUNNER_TEMP/summary.json" "$PROFILE" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-${{ inputs.profile }}-summary
+          path: ${{ runner.temp }}/summary.json
+          if-no-files-found: ignore
+
+      - name: Pass or fail
+        if: steps.k6.outcome != 'success'
+        run: |
+          echo "::error title=Load test::the $PROFILE run missed a pass number (see the summary)"; exit 1

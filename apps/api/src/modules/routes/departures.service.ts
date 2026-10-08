@@ -311,11 +311,16 @@ export class DeparturesService {
     return out;
   }
 
-  /** Available wallet balance: the ledger's balance minus what intercity already holds against it. */
+  /**
+   * Available wallet balance: the ledger's balance minus what intercity already holds against it and
+   * what the rest of the platform holds (open wallet orders, SEC-07). Spend paths call it under the
+   * rider's wallet lock (`writer.run(…, { walletLocks })`).
+   */
   async walletAvailable(riderId: string, tx?: Tx, excludeBookingId?: string): Promise<number> {
     return (
       (await this.wallet.balance(riderId)) -
-      (await walletHolds(this.repo, riderId, tx, excludeBookingId))
+      (await walletHolds(this.repo, riderId, tx, excludeBookingId)) -
+      (await this.wallet.heldElsewhere(riderId, tx))
     );
   }
 
@@ -1005,7 +1010,7 @@ export class DeparturesService {
         totalIqd: total,
       });
       return b;
-    });
+    }, payment === 'wallet' ? { walletLocks: [riderId] } : undefined);
   }
 
   /**

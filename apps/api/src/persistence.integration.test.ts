@@ -102,7 +102,8 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         busyUntil: new Date(at.getTime() + 30 * 60_000),
         printer: { state: 'disconnected', name: 'XP-58', at },
       });
-      await orgs.setMerchantSettings(store.id, { closed: { reason: 'sold_out', note: 'خلص اللحم', at } });
+      // A quick pause from المحل keeps when it opens again (orgs.closed_until).
+      await orgs.setMerchantSettings(store.id, { closed: { reason: 'sold_out', note: 'خلص اللحم', at, until: new Date(at.getTime() + 20 * 60_000) } });
       await orgs.setMerchantSettings(store.id, {
         openingHours: [
           { dow: 0, start: '12:00', end: '15:30' },
@@ -165,7 +166,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         commissionTier: 'featured',
         location: { zoneKey: 'centre', pin: KITCHEN },
         busyUntil: new Date(at.getTime() + 30 * 60_000),
-        closed: { reason: 'sold_out', note: 'خلص اللحم', at },
+        closed: { reason: 'sold_out', note: 'خلص اللحم', at, until: new Date(at.getTime() + 20 * 60_000) },
         printer: { state: 'disconnected', name: 'XP-58', at },
         openingHours: [
           { dow: 0, start: '12:00', end: '15:30' },

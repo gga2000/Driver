@@ -6,6 +6,7 @@ import { absoluteUrl } from '@/features/account/photo';
 import { useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { clipContentType, micPermission, openMicSettings, requestMic } from './mic';
+import { countData, HEADERS_BYTES } from '@/lib/data-usage';
 
 /**
  * Speech, not music: mono AAC at 48 kb/s in an .m4a on phones (a minute is about 360 KB, under
@@ -132,6 +133,7 @@ export function useChatVoice(orderId: string, kind: ChatThreadKind): ChatVoice {
         if (blob.size === 0 || blob.size > VOICE_RULES.maxBytes) throw new Error('voice_size');
         const ticket = await client.chat.voiceUpload.mutate({ orderId, kind, contentType: clip.contentType, sizeBytes: blob.size });
         const put = await fetch(absoluteUrl(ticket.uploadUrl), { method: ticket.method, headers: ticket.headers, body: blob });
+        countData(blob.size + HEADERS_BYTES);
         if (!put.ok) throw new Error(`upload_${put.status}`);
         return ticket.uploadId;
       },

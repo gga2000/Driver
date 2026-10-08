@@ -61,6 +61,22 @@ export class AppLogger implements LoggerService {
     this.emit('error', message, params);
   }
 
+  /**
+   * A structured line (the request log): `fields` go at the top level of the JSON entry, next to
+   * time, level and context. Pretty format prints them as one `key=value` line.
+   */
+  fields(context: string, msg: string, fields: Record<string, unknown>): void {
+    if (!this.levels.includes('log')) return;
+    if (this.pretty) {
+      const kv = Object.entries(fields)
+        .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join(' ');
+      this.pretty.log(`${msg} ${kv}`, context);
+      return;
+    }
+    this.write(JSON.stringify({ time: this.now().toISOString(), level: 'info', context, msg, ...fields, service: 'driver-api' }));
+  }
+
   setLogLevels(levels: LogLevel[]): void {
     this.levels.splice(0, this.levels.length, ...levels);
     this.pretty?.setLogLevels(levels);

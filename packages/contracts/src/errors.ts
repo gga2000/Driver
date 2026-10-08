@@ -39,7 +39,7 @@ interface ErrorDef {
   message_en?: string;
   retryHint: RetryHint;
   /** tRPC / HTTP class the transport maps the code to. */
-  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR' | 'SERVICE_UNAVAILABLE';
 }
 
 /** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
@@ -50,6 +50,8 @@ export const ERROR_TABLE = {
   not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   invalid_input: { retryHint: 'never', status: 'BAD_REQUEST' },
   internal: { i18n: 'error.server', retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },
+  // x3: this server machine is full right now; the call was never run, so it is always safe to repeat.
+  server_busy: { retryHint: 'now', status: 'SERVICE_UNAVAILABLE' },
   dev_only: { retryHint: 'never', status: 'FORBIDDEN' },
 
   // partner & merchant wave 2 (driverAccount, khat, fleet, ops, merchantAdmin)
@@ -226,6 +228,7 @@ export const ERROR_TABLE = {
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  order_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
   // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
   ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -319,6 +322,7 @@ export const ERROR_TABLE = {
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  too_far_for_ice_cream: { retryHint: 'never', status: 'BAD_REQUEST' },
   // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
   tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -367,6 +371,8 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
+  update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

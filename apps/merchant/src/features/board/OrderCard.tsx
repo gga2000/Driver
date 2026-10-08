@@ -4,14 +4,17 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import type { BoardGroup, BoardOrder } from '@driver/contracts';
 import { Button, CountdownRing, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
+import { COUNTER } from '@/lib/counter';
+import { TornEdge } from './TornEdge';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { iqd } from '@/lib/money';
+import { usePrefs } from '@/lib/prefs';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
-import { PickupCode } from './CourierRadar';
-import { canExtendPrep, cardTiming, courierLine, hasAllergy } from './logic';
+import { PickupCode } from './PickupCode';
+import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, needsReading, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
@@ -45,6 +48,18 @@ export interface OrderCardProps {
    */
   compact?: boolean;
   onExpand?: () => void;
+  /**
+   * Phone «هسة» (o2): every new order after the first is one line — ring, number, dishes — and a
+   * tap brings it to the top (`onExpand`).
+   */
+  row?: boolean;
+  /**
+   * Tablet rush rows (r2): the row carries its own button — one-tap «اقبل · 15 د», or «شوفه واقبل»
+   * (the accept sheet, notes on top) when it has an allergy or a note.
+   */
+  rowAction?: boolean;
+  /** Cooking tickets (o10): the lines the kitchen ticked off on this tablet, and the tap that ticks one. */
+  ticks?: { ticked: ReadonlySet<string>; toggle: (orderId: string, lineId: string) => void };
 }
 
 /** "حساسية" on the card header when any kitchen note mentions an allergy (M-09): impossible to miss. */
@@ -61,14 +76,22 @@ export function AllergyPill({ testID }: { testID?: string }) {
   );
 }
 
+/** s6 «خط كبير»: ticket type 30 % bigger, read from across the kitchen (a setting on this device). */
+export const BIG_TEXT = 1.3;
+function useTicketType(): (size: number, lineHeight: number) => { fontSize: number; lineHeight: number } | null {
+  const big = usePrefs().bigText;
+  return (size, lineHeight) => (big ? { fontSize: Math.round(size * BIG_TEXT), lineHeight: Math.round(lineHeight * BIG_TEXT) } : null);
+}
+
 /** The kitchen note block: muted, or on the danger tint when it carries an allergy. */
 export function KitchenNote({ note, testID }: { note: string; testID?: string }) {
   const theme = useTheme();
   const allergy = hasAllergy({ note, groups: [] });
+  const type = useTicketType();
   return (
     <View testID={testID} style={{ flexDirection: 'row', gap: theme.space[2], backgroundColor: allergy ? theme.colors.dangerTint : theme.colors.surfaceSunken, borderRadius: theme.radius.md, padding: theme.space[3] }}>
       <MIcon name={allergy ? 'alert' : 'note'} size={18} color={allergy ? 'dangerText' : 'textMuted'} />
-      <Text variant="label" weight={700} color={allergy ? 'dangerText' : 'text'} style={{ flex: 1 }}>
+      <Text variant="label" weight={700} color={allergy ? 'dangerText' : 'text'} style={[{ flex: 1 }, type(14, 22)]}>
         {note}
       </Text>
     </View>
@@ -76,33 +99,57 @@ export function KitchenNote({ note, testID }: { note: string; testID?: string })
 }
 
 /** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
-function Line({ qty, name, modifiers, note, out }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean }) {
+function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
   const theme = useTheme();
   const t = useT();
-  return (
-    <View style={{ gap: 2, opacity: out ? 0.5 : 1 }}>
+  const struck = out || done === true;
+  const type = useTicketType();
+  const body = (
+    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-        <Text variant="title" weight={700} color="accentText" tabular style={{ minWidth: 30 }}>
+        <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }, type(18, 30)]}>
           {`${qty}×`}
         </Text>
-        <Text variant="bodyStrong" style={{ flex: 1, fontSize: 16, textDecorationLine: out ? 'line-through' : 'none' }}>
+        <Text variant="bodyStrong" weight={700} style={[{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }, type(17, 26)]}>
           {name}
         </Text>
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
+        {onTick ? (
+          <View style={{ alignSelf: 'center', width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+            {done ? <Icon name="check" size={16} color={COUNTER.onDate} strokeWidth={3} /> : null}
+          </View>
+        ) : null}
       </View>
       {modifiers.length > 0 ? (
-        <Text variant="footnote" color="textMuted" style={{ paddingStart: 38 }}>
+        <Text variant="footnote" color="textMuted" style={[{ paddingStart: 38 }, type(13, 22)]}>
           {modifiers.join(' · ')}
         </Text>
       ) : null}
       {note ? (
         <View style={{ marginStart: 38, alignSelf: 'flex-start', backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.sm, paddingHorizontal: theme.space[2] }}>
-          <Text variant="label" weight={700} style={{ color: theme.colors.text }}>
+          <Text variant="label" weight={700} style={[{ color: theme.colors.text }, type(14, 22)]}>
             {note}
           </Text>
         </View>
       ) : null}
     </View>
+  );
+  if (!onTick) return body;
+  // o10: the whole line is the target (≥ 44 px tall); one tap strikes it, another brings it back.
+  return (
+    <Pressable
+      testID={testID}
+      onPress={() => {
+        theme.haptic('light');
+        onTick();
+      }}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: done === true }}
+      accessibilityLabel={t('merchant.board.tick_a11y', { qty, name })}
+      style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', borderRadius: theme.radius.sm, opacity: pressed ? 0.8 : 1 })}
+    >
+      {body}
+    </Pressable>
   );
 }
 
@@ -114,8 +161,8 @@ function GroupHeader({ g, several }: { g: BoardGroup; several: boolean }) {
   return (
     <View style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: g.kind === 'orderer' ? theme.colors.text : theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="caption" weight={700} style={{ color: g.kind === 'orderer' ? theme.colors.bg : theme.colors.onAccent, lineHeight: 18 }}>
+        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: g.kind === 'orderer' ? COUNTER.date : COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
+          <Text variant="caption" weight={700} style={{ color: COUNTER.onDate, lineHeight: 18 }}>
             {name.slice(0, 1)}
           </Text>
         </View>
@@ -138,7 +185,7 @@ function GroupHeader({ g, several }: { g: BoardGroup; several: boolean }) {
 }
 
 /** Items grouped by person; `maxLines` caps the card (the rest: "+3 أصناف ثانية"). */
-export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLines?: number }) {
+export function OrderItems({ order, maxLines = 99, ticks }: { order: BoardOrder; maxLines?: number; ticks?: OrderCardProps['ticks'] }) {
   const theme = useTheme();
   const t = useT();
   const several = order.groups.length > 1;
@@ -156,7 +203,17 @@ export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLin
         <GroupHeader g={g} several={several} />
         <View style={{ gap: theme.space[2], paddingStart: several ? theme.space[1] : 0 }}>
           {visible.map((l) => (
-            <Line key={l.lineId} qty={l.qty} name={l.name} modifiers={l.modifiers} note={l.note} out={l.availability === 'unavailable'} />
+            <Line
+              key={l.lineId}
+              qty={l.qty}
+              name={l.name}
+              modifiers={l.modifiers}
+              note={l.note}
+              out={l.availability === 'unavailable'}
+              {...(ticks && l.availability === 'available'
+                ? { done: ticks.ticked.has(tickKey(order.id, l.lineId)), onTick: () => ticks.toggle(order.id, l.lineId), testID: `tick-${order.number}-${l.lineId}` }
+                : {})}
+            />
           ))}
         </View>
       </View>
@@ -166,7 +223,7 @@ export function OrderItems({ order, maxLines = 99 }: { order: BoardOrder; maxLin
     <View style={{ gap: theme.space[3] }}>
       {blocks}
       {hidden > 0 ? (
-        <Text variant="footnote" color="accentText" weight={600}>
+        <Text variant="footnote" weight={700} style={{ color: COUNTER.qty }}>
           {t('merchant.card.more_items', { count: hidden })}
         </Text>
       ) : null}
@@ -215,6 +272,26 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
 }
 
 /**
+ * o5: the time left on a cooking ticket as a bar that drains — readable from across the kitchen
+ * without reading numbers. Date brown while there's time, red (and full) once it is late.
+ */
+export function PrepBar({ fraction, late, testID }: { fraction: number; late: boolean; testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  const pct = Math.round((late ? 1 : fraction) * 100);
+  return (
+    <View
+      testID={testID}
+      accessibilityRole="progressbar"
+      accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })}
+      style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}
+    >
+      <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date }} />
+    </View>
+  );
+}
+
+/**
  * The width a ticket number needs on one line: tabular digits and «#» are ~0.6 em in IBM Plex Sans,
  * plus the letter spacing, with a little room. Keeps «#5427» from being squeezed into a column.
  */
@@ -223,7 +300,7 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand } = props;
+  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
@@ -235,12 +312,13 @@ export function OrderCard(props: OrderCardProps) {
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   const isNew = order.column === 'new';
   const allergy = hasAllergy(order);
-  const hot = isNew && (stage === 'urgent' || stage === 'final');
+  const hot = isNew && stage === 'final';
   const pulse = usePulseBorder(ringing && !theme.reduceMotion, hot);
   const breath = useBreath(ringing && hot && !theme.reduceMotion);
   const timing = cardTiming(order, now);
   const courier = courierLine(order.courier, now);
   const partialLeft = order.partial ? secondsLeft(order.partial.deadline, now) : 0;
+  const drain = prepLeft(order, now);
 
   const timingPill =
     timing.kind === 'ready_in' ? (
@@ -295,6 +373,62 @@ export function OrderCard(props: OrderCardProps) {
     />
   ) : null;
 
+  if (row && isNew) {
+    // Phone «هسة» (o2): one line per order waiting behind the first; tap brings it to the top.
+    const dishes = dishLine(order, 2);
+    return (
+      <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
+        <Pressable
+          testID={`row-${order.number}`}
+          onPress={onExpand ?? onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={t('merchant.board.row_a11y', { number: order.number, count: order.itemCount })}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.space[3],
+            minHeight: 64,
+            paddingHorizontal: theme.space[3],
+            paddingVertical: theme.space[2],
+            borderRadius: theme.radius.lg,
+            backgroundColor: COUNTER.paper,
+            borderWidth: hot ? 2 : 1,
+            borderColor: hot ? COUNTER.late : theme.colors.border,
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          {order.acceptBy && !order.partial ? (
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
+          ) : (
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
+              <MIcon name="hourglass" size={18} color="warningText" />
+            </View>
+          )}
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text tabular style={[theme.face('display'), { fontSize: 20, lineHeight: 28, color: COUNTER.date }]}>
+                {t('merchant.card.number', { number: order.number })}
+              </Text>
+              {allergy ? <MIcon name="alert" size={18} color="dangerText" strokeWidth={2.4} /> : null}
+            </View>
+            <Text variant="footnote" color="textMuted" numberOfLines={1}>
+              {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
+            </Text>
+          </View>
+          {rowAction && !order.partial ? (
+            needsReading(order) ? (
+              <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} />
+            ) : onAcceptNow && oneTapMinutes !== undefined ? (
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
+            ) : null
+          ) : (
+            <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   if (compact && isNew) {
     // Rush ticket (M-05): everything needed to answer it, nothing to read. Tap → the full ticket.
     return (
@@ -306,10 +440,10 @@ export function OrderCard(props: OrderCardProps) {
           accessibilityRole="button"
           accessibilityLabel={t('merchant.rush.expand_a11y', { number: order.number })}
           style={({ pressed }) => ({
-            backgroundColor: theme.colors.surface,
+            backgroundColor: COUNTER.paper,
             borderRadius: theme.radius.xl,
             borderWidth: 1,
-            borderColor: hot ? theme.colors.danger : theme.colors.border,
+            borderColor: hot ? COUNTER.late : theme.colors.border,
             padding: theme.space[3],
             gap: theme.space[2],
             opacity: pressed ? 0.96 : 1,
@@ -317,10 +451,10 @@ export function OrderCard(props: OrderCardProps) {
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             {order.acceptBy && !order.partial ? (
-              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
-              <Text weight={700} tabular style={{ fontSize: 24, lineHeight: 32 }}>
+              <Text tabular style={[theme.face('display'), { fontSize: 24, lineHeight: 32, color: COUNTER.date }]}>
                 {t('merchant.card.number', { number: order.number })}
               </Text>
               <Text variant="footnote" color="textMuted" tabular numberOfLines={1}>
@@ -333,8 +467,10 @@ export function OrderCard(props: OrderCardProps) {
             {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
             <PaymentPill order={order} />
             {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
-            {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
+            {order.scheduledFor ? <StatusPill tone="neutral" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
           </View>
+          {/* o1: a short ticket is still a ticket — the first dishes, readable, never just a number. */}
+          <OrderItems order={order} maxLines={3} />
           {order.partial ? <StatusPill tone="warning" icon="clock" live label={t('merchant.card.partial_waiting', { seconds: partialLeft })} /> : acceptButtons('md')}
         </Pressable>
       </Animated.View>
@@ -349,10 +485,16 @@ export function OrderCard(props: OrderCardProps) {
         accessibilityRole="button"
         accessibilityLabel={t('merchant.detail.title', { number: order.number })}
         style={({ pressed }) => ({
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.radius.xl,
-          borderWidth: 1,
-          borderColor: order.late || hot ? theme.colors.danger : theme.colors.border,
+          // Paper ticket (redesign step 1): cream paper, a torn top edge, square top corners. A late
+          // order turns red all over (tint + thick outline), not just its pill.
+          backgroundColor: order.late ? COUNTER.lateWash : COUNTER.paper,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+          borderBottomLeftRadius: theme.radius.xl,
+          borderBottomRightRadius: theme.radius.xl,
+          borderWidth: order.late ? 3 : 1,
+          borderTopWidth: order.late ? 3 : 0,
+          borderColor: order.late || hot ? COUNTER.late : theme.colors.border,
           padding: theme.space[4],
           gap: theme.space[3],
           shadowColor: isNew ? theme.colors.accent : theme.colors.shadow,
@@ -363,13 +505,14 @@ export function OrderCard(props: OrderCardProps) {
           opacity: pressed ? 0.96 : 1,
         })}
       >
+        {order.late ? null : <TornEdge color={COUNTER.paper} />}
         {/* Header: big number + time; the accept ring on new orders. The number never breaks («#5427»
             in one piece): its block is never narrower than the number, and when the time pill does not
             fit beside it, the pill wraps under it. On a narrow tablet board (three columns under
             1000 px) the number steps down a size. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', columnGap: theme.space[3], rowGap: theme.space[2] }}>
           <View testID={`card-number-${order.number}`} style={{ flex: 1, minWidth: numberMinWidth(numberLabel, numberType.size), gap: 2 }}>
-            <Text variant={tight ? 'amount' : 'numeralSm'} weight={700} tabular numberOfLines={1} style={{ letterSpacing: 0.5 }}>
+            <Text variant={tight ? 'amount' : 'numeralSm'} tabular numberOfLines={1} style={[theme.face('display'), { letterSpacing: 0.5, color: COUNTER.date }]}>
               {numberLabel}
             </Text>
             <Text variant="footnote" color="textMuted" tabular>
@@ -383,23 +526,24 @@ export function OrderCard(props: OrderCardProps) {
             </Text>
           </View>
           {isNew && order.acceptBy && !order.partial ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
           )}
         </View>
+        {drain ? <PrepBar fraction={drain.fraction} late={drain.late} testID={`prep-bar-${order.number}`} /> : null}
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
           <PaymentPill order={order} />
           {order.gift ? <StatusPill tone="accent" icon="gift" label={t('merchant.board.gift')} /> : null}
-          {order.scheduledFor ? <StatusPill tone="info" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
-          {order.catering ? <StatusPill tone="info" label={t('merchant.card.catering')} /> : null}
+          {order.scheduledFor ? <StatusPill tone="neutral" icon="clock" label={t('merchant.card.scheduled', { time: clock12(order.scheduledFor) })} /> : null}
+          {order.catering ? <StatusPill tone="neutral" label={t('merchant.card.catering')} /> : null}
         </View>
 
         <View style={{ height: 1, backgroundColor: theme.colors.border }} />
 
-        <OrderItems order={order} maxLines={maxLines} />
+        <OrderItems order={order} maxLines={maxLines} {...(order.column === 'preparing' && ticks ? { ticks } : {})} />
 
         {/* M-09: the kitchen's note only; the courier's note stays in the detail sheet. */}
         {order.note ? <KitchenNote note={order.note} testID={`kitchen-note-${order.number}`} /> : null}

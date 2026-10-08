@@ -34,6 +34,7 @@ import {
   SeatLegend,
   SeatMap,
   SegmentRing,
+  PlateChip,
   SegmentedControl,
   Sheet,
   SosButton,
@@ -1176,6 +1177,7 @@ function Page() {
           <ButtonsSection />
           <ChoiceSection />
           <W12Controls />
+          <TextScaleSection />
           <PriceSection />
           <CardsSection />
           <TrackingSection />
@@ -1226,6 +1228,35 @@ export function Gallery() {
 }
 
 /** W12 batch 1: switched-off toggles, the typed code cell, a segment with no valid pick, the connection strip. */
+function TextScaleSection() {
+  const theme = useTheme();
+  const scales = ['normal', 'large', 'largest'] as const;
+  return (
+    <Section wide title="حجم الخط" note="إعداد التطبيق فوق حجم خط الموبايل: عادي، كبير، أكبر. الأزرار تنكسر لسطرين، والحروف داخل الصورة الشخصية واللوحة تبقى ثابتة.">
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[4] }}>
+        {scales.map((s) => (
+          <ThemeProvider key={s} theme={theme.name} textScale={s}>
+            <View testID={`scale-${s}`} style={{ width: 300, flexShrink: 0 }}>
+              <Panel>
+                <Text variant="caption" color="textMuted">{s}</Text>
+                <Text variant="heading">طلب جديد من مطعم خالد</Text>
+                <Text variant="body">استلم من الكاونتر وسلّم لباب الزبون بشارع 30.</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+                  <Avatar name="مرتضى" size={44} />
+                  <PlateChip plate="12345 واسط" accessibilityLabel="رقم السيارة" />
+                </View>
+                <SegmentedControl value="a" onChange={() => undefined} options={[{ value: 'a', label: 'اليوم' }, { value: 'b', label: 'الأسبوع' }]} />
+                <Button label="وصلت للمطعم" fullWidth />
+                <TextField label="ملاحظة" value="" onChangeText={() => undefined} />
+              </Panel>
+            </View>
+          </ThemeProvider>
+        ))}
+      </View>
+    </Section>
+  );
+}
+
 function W12Controls() {
   const theme = useTheme();
   const [a, setA] = useState(false);

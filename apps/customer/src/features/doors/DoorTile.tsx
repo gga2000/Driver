@@ -4,7 +4,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-na
 import Svg, { G } from 'react-native-svg';
 import type { FoodDoor } from '@driver/contracts';
 import { lift } from '@driver/design-tokens';
-import { DishDrawing, Text, usePressScale, useTheme, withAlpha } from '@driver/ui';
+import { Text, usePressScale, useTheme, withAlpha } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { countKey } from '@/lib/plural';
 import { useT } from '@/lib/i18n';
 import { DoorDrip } from './DoorDrip';

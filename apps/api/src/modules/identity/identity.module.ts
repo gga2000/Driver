@@ -1,8 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Inject, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
+import { AuthCache, InProcessDropBus, RedisDropBus, authCacheTtlMsFromEnv, cachedIdentityRepository } from './auth-cache.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
 import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
@@ -23,10 +25,23 @@ import { SMS_PROVIDER } from './sms/provider.js';
 @Module({
   imports: [EventsModule],
   providers: [
+    // Sessions and roles kept in memory for up to 30 s (AUTH_CACHE_TTL_SEC, 0 = off); any change
+    // to them drops the entry on every API machine over Redis pub/sub when REDIS_URL is set.
+    {
+      provide: AuthCache,
+      useFactory: (clock: Clock) => {
+        const url = process.env['REDIS_URL'];
+        const ttlMs = authCacheTtlMsFromEnv();
+        const bus = url && ttlMs > 0 ? new RedisDropBus(new Redis(url, { maxRetriesPerRequest: 3 }), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
+        return new AuthCache(clock, ttlMs, bus);
+      },
+      inject: [CLOCK],
+    },
     {
       provide: IDENTITY_REPOSITORY,
-      useFactory: (prisma: PrismaService): IdentityRepository => (prisma.configured ? new PrismaIdentityRepository(prisma) : new InMemoryIdentityRepository()),
-      inject: [PrismaService],
+      useFactory: (prisma: PrismaService, cache: AuthCache): IdentityRepository =>
+        cachedIdentityRepository(prisma.configured ? new PrismaIdentityRepository(prisma) : new InMemoryIdentityRepository(), cache),
+      inject: [PrismaService, AuthCache],
     },
     { provide: IDENTITY_EVENTS, useFactory: (events: EventsService) => new EventsServiceAdapter(events), inject: [EventsService] },
     // OTP codes go through the shared SmsPort: SMS_PROVIDER=dev (default, codes in the terminal and
@@ -54,4 +69,10 @@ import { SMS_PROVIDER } from './sms/provider.js';
   ],
   exports: [IdentityService, ROLE_READER],
 })
-export class IdentityModule {}
+export class IdentityModule implements OnModuleDestroy {
+  constructor(@Inject(AuthCache) private readonly cache: AuthCache) {}
+
+  async onModuleDestroy(): Promise<void> {
+    await this.cache.close();
+  }
+}

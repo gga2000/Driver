@@ -158,10 +158,28 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     // A street hand-over is a −250 option the server applies.
     const street = await h.orders.place('c1', h.foodInput({ options: { streetHandover: true }, deliveryFeeIqd: undefined }));
     expect(street.deliveryFeeIqd).toBe(750);
+    // HUNT-02: the order keeps «بالشارع» as priced, so the courier and the receipt know it.
+    expect(street.streetHandover).toBe(true);
+    expect((await h.repo.find(street.id))!.order.dropoff).toMatchObject({ streetHandover: true });
+    expect(near.streetHandover).toBeUndefined();
+    // The client cannot set it on the point itself: only the priced option counts.
+    const sneaky = await h.orders.place('c1', h.foodInput({ dropoff: { ...h.foodInput().dropoff!, streetHandover: true }, deliveryFeeIqd: undefined }));
+    expect(sneaky.streetHandover).toBeUndefined();
+    expect(sneaky.deliveryFeeIqd).toBe(1000);
     // No drop-off place, or a merchant without a place on file: nothing to price from.
     expect(await code(h.orders.place('c1', h.foodInput({ dropoff: undefined })))).toBe('quote_location_required');
     h.merchants.add('rest_nowhere');
     expect(await code(h.orders.place('c1', h.foodInput({ merchantOrgId: 'rest_nowhere' })))).toBe('quote_location_required');
+  });
+
+  it('FOOD-15: the drop-off zone is the server\'s reading of the pin; a pin outside the city is refused', async () => {
+    const h = ordersHarness();
+    h.placeZones.resolve = (_city, pin) => (pin.lat > 40 ? null : 'zakur');
+    // The app says the near zone, the pin is in Zakur: the fee is Zakur's.
+    const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: h.foodInput().dropoff!.pin! }, deliveryFeeIqd: undefined }));
+    expect(o.deliveryFeeIqd).toBe(1000);
+    expect((await h.repo.find(o.id))!.order.dropoff).toMatchObject({ zoneKey: 'zakur' });
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: { lat: 41, lng: 45 } } })))).toBe('outside_zone');
   });
 
   it('night delivery: the server adds the +250 night component itself', async () => {
@@ -283,6 +301,15 @@ describe('OrdersService — merchant acceptance', () => {
     await h.advance(90_000);
     expect((await h.orders.get(o.id)).state).toBe('merchant_accepted');
     expect(h.events.ofType('order.rejected')).toHaveLength(0);
+  });
+
+  it('l4 (Ali 2026-10-08): from 15 waiting orders a kitchen\'s promise carries the busy +10 min', async () => {
+    const h = ordersHarness();
+    const placed = [];
+    for (let i = 0; i < 15; i += 1) placed.push(await h.orders.place(`c${i + 1}`, h.foodInput()));
+    await h.advance(21_000); // the waiting count is read at most every 20 s
+    const acc = await h.orders.merchantAccept('m1', { orderId: placed[14]!.id, prepMinutes: 15 });
+    expect(acc.promisedReadyAt).toEqual(new Date(h.clock.now().getTime() + 25 * MIN));
   });
 
   it('merchants with the auto-accept flag skip acceptance', async () => {

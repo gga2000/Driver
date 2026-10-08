@@ -25,7 +25,7 @@ export const AZIZIYAH_LANDMARKS: readonly AziziyahLandmarkSeed[] = [
   { key: 'mp_jami_kabir', name_ar: 'باب الجامع الكبير', name_en: 'Grand Mosque gate', zoneId: 'centre', lat: 32.9045, lng: 45.0595, kind: 'meeting_point', aliases_ar: ['الجامع الكبير', 'جامع'] },
   { key: 'mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', name_en: 'Al-Shasha park', zoneId: 'mahdood_1', lat: 32.9122, lng: 45.0552, kind: 'meeting_point', aliases_ar: ['الحديقة', 'متنزه'] },
   { key: 'mp_kuliyat_tarbiya', name_ar: 'باب كلية التربية الأساسية', name_en: 'College of Basic Education gate', zoneId: 'saadouniya', lat: 32.9012, lng: 45.0478, kind: 'meeting_point', aliases_ar: ['الكلية', 'كلية التربية'] },
-  { key: 'mp_shari_30', name_ar: 'تقاطع شارع ٣٠', name_en: 'Street 30 junction', zoneId: 'street_30', lat: 32.9098, lng: 45.0628, kind: 'meeting_point' },
+  { key: 'mp_shari_30', name_ar: 'تقاطع شارع 30', name_en: 'Street 30 junction', zoneId: 'street_30', lat: 32.9098, lng: 45.0628, kind: 'meeting_point' },
   { key: 'mp_hawas_bridge', name_ar: 'رأس جسر حواس', name_en: 'Hawas bridge head', zoneId: 'hawas_bridge', lat: 32.9172, lng: 45.0378, kind: 'meeting_point', aliases_ar: ['جسر حواس'] },
   { key: 'mp_khamas_bridge', name_ar: 'رأس جسر خماس', name_en: 'Khamas bridge head', zoneId: 'khamas_bridge', lat: 32.9382, lng: 45.0812, kind: 'meeting_point', aliases_ar: ['جسر خماس'] },
 ];

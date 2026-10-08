@@ -5,7 +5,7 @@ import { Accounts } from '../ledger/index.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import { ordersHarness } from '../orders/test-harness.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
-import { eventsLateApology, LATE_APOLOGY_EVENT, latePromiseGroupId, ledgerLateCredit } from './late-promise.js';
+import { eventsLateApology, LATE_APOLOGY_EVENT, LATE_CREDIT_EVENT, latePromiseGroupId, ledgerLateCredit } from './late-promise.js';
 import { lateApologyDue, TrackingService } from './tracking.service.js';
 import { InMemoryCourierVehicles } from './vehicles.js';
 
@@ -19,8 +19,8 @@ const as = (personId: string): Actor => ({ personId, sessionId: `s-${personId}` 
 function setup() {
   const h = ordersHarness();
   const l = ledgerHarness({ start: '2026-10-03T09:00:00Z' });
-  const credit = ledgerLateCredit(l.ledger);
   const ev = createInMemoryEvents({ clock: h.clock });
+  const credit = ledgerLateCredit(l.ledger, ev.events);
   const tracking = new TrackingService(
     h.orders,
     h.trips,
@@ -35,7 +35,8 @@ function setup() {
   );
   const wallet = async (personId: string) => (await l.ledger.balance(Accounts.customer(personId))).amount;
   const apologies = async (orderId: string) => (await ev.events.forOrder(orderId)).filter((e) => e.type === LATE_APOLOGY_EVENT);
-  return { h, l, tracking, wallet, apologies };
+  const credits = async (orderId: string) => (await ev.events.forOrder(orderId)).filter((e) => e.type === LATE_CREDIT_EVENT);
+  return { h, l, tracking, wallet, apologies, credits };
 }
 
 async function onTheWay(h: ReturnType<typeof ordersHarness>) {
@@ -91,9 +92,10 @@ describe('honest-delay promise (audit d-5)', () => {
   });
 
   it('past the deadline the delivery fee comes back as wallet credit, once', async () => {
-    const { h, l, tracking, wallet } = setup();
+    const { h, l, tracking, wallet, credits } = setup();
     const { orderId } = await onTheWay(h);
     const { promisedAt } = await tracking.track(as('c1'), { orderId });
+    expect(await credits(orderId)).toHaveLength(0);
     h.clock.advance(promisedAt!.getTime() + (AFTER + 1) * MIN - h.clock.now().getTime());
     const v = await tracking.track(as('c1'), { orderId });
     expect(v.latePromise!.credit).toMatchObject({ amountIqd: 1000 });
@@ -102,6 +104,10 @@ describe('honest-delay promise (audit d-5)', () => {
     const lines = (await l.ledger.eventsForOrder(orderId)).filter((e) => e.postingGroupId === latePromiseGroupId(orderId));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ type: 'credit_issued', fromAccount: Accounts.platform, toAccount: Accounts.customer('c1'), amount: 1000 });
+    // NTF-22: one event per credit, for the push that tells him.
+    const told = await credits(orderId);
+    expect(told).toHaveLength(1);
+    expect(told[0]!.payload).toEqual({ customerId: 'c1', amountIqd: 1000 });
   });
 
   it('a delivery past the deadline gets the credit at delivery even if nobody was watching', async () => {
@@ -115,7 +121,7 @@ describe('honest-delay promise (audit d-5)', () => {
   });
 
   it('on time, or cancelled before the deadline: no credit', async () => {
-    const { h, tracking, wallet } = setup();
+    const { h, tracking, wallet, credits } = setup();
     // Delivered inside the promise: nothing, even if read much later.
     const a = await onTheWay(h);
     await h.dropoff(a.tripId, { cashCollectedIqd: 16500 });
@@ -130,6 +136,7 @@ describe('honest-delay promise (audit d-5)', () => {
     const cancelled = await tracking.track(as('c1'), { orderId: placed.id });
     expect(cancelled.latePromise?.credit ?? null).toBeNull();
     expect(await wallet('c1')).toBe(0);
+    expect([...(await credits(a.orderId)), ...(await credits(placed.id))]).toHaveLength(0);
   });
 
   it('a free-delivery order carries the promise too: 1,000 back past the deadline, platform-funded, once', async () => {
