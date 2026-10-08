@@ -43,6 +43,7 @@ export { Badge, type BadgeProps } from './components/Badge';
 export { StatusPill, STATUS_TONES, type StatusPillProps, type StatusTone } from './components/StatusPill';
 export { Timeline, stepStates, type TimelineProps, type TimelineStep, type StepState } from './components/Timeline';
 export { SeatMap, SeatLegend, type SeatMapProps } from './components/SeatMap';
+export { CallSoonButton, CallSoonIcon, type CallSoonButtonProps, type CallSoonIconProps } from './components/CallSoon';
 export { CarSeatArt, type CarSeatArtProps } from './components/CarSeatArt';
 export { MeterBar, StatStrip, type MeterBarProps, type StatStripItem } from './components/StatStrip';
 export { CountdownRing, type CountdownRingProps } from './components/CountdownRing';
@@ -51,6 +52,7 @@ export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
+export { QueryBoundary, queryPhase, type QueryBoundaryProps, type QueryLike, type QueryStateCopy } from './components/QueryBoundary';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
@@ -78,8 +80,10 @@ export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosS
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
+  bindFocusManager,
   bindOnlineManager,
   configureNetwork,
+  createNetworkFetch,
   getNetwork,
   networkFetch,
   retryKindFor,

@@ -41,7 +41,7 @@ export function useSos(subject: SosSubject | null) {
     setView(v);
     setOffset(v.serverNow.getTime() - Date.now());
     if (openSheet) setPhase(sosPhaseOf(v));
-    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' && cur !== 'refused' ? sosPhaseOf(v) : cur));
+    else setPhase((cur) => (cur && cur !== 'sending' && cur !== 'failed' && cur !== 'offline' && cur !== 'final' ? sosPhaseOf(v) : cur));
   }, []);
 
   // An alert already open (the screen was reopened): the button shows it, no new hold needed.
@@ -72,7 +72,7 @@ export function useSos(subject: SosSubject | null) {
       if (isSosRefusal(err)) {
         // No retry loop on a refusal: the press is dropped and the sheet offers the emergency number.
         pending.current = null;
-        setPhase('refused');
+        setPhase('final');
         return;
       }
       setPhase(online.current ? 'failed' : 'offline');

@@ -252,7 +252,10 @@ export default function OrderLiveScreen() {
   const courierThread = threadOf(threads.data, 'customer_courier');
   const merchantThread = threadOf(threads.data, 'customer_merchant');
   const supportThread = threadOf(threads.data, 'customer_support');
-  const { call: maskedCall } = useMaskedCall(id, 'customer_courier', Boolean(ride));
+  // Calls aren't live at launch (G0-10): the button says «قريباً» and offers the courier chat.
+  const { call: maskedCall } = useMaskedCall(id, 'customer_courier', Boolean(ride), {
+    openChat: () => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind: 'customer_courier' } }),
+  });
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   // A ride or a delivery: a signed link the family can open without the app (maps program SP3c).
   const share = async () => {

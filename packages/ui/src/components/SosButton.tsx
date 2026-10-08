@@ -179,8 +179,8 @@ export function SosButton({ onTrigger, onRelease, active = false, onPressActive,
   );
 }
 
-/** `refused`: the server answered no (an older server's hourly limit, a trip that is over) — no retry, the emergency number first. */
-export type SosSheetPhase = 'sending' | 'open' | 'acknowledged' | 'resolved' | 'cancelled' | 'failed' | 'offline' | 'refused';
+/** `final`: the server refused the alert for good (a retry can't help), so the sheet sends the person to the police number. */
+export type SosSheetPhase = 'sending' | 'open' | 'acknowledged' | 'resolved' | 'cancelled' | 'failed' | 'offline' | 'final';
 
 export interface SosSheetProps {
   phase: SosSheetPhase;
@@ -250,8 +250,7 @@ export function SosSheet({
   }, [left, clock]);
 
   const live = phase === 'open' || phase === 'acknowledged';
-  const refused = phase === 'refused';
-  const failed = phase === 'failed' || phase === 'offline' || refused;
+  const failed = phase === 'failed' || phase === 'offline' || phase === 'final';
   const rider = layout === 'rider';
   const title =
     phase === 'sending'
@@ -268,8 +267,8 @@ export function SosSheet({
               ? t('sos.failed', { number: policeNumber })
               : phase === 'offline'
                 ? t('sos.offline', { number: policeNumber })
-                : refused
-                  ? t('sos.refused', { number: policeNumber })
+                : phase === 'final'
+                  ? t('sos.final', { number: policeNumber })
                 : rider
                   ? t('sos.rider_sent')
                   : t('safety.sos_sent');
@@ -342,12 +341,9 @@ export function SosSheet({
           </View>
         ) : null}
 
-        {refused && onCallPolice ? (
-          <Button label={t('sos.call_police', { number: policeNumber })} variant="destructive" size="lg" icon="phone" fullWidth onPress={onCallPolice} haptic="heavy" testID="sos-police" />
-        ) : null}
-        {failed && !refused && onRetry ? <Button label={t('action.retry')} variant="destructive" size="lg" fullWidth onPress={onRetry} testID="sos-retry" /> : null}
-        {((failed && !refused) || (live && !rider)) && onCallPolice ? (
-          <Button label={t('sos.call_police', { number: policeNumber })} variant={failed ? 'secondary' : 'ghost'} icon="phone" fullWidth onPress={onCallPolice} testID="sos-police" />
+        {failed && phase !== 'final' && onRetry ? <Button label={t('action.retry')} variant="destructive" size="lg" fullWidth onPress={onRetry} testID="sos-retry" /> : null}
+        {(failed || (live && !rider)) && onCallPolice ? (
+          <Button label={t('sos.call_police', { number: policeNumber })} variant={phase === 'final' ? 'destructive' : failed ? 'secondary' : 'ghost'} icon="phone" fullWidth onPress={onCallPolice} testID="sos-police" />
         ) : null}
         {phase !== 'sending' && !(live && left > 0) ? <Button label={t('sos.back')} variant={failed ? 'ghost' : 'primary'} size="lg" fullWidth onPress={onClose} testID="sos-close" /> : null}
       </View>
