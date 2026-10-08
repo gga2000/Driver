@@ -8,7 +8,9 @@
 //          the meter runs), middle-middle free, middle-right a walk-up, rear-left+middle مريم's family
 //          (door pickup, accepted), rear-right أحمد (cash, past his 3-minute grace: no-show allowed).
 //   Run B  Elantra (4, his painted car) · كراج النهضة → العزيزية · in 4.5 h: نور (front, prepaid), سجاد (door pickup
-//          waiting for his answer), علي (on-the-way: جسر ديالى), ياسر holding back-middle.
+//          waiting for his answer), علي (on-the-way: جسر ديالى), ياسر holding back-middle. Step 4 prices:
+//          نور agreed her spot on the road (2,000) and her door (free); سارة asks about her spot;
+//          هدى has his 3,000 for her door and hasn't answered.
 //   Demand from Aziziyah: 12 seats in the next-hour window, 5 in the one after, 2 at البوابة ٢ later;
 //          3 seats from Baghdad tonight.
 //   Request board: a family to الحلة (private car), a ziyara to النجف tomorrow, a stranded rider at
@@ -21,6 +23,10 @@ const MIN = 60_000;
 const BAB1 = { lat: 32.9032, lng: 45.0578 };
 const HASHIMI_DOOR = { lat: 32.8968, lng: 45.0662 };
 const BAGHDAD_DOOR = { lat: 33.3195, lng: 44.4302 };
+// Step 4: spots on the Baghdad road (outside both garages' door areas) and a door in Aziziyah.
+const ROAD_PIN = { lat: 33.1667, lng: 44.5517 };
+const ROAD_PIN_2 = { lat: 33.06, lng: 44.66 };
+const AZIZIYAH_DOOR = { lat: 32.912, lng: 45.071 };
 
 const RIDERS = [
   ['zahraa', '07803330101', 'زهراء علي'],
@@ -75,8 +81,8 @@ export default async function register(demo) {
     for (const r of await repo.listRequests({ states: ['open', 'matched', 'driver_arrived'] })) await repo.saveRequest({ ...r, state: 'expired', closedAt: now });
   }
 
-  async function book(key, departureId, seatIds, travellingAs, payment, pickup = { kind: 'garage' }, largeBags = false) {
-    const held = await rpc.holdSeat(actor(key), { departureId, selection: { kind: 'seats', seatIds }, travellingAs, pickup, largeBags });
+  async function book(key, departureId, seatIds, travellingAs, payment, pickup = { kind: 'garage' }, largeBags = false, extra = {}) {
+    const held = await rpc.holdSeat(actor(key), { departureId, selection: { kind: 'seats', seatIds }, travellingAs, pickup, largeBags, ...extra });
     if (!payment) return held;
     return rpc.bookSeat(actor(key), { bookingId: held.id, payment });
   }
@@ -130,7 +136,20 @@ export default async function register(demo) {
       vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 88412', modelKey: 'elantra', color: 'بيضة' },
       familyOnly: false,
     });
-    await book('noor', b.id, ['front'], 'nisa', 'wallet');
+    // Step 4 agreed prices: نور agreed a pickup at her spot on the road (2,000) and a door drop at home
+    // (free) before booking; سارة asked about her spot and waits for his price; هدى has his price (3,000)
+    // and hasn't answered yet.
+    const agree = async (key, kind, place, amountIqd, accept) => {
+      const ask = await rpc.askAgreement(actor(key), { departureId: b.id, kind, ...place });
+      if (amountIqd === null) return ask;
+      await rpc.proposeAgreement(driver, { agreementId: ask.id, amountIqd });
+      return accept ? rpc.respondAgreement(actor(key), { agreementId: ask.id, accept: true }) : ask;
+    };
+    const noorPin = await agree('noor', 'pin_pickup', { ...ROAD_PIN, note: 'سيطرة المدائن، صوب الكازية' }, 2_000, true);
+    const noorDoor = await agree('noor', 'door_drop', { ...HASHIMI_DOOR, note: 'بيت باب أسود، مقابل جامع الهاشمي' }, 0, true);
+    await book('noor', b.id, ['front'], 'nisa', 'wallet', { kind: 'pin', agreementId: noorPin.id }, false, { dropoff: { agreementId: noorDoor.id } });
+    await agree('sara', 'pin_pickup', { ...ROAD_PIN_2, note: 'مفرق الجسر الحديدي' }, null, false);
+    await agree('huda', 'door_drop', { ...AZIZIYAH_DOOR, note: 'حي العسكري، الشارع الثاني' }, 3_000, false);
     await book('sajjad', b.id, ['back_left'], 'rijal', 'wallet', { kind: 'door', ...BAGHDAD_DOOR, note: 'زيونة، قرب أسواق الحمراء' });
     await book('ali', b.id, ['back_right'], 'rijal', 'cash', { kind: 'meeting_point', meetingPointId: 'mp_ic_diyala_bridge' });
     await book('yasir', b.id, ['back_middle'], 'rijal', null);

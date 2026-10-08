@@ -1,7 +1,7 @@
 // Wave-2 intercity shots: the garage board (both corridors/sides), announce, the boarding departure in
 // garage mode (S-5: the seat map is the page — walk-up sheet, the rider's PIN sheet, the late seat with
 // its meter and call, no-show, "انطلقنا" naming the blocker, التفاصيل), the evening run
-// with a door-pickup request, a request-board offer and the picked private ride.
+// with a door-pickup request and riders' price asks (step 4), a request-board offer and the picked private ride.
 export const name = 'intercity';
 
 export default async function run(s) {
@@ -109,6 +109,19 @@ export default async function run(s) {
   await p.byTestId('segment-details').click();
   await p.page.waitForTimeout(600);
   await p.shot('evening-run-details', { full: true, settle: 800 });
+
+  // Step 4 agreed prices: «طلبات سعر» on the run — سارة waits for his price, هدى for her answer, نور agreed.
+  await p.byTestId('ic-price-asks').scrollIntoViewIfNeeded();
+  await p.shot('price-asks', { settle: 800 });
+  await p.page.locator('[data-testid^="ask-price-"]').first().click();
+  await p.wait('ic-price-send');
+  await p.byTestId('ic-price-2000').click();
+  await p.byTestId('ic-price-more').click();
+  await p.shot('price-sheet', { settle: 600 });
+  await p.byTestId('ic-price-send').click();
+  await p.byTestId('ic-price-send').waitFor({ state: 'detached', timeout: 10_000 });
+  await p.page.locator('[data-testid^="ask-price-"]').first().waitFor({ state: 'detached', timeout: 10_000 });
+  await p.shot('price-asks-sent', { settle: 800 });
 
   // Request board: offer on the family trip to الحلة, then the stranded rider (price cap).
   await p.goto(`/intercity/request/${seed.posts.hilla}`);

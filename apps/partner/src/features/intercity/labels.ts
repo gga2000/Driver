@@ -92,8 +92,19 @@ export function paymentLabel(t: TFn, b: Pick<DriverBookingRow, 'state' | 'prepay
 
 export function pickupLabel(t: TFn, b: Pick<DriverBookingRow, 'pickup'>): string {
   if (b.pickup.kind === 'meeting_point') return t('partner.ic_pickup_mp', { place: b.pickup.nameAr ?? '' });
+  if (b.pickup.kind === 'pin') return t('partner.ic_pickup_pin', { price: agreedPrice(t, b.pickup.feeIqd) });
   if (b.pickup.kind === 'door') return t('partner.ic_pickup_door');
   return t('partner.ic_pickup_garage');
+}
+
+/** Step 4: an agreed door drop on the rider's line, or null. */
+export function dropLabel(t: TFn, b: Pick<DriverBookingRow, 'dropoff'>): string | null {
+  return b.dropoff ? t('partner.ic_drop_door', { price: agreedPrice(t, b.dropoff.feeIqd) }) : null;
+}
+
+/** An agreed price as the driver reads it: «+2,000» or «ببلاش». */
+export function agreedPrice(t: TFn, amountIqd: number): string {
+  return amountIqd === 0 ? t('partner.ic_agree_free') : amountParam(amountIqd, { sign: true });
 }
 
 export function seatsCount(t: TFn, n: number): string {

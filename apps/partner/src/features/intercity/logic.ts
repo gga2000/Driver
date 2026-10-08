@@ -10,6 +10,7 @@
 import { formatClock } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
+  type AgreementView,
   type DemandBucket,
   type DepartureRiderName,
   type DriverBookingRow,
@@ -273,7 +274,7 @@ export function haversineM(a: LatLngLike, b: LatLngLike): number {
 
 export interface PickupStop {
   key: string;
-  kind: 'garage' | 'door' | 'meeting_point';
+  kind: 'garage' | 'door' | 'meeting_point' | 'pin';
   at: LatLngLike;
   /** Meeting point name; null for doors (the screen names the rider) and the garage. */
   nameAr: string | null;
@@ -285,7 +286,7 @@ export interface PickupStop {
 
 /**
  * The pickup run (review C-37): the garage first, then the accepted door pickups nearest-first
- * (they are in the departure town), then the on-the-way meeting points by distance from the garage.
+ * (they are in the departure town), then the on-the-way meeting points and agreed spots by distance from the garage.
  * Pending door pickups are left out until the driver accepts them; resolved riders drop off.
  */
 export function pickupRoute(garage: LatLngLike, bookings: readonly DriverBookingRow[]): PickupStop[] {
@@ -300,16 +301,19 @@ export function pickupRoute(garage: LatLngLike, bookings: readonly DriverBooking
     stops.push({ key: `door:${next.bookingId}`, kind: 'door', at: next.pickup, nameAr: null, note: next.pickup.note, bookings: [next], legKm: haversineM(from, next.pickup) / 1000 });
     from = next.pickup;
   }
+  // On the road: meeting points (riders sharing one stop) and each rider's agreed spot (step 4), by distance from the garage.
   const points = new Map<string, DriverBookingRow[]>();
   for (const b of live) {
-    if (b.pickup.kind !== 'meeting_point') continue;
-    const key = b.pickup.meetingPointId ?? `${b.pickup.lat},${b.pickup.lng}`;
-    points.set(key, [...(points.get(key) ?? []), b]);
+    if (b.pickup.kind === 'meeting_point') {
+      const key = `mp:${b.pickup.meetingPointId ?? `${b.pickup.lat},${b.pickup.lng}`}`;
+      points.set(key, [...(points.get(key) ?? []), b]);
+    } else if (b.pickup.kind === 'pin') points.set(`pin:${b.bookingId}`, [b]);
   }
   const ordered = [...points.entries()].sort((a, b) => haversineM(garage, a[1][0]!.pickup) - haversineM(garage, b[1][0]!.pickup));
   for (const [key, rows] of ordered) {
     const p = rows[0]!.pickup;
-    stops.push({ key: `mp:${key}`, kind: 'meeting_point', at: p, nameAr: p.nameAr, note: null, bookings: rows, legKm: haversineM(from, p) / 1000 });
+    const pin = p.kind === 'pin';
+    stops.push({ key, kind: pin ? 'pin' : 'meeting_point', at: p, nameAr: pin ? null : p.nameAr, note: pin ? p.note : null, bookings: rows, legKm: haversineM(from, p) / 1000 });
     from = p;
   }
   return stops;
@@ -445,3 +449,15 @@ export function depositFor(priceIqd: number): number {
 export function privateRideNet(priceIqd: number): number {
   return Math.round(priceIqd * (1 - AZIZIYAH_MONEY_RULES.take.intercity_private.rate));
 }
+
+// ───────────────────────── step 4: price asks ─────────────────────────
+
+/**
+ * What the driver still has to do first: asks waiting for his price, then prices waiting for the rider,
+ * then agreed ones not booked yet. Booked ones show on the rider's line in the list instead.
+ */
+export function asksInOrder(all: readonly AgreementView[]): AgreementView[] {
+  const rank = (a: AgreementView) => (a.state === 'asked' ? 0 : a.state === 'proposed' ? 1 : a.state === 'accepted' ? 2 : 3);
+  return all.filter((a) => rank(a) < 3).sort((a, b) => rank(a) - rank(b) || +new Date(a.askedAt) - +new Date(b.askedAt));
+}
+

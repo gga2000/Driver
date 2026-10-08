@@ -80,6 +80,21 @@ export function useRiderNames(departureId: string, bookingIds: readonly string[]
   return q;
 }
 
+/**
+ * Step 4: riders' price asks on his open departure (pin on the road, door drop). Each read names the
+ * riders from the vault (logged), so this polls slower than the departure: every 20 s while open.
+ */
+export const AGREEMENTS_POLL_MS = 20_000;
+export function useDepartureAgreements(departureId: string, open: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.agreements.onDeparture.queryOptions({ departureId }),
+    enabled: signedIn && !!departureId && open,
+    refetchInterval: open ? AGREEMENTS_POLL_MS : false,
+  });
+}
+
 function useInvalidateRoutes() {
   const api = useApi();
   const qc = useQueryClient();
@@ -101,6 +116,7 @@ export function useDriverActions() {
     respondPickup: useMutation({ ...api.routes.driver.respondPickup.mutationOptions(), ...opts }),
     depart: useMutation({ ...api.routes.driver.depart.mutationOptions(), ...opts }),
     arrive: useMutation({ ...api.routes.driver.arrive.mutationOptions(), ...opts }),
+    propose: useMutation({ ...api.routes.agreements.propose.mutationOptions(), ...opts }),
   };
 }
 

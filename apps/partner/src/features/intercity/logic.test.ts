@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { windowText } from './labels';
-import type { DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
+import type { AgreementView, DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
 import {
   boardedSeats,
   clampDepart,
@@ -20,6 +20,7 @@ import {
   minutesUntil,
   nextSlot,
   pickupRoute,
+  asksInOrder,
   pinPress,
   privateRideNet,
   riderStatus,
@@ -199,6 +200,24 @@ describe('the departure', () => {
     expect(route.map((s) => s.key)).toEqual(['garage', 'door:near', 'door:far', 'mp:mp_x']);
     expect(route[0]!.bookings.map((b) => b.bookingId)).toEqual(['g']);
     expect(route[1]!.legKm).toBeGreaterThan(0);
+  });
+
+  it('step 4: an agreed spot on the road is its own stop, in road order with the meeting points', () => {
+    const base = row({ bookingId: 'g' }).pickup;
+    const mp = row({ bookingId: 'mp', pickup: { ...base, kind: 'meeting_point', meetingPointId: 'mp_x', nameAr: 'مفرق المدائن', lat: 33.0985, lng: 44.5802 } });
+    const pin = row({ bookingId: 'pin', pickup: { ...base, kind: 'pin', nameAr: null, note: 'جنب السيطرة', lat: 32.95, lng: 45.0, feeIqd: 2_000, agreementId: 'ag_1' } });
+    const route = pickupRoute(GARAGE, [mp, pin]);
+    expect(route.map((s) => [s.key, s.kind, s.note])).toEqual([
+      ['garage', 'garage', null],
+      ['pin:pin', 'pin', 'جنب السيطرة'],
+      ['mp:mp_x', 'meeting_point', null],
+    ]);
+  });
+
+  it('step 4: price asks waiting for his price first, then waiting for the rider, then agreed; booked and closed ones drop', () => {
+    const ask = (id: string, state: AgreementView['state'], min: number) => ({ id, state, askedAt: at(min) }) as unknown as AgreementView;
+    const out = asksInOrder([ask('agreed', 'accepted', 0), ask('late', 'asked', 5), ask('priced', 'proposed', 1), ask('early', 'asked', 2), ask('gone', 'declined', 0), ask('used', 'used', 3)]);
+    expect(out.map((a) => a.id)).toEqual(['early', 'late', 'priced', 'agreed']);
   });
 
   it('my departures: live by time; past only when they ran or were cancelled', () => {

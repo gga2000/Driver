@@ -1,8 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
-import { Button, Card, EmptyState, Icon, Rule, SegmentedControl, Skeleton, SlideToConfirm, Text, useTheme, useToast } from '@driver/ui';
+import type { AgreementView, DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
+import { Button, Card, EmptyState, Icon, QueryBoundary, Rule, SegmentedControl, Skeleton, SlideToConfirm, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
@@ -19,6 +19,7 @@ import {
   clockLabel,
   corridorCity,
   departBlockerNote,
+  asksInOrder,
   departReadiness,
   destinationCity,
   hasPickupRun,
@@ -31,7 +32,8 @@ import {
   seatOccupants,
   type SeatOccupant,
 } from '@/features/intercity/logic';
-import { useDeparture, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
+import { useDeparture, useDepartureAgreements, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
+import { PriceAsks, PriceSheet } from '@/features/intercity/AgreeParts';
 import { useNow } from '@/features/intercity/useNow';
 import { useRunCall } from '@/features/intercity/useRunCall';
 import { pickPhoto, uploadPhoto } from '@/features/account/photo';
@@ -99,6 +101,24 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const open = dep.state === 'scheduled' || dep.state === 'boarding';
   const live = open || dep.state === 'departed';
   const readiness = departReadiness(dep);
+  // Step 4: riders' price asks (a pin on the road, a door drop) while the car can still take them.
+  const agreements = useDepartureAgreements(dep.id, open);
+  const asks = useMemo(() => asksInOrder(agreements.data ?? []), [agreements.data]);
+  const [pricing, setPricing] = useState<AgreementView | null>(null);
+  const propose = (amountIqd: number) => {
+    if (!pricing) return;
+    actions.propose.mutate(
+      { agreementId: pricing.id, amountIqd },
+      {
+        onSuccess: () => {
+          theme.haptic('success');
+          setPricing(null);
+          toast.show({ message: t('partner.ic_agree_sent'), icon: 'send' });
+          void agreements.refetch();
+        },
+      },
+    );
+  };
 
   const [tab, setTab] = useState<Tab>(live ? 'seats' : 'details');
   const [sheetSeat, setSheetSeat] = useState<IntercitySeatId | null>(null);
@@ -310,7 +330,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const runPins: MapPin[] = route.map((s, i) =>
     s.kind === 'garage'
       ? { at: s.at, kind: 'garage', label: `${garage?.nameAr ?? ''} · ${dep.fill.booked + dep.fill.walkUps}/${dep.fill.seatsTotal}` }
-      : { at: s.at, kind: 'stop', badge: String(i + 1), label: s.kind === 'door' ? riderName(t, names.get(s.bookings[0]!.bookingId)) : (s.nameAr ?? '') },
+      : { at: s.at, kind: 'stop', badge: String(i + 1), label: s.kind === 'door' || s.kind === 'pin' ? riderName(t, names.get(s.bookings[0]!.bookingId)) : (s.nameAr ?? '') },
   );
   const late = dep.bookings.filter((b) => b.state === 'booked' && b.meterMinutes !== null);
   const meterOff = open && now.getTime() > dep.departAt.getTime() && dep.bookings.some((b) => b.state === 'booked' && b.pickup.kind === 'garage' && b.meterMinutes === null && (b.prepaid || b.prepayRail === 'trusted_cash'));
@@ -380,6 +400,27 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
       ) : null}
       {dep.state === 'cancelled_low_fill' ? <Banner tone="danger" icon="x" title={departureState(t, dep.state)} body={t('partner.ic_cancelled_low_fill_body')} /> : null}
       {lowFill ? <Banner tone="warning" icon="clock" title={t('partner.low_fill_warn', { minutes: toLowFill, n: dep.fill.filled })} /> : null}
+
+      {open && asks.length > 0 ? (
+        <View style={{ gap: theme.space[1] }}>
+          <SectionHead title={t('partner.ic_agree_title')} sub={t('partner.ic_agree_hint')} />
+          <Card padding={0} style={{ paddingHorizontal: theme.space[4], marginTop: theme.space[2] }}>
+            <PriceAsks asks={asks} garage={garage ?? null} onPrice={(a) => { actions.propose.reset(); setPricing(a); }} />
+          </Card>
+        </View>
+      ) : null}
+      {open && agreements.isError ? (
+        <QueryBoundary query={agreements} size="inline" skeleton={null} testID="ic-agreements-read">
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+      <PriceSheet
+        ask={pricing}
+        busy={actions.propose.isPending}
+        error={actions.propose.isError ? apiErrorMessage(actions.propose.error, t('error.network'), locale) : null}
+        onClose={() => setPricing(null)}
+        onSend={propose}
+      />
 
       {tab === 'seats' ? (
         <>
