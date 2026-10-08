@@ -33,8 +33,20 @@ export class OrdersStaffJob implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
+  /** Each step on its own: a failing `sweep()` still lets `watchStuck()` run in the same tick (and the other way round). */
   async tick(): Promise<number> {
-    return (await this.staff.sweep()) + (await this.staff.watchStuck());
+    let done = 0;
+    for (const [name, step] of [
+      ['sweep', () => this.staff.sweep()],
+      ['watchStuck', () => this.staff.watchStuck()],
+    ] as const) {
+      try {
+        done += await step();
+      } catch (err) {
+        this.logger.error(`staff watchdog ${name} failed: ${(err as Error).message}`, (err as Error).stack);
+      }
+    }
+    return done;
   }
 
   private async safeTick(): Promise<void> {
