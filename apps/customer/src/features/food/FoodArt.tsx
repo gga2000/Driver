@@ -1,6 +1,6 @@
 import { memo } from 'react';
-import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
-import { DishDrawing, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
+import { DishDrawing, PhotoImage, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
 import Svg, { Circle, Ellipse, G } from 'react-native-svg';
 import { apiPhoto } from '@/lib/photo';
 import { ART_LOOKS, type Motif } from './food-art';
@@ -51,7 +51,8 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
   // A merchant's own upload comes as a signed link relative to the API origin (dev storage); once it
   // expires (a cart kept from yesterday) and fails to load, the drawn dish shows instead.
   const photo = usePhotoFallback(apiPhoto(photoUrl));
-  if (photo.uri && !lite) return <Image source={{ uri: photo.uri }} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
+  // Cached on the phone (expo-image via PhotoImageProvider): a menu seen yesterday doesn't download again.
+  if (photo.uri && !lite) return <PhotoImage uri={photo.uri} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as StyleProp<ImageStyle>]} />;
   const hero = variant === 'hero';
   if (variant === 'wide') {
     return (

@@ -342,7 +342,7 @@ async function rajaaTaxiShots(personId) {
   await fullShot('rajaa-taxi-preview-full');
   const states = {
     x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
-    x3: ['not-told', 'told'],
+    x3: ['not-told', 'told', 'held'],
     x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
     n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
   };
@@ -1179,6 +1179,13 @@ async function trackShots(personId) {
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await live();
   await shot('track-preparing');
+  // The actions under the expanded sheet before pickup (HUNT-01: no street hand-over row while it is switched off).
+  await openOrder(prepId, '?sheet=2');
+  await live(1500);
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await live(600);
+  await shot('track-preparing-expanded-actions');
+  if ((await byTestId('action-street').count()) > 0) console.log('track-preparing-expanded-actions: street hand-over row shown');
 
   const wayId = await seed('on_the_way');
   await openOrder(wayId);

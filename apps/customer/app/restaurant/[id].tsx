@@ -8,20 +8,17 @@ import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Sk
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { tasteStore, useTaste, withTaste } from '@/features/doors/taste';
 import { roleOf } from '@/features/doors/tray';
-import { cartMerchantOf, itemCount, itemsTotal, ME, type CartModifier } from '@/features/food/cart';
-import { CartBar } from '@/features/food/CartBar';
+import { cartMerchantOf, ME, type CartModifier } from '@/features/food/cart';
 import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
-import { cartStore, useCart } from '@/features/food/cart-store';
-import { DishCard } from '@/features/food/DishCard';
+import { cartStore, useCartSelect } from '@/features/food/cart-store';
+import { CartButton, LiveCartBar, LiveDishCard, LiveDrinkGrid, type MenuActions } from '@/features/food/menu-live';
 import { WhatsLeft } from '@/features/food/WhatsLeft';
 import { leftToday, onlyLeft, WHATS_LEFT_FROM } from '@/features/food/whats-left';
 import { AfterMeal } from '@/features/doors/AfterMeal';
-import { DrinkGrid } from '@/features/doors/DrinkGrid';
 import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
 import { temperatureOf, type Temperature } from '@/features/food/food-art';
 import { canQuickAdd, chosenModifiers, defaultSelection } from '@/features/food/modifiers';
-import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { KitchenStory, PotBanner } from '@/features/food/KitchenHabits';
@@ -52,7 +49,8 @@ export default function RestaurantScreen() {
   const net = useNetwork();
   // Skeletons don't wait forever (C-17): after 8 s with no menu they turn into a retry.
   const [slow, restartSlow] = useLoadTimeout(menu.isPending);
-  const cart = useCart();
+  // t1: the screen reads only whether this kitchen's bar shows; rows and the bar read their own numbers.
+  const barVisible = useCartSelect((st) => st.cart.merchant?.id === id && st.cart.lines.length > 0);
   const [open, setOpen] = useState<MenuItem | null>(null);
   const [active, setActive] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -94,12 +92,6 @@ export default function RestaurantScreen() {
   }, [menu.data, categories]);
   const story = menu.data?.story ?? null;
   const merchant = restaurant ? cartMerchantOf(restaurant) : null;
-  const mine = cart.merchant?.id === id;
-  const counts = useMemo(() => {
-    const m = new Map<string, number>();
-    if (mine) for (const l of cart.lines) m.set(l.itemId, (m.get(l.itemId) ?? 0) + l.qty);
-    return m;
-  }, [cart, mine]);
   const closed = restaurant ? !restaurant.open : false;
   // q2: the person's usual sugar and cardamom, filled into one-tap adds too.
   const taste = useTaste();
@@ -148,11 +140,6 @@ export default function RestaurantScreen() {
   }, [itemParam, categories]);
 
   const photoById = useMemo(() => new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i.photoUrl])), [categories]);
-  const thumbs = useMemo(
-    () => (mine ? stackThumbs(cart).map((l) => ({ ...(artById.get(l.itemId) ?? artOf({ id: l.itemId, name: l.name })), photoUrl: photoById.get(l.itemId) ?? null })) : []),
-    [cart, mine, artById, photoById],
-  );
-  const barVisible = mine && cart.lines.length > 0;
   const land = () => {
     setLandings((n) => n + 1);
     theme.haptic('selection');
@@ -185,9 +172,20 @@ export default function RestaurantScreen() {
   };
 
   const removeOne = (item: MenuItem) => {
-    const line = [...cart.lines].reverse().find((l) => l.itemId === item.id);
+    const line = [...cartStore.getSnapshot().cart.lines].reverse().find((l) => l.itemId === item.id);
     if (line) cartStore.setQty(line.key, line.qty - 1);
   };
+  // Made once and always calling the latest handlers, so the memoised rows never redraw for a new prop.
+  const latest = useRef({ quickAdd, removeOne });
+  latest.current = { quickAdd, removeOne };
+  const actions = useMemo<MenuActions>(
+    () => ({
+      open: (item) => setOpen(item),
+      quickAdd: (item, from, chosen) => latest.current.quickAdd(item, from, chosen),
+      removeOne: (item) => latest.current.removeOne(item),
+    }),
+    [],
+  );
 
   const jumpTo = (i: number) => {
     setActive(i);
@@ -260,7 +258,7 @@ export default function RestaurantScreen() {
                   <Icon name="heart" size={20} color="danger" fillColor="danger" filled />
                 </View>
               ) : null}
-              {cart.lines.length > 0 ? <IconButton icon="cart" variant="outline" badge={itemCount(cart)} accessibilityLabel={t('cart.title')} onPress={() => router.push('/cart')} /> : null}
+              <CartButton />
             </View>
           </View>
           <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', paddingHorizontal: theme.space[5], marginTop: -40 }}>
@@ -332,13 +330,12 @@ export default function RestaurantScreen() {
             />
           ) : null}
           {gridItems.length > 0 ? (
-            <DrinkGrid
+            <LiveDrinkGrid
+              merchantId={id}
               title={popular.length >= 3 ? t('restaurant.popular_title') : t('restaurant.top_drinks')}
               items={gridItems}
               art={(i) => artById.get(i.id)}
-              counts={counts}
-              onOpen={(i) => setOpen(i)}
-              onQuickAdd={(i, from) => quickAdd(i, from)}
+              actions={actions}
             />
           ) : popular.length > 0 ? (
             <View style={{ paddingTop: theme.space[5] }} testID="section-popular">
@@ -349,17 +346,7 @@ export default function RestaurantScreen() {
                 </Text>
               </View>
               {popular.map((item) => (
-                <DishCard
-                  key={`popular-${item.id}`}
-                  item={item}
-                  art={artById.get(item.id)}
-                  inCart={counts.get(item.id) ?? 0}
-                  onOpen={() => setOpen(item)}
-                  onQuickAdd={(from) => quickAdd(item, from)}
-                  onQuickAddWith={(mods, from) => quickAdd(item, from, mods)}
-                  onDecrement={() => removeOne(item)}
-                  temperature={temps.get(item.id) ?? null}
-                />
+                <LiveDishCard key={`popular-${item.id}`} merchantId={id} item={item} art={artById.get(item.id)} temperature={temps.get(item.id) ?? null} actions={actions} />
               ))}
             </View>
           ) : null}
@@ -371,17 +358,7 @@ export default function RestaurantScreen() {
                     {c.name}
                   </Text>
                   {c.items.map((item) => (
-                    <DishCard
-                      key={item.id}
-                      item={item}
-                      art={artById.get(item.id)}
-                      inCart={counts.get(item.id) ?? 0}
-                      onOpen={() => setOpen(item)}
-                      onQuickAdd={(from) => quickAdd(item, from)}
-                      onQuickAddWith={(mods, from) => quickAdd(item, from, mods)}
-                      onDecrement={() => removeOne(item)}
-                      temperature={temps.get(item.id) ?? null}
-                    />
+                    <LiveDishCard key={item.id} merchantId={id} item={item} art={artById.get(item.id)} temperature={temps.get(item.id) ?? null} actions={actions} />
                   ))}
                 </View>
               ))}
@@ -402,7 +379,7 @@ export default function RestaurantScreen() {
                 onDismiss={() => setAfterMeal(null)}
               />
             ) : null}
-            <CartBar count={itemCount(cart)} totalIqd={itemsTotal(cart)} thumbs={thumbs} bubbleRef={bubbleRef} pulseKey={landings} onPress={() => router.push('/cart')} />
+            <LiveCartBar artById={artById} photoById={photoById} bubbleRef={bubbleRef} pulseKey={landings} />
           </View>
         </View>
       ) : null}
@@ -459,7 +436,8 @@ function Facts({ r, knownFor }: { r: RestaurantCard; knownFor: string | null }) 
           <Text variant="footnote" weight={600} color={r.deliveryFeeIqd === 0 ? 'successText' : 'text'} testID="restaurant-fee">
             {fee}
           </Text>
-          {' · '}
+          {/* Before a place is picked the fee is a whole sentence: the minimum goes on its own line. */}
+          {r.deliveryFeeIqd === null ? '\n' : ' · '}
           <Text variant="footnote" color="textMuted" testID="restaurant-min">
             {r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
               ? t('restaurant.small_order_note', { amount: amountParam(r.minOrderIqd), fee: amountParam(r.smallOrderFeeIqd ?? 0) })

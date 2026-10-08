@@ -123,6 +123,12 @@ export interface BookingRecord {
   completedAt: Date | null;
   cancelledAt: Date | null;
   lateMinutes: number | null;
+  /**
+   * x3: when our own taxi (a ride booked to this seat's garage) is expected to bring the rider, while it
+   * runs late for the car; set and cleared by the garage-taxi module. Holds the seat only while
+   * `IntercityRules.seatHoldForLateTaxi` is on (`seatHoldUntil`). Absent/null = no late taxi.
+   */
+  taxiLateUntil?: Date | null;
   demandPostId: string | null;
   movedFromBookingId: string | null;
   movedToBookingId: string | null;

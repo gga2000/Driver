@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { nudge, starsX, steamWisp, taxiX, tuktukHop } from './tile-moments';
+import { nudge, steamWisp, tuktukHop } from './tile-moments';
 
 const steps = Array.from({ length: 101 }, (_, i) => i / 100);
 
 describe('service tile moments', () => {
   it('every moment starts and ends at rest', () => {
     for (const end of [1, -1]) {
-      expect(taxiX(0, end)).toBe(0);
-      expect(taxiX(1, end)).toBe(0);
       expect(nudge(0, end, 10)).toBeCloseTo(0);
       expect(nudge(1, end, 10)).toBeCloseTo(0);
     }
@@ -18,17 +16,11 @@ describe('service tile moments', () => {
     expect(steamWisp(1, 2)).toEqual({ opacity: 0, y: 0 });
   });
 
-  it('the taxi drives off toward the reading end, then comes back in from the other side', () => {
-    // RTL: the end is to the left.
-    expect(taxiX(0.3, -1)).toBeLessThan(-20);
-    expect(taxiX(0.5, -1)).toBeGreaterThan(20);
-    expect(Math.max(...steps.map((a) => Math.abs(taxiX(a, -1))))).toBeLessThanOrEqual(84);
-  });
-
-  it('the star lines move exactly one tile, so the pattern lands where it started', () => {
-    expect(starsX(0, -1, 34)).toBeCloseTo(0);
-    expect(starsX(1, -1, 34)).toBeCloseTo(34);
-    expect(starsX(1, 1, 34)).toBeCloseTo(-34);
+  it('a car pulls forward the way it faces, never past the distance, and settles', () => {
+    // RTL: the start side is to the right, so a car facing it pulls with dir +1.
+    expect(nudge(0.5, 1, 12)).toBeCloseTo(12);
+    expect(nudge(0.5, -1, 12)).toBeCloseTo(-12);
+    for (const a of steps) expect(Math.abs(nudge(a, 1, 12))).toBeLessThanOrEqual(12);
   });
 
   it('the tuktuk only hops upwards, and the steam only rises', () => {
