@@ -51,7 +51,7 @@ export const DISPLAY_LABEL: Record<DealDisplay, TKey> = {
 export const DISPLAY_TONE: Record<DealDisplay, 'success' | 'warning' | 'info' | 'neutral' | 'danger'> = {
   active: 'success',
   pending: 'warning',
-  scheduled: 'info',
+  scheduled: 'neutral',
   capped: 'warning',
   paused: 'neutral',
   ended: 'neutral',

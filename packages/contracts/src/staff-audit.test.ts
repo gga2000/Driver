@@ -14,6 +14,7 @@ const STAFF: ReadonlySet<RoleKind> = new Set(['admin', 'dispatcher', 'support', 
 const AUDITED = [
   'finance.exportSettlement',
   'ops.controls.setSwitch',
+  'ops.controls.setScreen',
   'ops.controls.setCapacity',
   'system.setBanner',
   'system.clearBanner',
@@ -48,6 +49,16 @@ const AUDITED = [
   'inbox.note',
   'onCall.add',
   'onCall.end',
+  // W3 staff way-outs (lane A): each writes its console_audit_log row in the same transaction.
+  'orders.ops.cancel',
+  'orders.ops.markDelivered',
+  'orders.ops.close',
+  'orders.ops.courierLost',
+  'orders.ops.chargeCourier',
+  'orders.ops.resolveDispute',
+  'routes.ops.cancelDeparture',
+  'routes.ops.arriveDeparture',
+  'routes.ops.closeDeparture',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */

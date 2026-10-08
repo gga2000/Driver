@@ -25,6 +25,15 @@ describe('web app shell', () => {
     expect(html).toContain('href="/manifest.webmanifest"');
   });
 
+  it('paints the brand on cream before the app has downloaded', () => {
+    const html = read('public/index.html');
+    expect(html).toContain(`background-color: ${themes.light.bg.toLowerCase()}`);
+    const firstPaint = html.slice(html.indexOf('<div id="root">'));
+    expect(firstPaint).toMatch(/<img src="data:image\/png;base64,[A-Za-z0-9+/=]{100,}" alt="درايفر"/);
+    expect(firstPaint).toContain('لحظة…');
+    expect(firstPaint).toContain(`color: ${themes.light.textMuted.toLowerCase()}`);
+  });
+
   it('ships every icon it names', () => {
     const html = read('public/index.html');
     const linked = [...html.matchAll(/href="(\/icons\/[^"]+)"/g)].map((m) => m[1]);

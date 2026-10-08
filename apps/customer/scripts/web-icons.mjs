@@ -1,10 +1,12 @@
 // Draws the web app's home-screen icons (public/icons/*.png) from the placeholder wordmark
-// (src/components/Wordmark.tsx: «درايفر» in accentText with an accent dot, on the cream bg).
+// (src/components/Wordmark.tsx: «درايفر» in accentText with an accent dot, on the cream bg), and the
+// first-paint mark that public/index.html carries inline (between the splash-mark comments), so a first
+// visit shows the brand before the app's code has downloaded.
 // Re-run when the brand symbol is chosen (docs/before-launch.md), after changing the drawing below.
 //
 //   PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 //     node scripts/web-icons.mjs
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { themes } from '@driver/design-tokens';
 
@@ -42,4 +44,19 @@ for (const { file, size, inset } of icons) {
   await tab.close();
   console.log(`✔ public/icons/${file}`);
 }
+
+// The first-paint mark: the wordmark alone on a clear background, 2× for sharp phone screens.
+const SPLASH_FS = 40;
+const tab = await browser.newPage({ viewport: { width: 320, height: 320 }, deviceScaleFactor: 2 });
+await tab.setContent(page(320, 0.5 - (SPLASH_FS / 0.3 / 320) / 2).replace(`background: ${bg};`, 'background: transparent;'));
+await tab.evaluate(() => document.fonts.ready);
+const png = await tab.locator('.mark').screenshot({ omitBackground: true });
+await tab.close();
+const htmlPath = new URL('../public/index.html', import.meta.url);
+const html = readFileSync(htmlPath, 'utf8').replace(
+  /(<!-- splash-mark -->)[\s\S]*?(<!-- \/splash-mark -->)/,
+  `$1<img src="data:image/png;base64,${png.toString('base64')}" alt="درايفر" height="${SPLASH_FS * 1.5}" />$2`,
+);
+writeFileSync(htmlPath, html);
+console.log(`✔ first-paint mark (${png.length} bytes) inlined in public/index.html`);
 await browser.close();

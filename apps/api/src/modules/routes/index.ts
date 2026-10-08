@@ -1,6 +1,8 @@
 export { RoutesModule } from './routes.module.js';
 export { RoutesRpc } from './routes.rpc.js';
 export { DeparturesService } from './departures.service.js';
+export { DeparturesStaffService, DEPARTURES_AUDIT, GARAGE_WATCH_RULES, DEFAULT_GARAGE_WATCH_RULES, garageWatchRulesFromEnv } from './departures.staff.js';
+export type { GarageWatchRules, DepartureAuditPort } from './departures.staff.js';
 export type { Fill, NoShowVerdict, DepartBlocker } from './departures.service.js';
 export { DemandService } from './demand.service.js';
 export { RequestBoardService } from './request-board.service.js';

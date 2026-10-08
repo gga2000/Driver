@@ -34,6 +34,10 @@
     "./crash-report": {
       "types": "./dist/crash-report.d.ts",
       "default": "./dist/crash-report.js"
+    },
+    "./speed-report": {
+      "types": "./dist/speed-report.d.ts",
+      "default": "./dist/speed-report.js"
     }
   },
   "scripts": {

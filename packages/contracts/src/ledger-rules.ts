@@ -227,6 +227,12 @@ export const MoneyRules = z.object({
    * switches it on: the clock still runs and shows, nothing is added.
    */
   requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
+   * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
+   * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
+   * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
+   * See docs/api/merchant-late-reject.md.
+   */
+  merchantLateRejectCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
   /**
    * Step 4b, a6 «احجز وادفع كاش» on a private car (Ali, 2026-10-07 23:07; design vote 2026-10-08): the
    * rider asks the driver who offered, the driver accepts, and the pick holds no deposit. The deposit
@@ -329,10 +335,12 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   requestWaitExtra: { enabled: false, freeMin: 15 },
   // Step 4b a6: built 2026-10-08, off until Ali switches it on.
   requestCashReservation: { enabled: false },
-  // Step 5 item 51: built 2026-10-08, off until Ali switches it on (who funds it: his card, platform recommended).
+  // Step 5 item 51: built 2026-10-08, off until Ali switches it on (Ali, 2026-10-08: the company funds it).
   intercityReturnBundle: { enabled: false, percent: 10, fundedBy: 'platform' },
   // Step 6 item 56 (s1–s4): built 2026-10-08, off until Ali switches it on.
   requestSharing: { enabled: false, closeBeforeMin: 120 },
+  // M-17: on (Ali, 2026-10-08, "Yes, 500").
+  merchantLateRejectCredit: { enabled: true },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
   lateTaxiPaysMeter: { enabled: true },
 });

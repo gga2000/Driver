@@ -62,6 +62,35 @@ describe('orders.place — opening hours (apps review 2026-10-04 #10)', () => {
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
   });
 
+  it('h5 (Ali 2026-10-08): a shop whose tablet went silent over 5 minutes ago takes no new orders; a scheduled one still waits', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    const rest = h.merchants.merchants.get('rest_1')!;
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 4 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 6 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_paused');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: new Date(h.clock.now().getTime() + 60 * MIN) })))).toBe('ok');
+    rest.lastHeartbeatAt = h.clock.now();
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+  });
+
+  it('FOOD-03: a pre-order is for a real slot: not in the past, not sooner than the lead, at most 48 h ahead', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    const at = (min: number) => new Date(h.clock.now().getTime() + min * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(-60) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(5) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(49 * 60) })))).toBe('order_schedule_invalid');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(60) })))).toBe('ok');
+  });
+
+  it('FOOD-03: a shop closed by hand takes no pre-order for later today, but does for tomorrow', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z'); // 13:30 Baghdad
+    h.merchants.merchants.get('rest_1')!.closed = true;
+    const at = (min: number) => new Date(h.clock.now().getTime() + min * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(120) })))).toBe('merchant_paused');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: at(24 * 60) })))).toBe('ok');
+  });
+
   it('a merchant without a storefront (or without hours) is open whenever it is not paused', async () => {
     const h = ordersHarness();
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
@@ -104,5 +133,20 @@ describe('orders.place — merchant minimum order (apps review 2026-10-04 #11, J
     await withStorefront(h, { minOrderIqd: 12_000 });
     const small = h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1, unitPriceIqd: 5000 }], scheduledFor: new Date('2026-10-03T11:00:00Z') });
     expect(await h.orders.place('c1', small)).toMatchObject({ smallOrderFeeIqd: 500 });
+  });
+});
+
+describe('orders.place — how far ice cream travels (k7, Ali 2026-10-08: 3 km)', () => {
+  it('an ice-cream-only shop refuses a door past 3 km by road, at quote and at place; a nearer door and other shops are fine', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    await h.catalog.saveStorefront({ orgId: 'rest_1', cityId: 'aziziyah', nameAr: 'آيس كريم الفرات', cuisineAr: 'آيس كريم', minOrderIqd: 0, tags: ['ice_cream'] });
+    // HOME is about 1.4 km by road from the kitchen; 32.935 north is about 3.8 km.
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    const far = h.foodInput({ dropoff: { zoneKey: 'zakur', pin: { lat: 32.935, lng: 45.0665 } } });
+    expect(await code(h.orders.quote('c1', far))).toBe('too_far_for_ice_cream');
+    expect(await code(h.orders.place('c1', far))).toBe('too_far_for_ice_cream');
+    expect(((await h.orders.place('c1', far).catch((e: unknown) => e)) as DriverError).envelope.message_ar).toMatch(/يذوب/);
+    await h.catalog.saveStorefront({ orgId: 'rest_1', cityId: 'aziziyah', nameAr: 'حلويات الزهراء', cuisineAr: 'حلويات', minOrderIqd: 0, tags: ['kunafa', 'ice_cream'] });
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'zakur', pin: { lat: 32.935, lng: 45.0665 } } })))).toBe('ok');
   });
 });

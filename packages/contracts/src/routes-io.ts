@@ -4,6 +4,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { RIDE_RIDER_NAME_MAX } from './order.js';
 import type { CallSession } from './chat-io.js';
 import type { SafetyCallSession } from './safety-io.js';
+import type { OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from './departure-staff-io.js';
 import { modelFitsLayout, VehicleModelKey } from './vehicle-models.js';
 
 /**
@@ -1599,4 +1600,12 @@ export interface RoutesPort {
   /** Hide a review from the driver's profile (kept, logged, reversible). */
   hideReview(actor: Actor, input: HideReviewInput): Promise<ReviewOpsView>;
   unhideReview(actor: Actor, input: UnhideReviewInput): Promise<ReviewOpsView>;
+  /** W3 / NTF-14: staff cancel of a departure whose driver never came (riders moved, no fee). */
+  opsCancelDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-14: staff «وصلت» for a departure whose driver forgot it (seats complete and settle). */
+  opsArriveDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-10: close an arrived departure now instead of waiting for the scheduler. */
+  opsCloseDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-14: departures past their latest time with no driver, or departed and never arrived. */
+  overdueDepartures(actor: Actor, input: OverdueDeparturesInput): Promise<OverdueDeparture[]>;
 }

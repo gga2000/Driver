@@ -60,7 +60,7 @@ Stored in `launch_interests` (one row per person and service; migration
 `requestOtp({ phone, purpose: 'login', channel: 'whatsapp' })` sends the code with the WhatsApp
 template `otp_login` (one body parameter: the code) through the shared WhatsApp port
 (`shared/messaging/whatsapp.ts`, `WHATSAPP_PROVIDER=dev|meta`, the same provider notify uses). Same
-challenge rules as SMS: 30 s cool-down, 5 attempts, 3-minute expiry; a WhatsApp code replaces the
+challenge rules as SMS: 30 s cool-down, 5 attempts, 5-minute expiry (THIN-21); a WhatsApp code replaces the
 SMS one. The output says the `channel`. Without a WhatsApp port, or for another purpose:
 `otp_channel_unavailable`. In development `identity.devLastOtp` returns the WhatsApp code when that
 was the last one sent. Before launch: get the `otp_login` authentication template approved in Meta.

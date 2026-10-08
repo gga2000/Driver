@@ -15,6 +15,8 @@ import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerso
 import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
 import { CITY_ID, isKitchenAccepted, isKitchenRejection, useCancelOrder, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
 import { carryLines, optionCopy, rejectionReason } from '@/features/food/rejection';
+import { partialAsk } from '@/features/food/partial';
+import { PartialAskActions, PartialAskCard } from '@/features/food/PartialAsk';
 import { whatsappUrl } from '@/features/help/whatsapp';
 import { GiftHeadsUpCard } from '@/features/gift/GiftHeadsUp';
 import { useGift } from '@/features/gift/gift-store';
@@ -50,6 +52,7 @@ export default function KitchenScreen() {
   const { dropoff } = useDeliverTo();
   const cancel = useCancelOrder();
   const client = useApiClient();
+  const api = useApi();
   const [sending, setSending] = useState(false);
   const o = order.data;
   // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
@@ -62,7 +65,16 @@ export default function KitchenScreen() {
   const [yes, setYes] = useState<{ time: string } | null>(null);
   const fade = useSharedValue(1);
   const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
-  const now = useNow(o?.state === 'placed' ? 5_000 : null);
+  // Opened from the push on a phone without the cart (or after a restart): names and the shop from the menu.
+  const asking = Boolean(o?.state === 'placed' && o.partial);
+  const menu = useQuery({ ...api.catalog.menu.queryOptions({ merchantId: o?.merchantOrgId ?? '' }), enabled: asking && !mineCart && Boolean(o?.merchantOrgId) });
+  const menuLines = useMemo(() => menu.data?.categories.flatMap((c) => c.items.map((i) => ({ itemId: i.id, name: i.name }))) ?? null, [menu.data]);
+  // A menu that won't load leaves the dishes as «صنف من طلبك»: the answer matters more than the names.
+  const ask = o ? partialAsk(o, mineCart ?? (menuLines && !menu.isError ? { lines: menuLines } : null)) : null;
+  const shop = name || menu.data?.restaurant.name || '';
+  // BENCH-03: a dish ran out — a one-second clock for the minute he has to answer.
+  const now = useNow(ask ? 1_000 : o?.state === 'placed' ? 5_000 : null);
+  const [answering, setAnswering] = useState<'send' | 'cancel' | null>(null);
 
   useEffect(() => {
     if (!o || !id) return;
@@ -133,6 +145,20 @@ export default function KitchenScreen() {
     }
   };
 
+  const answer = async (approve: boolean) => {
+    if (!id) return;
+    setAnswering(approve ? 'send' : 'cancel');
+    try {
+      await client.orders.respondPartial.mutate({ orderId: id, approve });
+      await order.refetch();
+    } catch (err) {
+      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+      await order.refetch();
+    } finally {
+      setAnswering(null);
+    }
+  };
+
   if (!o) {
     // VIS-03: an order that can't be loaded says why (no network, slow, our server) with a retry, and an
     // order that isn't there (an old link) says so with the way to طلباتي; never skeletons forever.
@@ -170,7 +196,9 @@ export default function KitchenScreen() {
         edges={['top', 'bottom']}
         contentStyle={{ flexGrow: 1 }}
         footer={
-          waiting ? (
+          ask ? (
+            <PartialAskActions busy={answering} disabled={false} onSend={() => void answer(true)} onCancel={() => void answer(false)} />
+          ) : waiting ? (
             <View style={{ gap: theme.space[1] }}>
               <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
               <Text variant="caption" color="textMuted" align="center">
@@ -181,8 +209,16 @@ export default function KitchenScreen() {
         }
       >
         <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[5], paddingVertical: theme.space[4] }}>
-          <KitchenMark startedAt={offeredAt.getTime()} acceptMs={ACCEPT_MS} accepted={Boolean(yes)} animate={!theme.reduceMotion} />
-          {yes ? (
+          <KitchenMark
+            key={ask ? 'partial' : 'accept'}
+            startedAt={ask ? ask.proposedAt.getTime() : offeredAt.getTime()}
+            acceptMs={ask ? ask.deadline.getTime() - ask.proposedAt.getTime() : ACCEPT_MS}
+            accepted={Boolean(yes)}
+            animate={!theme.reduceMotion}
+          />
+          {ask ? (
+            <PartialAskCard ask={ask} shop={shop} now={now} />
+          ) : yes ? (
             <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
           ) : (
             <View style={{ alignItems: 'center', gap: theme.space[2] }}>
@@ -195,9 +231,9 @@ export default function KitchenScreen() {
             </View>
           )}
           <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
-          <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />
-          {gift && id && !yes ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
-          {recipient && !gift && !yes ? (
+          {ask ? null : <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />}
+          {gift && id && !yes && !ask ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
+          {recipient && !gift && !yes && !ask ? (
             <Card elevation={0} padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-send-tracking">
               <View style={{ gap: theme.space[2] }}>
                 <Text variant="label" weight={600}>
@@ -210,7 +246,7 @@ export default function KitchenScreen() {
               </View>
             </Card>
           ) : null}
-          {pushAsk.visible && !yes ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
+          {pushAsk.visible && !yes && !ask ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
         </View>
       </Screen>
     </Animated.View>

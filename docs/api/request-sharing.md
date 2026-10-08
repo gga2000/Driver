@@ -2,7 +2,7 @@
 
 Private car round 2 step 6, Ali's item 56 and rules s1–s4 (round-2 design page, screen 6). Server:
 `apps/api/src/modules/routes/request-board.service.ts` (step 6 section). Migration
-`20261010330000_request_shares` (`ride_request_shares` + four `share_*` columns on `ride_requests`).
+`20261010390000_request_shares` (`ride_request_shares` + four `share_*` columns on `ride_requests`).
 
 ## Switch `MoneyRules.requestSharing` (off as shipped)
 

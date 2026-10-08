@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import type { ShopPick } from '@/features/doors/doors';
@@ -7,7 +7,8 @@ import { doorMinutes } from '@/features/doors/doors';
 import { motifForKitchen } from '@/features/food/food-art';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useT } from '@/lib/i18n';
-import { ALL_STRIP, distinctPhotos, photoForMotif } from './photos';
+import { FoodPhoto } from './FoodPhoto';
+import { ALL_STRIP, distinctPhotos, photoForMotif, type FoodPhotoSource } from './photos';
 
 /**
  * «فاتحين هسة» (Ali 2026-10-08): the open kitchens as photo cards, each with one honest reason it is
@@ -30,7 +31,7 @@ export function KitchenCards({ picks }: { picks: readonly ShopPick[] }) {
   );
 }
 
-function KitchenCard({ pick: { shop, reason }, photo }: { pick: ShopPick; photo: number }) {
+function KitchenCard({ pick: { shop, reason }, photo }: { pick: ShopPick; photo: FoodPhotoSource }) {
   const theme = useTheme();
   const t = useT();
   const why = reason === 'score' ? t('food.reason.score', { rating: shop.rating?.toFixed(1) ?? '' }) : t(`food.reason.${reason}`);
@@ -51,7 +52,7 @@ function KitchenCard({ pick: { shop, reason }, photo }: { pick: ShopPick; photo:
       })}
     >
       <View style={{ height: 136 }}>
-        <Image source={photo} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+        <FoodPhoto photo={photo} style={{ width: '100%', height: '100%' }} />
         <Pill style={{ top: theme.space[3], start: theme.space[3] }} dark>
           {why}
         </Pill>
@@ -113,7 +114,7 @@ export function AllShops() {
     >
       <View style={[StyleSheet.absoluteFill, { flexDirection: 'row' }]}>
         {ALL_STRIP.map((src, i) => (
-          <Image key={i} source={src} resizeMode="cover" accessible={false} style={{ flex: 1, height: '100%' }} />
+          <FoodPhoto key={i} photo={src} style={{ flex: 1, height: '100%' }} />
         ))}
       </View>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -156,7 +157,7 @@ export function AheadCard({ shop }: { shop: RestaurantSummary }) {
   const ink = theme.colors.inverse;
   return (
     <View testID="food-ahead" style={{ height: 300, borderRadius: theme.radius['2xl'], overflow: 'hidden', backgroundColor: ink }}>
-      <Image source={photoForMotif(motifForKitchen(shop.tags, shop.cuisine))} resizeMode="cover" accessible={false} style={StyleSheet.absoluteFill} />
+      <FoodPhoto photo={photoForMotif(motifForKitchen(shop.tags, shop.cuisine))} style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }} />
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>

@@ -26,6 +26,16 @@ export default async function register(ctx) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const place = async (lines, patch = {}) => {
+    try {
+      return await placeAs(lines, patch);
+    } catch (err) {
+      // Decisions §4: a brand-new account's first cash orders are capped; a big demo basket (the grill
+      // kilo) is paid from the wallet instead, as a real new customer would be asked to.
+      if (patch.paymentMethod === undefined && err?.code === 'new_customer_cash_cap') return placeAs(lines, { ...patch, paymentMethod: 'wallet' });
+      throw err;
+    }
+  };
+  const placeAs = async (lines, patch) => {
     const who = customer();
     // A prepaid (wallet) order needs a wallet that covers it (orders.place refuses wallet_insufficient):
     // the demo customer topped up at an agent first.
