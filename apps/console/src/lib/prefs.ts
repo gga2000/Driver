@@ -79,6 +79,19 @@ export function useSidebarCollapsed(): boolean {
   );
 }
 
+/** Whether the sidebar's folded settings group is open (closed by default). */
+export function setNavSettingsOpen(open: boolean) {
+  write(PREF_KEYS.navSettings, open ? 'open' : 'closed');
+  for (const l of listeners) l();
+}
+export function useNavSettingsOpen(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => read(PREF_KEYS.navSettings) === 'open',
+    () => false,
+  );
+}
+
 /** Read once (no subscription), e.g. for "seen" markers. */
 export function readJson<T>(key: string, fallback: T): T {
   const raw = typeof window === 'undefined' ? null : read(key);

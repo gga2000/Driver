@@ -21,7 +21,7 @@ function toward(a: LngLat, b: LngLat, k: number): LngLat {
 }
 
 /** Town overview → street level. */
-const WIDE: [number, number] = [12.5, 16.5];
+const WIDE: [number, number] = [12, 16.5];
 const KITCHEN_CLOSE: [number, number] = [15.8, 16.4];
 const DOOR_CLOSE: [number, number] = [15.5, 17];
 /** A ride still looking for a driver: the pickup at street level, so the radar and nearby cars read (L-03). */
