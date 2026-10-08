@@ -10,12 +10,19 @@ Console banner (`components/safety/banner.tsx`) and desk (`/safety`).
 ```
 hold "طوارئ" 3 s ─► safety.sos ─► safety_incidents row + sos.raised (outbox) ─► view to the phone
                                    │
-                                   ├─ subscriber safety:alerts ─► notify: every live dispatcher + admin
-                                   │                              (push + WhatsApp, SMS twin after 30 s)
+                                   ├─ subscriber safety:alerts ─► the on-call rota's first page (ON_CALL_PORT,
+                                   │                              2 s limit) ─► notify (push + WhatsApp, SMS twin
+                                   │                              after 30 s); rota absent/slow/empty/failing ─►
+                                   │                              every live dispatcher + admin (logged
+                                   │                              `safety_oncall_fallback`), the SOS is never refused
+                                   ├─ subscriber on-call:ladder ─► rings again every 30 s, on-call people at 60 s,
+                                   │                              the next ones at 120 s (docs: on-call module)
                                    ├─ live channel `safety` ─► Console red banner + alarm on every page
                                    ├─ +10 s (cancel window over) ─► emergency contact: WhatsApp with the
                                    │                              live-location link (SMS twin after 30 s)
-                                   └─ +60 s nobody took it ─► sos.escalated ─► admins paged again
+                                   └─ +60 s nobody took it ─► sos.escalated ─► admins paged again only when the
+                                                                  first page was the fallback (the rota's ladder
+                                                                  escalates otherwise)
 phone, every 5 s while open ─► safety.position (trail; throttled at 30 a minute)
 ```
 
@@ -90,7 +97,9 @@ another rider's seat (red, refused, nobody boarded), or typed a wrong PIN 3 time
 
 - "Escalates to Ali by call": the escalation pages admins by push, WhatsApp and SMS; an automatic
   phone call needs the telephony provider.
-- "On shift" means every live dispatcher and admin role until a staff rota exists.
+- "On shift": the rota rings the whole desk first (every live dispatcher, support agent and admin),
+  then the people on call. `sos.raised` carries `subjectLabel` (kind + ticket, e.g. «طلب أكل #123»;
+  a private ride is only «مشوار خاص») so the ladder's later pages can say what it is about.
 - Audio recording on the pressing phone (spec §3) is not built.
 - Drivers set their emergency contact in the Partner app (الحساب → رقم للطوارئ, 2026-10-05) through
   the same `identity.updateProfile`; the contact now also keeps `relation` (`mother`, `father`, `spouse`,

@@ -78,3 +78,17 @@ export const DEFAULT_TIMEZONE = 'Asia/Baghdad';
 export function commissionPctOf(tier: CommissionTier): number {
   return Math.round(AZIZIYAH_MONEY_RULES.commission[tier] * 10_000) / 100;
 }
+
+/**
+ * FOOD-03: when a shop order may be booked for (the app's «اليوم» / «باچر» slots and the r6 dinner
+ * offer): at least the scheduling lead away (anything sooner is a now-order) and at most 48 hours ahead.
+ */
+export const FOOD_SCHEDULE_RULES = { minLeadMin: ORDERS_RULES.scheduledLeadMin, maxAheadHours: 48 } as const;
+
+/** Why a shop order can't be booked for that time; null when it can (`order_schedule_invalid`). */
+export function foodScheduleProblem(scheduledFor: Date, now: Date): 'too_soon' | 'too_far' | null {
+  const ahead = scheduledFor.getTime() - now.getTime();
+  if (ahead < FOOD_SCHEDULE_RULES.minLeadMin * 60_000) return 'too_soon';
+  if (ahead > FOOD_SCHEDULE_RULES.maxAheadHours * 3_600_000) return 'too_far';
+  return null;
+}

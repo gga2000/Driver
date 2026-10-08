@@ -94,3 +94,23 @@ export function apiRetryAfter(err: unknown): number | null {
   }
   return null;
 }
+
+/**
+ * CORE-05: hands every failed call's error to `onError` (the «حدّث التطبيق» latch) and passes it on
+ * unchanged. First in the chain, so calls made outside React Query are seen too.
+ */
+export function errorTapLink(onError: (err: unknown) => void): TRPCLink<AppRouter> {
+  return () =>
+    ({ op, next }) =>
+      observable((observer) => {
+        const sub = next(op).subscribe({
+          next: (v) => observer.next(v),
+          complete: () => observer.complete(),
+          error: (err) => {
+            onError(err);
+            observer.error(err);
+          },
+        });
+        return () => sub.unsubscribe();
+      });
+}

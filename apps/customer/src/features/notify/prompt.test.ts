@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deepLinkPath, PREPROMPT_SNOOZE_MS, rideAskOnLiveScreen, shouldShowPrePrompt } from './prompt';
+import { deepLinkPath, PREPROMPT_SNOOZE_MS, pushRoute, rideAskOnLiveScreen, shouldShowPrePrompt } from './prompt';
 
 describe('notification pre-prompt timing', () => {
   it('asks only while the OS permission is undetermined, and a "later" snoozes a week', () => {
@@ -28,5 +28,18 @@ describe('notification pre-prompt timing', () => {
     expect(deepLinkPath('driver://')).toBe('/');
     expect(deepLinkPath('https://evil.example/x')).toBeNull();
     expect(deepLinkPath(undefined)).toBeNull();
+  });
+});
+
+describe('a tapped push opens its screen once (CORE-17)', () => {
+  it('pushes a new screen, never a second copy of the one open', () => {
+    expect(pushRoute('driver://order/ord_1', '/')).toEqual({ path: '/order/ord_1', how: 'push' });
+    expect(pushRoute('driver://order/ord_1', '/kitchen/ord_1')).toEqual({ path: '/order/ord_1', how: 'push' });
+    expect(pushRoute('driver://order/ord_1', '/order/ord_1')).toBeNull();
+    expect(pushRoute('driver://order/ord_2', '/order/ord_1')).toEqual({ path: '/order/ord_2', how: 'push' });
+    // Same screen, other details in the link: swapped in place.
+    expect(pushRoute('driver://chat/ord_1?kind=customer_courier', '/chat/ord_1')).toEqual({ path: '/chat/ord_1?kind=customer_courier', how: 'replace' });
+    expect(pushRoute('https://evil.example/x', '/')).toBeNull();
+    expect(pushRoute(undefined, null)).toBeNull();
   });
 });

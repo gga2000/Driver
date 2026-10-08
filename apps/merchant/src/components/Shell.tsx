@@ -7,18 +7,20 @@ import { MIcon, type MIconName } from './MIcon';
 
 export interface NavItem {
   section: Section;
-  href: '/' | '/menu' | '/money' | '/insights' | '/more';
+  href: '/' | '/menu' | '/money' | '/more';
   label: TKey;
   icon: MIconName;
 }
 
-/** Navigation sections in reading order (start → end): the board first. */
+/**
+ * The four tabs in reading order (start → end), counter step 5 (g1): الطلبات · المنيو · يومك · المحل.
+ * يومك holds the day, the owner's money and the numbers; المحل holds the shutter and the shop's settings.
+ */
 export const NAV_ITEMS: readonly NavItem[] = [
   { section: 'orders', href: '/', label: 'merchant.nav.orders', icon: 'receipt' },
   { section: 'menu', href: '/menu', label: 'merchant.nav.menu', icon: 'utensils' },
-  { section: 'money', href: '/money', label: 'merchant.nav.money', icon: 'cash' },
-  { section: 'insights', href: '/insights', label: 'merchant.nav.insights', icon: 'chart' },
-  { section: 'more', href: '/more', label: 'merchant.nav.more', icon: 'grid' },
+  { section: 'money', href: '/money', label: 'merchant.nav.day', icon: 'chart' },
+  { section: 'more', href: '/more', label: 'merchant.nav.shop', icon: 'store' },
 ];
 
 export interface ShellNavProps {

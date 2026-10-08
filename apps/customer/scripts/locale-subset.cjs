@@ -15,16 +15,22 @@ const path = require('node:path');
  * The partner app reuses it (`writePartnerLocales`, speed s1 for the courier app): it drops the Console's and
  * the server's namespaces the same way, plus every namespace that neither its code nor the shared packages it
  * runs ever name (the customer app's food, checkout, home…), keeping the keys it does name.
+ *
+ * Push, WhatsApp and SMS texts are written by the server: contracts' notify catalog (`SERVER_ONLY`) names
+ * every one of them, so it is not read for key names, and `push` is dropped in both apps except the keys
+ * their own code shows on screen (e.g. `push.demand_claimed.title`).
  */
 
 const PLURAL = /_(zero|one|two|few|many|other)$/;
 const SOURCE = /\.(tsx?|mjs|cjs|js)$/;
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'dist-web', 'e2e', 'scripts', 'gallery']);
+/** Shared files that name only texts the server renders (push titles, WhatsApp and SMS bodies). */
+const SERVER_ONLY = new Set(['notify-io.ts']);
 const SHARED_ROOTS = ['packages/ui/src', 'packages/contracts/src', 'packages/map/src', 'packages/i18n/src'];
 const ROOTS = ['apps/customer/app', 'apps/customer/src', 'packages/ui/src', 'packages/contracts/src', 'packages/map/src', 'packages/i18n/src'];
 const LOCALES = ['ar-IQ', 'en'];
 /** Namespaces only other apps (or the server) show. */
-const DROP = new Set(['console', 'partner', 'wa', 'sms']);
+const DROP = new Set(['console', 'partner', 'wa', 'sms', 'push']);
 
 function keyRefs(source, into) {
   for (const m of source.matchAll(/(['"`])([a-z_]+[.:][\w.:-]*)(.)/g)) {
@@ -40,7 +46,7 @@ function walk(dir, refs) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name)) walk(p, refs);
-    } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.')) {
+    } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.') && !SERVER_ONLY.has(entry.name)) {
       keyRefs(fs.readFileSync(p, 'utf8'), refs);
     }
   }
@@ -85,7 +91,7 @@ function writeCustomerLocales({ repoRoot, outDir }) {
 
 /** The partner app's tables: no Console, WhatsApp or SMS texts, and none of the customer-only screens. */
 const PARTNER_ROOTS = ['apps/partner/app', 'apps/partner/src', ...SHARED_ROOTS];
-const PARTNER_DROP = new Set(['console', 'wa', 'sms']);
+const PARTNER_DROP = new Set(['console', 'wa', 'sms', 'push']);
 function writePartnerLocales({ repoRoot, outDir }) {
   return writeLocales({ repoRoot, outDir, roots: PARTNER_ROOTS, always: PARTNER_DROP, unnamed: true });
 }

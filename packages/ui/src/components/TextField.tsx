@@ -89,7 +89,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               minWidth: 0,
               minHeight: filled ? 44 : 48,
               color: theme.colors.text,
-              fontSize: theme.type.body.size,
+              fontSize: Math.round(theme.type.body.size * theme.textScale * 2) / 2,
               writingDirection: theme.direction,
               // Native RTL swaps left/right (left = start); the web needs the physical side.
               textAlign: Platform.OS === 'web' && theme.isRTL ? 'right' : 'left',

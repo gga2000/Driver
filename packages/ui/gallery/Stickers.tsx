@@ -1,7 +1,8 @@
 import { View } from 'react-native';
 import Svg from 'react-native-svg';
 import { t } from '@driver/i18n';
-import { DishDrawing, SketchScene, STICKERS, Text, useTheme } from '../src';
+import { DishDrawing } from '../src/dishes';
+import { SketchScene, STICKERS, Text, useTheme } from '../src';
 
 /**
  * «ستيكرات درايفر» (joy g7): each sticker's drawing alone on a transparent ground (`#stickers`), with

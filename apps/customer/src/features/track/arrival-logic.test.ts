@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARRIVAL_REPLAY_MS, arrivalPlays, arrivalSeenKey, cashAtDoor, gatePhotoFor } from './arrival-logic';
+import { ARRIVAL_REPLAY_MS, arrivalPlays, arrivalSeenKey, cashAtDoor, doorCardKeys, gatePhotoFor } from './arrival-logic';
 
 const HOME = { lat: 32.9097, lng: 45.0633 };
 
@@ -47,5 +47,15 @@ describe('arrival: the delivered moment plays once per order (f2, L-04)', () => 
   it('the key is per order and safe for every platform store', () => {
     expect(arrivalSeenKey('ord_1a2b')).toBe('driver.customer.arrival-seen.ord_1a2b');
     expect(arrivalSeenKey('ord/../x y')).toMatch(/^[\w.-]+$/);
+  });
+});
+
+describe('arrival: an order placed «بالشارع» asks him out to the street (HUNT-02)', () => {
+  it('says «اطلع للشارع» when close and «ينطرك بالشارع» once there; the door order keeps «عند بابك»', () => {
+    expect(doorCardKeys({ paymentMethod: 'cash', streetHandover: true }, false)).toEqual({ title: 'track.near_title', body: 'track.near_street_cash' });
+    expect(doorCardKeys({ paymentMethod: 'wallet', streetHandover: true }, false)).toEqual({ title: 'track.near_title', body: 'track.near_street_paid' });
+    expect(doorCardKeys({ paymentMethod: 'cash', streetHandover: true }, true)).toEqual({ title: 'track.door_title_street', body: 'track.door_cash' });
+    expect(doorCardKeys({ paymentMethod: 'cash' }, false)).toEqual({ title: 'track.near_title', body: 'track.cash_ready' });
+    expect(doorCardKeys({ paymentMethod: 'wallet' }, true)).toEqual({ title: 'track.door_title', body: 'track.door_paid' });
   });
 });

@@ -12,6 +12,7 @@ import { CALLS_LIVE } from '@/features/chat/calls';
 import { useChatPing } from '@/features/chat/useChatPing';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
+import { PracticeBand, PracticeDone, PracticeTip, useInPractice, useWorkRoutes } from '@/features/practice/Practice';
 import { SosControl } from '@/features/safety/SosControl';
 import { uploadPhoto, type PickedPhoto } from '@/features/account/photo';
 import { useGuarantee } from '@/features/account/queries';
@@ -27,6 +28,7 @@ import { PickupSpotCard } from '@/features/work/PickupSpotCard';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
 import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
+import { useGpsWeak, type GpsWeak } from '@/features/work/gps-health';
 import {
   canTopUpOnJob,
   cargoLine,
@@ -71,7 +73,10 @@ export default function JobScreen() {
   const locale = useLocale();
   const [done, setDone] = useState<(JobDone & { at: number }) | null>(null);
   const finish = (d: JobDone) => setDone({ ...d, at: Date.now() });
-  const goHome = () => router.replace('/');
+  // l4: «البروفة» runs this screen on a pretend order and ends on its own done screen.
+  const practice = useInPractice();
+  const routes = useWorkRoutes();
+  const goHome = () => router.replace(routes.home);
   // S-3: the day line counts this job, so it waits for a status read that started after the job ended.
   const refetchStatus = status.refetch;
   useEffect(() => {
@@ -104,6 +109,7 @@ export default function JobScreen() {
   const [slow, restartSlow] = useLoadTimeout(!job.data && !job.isFetched);
   const view = job.data ? applyQueued(job.data, queue.items) : null;
 
+  if (practice && (done || view?.allDone)) return <PracticeDone />;
   if (done || view?.allDone) {
     const queued = done ? Boolean(done.queued) : true;
     return (
@@ -198,7 +204,11 @@ function JobView({
   const actions = useTripActions();
   const client = useApiClient();
   const queue = useJobQueue();
+  // n7: no good GPS for 30 s, he hears that the customer's map has stopped moving.
+  const gpsWeak = useGpsWeak(true);
   const net = useNetwork();
+  const practice = useInPractice();
+  const routes = useWorkRoutes();
   const [tapping, setTapping] = useState(false);
   const refresh = useRefreshWork();
   const [panel, setPanel] = useState<'none' | 'handover' | 'start_code'>('none');
@@ -427,7 +437,7 @@ function JobView({
   }, [prepState]);
 
   const problems: ProblemItem[] = [
-    ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),
+    ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride && !practice ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),
     ...(kitchenThread ? [{ key: 'kitchen', icon: 'bag' as const, title: t('partner.problem_kitchen'), body: t('partner.problem_kitchen_sub'), onPress: () => openChat('merchant_courier') }] : []),
     ...(customerThread ? [{ key: 'customer', icon: 'chat' as const, title: t('partner.problem_customer'), body: t('partner.problem_customer_sub'), onPress: () => openChat('customer_courier') }] : []),
     { key: 'safety', icon: 'shield', title: t('partner.problem_safety'), body: t('partner.problem_safety_sub'), tone: 'danger', onPress: () => setSafetyAsk((n) => n + 1) },
@@ -435,6 +445,7 @@ function JobView({
 
   return (
     <View testID="job" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <PracticeBand />
       <NavChooser
         visible={choosingNav}
         current={nav.app}
@@ -462,9 +473,9 @@ function JobView({
           landmarkNameZoom={LANDMARK_RULES.driverNameZoom}
           testID="job-map"
         />
-        <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
+        <SafeAreaView edges={practice ? [] : ['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
           <View style={[column, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
-            <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate('/')} />
+            <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => router.navigate(routes.home)} />
             <StatusPill label={t(KIND_KEY[job.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} />
             <SosControl subject={{ kind: 'trip', id: job.tripId }} openSignal={safetyAsk} />
           </View>
@@ -488,6 +499,7 @@ function JobView({
 
       <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
         <ScrollView contentContainerStyle={[column, { padding: theme.space[5], gap: theme.space[4] }]}>
+          <PracticeTip />
           {panel === 'start_code' && stop ? (
             <StartCodePanel busy={tapping} wrongCount={codeWrong} onSubmit={(code) => void startWithCode(code)} onClose={() => setPanel('none')} />
           ) : panel === 'handover' && stop ? (
@@ -497,6 +509,7 @@ function JobView({
           ) : stop && action ? (
             <>
               {queued ? <QueuedStrip sending={sending} text="partner.queued" /> : null}
+              {gpsWeak ? <GpsWeakStrip weak={gpsWeak} /> : null}
               <ProgressRail stage={stage} ride={ride} />
               <View style={{ gap: 2 }}>
                 {multi ? (
@@ -524,6 +537,11 @@ function JobView({
               {stop.type === 'pickup' && stop.pickupCode ? <PickupCode code={stop.pickupCode} place={place} /> : null}
               {/* j6: the kitchen's time, live, until he has the food. */}
               {stop.type === 'pickup' && !ride && job.merchant ? <ReadyBar prep={job.merchant} /> : null}
+
+              {/* HUNT-02: the customer chose «بالشارع» (paid less): he comes out, so the courier calls instead of walking to the door. */}
+              {stop.type === 'dropoff' && stop.streetHandover ? (
+                <SlipNote testID="job-street" icon="location-arrow" title={t('partner.job_street_title')} body={t('partner.job_street_body')} bg={theme.colors.accentTint} ink={theme.colors.accentText} />
+              ) : null}
 
               {/* f3: a gift and the customer's wallet top-up are one ink card (the top-up confirms with a slide). */}
               <DoorExtras gift={giftNote(stop)} topUp={topUp} />
@@ -659,10 +677,12 @@ function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) 
   const theme = useTheme();
   const t = useT();
   if (!gift && !topUp) return null;
-  const cream = theme.colors.bg;
+  // By day a dark ink card; at night (n2) a raised brown card instead of a cream block that glares.
+  const night = theme.scheme === 'dark';
+  const cream = night ? theme.colors.text : theme.colors.bg;
   const soft = withAlpha(cream, 0.7);
   return (
-    <View testID="job-extras" style={{ backgroundColor: theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden' }}>
+    <View testID="job-extras" style={{ backgroundColor: night ? theme.colors.surface : theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden', ...(night ? { borderWidth: 1.5, borderColor: theme.colors.border } : {}) }}>
       {gift ? (
         <View testID="job-gift" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[4] }}>
           <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
@@ -769,6 +789,25 @@ function StopList({ job, ride, saved }: { job: PartnerJob; ride: boolean; saved:
 }
 
 /** "محفوظ، يندز لما يرجع النت" (or "دنرسل الخطوات المحفوظة…" while replaying): taps this phone holds. */
+/** n7: the customer's map stands still while his GPS is weak; said plainly, with the one thing he can do. */
+function GpsWeakStrip({ weak }: { weak: GpsWeak }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID="job-gps-weak" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Icon name="location-arrow" size={18} color="warningText" strokeWidth={2} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={600} color="warningText">
+          {weak.lastSeenMin !== null ? t('partner.gps_weak_seen', { n: weak.lastSeenMin }) : t('partner.gps_weak')}
+        </Text>
+        <Text variant="caption" color="warningText">
+          {t('partner.gps_weak_tip')}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function QueuedStrip({ sending, text }: { sending: boolean; text: 'partner.queued' | 'partner.done_queued' }) {
   const theme = useTheme();
   const t = useT();

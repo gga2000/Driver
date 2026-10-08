@@ -236,6 +236,8 @@ describe('status → timeline', () => {
   it('courier at my door: "الدليفري عند بابك", not "on the way"', () => {
     const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff'), courier });
     expect(statusLine(v, t)).toBe(t('track.courier_at_door'));
+    // HUNT-02: placed «بالشارع», he waits on the street.
+    expect(statusLine(view({ state: 'picked_up', pickedUpAt: at(16), streetHandover: true }, { trip: trip('arrived_dropoff'), courier }), t)).toBe(t('track.courier_at_street'));
     expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
   });
 

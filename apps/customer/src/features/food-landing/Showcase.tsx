@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { CatalogSearchDish, DoorMoment } from '@driver/contracts';
 import { Icon, PhotoImage, Text, useTheme, withAlpha } from '@driver/ui';
@@ -9,6 +9,7 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { FoodPhoto } from './FoodPhoto';
 import { photoForMotif } from './photos';
 
 const GAP = 12;
@@ -87,7 +88,7 @@ function DishCard({ dish, kitchen, width }: { dish: CatalogSearchDish; kitchen: 
         {uri ? (
           <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
         ) : (
-          <Image source={photoForMotif(motifForDish(dish.name))} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+          <FoodPhoto photo={photoForMotif(motifForDish(dish.name))} style={{ width: '100%', height: '100%' }} />
         )}
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <Svg width="100%" height="100%" preserveAspectRatio="none">
