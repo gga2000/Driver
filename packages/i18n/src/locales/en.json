@@ -8209,5 +8209,11 @@
   "partner.data_use_mb": "About {n} MB",
   "partner.data_use_packs": "A 1 GB pack covers a shift like this about {n} times",
   "partner.data_use_hint": "An estimate from your phone. It leaves out pictures you see and other apps. «Data saver» below cuts it.",
-  "partner.data_use_shift_line": "The app used about {n} MB of internet this shift"
+  "partner.data_use_shift_line": "The app used about {n} MB of internet this shift",
+  "track.near_street_cash": "Have {amount} IQD ready and come out to the street; he calls when he's there",
+  "track.near_street_paid": "Already paid. Come out to the street; he calls when he's there",
+  "track.door_title_street": "{name} is waiting on the street",
+  "track.price_delivery_street": "Delivery · on the street",
+  "track.courier_at_street": "The courier is waiting on the street",
+  "unreachable.standing_street": "{name} is waiting on the street near your pin"
 }
