@@ -34,7 +34,7 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
@@ -203,8 +203,9 @@ export class PartnerService implements PartnerPort {
       seen: offer.seenAt !== null || offer.state === 'seen',
       // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the
       // dropoff, a ride's pickup) stays off it; the one who accepts gets the pins on `activeJob`.
-      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null },
-      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null },
+      // o7: the public landmark each stop is near («يم باب الجامع الكبير») — a town place, never the door.
+      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null, landmark: nearestLandmark(request.pickup) },
+      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null, landmark: nearestLandmark(dropPin) },
       distanceToPickupKm: offer.distanceKm ?? (presence ? kmBetween(presence, request.pickup) : null),
       tripKm: dropPin ? kmBetween(request.pickup, dropPin) : null,
       pay,
@@ -219,6 +220,10 @@ export class PartnerService implements PartnerPort {
       rideCargo: cargoOf(orders),
       // c9/s3: booked for someone else — «المشوار لـ أم علي».
       rider: await this.riderOf(orders[0], id),
+      // o12: «يوم حار · المكيّفة» on a car ride when x1 routes rides by AC (heating).
+      climate: offerClimate(request.vertical, presence?.vehicle ?? null, now),
+      // o10: how many rides the rider finished before («أول مشوار له» / «ركب 12 مشوار»); rides only.
+      riderTrips: orders[0]?.type === 'ride' && this.deps.orders.riderTrips ? await this.deps.orders.riderTrips(orders[0].id) : null,
     };
   }
 
@@ -385,6 +390,8 @@ export class PartnerService implements PartnerPort {
           rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
           // SEC-14: whom he hands it to, on the drop-off, when someone else receives the order.
           recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
+          // j2: the public landmark it is near, for the headline and the spoken prompt.
+          landmark: s.target ? nearestLandmark(s.target) : null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };

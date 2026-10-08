@@ -13,8 +13,8 @@ import { pointsChip } from './points-chip';
 /**
  * The top of home (Date & Saffron, Ali 2026-10-06): where we deliver first («التوصيل إلى / البيت ·
  * شارع 30 ▾», opens /places) with the points chip on the other side (D-07: no bell until a real inbox,
- * h9), then the hour's greeting as the one hand-lettered line («علي، سهرانين؟ هذني فاتحين», joy h1;
- * plain on quiet days). The hour's sky behind it is the screen's backdrop.
+ * h9), then the hour's greeting («علي، شنو عشانا اليوم؟», joy h1; plain on quiet days) in the calm
+ * heading face, on the plain warm page (Ali, 2026-10-07: no hand-lettering and no sky tint up here).
  */
 export function HomeHeader({ daypart, quiet, closed }: { daypart: Pick<Daypart, 'key' | 'friday'>; quiet: boolean; closed: boolean }) {
   const theme = useTheme();
@@ -57,7 +57,7 @@ export function HomeHeader({ daypart, quiet, closed }: { daypart: Pick<Daypart, 
       </View>
       {/* Keyed by the line, so a new hour (or a quiet day switched on) fades the new words in. */}
       <Animated.View key={key} entering={presets.fadeIn()}>
-        <Text variant="voice" face="voice" numberOfLines={2} accessibilityRole="header" testID="home-greeting">
+        <Text variant="heading" face="display" numberOfLines={2} accessibilityRole="header" testID="home-greeting">
           {hello}
         </Text>
       </Animated.View>

@@ -5,6 +5,9 @@ import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
   encodeDomainEvent,
+  MY_BEST_DAYS,
+  type EarningsJobLine,
+  type MyBestView,
   type Actor,
   type CheckInChallenge,
   type CheckInResult,
@@ -36,7 +39,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
-import { localDateKey, localPeriod, nextLocalSunday } from '../../shared/local-time.js';
+import { localDateKey, localPeriod, nextLocalSunday, startOfLocalDay } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -50,7 +53,7 @@ import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, typ
 import { composeEarnings } from './earnings.js';
 import { HANDOVER_SECRET, HandoverCodes } from './handover-code.js';
 import { composeReceipt, receiptNote, type ReceiptContext } from './receipt.js';
-import { bestHour, busiestWindow, clampShift, perHour, tomorrowAndLastWeek } from './shift.js';
+import { bestDay, bestHour, bestWindow, busiestWindow, clampShift, perHour, straightLineKm, tomorrowAndLastWeek } from './shift.js';
 
 const DAY_MS = 86_400_000;
 /** Single-city launch: the city the shift summary and receipts read their rules and orders from. */
@@ -583,6 +586,45 @@ export class DriverAccountService implements DriverAccountPort {
       nudge: card && card.visible && !card.observation ? (card.nudges[0] ?? null) : null,
       guarantee,
       compliments,
+      minKm: await this.shiftKm(shift.jobs),
+    };
+  }
+
+  /** «يومك» (e7): straight-line km between the stops of the shift's trips; null when none can be read. */
+  private async shiftKm(jobs: readonly EarningsJobLine[]): Promise<number | null> {
+    // A summary is never lost to a trip that cannot be read: its km just isn't counted.
+    const safe = <T,>(f: () => Promise<T>, fallback: T) => Promise.resolve().then(f).catch(() => fallback);
+    // A delivery's line may carry only its order: its trip is the one the order rode on (the last one).
+    const perJob = await Promise.all(
+      jobs.map((j) => (j.tripId ? Promise.resolve([j.tripId]) : j.orderId ? safe(() => this.trips.tripIdsForOrder(j.orderId!), [] as string[]).then((ids) => ids.slice(-1)) : Promise.resolve([] as string[]))),
+    );
+    const ids = [...new Set(perJob.flat())];
+    if (ids.length === 0) return null;
+    const trips = await Promise.all(ids.map((id) => safe(() => this.trips.get(id), null)));
+    return straightLineKm(trips.filter((t): t is NonNullable<typeof t> => t !== null));
+  }
+
+  /**
+   * His week and his best (partner redesign e3 / e4), from his own ledger: this week so far, his best
+   * day and the weekday hours that paid him most in the last four weeks. Read-only; pays nothing.
+   */
+  async myBest(actor: Actor): Promise<MyBestView> {
+    const driverId = actor.personId;
+    const now = this.clock.now();
+    const until = new Date(now.getTime() + 60_000);
+    const week = localPeriod('week', now);
+    const since = new Date(startOfLocalDay(now).getTime() - (MY_BEST_DAYS - 1) * DAY_MS);
+    const [weekView, pastView] = await Promise.all([
+      this.ledger.driverLedger({ driverId, from: week.from, to: until }),
+      this.ledger.driverLedger({ driverId, from: since, to: until }),
+    ]);
+    const thisWeek = composeEarnings(weekView, 'week', { from: week.from, to: now }, AZIZIYAH_MONEY_RULES);
+    const past = composeEarnings(pastView, 'month', { from: since, to: now }, AZIZIYAH_MONEY_RULES);
+    return {
+      week: { from: week.from, netIqd: thisWeek.totals.netIqd, jobs: thisWeek.totals.jobs },
+      bestDay: bestDay(past.jobs),
+      bestWindow: bestWindow(past.jobs, MY_BEST_DAYS),
+      sinceDays: MY_BEST_DAYS,
     };
   }
 

@@ -14,8 +14,8 @@ const food = (over: Partial<PartnerOffer> = {}): PartnerOffer => ({
   expiresAt: new Date('2026-10-05T10:00:15Z'),
   ringSec: 15,
   seen: false,
-  pickup: { zoneId: 'centre', label: 'مطعم خالد', pin: null },
-  dropoff: { zoneId: 'zakur', label: null, pin: null },
+  pickup: { zoneId: 'centre', label: 'مطعم خالد', pin: null, landmark: null },
+  dropoff: { zoneId: 'zakur', label: null, pin: null, landmark: null },
   distanceToPickupKm: 0.6,
   tripKm: 2.8,
   pay: { totalIqd: 1000, components: [{ key: 'delivery', amountIqd: 1000 }], takePct: null },
@@ -26,6 +26,8 @@ const food = (over: Partial<PartnerOffer> = {}): PartnerOffer => ({
   nudgedAt: null,
   rideCargo: [],
   rider: null,
+  climate: null,
+  riderTrips: null,
   ...over,
 });
 

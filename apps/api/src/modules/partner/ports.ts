@@ -106,6 +106,8 @@ export interface PartnerDeps {
     riderName?(orderId: string, driverId: string): Promise<string | null>;
     /** SEC-14: the name the sender gave the order's recipient, read for this courier (logged); null when none. Optional for fakes. */
     recipientName?(orderId: string, driverId: string): Promise<string | null>;
+    /** o10: rides the ride's orderer finished before this one (a count, no names). Optional for fakes. */
+    riderTrips?(orderId: string): Promise<number | null>;
   };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };

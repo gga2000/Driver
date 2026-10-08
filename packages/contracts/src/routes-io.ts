@@ -333,6 +333,8 @@ export type BookingIdInput = z.infer<typeof BookingIdInput>;
 export const DepartureSummary = z.object({
   id: z.string(),
   corridorId: z.string(),
+  /** The corridor's far city (Baghdad, Kut), so a ticket names its road even when the network read fails. */
+  cityId: CityId.optional(),
   direction: IntercityDirection,
   garageId: z.string(),
   departAt: z.coerce.date(),
