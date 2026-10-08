@@ -120,6 +120,24 @@ describe('launch control room (e2e)', () => {
       expect(audit[1]!.summary_ar).toContain('الطرود');
     });
 
+    it('screen switches (W6): staff first, then everyone; a dispatcher can only switch one off', async () => {
+      const admin = await person(['admin']);
+      const dispatcher = await person(['dispatcher']);
+      const customer = await person();
+      const none = { basket_v2: false, checkout_v2: false, track_v2: false, orders_v2: false };
+      expect(await anon().system.screens.query({})).toEqual(none);
+      expect(await codeOf(dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'نجرّب' }))).toBe('forbidden');
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'staff', reason: 'نجرّبها بموبايلاتنا' });
+      expect(await dispatcher.client.system.screens.query({})).toEqual({ ...none, track_v2: true });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'زينة' });
+      expect(await anon().system.screens.query({})).toEqual({ ...none, track_v2: true });
+      const off = await dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'off', reason: 'مشكلة بالمتابعة' });
+      expect(off).toMatchObject({ key: 'track_v2', audience: 'off', setByName: expect.any(String) });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      expect((await dispatcher.client.ops.controls.view.query({})).switches.some((s) => s.key.includes('track_v2'))).toBe(false);
+    });
+
     it('a vertical, restaurant or zone switch refuses orders.place with a friendly Arabic message (the switch’s own when set)', async () => {
       const admin = await person(['admin']);
       const customer = await person();
