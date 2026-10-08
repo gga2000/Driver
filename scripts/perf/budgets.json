@@ -11,9 +11,9 @@
       "why": "dish photos for /food, the door pages and home served by the API (/media/food), 6.64 -> ~5.3 (#107); web fonts w3 live in public/ (web only); size.mjs leaves public/ out since #110; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
-      "max": 6.15,
+      "max": 6.2,
       "target": 5.5,
-      "why": "s1 landed for the partner app: 6.26 -> 5.95; server-only push/WhatsApp/SMS texts left out: 6.15 -> 6.12; the rest is s4 (lazy screens, barrel trims)"
+      "why": "shared contracts grow with every app (main 3fe1fd1 at 6.15, merchant shop setup #128 6.16: @driver/contracts' one barrel brings its merchant-setup schemas into the partner app too; trimming that barrel is s4); s1 landed for the partner app: 6.26 -> 5.95; server-only push/WhatsApp/SMS texts left out: 6.15 -> 6.12; the rest is s4 (lazy screens, barrel trims)"
     },
     "partner.assets_mb": {
       "max": 3.05,
