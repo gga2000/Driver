@@ -9,7 +9,7 @@ machines when `REDIS_URL` is set, in process otherwise), one counter per key per
 |---|---|---|
 | Calls in one HTTP request (tRPC batch) | 50 (the apps split at 25) | refused whole with 400 |
 | Calls per signed-in person | 600 a minute | enforced |
-| `pricing.quote` per signed-in person | 30 a minute | enforced |
+| `pricing.quote` per signed-in person | 120 a minute (the ride screen asks 4 per pin move) | enforced |
 | `pricing.quote` per address, guests | 300 a minute | enforced |
 | Calls per address, guests | 1,200 a minute | alert-only (`REQUEST_LIMIT_IP_MODE=enforce` to enforce) |
 | Console writes per staff person | 60 a minute | enforced |

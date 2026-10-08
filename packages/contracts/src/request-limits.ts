@@ -12,7 +12,9 @@ import type { RoleKind } from './auth.js';
  *   addresses (decision D-5). Sign-in (`identity.*`, which has its own guard) and health checks
  *   are not counted.
  * - `quotePerPerson` / `quotePerGuestIp`: `pricing.quote` keeps every quote it gives (LOAD-01), so it
- *   has its own lower limits, both enforced.
+ *   has its own lower limits, both enforced. The ride screen asks 4 quotes (taxi and تكتك, door and
+ *   street) each time the pin settles and again every minute, so 120 lets someone move the pin 30
+ *   times a minute.
  * - `staffWritesPerPerson` / `staffReadsPerPerson` (CON-21): calls to Console-only procedures (every
  *   role they allow is in `STAFF_ROLES`) per staff person per minute, writes and reads apart; each call
  *   in a batch counts once. Sized with lane E: a dispatcher in a rush writes one every 1 to 3 seconds,
@@ -27,7 +29,7 @@ export const REQUEST_LIMITS = {
   clientBatchItems: 25,
   perPerson: 600,
   perGuestIp: 1_200,
-  quotePerPerson: 30,
+  quotePerPerson: 120,
   quotePerGuestIp: 300,
   staffWritesPerPerson: 60,
   staffReadsPerPerson: 1_200,
