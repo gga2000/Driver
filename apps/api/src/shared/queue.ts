@@ -58,6 +58,26 @@ export function jobKey(...parts: ReadonlyArray<string | number>): string {
 
 // ───────────────────────── BullMQ ─────────────────────────
 
+/** Finished jobs kept per queue (their ids still dedupe a re-add while kept). */
+export const KEEP_COMPLETED_JOBS = 1000;
+/**
+ * Failed jobs kept per queue, and for at most a day (speed audit z4): a failure storm (SMS or push
+ * provider down) must not fill Redis, which refuses writes when full and would stop dispatch timers.
+ * The failure itself is in the API log, and the outbox and durable timers keep their own record.
+ */
+export const KEEP_FAILED_JOBS = { count: 500, age: 86_400 } as const;
+
+export function bullJobOptions(opts: EnqueueOptions): JobsOptions {
+  return {
+    removeOnComplete: opts.transient ? true : KEEP_COMPLETED_JOBS,
+    removeOnFail: opts.transient ? true : { ...KEEP_FAILED_JOBS },
+    attempts: opts.attempts ?? 1,
+    ...(opts.delayMs !== undefined ? { delay: opts.delayMs } : {}),
+    ...(opts.jobId !== undefined ? { jobId: opts.jobId } : {}),
+    ...(opts.backoffMs !== undefined ? { backoff: { type: 'exponential', delay: opts.backoffMs } } : {}),
+  };
+}
+
 class BullMqQueue<T> implements Queue<T> {
   private readonly queue: BullQueue<T>;
 
@@ -74,15 +94,7 @@ class BullMqQueue<T> implements Queue<T> {
 
   async add(name: string, data: T, opts: EnqueueOptions = {}): Promise<void> {
     if (opts.jobId !== undefined) assertJobId(opts.jobId);
-    const jobOpts: JobsOptions = {
-      removeOnComplete: opts.transient ? true : 1000,
-      removeOnFail: opts.transient ? true : 5000,
-      attempts: opts.attempts ?? 1,
-      ...(opts.delayMs !== undefined ? { delay: opts.delayMs } : {}),
-      ...(opts.jobId !== undefined ? { jobId: opts.jobId } : {}),
-      ...(opts.backoffMs !== undefined ? { backoff: { type: 'exponential', delay: opts.backoffMs } } : {}),
-    };
-    await this.queue.add(name as never, data as never, jobOpts);
+    await this.queue.add(name as never, data as never, bullJobOptions(opts));
   }
 
   /** Attaches the worker. In a `web` process (DRIVER_ROLE) this is a no-op: the `worker` machines run the jobs. */

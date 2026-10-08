@@ -106,6 +106,12 @@ export interface NotifyRepository {
   /** Marketing messages that went (or are going) to a person since `since`, one per dedupe key. */
   countMarketingSince(personId: string, since: Date): Promise<number>;
   log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]>;
+  /**
+   * Retention: deletes up to `limit` deliveries created before `before` that are settled (sent,
+   * delivered, read, failed, suppressed or skipped) and returns how many went. Queued and deferred
+   * rows stay whatever their age. Dedupe keys are per event, so a purged row guards nothing.
+   */
+  purgeDeliveries(before: Date, limit: number): Promise<number>;
   /** "خبرني لمن ينفتح": one row per person and service; asking again refreshes the zone and time. */
   saveLaunchInterest(input: { personId: string; service: string; zoneKey: string | null }, now: Date): Promise<void>;
   launchInterestsOf(personId: string): Promise<string[]>;
@@ -128,6 +134,8 @@ const MARKETING_TEMPLATES = Object.values(NOTIFY_TEMPLATES)
   .filter((d) => d.category === 'marketing')
   .map((d) => d.id);
 const COUNTED: readonly DeliveryStatus[] = ['queued', 'deferred', 'sent', 'delivered', 'read'];
+/** Statuses nothing acts on again: the only rows retention may delete. */
+const SETTLED: readonly DeliveryStatus[] = ['sent', 'delivered', 'read', 'failed', 'suppressed', 'skipped'];
 
 // ───────────────────────── in memory ─────────────────────────
 
@@ -239,6 +247,18 @@ export class InMemoryNotifyRepository implements NotifyRepository {
       if (r.personId === personId && MARKETING_TEMPLATES.includes(r.template) && COUNTED.includes(r.status) && r.createdAt >= since) keys.add(r.dedupeKey);
     }
     return keys.size;
+  }
+
+  async purgeDeliveries(before: Date, limit: number): Promise<number> {
+    let n = 0;
+    for (const r of [...this.deliveries.values()]) {
+      if (n >= limit) break;
+      if (r.createdAt >= before || !SETTLED.includes(r.status)) continue;
+      this.deliveries.delete(r.id);
+      this.byKey.delete(`${r.dedupeKey}|${r.channel}`);
+      n += 1;
+    }
+    return n;
   }
 
   async log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]> {
@@ -410,6 +430,12 @@ export class PrismaNotifyRepository implements NotifyRepository {
       distinct: ['dedupeKey'],
     });
     return rows.length;
+  }
+
+  async purgeDeliveries(before: Date, limit: number): Promise<number> {
+    const ids = await this.db().notifyDelivery.findMany({ where: { createdAt: { lt: before }, status: { in: [...SETTLED] } }, select: { id: true }, take: limit });
+    if (ids.length === 0) return 0;
+    return (await this.db().notifyDelivery.deleteMany({ where: { id: { in: ids.map((r) => r.id) } } })).count;
   }
 
   async log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]> {

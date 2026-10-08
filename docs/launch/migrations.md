@@ -29,4 +29,5 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010130000 | fleet_planned_vehicle | partner app thread | #15 (merged) |
 | 20261010131000 | gift_recipient_vault | lane A | #29 |
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
+| 20261010220000 | trail_daily_partitions | lane B | #38 |
 | 20261011090000 | store_closed_until | merchant thread | #19 |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FakeClock } from './clock.js';
-import { BullMqQueueFactory, InMemoryQueue, InMemoryQueueFactory, jobKey } from './queue.js';
+import { BullMqQueueFactory, bullJobOptions, InMemoryQueue, InMemoryQueueFactory, jobKey } from './queue.js';
 
 describe('InMemoryQueue', () => {
   it('runs jobs in order on drain', async () => {
@@ -105,5 +105,12 @@ describe('BullMqQueueFactory', () => {
     expect(f.configured).toBe(false);
     expect(await f.status()).toBe('unavailable');
     expect(() => f.queue('x')).toThrow(/REDIS_URL/);
+  });
+});
+
+describe('BullMQ job options (speed audit z4)', () => {
+  it('keeps at most 500 failed jobs per queue, for at most a day; transient pokes keep nothing', () => {
+    expect(bullJobOptions({ jobId: 'order.o1.autoReject', delayMs: 1000 })).toMatchObject({ removeOnComplete: 1000, removeOnFail: { count: 500, age: 86_400 }, attempts: 1, delay: 1000, jobId: 'order.o1.autoReject' });
+    expect(bullJobOptions({ transient: true })).toMatchObject({ removeOnComplete: true, removeOnFail: true });
   });
 });
