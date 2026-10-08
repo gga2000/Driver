@@ -8,12 +8,11 @@ import { RIDE_SEAT_HOLD, type IntercityDirection } from '@driver/contracts';
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────┐
  * │ PLACEHOLDERS — Ali must replace before launch (each is also marked `placeholder`/`draft`):  │
- * │  • Baghdad seat 10,000 and Kut seat 5,000 (real fares from the garages).                    │
  * │  • Travel times (120 / 60 min), on-the-way meeting-point fees (1,000 / 2,000).              │
- * │  • Door-pickup pricing (1,000 base + 500 per km after 2 km) and the detour speed.           │
+ * │  • The detour speed (door pickup 1,000 + 500 per km after 2 km: Ali kept it, 2026-10-07).   │
  * │  • The Kut garage, the three Baghdad-road meeting points and the three checkpoints: names   │
  * │    and pins are plausible drafts until field ops verify them on the ground.                 │
- * │  • Driver cancel fee 2,000 per rider (doubles after 18:00) and the rider free-cancel rule.  │
+ * │  • The rider free-cancel rule (driver cancel fee 2,000, 4,000 after 18:00: Ali kept it).   │
  * └──────────────────────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -127,9 +126,9 @@ export const CORRIDORS: CorridorConfig[] = [
     nameEn: 'Aziziyah ⇄ Baghdad',
     primary: true,
     cityId: 'baghdad',
-    seatPriceIqd: 10_000, // PLACEHOLDER — Ali gives the real Baghdad seat fare
-    frontPremiumIqd: 2_000,
-    placeholderPrice: true,
+    seatPriceIqd: 5_000, // Ali 2026-10-07: 5,000 each way (garage → Baghdad and Baghdad → garage)
+    frontPremiumIqd: 1_000, // Ali 2026-10-07
+    placeholderPrice: false,
     travelMin: 120, // PLACEHOLDER estimate
     meetingPoints: [
       // DRAFT pins and fees (seeded as INTERCITY_DRAFT_POINTS)
@@ -198,9 +197,9 @@ export const CORRIDORS: CorridorConfig[] = [
     nameEn: 'Aziziyah ⇄ Kut',
     primary: false,
     cityId: 'kut',
-    seatPriceIqd: 5_000, // PLACEHOLDER — Ali gives the real Kut seat fare
-    frontPremiumIqd: 2_000,
-    placeholderPrice: true,
+    seatPriceIqd: 5_000, // Ali 2026-10-07: 5,000 each way
+    frontPremiumIqd: 1_000, // Ali 2026-10-07
+    placeholderPrice: false,
     travelMin: 60, // PLACEHOLDER estimate
     meetingPoints: [],
     checkpoints: [],

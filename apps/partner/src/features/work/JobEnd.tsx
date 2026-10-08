@@ -60,7 +60,7 @@ export function JobEndHero({
       )}
       <View style={{ alignItems: 'center', gap: theme.space[1] }}>
         <Text variant="heading" align="center" accessibilityRole="header">
-          {failed ? t('partner.job_failed_title') : t('partner.job_done_title')}
+          {failed ? t('partner.job_failed_title') : t('partner.done_thanks')}
         </Text>
         {!failed && earnedIqd > 0 ? (
           <View accessible accessibilityLabel={t('partner.jobend_earned_a11y', { amount: amountParam(earnedIqd) })} style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>

@@ -23,8 +23,8 @@ describe('announce (driver)', () => {
       direction: 'from_aziziyah',
       fromCityId: 'aziziyah',
       toCityId: 'baghdad',
-      seatPriceIqd: 10_000,
-      frontPremiumIqd: 2_000,
+      seatPriceIqd: 5_000,
+      frontPremiumIqd: 1_000,
       layout: 4,
     });
     const back = await h.announce({ driverId: 'd2', garageId: NAHDHA.id });
@@ -127,12 +127,12 @@ describe('seat state machine: held (10 min) → booked → checked_in → comple
     const h = routesHarness();
     const a = await h.announce();
     const b = await h.announce({ driverId: 'd2', garageId: BAB2.id });
-    h.wallet.set('r1', 15_000);
+    h.wallet.set('r1', 7_000);
     const first = await h.hold('r1', a.id, ['back_left']);
     expect((await h.departures.book('r1', first.id, 'wallet')).prepaid).toBe(true);
     const second = await h.hold('r1', b.id, ['back_left']);
     expect(await code(h.departures.book('r1', second.id, 'wallet'))).toBe('wallet_insufficient');
-    expect(await h.departures.walletAvailable('r1')).toBe(5_000);
+    expect(await h.departures.walletAvailable('r1')).toBe(2_000);
     const cash = await h.departures.book('r1', second.id, 'cash');
     expect(cash).toMatchObject({
       state: 'booked',
@@ -208,8 +208,8 @@ describe('seat state machine: held (10 min) → booked → checked_in → comple
       customerId: 'r1',
       payment: 'wallet',
       driverId: 'd1',
-      fareIqd: 10_000,
-      frontPremiumIqd: 2_000,
+      fareIqd: 5_000,
+      frontPremiumIqd: 1_000,
       walkUp: false,
     });
     expect(done.filter((p) => p['customerId'] === 'r2').map((p) => p['payment'])).toEqual([
@@ -353,7 +353,7 @@ describe('travelling-as, book the row / the car, family-only (decisions §9)', (
     expect(car.seatIds).toHaveLength(7);
     h.wallet.set('f2', 100_000);
     const booked = await h.departures.book('f2', car.id, 'wallet');
-    expect(booked.frontPremiumIqd).toBe(2_000);
+    expect(booked.frontPremiumIqd).toBe(1_000);
     expect(
       await code(
         h.departures.hold(
@@ -396,7 +396,7 @@ describe('pickups: garage, on-the-way meeting point, door (review C-36/37)', () 
     });
     expect(b.pickup).toMatchObject({ kind: 'meeting_point', feeIqd: 2_000, status: 'accepted' });
     const view = await h.rpc.myBookings({ personId: 'r1', sessionId: 's' });
-    expect(view[0]!.totalIqd).toBe(12_000);
+    expect(view[0]!.totalIqd).toBe(7_000);
     expect(
       await code(
         h.hold('r2', dep.id, ['back_right'], 'rijal', {
@@ -530,8 +530,8 @@ describe('depart guard (review C-31/32)', () => {
     expect(h.events.last('seat.no_show')?.payload).toMatchObject({
       customerId: 'r1',
       payment: 'wallet',
-      fareIqd: 10_000,
-      frontPremiumIqd: 2_000,
+      fareIqd: 5_000,
+      frontPremiumIqd: 1_000,
     });
   });
 
@@ -605,7 +605,7 @@ describe('driver cancel inside 2 h (domain §2, review C-46/48)', () => {
     expect(moved.frontPremiumIqd).toBe(0);
     expect(h.events.last('seat.moved')?.payload).toMatchObject({
       bookingId: a.id,
-      refundIqd: 2_000,
+      refundIqd: 1_000,
     });
   });
 
@@ -623,7 +623,7 @@ describe('driver cancel inside 2 h (domain §2, review C-46/48)', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({
       origin: 'stranded',
-      priceCapIqd: 10_000,
+      priceCapIqd: 5_000,
       privateCar: true,
       state: 'open',
     });

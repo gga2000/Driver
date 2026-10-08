@@ -4,7 +4,7 @@ import { useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LatLng } from '@driver/contracts';
 import { Button, Icon, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
-import { currentFix } from '@/features/account/device';
+import { currentFix, locationDeniedToast } from '@/features/account/device';
 import { nearestZone } from '@/features/account/geo';
 import { tooClose, zoneTitle, type Spot } from '@/features/ride/logic';
 import { useZoneFor } from '@/features/ride/queries';
@@ -61,7 +61,7 @@ export default function RidePin() {
     setLocating(true);
     const fix = await currentFix();
     setLocating(false);
-    if (fix === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger' });
+    if (fix === 'denied') toast.show(locationDeniedToast(t));
     else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
     else setRecentre({ pin: fix.pin, seq: Date.now() });
   };
