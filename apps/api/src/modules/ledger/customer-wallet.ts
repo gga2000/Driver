@@ -77,7 +77,8 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
       return 'change_to_wallet';
     case 'cancellation_fee':
     case 'departure_cancel_fee':
-      return 'penalty';
+      // A driver's cancel fee paid to the customer (M-15, a الرجعة driver's late cancel) is credit, not «رسوم».
+      return signed > 0 ? 'credit' : 'penalty';
     case 'debt_settled':
       return 'debt';
     case 'adjustment':
