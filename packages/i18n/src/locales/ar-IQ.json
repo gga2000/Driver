@@ -8285,6 +8285,12 @@
   "partner.data_use_packs": "باقة 1 گيگا تكفي هيج شفت حوالي {n} مرة",
   "partner.data_use_hint": "تقدير من موبايلك. ما يحسب الصور اللي تطلع لك ولا التطبيقات الثانية. «توفير البيانات» تحت يقلله.",
   "partner.data_use_shift_line": "صرف التطبيق حوالي {n} ميغا نت بهالشفت",
+  "track.near_street_cash": "جهّز {amount} دينار واطلع للشارع، يتصل بيك من يوصل",
+  "track.near_street_paid": "الطلب مدفوع. اطلع للشارع، يتصل بيك من يوصل",
+  "track.door_title_street": "{name} ينطرك بالشارع",
+  "track.price_delivery_street": "توصيل · بالشارع",
+  "track.courier_at_street": "الدليفري ينطرك بالشارع",
+  "unreachable.standing_street": "{name} ينطرك بالشارع قريب من الدبوس",
   "partner.job_street_title": "تسليم بالشارع · الزبون يطلعلك",
   "partner.job_street_body": "لا تروح للباب. لمن تقرب اتصل بيه، ويطلع يلاگيك بالشارع يم الدبوس.",
   "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق"

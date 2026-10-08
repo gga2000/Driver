@@ -242,6 +242,7 @@ const { tenderOptions } = await import('@driver/contracts');
 // Joy J5b: `kitchen` = the kitchen said yes, not cooking yet, no courier; then
 //   POST /demo/track/kitchen?orderId=…&step=preparing|ready   the kitchen's next button (kitchen strip, l3)
 //   POST /demo/track/assign?orderId=…[&rated=1]                a courier with a photo takes it now (driver reveal, l2)
+// `&street=1` places the order «بالشارع» (the near/at-door cards ask him out to the street).
 // `&rated=1` on any scenario gives its courier six rated past deliveries (the card's ★ rating).
 // `late&pastPromiseMin=<n>` moves the promise <n> minutes into the past (the late banner's promise bar);
 // `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
@@ -360,7 +361,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true } = {}) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -375,6 +376,8 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     ],
     paymentMethod: 'cash',
     dropoff,
+    // `&street=1`: placed «بالشارع» (HUNT-02), the server's −250 and `streetHandover` on the order.
+    ...(street ? { options: { streetHandover: true } } : {}),
   };
   let statedTenderIqd;
   if (tender) {
@@ -500,7 +503,7 @@ async function scenario(personId, name, opts = {}) {
   const late = name === 'late';
   // "arrived" goes to the person's own home when it has a gate photo, so the arrival shows that door.
   const home = name === 'arrived' ? await savedHome(personId) : null;
-  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null);
+  const orderId = await placeAccepted(personId, late ? 1 : 20, home ? { zoneKey: home.zoneId, pin: home.pin } : undefined, opts.tender ?? null, { street: Boolean(opts.street) });
   const start = late ? FAR_TO_KITCHEN[0] : TO_KITCHEN[0];
   const courierId = await newCourier(start);
   if (opts.rated) await ratedHistory(courierId);
@@ -594,7 +597,8 @@ app.use('/demo/track', async (req, res) => {
     const noChange = url.searchParams.get('nochange') === '1';
     const pastPromiseMin = Number(url.searchParams.get('pastPromiseMin') ?? 0);
     const rated = url.searchParams.get('rated') === '1';
-    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin, rated })) }));
+    const street = url.searchParams.get('street') === '1';
+    res.end(JSON.stringify({ scenario: name, ...(await scenario(personId, name, { tender, noChange, pastPromiseMin, rated, street })) }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.stack ?? err) }));
