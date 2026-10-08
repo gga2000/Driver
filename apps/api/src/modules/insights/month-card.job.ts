@@ -1,7 +1,8 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { baghdadDayOfMonth, baghdadHour, baghdadMonth, baghdadMonthRange, shiftMonth, type MonthKey } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { NewEvent, Aggregate } from '../events/index.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /** The month-start card goes out on the 1st from this Baghdad hour (never at night). */
 export const MONTH_CARD_HOUR = 10;
@@ -32,9 +33,12 @@ export class MonthCardJob implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(MONTH_CARD_SOURCES) private readonly src: MonthCardSources,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), MONTH_CARD_EVERY_MS);
     this.timer.unref();
   }

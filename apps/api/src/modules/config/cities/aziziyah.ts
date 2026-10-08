@@ -42,11 +42,15 @@ const carTierFares: TierFare[] = [
 ];
 const tuktukTierFares: TierFare[] = carTierFares.map((r) => ({ ...r, fare: Math.max(2000, r.fare - 1000) }));
 
-/** Intercity: every Aziziyah zone → Kut 10,000, → Baghdad 15,000; garages are meeting points. */
+/**
+ * Intercity: every Aziziyah zone → Kut 5,000, → Baghdad 10,000; garages are meeting points. These
+ * mirror the seat prices the الرجعة board actually charges (`routes/intercity.config.ts`
+ * `seatPriceIqd`, both still placeholders); Ali's price sheet sets the real ones in both places.
+ * There is no Kut ⇄ Baghdad line.
+ */
 const intercityFares: ZoneFare[] = [
-  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'kut', fare: 10000 })),
-  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'baghdad', fare: 15000 })),
-  { from: 'kut', to: 'baghdad', fare: 15000 },
+  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'kut', fare: 5000 })),
+  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'baghdad', fare: 10000 })),
 ];
 
 // ───────────────────────── component rules ─────────────────────────
@@ -309,9 +313,9 @@ export const aziziyah: CityPricingConfig = {
     {
       vertical: 'intercity',
       zoneFares: intercityFares,
-      defaultFare: 15000,
+      defaultFare: 10000,
       components: [rideBase, shadowDistance, shadowTime, frontSeat, rideDoorPickup, rideStreetPickup, promo],
-      floor: 10000,
+      floor: 5000,
       ceiling: 40000,
     },
     {

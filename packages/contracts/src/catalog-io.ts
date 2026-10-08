@@ -312,8 +312,11 @@ export const UNMET_SEARCH_ROLES = ['admin', 'dispatcher', 'support', 'field_ops'
 /**
  * Public catalog reads (guest browsing, Ali 2026-10-04): no account needed, limited per client IP.
  * Nothing in a card or a menu is personal.
+ * 1,200/min, not 120: Iraqi carriers put many phones behind one carrier-NAT address, and one guest
+ * browsing makes ~10–20 reads a minute, so 120 would refuse a few dozen real guests sharing an address
+ * on launch day. 1,200 still stops a single scraper; refusals are logged so ops can see if it bites.
  */
-export const CATALOG_PUBLIC_RATE = { windowMs: 60_000, perIp: 120 } as const;
+export const CATALOG_PUBLIC_RATE = { windowMs: 60_000, perIp: 1_200 } as const;
 
 /** Who is reading: a signed-in person, or a guest seen only by the client IP (rate limits). */
 export type CatalogReader = { actor: Actor | null; ip?: string | null };

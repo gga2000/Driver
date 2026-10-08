@@ -5,17 +5,13 @@ import { hasKey, t } from '@driver/i18n';
 import { EmptyState } from '../components/EmptyState';
 import { RetryState } from '../components/RetryState';
 import { renderUI } from '../test/render';
-import { DISH_PICTURES } from './dish-pictures';
 import { DISH_KINDS, DishDrawing } from './dishes';
 import { archPath } from './kit';
+import { DISH_PHOTOS } from './photos/dishes';
 import { SCENE_NAMES, SketchScene } from './SketchScene';
 
 const SHAPES = 'path,circle,ellipse,rect,line,polygon';
-/**
- * Cheap-Android budget (spec §6): a menu shows many dishes, a screen one scene. The dish pictures are Ali's
- * locked set as drawn; the importer joins their grains and seeds into one path per colour to stay under it.
- */
-const DISH_BUDGET = 110;
+/** Cheap-Android budget (spec §6): a screen shows one scene. (Dishes are pictures now: one element each.) */
 const SCENE_BUDGET = 90;
 
 describe('dish pictures (joy J4)', () => {
@@ -25,35 +21,33 @@ describe('dish pictures (joy J4)', () => {
     }
   });
 
-  it.each(DISH_KINDS)('%s draws within the element budget in every look', (kind) => {
+  it.each(DISH_KINDS)('%s paints its picture in every look', (kind) => {
     for (const look of [0, 1, 2]) {
       const { container, unmount } = renderUI(
         <Svg viewBox="0 0 200 200">
           <DishDrawing kind={kind} look={look} />
         </Svg>,
       );
-      const n = container.querySelectorAll(SHAPES).length;
-      expect(n).toBeGreaterThan(4);
-      expect(n).toBeLessThanOrEqual(DISH_BUDGET);
+      const image = container.querySelector('image');
+      expect(image?.getAttribute('href')).toMatch(/\.webp$/);
       unmount();
     }
   });
 
-  it('every picture keeps its ids to itself (many dishes share one page on the web)', () => {
-    const owner = new Map<string, string>();
-    for (const [name, Picture] of Object.entries(DISH_PICTURES)) {
-      const { container, unmount } = renderUI(
-        <Svg viewBox="0 0 240 240">
-          <Picture />
-        </Svg>,
-      );
-      for (const el of container.querySelectorAll('[id]')) {
-        expect(el.id.startsWith(`${name}-`)).toBe(true);
-        expect(owner.get(el.id) ?? name).toBe(name);
-        owner.set(el.id, name);
-      }
-      unmount();
-    }
+  it('every picture in the folder is a kind of dish (none bundled for nothing)', () => {
+    const shown = new Set(
+      DISH_KINDS.map((kind) => {
+        const { container, unmount } = renderUI(
+          <Svg viewBox="0 0 200 200">
+            <DishDrawing kind={kind} window={false} />
+          </Svg>,
+        );
+        const href = container.querySelector('image')?.getAttribute('href');
+        unmount();
+        return href;
+      }),
+    );
+    expect([...shown].sort()).toEqual(Object.values(DISH_PHOTOS).map(String).sort());
   });
 
   it('no two dishes share a drawing', () => {
