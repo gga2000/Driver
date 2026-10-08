@@ -12,6 +12,7 @@ import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
+import { ZONE_SHAPES_QUERY } from './zone-query';
 
 /** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
 export function BaseMap(props: BaseMapProps) {
@@ -31,7 +32,7 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
  */
 function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, onFail }: BaseMapProps & { onFail: () => void }) {
   const api = useApi();
-  const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zonesRef = useRef(zonesQuery.data);
   zonesRef.current = zonesQuery.data;
   const container = useRef<HTMLDivElement | null>(null);

@@ -1,9 +1,11 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Linking, Platform } from 'react-native';
 import { PHOTO_MAX_BYTES, type LatLng, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
 import { API_URL } from '@/lib/api';
 import { absoluteUrl } from './geo';
+import { fitLongSide } from './photo-size';
 
 /**
  * Device capabilities the account screens use: the gate photo (camera on a phone, file picker on
@@ -36,7 +38,20 @@ export async function pickGatePhoto(source: PhotoSource): Promise<PickedPhoto | 
   const res = useCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
   const asset = res.canceled ? null : res.assets[0];
   if (!asset) return null;
-  return { uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) };
+  return shrinkPhoto({ uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) }, asset.width, asset.height);
+}
+
+/** Resizes a big photo before upload; if that fails for any reason the original is sent as before. */
+async function shrinkPhoto(photo: PickedPhoto, width: number, height: number): Promise<PickedPhoto> {
+  const resize = fitLongSide(width, height);
+  if (!resize) return photo;
+  try {
+    const image = await ImageManipulator.manipulate(photo.uri).resize(resize).renderAsync();
+    const out = await image.saveAsync({ compress: 0.7, format: SaveFormat.JPEG });
+    return { uri: out.uri, contentType: 'image/jpeg' };
+  } catch {
+    return photo;
+  }
 }
 
 /**
