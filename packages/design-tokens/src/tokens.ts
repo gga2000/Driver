@@ -653,7 +653,8 @@ const decorDay: HomeDecor = {
   haloDot: '#E2B98A',
   haloGlow: '#FFC155',
   wash: { dawn: '#FFD9B8', noon: '#DDEFF7', sunset: '#F7C3C0', late: '#DCD6F2' },
-  stages: ['#FFE5BD', '#FFD6CF', '#D6EEF0', '#EFE3F5', '#E6F0D2', '#FBEBC8'],
+  // Apricot, blush, date cream, pomegranate blush, sage, sand: warm only, no teal or lilac (Ali's no-teal rule).
+  stages: ['#FFE5BD', '#FFD6CF', '#F2DCC2', '#F5CDD3', '#E6F0D2', '#FBEBC8'],
   grain: '#5A3819',
   teaGlass: { tea: '#B4471A', glass: '#2A170C', rim: '#E0A526', shine: '#FFFFFF', steam: '#B9A288' },
 };
@@ -662,7 +663,7 @@ const decorNight: HomeDecor = {
   haloDot: '#4A3020',
   haloGlow: '#FFB547',
   wash: { dawn: '#5A3A2A', noon: '#2A3A44', sunset: '#5A2A2E', late: '#463A8C' },
-  stages: ['#4A3218', '#4A2A26', '#1E3A3E', '#3A2C42', '#2E3A22', '#463A1E'],
+  stages: ['#4A3218', '#4A2A26', '#3E2C20', '#4A2430', '#2E3A22', '#463A1E'],
   grain: '#000000',
   teaGlass: { tea: '#D0602A', glass: '#F7EADB', rim: '#FFC155', shine: '#FFFFFF', steam: '#8A7560' },
 };
