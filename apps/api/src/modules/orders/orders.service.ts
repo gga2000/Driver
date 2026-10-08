@@ -230,6 +230,11 @@ type PlaceInput = z.input<typeof PlaceOrderInput>;
 /** Orders one ticket-number search reads before it pages (two busy days of a city fit easily). */
 export const TICKET_SCAN_LIMIT = 5_000;
 
+/** Gift orders (G0-10): where the recipient's number is kept (identity's vault). */
+export interface OrdersGiftRecipientsPort {
+  remember(input: { participantId: string; orderId: string; givenById: string; phone: string }): Promise<void>;
+}
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -327,6 +332,16 @@ export class OrdersService implements OnModuleInit {
       emit: (tx, type, actorId, order, payload) => this.emit(tx, type, actorId, order, payload),
       view: (orderId, tx) => this.view(orderId, tx),
     };
+  }
+
+  /**
+   * Gift orders (joy g1, G0-10): keeps the number the sender typed for the person receiving the gift
+   * (identity's vault), so notify's one «الدليفري يوصلك» SMS can reach them. Bound by the module.
+   */
+  private giftRecipients: OrdersGiftRecipientsPort | null = null;
+
+  bindGiftRecipients(port: OrdersGiftRecipientsPort): void {
+    this.giftRecipients = port;
   }
 
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
@@ -542,6 +557,14 @@ export class OrdersService implements OnModuleInit {
         const riderParticipant = rider ? agg.participants.find((pp) => pp.role === 'rider') : undefined;
         if (rider && riderParticipant && this.riders) await this.riders.remember(riderParticipant.id, rider, ordererId);
         await rememberRecipients(this.riders, agg.participants, participants, ordererId); // SEC-14: names to the vault
+        if (order.gift && this.giftRecipients) {
+          for (const [i, pp] of participants.entries()) {
+            const phone = input.participants[i]?.phone;
+            if (pp.role !== 'recipient' || !phone || !pp.phoneHash) continue;
+            const row = agg.participants.find((x) => x.role === 'recipient' && x.phoneHash === pp.phoneHash);
+            if (row) await this.giftRecipients.remember({ participantId: row.id, orderId: order.id, givenById: ordererId, phone });
+          }
+        }
         await this.emit(tx, 'order.placed', ordererId, order, {
           type: order.type,
           cityId: order.cityId,

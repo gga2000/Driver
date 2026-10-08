@@ -5,7 +5,7 @@ import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
 import type { NotifyLookups, OrderFacts } from './notify.lookups.js';
 import type { NotifyRepository } from './notify.repository.js';
-import { trustedContactRecipient } from './notify.service.js';
+import { giftRecipientAddress, trustedContactRecipient } from './notify.service.js';
 import { iqd, localDate, localTime } from './render.js';
 
 /** Iraqi count of dishes: صنف واحد · صنفين · 3 أصناف · 11 صنف (the kitchen reads it at a glance). */
@@ -401,9 +401,22 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         L.firstName(e.actorId, 'notify_courier_arriving'),
         order.merchantOrgId ? L.storeName(order.merchantOrgId) : Promise.resolve(null),
       ]);
-      // NTF-21: «جهّز الكاش» only when he pays cash at the door; a paid order hears the same moment without it.
       const params = { name: name ?? '', courier: courier ?? 'الدليفري', merchant: merchant ?? 'درايفر', orderId: order.id };
       const paid = order.paymentMethod !== undefined && order.paymentMethod !== 'cash';
+      if (order.giftRecipientId) {
+        // G0-10: the gift's recipient may have no app: one SMS naming the sender (the event fires once
+        // per drop-off, at the courier's first fix within NEAR_DROPOFF_M). NTF-25: paid in cash at the
+        // door, they are the one paying, so their SMS carries the amount — and the sender, who is not at
+        // that door, gets no «جهّز الكاش».
+        const sender = (await L.firstName(order.customerId, 'notify_gift_courier_near')) ?? t('sms.gift_courier_near_someone');
+        const minutes = giftMinutesAway((e.payload as { distanceM?: unknown }).distanceM);
+        const to = giftRecipientAddress(order.giftRecipientId);
+        if (!paid) {
+          return [{ ...base, template: 'gift_courier_near_cash', to, orderId: order.id, params: { sender, minutes, amount: iqd(order.totalIqd), orderId: order.id } }];
+        }
+        return [{ ...base, template: 'gift_courier_near', to, orderId: order.id, params: { sender, minutes, orderId: order.id } }];
+      }
+      // NTF-21: «جهّز الكاش» only when he pays cash at the door; a paid order hears the same moment without it.
       return [
         paid
           ? { ...base, template: 'courier_arriving_paid', to: order.customerId, orderId: order.id, params, data: { orderId: order.id } }
@@ -813,4 +826,13 @@ export function registerNotifySubscribers(events: Pick<EventsService, 'subscribe
     }
     for (const req of requests) await deps.engine.dispatch(req, ctx.tx);
   });
+}
+
+/**
+ * The gift SMS's «خلال {minutes} دقيقة»: the courier's distance at a town courier's pace (150 m a
+ * minute on a bike, parking included), 1 to 3 minutes; 2 when the distance is unknown.
+ */
+export function giftMinutesAway(distanceM: unknown): number {
+  if (typeof distanceM !== 'number' || !Number.isFinite(distanceM)) return 2;
+  return Math.min(3, Math.max(1, Math.ceil(distanceM / 150)));
 }

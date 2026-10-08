@@ -12,7 +12,7 @@ function event(type: string, payload: Record<string, unknown>, extra: Partial<Pu
 }
 
 const lookups: NotifyLookups = {
-  order: async (id) => (id === 'ride_1' ? { id, type: 'ride', customerId: 'cust', merchantOrgId: null, totalIqd: 4000, itemCount: 0 } : id === 'ord_1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'cash' } : id === 'ord_w' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'wallet' } : null),
+  order: async (id) => (id === 'ride_1' ? { id, type: 'ride', customerId: 'cust', merchantOrgId: null, totalIqd: 4000, itemCount: 0 } : id === 'ord_1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'cash' } : id === 'ord_w' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'wallet' } : id === 'gift_1' ? { id, type: 'food', customerId: 'drv', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, giftRecipientId: 'pt_r', paymentMethod: 'wallet' } : id === 'gift_c' ? { id, type: 'food', customerId: 'drv', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, giftRecipientId: 'pt_r', paymentMethod: 'cash' } : null),
   storeName: async (orgId) => (orgId === 'org_k' ? 'مطعم خالد' : null),
   orgPeople: async (orgId, kinds) => (orgId !== 'org_k' ? [] : kinds.includes('merchant_staff') ? ['staff', 'owner'] : ['owner']),
   firstName: async (personId) => ({ drv: 'حيدر', courier: 'كرار' })[personId] ?? null,
@@ -63,6 +63,15 @@ describe('notify subscribers: events → notifications', () => {
     // NTF-21: paid from the wallet — the same moment without «جهّز الكاش» or an amount.
     expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 200 }, { orderId: 'ord_w', actorId: 'courier' }))).toEqual([
       { template: 'courier_arriving_paid', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', orderId: 'ord_w' } },
+    ]);
+    // G0-10: a gift order texts the person receiving it, once, naming the sender (no app needed); the
+    // sender, who is not at that door, gets no «جهّز الكاش» (NTF-25).
+    expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 280 }, { orderId: 'gift_1', actorId: 'courier' }))).toEqual([
+      { template: 'gift_courier_near', to: 'gr:pt_r', params: { sender: 'حيدر', minutes: 2, orderId: 'gift_1' } },
+    ]);
+    // NTF-25: paid in cash at the door — the person receiving it pays, so their SMS names the amount.
+    expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 280 }, { orderId: 'gift_c', actorId: 'courier' }))).toEqual([
+      { template: 'gift_courier_near_cash', to: 'gr:pt_r', params: { sender: 'حيدر', minutes: 2, amount: '12,500', orderId: 'gift_c' } },
     ]);
     expect(await one(event('merchant.paid_by_courier', { handoverId: 'MH-1', merchantId: 'org_k', courierId: 'courier', amountIqd: 45_000, merchantBalanceIqd: 5_000 }))).toEqual([
       { template: 'merchant_cash_handover', to: 'owner', params: { store: 'مطعم خالد', amount: '45,000', courier: 'كرار', date: '2026-10-04', balance: '5,000', reference: 'MH-1' } },

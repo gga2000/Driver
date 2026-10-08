@@ -28,6 +28,18 @@ on `orders.gift` / `orders.gift_hide_prices`; every `Order` view carries `gift: 
   number and line on the phone (`features/gift/gift-store.ts`, last 10) and sends «عازمك على أكلة من مطعم خالد…
   «بالعافية يمه» تابعها من هنا: <link>» from his own WhatsApp or SMS, with `tracking.createShareLink`'s page.
   No WhatsApp template, no cost, nothing personal stored.
+- **The recipient's one SMS (G0-10, 2026-10-07).** The person receiving the gift may have no app, and there
+  are no calls at launch. When the courier's first live fix is within 300 m of the drop-off
+  (`stop.courier_near`, once per drop-off), they get one SMS (`gift_courier_near`): «درايفر: {sender} دازلك
+  طلب، والدليفري يوصلك خلال {minutes} دقيقة. إذا تحتاج شي احجي ويا {sender}.» One-way: no link, no reply.
+  `{minutes}` is the courier's distance at 150 m a minute, 1–3. The number is the recipient participant's
+  `phone` from `orders.place`, kept in `identity_vault.recipient_contacts` by participant id (the order
+  still keeps only the hash). Notify reads it as `gr:<participantId>` (a vault access log row against the
+  sender, accessor `system:notify`), only within 24 h of the order, and one number gets the SMS for at
+  most 3 gifts a day, whoever sends them, so gift orders cannot be used to keep texting someone.
+- **Cash at the door (NTF-25).** When the gift is paid in cash, the person receiving it pays, so their SMS
+  is `gift_courier_near_cash`: the same text plus «الحساب {amount} دينار كاش للدليفري». The sender, who is
+  not at that door, gets no two-minute «جهّز الكاش» push for a gift (wallet or cash).
 
 ## Invite as a gift (g2)
 

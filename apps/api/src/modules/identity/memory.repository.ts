@@ -13,6 +13,7 @@ import type {
   VaultAccessLogRecord,
   ChildIdentityRecord,
   ParticipantIdentityRecord,
+  RecipientContactRecord,
   VaultLogOptions,
 } from './identity.repository.js';
 import { vaultLogFailsClosed } from './identity.repository.js';
@@ -36,6 +37,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   /** Twin of the vault table of khat children (name by childRef). */
   readonly children: ChildIdentityRecord[] = [];
   readonly participantNames = new Map<string, ParticipantIdentityRecord>();
+  readonly recipientContacts = new Map<string, RecipientContactRecord>();
   readonly roles: RoleRecord[] = [];
   readonly devices: DeviceRecord[] = [];
   readonly sessions: SessionRecord[] = [];
@@ -207,6 +209,21 @@ export class InMemoryIdentityRepository implements IdentityRepository {
       const r = this.participantNames.get(id);
       return r ? [{ ...r }] : [];
     });
+  }
+
+  async saveRecipientContact(input: RecipientContactRecord, tx?: Tx) {
+    if (this.recipientContacts.has(input.participantId)) return;
+    this.recipientContacts.set(input.participantId, { ...input });
+    this.journal(tx, () => this.recipientContacts.delete(input.participantId));
+  }
+
+  async readRecipientContact(participantId: string) {
+    const r = this.recipientContacts.get(participantId);
+    return r ? { ...r } : null;
+  }
+
+  async countRecipientContacts(phoneE164: string, since: Date, before: Date) {
+    return [...this.recipientContacts.values()].filter((r) => r.phoneE164 === phoneE164 && r.createdAt >= since && r.createdAt < before).length;
   }
 
   /** Twin of the vault row's document / selfie storage refs, by personId. */

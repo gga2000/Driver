@@ -91,6 +91,9 @@ const DRIVING_ROLES: ReadonlySet<RoleKind> = new Set<RoleKind>(['courier', 'driv
  * Every mutation runs inside `UnitOfWork.run` and emits its domain event through the events
  * adapter in the same unit of work.
  */
+/** Gift orders' one SMS to the person receiving it (G0-10): how long the number is usable, and at most this many gifts' SMS to one number a day. */
+export const GIFT_RECIPIENT_SMS = { keepHours: 24, perNumberPerDay: 3 } as const;
+
 @Injectable()
 export class IdentityService implements IdentityPort {
   private readonly otp: OtpService;
@@ -801,6 +804,35 @@ export class IdentityService implements IdentityPort {
     const name = input.name.trim().slice(0, RIDE_RIDER_NAME_MAX);
     if (!name) throw new DriverError('invalid_input');
     await this.uow.run((tx) => this.repo.saveParticipantIdentity({ ...input, name }, tx));
+  }
+
+  /**
+   * Gift orders (joy g1, G0-10): keeps the number the sender typed for the person receiving the gift,
+   * keyed by the recipient participant, so the one «الدليفري يوصلك» SMS can reach them. Runs in the
+   * placing unit of work. A number that is not an Iraqi mobile is refused like any participant's.
+   */
+  async rememberGiftRecipient(input: { participantId: string; orderId: string; givenById: string; phone: string }): Promise<void> {
+    const { e164 } = this.phone(input.phone);
+    const now = this.clock.now();
+    await this.uow.run((tx) => this.repo.saveRecipientContact({ participantId: input.participantId, orderId: input.orderId, givenById: input.givenById, phoneE164: e164, createdAt: now }, tx));
+  }
+
+  /**
+   * The gift recipient's number for its one SMS, or null: none kept, older than
+   * `GIFT_RECIPIENT_SMS.keepHours`, or the number already had `perNumberPerDay` gifts in the 24 h
+   * before this one (so repeated gift orders cannot be used to keep texting someone). Every read that
+   * returns a number is a VaultAccessLog row against the sender.
+   */
+  async giftRecipientPhone(participantId: string, accessorId: string, purpose: string): Promise<string | null> {
+    return this.uow.run(async (tx) => {
+      const c = await this.repo.readRecipientContact(participantId, tx);
+      const now = this.clock.now();
+      if (!c || now.getTime() - c.createdAt.getTime() > GIFT_RECIPIENT_SMS.keepHours * 3_600_000) return null;
+      const earlier = await this.repo.countRecipientContacts(c.phoneE164, new Date(c.createdAt.getTime() - 24 * 3_600_000), c.createdAt, tx);
+      if (earlier >= GIFT_RECIPIENT_SMS.perNumberPerDay) return null;
+      await this.repo.logVaultAccess({ personId: c.givenById, accessorId, purpose, fieldsRead: ['recipient_phone_e164'], now }, tx);
+      return c.phoneE164;
+    });
   }
 
   /**

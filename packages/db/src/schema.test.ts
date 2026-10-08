@@ -139,7 +139,15 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('only vault tables live in the vault schema', () => {
     const inVault = models.filter((m) => /@@schema\("identity_vault"\)/.test(m.body)).map((m) => m.name).sort();
-    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'VaultAccessLog']);
+    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'RecipientContact', 'VaultAccessLog']);
+  });
+
+  it('G0-10: the number a gift sender typed lives in vault.recipient_contacts, never on the participant', () => {
+    const r = model('RecipientContact');
+    expect(r).toMatch(/@@schema\("identity_vault"\)/);
+    expect(r).toMatch(/@@map\("recipient_contacts"\)/);
+    for (const col of ['participantId', 'phoneE164']) expect(fields(r), `vault.recipient_contacts.${col}`).toContain(col);
+    expect(fields(model('Participant'))).not.toContain('phoneE164');
   });
 
   it('ride c9: the name a booker gave a rider lives in vault.participant_identities, keyed by participant', () => {

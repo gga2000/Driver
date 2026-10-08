@@ -87,3 +87,19 @@ describe('placing a gift (orders.place)', () => {
     expect((await h.orders.place('c1', h.foodInput({ participants: recipient, gift: { hidePrices: false } }))).gift).toEqual({ hidePrices: false });
   });
 });
+
+describe('a gift keeps the recipient number for its one SMS (G0-10)', () => {
+  const recipient = [{ ref: 'r', role: 'recipient' as const, label: 'أمي', phone: '07701234567' }];
+
+  it("hands the typed number to identity's vault under the recipient participant", async () => {
+    const h = ordersHarness();
+    const kept: Array<{ participantId: string; orderId: string; givenById: string; phone: string }> = [];
+    h.orders.bindGiftRecipients({ remember: async (input) => void kept.push(input) });
+    const o = await h.orders.place('c1', h.foodInput({ participants: recipient, gift: { hidePrices: false } }));
+    const participant = (await h.repo.find(o.id))!.participants.find((p) => p.role === 'recipient')!;
+    expect(kept).toEqual([{ participantId: participant.id, orderId: o.id, givenById: 'c1', phone: '07701234567' }]);
+    // Not a gift: a recipient's number is not kept.
+    await h.orders.place('c1', h.foodInput({ participants: recipient }));
+    expect(kept).toHaveLength(1);
+  });
+});

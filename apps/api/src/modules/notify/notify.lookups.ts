@@ -11,6 +11,8 @@ export interface OrderFacts {
   riderId?: string | null;
   /** How it is paid (`cash` | `wallet` | `prepaid`); absent = unknown, read as cash. */
   paymentMethod?: string;
+  /** A gift order (G0-10): the recipient participant, whose number the sender typed; null otherwise. */
+  giftRecipientId?: string | null;
 }
 
 export interface BookingFacts {

@@ -138,6 +138,15 @@ export interface ParticipantIdentityRecord {
   name: string;
 }
 
+/** vault.recipient_contacts — the number a gift's sender typed for the person receiving it (joy g1, G0-10). */
+export interface RecipientContactRecord {
+  participantId: string;
+  orderId: string;
+  givenById: string;
+  phoneE164: string;
+  createdAt: Date;
+}
+
 export interface IdentityRepository {
   // people
   findPersonById(id: string, tx?: Tx): Promise<PersonRecord | null>;
@@ -175,6 +184,11 @@ export interface IdentityRepository {
   /** Ride ideas c9/s3: stores (or replaces) the name given to an order's participant. */
   saveParticipantIdentity(input: ParticipantIdentityRecord, tx?: Tx): Promise<void>;
   readParticipantIdentities(participantIds: readonly string[], tx?: Tx): Promise<ParticipantIdentityRecord[]>;
+  /** Gift orders: keeps the recipient's number (once per participant; a second save is ignored). */
+  saveRecipientContact(input: RecipientContactRecord, tx?: Tx): Promise<void>;
+  readRecipientContact(participantId: string, tx?: Tx): Promise<RecipientContactRecord | null>;
+  /** How many gift numbers equal to `phoneE164` were saved in [`since`, `before`). */
+  countRecipientContacts(phoneE164: string, since: Date, before: Date, tx?: Tx): Promise<number>;
   /** Wave 2: appends a storage ref (driver document photo, check-in selfie) to the vault row. */
   appendVaultRef(personId: string, field: 'documentRefs' | 'selfieRefs', entry: Record<string, unknown>, tx?: Tx): Promise<void>;
   /** Wave 2: the vault refs of one kind, for a reviewer's logged read. */
@@ -424,6 +438,19 @@ export class PrismaIdentityRepository implements IdentityRepository {
     if (participantIds.length === 0) return [];
     const rows = await this.db(tx).participantIdentity.findMany({ where: { participantId: { in: [...participantIds] } } });
     return rows.map((r) => ({ participantId: r.participantId, personId: r.personId, givenById: r.givenById, name: r.name }));
+  }
+
+  async saveRecipientContact(input: RecipientContactRecord, tx?: Tx) {
+    await this.db(tx).recipientContact.upsert({ where: { participantId: input.participantId }, create: { ...input }, update: {} });
+  }
+
+  async readRecipientContact(participantId: string, tx?: Tx) {
+    const r = await this.db(tx).recipientContact.findUnique({ where: { participantId } });
+    return r ? { participantId: r.participantId, orderId: r.orderId, givenById: r.givenById, phoneE164: r.phoneE164, createdAt: r.createdAt } : null;
+  }
+
+  async countRecipientContacts(phoneE164: string, since: Date, before: Date, tx?: Tx) {
+    return this.db(tx).recipientContact.count({ where: { phoneE164, createdAt: { gte: since, lt: before } } });
   }
 
   async vaultAccessLogs(personId: string, tx?: Tx) {

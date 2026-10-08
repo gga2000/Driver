@@ -212,6 +212,8 @@ export const NotifyTemplateId = z.enum([
   'order_dispute_void',
   'order_free_cancel',
   'order_courier_lost',
+  'gift_courier_near',
+  'gift_courier_near_cash',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -1119,6 +1121,25 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // G0-10: a gift order («عزيمة») goes to someone who may not have the app; when the courier is almost
+  // there they get one SMS naming the sender. One-way (no link, no reply), once per order.
+  gift_courier_near: {
+    id: 'gift_courier_near',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'sms.gift_courier_near' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // NTF-25: the same SMS when the gift is paid in cash at the door — they pay, so they hear the amount.
+  gift_courier_near_cash: {
+    id: 'gift_courier_near_cash',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'sms.gift_courier_near_cash' },
+    primary: ['sms'],
     quietHours: 'send',
   },
 };
