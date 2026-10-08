@@ -29,7 +29,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010230000 | store_closed_until | merchant | #19 |
 | 20261010240000 | console_watch | lane E | #37 |
 | 20261010410000 | recipient_contacts | lane D | gift SMS PR |
-| 20261010420000 | abuse_limits | lane D | abuse limits PR (reserved) |
+| 20261010420000 | uploads_state_created_index | lane D | abuse limits PR (reserved) |
 | 20261010430000 | household_invites | lane D | household invites PR (reserved) |
 | 20261010440000 | customer_waves | lane D | waves PR (reserved) |
 | 20261010450000 | account_deletion | lane D | account deletion PR (reserved) |
