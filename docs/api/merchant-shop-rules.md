@@ -20,6 +20,10 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
   error). Still for an hour. Stored on `orgs.busy_extra_min` (NULL = +10); the `merchant.busy_on` event
   carries `extraMinutes`.
 - `storeStatus.busy.extraPrepMinutes` is the picked value while busy mode is on.
+- Orders adds the same picked value (`busyExtraMinutes` in `orders/busy.ts`, read from
+  `MerchantProfile.busyExtraMin`; +10 when unset or not 10/20), so +20 reaches the promised ready time,
+  the courier's timing and the customer's ETA, and the late promise is not set 10 minutes short. The
+  l4 crowded mark (15 waiting) stays +10.
 
 ## x6 — «وضعك»
 
@@ -40,10 +44,6 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
 
 ## Left for other teams
 
-- **Orders**: `busyExtraMinutes` (`orders/busy.ts`) still adds the constant +10. It should read the
-  store's `busyExtraMin` (`MerchantProfile` in `orders/merchants.port.ts` → `org.merchant.busyExtraMin ?? 10`)
-  so +20 reaches the promised ready time, the courier and the customer. Until then the server adds +10
-  while the kitchen sees +20.
 - **Orders**: auto-accept uses `MerchantProfile.defaultPrepMin` (`ORDERS_RULES.defaultPrepMin` = 20 when
   the shop has none); a drinks shop from setup already gets 5 written, an older one does not.
 - **Console**: the same-day photo review queue (a screen over `photoReviewQueue` / `markPhotoReviewed`
