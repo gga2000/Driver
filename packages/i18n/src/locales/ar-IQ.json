@@ -7554,5 +7554,9 @@
   "console.ev_dispatch_booked_released": "السايق ترك المشوار المحجوز",
   "console.ev_dispatch_booked_cancelled": "انلغى مشوار محجوز",
   "partner.booked_pay": "ربحك {amount} دينار",
-  "habits.booked_cancel_free_held": "الإلغاء ببلاش لحد ما يطلعلك السايق"
+  "habits.booked_cancel_free_held": "الإلغاء ببلاش لحد ما يطلعلك السايق",
+  "restaurant.whats_left_title": "شنو باقي اليوم؟",
+  "restaurant.whats_left_line": "خلص {count} من المنيو اليوم، وباقي {left} تگدر تطلبها",
+  "restaurant.whats_left_all": "كل المنيو",
+  "restaurant.whats_left_only": "الباقي بس"
 }
