@@ -29,6 +29,7 @@ import { useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
+import { useScreenSpeed } from '@/lib/speed';
 
 enforceRtl();
 // Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
@@ -122,6 +123,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const ready = status !== 'loading' && prof.loaded;
+  // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
+  useScreenSpeed(segments, ready && !fontsPending);
 
   useEffect(() => {
     if (!ready) return;

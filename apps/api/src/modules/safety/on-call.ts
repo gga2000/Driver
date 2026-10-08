@@ -10,8 +10,11 @@ import type { IncidentForPaging, OnCallPort, PagePlan } from '@driver/contracts'
 // The port's types are the contracts' (`on-call-io.ts`), shared with the on-call module that implements it.
 export type { IncidentForPaging, OnCallPort, PagePlan } from '@driver/contracts';
 
-/** Optional provider; absent = fallback. */
-export const ON_CALL_PORT = Symbol('ON_CALL_PORT');
+/**
+ * The on-call module's token (its service is the provider; `SafetyModule` imports `OnCallModule`).
+ * Optional at the injection site: absent = fallback.
+ */
+export { ON_CALL_PORT } from '../on-call/index.js';
 
 /** How long the first page waits for the rota before falling back. */
 export const ON_CALL_TIMEOUT_MS = 2_000;

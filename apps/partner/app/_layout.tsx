@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { partnerThemes } from '@driver/design-tokens';
 import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, useTheme } from '@driver/ui';
 import { loadAppearancePref, useAppearance } from '@/lib/appearance';
+import { loadTextSize, useTextSize } from '@/lib/text-size';
 import { CachedPhoto } from '@/lib/cached-photo';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
@@ -44,6 +45,7 @@ export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   // Night look (n2): the ember palette from sunset to sunrise in Aziziyah, or his fixed choice.
   const { night } = useAppearance();
+  const textScale = useTextSize();
   const palette = night ? partnerThemes.ember : partnerThemes.sun;
 
   useEffect(() => {
@@ -51,6 +53,7 @@ export default function RootLayout() {
     // Low-data mode (maps program q2): the driver's stored choice.
     void loadDataSaverPref();
     void loadAppearancePref();
+    void loadTextSize();
   }, []);
 
   useEffect(() => {
@@ -64,7 +67,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         {/* «الدشبول» (partner redesign): the sun palette (ember after sunset, n2) on the shared components; messages at the top (h11). */}
-        <ThemeProvider theme={night ? 'dark' : 'light'} colors={palette} fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? 'rtl' : undefined}>
+        <ThemeProvider theme={night ? 'dark' : 'light'} colors={palette} textScale={textScale} fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? 'rtl' : undefined}>
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter}>
             <ToastProvider bottomOffset={96} placement="top">
@@ -119,6 +122,7 @@ function RootNavigator() {
         <Stack.Screen name="not-partner" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="offer" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="job" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="practice" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         {/* Wave 2 replaces these routes' contents; titles are set by each screen. */}
         <Stack.Screen name="earnings/statement" options={{ title: t('partner.earnings_breakdown') }} />

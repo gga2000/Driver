@@ -64,6 +64,13 @@ export interface OrderOutcomeRules {
     /** env `COURIER_LOST_CHARGE`: after ops confirms, the food cost goes on the courier's cash account. */
     chargeCourier: boolean;
   };
+  /**
+   * c6 (Ali's shop pick, 2026-10-08): the food was ready and no courier reached the pass within
+   * `afterReadyMin` of «جاهز», so the kitchen remakes it and Driver pays the first batch (items at menu
+   * price, once per order, `order:<id>:remake`). env `MERCHANT_REMAKE_PAY`: a money rule, off until Ali
+   * switches it on (his card: money changes come back to him before they go live).
+   */
+  remake: { pay: boolean; afterReadyMin: number };
   /** M-13 (THIN-12): env `AGENT_CASH_ACCOUNTS`: an agent's top-up cash sits on his own `cash:` account until handed in. */
   agentCashAccounts: boolean;
 }
@@ -75,6 +82,7 @@ export const DEFAULT_ORDER_OUTCOME_RULES: OrderOutcomeRules = {
   cashDebt: { block: false, maxUnpaidFees: 2, maxOwedIqd: 5_000 },
   openCash: { enabled: false, newAccountBelowCompleted: 3, newAccountMax: 1, regularMax: 2, prepayAfterNoAnswer: false },
   courierLost: { refund: false, chargeCourier: false },
+  remake: { pay: false, afterReadyMin: 10 },
   agentCashAccounts: false,
 };
 
@@ -96,6 +104,7 @@ export function outcomeRulesFromEnv(env: Readonly<Record<string, string | undefi
     cashDebt: { ...d.cashDebt, block: on(env['CASH_DEBT_BLOCK']) },
     openCash: { ...d.openCash, enabled: on(env['OPEN_CASH_CAP']), prepayAfterNoAnswer: on(env['PREPAY_AFTER_NO_ANSWER']) },
     courierLost: { refund: on(env['COURIER_LOST_REFUND']), chargeCourier: on(env['COURIER_LOST_CHARGE']) },
+    remake: { ...d.remake, pay: on(env['MERCHANT_REMAKE_PAY']) },
     agentCashAccounts: on(env['AGENT_CASH_ACCOUNTS']),
   };
 }
@@ -109,6 +118,7 @@ export function outcomeRules(patch: { [K in keyof OrderOutcomeRules]?: OrderOutc
     cashDebt: { ...d.cashDebt, ...patch.cashDebt },
     openCash: { ...d.openCash, ...patch.openCash },
     courierLost: { ...d.courierLost, ...patch.courierLost },
+    remake: { ...d.remake, ...patch.remake },
     agentCashAccounts: patch.agentCashAccounts ?? d.agentCashAccounts,
   };
 }

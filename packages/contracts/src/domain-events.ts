@@ -177,7 +177,9 @@ export const OrderCancelledPayload = z
   .object({
     ...Transition(OrderState, z.enum(['customer_cancelled', 'platform_cancelled'])),
     cancelledState: z.enum(['customer_cancelled', 'platform_cancelled']),
-    orderId: z.string().min(1),
+    orderId: z.string().min(1).optional(),
+    /** RDB-02: a request-board deposit forfeit; `orderId` may then be left out (see `RideMoneyPayload`). */
+    requestId: z.string().min(1).optional(),
     tripId: z.string().min(1).optional(),
     occurredAt: z.coerce.date(),
     customerId: z.string().min(1),
@@ -190,7 +192,8 @@ export const OrderCancelledPayload = z
     label_ar: z.string().optional(),
     reason_ar: z.string().optional(),
   })
-  .refine((c) => c.beneficiaries.reduce((a, b) => a + b.amountIqd, 0) === c.feeIqd, { message: 'cancellation beneficiaries must add up to the fee', path: ['beneficiaries'] });
+  .refine((c) => c.beneficiaries.reduce((a, b) => a + b.amountIqd, 0) === c.feeIqd, { message: 'cancellation beneficiaries must add up to the fee', path: ['beneficiaries'] })
+  .refine((c) => c.requestId !== undefined || c.orderId !== undefined, { message: 'orderId is required unless requestId is set', path: ['orderId'] });
 export type OrderCancelledPayload = z.infer<typeof OrderCancelledPayload>;
 
 /**
