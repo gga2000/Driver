@@ -185,6 +185,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |
 | `CALL_PROXY_NUMBER` | no | the platform number for masked calls (unset: calling is off) |
 | `LOG_FORMAT`, `LOG_LEVEL` | no | `json` (toml); `LOG_LEVEL=debug` temporarily for more |
+| `REQUEST_LOG` | no | `on` by default in production: one JSON line per `/trpc` request (observability.md); `off` silences it, metrics stay |
+| `METRICS_PORT` | no | `9091` (toml): private `/metrics` port Fly scrapes; unset = no metrics server |
 | `SENTRY_DSN` | yes-ish | optional error reporting (below) |
 | `OSRM_URL` | no | road routing (below): `http://driver-osrm.internal:5000`. Unset: arrival times use the straight-line estimate |
 | `OSRM_TIMEOUT_MS` | no | default 1500; slower answers fall back to the straight-line estimate |
