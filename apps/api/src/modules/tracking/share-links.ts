@@ -515,5 +515,5 @@ export function expiryOf(createdAt: Date, completedAt: Date | null): Date {
  * JWT_SECRET, then a per-process secret (links then die with the process — dev only).
  */
 export function shareSecret(env: NodeJS.ProcessEnv = process.env): string {
-  return linkSecretFromEnv(env, 'SHARE_LINK_SECRET', { fallbacks: ['JWT_SECRET'] });
+  return linkSecretFromEnv(env, 'SHARE_LINK_SECRET', { fallbacks: ['JWT_SECRET'], distinctFrom: ['SAFETY_LINK_SECRET'] });
 }
