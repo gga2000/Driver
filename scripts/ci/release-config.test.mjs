@@ -19,9 +19,14 @@ test('the studio and local work are never stopped', () => {
   assert.deepEqual(releaseEnvProblems('customer', { NODE_ENV: 'development' }), []);
 });
 
-test('a production bundle without the API address is refused; a local one for screenshots is allowed', () => {
-  assert.match(releaseEnvProblems('partner', { NODE_ENV: 'production' })[0], /EXPO_PUBLIC_API_URL is not set/);
+test('a local production bundle (size, screenshots) is never stopped; with no address it warns', () => {
   assert.deepEqual(releaseEnvProblems('customer', { NODE_ENV: 'production', EXPO_PUBLIC_API_URL: 'http://127.0.0.1:3200/trpc' }), []);
+  const warnings = [];
+  assert.doesNotThrow(() => assertReleaseEnv('partner', { NODE_ENV: 'production' }, (m) => warnings.push(m)));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /never ship/);
+  assertReleaseEnv('partner', { NODE_ENV: 'production', EXPO_PUBLIC_API_URL: 'http://127.0.0.1:3301/trpc' }, (m) => warnings.push(m));
+  assert.equal(warnings.length, 1);
 });
 
 test('an EAS build or update refuses localhost, a private address, plain http and a path without /trpc', () => {
