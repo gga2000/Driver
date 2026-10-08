@@ -125,7 +125,8 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.keepQuote(req) },
+      // Perf z3: the same caller re-asking for the same trip gets its kept quote back (no new rows).
+      pricing: { quote: (req) => this.pricing.keepQuote(req, auth ? `p:${auth.sub}` : ip ? `ip:${ip}` : null) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,

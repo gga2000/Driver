@@ -139,8 +139,30 @@ export const PartnerGoOnlineInput = z.object({
   at: LatLng,
   /** The vehicle he is on today; defaults to the registered one, else a bike. */
   vehicleClass: VehicleClass.optional(),
+  /**
+   * Perf o4: the `version` of the status the app last holds (from an earlier ack; "" when it has none).
+   * Sent → the answer is a `PartnerHeartbeatAck`; left out → the full `PartnerStatus`, as older apps expect.
+   */
+  knownVersion: z.string().max(64).optional(),
 });
 export type PartnerGoOnlineInput = z.infer<typeof PartnerGoOnlineInput>;
+
+/**
+ * Perf o4: the heartbeat's small answer when the app sent `knownVersion`. `changed: false` — his work
+ * state (gate, presence, cash, trips, offer) is the one the app holds: keep the status, with the position
+ * it just sent; `changed: true` — here is the new status. `version` is opaque: send it back as
+ * `knownVersion` on the next beat. The city's demand hint and today's earnings are not in it; they come
+ * with `partner.status`.
+ */
+export const PartnerHeartbeatAck = z.discriminatedUnion('changed', [
+  z.object({ changed: z.literal(false), version: z.string() }),
+  z.object({ changed: z.literal(true), version: z.string(), status: PartnerStatus }),
+]);
+export type PartnerHeartbeatAck = z.infer<typeof PartnerHeartbeatAck>;
+
+/** `partner.goOnline`'s answer: the ack when `knownVersion` was sent, else the full status. */
+export const PartnerGoOnlineResult = z.union([PartnerHeartbeatAck, PartnerStatus]);
+export type PartnerGoOnlineResult = z.infer<typeof PartnerGoOnlineResult>;
 
 /**
  * Named pay components (money & ops §2: "Driver earnings live in Partner with every component
@@ -400,7 +422,7 @@ export function partnerCurrentStop<T extends { seq: number; state: string; stopI
 /** What the API supplies to the partner router (implemented by `modules/partner`). */
 export interface PartnerPort {
   status(actor: Actor): Promise<PartnerStatus>;
-  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult>;
   goOffline(actor: Actor): Promise<PartnerStatus>;
   currentOffer(actor: Actor): Promise<PartnerOffer | null>;
   activeJob(actor: Actor): Promise<PartnerJob | null>;
