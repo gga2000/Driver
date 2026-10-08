@@ -1,10 +1,10 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { RIDE_HABIT_RULES, rideReminderAt } from '@driver/contracts';
-import { formatClock, formatDay, formatHourPart } from '@driver/i18n';
-import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useNow, useTheme, useToast } from '@driver/ui';
+import { formatClock, formatDay, formatHourPart, formatWhen } from '@driver/i18n';
+import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
 import { Screen } from '@/components/Screen';
 import { DriverFace } from '@/features/ride-habits/Cards';
@@ -12,7 +12,8 @@ import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { regularDraft } from '@/features/ride-habits/draft';
 import { bookedLine, isBookedRide } from '@/features/ride-habits/logic';
 import { useBookedRideStatus, useBookedRoute, useFavourites } from '@/features/ride-habits/queries';
-import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
+import { BookedCancelSheet } from '@/features/ride/BookedCancelSheet';
+import { useApi } from '@/lib/api';
 import { appNow } from '@/lib/dev-clock';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -21,7 +22,7 @@ import { useSignedIn } from '@/lib/session';
 /**
  * «مشوارك محجوز» (joy J7d): a ride booked for later until its search starts 30 minutes before — when,
  * from where to where, the fare the server fixed, the favourite asked first, the reminder half an hour
- * before (step 4, c10), and a free cancel. Then
+ * before (step 4, c10), and a cancel asked once (FLOW-26). Then
  * the order opens the live ride screen like any ride. «خليها رحلة ثابتة» saves it as a regular trip.
  * Review #28: whether a driver confirmed it the evening before («سايقك محجوز: حسين» with his photo), or
  * until when we ask («ندوّرلك سايق، نأكدلك قبل الساعة 10 بالليل»), or when the search starts.
@@ -35,10 +36,7 @@ function BookedRide() {
   const t = useT();
   const locale = useLocale();
   const net = useNetwork();
-  const toast = useToast();
   const api = useApi();
-  const client = useApiClient();
-  const qc = useQueryClient();
   const { id } = useLocalSearchParams<{ id: string }>();
   const order = useQuery({ ...api.orders.get.queryOptions({ orderId: id ?? '' }), enabled: Boolean(id), refetchInterval: 30_000 });
   const favs = useFavourites();
@@ -46,6 +44,7 @@ function BookedRide() {
   const tick = useNow(true, 15_000);
   const now = useMemo(() => appNow(tick), [tick]);
   const o = order.data;
+  const [asking, setAsking] = useState(false);
   const cancel = useQuery({ ...api.orders.cancellationPreview.queryOptions({ orderId: id ?? '' }), enabled: Boolean(o && o.state === 'placed') });
 
   // The search started (or a driver took it): the live ride screen from here on.
@@ -53,17 +52,6 @@ function BookedRide() {
   useEffect(() => {
     if (o && !waiting && o.state !== 'customer_cancelled' && o.state !== 'platform_cancelled') router.replace({ pathname: '/order/[id]', params: { id: o.id } });
   }, [o, waiting]);
-
-  const doCancel = async () => {
-    try {
-      await client.orders.cancel.mutate({ orderId: id ?? '', reason: 'booked_ride_cancelled' });
-      toast.show({ message: t('habits.booked_cancelled'), tone: 'neutral', icon: 'check' });
-      void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
-      void order.refetch();
-    } catch (e) {
-      toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' });
-    }
-  };
 
   const fav = o?.preferredDriverId ? (favs.data ?? []).find((f) => f.driverId === o.preferredDriverId) : null;
   const remindAt = o?.scheduledFor ? rideReminderAt(o.scheduledFor, o.placedAt) : null;
@@ -182,7 +170,8 @@ function BookedRide() {
           {!cancelled ? (
             <>
               {memo?.fromRegular ? null : <Button testID="booked-regular" variant="secondary" icon="refresh" label={t('habits.booked_make_regular')} fullWidth onPress={makeRegular} />}
-              <Button testID="booked-cancel" variant="ghost" label={t('habits.booked_cancel')} onPress={() => void doCancel()} />
+              <Button testID="booked-cancel" variant="ghost" label={t('habits.booked_cancel')} disabled={!net.online} onPress={() => setAsking(true)} />
+              <BookedCancelSheet orderId={o.id} when={formatWhen(o.scheduledFor, now)} visible={asking} onClose={() => setAsking(false)} onCancelled={() => void order.refetch()} testID="booked-cancel-sheet" />
               {cancel.data?.free ? (
                 <Text variant="caption" color="textMuted" align="center">
                   {t(line?.kind === 'confirmed' ? 'habits.booked_cancel_free_held' : 'habits.booked_cancel_free')}

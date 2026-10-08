@@ -71,6 +71,8 @@ describe('evening-before booked rides (review #28)', () => {
     expect(r?.booked?.state).toBe('started');
     expect(h.events.last('dispatch.assigned')?.payload).toMatchObject({ driverId: 'd1', policy: BOOKED_OFFER_POLICY });
 
+    // The confirmed driver has it: no «دا ندورلك سايق» push.
+    expect(h.events.ofType('dispatch.booked_search_started')).toHaveLength(0);
     await runTo(h, '2026-10-08T02:10:00Z');
     expect(h.trips.offers).toHaveLength(1);
     expect(h.trips.assigns).toHaveLength(1);
@@ -87,7 +89,10 @@ describe('evening-before booked rides (review #28)', () => {
     await expect(h.service.answerBookedJob('d1', 't1', 'confirm')).rejects.toMatchObject({ code: 'booked_job_closed' });
     await runTo(h, '2026-10-08T01:29:00Z');
     expect(h.trips.offers).toEqual([]);
+    expect(h.events.ofType('dispatch.booked_search_started')).toHaveLength(0);
     await runTo(h, SHOW);
+    // NTF-05: the rider hears that the search for his driver started.
+    expect(h.events.ofType('dispatch.booked_search_started').map((e) => e.payload)).toEqual([expect.objectContaining({ orderId: 'o1', scheduledFor: T.toISOString() })]);
     expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['d1', 'd2'], timeoutSec: 15 });
     expect((await h.offers('t1')).every((o) => o.compensationIqd === 0)).toBe(true);
   });

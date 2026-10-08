@@ -13,7 +13,7 @@ describe('help: which "عندي مشكلة" an order gets', () => {
     expect(helpCase({ state: 'matched' })).toBe('running');
   });
   it('offers ride kinds on rides and food kinds otherwise', () => {
-    expect(issueKinds('ride').map((k) => k.kind)).toEqual(['ride_fare', 'other']);
+    expect(issueKinds('ride').map((k) => k.kind)).toEqual(['ride_fare', 'driver_behaviour', 'unsafe_driving', 'other']);
     expect(issueKinds('food').map((k) => k.kind)).toEqual(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'other']);
   });
 });
