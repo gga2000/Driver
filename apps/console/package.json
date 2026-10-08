@@ -9,7 +9,9 @@
     "start": "next start --port 3100",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "budget": "node scripts/bundle-budget.mjs"
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",
@@ -19,6 +21,7 @@
     "@fontsource/ibm-plex-sans-arabic": "5.3.0",
     "@tanstack/react-query": "5.104.1",
     "@trpc/client": "11.19.0",
+    "@trpc/server": "11.19.0",
     "@trpc/tanstack-react-query": "11.19.0",
     "maplibre-gl": "5.24.0",
     "next": "15.5.27",
@@ -26,7 +29,9 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
     "@eslint/eslintrc": "3.3.7",
+    "@playwright/test": "1.56.1",
     "@types/geojson": "7946.0.16",
     "@types/node": "22.20.5",
     "@types/react": "19.3.0",

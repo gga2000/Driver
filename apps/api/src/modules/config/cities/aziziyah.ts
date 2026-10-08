@@ -43,14 +43,14 @@ const carTierFares: TierFare[] = [
 const tuktukTierFares: TierFare[] = carTierFares.map((r) => ({ ...r, fare: Math.max(2000, r.fare - 1000) }));
 
 /**
- * Intercity: every Aziziyah zone → Kut 5,000, → Baghdad 10,000; garages are meeting points. These
- * mirror the seat prices the الرجعة board actually charges (`routes/intercity.config.ts`
- * `seatPriceIqd`, both still placeholders); Ali's price sheet sets the real ones in both places.
+ * Intercity: every Aziziyah zone → Kut 5,000, → Baghdad 5,000 (Ali 2026-10-07, each way); garages are
+ * meeting points. These mirror the seat prices the الرجعة board charges (`routes/intercity.config.ts`
+ * `seatPriceIqd`); change both together.
  * There is no Kut ⇄ Baghdad line.
  */
 const intercityFares: ZoneFare[] = [
   ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'kut', fare: 5000 })),
-  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'baghdad', fare: 10000 })),
+  ...AZIZIYAH_ZONES.map((z) => ({ from: z.id, to: 'baghdad', fare: 5000 })),
 ];
 
 // ───────────────────────── component rules ─────────────────────────
@@ -164,7 +164,7 @@ const frontSeat: ComponentRule = {
   label_en: 'Front seat',
   driverShareRule: 'driver_full',
   visibility: 'shown',
-  amount: 2000,
+  amount: 1000, // Ali 2026-10-07 (was 2,000); same as frontPremiumIqd in routes/intercity.config.ts
 };
 
 // ───────────────────────── dispatch (plan Step 5, spec §3) ─────────────────────────
@@ -313,7 +313,7 @@ export const aziziyah: CityPricingConfig = {
     {
       vertical: 'intercity',
       zoneFares: intercityFares,
-      defaultFare: 10000,
+      defaultFare: 5000,
       components: [rideBase, shadowDistance, shadowTime, frontSeat, rideDoorPickup, rideStreetPickup, promo],
       floor: 5000,
       ceiling: 40000,

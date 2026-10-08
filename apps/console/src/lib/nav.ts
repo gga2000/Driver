@@ -1,6 +1,6 @@
 import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { PHONE_BOOKING_ROLES } from '@driver/contracts';
+import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 
 /**
  * Console sections, grouped as the sidebar shows them (العمليات · الخدمة · الفلوس · النظام). `roles`
@@ -15,6 +15,7 @@ const APPROVALS: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
 const FINANCE: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
 
 export type IconName =
+  | 'today'
   | 'map'
   | 'dispatch'
   | 'orders'
@@ -30,6 +31,7 @@ export type IconName =
   | 'reviews'
   | 'safety'
   | 'phone'
+  | 'oncall'
   | 'system';
 
 export interface NavItem {
@@ -50,6 +52,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     key: 'console.navg_ops',
     items: [
+      // E1 (CON-12): the home page, one row per problem with its owner.
+      { href: '/', key: 'console.nav_today', icon: 'today', roles: INBOX_READ_ROLES, jump: 't' },
       { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
       {
         href: '/dispatch',
@@ -67,6 +71,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
+      // E1 (CON-02): who is reached when an alert reaches nobody; every desk reads, admins edit.
+      { href: '/on-call', key: 'console.nav_on_call', icon: 'oncall', roles: ON_CALL_READ_ROLES, jump: 'n' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
       // What riders write about الرجعة drivers (x14, Ali 2026-10-07): support and admins hide a bad line.
       { href: '/reviews', key: 'console.nav_reviews', icon: 'reviews', roles: REVIEW_MODERATION_ROLES, jump: 'v' },

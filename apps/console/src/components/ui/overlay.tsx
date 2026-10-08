@@ -4,6 +4,7 @@ import { t } from '@driver/i18n';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { cx, IconButton } from './button';
 import { IconClose } from './icons';
+import { OfflineNote } from './status';
 
 /**
  * Dialog (centred, modal, native <dialog> so focus is trapped and Escape closes), Sheet (modal,
@@ -68,6 +69,7 @@ export function Dialog({
       <div className="px-6 py-3">{children}</div>
       {footer ? (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2/60 px-6 py-3">
+          <OfflineNote className="me-auto" />
           {footer}
         </div>
       ) : null}
@@ -113,7 +115,8 @@ export function Sheet({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
       {footer ? (
-        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
+          <OfflineNote className="me-auto" />
           {footer}
         </div>
       ) : null}

@@ -30,7 +30,7 @@ export default function PhoneEntry() {
     setTouched(true);
     if (!e164 || requestOtp.isPending) return;
     try {
-      const res = await requestOtp.mutateAsync({ phone: e164, purpose: 'login', device: await getDeviceInfo() });
+      const res = await requestOtp.mutateAsync({ phone: e164, purpose: 'login', channel: 'sms', device: await getDeviceInfo() });
       router.push({ pathname: '/otp', params: { phone: e164, masked: res.phoneMasked, resendAfter: String(res.resendAfterSec) } });
     } catch {
       /* shown under the field */
