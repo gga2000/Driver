@@ -129,7 +129,9 @@ try {
           const box = await by('place-map').boundingBox();
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.mouse.down();
-          await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+          await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, {
+            steps: 8,
+          });
           await page.mouse.up();
           await page.waitForTimeout(1_000);
           await by('setup-save').click();
