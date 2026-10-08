@@ -1,7 +1,8 @@
-import { Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { BullMqQueueFactory } from '../../shared/queue.js';
 import { CONTRADICTION_SUBSCRIBER, ContradictionDetector } from './contradiction.detector.js';
 import { EVENTS_REPOSITORY, PrismaEventsRepository, type EventsRepository } from './events.repository.js';
@@ -39,6 +40,7 @@ export class EventsModule implements OnModuleInit, OnModuleDestroy {
     private readonly publisher: OutboxPublisher,
     @Inject(EVENTS_REPOSITORY) private readonly repo: EventsRepository,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
@@ -46,7 +48,8 @@ export class EventsModule implements OnModuleInit, OnModuleDestroy {
     this.events.subscribe(CONTRADICTION_SUBSCRIBER, '*', async (e, ctx) => {
       await detector.check(e, ctx.tx);
     });
-    this.publisher.start();
+    // DRIVER_ROLE=web: commits still poke the queue; only job machines run the 500-ms safety-net tick.
+    this.publisher.start({ interval: runsJobs(this.role) });
   }
 
   onModuleDestroy(): void {
