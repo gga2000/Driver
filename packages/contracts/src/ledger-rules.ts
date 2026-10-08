@@ -223,7 +223,9 @@ export const MoneyRules = z.object({
   /**
    * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
    * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
-   * company, not the rider. Ali said "yes" on 2026-10-07; only acts while the seat hold is on.
+   * company, not the rider. Ali said "yes" on 2026-10-07. It applies whether or not the seat hold
+   * (`RIDE_SEAT_HOLD`) is on: the minutes before our taxi was due are ours either way. Our taxi's due
+   * time stops at its arrival at his door + the ride, so his own wait after that is his.
    */
   lateTaxiPaysMeter: z.object({ enabled: z.boolean() }).default({ enabled: false }),
 });

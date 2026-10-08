@@ -816,6 +816,13 @@ describe('x3 seat hold: our taxi to the garage runs late (RIDE_SEAT_HOLD)', () =
     expect(h.events.last('seat.late_meter_settled')?.payload).toMatchObject({ minutesLate: 14, taxiLateMinutes: 11, late: { kind: 'rider', id: 'r2' } });
   });
 
+  it('a rider late on his own (no late taxi of ours) pays his whole meter: no company minutes', async () => {
+    const { h, dep, paid } = await lateTaxi(true);
+    h.advance(16); // 12:45: 15 minutes late, our taxi was never late
+    await h.checkIn(dep.id, paid.id);
+    expect(h.events.last('seat.late_meter_settled')?.payload).toMatchObject({ minutesLate: 15, taxiLateMinutes: 0 });
+  });
+
   it('on: cleared (taxi on time again or gone) → no hold; a seat that is no longer booked is left alone', async () => {
     const { h, dep, cash } = await lateTaxi(true);
     await h.departures.taxiLate('r1', cash.id, T(41));

@@ -112,6 +112,11 @@ async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
             if (!pickup || !dropoff) return null;
             return new Date((live?.at ?? now).getTime() + (await eta.minutes(pickup, dropoff, 'car')).minutes * MIN);
           }),
+        pickupArrivedAt: (orderId) =>
+          orNull(async () => {
+            const trip = await trips.activeForOrder(orderId);
+            return trip?.stops.find((s) => s.orderId === orderId && s.type === 'pickup')?.arrivedAt ?? null;
+          }),
       }),
       inject: [DeparturesService, OrdersService, SavedPlacesService, PricingService, EtaService, TripsService, TrackingService, CLOCK],
     },

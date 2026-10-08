@@ -19,4 +19,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009091000 | quotes_expires_at_index | lane B | #13 |
 | 20261009092000 | participants_person_id_index | lane B | #13 |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
-| 20261010090000 | seat_taxi_hold | taxi thread (W11) | ride follow-ups PR |
+| 20261010090000 | seat_taxi_hold | taxi thread (W11) | #31 |

@@ -35,6 +35,7 @@ function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash'
   const cars = new Map<string, CarFacts>([['dep_out', car()]]);
   const orders = new Map<string, Order>();
   const arrivals = new Map<string, Date>();
+  const atDoor = new Map<string, Date>();
   const placed: Array<{ personId: string; input: RidePlacement }> = [];
   const emitted: Array<{ type: string; payload: Record<string, unknown>; idempotencyKey?: string }> = [];
   const minutesTo = new Map<string, number>();
@@ -69,6 +70,7 @@ function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash'
     order: async (id) => orders.get(id) ?? null,
     usualPayment: async () => (opts.usual === undefined ? null : opts.usual),
     rideArrival: async (id) => arrivals.get(id) ?? null,
+    pickupArrivedAt: async (id) => atDoor.get(id) ?? null,
     taxiLate: async (riderId, bookingId, until) => void taxiLate.push({ riderId, bookingId, until }),
     seatHeldUntil: async () => opts.heldUntil ?? null,
   };
@@ -80,6 +82,7 @@ function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash'
     cars,
     orders,
     arrivals,
+    atDoor,
     placed,
     emitted,
     taxiLate,
@@ -227,6 +230,22 @@ describe('x3: the الرجعة driver hears when our taxi runs late', () => {
     h.orders.set('ord_1', { ...h.orders.get('ord_1')!, state: 'customer_cancelled' });
     await h.service.tick();
     expect(h.taxiLate.slice(-2).map((c) => c.until)).toEqual([at(98), null]);
+  });
+
+  it('once our taxi is at his door, his own wait is not ours: the garage time stops at arrival + the ride', async () => {
+    const h = await booked();
+    h.orders.set('ord_1', { ...h.orders.get('ord_1')!, state: 'matched' });
+    h.atDoor.set('ord_1', at(65)); // the taxi reached his door on time (9:05; 9:05 + 13 = 9:18)
+    h.clock.set(at(80));
+    h.arrivals.set('ord_1', at(93)); // he is 15 minutes late coming out: the live ETA slides to 9:33
+    await h.service.tick();
+    expect(h.emitted).toEqual([]);
+    expect(h.taxiLate).toEqual([]); // no hold, so no company-paid meter minutes
+    // A taxi that reached his door late is still ours, up to its arrival + the ride.
+    h.atDoor.set('ord_1', at(80)); // 9:20 + 13 = 9:33: 3 min late
+    h.arrivals.set('ord_1', at(110));
+    await h.service.tick();
+    expect(h.taxiLate).toEqual([{ riderId: RIDER.personId, bookingId: 'bk_out', until: at(93) }]);
   });
 
   it('the rider’s notice carries the seat hold the routes module reports', async () => {
