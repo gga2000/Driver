@@ -10,6 +10,7 @@ import {
   pointsForRideTake,
   postCancellation,
   postDepartureCancelled,
+  postDriverCancelled,
   postLateMeter,
   postOrderClosed,
   postPoints,
@@ -300,6 +301,15 @@ describe('cancellations', () => {
     validateGroup(g);
     expect(g.lines.map((l) => l.amount)).toEqual([667, 667, 666]);
     expect(postDepartureCancelled({ departureId: 'dep3', occurredAt: at, driverId: 'd2', cancelledBy: 'low_fill', feeIqd: 2000, riderIds: ['a'] })).toBeNull();
+  });
+
+  it('M-15: a driver cancelling after arriving moves 500 from him to the customer, once per trip; no credit posts nothing', () => {
+    const base = { orderId: 'o9', tripId: 't9', occurredAt: at, customerId: 'c1', driverId: 'd1', scoringHit: true };
+    const g = postDriverCancelled({ ...base, customerCreditIqd: 500, creditFundedBy: 'driver' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o9:driver_cancel:t9');
+    expect(nets(g)).toEqual({ 'driver:d1': -500, 'customer:c1': 500 });
+    expect(postDriverCancelled({ ...base, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
   });
 });
 

@@ -2,6 +2,7 @@ import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.j
 import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
 import { newId } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
+import { OUTBOX_LEASE_MS } from './timestamps.js';
 
 interface Delivery {
   outboxId: string;
@@ -25,15 +26,14 @@ interface Staged {
  * commits; a rollback discards them (no event, no outbox row, no delivery record). Writes with no
  * managed transaction apply at once.
  *
- * `claimDue` simulates `FOR NO KEY UPDATE SKIP LOCKED`: rows are locked by the claiming drain until
- * its callback settles, and a concurrent drain skips them.
+ * `claimDue` mirrors the Postgres claim: the claimed rows' next attempt moves `OUTBOX_LEASE_MS` ahead
+ * at once, so a concurrent drain skips them, and a batch that dies mid-way comes back after the lease.
  */
 export class InMemoryEventsRepository implements EventsRepository {
   private readonly events: StoredEvent[] = [];
   private readonly rows: OutboxRecord[] = [];
   private readonly deliveries = new Map<string, Delivery>();
   private readonly staged = new Map<object, Staged>();
-  private readonly locked = new Set<string>();
   // Indexes over the committed rows (the simulator writes hundreds of thousands): same answers as a
   // full scan, in recording order.
   private readonly byIdempotencyKey = new Map<string, StoredEvent>();
@@ -184,23 +184,20 @@ export class InMemoryEventsRepository implements EventsRepository {
     return filter.limit === undefined ? rows : rows.slice(0, filter.limit);
   }
 
-  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {
-    // Selection and locking happen synchronously, before the first await: two drains started
+  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>, leaseMs = OUTBOX_LEASE_MS): Promise<T> {
+    // Selection and the lease happen synchronously, before the first await: two drains started
     // together can never pick the same row.
+    const leaseUntil = new Date(now.getTime() + leaseMs);
     const claimed: OutboxRecord[] = [];
     for (const r of this.pendingRows.values()) {
       if (claimed.length >= limit) break;
-      if (r.nextAttemptAt.getTime() <= now.getTime() && !this.locked.has(r.id)) claimed.push(r);
+      if (r.nextAttemptAt.getTime() <= now.getTime()) claimed.push(r);
     }
-    for (const r of claimed) this.locked.add(r.id);
-    try {
-      return await fn(
-        claimed.map((r) => ({ ...r })),
-        undefined,
-      );
-    } finally {
-      for (const r of claimed) this.locked.delete(r.id);
-    }
+    for (const r of claimed) r.nextAttemptAt = leaseUntil;
+    return fn(
+      claimed.map((r) => ({ ...r })),
+      undefined,
+    );
   }
 
   async updateOutbox(id: string, patch: OutboxPatch): Promise<void> {
@@ -220,6 +217,9 @@ export class InMemoryEventsRepository implements EventsRepository {
   }
 
   // ───────────────────────── deliveries ─────────────────────────
+
+  /** One process, one drain at a time (`OutboxPublisher`): nothing to wait for. */
+  async lockDelivery(): Promise<void> {}
 
   async deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>> {
     const names = new Set<string>();

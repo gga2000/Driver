@@ -5,7 +5,7 @@ import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, ChipGroup, Icon, IconButton, RetryState, retryKindFor, SegmentedControl, Text, TextField, useNetwork, useTheme } from '@driver/ui';
+import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
@@ -42,7 +42,7 @@ export default function RideChoose() {
   const locale = useLocale();
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { height, fontScale } = useWindowDimensions();
   const api = useApi();
   const qc = useQueryClient();
   const ride = useRideStore();
@@ -68,6 +68,7 @@ export default function RideChoose() {
   const wallet = useWalletBalance();
   const place = usePlaceRide();
   const [problem, setProblem] = useState<string | null>(null);
+  const net = useNetwork();
   const [details, setDetails] = useState<RideVertical | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   // c9/s3 «لمنو المشوار؟»: «إلي», or someone he picks in its sheet.
@@ -90,8 +91,10 @@ export default function RideChoose() {
   const vertical: RideVertical = d.vertical === 'tuktuk' && !tuktuk.ok ? 'taxi' : d.vertical;
   const mode = d.doorPickup ? 'door' : 'street';
   const quote = quotes.grid[vertical][mode];
-  const net = useNetwork();
-  const quoteKind = retryKindFor({ net, error: quotes.error });
+  // FLOW-27: the chosen vehicle has no price and nothing is loading: say why (offline, the server's own
+  // words such as an area we don't serve, or a plain "try again") and turn the request button into a retry.
+  const quoteFailed = !quote && !quotes.loading && quotes.error !== null;
+  const quoteReason = quoteFailed ? (net.state !== 'online' ? t('ride.quote_failed_offline') : apiErrorMessage(quotes.error, t('ride.quote_failed_retry'), locale)) : null;
   const extra = doorExtra(quotes.grid[vertical].door, quotes.grid[vertical].street);
   const surcharges = surchargesOf(quote);
   const estimate = useMemo(() => (pickup && dropoff ? Object.fromEntries(RIDE_VERTICALS.map((v) => [v, rideEstimate(pickup.pin, dropoff.pin, v, new Date())])) : null), [pickup, dropoff]) as Record<RideVertical, { minutes: number }> | null;
@@ -161,7 +164,8 @@ export default function RideChoose() {
   };
 
   // c1: map, route, both vehicles, the options row and the button fit on one phone screen.
-  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380));
+  // DEV-16: at large text the cards grow, so the map gives up room for both vehicles to fit.
+  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380) * (fontScale > 1.3 ? 0.6 : 1));
   const edgeReason = tuktuk.edgeZoneId && !d.allowEdgeTuktuk ? t('ride.tuktuk_edge', { zone: zoneTitle(tuktuk.edgeZoneId, lang) }) : null;
 
   return (
@@ -275,17 +279,13 @@ export default function RideChoose() {
         </ScrollView>
 
         <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
-          {/* FLOW-27: no price yet because the quote failed: say why (no network, our server) with a retry. */}
-          {quotes.error && !quote && !quotes.loading ? (
-            <RetryState
-              size="inline"
-              kind={quoteKind}
-              title={quoteKind === 'offline' ? undefined : t('ride.quote_failed')}
-              locale={lang}
-              onRetry={() => void quotes.refetch()}
-              testID="ride-quote-state"
-              style={{ width: '100%', maxWidth: 520, alignSelf: 'center' }}
-            />
+          {quoteReason ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-quote-failed" accessibilityLiveRegion="polite">
+              <Icon name={net.state !== 'online' ? 'wifi-off' : 'receipt'} size={18} color="dangerText" />
+              <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
+                {quoteReason}
+              </Text>
+            </View>
           ) : null}
           {problem ? (
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
@@ -295,6 +295,9 @@ export default function RideChoose() {
               </Text>
             </View>
           ) : null}
+          {quoteFailed ? (
+            <Button testID="ride-quote-retry" size="lg" variant="secondary" icon="refresh" fullWidth label={t('action.retry')} onPress={() => void quotes.refetch()} style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }} />
+          ) : (
           <Button
             testID="ride-request"
             size="lg"
@@ -313,6 +316,7 @@ export default function RideChoose() {
             onPress={() => void request()}
             style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
           />
+          )}
           {quote ? (
             <View testID="ride-price-locked" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
               <Icon name="lock" size={13} color="textMuted" strokeWidth={2.2} />

@@ -55,6 +55,8 @@ export const DISPUTE_SUBJECT_AR: Record<DisputeKind, string> = {
   wrong_item: 'غرض غلط بالطلب',
   not_delivered: 'الطلب ما وصل',
   ride_fare: 'خلاف على أجرة المشوار',
+  driver_behaviour: 'شكوى على تصرف السايق',
+  unsafe_driving: 'سياقة خطرة',
   other: 'مشكلة بالطلب',
 };
 
