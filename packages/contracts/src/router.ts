@@ -1,6 +1,7 @@
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
-import { CityConfigInput, HealthPing } from './router-io.js';
+import { TRPCError } from '@trpc/server';
+import { CityConfigInput, HealthLive, HealthPing, HealthReady } from './router-io.js';
 import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
 import { driverAccountRouter } from './routers/driver-account.js';
@@ -44,6 +45,14 @@ export const appRouter = router({
     ping: publicProcedure.output(HealthPing).query(async ({ ctx }) => {
       const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);
       return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
+    }),
+    live: publicProcedure.output(HealthLive).query(async ({ ctx }) => {
+      if ((await ctx.health.db()) !== 'ok') throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'database unavailable' });
+      return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now() };
+    }),
+    ready: publicProcedure.output(HealthReady).query(async ({ ctx }) => {
+      const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);
+      return { ok: db === 'ok' && redis === 'ok', service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
     }),
   }),
   pricing: router({

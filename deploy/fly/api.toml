@@ -55,12 +55,15 @@ kill_timeout = 30
     soft_limit = 300
     hard_limit = 400
 
+  # `health.live`: the process and its database (probed on its own connection, so a busy pool never
+  # fails it). Redis, SMS and push are not part of it: losing one must not pull machines from
+  # rotation. Database down blocks a bluegreen deploy; the override is in docs/deploy/runbook.md.
   [[http_service.checks]]
     grace_period = "20s"
     interval = "15s"
     timeout = "5s"
     method = "GET"
-    path = "/trpc/health.ping"
+    path = "/trpc/health.live"
 
 # The worker gets no [http_service]; this machine check is what Fly and the bluegreen swap watch.
 [checks.worker_alive]
@@ -68,7 +71,7 @@ kill_timeout = 30
   type = "http"
   port = 3000
   method = "GET"
-  path = "/trpc/health.ping"
+  path = "/trpc/health.live"
   grace_period = "20s"
   interval = "15s"
   timeout = "5s"
