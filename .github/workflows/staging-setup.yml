@@ -1,0 +1,180 @@
+# Driver (درايفر) — one-time setup of the staging twin (docs/deploy/staging.md).
+#
+# Run by hand only: Actions → Staging setup → Run workflow. It reads the `staging` GitHub environment and
+# makes everything the Deploy workflow then needs, so nobody has to run flyctl or handle a secret:
+#   1. the Fly apps (API + Redis) and Redis's volume, when missing;
+#   2. the API's secrets on Fly, generated here when missing (JWT_SECRET, PHONE_HASH_PEPPER,
+#      UPLOADS_SECRET, SHARE_LINK_SECRET, SAFETY_LINK_SECRET, the Redis password) — they go straight from this runner to Fly and are never
+#      printed, stored in GitHub or shown to anyone; DATABASE_URL is DIRECT_URL on the transaction
+#      pooler's port (6543); SMS_PROVIDER=fake;
+#   3. Redis deployed;
+#   4. the database: migrations, hardening, the production seed and the checklist
+#      (scripts/deploy/supabase-setup.mjs), with a made-up admin phone (codes appear in the API log).
+# Running it again is safe: existing apps, volumes and secrets are kept, the database steps are
+# idempotent. It deploys no API machine: that is the Deploy workflow (environment: staging).
+#
+# Staging environment — secrets: DIRECT_URL, FLY_API_TOKEN (an org deploy token). Variables:
+# DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
+# (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099).
+name: Staging setup
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    name: set up staging (Fly apps, secrets, Redis, database)
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+      API_APP: ${{ vars.FLY_API_APP }}
+      REDIS_APP: ${{ vars.FLY_REDIS_APP || 'driver-redis-staging' }}
+      FLY_ORG: ${{ vars.FLY_ORG || 'personal' }}
+      ADMIN_PHONE: ${{ vars.STAGING_ADMIN_PHONE || '07700000099' }}
+    steps:
+      # Same rule as the Deploy workflow's guard: this job may only ever touch the staging twin.
+      - name: Staging never reaches production
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [[ "$REDIS_APP" == *-staging ]] || fail "FLY_REDIS_APP must end in -staging"
+          [ -n "$FLY_API_TOKEN" ] || fail "secret FLY_API_TOKEN is not set on the staging environment"
+          [ -n "$DIRECT_URL" ] || fail "secret DIRECT_URL is not set on the staging environment"
+          [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref)"
+          [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database"
+          [[ "$DIRECT_URL" == *:5432/* ]] || fail "DIRECT_URL must be the session pooler (port 5432), not 6543"
+          [[ "$DIRECT_URL" != *'['* && "$DIRECT_URL" != *']'* ]] || fail "DIRECT_URL still has [ ] around the password: remove the brackets"
+
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Supabase CA certificate (secret, else the public root CA in deploy/supabase/)
+        env:
+          CA_SECRET: ${{ secrets.DATABASE_CA_CERT }}
+        run: |
+          if [ -n "$CA_SECRET" ]; then pem="$CA_SECRET"; echo "using the DATABASE_CA_CERT secret"
+          else pem=$(cat deploy/supabase/prod-ca-2021.crt); echo "using deploy/supabase/prod-ca-2021.crt"; fi
+          { echo 'DATABASE_CA_CERT<<CA_EOF'; echo "$pem"; echo 'CA_EOF'; } >> "$GITHUB_ENV"
+
+      - name: Fly apps and Redis volume (created when missing)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          has_app() { flyctl apps list --json | jq -e --arg a "$1" 'any(.[]; (.Name // .name // .ID) == $a)' > /dev/null; }
+          for app in "$API_APP" "$REDIS_APP"; do
+            if has_app "$app"; then echo "app $app: exists"
+            else
+              flyctl apps create "$app" --org "$FLY_ORG" || {
+                echo "::error title=Fly app::could not create $app (names are global on Fly: if it is taken, pick another *-staging name in FLY_API_APP / FLY_REDIS_APP)"; exit 1; }
+              echo "app $app: created"
+            fi
+          done
+          if [ "$(flyctl volumes list --app "$REDIS_APP" --json | jq 'length')" -gt 0 ]; then echo "redis volume: exists"
+          else flyctl volumes create redis_data --app "$REDIS_APP" --region fra --size 1 --yes; fi
+
+      - name: Secrets on Fly (generated here when missing, never printed)
+        id: secrets
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          names() { flyctl secrets list --app "$1" --json | jq -r '(. // [])[] | (.Name // .name)'; }
+          api=$(names "$API_APP"); redis=$(names "$REDIS_APP")
+          has() { grep -qx "$2" <<< "$1"; }
+          # Sets R to 64 random hex chars and masks it in the log (no command substitution: a mask echoed
+          # inside $(...) would end up in the value instead of the log).
+          rand() { R=$(openssl rand -hex 32); echo "::add-mask::$R"; }
+          set_api=()
+
+          # The API reaches Supabase through the transaction pooler: the same host and user, port 6543.
+          db_url="${DIRECT_URL/:5432\//:6543/}"
+          echo "::add-mask::$db_url"
+          set_api+=("DATABASE_URL=$db_url")
+
+          has "$api" JWT_SECRET || { rand; set_api+=("JWT_SECRET=$R" "JWT_KID=k1"); }
+          has "$api" UPLOADS_SECRET || { rand; set_api+=("UPLOADS_SECRET=$R"); }
+          # Trip-share and SOS links each have their own key (production refuses to boot without them).
+          has "$api" SHARE_LINK_SECRET || { rand; set_api+=("SHARE_LINK_SECRET=$R"); }
+          has "$api" SAFETY_LINK_SECRET || { rand; set_api+=("SAFETY_LINK_SECRET=$R"); }
+          # Verified TLS to Supabase: the secret when set, else Supabase's public root CA from the repo.
+          has "$api" DATABASE_CA_CERT || set_api+=("DATABASE_CA_CERT=$DATABASE_CA_CERT")
+          has "$api" SMS_PROVIDER || set_api+=("SMS_PROVIDER=fake")
+
+          # A Fly secret can't be read back, so the Redis password is only (re)made when either side lacks it.
+          if ! has "$redis" REDIS_PASSWORD || ! has "$api" REDIS_URL; then
+            rand; pw=$R
+            flyctl secrets set --app "$REDIS_APP" --stage "REDIS_PASSWORD=$pw" > /dev/null
+            set_api+=("REDIS_URL=redis://default:${pw}@${REDIS_APP}.internal:6379?family=6")
+            echo "redis password: new"
+          else echo "redis password: kept"; fi
+
+          # The pepper is set on Fly only after the seed has used it (next steps), so a failed seed is
+          # simply run again with a fresh pepper; once set it never changes (docs/deploy/hosting.md).
+          if has "$api" PHONE_HASH_PEPPER; then echo "new_pepper=false" >> "$GITHUB_OUTPUT"; echo "pepper: kept"
+          else
+            rand; pepper=$R
+            echo "PHONE_HASH_PEPPER=$pepper" >> "$GITHUB_ENV"
+            echo "new_pepper=true" >> "$GITHUB_OUTPUT"; echo "pepper: new (set after the seed)"
+          fi
+
+          flyctl secrets set --app "$API_APP" --stage "${set_api[@]}" > /dev/null
+          echo "API secrets set: ${set_api[*]%%=*}"
+
+      - name: Deploy Redis
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy . --config deploy/fly/redis.toml --app "$REDIS_APP" --dockerfile deploy/fly/redis/Dockerfile --remote-only --ha=false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global corepack@latest && corepack enable
+      - name: Install (db package only)
+        # No install scripts: Prisma fetches its migration engine when first used.
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter=driver --filter=@driver/db...
+      - name: Build @driver/db
+        run: pnpm turbo run build --filter=@driver/db
+
+      - name: Database (migrate, harden, production seed, verify)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          NEW_PEPPER: ${{ steps.secrets.outputs.new_pepper }}
+        run: |
+          export DATABASE_URL="${DIRECT_URL/:5432\//:6543/}"
+          # The admin can only be seeded with the pepper the API will use, i.e. on the run that makes it.
+          if [ "$NEW_PEPPER" = true ]; then export SEED_ADMIN_PHONE="$ADMIN_PHONE" SEED_ADMIN_NAME='Staging admin'; fi
+          node scripts/deploy/supabase-setup.mjs
+
+      - name: Pepper on Fly (only after the seed used it)
+        if: steps.secrets.outputs.new_pepper == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl secrets set --app "$API_APP" --stage "PHONE_HASH_PEPPER=$PHONE_HASH_PEPPER" > /dev/null && echo "pepper set"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Staging is set up"
+            echo "- Fly apps: \`$API_APP\`, \`$REDIS_APP\` (Redis running; the API has no machine until the Deploy workflow runs)."
+            echo "- Database: migrated, hardened, seeded. Staging admin phone: \`$ADMIN_PHONE\` (codes are in the API log)."
+            echo "- Next: Actions → Deploy → environment **staging**, target **all**."
+          } >> "$GITHUB_STEP_SUMMARY"

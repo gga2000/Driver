@@ -3,6 +3,15 @@
 #   flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only
 # Secrets (never in this file): flyctl secrets set --config deploy/fly/api.toml DATABASE_URL=… (list in hosting.md).
 # Change `app` if the name is taken; keep it in sync with FLY_API_APP in GitHub (docs/deploy/runbook.md).
+# Staging uses this same file with `--app driver-api-staging` (docs/deploy/staging.md), so the load test
+# always runs on exactly the production layout.
+#
+# Launch layout (plan 7.1, SCALE-05): two process groups from one image.
+#   app    — 2 × performance-1x (1 dedicated vCPU, 2 GB): HTTP, SSE. DRIVER_ROLE=web: enqueues jobs, runs none.
+#   worker — 1 × shared-cpu-2x, 1 GB: outbox, timers, dispatch waves, notify, nightly close, purges.
+#            DRIVER_ROLE=worker. No public traffic; it listens on PORT only for its health check.
+# Counts are set once per app: flyctl scale count app=2 worker=1 --config deploy/fly/api.toml
+# One switch back to today's single process: run only `app` with DRIVER_ROLE=all (docs/deploy/hosting.md).
 
 app = "driver-api"
 primary_region = "fra"
@@ -17,24 +26,31 @@ kill_timeout = 30
   LOG_FORMAT = "json"
   # Fly's proxy is one hop: req.ip is the client (OTP limits per IP).
   TRUST_PROXY = "1"
-  # Supavisor transaction mode: keep the per-instance pool small (Micro compute allows ~200 pooled clients).
+  # Supavisor transaction mode: 10 per process, 3 processes = 30 of Small compute's pooled clients.
   DATABASE_POOL_MAX = "10"
+
+# DRIVER_ROLE differs per group, and [env] is app-wide, so each command sets it. The heap cap is 75 % of
+# the machine (LOAD-10): past it Node fails fast and Fly restarts the machine instead of it swapping.
+[processes]
+  app = "/usr/bin/env DRIVER_ROLE=web node --max-old-space-size=1536 dist/main.js"
+  worker = "/usr/bin/env DRIVER_ROLE=worker node --max-old-space-size=768 dist/main.js"
 
 [http_service]
   internal_port = 3000
   force_https = true
-  # BullMQ workers (outbox, dispatch waves, order timers, nightly close) live in this process:
-  # the machine must never sleep.
+  # Two web machines always on: one can die at 1× load and the other carries it (plan 7.1).
   auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
   processes = ["app"]
 
-  # SSE / WebSocket streams hold a connection each: count connections, not requests.
+  # SSE / WebSocket streams hold a connection each: count connections, not requests. About 125 streams
+  # per machine at 2× load; these starting limits are calibrated by the D-28 load test (plan 7.1).
+  # Overload is answered inside the process (503 + Retry-After), never by refusing a stream here.
   [http_service.concurrency]
     type = "connections"
-    soft_limit = 800
-    hard_limit = 1000
+    soft_limit = 300
+    hard_limit = 400
 
   [[http_service.checks]]
     grace_period = "20s"
@@ -43,12 +59,28 @@ kill_timeout = 30
     method = "GET"
     path = "/trpc/health.ping"
 
+# The worker gets no [http_service]; this machine check is what Fly and the bluegreen swap watch.
+[checks.worker_alive]
+  processes = ["worker"]
+  type = "http"
+  port = 3000
+  method = "GET"
+  path = "/trpc/health.ping"
+  grace_period = "20s"
+  interval = "15s"
+  timeout = "5s"
+
 [deploy]
-  # The new machine boots and passes /trpc/health.ping before the old one gets SIGTERM: no downtime
-  # with a single machine. For those seconds both run BullMQ workers, which is safe (jobs are claimed
-  # once; the outbox uses SKIP LOCKED).
+  # New machines boot and pass their check before the old ones get SIGTERM: no downtime. For those
+  # seconds two workers run BullMQ, which is safe (jobs are claimed once; the outbox uses SKIP LOCKED).
   strategy = "bluegreen"
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  processes = ["app"]
+  size = "performance-1x"
+  memory = "2gb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-2x"
+  memory = "1gb"
