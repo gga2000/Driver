@@ -4,10 +4,12 @@
 //   node scripts/load/prepare.mjs --revoke                                  (after a run)
 //
 // Writes, idempotently, into DATABASE_URL (the staging database, or a local one):
-//   - load customers `load_c_00001…` and one owner per launch kitchen `load_m_<kitchen>`: people, their
-//     vault identity (a made-up number in +964 7999 1xxxxx / 2xxxxx, never a real phone; the phone hash is
-//     unpeppered and so can never sign anyone in) and their role;
-//   - fresh sessions (--sessions spread over the customers, three per kitchen owner): the old load sessions
+//   - load customers `load_c_00001…`, one owner per launch kitchen `load_m_<kitchen>`, food couriers
+//     `load_k_00001…` (with a passed check-in for today and tomorrow) and one field-ops person `load_ops`
+//     who takes the couriers' cash: people, their vault identity (a made-up number in +964 7999 1…4xxxxx,
+//     never a real phone; the phone hash is unpeppered and so can never sign anyone in) and their role;
+//   - fresh sessions (--sessions spread over the customers, three per kitchen owner, one per courier and
+//     one per courier for the field-ops person): the old load sessions
 //     are revoked, new refresh tokens are generated HERE and only their SHA-256 reaches the database,
 //     exactly as the API stores them (session.service.ts).
 // and two files in --out:
@@ -39,9 +41,10 @@ const CUSTOMERS = Number(opt('customers', '1500'));
  * the run's --k / --duration, if overridden) works it out exactly as the k6 script does.
  */
 const PROFILE = opt('profile');
-const SESSIONS = PROFILE
-  ? runPlan(PROFILE, { k: opt('k'), duration: opt('duration') }).sessions
-  : Number(opt('sessions', String(CUSTOMERS)));
+const RUN = PROFILE ? runPlan(PROFILE, { k: opt('k'), duration: opt('duration') }) : null;
+const SESSIONS = RUN ? RUN.sessions : Number(opt('sessions', String(CUSTOMERS)));
+/** Food couriers (the profile's, or --couriers), plus one field-ops person who takes their cash. */
+const COURIERS = RUN ? RUN.couriers : Number(opt('couriers', '6'));
 /** --revoke: end every load session (after a run) and write nothing. */
 const REVOKE_ONLY = args.includes('--revoke');
 const OUT = opt('out', '.load');
@@ -58,6 +61,7 @@ if (!local && !(process.env.LOAD_TARGET === 'staging' && process.env.DEPLOY_ENVI
 }
 if (!Number.isInteger(CUSTOMERS) || CUSTOMERS < 1 || CUSTOMERS > 99_999) fail('--customers must be 1..99999');
 if (!Number.isInteger(SESSIONS) || SESSIONS < 1 || SESSIONS > 200_000) fail('--sessions must be 1..200000');
+if (!Number.isInteger(COURIERS) || COURIERS < 0 || COURIERS > 9_999) fail('--couriers must be 0..9999');
 
 function fail(message) {
   console.error(`load prepare: ${message}`);
@@ -65,6 +69,8 @@ function fail(message) {
 }
 
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
+/** Baghdad's calendar date (UTC+3, no daylight saving), `days` from now: YYYY-MM-DD. */
+const baghdadDate = (at, days) => new Date(at.getTime() + 3 * 3_600_000 + days * 86_400_000).toISOString().slice(0, 10);
 const pad = (n, w) => String(n).padStart(w, '0');
 
 /** Same TLS rules as @driver/db pgPoolConfig: with DATABASE_CA_CERT, verify against it and drop sslmode from the URL. */
@@ -82,7 +88,7 @@ await db.connect();
 if (REVOKE_ONLY) {
   const r = await db.query(
     `UPDATE public.sessions SET revoked_at = now(), updated_at = now()
-      WHERE revoked_at IS NULL AND (person_id LIKE 'load\\_c\\_%' OR person_id LIKE 'load\\_m\\_%')`,
+      WHERE revoked_at IS NULL AND person_id ~ '^load_(c|m|k)_|^load_ops$'`,
   );
   console.log(`load prepare: ${r.rowCount} load sessions ended`);
   await db.end();
@@ -101,10 +107,12 @@ try {
   const people = [];
   for (let i = 1; i <= CUSTOMERS; i++) people.push({ id: `load_c_${pad(i, 5)}`, phone: `+96479991${pad(i, 5)}`, role: 'customer', orgId: null });
   kitchens.forEach((k, i) => people.push({ id: `load_m_${k.id.replace('org_aziziyah_', '')}`, phone: `+96479992${pad(i + 1, 5)}`, role: 'merchant_owner', orgId: k.id }));
+  for (let i = 1; i <= COURIERS; i++) people.push({ id: `load_k_${pad(i, 5)}`, phone: `+96479993${pad(i, 5)}`, role: 'courier', orgId: null });
+  if (COURIERS > 0) people.push({ id: 'load_ops', phone: '+9647999400001', role: 'field_ops', orgId: null });
 
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_HOURS * 3_600_000);
-  const tokens = { customers: [], merchants: [] };
+  const tokens = { customers: [], merchants: [], couriers: [] };
   await db.query('BEGIN');
   for (let at = 0; at < people.length; at += 500) {
     const batch = people.slice(at, at + 500);
@@ -128,6 +136,20 @@ try {
          ON CONFLICT DO NOTHING`,
       [ids, batch.map((p) => p.role), batch.map((p) => p.orgId), now],
     );
+    // A courier goes online only after today's selfie check-in (driver-account checkInStatusFor): a
+    // passed one for today and tomorrow (Baghdad dates), so a run crossing midnight keeps its couriers.
+    const couriers = batch.filter((p) => p.role === 'courier').map((p) => p.id);
+    if (couriers.length > 0) {
+      for (const day of [baghdadDate(now, 0), baghdadDate(now, 1)]) {
+        await db.query(
+          `INSERT INTO public.driver_check_ins (id, person_id, local_date, gesture, issued_at, expires_at, result, submitted_at, liveness_score, updated_at)
+             SELECT 'chk_load_' || p || '_' || $2, p, $2, 'blink', $3, $3, 'passed'::"DriverCheckInResult", $3, 1, $3
+               FROM unnest($1::text[]) AS t(p)
+             ON CONFLICT (id) DO NOTHING`,
+          [couriers, day, now],
+        );
+      }
+    }
     // A run starts from fresh sessions: whatever an earlier run left is revoked, never reused.
     await db.query(`UPDATE public.sessions SET revoked_at = $2, updated_at = $2 WHERE person_id = ANY($1::text[]) AND revoked_at IS NULL`, [ids, now]);
   }
@@ -140,8 +162,11 @@ try {
   const customerIds = people.filter((p) => p.role === 'customer').map((p) => p.id);
   const plan = [];
   for (let j = 0; j < SESSIONS; j++) plan.push({ kind: 'customer', personId: customerIds[j % customerIds.length] });
+  // Each courier gets one, and the field-ops person one per courier (to take that courier's cash when
+  // he nears his cap, the way a cash hand-off works).
   for (const p of people) {
-    if (p.role !== 'customer') plan.push({ kind: 'merchant', personId: p.id, orgId: p.orgId }, { kind: 'setupToken', personId: p.id }, { kind: 'teardownToken', personId: p.id });
+    if (p.role === 'merchant_owner') plan.push({ kind: 'merchant', personId: p.id, orgId: p.orgId }, { kind: 'setupToken', personId: p.id }, { kind: 'teardownToken', personId: p.id });
+    if (p.role === 'courier') plan.push({ kind: 'courier', personId: p.id }, { kind: 'opsToken', personId: 'load_ops', courierId: p.id });
   }
   const refresh = plan.map(() => randomBytes(32).toString('base64url'));
   for (let at = 0; at < plan.length; at += 1000) {
@@ -155,6 +180,8 @@ try {
   plan.forEach((x, j) => {
     if (x.kind === 'customer') tokens.customers.push({ personId: x.personId, refreshToken: refresh[j] });
     else if (x.kind === 'merchant') tokens.merchants.push({ personId: x.personId, orgId: x.orgId, refreshToken: refresh[j] });
+    else if (x.kind === 'courier') tokens.couriers.push({ personId: x.personId, refreshToken: refresh[j] });
+    else if (x.kind === 'opsToken') tokens.couriers.find((c) => c.personId === x.courierId).opsToken = refresh[j];
     else tokens.merchants.find((m) => m.personId === x.personId)[x.kind] = refresh[j];
   });
   await db.query('COMMIT');
@@ -186,7 +213,7 @@ try {
     dropoffs: zones.map((z) => ({ zoneKey: z.key, pin: { lat: Number(Number(z.lat).toFixed(5)), lng: Number(Number(z.lng).toFixed(5)) } })),
   };
   writeFileSync(join(OUT, 'world.json'), JSON.stringify(world, null, 2));
-  console.log(`load prepare: ${CUSTOMERS} customers with ${tokens.customers.length} sessions, ${tokens.merchants.length} kitchen owners, ${dishes.length} dishes, ${zones.length} zones → ${OUT}/`);
+  console.log(`load prepare: ${CUSTOMERS} customers with ${tokens.customers.length} sessions, ${tokens.merchants.length} kitchen owners, ${tokens.couriers.length} couriers, ${dishes.length} dishes, ${zones.length} zones → ${OUT}/`);
 } catch (err) {
   await db.query('ROLLBACK').catch(() => {});
   throw err;

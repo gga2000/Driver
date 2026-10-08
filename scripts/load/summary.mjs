@@ -39,7 +39,7 @@ if (metrics.shed_ms) {
 const out = [
   `### Load test (${profile})`,
   '',
-  `${num(metrics.http_reqs?.count)} requests (${(metrics.http_reqs?.rate ?? 0).toFixed(1)}/s), ${num(metrics.orders_placed?.count)} orders placed, ${num(metrics.iterations?.count)} app visits and live users.`,
+  `${num(metrics.http_reqs?.count)} requests (${(metrics.http_reqs?.rate ?? 0).toFixed(1)}/s), ${num(metrics.orders_placed?.count)} orders placed, ${num(metrics.offers_accepted?.count ?? 0)} jobs taken by couriers, ${num(metrics.deliveries_completed?.count ?? 0)} delivered, ${(metrics.gps_fixes?.rate ?? 0).toFixed(1)} GPS fixes/s.`,
   '',
   '| What | Measured | Pass | |',
   '|---|---|---|---|',

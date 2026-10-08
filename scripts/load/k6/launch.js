@@ -21,7 +21,10 @@
 //             the app, and the stream is reopened every 10 minutes (a stream token lasts 15).
 //   kitchens  one per launch kitchen: heartbeat and board every 30 s, accepts new orders (10 min) and
 //             marks them ready when that time is up.
-// Couriers and their GPS fixes (20/s at 1×) come with step 2 of the kit.
+//   couriers  food couriers on bikes (70 at 1×): online every 30 s; while free, the partner stream is
+//             open and an offer on it is answered (accepted); on a job they ride at 30 km/h to the
+//             kitchen and the door, sending a GPS fix a second in 5-s batches, arrive, pick up and hand
+//             over (cash collected). Near the cash cap the field-ops person takes their cash.
 //
 // Setup opens every kitchen all day for the run (and reopens one closed by hand); teardown puts each
 // kitchen's hours, closures and hand-closing back.
@@ -30,12 +33,15 @@ import { sleep } from 'k6';
 import exec from 'k6/execution';
 import { Trend, Counter } from 'k6/metrics';
 import sse from 'k6/x/sse';
-import { BASE, PLAN, customers, merchants, world, query, queryParallel, mutate, session, pick, sleepJitter } from './lib.js';
+import { BASE, PLAN, customers, merchants, couriers, world, query, queryParallel, mutate, session, pick, sleepJitter, datesAt } from './lib.js';
 
 const homeOpen = new Trend('home_open', true);
 const sseConnect = new Trend('sse_connect', true);
 const sseOpenFailed = new Counter('sse_open_failed');
 const ordersPlaced = new Counter('orders_placed');
+const deliveries = new Counter('deliveries_completed');
+const gpsFixes = new Counter('gps_fixes');
+const offersTaken = new Counter('offers_accepted');
 
 // ───────────────────────── sizes ─────────────────────────
 
@@ -48,6 +54,7 @@ export const options = {
   discardResponseBodies: false,
   scenarios: {
     kitchens: { executor: 'per-vu-iterations', exec: 'kitchen', vus: merchants.length, iterations: 1, maxDuration: RUN, gracefulStop: GRACE },
+    ...(PLAN.couriers > 0 ? { couriers: { executor: 'per-vu-iterations', exec: 'courier', vus: PLAN.couriers, iterations: 1, maxDuration: RUN, gracefulStop: GRACE } } : {}),
     ...(PLAN.live > 0 ? { live: { executor: 'per-vu-iterations', exec: 'live', vus: PLAN.live, iterations: 1, maxDuration: RUN, gracefulStop: GRACE } } : {}),
     ...(PLAN.streams > 0 ? { streams: { executor: 'per-vu-iterations', exec: 'stream', vus: PLAN.streams, iterations: 1, maxDuration: RUN, gracefulStop: GRACE } } : {}),
     visits: {
@@ -81,6 +88,7 @@ function setupSession(m, refreshToken) {
 }
 
 export function setup() {
+  if (couriers.length < PLAN.couriers) throw new Error(`this run needs ${PLAN.couriers} couriers, tokens.json has ${couriers.length}: run prepare.mjs with the same profile`);
   if (customers.length < PLAN.sessions) {
     throw new Error(`this run needs ${PLAN.sessions} customer sessions, tokens.json has ${customers.length}: run prepare.mjs with the same profile`);
   }
@@ -309,7 +317,8 @@ export function stream() {
 
 // ───────────────────────── kitchens ─────────────────────────
 
-const PREP_MINUTES = 10;
+/** The kitchen's promised prep (LOAD_PREP_MIN, default 10); couriers are offered the job about this long after accept, less their ride. */
+const PREP_MINUTES = Number(__ENV.LOAD_PREP_MIN || 10);
 
 export function kitchen(data) {
   const idx = exec.scenario.iterationInTest;
@@ -330,3 +339,161 @@ export function kitchen(data) {
     sleep(30);
   }
 }
+
+// ───────────────────────── couriers ─────────────────────────
+
+const RIDE_MPS = 30 / 3.6; // 30 km/h through town
+const ARRIVE_WITHIN_M = 40;
+
+function distanceM(a, b) {
+  const R = 6_371_000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function towards(from, to, metres) {
+  const d = distanceM(from, to);
+  if (d <= metres) return { lat: to.lat, lng: to.lng };
+  const f = metres / d;
+  return { lat: from.lat + (to.lat - from.lat) * f, lng: from.lng + (to.lng - from.lng) * f };
+}
+
+const near = (pin) => ({ lat: pin.lat + (Math.random() - 0.5) * 0.004, lng: pin.lng + (Math.random() - 0.5) * 0.004 });
+
+function goOnline(me, pos) {
+  return mutate('courier_online', me.token(), 'partner.goOnline', { cityId: world.cityId, at: pos }).data;
+}
+
+/** The field-ops person takes what the courier holds, with the courier's hand-over code (ops.recordCashReceipt). */
+function handOverCash(me, ops, status) {
+  const held = status && status.cash ? status.cash.heldIqd : 0;
+  if (!(held > 0)) return;
+  const code = query('courier_cash', me.token(), [['driverAccount.handoverCode', null]]).data[0];
+  if (!code) return;
+  mutate('courier_cash', ops.token(), 'ops.recordCashReceipt', {
+    courierId: me.personId,
+    amountIqd: held,
+    code: code.code,
+    idempotencyKey: `load_cash_${me.personId}_${Date.now().toString(36)}`,
+  });
+}
+
+/**
+ * Free and online: the partner stream is open (as the app keeps it) and the offer arrives on it. The
+ * app's 30-s presence beat rides every second 15-s ping (k6 timers wait while a stream is open).
+ * Returns an offer, or null when the stream ends without one.
+ */
+function waitForOffer(me, pos) {
+  const first = query('courier_offer', me.token(), [['partner.currentOffer', null]]).data[0];
+  if (first) return first;
+  const live = mutate('stream_token', me.token(), 'live.token', null).data;
+  if (!live) {
+    sleep(5);
+    return null;
+  }
+  const url = `${BASE}/live.partner?connectionParams=${encodeURIComponent(JSON.stringify({ streamToken: live.token }))}`;
+  const started = Date.now();
+  const closeAt = Math.min(started + 10 * 60_000, endsAt());
+  let offer = null;
+  let pings = 0;
+  const res = sse.open(url, { tags: { flow: 'courier_stream' } }, (client) => {
+    client.on('open', () => sseConnect.add(Date.now() - started));
+    client.on('event', (e) => {
+      if (e.name === 'ping') {
+        pings += 1;
+        if (pings % 2 === 0) goOnline(me, pos);
+      } else if (e.data && e.data.indexOf('"hello"') < 0) {
+        offer = query('courier_offer', me.token(), [['partner.currentOffer', null]]).data[0];
+      }
+      if (offer || Date.now() >= closeAt) client.close();
+    });
+    client.on('error', () => {});
+  });
+  if (!res || res.status !== 200) {
+    sseOpenFailed.add(1, { status: String(res ? res.status : 0) });
+    sleep(5);
+  }
+  return offer;
+}
+
+/** One 5-s step of the ride: a fix a second, sent as one batch (the app's useJobPositions). */
+let lastFixAt = 0;
+function ride(me, pos, target) {
+  const fixes = [];
+  let at = Math.max(Date.now() - 4_000, lastFixAt + 1_000);
+  for (let i = 0; i < 5; i++, at += 1_000) {
+    pos = towards(pos, target, RIDE_MPS);
+    fixes.push({ pin: pos, at: new Date(at).toISOString(), speedKmh: 30, accuracyM: 8 });
+  }
+  lastFixAt = at - 1_000;
+  sleep(5);
+  mutate('courier_gps', me.token(), 'trips.reportPositions', { fixes }, null, datesAt(fixes.map((_, i) => `fixes.${i}.at`)));
+  gpsFixes.add(fixes.length);
+  return pos;
+}
+
+/** Works the accepted job to the end: ride, arrive, pick up, ride, hand over. Returns where he ends up. */
+function runJob(me, pos) {
+  let job = query('courier_job', me.token(), [['partner.activeJob', null]]).data[0];
+  let beat = Date.now();
+  while (job && Date.now() < endsAt()) {
+    const stop = job.stops.find((x) => x.stopId === job.currentStopId);
+    if (!stop) break;
+    while (stop.state === 'pending' && distanceM(pos, stop.pin) > ARRIVE_WITHIN_M && Date.now() < endsAt()) {
+      pos = ride(me, pos, stop.pin);
+      if (Date.now() - beat >= 30_000) {
+        // The app's presence beat and its 30-s job poll (no stream while riding).
+        beat = Date.now();
+        goOnline(me, pos);
+        query('courier_job', me.token(), [['partner.activeJob', null]]);
+      }
+    }
+    if (stop.state === 'pending') {
+      mutate('courier_arrive', me.token(), 'trips.arrive', { tripId: job.tripId, stopId: stop.stopId, pin: pos, accuracyM: 8 }, [409]);
+    }
+    if (stop.type === 'pickup') {
+      sleep(sleepJitter(60)); // at the counter
+      mutate('courier_pickup', me.token(), 'trips.completeStop', { tripId: job.tripId, stopId: stop.stopId, handover: {} }, [409]);
+    } else {
+      sleep(sleepJitter(40)); // at the door
+      const handover = stop.collectIqd > 0 ? { cashCollectedIqd: stop.collectIqd, recipientConfirmed: true } : { recipientConfirmed: true };
+      const done = mutate('courier_dropoff', me.token(), 'trips.completeStop', { tripId: job.tripId, stopId: stop.stopId, handover }, [409]);
+      if (done.res.status === 200) deliveries.add(1);
+    }
+    job = query('courier_job', me.token(), [['partner.activeJob', null]]).data[0];
+  }
+  return pos;
+}
+
+export function courier() {
+  const idx = exec.scenario.iterationInTest;
+  const me = session('courier', idx);
+  const ops = session('ops', idx);
+  let pos = near(pick(world.dropoffs).pin);
+  sleep(Math.random() * Math.min(60, PLAN.durationS / 4));
+  let status = goOnline(me, pos);
+  // Cash left from an earlier run is handed over first, as at the start of a shift.
+  handOverCash(me, ops, status);
+  while (Date.now() < endsAt()) {
+    if (status && status.cash && (status.cash.nearCap || status.cash.overCap)) handOverCash(me, ops, status);
+    if (!(status && status.activeTripId)) {
+      const offer = waitForOffer(me, pos);
+      if (offer) {
+        mutate('courier_offer', me.token(), 'dispatch.offerSeen', { offerId: offer.offerId, foregroundMs: 3000 }, [409]);
+        sleep(sleepJitter(4));
+        const answer = mutate('courier_accept', me.token(), 'dispatch.respond', { offerId: offer.offerId, accept: true }, [409]);
+        if (answer.data && answer.data.outcome === 'assigned') offersTaken.add(1);
+      }
+    }
+    status = goOnline(me, pos);
+    if (status && status.activeTripId) {
+      pos = runJob(me, pos);
+      status = goOnline(me, pos);
+    }
+  }
+  mutate('courier_offline', me.token(), 'partner.goOffline', {});
+}
+

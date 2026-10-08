@@ -22,6 +22,7 @@ const WORLD_FILE = __ENV.LOAD_WORLD || './world.json';
 
 export const customers = new SharedArray('customers', () => JSON.parse(open(TOKENS_FILE)).customers);
 export const merchants = new SharedArray('merchants', () => JSON.parse(open(TOKENS_FILE)).merchants);
+export const couriers = new SharedArray('couriers', () => JSON.parse(open(TOKENS_FILE)).couriers || []);
 export const world = JSON.parse(open(WORLD_FILE));
 
 export const PLAN = runPlan(__ENV.LOAD_PROFILE || 'smoke', { k: __ENV.LOAD_K, duration: __ENV.LOAD_DURATION });
@@ -73,15 +74,24 @@ function headers(flow, token) {
   return h;
 }
 
-/** Plain JSON → superjson envelope. Load inputs carry no Dates, so `meta` is never needed. */
-const wrap = (json) => ({ json });
-
-function batchInput(inputs) {
+/**
+ * Plain JSON → superjson envelope. Dates travel as ISO strings and are named in `meta` (superjson's
+ * `{"values": {"fixes.0.at": ["Date"]}}`); see `datesAt`.
+ */
+function batchInput(inputs, meta) {
   const o = {};
   inputs.forEach((v, i) => {
-    o[i] = wrap(v === undefined ? null : v);
+    o[i] = { json: v === undefined ? null : v };
+    if (meta) o[i].meta = meta;
   });
   return o;
+}
+
+/** superjson meta naming ISO-string Dates at these paths (e.g. ['fixes.0.at', 'fixes.1.at']). */
+export function datesAt(paths) {
+  const values = {};
+  for (const p of paths) values[p] = ['Date'];
+  return { values };
 }
 
 /** Unwraps a batch response; returns `null` entries for errors (k6 already counted the status). */
@@ -122,8 +132,8 @@ export function queryParallel(flow, token, batches) {
   return out.map((res, i) => ({ res, data: unwrap(res, batches[i].length) }));
 }
 
-export function mutate(flow, token, proc, input, okStatuses) {
-  const res = http.post(`${BASE}/${proc}?batch=1`, JSON.stringify(batchInput([input])), {
+export function mutate(flow, token, proc, input, okStatuses, meta) {
+  const res = http.post(`${BASE}/${proc}?batch=1`, JSON.stringify(batchInput([input], meta)), {
     headers: headers(flow, token),
     tags: { flow, name: `${BASE}/${proc}` },
   });
@@ -136,16 +146,17 @@ export function mutate(flow, token, proc, input, okStatuses) {
  * refresh token replaces the old one in memory only.
  */
 export function session(kind, index) {
-  const pool = kind === 'merchant' ? merchants : customers;
+  const pool = kind === 'merchant' ? merchants : kind === 'courier' || kind === 'ops' ? couriers : customers;
   if (index >= pool.length) {
-    fail(`not enough ${kind} load accounts: need #${index + 1}, prepared ${pool.length} (run prepare.mjs with more)`);
+    fail(`not enough ${kind} load accounts: need #${index + 1}, prepared ${pool.length} (run prepare.mjs with the same profile)`);
   }
   const seed = pool[index];
-  let refreshToken = seed.refreshToken;
+  // The field-ops person has one session per courier: `ops` #i is the one paired with courier #i.
+  let refreshToken = kind === 'ops' ? seed.opsToken : seed.refreshToken;
   let access = null;
   let at = 0;
   return {
-    personId: seed.personId,
+    personId: kind === 'ops' ? 'load_ops' : seed.personId,
     orgId: seed.orgId,
     token() {
       if (access && Date.now() - at < REFRESH_EVERY_MS) return access;

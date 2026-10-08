@@ -42,12 +42,18 @@ All in `scripts/load/k6/launch.js`, sending exactly what the apps send (tRPC bat
   the stream on; the stream is reopened every 10 minutes (a stream token lasts 15).
 - **Kitchens**: one per launch kitchen; heartbeat and board every 30 s, accept new orders at 10 minutes'
   prep, mark them ready when that time is up. Setup opens the four kitchens all day for the run;
-  teardown puts each kitchen's days and closures back.
+  teardown puts each kitchen's days and closures back. `LOAD_PREP_MIN` shortens the prep for quick local runs.
+- **Couriers** (6 / 70 / 140 / 210): food couriers on bikes. They go online every 30 s (`partner.goOnline`);
+  while free they hold the partner stream open and accept the offer that arrives on it; on a job they ride
+  at 30 km/h to the kitchen, then the door, sending one GPS fix a second in 5-s batches
+  (`trips.reportPositions`), arrive, pick up and hand over, collecting the cash. Near the cash cap the
+  field-ops person takes their cash with their hand-over code (`ops.recordCashReceipt`), as on a real night.
 
 ## The people it runs as
 
-`scripts/load/prepare.mjs` writes 1,500 load customers (`load_c_…`) and one owner per launch kitchen
-(`load_m_…`) with made-up numbers in +964 7999 1xxxxx / 2xxxxx; their phone hashes are unpeppered, so
+`scripts/load/prepare.mjs` writes 1,500 load customers (`load_c_…`), one owner per launch kitchen
+(`load_m_…`), the profile's couriers (`load_k_…`, with a passed selfie check-in for today and tomorrow)
+and one field-ops person (`load_ops`), with made-up numbers in +964 7999 1…4xxxxx; their phone hashes are unpeppered, so
 nobody can ever sign in as them. It then makes fresh sessions: the refresh tokens are generated on the
 runner and only their SHA-256 reaches the database, exactly as the API stores them. k6 trades each for an
 access token through the real `identity.refresh`, so no signing key leaves Fly. A refresh token rotates
@@ -75,8 +81,6 @@ node scripts/load/prepare.mjs --revoke
 
 ## Still to come
 
-- Couriers: online drivers taking offers, 20 GPS fixes a second at 1× (`trips.reportPositions`), pick-up and
-  hand-over, so orders finish instead of waiting for a courier.
 - Six weeks of history (≥ 45,000 orders, 1,500 customers weighted by how often they order) seeded before
   the run, since "my orders", menus and history get slower as orders pile up.
 - The 1,500-sign-in spike from 3 addresses and the probe herd (1,500 clients probing `health.ping` during a

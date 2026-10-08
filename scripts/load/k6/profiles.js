@@ -2,7 +2,7 @@
 //
 // "k" multiplies the app-visit rate: at 1× a visit every 1.33 s (0.75 home opens/s, 0.5 menus/s,
 // 0.25 searches/s, 0.25 orders/s). `live` is the live orders being watched, `streams` how many of them
-// have the tracking stream open.
+// have the tracking stream open, `couriers` how many food couriers are online (launch night: about 70).
 
 // §7.1 pass numbers. At 3× the API may refuse work (503), but quickly and with Retry-After.
 const COMMON = {
@@ -14,14 +14,15 @@ const COMMON = {
 };
 
 export const PROFILES = {
-  smoke: { k: 0.2, duration: '3m', live: 20, streams: 10, shedding: false, thresholds: COMMON },
-  '1x': { k: 1, duration: '2h', live: 225, streams: 112, shedding: false, thresholds: COMMON },
-  '2x': { k: 2, duration: '1h', live: 450, streams: 250, shedding: false, thresholds: { ...COMMON, sse_connect: ['p(95)<1000'] } },
+  smoke: { k: 0.2, duration: '3m', live: 20, streams: 10, couriers: 6, shedding: false, thresholds: COMMON },
+  '1x': { k: 1, duration: '2h', live: 225, streams: 112, couriers: 70, shedding: false, thresholds: COMMON },
+  '2x': { k: 2, duration: '1h', live: 450, streams: 250, couriers: 140, shedding: false, thresholds: { ...COMMON, sse_connect: ['p(95)<1000'] } },
   '3x': {
     k: 3,
     duration: '15m',
     live: 675,
     streams: 336,
+    couriers: 210,
     shedding: true,
     thresholds: { bad_responses: ['rate<0.001'], shed_ms: ['p(95)<100'], shed_without_retry_after: ['count==0'], sse_open_failed: ['count==0'] },
   },
@@ -57,6 +58,7 @@ export function runPlan(name, overrides = {}) {
     visitsPerMin,
     live,
     streams,
+    couriers: p.couriers,
     shedding: p.shedding,
     thresholds: p.thresholds,
     offsets: { live: 0, streams: live, visits: live + streams },
