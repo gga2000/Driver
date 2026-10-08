@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type CourierRatingReason, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Avatar, Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
+import { Avatar, Button, ChipGroup, Icon, ltr, PhotoImage, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
@@ -127,11 +127,10 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           <>
             {gate.uri ? (
               <View testID="arrival-photo" style={{ width: '100%', flexShrink: 1, gap: theme.space[1] }}>
-                <Image
-                  source={{ uri: gate.uri }}
+                <PhotoImage
+                  uri={gate.uri}
                   onError={gate.onError}
                   accessibilityLabel={t('track.arrived_gate')}
-                  resizeMode="cover"
                   style={{ width: '100%', height: 200, maxHeight: 220, borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}
                 />
                 <Text variant="caption" color="textMuted" align="center">
