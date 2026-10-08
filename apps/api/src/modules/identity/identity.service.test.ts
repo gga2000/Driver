@@ -236,6 +236,13 @@ describe('sessions', () => {
     await expectCode(late.service.refresh(b.tokens.refreshToken, DEV_A), 'refresh_reused');
   });
 
+  it('SEC-09: no grace without a known device on both sides', async () => {
+    const h = harness();
+    const { tokens } = await h.login(PHONE); // no device on the session
+    await h.service.refresh(tokens.refreshToken);
+    await expectCode(h.service.refresh(tokens.refreshToken), 'refresh_reused');
+  });
+
   it('SEC-18: two refreshes racing with one token: one rotates, the other is the grace retry, never two live tokens', async () => {
     const h = harness();
     const { tokens } = await h.login(PHONE, DEV_A);

@@ -152,7 +152,8 @@ export class SessionService {
   private async inGrace(session: SessionRecord, now: Date, callerDeviceId?: (session: SessionRecord) => Promise<string | null>): Promise<boolean> {
     if (!session.rotatedAt || now.getTime() - session.rotatedAt.getTime() > REFRESH_REUSE_GRACE_SEC * 1000) return false;
     const caller = callerDeviceId ? await callerDeviceId(session) : null;
-    return caller === session.deviceId;
+    // No known device on either side proves nothing: no grace.
+    return caller !== null && caller === session.deviceId;
   }
 
   async revoke(sessionId: string, tx?: Tx): Promise<void> {
