@@ -28,6 +28,9 @@ kill_timeout = 30
   TRUST_PROXY = "1"
   # Supavisor transaction mode: 10 per process, 3 processes = 30 of Small compute's pooled clients.
   DATABASE_POOL_MAX = "10"
+  # The worker fires far-ahead timers (booked rides' T−30 search, offers, reminders) from the durable
+  # table when their Redis job was lost (NTF-05). Web machines never sweep (DRIVER_ROLE=web).
+  TIMERS_SWEEPER = "on"
 
 # DRIVER_ROLE differs per group, and [env] is app-wide, so each command sets it. The heap cap is 75 % of
 # the machine (LOAD-10): past it Node fails fast and Fly restarts the machine instead of it swapping.
