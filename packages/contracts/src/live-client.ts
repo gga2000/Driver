@@ -326,10 +326,15 @@ export interface XhrEventSourceInstance {
   removeEventListener(type: string, listener: Listener): void;
   close(): void;
 }
-export type XhrEventSourceConstructor = new (
-  url: string,
-  init?: { withCredentials?: boolean },
-) => XhrEventSourceInstance;
+/**
+ * `headers`: extra request headers on every connection (a browser EventSource can send none; the
+ * apps pass the build header `x-driver-app` here through httpSubscriptionLink's eventSourceOptions).
+ */
+export interface XhrEventSourceInit {
+  withCredentials?: boolean;
+  headers?: Readonly<Record<string, string>>;
+}
+export type XhrEventSourceConstructor = new (url: string, init?: XhrEventSourceInit) => XhrEventSourceInstance;
 
 export function createXhrEventSource(Xhr?: XhrConstructor): XhrEventSourceConstructor {
   return class XhrEventSource {
@@ -351,9 +356,12 @@ export function createXhrEventSource(Xhr?: XhrConstructor): XhrEventSourceConstr
       this.emit(e.type, { type: e.type, data: e.data, lastEventId: e.lastEventId }),
     );
 
-    constructor(url: string, init?: { withCredentials?: boolean }) {
+    private readonly headers: Readonly<Record<string, string>>;
+
+    constructor(url: string, init?: XhrEventSourceInit) {
       this.url = url;
       this.withCredentials = Boolean(init?.withCredentials);
+      this.headers = { ...init?.headers };
       // Listeners are attached right after construction; XHR callbacks are async anyway.
       Promise.resolve().then(
         () => this.connect(),
@@ -398,6 +406,7 @@ export function createXhrEventSource(Xhr?: XhrConstructor): XhrEventSourceConstr
       x.open('GET', this.url);
       x.setRequestHeader('Accept', 'text/event-stream');
       x.setRequestHeader('Cache-Control', 'no-cache');
+      for (const [k, v] of Object.entries(this.headers)) x.setRequestHeader(k, v);
       if (this.withCredentials) x.withCredentials = true;
       const pump = () => {
         if (this.xhr !== x) return;

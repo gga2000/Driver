@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import {
+  ActivityTodayInput,
   AdminMenu,
   AdminMenuItem,
   ApplyImportInput,
@@ -17,8 +18,11 @@ import {
   MerchantDispute,
   MerchantDaySummary,
   MerchantInsights,
+  MerchantActivity,
   MerchantScope,
   MoneyToday,
+  OrderWho,
+  OrderWhoInput,
   MyMerchant,
   PriceChange,
   PriceUpdateOutput,
@@ -53,7 +57,7 @@ const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 
 /**
  * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. Owner-only:
- * `money.*`, `staff.*`, `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
+ * `money.*`, `staff.*`, `activity.*` (who pressed what), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
  */
 export const merchantAdminRouter = router({
   /** Merchants the caller works at, with his role at each. */
@@ -110,6 +114,11 @@ export const merchantAdminRouter = router({
     remove: p.input(RemoveStaffInput).output(z.object({ removed: z.boolean() })).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRemove(ctx.actor, input)),
     /** A pending invite goes out again (owner only; once per 10 min; the row after). */
     resendInvite: p.input(ResendStaffInviteInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffResendInvite(ctx.actor, input)),
+  }),
+  /** «مين سوّى شنو»: who accepted, rejected, readied, extended, handed over, sold out. Owner only. */
+  activity: router({
+    today: p.input(ActivityTodayInput).output(MerchantActivity).query(({ ctx, input }) => ctx.merchantAdmin.activityToday(ctx.actor, input)),
+    order: p.input(OrderWhoInput).output(OrderWho).query(({ ctx, input }) => ctx.merchantAdmin.activityOrder(ctx.actor, input)),
   }),
   /** «قدر اليوم» (joy h2): one dish a day, posted in one tap; followers get one push. Owner and staff. */
   pot: router({

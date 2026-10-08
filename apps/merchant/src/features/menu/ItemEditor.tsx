@@ -130,9 +130,9 @@ export function ItemEditor() {
       setUploading(false);
     }
   };
-  const pickFromLibrary = async (source: number | string) => {
+  const pickFromLibrary = async (path: string) => {
     try {
-      if (await applyPhoto(await libraryPhoto(source))) setLibraryOpen(false);
+      if (await applyPhoto(libraryPhoto(path))) setLibraryOpen(false);
     } catch (err) {
       fail(err);
     }

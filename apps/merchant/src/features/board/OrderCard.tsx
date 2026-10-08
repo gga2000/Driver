@@ -12,19 +12,20 @@ import { iqd } from '@/lib/money';
 import { usePrefs } from '@/lib/prefs';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
-import { LADDER } from './ladder';
+import { LADDER, stageFor } from './ladder';
+import { useServerSelect, useServerTime } from './clock';
 import { PickupCode } from './PickupCode';
 import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, needsReading, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
   order: BoardOrder;
-  /** Server time (ms). */
-  now: number;
+  /** Server time (ms); left out on the board, where each ticket follows the shared clock itself (h3). */
+  now?: number;
   /** Server clock for the accept ring. */
   clock: () => number;
   /** Still ringing (not accepted/rejected/snoozed): pulses. */
   ringing?: boolean;
-  /** Its own alarm stage: in the last 30 s the border and ring turn danger and the card breathes. */
+  /** Its own alarm stage: in the last 30 s the border and ring turn danger and the card breathes. Left out, the card works it out from `acceptBy`. */
   stage?: AlarmStage | null;
   /** Cap on item lines shown (the detail sheet shows all). */
   maxLines?: number;
@@ -300,7 +301,7 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, now, clock, ringing = false, stage = null, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
+  const { order, clock, ringing = false, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
@@ -310,6 +311,14 @@ export function OrderCard(props: OrderCardProps) {
   const narrowBoard = wide && width < 1200;
   const numberLabel = t('merchant.card.number', { number: order.number });
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
+  // h3: a ticket re-draws on its own when its numbers change: every 10 s («من 4 د», the prep bar),
+  // every second only while it counts a customer's answer down, and when its ring changes stage.
+  const step = order.partial ? 1000 : 10_000;
+  const tickNow = useServerTime(step);
+  const now = props.now ?? tickNow;
+  const acceptBy = order.acceptBy?.getTime() ?? null;
+  const liveStage = useServerSelect((at) => (ringing && acceptBy !== null ? stageFor(acceptBy - at) : null));
+  const stage = props.stage !== undefined ? props.stage : liveStage;
   const isNew = order.column === 'new';
   const allergy = hasAllergy(order);
   const hot = isNew && stage === 'final';

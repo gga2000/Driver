@@ -57,6 +57,11 @@ describe('HTTP surface (webhook, uploads, food photos)', () => {
     expect(ok.headers.get('content-type')).toContain('image/webp');
     expect(ok.headers.get('cache-control')).toContain('immutable');
     expect((await ok.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    // The merchant app's dish library (`lib-*`) is served from the same folder.
+    const lib = await fetch(`${base}/media/food/lib-mixed-grill-1.webp`);
+    expect(lib.status).toBe(200);
+    expect(lib.headers.get('content-type')).toContain('image/webp');
+    expect((await lib.arrayBuffer()).byteLength).toBeGreaterThan(1000);
     expect((await fetch(`${base}/media/food/nope-1.webp`)).status).toBe(404);
     expect((await fetch(`${base}/media/food/..%2Fpackage.json`)).status).toBe(404);
     expect((await fetch(`${base}/media/food/K-KEBAB-2.WEBP`)).status).toBe(404);

@@ -29,6 +29,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010131000 | gift_recipient_vault | lane A | #29 |
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
 | 20261010230000 | store_closed_until | merchant | #19 |
+| 20261010240000 | console_watch | lane E | #37 |
 | 20261010340000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41) |
 | 20261010350000 | request_wait_clock | trips thread | private car round 2 step 2 (reserved) |
 | 20261010360000 | request_fetch_person | trips thread | private car round 2 step 3 (reserved) |
