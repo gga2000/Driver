@@ -158,10 +158,28 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     // A street hand-over is a −250 option the server applies.
     const street = await h.orders.place('c1', h.foodInput({ options: { streetHandover: true }, deliveryFeeIqd: undefined }));
     expect(street.deliveryFeeIqd).toBe(750);
+    // HUNT-02: the order keeps «بالشارع» as priced, so the courier and the receipt know it.
+    expect(street.streetHandover).toBe(true);
+    expect((await h.repo.find(street.id))!.order.dropoff).toMatchObject({ streetHandover: true });
+    expect(near.streetHandover).toBeUndefined();
+    // The client cannot set it on the point itself: only the priced option counts.
+    const sneaky = await h.orders.place('c1', h.foodInput({ dropoff: { ...h.foodInput().dropoff!, streetHandover: true }, deliveryFeeIqd: undefined }));
+    expect(sneaky.streetHandover).toBeUndefined();
+    expect(sneaky.deliveryFeeIqd).toBe(1000);
     // No drop-off place, or a merchant without a place on file: nothing to price from.
     expect(await code(h.orders.place('c1', h.foodInput({ dropoff: undefined })))).toBe('quote_location_required');
     h.merchants.add('rest_nowhere');
     expect(await code(h.orders.place('c1', h.foodInput({ merchantOrgId: 'rest_nowhere' })))).toBe('quote_location_required');
+  });
+
+  it('FOOD-15: the drop-off zone is the server\'s reading of the pin; a pin outside the city is refused', async () => {
+    const h = ordersHarness();
+    h.placeZones.resolve = (_city, pin) => (pin.lat > 40 ? null : 'zakur');
+    // The app says the near zone, the pin is in Zakur: the fee is Zakur's.
+    const o = await h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: h.foodInput().dropoff!.pin! }, deliveryFeeIqd: undefined }));
+    expect(o.deliveryFeeIqd).toBe(1000);
+    expect((await h.repo.find(o.id))!.order.dropoff).toMatchObject({ zoneKey: 'zakur' });
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'centre', pin: { lat: 41, lng: 45 } } })))).toBe('outside_zone');
   });
 
   it('night delivery: the server adds the +250 night component itself', async () => {

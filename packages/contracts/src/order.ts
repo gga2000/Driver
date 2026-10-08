@@ -363,6 +363,8 @@ export const Order = z.object({
   note: z.string().nullable(),
   /** The note for the courier (M-09); null/absent = none. */
   courierNote: z.string().nullable().optional(),
+  /** HUNT-02 «بالشارع · توفّر 250 دينار»: he meets the courier at the street, priced so; absent/false = at the door. */
+  streetHandover: z.boolean().optional(),
   /** The checkout attempt's idempotency key the order was placed with; null/absent = none sent. */
   clientRequestId: z.string().nullable().optional(),
   /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */

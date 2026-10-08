@@ -51,6 +51,7 @@ import {
   type VehicleClass,
   type Vertical,
   MERCHANT_BUSY_RULES,
+  localClock,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -59,6 +60,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
+import { foodScheduleProblem } from './orders.config.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -151,6 +153,8 @@ export const ORDERS_WALLET_HOLDS = 'orders';
  */
 export interface OrdersPlacesPort {
   deliveryPlace(personId: string, placeId: string): Promise<{ door: LatLng | null } | null>;
+  /** FOOD-15: pin → zone on the server (the places module's resolver); null = outside the service area. */
+  readonly zones?: { resolve(cityId: string, pin: LatLng): string | null };
 }
 
 export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
@@ -369,11 +373,14 @@ export class OrdersService implements OnModuleInit {
   /**
    * A point's saved-place link, kept only when the orderer may use that place (maps program SP3d),
    * with the door learned for it (a3). A place someone else owns, or one deleted since, drops the
-   * link; a client's own `door` is never kept; the pin and zone stay as sent.
+   * link; a client's own `door` is never kept. FOOD-15: a pinned point's zone is the server's own
+   * reading of the pin (it sets the fee), and a pin outside the service area is refused.
    */
-  private async placeLink(ordererId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
+  private async placeLink(ordererId: string, cityId: string, point: DeliveryPoint | undefined): Promise<DeliveryPoint | undefined> {
     if (!point) return point;
-    const base: DeliveryPoint = point.pin ? { zoneKey: point.zoneKey, pin: point.pin } : { zoneKey: point.zoneKey };
+    const zoneKey = point.pin && this.places?.zones ? this.places.zones.resolve(cityId, point.pin) : point.zoneKey;
+    if (!zoneKey) throw new DriverError('outside_zone');
+    const base: DeliveryPoint = point.pin ? { zoneKey, pin: point.pin } : { zoneKey };
     if (!point.placeId || !this.places) return base;
     const place = await this.places.deliveryPlace(ordererId, point.placeId);
     if (!place) return base;
@@ -392,7 +399,7 @@ export class OrdersService implements OnModuleInit {
 
   /** `carried`: a ride switched to the other vehicle keeps the rider it was booked for (J-D7 × c9). */
   private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>, carried: { rider?: ResolvedRider } = {}): Promise<Order> {
-    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.dropoff) };
+    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.cityId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.cityId, raw.dropoff) };
     const now = this.clock.now();
     // c9/s3: a ride for someone else is a ride, with one rider (the legacy `participants` rider or this, not both).
     if (input.rider || carried.rider) {
@@ -517,7 +524,9 @@ export class OrdersService implements OnModuleInit {
             giftHidePrices: Boolean(input.gift?.hidePrices),
             scheduledFor: input.scheduledFor ?? null,
             minVehicleClass: caps?.minVehicleClass ?? null,
-            dropoff: input.dropoff ?? null,
+            // HUNT-02: «بالشارع» is kept on the order exactly as it was priced, so the courier and the
+            // receipt say it too (the client's own flag never reaches the stored point).
+            dropoff: input.dropoff ? { ...input.dropoff, ...(fees.streetHandover ? { streetHandover: true as const } : {}) } : null,
             promisedRideMin,
             // s1: a ride for the night starts only with the code the rider reads out.
             startCode: startCodeForNewOrder(input.type, input.scheduledFor ?? now),
@@ -799,12 +808,17 @@ export class OrdersService implements OnModuleInit {
         // Backend review 2026-10-04 (apps #10): the server is open exactly when the card says so —
         // opening hours (a scheduled order is checked at its time: opening time itself is fine), then
         // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
+        // FOOD-03: a pre-order is for a real slot — from the kitchen's scheduling lead to the end of
+        // «باچر» — never a past time (that dodged the hours, the hand-close and the night fee).
+        if (input.scheduledFor && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
-        // Closed by hand from the Merchant app (early close), or its tablet offline for 5 minutes (h5,
-        // Ali 2026-10-08): refused like a pause window. A scheduled order still waits for its time.
+        // Closed by hand from the Merchant app (early close) or a holiday today, or its tablet offline
+        // for 5 minutes (h5, Ali 2026-10-08): refused like a pause window. A pre-order for a later day
+        // still goes in; one for later today does not while the shop is closed (FOOD-03).
         if (!input.scheduledFor && (profile.closed || tabletOffline(profile, now))) throw new DriverError('merchant_paused');
+        if (input.scheduledFor && profile.closed && localClock(input.scheduledFor, DEFAULT_TIMEZONE).date === localClock(now, DEFAULT_TIMEZONE).date) throw new DriverError('merchant_paused');
       }
     }
 
@@ -2505,6 +2519,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     refundState: order.refundState,
     note: order.note,
     courierNote: order.courierNote ?? null,
+    ...(order.dropoff?.streetHandover ? { streetHandover: true } : {}),
     clientRequestId: order.clientRequestId ?? null,
     rating: order.rating ?? null,
     discount: discountView(order),

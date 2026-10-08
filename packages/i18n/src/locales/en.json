@@ -6642,6 +6642,7 @@
   "console.ev_order_unstuck": "Order left the stuck list",
   "console.ev_order_late_apology": "We apologised for the delay and gave a new time",
   "error.ride_schedule_invalid": "You can book a ride from 20 minutes up to 7 days ahead",
+  "error.order_schedule_invalid": "That time doesn't work for this order. Pick a time today or tomorrow",
   "error.favourite_needs_schedule": "A favourite driver is only for rides booked for later",
   "error.favourite_not_found": "This driver isn't one of your favourites",
   "error.favourite_needs_good_rating": "You can pick a favourite after a ride you rated 4 or 5 stars",
