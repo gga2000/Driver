@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Line, Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import type { ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
@@ -54,6 +54,9 @@ const FLOAT = 0.18;
 const FLOAT_MAX = 26;
 /** How far a vehicle pulls forward in its tile's moment (px). */
 const PULL = 12;
+/** The round-trip ticket: بغداد والكوت's share of the row (الرجعة has 1), and the notch at the tear line. */
+const TRIPS_FLEX = 1.75;
+const NOTCH = 14;
 /** The live dot, and one beat of its ring. */
 const DOT = 7;
 const PULSE_MS = 2400;
@@ -73,8 +76,8 @@ const PLACE = {
   food: { width: '66%', end: '-2%', bottom: '-20%' },
   taxi: { width: '62%', end: '-22%', text: '50%' },
   tuktuk: { width: '52%', end: '-8%', text: '50%' },
-  trips: { width: '42%', end: '-8%', bottom: '8%', text: '62%' },
-  rajaa: { width: '80%', end: '-40%', bottom: '6%', text: '56%' },
+  trips: { width: '36%', end: '2%', bottom: '8%', text: '58%' },
+  rajaa: { width: '80%', end: '-40%', bottom: '7%', text: '52%' },
 } as const satisfies Record<string, Placement>;
 
 /** A tile's moment (`tile-moments.ts`): its progress, and `play` to run it from the start. */
@@ -173,7 +176,6 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
     <View testID="home-services" style={{ gap: GAP }}>
       <View style={{ flexDirection: 'row', gap: GAP }}>
         <Tile id="food" card={food} label={t(def('food').label)} fact={say(foodFact)} style={{ flex: 1.12, height: smallH * 2 + GAP }} onPress={() => press('food')}>
-          {food.top ? <CornerFill base={food.bg} light={food.top} /> : null}
           <Picture testID="service-food-art" picture={TILE_PICTURES.food} place={PLACE.food} facing="end" tilt={-9} off={foodOff} style={float}>
             <Steam a={moments.food.a} color={withAlpha(food.sub, 0.55)} />
           </Picture>
@@ -196,31 +198,40 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           </Tile>
         </View>
       </View>
-      <View style={{ flexDirection: 'row', gap: GAP }}>
-        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: 1.75, height: tripH }} onPress={() => press('trips')}>
+      {/* Out to Baghdad and Kut and back home: one round-trip ticket, torn into its two halves. */}
+      <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
+        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} joint="end" style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
+          <Road color={ride(s.trips.card).sub} />
           <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
           <SideWords text={PLACE.trips.text}>
             <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
           </SideWords>
         </Tile>
-        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1, height: tripH }} onPress={() => press('rajaa')}>
-          <Picture picture={TILE_PICTURES.intercity} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
+        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} joint="start" style={{ flex: 1 }} onPress={() => press('rajaa')}>
+          <Road color={ride(s.back.card).sub} />
+          <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
           <SideWords text={PLACE.rajaa.text}>
             <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
           </SideWords>
         </Tile>
+        <TearLine at={TRIPS_FLEX / (TRIPS_FLEX + 1)} color={ride(s.trips.card).sub} />
       </View>
     </View>
   );
 }
 
-/** One card: its wash, with the picture and words clipped inside; it sinks a little under the finger. */
+/**
+ * One card: its wash with the light falling on its top corner and a fine edge, the picture and words
+ * clipped inside; it sinks a little under the finger. `joint` is the side where it meets the other
+ * half of the round-trip ticket: square there, no edge, and it barely sinks so the ticket stays whole.
+ */
 function Tile({
   id,
   card,
   label,
   fact,
   disabled,
+  joint,
   style,
   onPress,
   children,
@@ -230,6 +241,7 @@ function Tile({
   label: string;
   fact: string | null;
   disabled?: boolean;
+  joint?: 'start' | 'end';
   style: StyleProp<ViewStyle>;
   onPress: () => void;
   children: ReactNode;
@@ -238,7 +250,22 @@ function Tile({
   // The soft spring press (Ali's Yes, "press"): the card sinks, then springs back with one small
   // overshoot when the finger lifts.
   const p = useSharedValue(0);
-  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * p.value }] }));
+  const depth = joint ? 0.015 : 0.04;
+  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - depth * p.value }] }));
+  const r = theme.radius.xl;
+  const corners: ViewStyle = {
+    borderTopStartRadius: joint === 'start' ? 0 : r,
+    borderBottomStartRadius: joint === 'start' ? 0 : r,
+    borderTopEndRadius: joint === 'end' ? 0 : r,
+    borderBottomEndRadius: joint === 'end' ? 0 : r,
+  };
+  const edge: ViewStyle = {
+    borderColor: withAlpha(card.on, 0.07),
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderStartWidth: joint === 'start' ? 0 : 1,
+    borderEndWidth: joint === 'end' ? 0 : 1,
+  };
   return (
     <Animated.View style={[style, sink]}>
       <Pressable
@@ -254,8 +281,9 @@ function Tile({
         onPressOut={() => {
           p.value = withSpring(0, theme.motion.spring.select);
         }}
-        style={{ flex: 1, borderRadius: theme.radius.xl, backgroundColor: card.bg, overflow: 'hidden' }}
+        style={[{ flex: 1, backgroundColor: card.bg, overflow: 'hidden' }, corners, edge]}
       >
+        {card.top ? <CornerFill base={card.bg} light={card.top} /> : null}
         {children}
       </Pressable>
     </Animated.View>
@@ -334,6 +362,34 @@ function SteamCurl({ d, i, a, color }: { d: string; i: number; a: SharedValue<nu
 function SideWords({ text, children }: { text: DimensionValue; children: ReactNode }) {
   const theme = useTheme();
   return <View style={{ position: 'absolute', top: 0, bottom: 0, start: theme.space[3], width: text, justifyContent: 'center' }}>{children}</View>;
+}
+
+/** A faint dashed road under the ticket's cars, running on from one half into the other. */
+function Road({ color }: { color: string }) {
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', start: 0, end: 0, bottom: 7, height: 2 }}>
+      <Svg width="100%" height={2}>
+        <Line x1="0" y1="1" x2="100%" y2="1" stroke={withAlpha(color, 0.28)} strokeWidth={1.5} strokeDasharray="7 6" />
+      </Svg>
+    </View>
+  );
+}
+
+/** The ticket's tear line where its halves meet (`at`, a share of the row from the start): a dotted cut between two notches. */
+function TearLine({ at, color }: { at: number; color: string }) {
+  const theme = useTheme();
+  const notch: ViewStyle = { position: 'absolute', width: NOTCH, height: NOTCH, borderRadius: NOTCH / 2, backgroundColor: theme.colors.bg };
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: `${at * 100}%`, width: NOTCH, marginStart: -NOTCH / 2, alignItems: 'center' }}>
+      <View style={{ position: 'absolute', top: NOTCH / 2 + 4, bottom: NOTCH / 2 + 4, width: 2 }}>
+        <Svg width={2} height="100%">
+          <Line x1="1" y1="0" x2="1" y2="100%" stroke={withAlpha(color, 0.45)} strokeWidth={1.5} strokeDasharray="3 4" strokeLinecap="round" />
+        </Svg>
+      </View>
+      <View style={[notch, { top: -NOTCH / 2 }]} />
+      <View style={[notch, { bottom: -NOTCH / 2 }]} />
+    </View>
+  );
 }
 
 /**
