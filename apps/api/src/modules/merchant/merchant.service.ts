@@ -113,6 +113,19 @@ export interface MerchantAreaPort {
   pausedZones(cityId: string, merchantOrgId: string, kitchenZone: string, zoneKeys: readonly string[]): Promise<Set<string>>;
 }
 
+/**
+ * «جهّز محلك» as the status header and the open switch see it (bound to `MerchantSetupService`):
+ * the setup line on `storeStatus`, and opening a shop still in setup is going live.
+ */
+export interface MerchantSetupLinePort {
+  statusLine(org: Org, s: MerchantSettings): Promise<StoreStatusView['setup']>;
+  isInSetup(s: MerchantSettings): boolean;
+  /** A new shop (no storefront yet, nothing set up) starts its setup the first time it is read. */
+  adopt(org: Org): Promise<void>;
+  goLive(actor: Actor, input: MerchantOrgInput): Promise<unknown>;
+}
+
+export const MERCHANT_SETUP_LINE = Symbol('MERCHANT_SETUP_LINE');
 export const MERCHANT_ORDERS = Symbol('MERCHANT_ORDERS');
 export const MERCHANT_AREA = Symbol('MERCHANT_AREA');
 export const MERCHANT_TRIPS = Symbol('MERCHANT_TRIPS');
@@ -152,6 +165,7 @@ export class MerchantService implements MerchantPort {
     private readonly eta: EtaService,
     @Inject(MERCHANT_AREA) private readonly area: MerchantAreaPort,
     @Optional() @Inject(MERCHANT_PHOTOS) private readonly photos: MerchantPhotosPort | null = null,
+    @Optional() @Inject(MERCHANT_SETUP_LINE) private readonly setup: MerchantSetupLinePort | null = null,
   ) {}
 
   async myStores(actor: Actor): Promise<MerchantStore[]> {
@@ -207,6 +221,11 @@ export class MerchantService implements MerchantPort {
   async setOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
+    // «جهّز محلك»: a shop still in setup opens by going live (every step done; owner only).
+    if (input.open && this.setup?.isInSetup(await this.stores.merchantSettings(org.id))) {
+      await this.setup.goLive(actor, { merchantOrgId: org.id });
+      return this.status(org);
+    }
     if (input.open) {
       await this.stores.setMerchantSettings(org.id, { closed: null });
       await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString() });
@@ -464,12 +483,17 @@ export class MerchantService implements MerchantPort {
 
   private async status(org: Org): Promise<StoreStatusView> {
     const now = this.clock.now();
+    if (this.setup) await this.setup.adopt(org);
     const s = await this.stores.merchantSettings(org.id);
     const windows = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, windows, DEFAULT_TIMEZONE);
     const { windows: weekly } = await this.weeklyHours(org.id, s);
-    const sched = scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
+    // A shop set up through «جهّز محلك» with no hours on file is closed, not open around the clock
+    // (older shops keep reading no hours as always open).
+    const sched = s.setup && weekly.length === 0 ? { inHours: false, holiday: null, closesAt: null, opensAt: null } : scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
+    const setup = this.setup ? await this.setup.statusLine(org, s) : null;
     return toStoreStatus({
+      setup,
       schedule: {
         inHours: sched.inHours,
         holiday: sched.holiday ? { to: sched.holiday.to, note: sched.holiday.note } : null,

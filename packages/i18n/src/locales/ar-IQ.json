@@ -8022,5 +8022,6 @@
   "datasaver.slow_hint_auto": "النت ضعيف هسة، فخلّينا التطبيق خفيف: صور أقل وخريطة أبسط",
   "datasaver.slow_keep": "خلّيه دائماً",
   "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",
-  "datasaver.slow_turn_on": "خلّيه خفيف"
+  "datasaver.slow_turn_on": "خلّيه خفيف",
+  "error.setup_not_ready": "باقي شغلات قبل ما تفتح. كمّلها بـ «جهّز محلك»"
 }

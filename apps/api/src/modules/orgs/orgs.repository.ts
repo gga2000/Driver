@@ -5,6 +5,7 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import {
   DEFAULT_MERCHANT_SETTINGS,
   isMerchantType,
+  setupFrom,
   type MerchantPauseWindow,
   type MerchantSettings,
   type Org,
@@ -146,6 +147,7 @@ interface OrgRow {
   pickupNote?: string | null;
   pickupPhotoRefs?: string[];
   pickupUpdatedAt?: Date | null;
+  setup?: unknown;
   members: Array<{ personId: string; role: string; spendingLimitIqd: number | null; monthlyBudgetIqd?: number | null }>;
 }
 
@@ -200,6 +202,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
       holidays: holidaysFrom(r.holidayClosures),
       hoursUpdatedAt: r.hoursUpdatedAt ?? null,
       pickupSpot: r.pickupUpdatedAt ? { note: r.pickupNote ?? null, photoRefs: [...(r.pickupPhotoRefs ?? [])], updatedAt: r.pickupUpdatedAt } : null,
+      setup: setupFrom(r.setup),
     };
   }
   return org;
@@ -301,6 +304,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
           ? Prisma.DbNull
           : (patch.holidays as unknown as Prisma.InputJsonValue);
     if (patch.hoursUpdatedAt !== undefined) data.hoursUpdatedAt = patch.hoursUpdatedAt;
+    if (patch.setup !== undefined) data.setup = patch.setup === null ? Prisma.DbNull : (JSON.parse(JSON.stringify(patch.setup)) as Prisma.InputJsonValue);
     if (patch.pickupSpot !== undefined) Object.assign(data, { pickupNote: patch.pickupSpot?.note ?? null, pickupPhotoRefs: patch.pickupSpot?.photoRefs ?? [], pickupUpdatedAt: patch.pickupSpot?.updatedAt ?? null });
     await db.org.update({ where: { id: orgId }, data });
     if (patch.location !== undefined) {

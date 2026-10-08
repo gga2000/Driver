@@ -144,7 +144,8 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 ```
 
 Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board), `0770 999 0000` staff at two
-stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate). مصطفى and
+stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate), `0770 777 0001`
+أبو حسن, owner of a new shop that is not set up yet (see «جهّز محلك» below). مصطفى and
 علي accept, add time, reject and mark ready on the seeded orders and mark dishes sold out, so the
 owner's «مين سوّى شنو» card (يومك → اليوم) has names. The board section seeds 3 new orders (a group order
 for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,500 دينار cash balance
@@ -211,6 +212,25 @@ keepGate: true })` keeps it for a shot).
   courier حيدر, plate واسط 45671, waited `waited` minutes; returns its `number`),
   `/demo/signature/balance?kind=owed|owe` (87,500 owed or "عليك 4,250"), `/demo/signature/day-summary`
   (closes the store for the day). Shots: `SHOTS=signature`.
+
+## «جهّز محلك» — a new shop's first day (`/setup`)
+
+- A shop with no storefront yet (signed up by field ops, not opened) starts setup on its first read
+  (`merchant.setup.*`, `orgs.setup`): it stays closed — customers can't see or order — until the owner
+  raises his own shutter. Shops from before setup (every other demo shop) never see any of it.
+- `/setup` is the entry (the activation SMS links here): his own shop page as customers will see it, gaps
+  lit saffron, the ring «جاهز 40%» and minutes left, one next step and «بعدين» (never blocks work). Steps:
+  what he sells (`/setup/kind`, the 4 doors; the kind sets the words and the colour), the menu as
+  yes/fix cards from the wall photo (`/setup/menu`; nothing goes live before «صح»), a photo for every dish
+  (`/setup/photos`; Driver library photos count and show customers «صورة توضيحية»), hours in one tap with
+  Friday prayer (`/setup/hours`), the counter (`/setup/counter`: sound, screen awake, pickup spot, how the
+  money reaches him, printer optional, a practice order), then the shutter (`/setup/open`) and «مبروك».
+  The board keeps a «جهّز محلك» card (phone: in «جديد»; tablet: beside «الطلبات تجي هنا»), المحل marks
+  what is «ناقص», and the first real order wears a gold ribbon. Staff never see setup.
+- Demo (`scripts/demo/setup.mjs`): `0770 777 0001` «أبو حسن», owner of مشويات الزهراء — field ops left
+  the pickup photo and the menu photo, read into 14 cards. `POST /demo/setup/reset` (a fresh shop again),
+  `/demo/setup/stage?to=fresh|cards|ready|live` (`cards`: kind confirmed, 10 cards answered; `ready`:
+  every step done, shutter down), `/demo/setup/first-order` (a live shop's first order). Shots: `SHOTS=setup`.
 
 ## Real time (`live.merchantBoard`)
 

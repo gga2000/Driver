@@ -7,7 +7,9 @@ import { EntryTile } from '@/components/EntryTile';
 import { Loadable, type QueryState } from '@/components/Loadable';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Page } from '@/components/Page';
-import { Panel } from '@/components/Panel';
+import { Panel, Tag } from '@/components/Panel';
+import { useSetup } from '@/features/setup/queries';
+import { SetupRing } from '@/features/setup/SetupRing';
 import { shiftLabel, stateLine } from '@/features/hours/logic';
 import { useStoreHours } from '@/features/hours/queries';
 import { useInsights } from '@/features/insights/queries';
@@ -62,6 +64,12 @@ export function ShopScreen() {
   const [closing, setClosing] = useState<'shutter' | 'other' | null>(null);
   const client = useApiClient();
   const s = status.data;
+  // «جهّز محلك» (s2): while the shop is being set up, a tile back to it on top, «ناقص» on the tiles
+  // still open, and the shutter goes up from setup's last step.
+  const setupLine = s?.setup ?? null;
+  const inSetup = !!setupLine && !setupLine.live;
+  const setup = useSetup(orgId, canSeeMoney && inSetup);
+  const missing = new Set<string>(setup.data && inSetup && !setup.data.pickup.set ? ['pickup-spot'] : []);
 
   const signOut = async () => {
     const refreshToken = session.getSnapshot().session?.refreshToken;
@@ -72,6 +80,10 @@ export function ShopScreen() {
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
   const reopen = async () => {
     if (!s) return;
+    if (setupLine && !setupLine.live) {
+      router.push(canSeeMoney && setupLine.left === 0 ? '/setup/open' : '/setup');
+      return;
+    }
     try {
       await setOpen.mutateAsync({ merchantOrgId: s.merchantOrgId, open: true });
       toast.show({ message: t('merchant.status.opened'), tone: 'success' });
@@ -122,6 +134,16 @@ export function ShopScreen() {
 
   return (
     <Page title={t('merchant.shop.title')} subtitle={store?.name} testID="more" maxWidth={1160}>
+      {inSetup && setupLine && canSeeMoney ? (
+        <EntryTile
+          testID="shop-setup"
+          icon="store"
+          title={t('merchant.setup.title')}
+          hint={setup.data ? t('merchant.setup.tile_hint', { percent: setupLine.percent, minutes: setup.data.progress.minutesLeft }) : t('merchant.setup.tile_hint_short', { percent: setupLine.percent })}
+          onPress={() => router.push('/setup')}
+          trailing={<SetupRing percent={setupLine.percent} size={52} label={t('merchant.setup.ring_label', { percent: setupLine.percent })} />}
+        />
+      ) : null}
       <View testID="shop" style={{ flexDirection: wide ? 'row' : 'column', gap: theme.space[4], alignItems: wide ? 'flex-start' : 'stretch' }}>
         <View style={wide ? { flex: 1.15 } : undefined}>{front}</View>
         <View style={wide ? { flex: 1 } : undefined}>{side}</View>
@@ -131,7 +153,7 @@ export function ShopScreen() {
           .filter((x) => !x.owner || canSeeMoney)
           .map((x) => (
             <View key={x.id} style={cell}>
-              <EntryTile testID={`more-${x.id}`} icon={x.icon} title={x.title} hint={x.hint} onPress={() => router.push(x.href)} />
+              <EntryTile testID={`more-${x.id}`} icon={x.icon} title={x.title} hint={x.hint} onPress={() => router.push(x.href)} trailing={missing.has(x.id) ? <Tag testID={`missing-${x.id}`} label={t('merchant.setup.missing')} tone="accent" /> : undefined} />
             </View>
           ))}
       </View>

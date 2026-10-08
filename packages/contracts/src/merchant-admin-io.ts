@@ -68,6 +68,8 @@ export const AdminMenuItem = z.object({
   servesMax: z.number().int().nullable().optional(),
   /** The kitchen's dish labels (joy o8). */
   labels: z.array(DishLabel).optional(),
+  /** «جهّز محلك»: the photo is Driver's library photo (its slug), «صورة توضيحية» to customers; null = his own. */
+  photoLibrary: z.string().nullable().optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 

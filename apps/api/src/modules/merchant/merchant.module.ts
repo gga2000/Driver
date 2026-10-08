@@ -13,6 +13,7 @@ import { ControlsModule, ControlsService } from '../controls/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { ZonesModule, ZonesService } from '../zones/index.js';
 import { foodDeliveryFee } from './area.js';
+import { MERCHANT_SETUP_CATALOG, MerchantSetupService, setupCatalogOf, type SetupCatalogPort } from './setup.service.js';
 import {
   MERCHANT_AREA,
   MERCHANT_CATALOG,
@@ -20,6 +21,7 @@ import {
   MERCHANT_ORDERS,
   MERCHANT_PEOPLE,
   MERCHANT_PHOTOS,
+  MERCHANT_SETUP_LINE,
   MERCHANT_STORES,
   MERCHANT_TRIPS,
   MerchantService,
@@ -115,8 +117,16 @@ import {
       }),
       inject: [BLOB_STORE],
     },
+    // «جهّز محلك»: dishes, photos, the menu-photo draft and the storefront through the catalog's own calls.
+    {
+      provide: MERCHANT_SETUP_CATALOG,
+      useFactory: (catalog: CatalogService): SetupCatalogPort => setupCatalogOf(catalog),
+      inject: [CatalogService],
+    },
+    MerchantSetupService,
+    { provide: MERCHANT_SETUP_LINE, useExisting: MerchantSetupService },
     MerchantService,
   ],
-  exports: [MerchantService],
+  exports: [MerchantService, MerchantSetupService],
 })
 export class MerchantModule {}

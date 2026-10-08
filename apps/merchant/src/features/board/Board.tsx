@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +29,9 @@ import { useDayDismissed, useDaySummary } from '@/features/day/queries';
 import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
+import { FirstOrderRibbon, SetupBoardCard, SetupBoardWaiting } from '@/features/setup/BoardSetup';
+import { shouldLand } from '@/features/setup/logic';
+import { setupSession, useSetupActions } from '@/features/setup/queries';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
@@ -257,6 +261,28 @@ export function Board() {
   };
   const byId = (id: string | null) => (id ? (orders.find((o) => o.id === id) ?? null) : null);
   const s = status.data;
+  // «جهّز محلك» (s1, s5, l3): until the shutter goes up the board keeps a setup card instead of the
+  // closed strip, the first visit of a session opens setup for the owner (once; «بعدين» is always
+  // allowed), and the first real order wears the gold ribbon until it has left the board.
+  const setupLine = s?.setup ?? null;
+  const inSetup = !!setupLine && !setupLine.live;
+  const firstId = setupLine?.firstOrderId ?? null;
+  const setupActions = useSetupActions();
+  useEffect(() => {
+    if (!shouldLand({ owner: canSeeMoney, setup: setupLine, landed: setupSession.landed })) return;
+    setupSession.landed = true;
+    router.push('/setup');
+  }, [canSeeMoney, setupLine]);
+  const seenSent = useRef<string | null>(null);
+  useEffect(() => {
+    if (!firstId || !canSeeMoney || !storeId || !board.data || seenSent.current === firstId) return;
+    // Only a board read after the status that named the order can say it has gone.
+    if (board.dataUpdatedAt < status.dataUpdatedAt) return;
+    if (orders.some((o) => o.id === firstId && !o.handedOverAt)) return;
+    seenSent.current = firstId;
+    setupActions.firstOrderSeen.mutate({ merchantOrgId: storeId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the board or the first order changes
+  }, [firstId, canSeeMoney, storeId, board.data, board.dataUpdatedAt, status.dataUpdatedAt, orders]);
   // S-M6: the day's card at close (or from 00:30 for the day before), until "تمام" on this device.
   const daySummary = useDaySummary(storeId, `${s?.open ?? ''}:${s?.closed?.at?.toString() ?? ''}:${s?.schedule?.inHours ?? ''}`);
   const { dismissed: dayDismissed, dismiss: dismissDay } = useDayDismissed();
@@ -408,6 +434,11 @@ export function Board() {
   };
   const toggleOpen = async () => {
     if (!s) return;
+    // A shop still in setup opens by raising its shutter at the end of setup.
+    if (setupLine && !setupLine.live) {
+      router.push(canSeeMoney && setupLine.left === 0 ? '/setup/open' : '/setup');
+      return;
+    }
     if (s.open) {
       setSheet('close');
       return;
@@ -430,6 +461,13 @@ export function Board() {
     if (gateOpen) await beginShift();
     if (withPractice) startPractice();
   };
+  // The practice order started from setup's counter list: handed over → the step is done, back to the list.
+  useEffect(() => {
+    if (trial.ended !== 'done' || !setupSession.practiceFromSetup || !storeId) return;
+    setupSession.practiceFromSetup = false;
+    setupActions.check.mutate({ merchantOrgId: storeId, check: 'practice' }, { onSuccess: () => router.push('/setup/counter') });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ending
+  }, [trial.ended, storeId]);
   // s2: how the practice order ended, said once.
   useEffect(() => {
     if (!trial.ended) return;
@@ -449,7 +487,9 @@ export function Board() {
   const card = (o: BoardOrder) => {
     const body = ticket(o);
     // s2 / y6: a practice ticket and a «جاهز» waiting for the net say so above the ticket.
-    const tag = isPractice(o.id) ? (
+    const tag = o.id === firstId ? (
+      <FirstOrderRibbon />
+    ) : isPractice(o.id) ? (
       <OrderTag testID={`practice-tag-${o.number}`} icon="bulb" text={t('merchant.practice.tag')} action={{ label: t('merchant.practice.stop'), onPress: () => practice.end('stopped') }} />
     ) : queued.some((q) => q.orderId === o.id) ? (
       <OrderTag testID={`queued-${o.number}`} icon="clock" text={t('merchant.offline.ready_waiting')} />
@@ -524,6 +564,7 @@ export function Board() {
       : null;
 
   const alerts = [
+    inSetup && setupLine ? <HeaderChip key="setup" testID="setup-chip" icon="store" tone="warning" label={t('merchant.setup.header_chip', { percent: setupLine.percent })} onPress={() => router.push(canSeeMoney ? '/setup' : '/more')} /> : null,
     !gateOpen && soundOff ? <HeaderChip key="sound" testID="sound-off-chip" icon="volume-off" tone="danger" dot label={t('merchant.sound.off_chip')} onPress={() => void soundOn()} /> : null,
     !gateOpen && Platform.OS === 'web' && wake !== 'on' ? <HeaderChip key="wake" testID="wake-chip" icon="screen" tone="warning" label={t('merchant.wake.chip')} onPress={() => void requestWakeLock()} /> : null,
     missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" dot={missedNew.length > 0} label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
@@ -592,7 +633,7 @@ export function Board() {
       ) : (
         <StaleStrip updatedAt={board.dataUpdatedAt || null} />
       )}
-      {s?.closed ? (
+      {inSetup ? null : s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
       ) : s?.pause ? (
         <InfoStrip
@@ -619,7 +660,14 @@ export function Board() {
 
       {wide ? dayCard : null}
 
-      {wide ? (
+      {wide && inSetup && setupLine && storeId && orders.length === 0 && !failed ? (
+        <View testID="board-setup-tablet" style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], padding: theme.space[5] }}>
+          <ScrollView style={{ width: 400, flexGrow: 0 }} contentContainerStyle={{ paddingBottom: theme.space[6] }} showsVerticalScrollIndicator={false}>
+            <SetupBoardCard storeId={storeId} owner={canSeeMoney} line={setupLine} />
+          </ScrollView>
+          <SetupBoardWaiting line={setupLine} />
+        </View>
+      ) : wide ? (
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], paddingHorizontal: theme.space[5], paddingTop: theme.space[4] }}>
           {COLUMNS.map((c) => (
             <View
@@ -666,7 +714,9 @@ export function Board() {
               : loading
               ? skeleton
               : cols[segment].length === 0
-                ? <EmptyColumn column={segment} />
+                ? segment === 'new' && inSetup && setupLine && storeId
+                  ? <SetupBoardCard storeId={storeId} owner={canSeeMoney} line={setupLine} />
+                  : <EmptyColumn column={segment} />
                 : segment === 'new' && now1.first
                   ? [now1.first, ...now1.rest].map(card)
                   : cols[segment].map(card)}
@@ -755,7 +805,8 @@ export function Board() {
           ))
         )}
       </ModalSheet>
-      {storeId && lessonDue ? (
+      {/* While the shop is being set up, setup's own counter list does the lesson and the sound. */}
+      {inSetup ? null : storeId && lessonDue ? (
         <LearnCards onPractice={() => void finishLesson(true)} onDone={() => void finishLesson(false)} />
       ) : gateOpen && storeId ? (
         <ShiftGate waiting={waiting} soundOn={prefs.soundOn} printer={printerChipState(printerSnap, s?.printer.state)} onStart={beginShift} back={shift.back} online={online} />

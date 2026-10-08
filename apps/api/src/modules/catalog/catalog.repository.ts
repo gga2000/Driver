@@ -68,6 +68,11 @@ export interface CatalogItemRecord {
   servesMax?: number | null;
   /** The kitchen's dish labels (joy o8): `DISH_LABELS`. */
   labels?: string[];
+  /**
+   * «جهّز محلك»: the photo is Driver's library photo of this dish (its slug), shown to customers as
+   * «صورة توضيحية» until the kitchen puts up its own; null/absent = the kitchen's own photo.
+   */
+  photoLibrary?: string | null;
 }
 
 /** Wave 2: one price edit (merchant app "price edit with history"). */
@@ -103,7 +108,7 @@ export interface MenuImportJobRecord {
   appliedCount: number;
 }
 
-export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
+export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'photoLibrary' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
   soldOutUntil?: Date | null;
 };
 
@@ -189,6 +194,7 @@ export interface NewCatalogItem {
   servesMin?: number | null;
   servesMax?: number | null;
   labels?: string[];
+  photoLibrary?: string | null;
   modifierGroups?: Array<{
     nameAr: string;
     nameEn?: string | null;
@@ -418,6 +424,7 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       servesMin: input.servesMin ?? null,
       servesMax: input.servesMax ?? null,
       labels: [...(input.labels ?? [])],
+      photoLibrary: input.photoLibrary ?? null,
       modifierGroups: (input.modifierGroups ?? []).map((g, gi) => {
         const groupId = `${id}_mg_${gi + 1}`;
         return {
@@ -545,6 +552,7 @@ type ItemRow = {
   servesMin?: number | null;
   servesMax?: number | null;
   labels?: string[];
+  photoLibrary?: string | null;
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -581,6 +589,7 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     servesMin: r.servesMin ?? null,
     servesMax: r.servesMax ?? null,
     labels: [...(r.labels ?? [])],
+    photoLibrary: r.photoLibrary ?? null,
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -765,6 +774,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
         servesMin: input.servesMin ?? null,
         servesMax: input.servesMax ?? null,
         labels: [...(input.labels ?? [])],
+        photoLibrary: input.photoLibrary ?? null,
         modifierGroups: {
           create: (input.modifierGroups ?? []).map((g, gi) => ({
             nameAr: g.nameAr,

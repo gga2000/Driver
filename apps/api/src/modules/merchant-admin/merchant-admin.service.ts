@@ -145,6 +145,7 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
     };
   }
 

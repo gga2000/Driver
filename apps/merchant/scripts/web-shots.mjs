@@ -120,7 +120,7 @@ function makeHelpers(page, viewport, list) {
     const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
     if (!code) throw new Error('dev code not shown');
     await page.locator('[data-testid="otp-input"]').fill(code);
-    await Promise.race(['board', 'stores', 'not-activated'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
+    await Promise.race(['board', 'stores', 'not-activated', 'setup'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
     const onBoard = await byTestId('board').isVisible().catch(() => false);
     if (onBoard && !lesson) await skipLesson();
     if (onBoard && !keepGate && !lesson) await startShift();

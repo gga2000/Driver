@@ -235,6 +235,20 @@ export const StoreStatusView = z.object({
     })
     .nullable()
     .optional(),
+  /**
+   * «جهّز محلك» (merchant setup): only for shops that went through setup. Before the shutter goes up
+   * the shop takes no orders (`live: false`); after it, the first real order wears the gold ribbon
+   * until the owner has seen it through. Absent/null: an older shop, nothing changes for it.
+   */
+  setup: z
+    .object({
+      live: z.boolean(),
+      percent: z.number().int().min(0).max(100),
+      left: z.number().int().min(0),
+      firstOrderId: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type StoreStatusView = z.infer<typeof StoreStatusView>;
 

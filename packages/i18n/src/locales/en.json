@@ -8022,5 +8022,6 @@
   "datasaver.slow_hint_auto": "Your internet is slow right now, so we made the app lighter: fewer photos, a simpler map",
   "datasaver.slow_keep": "Keep it light",
   "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",
-  "datasaver.slow_turn_on": "Make it light"
+  "datasaver.slow_turn_on": "Make it light",
+  "error.setup_not_ready": "A few setup steps are left before you can open. Finish them in «Set up your shop»"
 }

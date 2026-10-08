@@ -15,6 +15,8 @@ export interface StatusFacts {
   defaultPrepMinutes: number;
   /** The weekly schedule and holidays at `now` (absent: not computed). */
   schedule?: StoreStatusView['schedule'];
+  /** «جهّز محلك» (absent/null: a shop from before setup). */
+  setup?: StoreStatusView['setup'];
 }
 
 const REASONS: ReadonlySet<string> = new Set<EarlyCloseReason>(['sold_out', 'too_busy', 'no_staff', 'power_cut', 'closing_early', 'other']);
@@ -40,5 +42,6 @@ export function toStoreStatus(f: StatusFacts): StoreStatusView {
     lastHeartbeatAt: f.lastHeartbeatAt,
     defaultPrepMinutes: f.defaultPrepMinutes,
     ...(f.schedule !== undefined ? { schedule: f.schedule } : {}),
+    ...(f.setup ? { setup: f.setup } : {}),
   };
 }
