@@ -66,6 +66,7 @@ export function corridorView(c: CorridorConfig): CorridorView {
       photoUrl: m.photoUrl,
       draft: m.draft,
     })),
+    checkpoints: c.checkpoints.map((k) => ({ id: k.id, nameAr: k.nameAr, lat: k.lat, lng: k.lng, draft: k.draft })),
   };
 }
 
@@ -99,15 +100,17 @@ export function prepayRail(b: BookingRecord): PrepayRail | null {
   return b.trusted ? 'trusted_cash' : 'cash_reservation';
 }
 
-export function departureSummary(dep: DepartureRecord): DepartureSummary {
+export function departureSummary(s: DeparturesService, dep: DepartureRecord): DepartureSummary {
   return {
     id: dep.id,
     corridorId: dep.corridorId,
+    cityId: s.corridor(dep.corridorId).cityId,
     direction: dep.direction,
     garageId: dep.garageId,
     departAt: dep.departAt,
     latestDepartureAt: dep.latestDepartureAt,
     state: dep.state,
+    departedAt: dep.departedAt,
     vehicle: { ...dep.vehicle, layout: dep.layout },
     driverId: dep.driverId,
   };
@@ -197,10 +200,11 @@ export function bookingView(
     movedFromBookingId: b.movedFromBookingId,
     checkedInAt: b.checkedInAt,
     lateMinutes: b.lateMinutes,
-    departure: departureSummary(dep),
+    departure: departureSummary(s, dep),
     createdAt: b.createdAt,
     completedAt: b.completedAt,
-    rating: b.rating ?? null,
+    // The rider sees his own line as he wrote it, hidden or not.
+    rating: b.rating ? { ...b.rating, comment: b.review?.text ?? null } : null,
     pointsEarned,
   };
 }
@@ -230,6 +234,8 @@ export function driverDepartureView(
       checkedInAt: b.checkedInAt,
       meterMinutes: b.state === 'booked' ? riderMeterMinutes(dep, bookings, b, now) : b.lateMinutes,
       canNoShow: s.noShowVerdict(dep, bookings, b, now) !== null,
+      taxiDueAt: b.state === 'booked' ? (b.taxiLateUntil ?? null) : null,
+      seatHeld: b.state === 'booked' && (s.seatHeldUntil(dep, b)?.getTime() ?? 0) > now.getTime(),
     }));
   const open = dep.state === 'scheduled' || dep.state === 'boarding';
   const g = s.garage(dep.garageId);
@@ -295,6 +301,9 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
     privateCar: r.privateCar,
     travellingAs: r.travellingAs,
     note: r.note,
+    details: r.details,
+    // y4: only the rider learns how many drivers opened it.
+    seenBy: viewerDriverId ? 0 : r.seenDriverIds.length,
     state: r.state,
     origin: r.origin,
     priceCapIqd: r.priceCapIqd,

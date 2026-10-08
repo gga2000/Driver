@@ -7,6 +7,10 @@ import { Text } from './Text';
 export interface SegmentOption<T extends string> {
   value: T;
   label: string;
+  /** A second, smaller line under the label (e.g. «4 سيارات» under «باچر»). */
+  detail?: string;
+  /** What a screen reader says instead of label + detail. */
+  accessibilityLabel?: string;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -15,15 +19,19 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (v: T) => void;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
+  /** Segments get `${testIDPrefix}-${value}` (default `segment`). */
+  testIDPrefix?: string;
 }
 
 /** Equal-width segments with a thumb that springs between them (direction-aware). */
-export function SegmentedControl<T extends string>({ options, value, onChange, accessibilityLabel, style }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ options, value, onChange, accessibilityLabel, style, testIDPrefix = 'segment' }: SegmentedControlProps<T>) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
   const pad = 3;
   const segW = options.length ? (width - pad * 2) / options.length : 0;
-  const index = Math.max(0, options.findIndex((o) => o.value === value));
+  // A value that is none of the options shows no thumb (VIS-08), not the first option as if chosen.
+  const found = options.findIndex((o) => o.value === value);
+  const index = Math.max(0, found);
   const x = useSharedValue(0);
   const sign = theme.isRTL ? -1 : 1;
   const spring = theme.motion.spring.select;
@@ -42,7 +50,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={[{ flexDirection: 'row', padding: pad, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }, style]}
     >
-      {width > 0 ? (
+      {width > 0 && found >= 0 ? (
         <Animated.View
           style={[
             {
@@ -73,8 +81,8 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             key={o.value}
             accessibilityRole="tab"
             aria-selected={selected}
-            accessibilityLabel={o.label}
-            testID={`segment-${o.value}`}
+            accessibilityLabel={o.accessibilityLabel ?? (o.detail ? `${o.label} ${o.detail}` : o.label)}
+            testID={`${testIDPrefix}-${o.value}`}
             onPress={() => {
               if (!selected) {
                 theme.haptic('selection');
@@ -83,9 +91,14 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             }}
             style={{ flex: 1, minHeight: theme.hitTarget, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[2] }}
           >
-            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact>
+            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={2} align="center" compact>
               {o.label}
             </Text>
+            {o.detail ? (
+              <Text variant="caption" weight={selected ? 600 : 400} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact tabular>
+                {o.detail}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}

@@ -1,12 +1,18 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
-import { Button, Card, CountdownRing, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
-import { passPhase } from '@/features/rajaa/pass';
+import { lateStages, passPhase } from '@/features/rajaa/pass';
+import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
+import { endGarageFor, roadLine, type RoadPoint } from '@/features/rajaa/road';
+import { RoadCard, type Watching } from '@/features/rajaa/RoadParts';
+import { useMe } from '@/features/account/queries';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
+import { ArmedRideCard } from '@/features/ride/ArmedRideCard';
+import { GarageTaxiCard } from '@/features/ride/GarageTaxiCard';
 import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
 import { useDinnerChance, useFavourites } from '@/features/ride-habits/queries';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
@@ -21,6 +27,7 @@ import { shareUrl } from '@/features/rajaa/share';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { deliveryPointOf, selectedPlace, useProfile } from '@/lib/profile';
 import { amountParam, iqd } from '@/lib/money';
 
 const MIN = 60_000;
@@ -76,6 +83,8 @@ export default function BoardingPassScreen() {
   // Joy l9 / r6: the favourite heart after a good rating; dinner timed to the arrival home.
   const favs = useFavourites();
   const dinner = useDinnerChance(live && b?.departure.direction === 'to_aziziyah');
+  const prof = useProfile();
+  const me = useMe();
 
   if (booking.isPending) {
     return (
@@ -106,6 +115,39 @@ export default function BoardingPassScreen() {
 
   const carKm = p?.car ? haversineM(p.car, p.myStop) / 1000 : null;
   const carAgeS = p?.car ? Math.max(0, Math.round((now.getTime() - p.car.at.getTime()) / 1000)) : null;
+  // t4: leaving Aziziyah from a garage, when to leave home (the saved place, never asked for here).
+  const homePlace = selectedPlace(prof);
+  const homePin = b.departure.direction === 'from_aziziyah' && b.pickup.kind === 'garage' && homePlace ? (deliveryPointOf(homePlace).pin ?? null) : null;
+  const garagePin = network.data?.garages.find((g) => g.id === b.departure.garageId) ?? null;
+
+  // r1/r2: the road as a line from this garage to the far city, with the checkpoints and the rider's
+  // own stop; the car's fix counts only once it has left (before that it is driving to the garage).
+  const phase = passPhase(b, now);
+  const departed = b.departure.state === 'departed';
+  const toCity = corridor ? endpoints(corridor.cityId, b.departure.direction).to : null;
+  const endGarage = toCity ? endGarageFor(network.data?.garages ?? [], toCity) : null;
+  const road =
+    corridor && garagePin && endGarage && toCity && phase !== 'kept' && phase !== 'closed'
+      ? roadLine({
+          start: { id: 'start', kind: 'start', name: garage, lat: garagePin.lat, lng: garagePin.lng },
+          end: { id: 'end', kind: 'end', name: cityName(t, toCity), lat: endGarage.lat, lng: endGarage.lng },
+          between: [
+            ...corridor.checkpoints.map((c): RoadPoint => ({ id: c.id, kind: 'checkpoint', name: publicPlaceName(c.nameAr), lat: c.lat, lng: c.lng })),
+            ...(b.pickup.kind !== 'garage' ? [{ id: 'my_stop', kind: 'my_stop' as const, name: stopName, lat: b.pickup.lat, lng: b.pickup.lng }] : []),
+          ],
+          departAt: b.departure.departAt,
+          departedAt: b.departure.departedAt,
+          travelMin: corridor.travelMin,
+          car: departed && p?.car ? p.car : null,
+          now,
+        })
+      : null;
+  // r3: who follows the trip, by name (the trusted people get its link when the rider gets in).
+  const trusted = (me.data?.trustedContacts ?? []).map((c) => c.name);
+  const watching: Watching =
+    me.data?.safety.autoShareRajaa && trusted.length > 0 ? { kind: b.state === 'checked_in' ? 'now' : 'soon', names: trusted } : { kind: 'none' };
+  // r4: the same SOS as a taxi ride: the car read out to the police, and a live link when no contact is set.
+  const sosCar = [driverCard?.firstName ?? t('track.driver_fallback'), b.departure.vehicle.model, plate(b.departure.vehicle.plate)].filter(Boolean).join(' · ');
 
   const onImHere = async () => {
     const at = await currentLocation();
@@ -156,7 +198,7 @@ export default function BoardingPassScreen() {
     );
 
   // After the trip (r3): the stub is kept; nothing live (car, meter, check-in, cancel) is left on it.
-  if (passPhase(b, now) === 'kept') {
+  if (phase === 'kept') {
     return (
       <Screen testID="rajaa-pass" edges={['bottom']}>
         <Stack.Screen options={{ title: t('rajaa.kept_title') }} />
@@ -185,7 +227,7 @@ export default function BoardingPassScreen() {
         options={{
           headerRight:
             b.state === 'checked_in' || (live && (b.departure.state === 'boarding' || b.departure.state === 'departed'))
-              ? () => <SosControl subject={{ kind: 'booking', id: b.id }} style={{ marginEnd: theme.space[3] }} />
+              ? () => <SosControl subject={{ kind: 'booking', id: b.id }} car={sosCar} onShareLocation={() => void onShare()} style={{ marginEnd: theme.space[3] }} />
               : undefined,
         }}
       />
@@ -197,7 +239,6 @@ export default function BoardingPassScreen() {
           </Text>
         </View>
       ) : null}
-      <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
       {/* The ticket. */}
       <Card padding={0} elevation={2} testID="rajaa-ticket">
         <View style={{ padding: theme.space[5], gap: theme.space[2] }}>
@@ -208,10 +249,21 @@ export default function BoardingPassScreen() {
             <StatusPill size="sm" tone={b.state === 'checked_in' ? 'success' : 'accent'} icon="check" label={bookingStateLabel(t, b.state)} />
           </View>
           {/* The garage-board time (audit d-2): split-flap digits and the countdown to the car. */}
-          <DepartureTime testID="rajaa-pass-time" at={b.departure.departAt} now={now.getTime()} size="card" label={t('departure_time.leaves')} countdown={b.state !== 'completed'} passStyle locale={locale} />
-          <Text variant="footnote" color="textMuted">
-            {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
-          </Text>
+          <DepartureTime
+            testID="rajaa-pass-time"
+            at={departed && b.departure.departedAt ? b.departure.departedAt : b.departure.departAt}
+            now={now.getTime()}
+            size="card"
+            label={departed ? t('departure_time.left') : t('departure_time.leaves')}
+            countdown={!departed && b.state !== 'completed'}
+            passStyle
+            locale={locale}
+          />
+          {departed ? null : (
+            <Text variant="footnote" color="textMuted">
+              {t('rajaa.or_full_latest', { time: clockLabel(b.departure.latestDepartureAt) })}
+            </Text>
+          )}
         </View>
         <Perforation />
         <View style={{ padding: theme.space[5], alignItems: 'center', gap: theme.space[1], backgroundColor: theme.colors.accentTint }}>
@@ -232,23 +284,17 @@ export default function BoardingPassScreen() {
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
         <Perforation />
-        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow testID="rajaa-pass-driver" style={{ padding: theme.space[5] }} />
+        <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow record={{ departureId: b.departure.id, line: true }} testID="rajaa-pass-driver" style={{ padding: theme.space[5], paddingBottom: theme.space[3] }} />
         {b.pickup.status === 'pending' ? (
           <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
             <StatusPill tone="warning" icon="clock" label={t('intercity.pickup_pending')} />
           </View>
         ) : null}
-      </Card>
-
-      {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
-      {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
-
-      {/* Live car from T−30 (the car only, never other riders' stops). */}
-      <Card padding={4} elevation={0} testID="rajaa-live-car">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p?.car ? theme.colors.successTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="car" size={22} color={p?.car ? 'successText' : 'textMuted'} />
-          </View>
+        {/* The car's state, on the ticket (t1): from T−30 where it is (the car only, never other riders' stops).
+            On the road the road card carries the car instead. */}
+        {departed ? null : (
+        <View testID="rajaa-live-car" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], marginHorizontal: theme.space[5], marginBottom: theme.space[5], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }}>
+          <Icon name="car" size={20} color={p?.car ? 'successText' : 'textMuted'} />
           <View style={{ flex: 1, gap: 2 }}>
             {!p?.boardingOpen ? (
               <Text variant="footnote" color="textMuted">
@@ -271,49 +317,50 @@ export default function BoardingPassScreen() {
           </View>
           {p?.boardingOpen ? <StatusPill size="sm" tone="success" live label={t('rajaa.live')} /> : null}
         </View>
+        )}
       </Card>
 
-      {/* Grace and the late meter, stated before anyone is late. */}
+      {/* t2: the first-trip sticker comes after the pass, never pushing it down. */}
+      <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
+
+      {homePin && garagePin && b.state === 'booked' ? <LeaveHomeCard home={homePin} garage={garagePin} departAt={b.departure.departAt} now={now} /> : null}
+
+      {/* x2/x4 (docs/api/rajaa-taxi.md): a taxi to the garage on a seat leaving Aziziyah, a taxi home
+          waiting at the garage on a seat coming back. Each hides itself where it doesn't apply. */}
+      <GarageTaxiCard bookingId={b.id} />
+      <ArmedRideCard bookingId={b.id} />
+
+      {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching} onShare={() => void onShare()} /> : null}
+
+      {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
+      {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
+
+      {/* Grace and the late meter as a bar with its times (t6), stated before anyone is late. */}
+      {/* Once he is in the car nobody can be late any more: the bar goes. */}
+      {phase === 'before' || phase === 'boarding' ? (
       <Card padding={4} elevation={0} testID="rajaa-grace">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
-          {prepaid ? (
-            <CountdownRing
-              mode="late"
-              size={92}
-              strokeWidth={7}
-              startedAt={b.departure.departAt.getTime()}
-              config={{
-                graceMs,
-                stepMs: RAJAA_RULES.meterBlockMin * MIN,
-                stepAmount: RAJAA_RULES.riderLateToDriverPerBlockIqd,
-                forfeitMs: RAJAA_RULES.meterCapMin * MIN,
-              }}
-            />
-          ) : (
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="clock" size={26} color="warningText" />
-            </View>
-          )}
-          <View style={{ flex: 1, gap: theme.space[1] }}>
-            <Text variant="footnote">
-              {prepaid
-                ? t('rajaa.grace_prepaid', {
-                    amount: amountParam(RAJAA_RULES.riderLateToDriverPerBlockIqd),
-                    each: amountParam(RAJAA_RULES.riderLateToEachRiderPerBlockIqd),
-                  })
-                : t('rajaa.grace_cash')}
+        <View style={{ gap: theme.space[3] }}>
+          <LateBar
+            stages={lateStages(b.departure.departAt, prepaid, graceMs, RAJAA_RULES.meterCapMin)}
+            prepaid={prepaid}
+            now={now}
+            a11y={
+              prepaid
+                ? t('rajaa.grace_prepaid', { amount: amountParam(RAJAA_RULES.riderLateToDriverPerBlockIqd), each: amountParam(RAJAA_RULES.riderLateToEachRiderPerBlockIqd) })
+                : t('rajaa.grace_cash')
+            }
+          />
+          {p?.meterMinutes ? (
+            <Text variant="caption" color="warningText" weight={600}>
+              {t('rajaa.meter_running')}: {t('unit.minutes', { n: p.meterMinutes })}
             </Text>
-            <Text variant="caption" color="textMuted">
-              {t('rajaa.driver_late_note', { amount: amountParam(RAJAA_RULES.driverLateToEachRiderPerBlockIqd) })}
-            </Text>
-            {p?.meterMinutes ? (
-              <Text variant="caption" color="warningText" weight={600}>
-                {t('rajaa.meter_running')}: {t('unit.minutes', { n: p.meterMinutes })}
-              </Text>
-            ) : null}
-          </View>
+          ) : null}
+          <Text variant="caption" color="textMuted">
+            {t('rajaa.driver_late_note', { amount: amountParam(RAJAA_RULES.driverLateToEachRiderPerBlockIqd) })}
+          </Text>
         </View>
       </Card>
+      ) : null}
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], justifyContent: 'center' }}>
         <Icon name="shield" size={16} color="textMuted" />

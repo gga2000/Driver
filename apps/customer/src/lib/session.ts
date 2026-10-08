@@ -9,7 +9,7 @@ import { storage as platformStorage, type KeyValueStorage } from './storage';
  * - The API link calls `refresh()` once more on a 401 and retries the request (see api.ts).
  * - Refreshes are single-flight: the API rotates refresh tokens and treats a reused one as theft
  *   (`refresh_reused` revokes the session), so two parallel refreshes would sign the person out.
- * - A refresh refused by the server (401) signs out; a network failure keeps the session.
+ * - A refresh refused by the server (401) signs out; a network failure or a timeout keeps the session.
  */
 
 export interface TokenPairLike {
@@ -44,7 +44,21 @@ export interface SessionStoreOptions {
   refreshSkewMs?: number;
   /** True when a refresh failure means the server refused the token (sign out), not a network blip. */
   isAuthError?: (err: unknown) => boolean;
+  /**
+   * Requests wait at most this long for a refresh, then go on with the old token (audit CORE-01: one
+   * stalled refresh must not freeze the app). The refresh itself keeps running and is stored when it
+   * lands, so a slow answer never leaves the phone holding a token the server already retired.
+   */
+  refreshWaitMs?: number;
+  /**
+   * The refresh itself gives up after this long (a backstop just over its request's own deadline,
+   * `NET_RULES.refreshTimeoutMs`); only then may a new refresh send the old token again.
+   */
+  refreshGiveUpMs?: number;
 }
+
+export const REFRESH_WAIT_MS = 10_000;
+export const REFRESH_GIVE_UP_MS = 65_000;
 
 export const SESSION_KEY = 'driver.customer.session';
 
@@ -83,11 +97,31 @@ function parseStored(raw: string | null): StoredSession | null {
   }
 }
 
+/** `work`, or `fallback` once `ms` have passed (`work` keeps running). */
+function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** `work`, or a rejection that is not an auth error once `ms` have passed. */
+function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('refresh_timeout')), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export function createSessionStore(opts: SessionStoreOptions) {
   const key = opts.key ?? SESSION_KEY;
   const now = opts.now ?? Date.now;
   const skew = opts.refreshSkewMs ?? 30_000;
   const authError = opts.isAuthError ?? isAuthError;
+  const refreshWaitMs = opts.refreshWaitMs ?? REFRESH_WAIT_MS;
+  const refreshGiveUpMs = opts.refreshGiveUpMs ?? REFRESH_GIVE_UP_MS;
 
   let snapshot: SessionSnapshot = { status: 'loading', session: null };
   let refresher: Refresher | null = null;
@@ -168,10 +202,12 @@ export function createSessionStore(opts: SessionStoreOptions) {
 
     /**
      * Single-flight refresh. Resolves true when a fresh pair is stored; false when there is no
-     * session, no refresher, the network failed (session kept) or the server refused (signed out).
+     * session, no refresher, the network failed (session kept), the server refused (signed out), or
+     * it is still running after `refreshWaitMs` (it is stored when it lands; a call meanwhile waits
+     * for that same refresh instead of sending the old token again).
      */
     refresh(): Promise<boolean> {
-      if (inflight) return inflight;
+      if (inflight) return within(inflight, refreshWaitMs, false);
       const s = snapshot.session;
       if (!s || !refresher) return Promise.resolve(false);
       if (refreshExpired(s)) {
@@ -181,7 +217,7 @@ export function createSessionStore(opts: SessionStoreOptions) {
       const run = refresher;
       inflight = (async () => {
         try {
-          const tokens = await run(s.refreshToken);
+          const tokens = await deadline(run(s.refreshToken), refreshGiveUpMs);
           if (gen !== generation) return false;
           const next = toStored(tokens, s.personId);
           set({ status: 'signedIn', session: next });
@@ -195,7 +231,7 @@ export function createSessionStore(opts: SessionStoreOptions) {
           if (gen === generation) inflight = null;
         }
       })();
-      return inflight;
+      return within(inflight, refreshWaitMs, false);
     },
 
     /** Bearer token for the next request; refreshes first when it is about to expire. */

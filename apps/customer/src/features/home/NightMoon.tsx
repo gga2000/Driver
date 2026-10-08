@@ -20,8 +20,8 @@ const SWAY_S = 6;
 /**
  * The late-night card's badge (Ali's Yes, home effects "moon", 2026-10-07): the moon in its ink
  * square sways slowly, like a lantern hung by the door, and three small stars around it twinkle,
- * each on its own beat. It moves only while home is in front (`useAmbient`) and is still under
- * reduced motion. Decoration: screen readers hear the card's title instead.
+ * each on its own beat. It moves for a while each time home comes to the front (`useAmbient`), then
+ * rests, and is still under reduced motion. Decoration: screen readers hear the card's title instead.
  */
 export function NightMoon() {
   const theme = useTheme();

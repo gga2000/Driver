@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
+import type { DriverDocumentKind } from '@driver/contracts';
+import type { MessageKey } from '@driver/i18n';
 import { Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { Glyph } from './Glyph';
@@ -98,5 +100,50 @@ export function BlockedSwitch({ kind }: { kind: GateKind }) {
         </Text>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * a3: a paper in its last 14 days, on home (the papers page warns from 30): which one, how many days,
+ * and one tap to renew it. Amber, never red: he can still work.
+ */
+export function PapersBanner({ kind, days }: { kind: DriverDocumentKind; days: number }) {
+  const theme = useTheme();
+  const t = useT();
+  const doc = t(`partner.docs_kind_${kind}` as MessageKey);
+  const title = days <= 0 ? t('partner.a3_papers_title_today', { doc }) : days === 1 ? t('partner.a3_papers_title_one', { doc }) : t('partner.a3_papers_title', { doc, n: days });
+  return (
+    <Pressable
+      testID="papers-banner"
+      accessibilityRole="button"
+      onPress={() => {
+        theme.haptic('light');
+        router.push('/documents');
+      }}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        padding: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: theme.colors.warningTint,
+        borderWidth: 1,
+        borderColor: withAlpha(theme.colors.warning, 0.35),
+        transform: [{ scale: pressed ? 0.985 : 1 }],
+      })}
+    >
+      <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.warning, alignItems: 'center', justifyContent: 'center' }}>
+        <Glyph name="id-card" size={22} color={theme.colors.onAccent} strokeWidth={2.2} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text variant="label" weight={700} color="warningText" tabular>
+          {title}
+        </Text>
+        <Text variant="caption" color="text">
+          {t('partner.a3_papers_sub')}
+        </Text>
+      </View>
+      <Icon name="chevron-forward" size={20} color="warningText" strokeWidth={2.4} />
+    </Pressable>
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DriverError } from '@driver/contracts';
 import { offsetNorth } from '../trips/index.js';
 import { INTERCITY_NETWORK } from './intercity.config.js';
+import { seatHoldUntil } from './late-meter.js';
 import { BAB1, BAB2, routesHarness, type RoutesHarness } from './test-harness.js';
 
 async function code(p: Promise<unknown>): Promise<string> {
@@ -212,8 +213,8 @@ describe('forfeit after 20 minutes → automatic hold on the next car within 2 h
       prepaid: true,
       payment: 'wallet',
       seatIds: ['front'],
-      seatPriceIqd: 10_000,
-      frontPremiumIqd: 2_000,
+      seatPriceIqd: 5_000,
+      frontPremiumIqd: 1_000,
     });
     expect(settled(h, 'rider')).toEqual([
       expect.objectContaining({
@@ -245,7 +246,7 @@ describe('forfeit after 20 minutes → automatic hold on the next car within 2 h
     const [post] = await h.requests.mine('r1');
     expect(post).toMatchObject({
       origin: 'stranded',
-      priceCapIqd: 12_000,
+      priceCapIqd: 6_000,
       state: 'open',
       from: { garageId: BAB1.id },
     });
@@ -265,5 +266,19 @@ describe('forfeit after 20 minutes → automatic hold on the next car within 2 h
     h.advance(20);
     expect(await code(h.departures.markNoShow('d1', dep.id, a.id))).toBe('no_show_not_allowed');
     expect(await code(h.departures.depart('d1', dep.id))).toBe('depart_blocked');
+  });
+});
+
+describe('seatHoldUntil (x3, pure)', () => {
+  const dep = { departAt: new Date('2026-10-03T12:30:00Z') } as Parameters<typeof seatHoldUntil>[0];
+  const seat = (over: Partial<Parameters<typeof seatHoldUntil>[1]>) => ({ pickup: { kind: 'garage' }, taxiLateUntil: new Date('2026-10-03T12:41:00Z'), ...over }) as Parameters<typeof seatHoldUntil>[1];
+  it('the taxi’s due time, capped at the meter cap after the car’s time', () => {
+    expect(seatHoldUntil(dep, seat({}), 20, true)).toEqual(new Date('2026-10-03T12:41:00Z'));
+    expect(seatHoldUntil(dep, seat({ taxiLateUntil: new Date('2026-10-03T13:20:00Z') }), 20, true)).toEqual(new Date('2026-10-03T12:50:00Z'));
+  });
+  it('none when switched off, with no late taxi, or off the garage', () => {
+    expect(seatHoldUntil(dep, seat({}), 20, false)).toBeNull();
+    expect(seatHoldUntil(dep, seat({ taxiLateUntil: null }), 20, true)).toBeNull();
+    expect(seatHoldUntil(dep, seat({ pickup: { kind: 'door' } as never }), 20, true)).toBeNull();
   });
 });

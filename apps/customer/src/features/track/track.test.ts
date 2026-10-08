@@ -220,7 +220,7 @@ describe('status → timeline', () => {
     const inside = buildTimeline(v, { eta: at(40), lateMin: lateMinutes(at(40), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
     expect(inside.note).toContain('إذا تعدّى التأخير 20 دقيقة');
     const past = buildTimeline(v, { eta: at(53), lateMin: lateMinutes(at(53), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
-    expect(past.note).toContain('الوقت الجديد بعد الموعد، فنرجعلك 1,000 دينار رصيد الساعة 09:45');
+    expect(past.note).toContain('فات الموعد، فالساعة 09:45 نرجعلك 1,000 دينار رصيد');
     expect(past.note).not.toContain('إذا');
   });
 

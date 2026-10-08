@@ -4,9 +4,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SAFETY_RULES } from '@driver/contracts';
-import { Button, EmptyState, Icon, ltr, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
+import { Button, EmptyState, Icon, ltr, RetryState, retryKindFor, Skeleton, StaleNote, StatusPill, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
-import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
+import { apiErrorMessage, useApi } from '@/lib/api';
+import { publicPageFailure, shouldRetryQuery } from '@/lib/errors';
 import { useLocale, useT } from '@/lib/i18n';
 
 const POLL_MS = 5_000;
@@ -25,12 +26,15 @@ export default function SosContactPage() {
   const insets = useSafeAreaInsets();
   const api = useApi();
   const { token = '' } = useLocalSearchParams<{ token: string }>();
+  const net = useNetwork();
   const q = useQuery({
     ...api.safety.shared.queryOptions({ token }),
     enabled: Boolean(token),
-    retry: false,
-    refetchInterval: (s) => (s.state.data?.status === 'live' ? POLL_MS : false),
+    retry: shouldRetryQuery,
+    // While the alert is open, and while a network or server failure lasts: a blip never ends the page.
+    refetchInterval: (s) => (s.state.data?.status === 'live' || (s.state.status === 'error' && publicPageFailure(s.state.error) === 'transient') ? POLL_MS : false),
   });
+  const [slow, restartSlow] = useLoadTimeout(q.isPending);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1_000);
@@ -48,9 +52,30 @@ export default function SosContactPage() {
     </View>
   );
 
-  if (q.isError || s?.status === 'expired') {
-    const invalid = apiErrorCode(q.error) === 'share_link_invalid';
-    return shell(<EmptyState icon="clock" title={s || invalid ? t('sos.page_expired') : apiErrorMessage(q.error, t('error.network'), locale)} body={s || invalid ? t('sos.page_expired_body') : undefined} />);
+  const police = (
+    <Button label={t('sos.call_police', { number: SAFETY_RULES.policeNumber })} icon="phone" variant="secondary" fullWidth onPress={() => void Linking.openURL(`tel:${SAFETY_RULES.policeNumber}`).catch(() => undefined)} />
+  );
+  // "Expired" only on the server's word (audit FLOW-06): a failed refresh keeps the last position.
+  const failure = q.isError ? publicPageFailure(q.error) : null;
+  if (s?.status === 'expired' || failure === 'invalid' || failure === 'final') {
+    const invalid = failure === 'invalid';
+    return shell(<EmptyState icon="clock" title={s?.status === 'expired' || invalid ? t('sos.page_expired') : apiErrorMessage(q.error, t('error.network'), locale)} body={s?.status === 'expired' || invalid ? t('sos.page_expired_body') : undefined} />);
+  }
+  if (!s && (failure === 'transient' || slow)) {
+    return shell(
+      <>
+        <RetryState
+          kind={retryKindFor({ net, error: q.isError ? q.error : undefined, slow: !q.isError })}
+          locale={locale}
+          testID="sos-page-retry"
+          onRetry={() => {
+            restartSlow();
+            void q.refetch();
+          }}
+        />
+        {police}
+      </>,
+    );
   }
   if (!s) {
     return shell(
@@ -70,6 +95,7 @@ export default function SosContactPage() {
   return shell(
     <>
       <View style={{ gap: theme.space[2] }}>
+        {failure === 'transient' ? <StaleNote updatedAt={q.dataUpdatedAt} force locale={locale} testID="sos-page-stale" /> : null}
         <StatusPill size="sm" tone={live ? 'danger' : 'neutral'} live={live} label={t('sos.page_title')} style={{ alignSelf: 'flex-start' }} />
         <Text variant="heading" testID="sos-page-heading">
           {s.firstName ? t('sos.page_heading', { name: s.firstName }) : t('sos.page_heading_anon')}
@@ -104,7 +130,7 @@ export default function SosContactPage() {
         )}
       </View>
 
-      <Button label={t('sos.call_police', { number: SAFETY_RULES.policeNumber })} icon="phone" variant="secondary" fullWidth onPress={() => void Linking.openURL(`tel:${SAFETY_RULES.policeNumber}`).catch(() => undefined)} />
+      {police}
     </>,
   );
 }

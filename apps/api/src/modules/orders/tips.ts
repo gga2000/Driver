@@ -25,7 +25,7 @@ export const TIP_RULES = Symbol('TIP_RULES');
 /** The event the notify module turns into «علي كرمك 1,000 دينار» for the driver. */
 export const ORDER_TIPPED_EVENT = 'order.tipped';
 
-/** States where the order reached the customer: food delivered (then closed by the rating), a ride completed. */
+/** States where the order reached the customer: food delivered (closed later by the 2-h auto-close or staff, not by the rating since FLOW-20), a ride completed. */
 const TIPPABLE: readonly OrderState[] = ['delivered', 'closed', 'completed'];
 
 const HOUR_MS = 3_600_000;

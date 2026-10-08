@@ -1,23 +1,28 @@
-import { BookingRating, PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type {
-  BookingRecord,
-  DemandPostRecord,
-  DepartureRecord,
-  Fix,
-  PickupRecord,
-  PinAttemptRecord,
-  RequestOfferRecord,
-  RequestPlaceRecord,
-  RequestRecord,
-  WalkUp,
+import {
+  FINISHED_RUN,
+  type BookingRecord,
+  type DemandPostRecord,
+  type DepartureRecord,
+  type Fix,
+  type PickupRecord,
+  type PinAttemptRecord,
+  type RequestOfferRecord,
+  type RequestPlaceRecord,
+  type RequestRecord,
+  type ReviewRecord,
+  type WalkUp,
 } from './model.js';
 import type {
   DemandFilter,
   DepartureFilter,
+  DriverRecord,
   RequestFilter,
+  ReviewFilter,
   RiderRecordStats,
   RoutesRepository,
 } from './routes.repository.js';
@@ -152,10 +157,16 @@ export class PrismaRoutesRepository implements RoutesRepository {
       completedAt: b.completedAt,
       cancelledAt: b.cancelledAt,
       lateMinutes: b.lateMinutes,
+      taxiLateUntil: b.taxiLateUntil ?? null,
       demandPostId: b.demandPostId,
       movedFromBookingId: b.movedFromBookingId,
       movedToBookingId: b.movedToBookingId,
       rating: b.rating ? ({ stars: b.rating.stars, tags: [...b.rating.tags], at: b.rating.at.toISOString() } as Prisma.InputJsonObject) : Prisma.DbNull,
+      reviewText: b.review?.text ?? null,
+      reviewAt: b.review?.at ?? null,
+      reviewHiddenAt: b.review?.hiddenAt ?? null,
+      reviewHiddenBy: b.review?.hiddenBy ?? null,
+      reviewHiddenReason: b.review?.hiddenReason ?? null,
     };
     await this.db(tx).seatBooking.upsert({
       where: { id: b.id },
@@ -186,6 +197,31 @@ export class PrismaRoutesRepository implements RoutesRepository {
     const rows = await this.db(tx).seatBooking.findMany({
       where: { riderId, ...(states ? { state: { in: [...states] } } : {}) },
       orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toBooking);
+  }
+
+  async driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord> {
+    const db = this.db(tx);
+    const finished = { driverId, state: { in: [...FINISHED_RUN] } };
+    const [runs, rated] = await Promise.all([
+      db.departure.findMany({ where: finished, orderBy: { scheduledAt: 'asc' } }),
+      db.seatBooking.findMany({ where: { departure: finished, rating: { not: Prisma.DbNull } }, orderBy: { completedAt: 'asc' } }),
+    ]);
+    const records = rated.map(toBooking).filter((b) => b.rating);
+    records.sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(toDeparture), rated: records };
+  }
+
+  async reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]> {
+    const rows = await this.db(tx).seatBooking.findMany({
+      where: {
+        reviewText: { not: null },
+        ...(f.hidden === undefined ? {} : { reviewHiddenAt: f.hidden ? { not: null } : null }),
+        ...(f.before ? { reviewAt: { lt: f.before } } : {}),
+      },
+      orderBy: [{ reviewAt: 'desc' }, { id: 'desc' }],
+      take: f.limit,
     });
     return rows.map(toBooking);
   }
@@ -265,6 +301,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
       privateCar: r.privateCar,
       travellingAs: r.travellingAs,
       note: r.note,
+      details: r.details as unknown as Prisma.InputJsonObject,
+      seenDriverIds: r.seenDriverIds,
       state: r.state,
       origin: r.origin,
       priceCapIqd: r.priceCapIqd,
@@ -297,6 +335,15 @@ export class PrismaRoutesRepository implements RoutesRepository {
     }
   }
 
+  async markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean> {
+    // One targeted update: the row's state, pick, deposit and offers are never written back here.
+    const n = await this.db(tx).$executeRaw`
+      UPDATE "public"."ride_requests"
+         SET seen_driver_ids = array_append(seen_driver_ids, ${driverId}::text)
+       WHERE id = ${id}::text AND state = 'open' AND NOT (${driverId}::text = ANY(seen_driver_ids))`;
+    return n > 0;
+  }
+
   async getRequest(id: string, tx?: Tx): Promise<RequestRecord | null> {
     const row = await this.db(tx).rideRequest.findUnique({
       where: { id },
@@ -315,6 +362,18 @@ export class PrismaRoutesRepository implements RoutesRepository {
       orderBy: [{ when: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toRequest);
+  }
+
+  async privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    if (driverIds.length === 0) return out;
+    const rows = await this.db(tx).rideRequestOffer.groupBy({
+      by: ['driverId'],
+      where: { driverId: { in: [...driverIds] }, state: 'picked', request: { state: 'completed' } },
+      _count: { _all: true },
+    });
+    for (const r of rows) out[r.driverId] = r._count._all;
+    return out;
   }
 
   // ───────────────────────── seat PIN attempts ─────────────────────────
@@ -407,6 +466,28 @@ type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & 
   offers: Array<Awaited<ReturnType<Tx['rideRequestOffer']['findUniqueOrThrow']>>>;
 };
 
+/** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
+/** Snapshots written before a field existed read its default (no model, no promises about the car). */
+function vehicleFromSnapshot(json: unknown): DepartureRecord['vehicle'] {
+  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey' | 'noSmoking' | 'bigBags' | 'ac'> & { modelKey?: unknown; noSmoking?: unknown; bigBags?: unknown; ac?: unknown };
+  const key = VehicleModelKey.safeParse(v.modelKey);
+  return { ...v, modelKey: key.success ? key.data : null, noSmoking: v.noSmoking === true, bigBags: v.bigBags === true, ac: v.ac === true };
+}
+
+const RatingJson = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+
+function reviewFromRow(r: BookingRow): ReviewRecord | null {
+  if (r.reviewText === null) return null;
+  const reason = ReviewHideReason.safeParse(r.reviewHiddenReason);
+  return {
+    text: r.reviewText,
+    at: r.reviewAt ?? r.updatedAt,
+    hiddenAt: r.reviewHiddenAt,
+    hiddenBy: r.reviewHiddenBy,
+    hiddenReason: reason.success ? reason.data : null,
+  };
+}
+
 function toDeparture(r: DepartureRow): DepartureRecord {
   const run = (r.runState ?? {}) as unknown as Partial<RunState>;
   return {
@@ -422,7 +503,7 @@ function toDeparture(r: DepartureRow): DepartureRecord {
     announcedAt: r.announcedAt,
     state: r.state,
     layout: (r.seatLayout ?? 4) as DepartureRecord['layout'],
-    vehicle: r.vehicleSnapshot as unknown as DepartureRecord['vehicle'],
+    vehicle: vehicleFromSnapshot(r.vehicleSnapshot),
     familyOnly: r.familyOnly,
     seatPriceIqd: r.seatPriceIqd ?? 0,
     frontPremiumIqd: r.frontPremiumIqd,
@@ -471,11 +552,13 @@ function toBooking(r: BookingRow): BookingRecord {
     completedAt: r.completedAt,
     cancelledAt: r.cancelledAt,
     lateMinutes: r.lateMinutes,
+    taxiLateUntil: r.taxiLateUntil,
     demandPostId: r.demandPostId,
     movedFromBookingId: r.movedFromBookingId,
     movedToBookingId: r.movedToBookingId,
     createdAt: r.createdAt,
-    rating: r.rating ? (BookingRating.safeParse(r.rating).data ?? null) : null,
+    rating: r.rating ? (RatingJson.safeParse(r.rating).data ?? null) : null,
+    review: reviewFromRow(r),
   };
 }
 
@@ -498,6 +581,12 @@ function toDemand(r: DemandRow): DemandPostRecord {
   };
 }
 
+/** Stored details through the contract (dates revived, defaults for rows written before y1). */
+function parseRequestDetails(raw: unknown): RequestDetails {
+  const parsed = RequestDetails.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : { ...DEFAULT_REQUEST_DETAILS };
+}
+
 function toRequest(r: RequestRow): RequestRecord {
   return {
     id: r.id,
@@ -510,6 +599,8 @@ function toRequest(r: RequestRow): RequestRecord {
     privateCar: r.privateCar,
     travellingAs: r.travellingAs,
     note: r.note,
+    details: parseRequestDetails(r.details),
+    seenDriverIds: r.seenDriverIds,
     state: r.state,
     origin: r.origin as RequestRecord['origin'],
     priceCapIqd: r.priceCapIqd,

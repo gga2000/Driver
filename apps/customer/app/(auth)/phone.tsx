@@ -2,9 +2,9 @@ import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Button, Text, TextField, useTheme } from '@driver/ui';
-import { Screen } from '@/components/Screen';
-import { AuthHeader } from '@/features/auth/AuthHeader';
+import { Button, Icon, Text, useTheme } from '@driver/ui';
+import { AuthStage } from '@/features/auth/AuthStage';
+import { PhoneField } from '@/features/auth/PhoneField';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { getDeviceInfo } from '@/lib/device';
 import { useLocale, useT } from '@/lib/i18n';
@@ -22,7 +22,12 @@ export default function PhoneEntry() {
   const requestOtp = useMutation(api.identity.requestOtp.mutationOptions());
   // A guest stopped at "كمّل الطلب" / "احجز" hears why the number is needed now.
   const reason = signInReason(useProfile().returnTo);
-  const hint = reason === 'order' ? t('onboarding.phone_hint_order') : reason === 'book' ? t('onboarding.phone_hint_book') : t('onboarding.phone_hint');
+  const [title, accent] =
+    reason === 'order'
+      ? [t('auth.phone_title_order'), t('auth.phone_accent_order')]
+      : reason === 'book'
+        ? [t('auth.phone_title_book'), t('auth.phone_accent_book')]
+        : [t('auth.phone_title'), t('auth.phone_accent')];
 
   const e164 = normalizeIraqiPhone(value);
   const digits = value.replace(/\D/g, '').length;
@@ -37,15 +42,20 @@ export default function PhoneEntry() {
     setTouched(true);
     if (!e164 || requestOtp.isPending) return;
     try {
+      // No channel: SMS, or WhatsApp on a day the SMS budget is spent; the code screen says which.
       const res = await requestOtp.mutateAsync({ phone: e164, purpose: 'login', device: await getDeviceInfo() });
-      router.push({ pathname: '/otp', params: { phone: e164, masked: res.phoneMasked, resendAfter: String(res.resendAfterSec) } });
+      router.push({ pathname: '/otp', params: { phone: e164, masked: res.phoneMasked, resendAfter: String(res.resendAfterSec), channel: res.channel ?? 'sms' } });
     } catch {
       /* shown under the field */
     }
   };
 
   return (
-    <Screen
+    <AuthStage
+      step={1}
+      title={title}
+      accent={accent}
+      ticket={reason === 'order'}
       footer={
         <View style={{ gap: theme.space[3] }}>
           <Button
@@ -63,27 +73,29 @@ export default function PhoneEntry() {
         </View>
       }
     >
-      <AuthHeader title={t('onboarding.phone_label')} subtitle={hint} />
-      <View style={{ gap: theme.space[2] }}>
-        <TextField
-          testID="phone-input"
-          value={value}
-          onChangeText={(v) => {
-            setValue(formatPhoneInput(v));
-            if (requestOtp.error) requestOtp.reset();
-          }}
-          onBlur={() => setTouched(true)}
-          onSubmitEditing={() => void submit()}
-          placeholder={t('onboarding.phone_placeholder')}
-          keyboardType="phone-pad"
-          textContentType="telephoneNumber"
-          autoComplete="tel"
-          autoFocus
-          leadingIcon="phone"
-          accessibilityLabel={t('onboarding.phone_label')}
-          error={showInvalid ? t('error.phone_invalid') : serverError}
-        />
+      <PhoneField
+        testID="phone-input"
+        label={t('onboarding.phone_label')}
+        value={value}
+        onChangeText={(v) => {
+          setValue(formatPhoneInput(v));
+          if (requestOtp.error) requestOtp.reset();
+        }}
+        onBlur={() => setTouched(true)}
+        onSubmitEditing={() => void submit()}
+        placeholder={t('onboarding.phone_placeholder')}
+        autoFocus
+        error={showInvalid ? t('error.phone_invalid') : serverError}
+      />
+      {/* Why a number, and that it is the whole account: no password, no email. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+        <View style={{ width: 36, height: 36, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentTint }}>
+          <Icon name="shield" size={18} color="accentText" />
+        </View>
+        <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+          {t('auth.phone_promise')}
+        </Text>
       </View>
-    </Screen>
+    </AuthStage>
   );
 }

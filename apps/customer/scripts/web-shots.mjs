@@ -15,7 +15,8 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
-//   rajaa-*  board, blocked seat, hold, pass, demand, request board, home POST /demo/rajaa/*
+//   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
+//            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
@@ -130,13 +131,13 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
 // Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi'];
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
@@ -156,7 +157,8 @@ const fullShot = async (name) => {
   if (!wanted(name)) return;
   const h = await page.evaluate(() => {
     let max = document.documentElement.scrollHeight;
-    for (const el of document.querySelectorAll('div')) {
+    // Any element: React Native Web renders a screen's ScrollView as <main> on SDK 57.
+    for (const el of document.querySelectorAll('*')) {
       const s = getComputedStyle(el);
       if (s.overflowY === 'auto' || s.overflowY === 'scroll') max = Math.max(max, el.scrollHeight + 160);
     }
@@ -212,8 +214,15 @@ try {
   ]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await shot('app-setup');
     await byTestId('setup-save').click();
     // The welcome-home moment (joy h7) plays once after setup: shot, then tapped away.
@@ -263,12 +272,14 @@ try {
   if (wants('food')) await foodFlow(khalid);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
   if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('later')) await laterShots();
+  if (wants('ride-errors')) await rideErrorShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
@@ -338,7 +349,7 @@ async function rajaaTaxiShots(personId) {
   await fullShot('rajaa-taxi-preview-full');
   const states = {
     x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
-    x3: ['not-told', 'told'],
+    x3: ['not-told', 'told', 'held'],
     x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
     n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
   };
@@ -431,8 +442,7 @@ async function simpleShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
-    await byTestId('setup-next').click();
-    await byTestId('setup-skip-place').click();
+    await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
       await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
@@ -523,8 +533,15 @@ async function freshSignIn(phoneNumber) {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أبو زهراء');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -716,6 +733,83 @@ async function tripsFlow(khalid, personId, seed) {
  * button), its booked screen with the reminder, the booked rides in طلباتي with «ألغي», the
  * «نفس مشوار البارحة» switch, and the push's deep link landing on choose with البيت ← الدائرة filled.
  */
+/**
+ * W11 launch fixes: what the ride screens say when a read fails (VIS-41 known places, FLOW-28 the pin's
+ * area, FLOW-27 the price), each with its retry; and VIS-21, the pin at 360 px confirms after every drag
+ * and after a touch that never moves the map. Each failure is one procedure's request answered as a
+ * network failure (a batch carrying it fails as a whole, as it would on a phone).
+ */
+async function rideErrorShots() {
+  const failing = (proc) => async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
+  const withFailure = async (proc, flow) => {
+    const handler = failing(proc);
+    await page.route('**/trpc/**', handler);
+    try {
+      await flow();
+    } finally {
+      await page.unroute('**/trpc/**', handler);
+    }
+  };
+
+  await withFailure('places.landmarks', async () => {
+    await page.goto(`${origin}/ride`, LOADED);
+    await byTestId('ride-landmarks-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('known places: no failed state'));
+    await byTestId('ride-landmarks-failed').scrollIntoViewIfNeeded().catch(() => undefined);
+    await settle(700);
+    await shot('ride-errors-landmarks');
+  });
+
+  await withFailure('places.zoneFor', async () => {
+    await page.goto(`${origin}/ride/pin?field=dropoff`, LOADED);
+    await byTestId('ride-pin-zone-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('pin: no failed state'));
+    await settle(700);
+    await shot('ride-errors-pin');
+  });
+
+  await withFailure('pricing.quote', async () => {
+    await page.goto(`${origin}/ride`, LOADED);
+    // A saved place that isn't the pickup (البيت is): the choose screen opens with both ends.
+    await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+    await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(() => errors.push('choose not opened'));
+    await byTestId('ride-quote-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('choose: no price failed line'));
+    await settle(700);
+    await shot('ride-errors-price');
+  });
+
+  // VIS-21 at 360 px: ten drags, then a touch that lifts the pin without moving the map.
+  await page.setViewportSize({ width: 360, height: 740 });
+  try {
+    await page.goto(`${origin}/ride/pin?field=dropoff`, LOADED);
+    await byTestId('ride-pin').waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(1200);
+    const enabled = () => page.waitForFunction(() => !document.querySelector('[data-testid="ride-pin-confirm"]')?.getAttribute('aria-disabled')?.includes('true'), null, { timeout: 4_000 }).then(() => true).catch(() => false);
+    const box = await byTestId('ride-pin-map').boundingBox();
+    let stuck = 0;
+    for (let n = 0; box && n < 10; n++) {
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      const dx = (n % 2 ? -1 : 1) * 8;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * dx, y + i * 6, { steps: 2 });
+      await page.mouse.up();
+      if (!(await enabled())) stuck++;
+    }
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.up();
+      if (!(await enabled())) stuck++;
+    }
+    if (stuck > 0) errors.push(`pin at 360 px: «ثبّت الوجهة» stayed off ${stuck} of 11 times`);
+    else console.log('pin at 360 px: confirm enabled after all 11 touches');
+    await settle(600);
+    await shot('ride-errors-pin-360');
+  } finally {
+    await page.setViewportSize({ width: W, height: H });
+  }
+}
+
 async function laterShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
@@ -730,8 +824,15 @@ async function laterShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -794,10 +895,10 @@ async function laterShots() {
   await shot('later-orders');
   if (seed.bookedOrderId) {
     await visible(`booked-cancel-${seed.bookedOrderId}`).click();
-    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).waitFor({ timeout: 10_000 });
+    await byTestId(`booked-cancel-sheet-${seed.bookedOrderId}-yes`).waitFor({ timeout: 10_000 });
     await settle(700);
     await shot('later-orders-cancel');
-    await byTestId(`booked-cancel-yes-${seed.bookedOrderId}`).click();
+    await byTestId(`booked-cancel-sheet-${seed.bookedOrderId}-yes`).click();
     await byTestId(`booked-${seed.bookedOrderId}`).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('cancelled booked ride still listed'));
     await settle(900);
     await shot('later-orders-cancelled');
@@ -839,8 +940,15 @@ async function habitsShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -1098,6 +1206,13 @@ async function trackShots(personId) {
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await live();
   await shot('track-preparing');
+  // The actions under the expanded sheet before pickup (HUNT-01: no street hand-over row while it is switched off).
+  await openOrder(prepId, '?sheet=2');
+  await live(1500);
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await live(600);
+  await shot('track-preparing-expanded-actions');
+  if ((await byTestId('action-street').count()) > 0) console.log('track-preparing-expanded-actions: street hand-over row shown');
 
   const wayId = await seed('on_the_way');
   await openOrder(wayId);
@@ -1184,27 +1299,53 @@ async function rajaaShots(personId) {
   await shot('rajaa-board');
   await fullShot('rajaa-board-full');
 
-  // Seat booking: declare نساء, tap the back-middle seat between two men → explained, not sold.
+  // Narrowing (s2, s5, s7, x3): tomorrow's cars, then tomorrow night with none → one-tap «نبّهني».
+  await byTestId('board-day-tomorrow').click();
+  await settle(800);
+  await shot('rajaa-board-tomorrow');
+  await byTestId('board-part-night').click();
+  await byTestId('board-wish').waitFor({ timeout: 10_000 });
+  await settle(600);
+  await shot('rajaa-board-wish');
+  await byTestId('board-day-today').click();
+  await byTestId('board-part-all').click();
+  await firstCar.waitFor({ timeout: 15_000 });
+
+  // Seat booking (Ali dropped «مسافر», 2026-10-07): the seat screen opens with the best seat picked.
   await firstCar.click();
   await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
-  await byTestId('chip-nisa').click();
-  await page.waitForTimeout(1200); // board refetch with travellingAs
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
-  await byTestId('rajaa-blocked-note').waitFor({ timeout: 10_000 });
-  await byTestId('rajaa-blocked-note').scrollIntoViewIfNeeded();
-  await shot('rajaa-seat-blocked');
+  await shot('rajaa-seat-top');
   await fullShot('rajaa-seat-sheet');
-
-  // As رجال the same seat is open: hold it.
-  await byTestId('chip-rijal').click();
   await page.waitForTimeout(1200);
-  await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  // c4: the only seat open to him is picked for him already («اخترنالك ورا نص»); tap it only if not.
+  if (await byTestId('rajaa-auto-picked').isVisible()) {
+    await byTestId('rajaa-auto-picked').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(300);
+    await shot('rajaa-seat-auto');
+  } else {
+    await page.locator('[data-testid="rajaa-book"] [data-testid="seat-back_middle"]').click();
+  }
   await byTestId('rajaa-quote').waitFor({ timeout: 10_000 });
+  // The driver's own car under the seats (an Elantra on this run), with the picked seat.
+  await byTestId('car-seat-art').scrollIntoViewIfNeeded().catch(() => errors.push('car picture not shown on the seat screen'));
+  await shot('rajaa-seat-picked');
+  // Where you get in (c5): one row of three; «على الطريق» opens the stops.
+  await byTestId('pickup-tile-way').click();
+  await page.locator('[data-testid^="pickup-mp_"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('rajaa-seat-pickup-way');
+  await byTestId('pickup-tile-garage').click();
   await byTestId('rajaa-hold').click();
   await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await shot('rajaa-hold');
   await fullShot('rajaa-hold-full');
+  // p2/p3: the wallet, «الأضمن», with what it lacks and «اشحن»; back to cash for the reservation.
+  await byTestId('pay-wallet').click();
+  await byTestId('rajaa-wallet-balance').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('rajaa-pay-wallet');
+  await byTestId('pay-cash').click();
 
   // Cash reservation → boarding pass (boarding is open on this car: live position shows).
   await byTestId('rajaa-confirm').click();
@@ -1213,10 +1354,44 @@ async function rajaaShots(personId) {
   await shot('rajaa-pass');
   await fullShot('rajaa-pass-full');
 
+  // Leaving Aziziyah from a gate, paid from the wallet (t4, t6): when to leave home, the late bar.
+  if (personId) {
+    const out = await demoPost(`/demo/rajaa/outbound?personId=${encodeURIComponent(personId)}`);
+    if (out?.bookingId) {
+      await page.goto(`${origin}/rajaa/pass/${out.bookingId}`, LOADED);
+      await byTestId('rajaa-ticket').waitFor({ timeout: 15_000 });
+      await settle(1200);
+      await fullShot('rajaa-pass-out-full');
+      await byTestId('rajaa-leave-home').evaluate((el) => el.scrollIntoView({ block: 'start' })).catch(() => errors.push('leave-home card not shown on the outbound pass'));
+      await settle(300);
+      await shot('rajaa-pass-out-leave');
+    }
+    // On the road (r1–r3, r6): just left, his mother and Zainab following.
+    const onRoad = await demoPost(`/demo/rajaa/onboard?personId=${encodeURIComponent(personId)}&road=1`);
+    if (onRoad?.bookingId) {
+      await page.goto(`${origin}/rajaa/pass/${onRoad.bookingId}`, LOADED);
+      await byTestId('rajaa-road').waitFor({ timeout: 15_000 }).catch(() => errors.push('road card not shown on the road'));
+      await settle(1500);
+      await byTestId('rajaa-road').evaluate((el) => el.scrollIntoView({ block: 'start' })).catch(() => {});
+      await settle(300);
+      await shot('rajaa-road');
+      await fullShot('rajaa-road-full');
+    }
+  }
+
+  // Going out (f1, f3, n1, n2): the board reads «العزيزية ← بغداد» and «نبّهني», never «الرجعة».
+  await page.goto(`${origin}/rajaa?corridor=aziziyah_baghdad&direction=from_aziziyah`, LOADED);
+  await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('rajaa-board-out');
+  await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=from_aziziyah`, LOADED);
+  await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
+  await settle();
+  await shot('rajaa-demand-out');
+
   // أريد أرجع: post for the coming hour → "N people waiting with you" → a driver announces → claimed.
   await page.goto(`${origin}/rajaa/demand?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
   await byTestId('rajaa-demand').waitFor({ timeout: 15_000 });
-  await byTestId('chip-rijal').click();
   await shot('rajaa-demand');
   await byTestId('rajaa-demand-submit').click();
   await byTestId('rajaa-demand-posted').waitFor({ timeout: 15_000 });
@@ -1232,15 +1407,35 @@ async function rajaaShots(personId) {
   // Request board: post → offers arrive → pick one → deposit rules → matched.
   await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid="rajaa-req-from"]').fill('العزيزية، حي الزهراء');
-  await page.locator('[data-testid="rajaa-req-to"]').fill('النجف');
+  // y1, y2: the places as chips, there and back with a 4-hour wait, AC.
+  await byTestId('req-from-aziziyah').click();
+  await byTestId('req-place-najaf').click();
+  await byTestId('req-trip-wait_return').click();
+  await byTestId('req-wait').waitFor({ timeout: 5_000 });
+  await page.locator('[data-testid="req-wait"] [aria-label="زيد واحد"]').first().click();
+  await byTestId('req-ac').click();
   await shot('rajaa-request-form');
+  await fullShot('rajaa-request-form-full');
+  await byTestId('req-trip-two_days').click();
+  await byTestId('req-return').waitFor({ timeout: 5_000 });
+  await byTestId('req-return').scrollIntoViewIfNeeded();
+  await shot('rajaa-request-form-two-days');
+  await byTestId('req-trip-wait_return').click();
   await byTestId('rajaa-request-submit').click();
   await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
+  await byTestId('rajaa-req-seen').waitFor({ timeout: 10_000 });
+  await shot('rajaa-request-waiting');
   if (personId) {
     await demoPost(`/demo/rajaa/offers?personId=${encodeURIComponent(personId)}`);
     await demoPost(`/demo/rajaa/topup?personId=${encodeURIComponent(personId)}&amount=25000`);
-    const offer = page.locator('[data-testid^="offer-"]').first();
+    // y4–y6: seen count, sort, rich cards with the winners named.
+    await byTestId('offer-sort-best').waitFor({ timeout: 20_000 });
+    await fullShot('rajaa-request-offers-full');
+    await byTestId('offer-sort-cheapest').click();
+    await shot('rajaa-request-offers-cheapest');
+    await byTestId('offer-sort-best').click();
+    // The pick button (offer-<id>) of the top card, not the driver row, price or card inside it.
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });
@@ -1255,6 +1450,59 @@ async function rajaaShots(personId) {
   await page.goto(`${origin}/`, LOADED);
   await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });
   await shot('rajaa-home');
+}
+
+/** The الرجعة driver's record (x12–x17): tile, seat sheet, «ملفه», and the one-line review. */
+async function driverShots(personId) {
+  if (personId) await demoPost(`/demo/rajaa/rode?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
+  await firstCar.waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('driver-board');
+
+  await firstCar.click();
+  await byTestId('rajaa-departure-driver-record').waitFor({ timeout: 15_000 }).catch(() => errors.push('driver record not shown on the seat screen'));
+  await byTestId('rajaa-departure-driver-record').scrollIntoViewIfNeeded().catch(() => {});
+  await settle();
+  await shot('driver-seat-record');
+
+  await byTestId('rajaa-departure-driver-record-open').click();
+  await byTestId('driver-profile').waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await shot('driver-profile');
+  await fullShot('driver-profile-full');
+
+  // A new driver (أحمد, the تاهو: no trips yet): «جديد» instead of a rating, no bars, no reviews yet.
+  await page.goto(`${origin}/rajaa`, LOADED);
+  await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').first().waitFor({ timeout: 15_000 });
+  const tiles = await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
+  const newId = tiles[2]?.replace(/^departure-/, '');
+  await page.goto(`${origin}/rajaa/driver/${newId}`, LOADED);
+  await byTestId('driver-profile-qualities-wait').waitFor({ timeout: 15_000 }).catch(() => errors.push('new driver profile not shown'));
+  await settle();
+  await fullShot('driver-profile-new');
+
+  if (!personId) return;
+  const trip = await demoPost(`/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/rajaa/pass/${trip.bookingId}`, LOADED);
+  await byTestId('rajaa-safe-arrival').waitFor({ timeout: 15_000 });
+  // a2, a4: home by tuktuk and the next trip (with its cars) come first, before the rating.
+  await settle(1500);
+  await fullShot('driver-arrival-full');
+  await byTestId('rate-star-5').click();
+  await page.locator('[data-testid="rajaa-review-input"]').fill('رقمه 07701234567 اذا تحتاجونه');
+  await byTestId('rajaa-review-input').scrollIntoViewIfNeeded();
+  await settle();
+  await shot('driver-review-refused');
+  await page.locator('[data-testid="rajaa-review-input"]').fill('سايق محترم ووصلنا قبل الوقت');
+  await settle();
+  await shot('driver-review-typed');
+  await byTestId('rajaa-rate-send').click();
+  await byTestId('rajaa-safe-review').waitFor({ timeout: 15_000 }).catch(() => errors.push('sent review not shown'));
+  await byTestId('rajaa-safe-review').scrollIntoViewIfNeeded().catch(() => {});
+  await settle();
+  await shot('driver-review-sent');
 }
 
 /**
@@ -1289,7 +1537,7 @@ async function dealsShots(khalid) {
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
   await page.evaluate(() => {
     // Scroll to the price breakdown so the deal line is in view.
-    for (const el of document.querySelectorAll('div')) {
+    for (const el of document.querySelectorAll('*')) {
       const st = getComputedStyle(el);
       if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
     }

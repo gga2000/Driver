@@ -11,7 +11,9 @@ import type { LiveMode, LiveTimers } from './live-client.js';
  *  - `connectionBanner` — what the shared offline strip says now: offline, API unreachable, "رجع النت"
  *    for a moment after an outage, or "التحديث متأخر" when the live channel is down and data is old.
  *  - `trackFetch` — wraps the tRPC links' `fetch` so every answer and every failure feeds the monitor.
+ *  - `withTimeout` — a deadline on every request, so one stalled connection can't freeze the app.
  *  - `isNetworkError` — "no response" (offline, DNS, refused, aborted) vs an answer from the server.
+ *  - `classifyError` — whether trying again can help (no response, our server) or the answer is final.
  *
  * SSE down is not offline: the live channel falls back to polling and the data can still be fresh.
  * Offline / unreachable says "we can't reach Driver"; stale says "what you see may be old".
@@ -26,12 +28,28 @@ export const NET_RULES = {
   backBannerMs: 3_000,
   /** While the API can't be reached it is probed this often ("نحاول كل 5 ثواني"). */
   probeEveryMs: 5_000,
+  /**
+   * While the device says "no network" the API is still probed this often: Android can say offline on a
+   * captive or unvalidated Wi-Fi while data works (audit CORE-14), and a real answer beats its word.
+   */
+  offlineProbeEveryMs: 15_000,
   /** Requests in a row with no response before the API counts as unreachable. */
   failuresBeforeUnreachable: 2,
   /** A skeleton turns into an error with a retry after this long. */
   slowLoadMs: 8_000,
   /** With the live channel down, data older than this reads "التحديث متأخر". */
   staleAfterMs: 45_000,
+  /**
+   * No answer to a request within this long counts as no response (audit CORE-01: Android's HTTP client
+   * waits forever on a stalled link). The clock starts again once for the body after the headers arrive.
+   */
+  requestTimeoutMs: 15_000,
+  /**
+   * The token refresh request waits longer than others: the server rotates the token when it answers,
+   * so giving up early on a slow answer would leave the phone with a retired token. Requests don't
+   * wait this long for it (the session releases them after 10 s, `REFRESH_WAIT_MS`).
+   */
+  refreshTimeoutMs: 60_000,
 } as const;
 
 export type NetRules = { -readonly [K in keyof typeof NET_RULES]: number };
@@ -105,6 +123,7 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
       backAt: state === 'online' && wasDown && downFor >= rules.bannerDelayMs ? at : state === 'online' ? null : snap.backAt,
     };
     if (state === 'unreachable') schedule(rules.probeEveryMs);
+    else if (state === 'offline') schedule(rules.offlineProbeEveryMs);
     else cancel();
     emit();
   };
@@ -134,7 +153,7 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
       )
       .finally(() => {
         probing = false;
-        if (snap.state === 'unreachable' && probeTimer === null) schedule(rules.probeEveryMs);
+        if (probeTimer === null && snap.state !== 'online') schedule(snap.state === 'offline' ? rules.offlineProbeEveryMs : rules.probeEveryMs);
       });
   };
 
@@ -172,7 +191,6 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
     reportResponse: onAnswer,
     reportNetworkError: onSilence,
     retryNow() {
-      if (snap.state === 'offline') return;
       cancel();
       runProbe();
     },
@@ -280,4 +298,135 @@ export function trackFetch<F extends FetchFn>(monitor: Pick<NetworkMonitor, 'rep
     }
   }) as F;
   return tracked;
+}
+
+/** The error a request that hit its deadline fails with (`isNetworkError` counts it as no response). */
+export class RequestTimeoutError extends Error {
+  override readonly name = 'TimeoutError';
+  constructor(readonly afterMs: number) {
+    super(`request_timeout_${afterMs}ms`);
+  }
+}
+
+interface AbortSignalLike {
+  readonly aborted: boolean;
+  addEventListener(type: 'abort', listener: () => void): void;
+  removeEventListener(type: 'abort', listener: () => void): void;
+}
+interface AbortControllerLike {
+  readonly signal: AbortSignalLike;
+  abort(reason?: unknown): void;
+}
+const AbortControllerImpl = (globalThis as { AbortController?: new () => AbortControllerLike }).AbortController;
+
+/**
+ * Wraps a fetch with a deadline: no response headers within `ms` aborts the request and rejects with
+ * `RequestTimeoutError`; once the headers arrive the clock starts once more for reading the body. A
+ * signal the caller passes still cancels it (that rejection stays an `AbortError`). The promise
+ * settles at the deadline even on a runtime whose fetch ignores the abort.
+ */
+export function withTimeout<F extends FetchFn>(fetchImpl: F, ms: number, timers: LiveTimers = realTimers): F {
+  const timed = ((input: never, init?: never) => {
+    const callerSignal = (init as { signal?: AbortSignalLike | null } | undefined)?.signal ?? null;
+    const ctrl = AbortControllerImpl ? new AbortControllerImpl() : null;
+    let timer: unknown = null;
+    let timedOut = false;
+    const forward = () => ctrl?.abort();
+    const done = () => {
+      if (timer !== null) timers.clearTimeout(timer);
+      timer = null;
+      callerSignal?.removeEventListener('abort', forward);
+    };
+    if (callerSignal?.aborted) return Promise.reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+    callerSignal?.addEventListener('abort', forward);
+    const arm = (onFire: () => void) => {
+      if (timer !== null) timers.clearTimeout(timer);
+      timer = timers.setTimeout(() => {
+        timer = null;
+        onFire();
+      }, ms);
+    };
+
+    return new Promise((resolve, reject) => {
+      arm(() => {
+        timedOut = true;
+        ctrl?.abort();
+        done();
+        reject(new RequestTimeoutError(ms));
+      });
+      const passed = (ctrl ? { ...(init as object | undefined), signal: ctrl.signal } : init) as never;
+      fetchImpl(input, passed).then(
+        (res) => {
+          if (timedOut) return;
+          // The body gets one more window; aborting after it was read changes nothing.
+          arm(() => {
+            ctrl?.abort();
+            done();
+          });
+          resolve(res);
+        },
+        (err: unknown) => {
+          if (timedOut) return;
+          done();
+          reject(err);
+        },
+      );
+    });
+  }) as F;
+  return timed;
+}
+
+/** Waits for `work` at most `ms`, never rejects: for best-effort calls that must not hold a person up (sign-out). */
+export function settleWithin(work: Promise<unknown>, ms: number, timers: LiveTimers = realTimers): Promise<'done' | 'timeout'> {
+  return new Promise((resolve) => {
+    const timer = timers.setTimeout(() => resolve('timeout'), ms);
+    work.then(
+      () => {
+        timers.clearTimeout(timer);
+        resolve('done');
+      },
+      () => {
+        timers.clearTimeout(timer);
+        resolve('done');
+      },
+    );
+  });
+}
+
+// ───────────────────────── what an error means ─────────────────────────
+
+/**
+ * What a failed request means for the app:
+ *  - `network`: no response (offline, timed out, refused). Keep what is on screen, say "reconnecting", retry;
+ *  - `server`: our server failed (5xx, `internal`, `service_unavailable`). Keep the data, retry with backoff;
+ *  - `busy`: rate limited; retry only after `retryAfterSec`;
+ *  - `auth`: the session was refused (401); the auth link refreshes once, then it is final;
+ *  - `final`: a definitive answer (not found, forbidden, invalid, a rule said no). Retrying can't help.
+ */
+export type ErrorClassKind = 'network' | 'server' | 'busy' | 'auth' | 'final';
+
+export interface ErrorClass {
+  kind: ErrorClassKind;
+  /** Trying the same request again later can succeed. */
+  transient: boolean;
+  /** The envelope's stable code, when the server answered with one. */
+  code: string | null;
+  retryAfterSec: number | null;
+}
+
+const TRANSIENT_CODES = new Set(['internal', 'service_unavailable']);
+
+export function classifyError(err: unknown): ErrorClass {
+  const data = (err as { data?: { code?: unknown; retryHint?: unknown; retryAfterSec?: unknown } | null } | null)?.data;
+  const code = typeof data?.code === 'string' ? data.code : null;
+  const retryAfterSec = typeof data?.retryAfterSec === 'number' ? data.retryAfterSec : null;
+  const of = (kind: ErrorClassKind, transient: boolean): ErrorClass => ({ kind, transient, code, retryAfterSec });
+  if (isNetworkError(err)) return of('network', true);
+  const status = httpStatusOf(err);
+  if (status === 401) return of('auth', false);
+  if (status === 429 || code === 'rate_limited') return of('busy', true);
+  if ((status !== undefined && status >= 500) || (code !== null && TRANSIENT_CODES.has(code))) return of('server', true);
+  // Any other answer is the server's final word on this request (its retry hint is for the person, not
+  // for an automatic retry); an error with no status at all is a bug on our side that a retry won't fix.
+  return of('final', false);
 }

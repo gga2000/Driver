@@ -1,11 +1,24 @@
 import { TRPCClientError, type TRPCLink } from '@trpc/client';
 import { observable } from '@trpc/server/observable';
-import type { AppRouter } from '@driver/contracts';
+import { transformer, type AppRouter } from '@driver/contracts';
 import { isAuthError, type SessionStore } from './session';
 
 /**
  * tRPC links and error helpers, free of React Native imports so they run in plain Node tests.
  */
+
+/**
+ * Queries go as GET with their input in the URL; proxies refuse URLs past about 8 KB, and a big basket
+ * with Arabic notes (each letter 6 characters once encoded) gets there (audit FOOD-18). Above this many
+ * encoded characters of input a query is sent as POST instead; smaller batches are split to stay under.
+ */
+export const URL_RULES = { maxUrlLength: 6_000, maxGetInputLength: 4_000 } as const;
+
+/** True when this query's input is too long for a URL (it then goes as POST). */
+export function inputTooLongForUrl(op: { type: string; input: unknown }, limit: number = URL_RULES.maxGetInputLength): boolean {
+  if (op.type !== 'query' || op.input === undefined) return false;
+  return encodeURIComponent(JSON.stringify(transformer.serialize(op.input))).length > limit;
+}
 
 /** True for errors the server answered with 401 (expired/invalid token). */
 export function isUnauthorized(err: unknown): boolean {

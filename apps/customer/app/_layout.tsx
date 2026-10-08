@@ -6,7 +6,7 @@ import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
@@ -14,8 +14,11 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
+import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { CachedPhoto } from '@/lib/cached-photo';
+import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
@@ -26,6 +29,7 @@ import { useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
+import { useScreenSpeed } from '@/lib/speed';
 
 enforceRtl();
 // Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
@@ -82,6 +86,7 @@ export default function RootLayout() {
         >
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+            <PhotoImageProvider component={CachedPhoto}>
             <ToastProvider bottomOffset={96}>
               <ApiProvider>
                 <StatusBar style="dark" />
@@ -90,9 +95,14 @@ export default function RootLayout() {
                 <SystemBanner />
                 {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
                 <SeasonWatcher />
+                {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
+                <SosOutboxSync />
+                {/* The first slow connection offers low-data mode once (speed g4). */}
+                <LiteHint />
                 <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
               </ApiProvider>
             </ToastProvider>
+            </PhotoImageProvider>
           </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -113,6 +123,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const ready = status !== 'loading' && prof.loaded;
+  // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
+  useScreenSpeed(segments, ready && !fontsPending);
 
   useEffect(() => {
     if (!ready) return;
@@ -149,6 +161,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         {/* Search and the full restaurant list (audit C-01, C-02): public, like home and menus. */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="restaurants" options={{ headerShown: false }} />
+        {/* The food doors (أبواب الأكل): the food home and one door's shops. Public, like home. */}
+        <Stack.Screen name="food/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food/[door]" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
@@ -179,7 +194,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
-        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        {/* p4: the hold folds into the ticket: the pass rises in place of the pay screen, no blank jump. */}
+        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), animation: 'fade_from_bottom', headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/driver/[id]" options={{ title: t('rajaa.profile_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/request" options={{ title: t('request.title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
       </Stack>

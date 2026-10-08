@@ -97,6 +97,12 @@ export interface GarageTaxiSources {
   usualPayment(personId: string): Promise<GarageTaxiPayment | null>;
   /** A matched ride's expected arrival at its drop-off by the one ETA (null when unknown). */
   rideArrival(orderId: string): Promise<Date | null>;
+  /** When the ride's driver tapped «وصلت» at the rider's pickup (null: not there yet). */
+  pickupArrivedAt(orderId: string): Promise<Date | null>;
+  /** x3: tell the seat our taxi is due at `until` and late for the car (null: not late any more). */
+  taxiLate(riderId: string, bookingId: string, until: Date | null): Promise<void>;
+  /** x3: until when the seat waits for that taxi (null: not held — switched off, on time, or gone). */
+  seatHeldUntil(bookingId: string): Promise<Date | null>;
 }
 
 export interface RidePlacement {
@@ -228,6 +234,7 @@ export class GarageTaxiService implements GarageTaxiPort {
       lateMin: link.lateMin ?? 0,
       driverTold: link.toldMin !== null,
       toldMin: link.toldMin,
+      seatHeldUntil: link.state === 'placed' ? await this.sources.seatHeldUntil(link.bookingId) : null,
     };
   }
 
@@ -534,6 +541,7 @@ export class GarageTaxiService implements GarageTaxiPort {
     const now = this.clock.now();
     const close = async () => {
       await this.repo.put({ ...row, state: 'closed', closedAt: now }, now);
+      if (row.lateMin !== null && row.lateMin >= GARAGE_TAXI_RULES.lateTellMin) await this.sources.taxiLate(row.personId, row.bookingId, null);
       return false;
     };
     const order = row.orderId ? await this.sources.order(row.orderId) : null;
@@ -547,6 +555,9 @@ export class GarageTaxiService implements GarageTaxiPort {
     const lateMin = garageLateMin(arriveAt, car.departAt);
     const tell = shouldTellLate(lateMin, row.toldMin);
     await this.repo.put({ ...row, departAt: car.departAt, expectedAt: arriveAt, lateMin, ...(tell ? { toldMin: lateMin, toldAt: now } : {}) }, now);
+    // x3: the seat learns when our late taxi is due (the routes module holds it while RIDE_SEAT_HOLD is on).
+    const late = lateMin >= GARAGE_TAXI_RULES.lateTellMin;
+    if (late || (row.lateMin ?? 0) >= GARAGE_TAXI_RULES.lateTellMin) await this.sources.taxiLate(row.personId, seat.id, late ? arriveAt : null);
     if (!tell) return false;
     const garage = this.garage(car.garageId);
     await this.events.emit(
@@ -586,7 +597,13 @@ export class GarageTaxiService implements GarageTaxiPort {
       const start = Math.max(now.getTime(), order.scheduledFor?.getTime() ?? now.getTime());
       return row.rideMin === null ? null : new Date(start + row.rideMin * MIN_MS);
     }
-    return this.sources.rideArrival(order.id);
+    const live = await this.sources.rideArrival(order.id);
+    // Once our taxi is at his door, any wait after that is his, not ours: the garage time stops at the
+    // driver's arrival + the planned ride, so a rider who keeps the taxi waiting can't push our
+    // lateness (the seat hold, the company-paid meter minutes) later and later.
+    const atDoor = await this.sources.pickupArrivedAt(order.id);
+    if (!live || !atDoor || row.rideMin === null) return live;
+    return new Date(Math.min(live.getTime(), atDoor.getTime() + row.rideMin * MIN_MS));
   }
 
   // ───────────────────────── helpers ─────────────────────────

@@ -5,6 +5,12 @@ import { pickupOf, vehicleFit, waitTone, type WaitTone } from './dispatch';
 import type { FeatureCollection, LineString, Point } from 'geojson';
 
 /**
+ * The drag payload of a queue card (dispatch): drop it on a driver marker to pick that driver. Lives
+ * here, not in the map canvas, so the queue can use it without pulling MapLibre into the first load.
+ */
+export const TRIP_DRAG_TYPE = 'application/x-driver-trip';
+
+/**
  * Turns the polled trips, board cards and live driver pins into the three runtime GeoJSON sources
  * of the live map.
  *

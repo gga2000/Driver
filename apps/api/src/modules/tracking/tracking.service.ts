@@ -102,7 +102,7 @@ export interface TrackingLateCreditPort {
  */
 export interface TrackingLateApologyPort {
   sent(orderId: string): Promise<{ at: Date; etaAt: Date } | null>;
-  send(c: { orderId: string; customerId: string; promisedAt: Date; etaAt: Date; at: Date }, tx?: Tx): Promise<void>;
+  send(c: { orderId: string; customerId: string; promisedAt: Date; etaAt: Date; at: Date; cityId?: string }, tx?: Tx): Promise<void>;
 }
 
 export const TRACKING_LATE_CREDIT = Symbol('TRACKING_LATE_CREDIT');
@@ -378,7 +378,7 @@ export class TrackingService implements TrackingPort {
     if (sent) return { ...sent, fresh: false };
     if (!lateApologyDue(order, promisedAt, now, Boolean(trip?.unreachable), this.lateRules.apologyAfterMin)) return null;
     const etaAt = await this.newEta(order, trip, promisedAt, now);
-    await this.lateApology.send({ orderId: order.id, customerId: order.ordererId, promisedAt, etaAt, at: now });
+    await this.lateApology.send({ orderId: order.id, customerId: order.ordererId, promisedAt, etaAt, at: now, cityId: order.cityId });
     const stored = await this.lateApology.sent(order.id);
     return stored ? { ...stored, fresh: stored.at.getTime() === now.getTime() } : { at: now, etaAt, fresh: true };
   }
@@ -584,9 +584,17 @@ export class TrackingService implements TrackingPort {
         .filter((i) => i.name !== '');
       const trip = o.type === 'ride' || o.type === 'errand' || o.type === 'parcel';
       const dropoffZoneKey = trip ? ((await this.orders.aggregate(o.id)).order.dropoff?.zoneKey ?? null) : null;
-      rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey });
+      const rideVertical = o.type === 'ride' ? await this.rideVertical(o.id) : null;
+      rows.push({ order: o, merchantName: o.merchantOrgId ? (merchantNames.get(o.merchantOrgId) ?? null) : null, items, dropoffZoneKey, rideVertical });
     }
     return rows;
+  }
+
+  /** A ride's vehicle (o8), from the first trip made for it — cancelled searches too; null when it never had one. */
+  private async rideVertical(orderId: string): Promise<'taxi' | 'tuktuk' | null> {
+    const first = (await this.trips.orderHistory(orderId))[0];
+    const vertical = first ? (await this.trips.get(first.tripId)).vertical : null;
+    return vertical === 'taxi' || vertical === 'tuktuk' ? vertical : null;
   }
 
   /**
