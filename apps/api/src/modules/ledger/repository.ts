@@ -13,8 +13,8 @@ export interface LedgerRepository {
   append(event: NewLedgerEvent, tx?: Tx): Promise<LedgerEvent>;
   /** Appends every event or none (the caller validated the whole batch first). */
   appendMany(events: readonly NewLedgerEvent[], tx?: Tx): Promise<LedgerEvent[]>;
-  /** Events touching an account (as source or destination), oldest first. */
-  byAccount(accountId: string): Promise<LedgerEvent[]>;
+  /** Events touching an account (as source or destination), oldest first; inside `tx` when given. */
+  byAccount(accountId: string, tx?: Tx): Promise<LedgerEvent[]>;
   byTrip(tripId: string): Promise<LedgerEvent[]>;
   byPostingGroups(groupIds: readonly string[]): Promise<LedgerEvent[]>;
   /** Lines carrying this order id, oldest first (support case view). */

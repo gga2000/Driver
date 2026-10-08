@@ -1819,6 +1819,8 @@ model SeatBooking {
   cancelledAt        DateTime?        @map("cancelled_at")
   /// Server-computed late-meter minutes when settled (decisions §8).
   lateMinutes        Int?             @map("late_minutes")
+  /// x3: when our taxi to this seat's garage is due while it runs late for the car (garage-taxi module).
+  taxiLateUntil      DateTime?        @map("taxi_late_until")
   demandPostId       String?          @map("demand_post_id")
   movedFromBookingId String?          @map("moved_from_booking_id")
   movedToBookingId   String?          @map("moved_to_booking_id")
