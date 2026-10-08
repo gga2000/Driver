@@ -8215,5 +8215,6 @@
   "track.door_title_street": "{name} ينطرك بالشارع",
   "track.price_delivery_street": "توصيل · بالشارع",
   "track.courier_at_street": "الدليفري ينطرك بالشارع",
-  "unreachable.standing_street": "{name} ينطرك بالشارع قريب من الدبوس"
+  "unreachable.standing_street": "{name} ينطرك بالشارع قريب من الدبوس",
+  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق"
 }

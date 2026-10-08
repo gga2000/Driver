@@ -4,6 +4,7 @@ import { ACCESS_TOKEN_TTL_SEC, DriverError, REFRESH_TOKEN_TTL_SEC, SessionClaims
 import type { Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { IdentityRepository, SessionRecord } from './identity.repository.js';
+import { isProduction, requireProductionSecret } from '../../shared/secrets.js';
 
 export interface SessionConfig {
   /** HS256 secret. Rotation: add a new entry, keep the old one until its access tokens expire (15 min). */
@@ -12,25 +13,9 @@ export interface SessionConfig {
   activeKid: string;
 }
 
-/** Minimum length of JWT_SECRET and PHONE_HASH_PEPPER in production. */
-export const MIN_SECRET_LENGTH = 32;
+export { MIN_SECRET_LENGTH } from '../../shared/secrets.js';
 const DEV_JWT_SECRET = 'dev-only-insecure-secret-change-me-32chars';
 const DEV_PHONE_PEPPER = 'dev-only-pepper';
-/** Values shipped in code or `.env.example`: never acceptable in production. */
-const KNOWN_PLACEHOLDERS = new Set([DEV_JWT_SECRET, DEV_PHONE_PEPPER, 'change-me-in-production-please-32-chars-min', 'change-me-too-and-never-again']);
-
-function isProduction(env: NodeJS.ProcessEnv): boolean {
-  return env['NODE_ENV'] === 'production';
-}
-
-/** In production a secret must be set, at least 32 characters, and not a published placeholder. */
-function requireProductionSecret(env: NodeJS.ProcessEnv, name: string): string {
-  const value = env[name];
-  if (!value) throw new Error(`${name} is required when NODE_ENV=production; refusing to boot`);
-  if (value.length < MIN_SECRET_LENGTH) throw new Error(`${name} must be at least ${MIN_SECRET_LENGTH} characters when NODE_ENV=production; refusing to boot`);
-  if (KNOWN_PLACEHOLDERS.has(value)) throw new Error(`${name} is a published placeholder value; refusing to boot`);
-  return value;
-}
 
 /**
  * JWT keys from JWT_SECRET/JWT_KID. Outside production a missing secret falls back to a dev-only
