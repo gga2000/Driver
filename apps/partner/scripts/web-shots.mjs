@@ -18,6 +18,7 @@
 // SHOTS=core,earnings (comma list of module names, default all) runs only those modules.
 // VIEWPORT=360x740 shoots a small Android phone instead of 390×844.
 // p.expectRefusal() / p.expectRefusal(false) brackets a step that is refused on purpose (a 400).
+// p.hold(id) presses and holds a HoldButton until it confirms.
 // p.slide(id) drags a SlideToConfirm thumb to the end (right → left); p.slideHalf(id) stops half way
 // and holds (call p.release() after the shot).
 // DIST_DIR and DEMO_API override the export folder and the demo API origin.
@@ -142,6 +143,17 @@ async function openPage(group, { prePrompt = false } = {}) {
         await page.waitForTimeout(16);
       }
       if (share >= 1) await page.mouse.up();
+    },
+    /** Presses and holds a HoldButton (o3) until it confirms. */
+    async hold(id, ms = 900) {
+      const el = p.byTestId(id);
+      await el.scrollIntoViewIfNeeded();
+      const box = await el.boundingBox();
+      if (!box) throw new Error(`${id}: not on screen`);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(ms);
+      await page.mouse.up();
     },
     async slideHalf(id) {
       await p.slide(id, 0.5);

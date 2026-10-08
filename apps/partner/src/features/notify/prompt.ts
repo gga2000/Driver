@@ -20,3 +20,8 @@ export function deepLinkPath(link: unknown, scheme = DEEP_LINK_SCHEME): string |
   const rest = link.slice(scheme.length + 3);
   return `/${rest}`.replace(/\/+$/, '') || '/';
 }
+
+/** A job-offer push (food today; a ride offer push will open the same `/offer` screen). */
+export function isOfferPush(data: { template?: unknown; deepLink?: unknown }): boolean {
+  return data.template === 'partner_new_job' || deepLinkPath(data.deepLink) === '/offer';
+}

@@ -143,3 +143,37 @@ export function deliveredShare(trip: Pick<KhatRunTrip, 'childrenTotal' | 'delive
   const travelling = trip.childrenTotal - trip.absent;
   return travelling <= 0 ? 1 : Math.min(1, trip.delivered / travelling);
 }
+
+export interface NextChild {
+  stop: KhatStopView;
+  place: KhatPlace;
+  /** The other children still waiting at the same place (first names), for «بنفس المكان: …». */
+  alsoHere: string[];
+}
+
+/**
+ * Partner redesign k2: the one child to look for now — the first child at the current place who still
+ * needs a tap («بالسيارة» at a pickup, «نزول» at the school). Null when the run is over or the current
+ * place has nobody left to tap (e.g. every drop waits on a child not yet on board).
+ */
+export function nextChild(trip: Pick<KhatRunTrip, 'stops'>, places: readonly KhatPlace[]): NextChild | null {
+  const place = places.find((p) => p.status === 'current');
+  if (!place) return null;
+  const open = place.stops.filter((s) => {
+    const a = childAction(trip, s);
+    return a === 'tap_in' || a === 'tap_out';
+  });
+  const stop = open[0];
+  if (!stop) return null;
+  return { stop, place, alsoHere: open.slice(1).map((s) => s.child!.firstName) };
+}
+
+/**
+ * Whole minutes from now to a stop's time, rounded up (5:00.1 away is «بعد 6»); 0 once it is due.
+ * Its scheduled time, not a drive estimate: the line says «الموعد …».
+ */
+export function minutesUntil(at: Date | null, now: number): number | null {
+  if (!at) return null;
+  const ms = at.getTime() - now;
+  return ms <= 0 ? 0 : Math.ceil(ms / 60_000);
+}

@@ -46,6 +46,11 @@ export const KhatStopView = z.object({
   zoneKey: z.string(),
   windowStart: z.coerce.date().nullable(),
   windowEnd: z.coerce.date().nullable(),
+  /**
+   * Partner redesign k2: the public town landmark the stop is near («يم جامع الرسول»), so the driver
+   * finds the door the way people give directions; null when none is close. Never the child's address.
+   */
+  landmark: z.string().nullable().default(null),
   /** Null on stops without a child (school gate wait, depot). */
   child: z
     .object({

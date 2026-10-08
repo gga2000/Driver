@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
-import { agoText, Button, Card, Icon, MAX_CONTENT_WIDTH, SearchField, SkyBackdrop, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
+import { agoText, Button, Card, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
 import { secondsSince } from '@driver/contracts/net-client';
 import { SectionHeader } from '@/components/SectionHeader';
 import { Screen } from '@/components/Screen';
@@ -200,7 +200,7 @@ export default function Home() {
   };
 
   return (
-    <Screen testID="home" scroll={false} padded={false} backdrop={<SkyBackdrop hour={dp.hour} />}>
+    <Screen testID="home" scroll={false} padded={false}>
       {/* «الوضع البسيط» on: home hands over to /simple (ride idea v2). */}
       <SimpleHomeRedirect />
       <TeaPullScroll

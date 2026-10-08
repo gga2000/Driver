@@ -124,3 +124,4 @@ export { RollingDigits, type RollingDigitsProps } from './components/RollingDigi
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';
+export { HoldButton, HOLD_CONFIRM_WINDOW_MS, HOLD_MS, type HoldButtonProps } from './components/HoldButton';
