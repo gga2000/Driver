@@ -34,7 +34,7 @@ export interface StatusPillProps {
 export function StatusPill({ label, tone = 'neutral', icon, live, dot, size = 'md', style, testID }: StatusPillProps) {
   const theme = useTheme();
   const c = STATUS_TONES[tone];
-  const pulse = usePulse(!!live);
+  const pulse = usePulse(!!live, label);
   return (
     <View
       testID={testID}

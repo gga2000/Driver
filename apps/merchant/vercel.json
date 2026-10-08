@@ -8,10 +8,7 @@
   "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = main ]; then exit 1; else exit 0; fi",
   "cleanUrls": false,
   "trailingSlash": false,
-  "rewrites": [
-    { "source": "/i/:code*", "destination": "/invite.html" },
-    { "source": "/((?!_expo/|assets/).*)", "destination": "/index.html" }
-  ],
+  "rewrites": [{ "source": "/((?!_expo/|assets/).*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/(.*)",
@@ -19,6 +16,7 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
         { "key": "Permissions-Policy", "value": "geolocation=(self), camera=(self), microphone=()" }
       ]
     },
@@ -33,17 +31,6 @@
     {
       "source": "/((?!_expo/|assets/).*)",
       "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-    },
-    {
-      "source": "/share/(.*)",
-      "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
-        { "key": "Referrer-Policy", "value": "no-referrer" }
-      ]
-    },
-    {
-      "source": "/i/(.*)",
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     }
   ]
 }
