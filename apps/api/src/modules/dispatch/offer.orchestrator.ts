@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   bookedFallbackCompensationIqd,
@@ -72,6 +72,10 @@ export interface TimerJob {
   step: number;
   /** Also written to the durable timer table (`bindDurableTimers`): marked fired there once it ran. */
   durable?: true;
+  /** Durable timers only: who to name when the request itself is gone (`dispatch.needs_dispatcher`, `request_lost`). */
+  cityId?: string;
+  vertical?: Vertical;
+  orderId?: string;
 }
 
 /**
@@ -159,6 +163,8 @@ export interface BookedRideInfo {
  */
 @Injectable()
 export class OfferOrchestrator {
+  private readonly logger = new Logger(OfferOrchestrator.name);
+
   private readonly ranker: DriverRanker;
 
   /** Ride step 3: the rider's avoid list, favourites and drivers' standing (bound by ride habits). */
@@ -1443,7 +1449,13 @@ export class OfferOrchestrator {
 
   async onTimer(job: TimerJob): Promise<void> {
     const r = await this.store.getRequest(job.tripId);
-    if (!r || r.epoch !== job.epoch) return;
+    if (!r) {
+      // A far-ahead timer whose request is gone: Redis lost it (requests live there). Nobody would
+      // look for a driver, so a dispatcher must (review of NTF-05).
+      if (job.durable) await this.onRequestLost(job);
+      return;
+    }
+    if (r.epoch !== job.epoch) return;
     await this.uow.run(async () => {
       switch (job.kind) {
         case 'wave_end':
@@ -1488,6 +1500,24 @@ export class OfferOrchestrator {
     });
   }
 
+  private async onRequestLost(job: TimerJob): Promise<void> {
+    this.logger.error(`dispatch request ${job.tripId} is gone (its ${job.kind} timer ran): a dispatcher must take it`);
+    await this.uow.run((tx) =>
+      this.events.emit(
+        tx,
+        {
+          actorId: SYSTEM,
+          type: 'dispatch.needs_dispatcher',
+          occurredAt: this.clock.now(),
+          tripId: job.tripId,
+          payload: { cityId: job.cityId ?? null, vertical: job.vertical ?? null, reason: 'request_lost', timer: job.kind, ...(job.orderId ? { orderId: job.orderId } : {}) },
+          idempotencyKey: `dispatch.request_lost.${job.tripId}.${job.epoch}`,
+        },
+        { name: 'trip', id: job.tripId },
+      ),
+    );
+  }
+
   // ───────────────────────── helpers ─────────────────────────
 
   private now(): number {
@@ -1500,7 +1530,7 @@ export class OfferOrchestrator {
     const delayMs = Math.max(0, atMs - this.now());
     const data: TimerJob = { kind, tripId: r.tripId, epoch: r.epoch, step };
     if (this.timers && delayMs >= DURABLE_TIMER_MIN_DELAY_MS) {
-      data.durable = true;
+      Object.assign(data, { durable: true, cityId: r.cityId, vertical: r.vertical, ...(r.orderId ? { orderId: r.orderId } : {}) });
       // Same transaction as the request it belongs to: rolled back together.
       await this.timers.schedule({ queue: DISPATCH_QUEUE_NAME, name: kind, jobId, data, dueAt: new Date(atMs + DURABLE_TIMER_GRACE_MS) }, this.uow.current());
     }
