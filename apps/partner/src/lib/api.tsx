@@ -111,6 +111,23 @@ export function ApiProvider({ children, store = appSession }: { children: ReactN
   );
 }
 
+/**
+ * A screen tree with its own client and cache (the practice order, partner redesign l4): the screens
+ * inside call `useApi()` as usual and reach `client`, never the app's client or its cached data.
+ */
+export function ApiScope({ client, children }: { client: ApiClient; children: ReactNode }) {
+  const [queryClient] = useState(makeQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TRPCProvider trpcClient={client} queryClient={queryClient}>
+        {children}
+      </TRPCProvider>
+    </QueryClientProvider>
+  );
+}
+
+export type ApiClient = ReturnType<typeof makeApiClient>;
+
 /** Typed tRPC proxy for React Query: `useQuery(useApi().orders.mine.queryOptions())`. */
 export function useApi() {
   return useTRPC();
