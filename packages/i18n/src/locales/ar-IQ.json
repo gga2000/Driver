@@ -8122,5 +8122,11 @@
   "partner.gps_weak_seen": "إشارة الموقع ضعيفة هسة. الزبون يشوف آخر مكان إلك من قبل {n} دقيقة",
   "partner.gps_weak": "إشارة الموقع ضعيفة هسة. الزبون ما يشوفك تتحرك على الخريطة",
   "partner.gps_weak_tip": "خلّي الموبايل قرب الجامة حتى يلقط",
-  "partner.ready_battery_saver": "توفير البطارية شغّال على درايفر: الطلب ممكن يوصلك متأخر والشاشة مطفية. طفّيه لدرايفر من الإعدادات"
+  "partner.ready_battery_saver": "توفير البطارية شغّال على درايفر: الطلب ممكن يوصلك متأخر والشاشة مطفية. طفّيه لدرايفر من الإعدادات",
+  "partner.text_size_title": "حجم الخط",
+  "partner.text_size_hint": "كبّره إذا تقرا الموبايل من بعيد وهو بالحامل",
+  "partner.text_size_glyph": "أ",
+  "partner.text_size_normal": "عادي",
+  "partner.text_size_large": "كبير",
+  "partner.text_size_largest": "أكبر"
 }
