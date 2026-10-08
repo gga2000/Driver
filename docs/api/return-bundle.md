@@ -2,7 +2,7 @@
 
 Ali's price items 51 (return bundle) and 52 (lap child free). Server: `apps/api/src/modules/routes/departures.service.ts`
 (`returnPartner`, `pairDiscount`, `dropPair`, `repointPair`, `discountSplit`), `model.ts` (`returnDiscount`).
-Migration `20261010320000_seat_return_bundle` (three columns on `seat_bookings`, no new table).
+Migration `20261010380000_seat_return_bundle` (three columns on `seat_bookings`, no new table).
 
 ## Return bundle — switch `MoneyRules.intercityReturnBundle` (off as shipped)
 
