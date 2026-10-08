@@ -1977,7 +1977,7 @@ model RideRequestOffer {
 /// driver to price a pickup from his pin on the way or a drop at a door; the driver names the price
 /// (whole 1,000s, 0 = free); the rider accepts; booking locks it (state used, booking_id set).
 model TripAgreement {
-  id          String    @id
+  id          String    @id @default(cuid())
   departureId String    @map("departure_id")
   riderId     String    @map("rider_id")
   driverId    String    @map("driver_id")
