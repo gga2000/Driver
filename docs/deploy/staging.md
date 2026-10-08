@@ -75,8 +75,8 @@ pause the project in Supabase (and **Restore** it before switching back on).
 
 `CORS_ORIGINS` on the staging API lists the exact web origins allowed to call it from a browser.
 Staging setup sets it on every run: the GitHub variable `CORS_ORIGINS` on the `staging` environment,
-default `https://driver-customer-iota.vercel.app` (the customer web version,
-[vercel.md](vercel.md)), plus `https://<FLY_CONSOLE_APP>.fly.dev` when a staging Console exists.
+default `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` (the customer and
+restaurant web versions, [vercel.md](vercel.md)), plus `https://<FLY_CONSOLE_APP>.fly.dev` when a staging Console exists.
 Exact origins only: Vercel preview links are not on the list. After changing it, run Staging setup,
 then Deploy → staging (the setting reaches the API with the deploy). Phones send no origin and are
 never affected.

@@ -7,7 +7,7 @@ import { RecordingEventEmitter } from './events.adapter.js';
 import { PrismaIdentityRepository } from './identity.repository.js';
 import { IdentityService } from './identity.service.js';
 import { hashPhone } from './phone.js';
-import { SessionService } from './session.service.js';
+import { REFRESH_REUSE_GRACE_SEC, SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { VaultLogWriteError, swallowedVaultLogFailures } from './vault-log.js';
 
@@ -89,9 +89,21 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
   it('a retired refresh token presented again revokes the session although the refresh rolls back', async () => {
     const { session, tokens } = await sessions.open(personId, null);
     const next = await service.refresh(tokens.refreshToken);
+    clock.advanceSeconds(REFRESH_REUSE_GRACE_SEC + 1);
     await expect(service.refresh(tokens.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
     expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).not.toBeNull();
     await expect(service.refresh(next.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
+  });
+
+  it('SEC-09: the same phone retrying a lost refresh inside the grace keeps the session', async () => {
+    const phoneInfo = { fingerprint: `it-grace-${Date.now().toString(36)}`, platform: 'android' as const };
+    const device = await repo.createDevice({ personId, fingerprint: phoneInfo.fingerprint, platform: 'android', appVersion: null, verifiedAt: clock.now(), now: clock.now() });
+    const { session, tokens } = await sessions.open(personId, device.id);
+    await service.refresh(tokens.refreshToken, phoneInfo);
+    const retried = await service.refresh(tokens.refreshToken, phoneInfo);
+    const claims = await service.verifyAccessToken(retried.accessToken);
+    expect(claims.sid).toBe(session.id);
+    expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).toBeNull();
   });
 
   it('profile read writes a vault access log row with the reason', async () => {
