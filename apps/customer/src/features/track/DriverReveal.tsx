@@ -75,7 +75,20 @@ export function useDriverReveal(v: OrderTracking | undefined, phase: Phase | nul
  * «متحقق اليوم». The photo pops in with a short saffron sparkle on ordinary days; on a quiet day or
  * with reduce motion it simply appears. Announced at once to screen readers.
  */
-export function DriverRevealCard({ courier, ride, top, onClose }: { courier: CourierCard; ride: boolean; top: number; onClose: () => void }) {
+export function DriverRevealCard({
+  courier,
+  ride,
+  top,
+  onClose,
+  onHeight,
+}: {
+  courier: CourierCard;
+  ride: boolean;
+  top: number;
+  onClose: () => void;
+  /** Its height, so the map frames the pins and ETA below it instead of under it (VIS-13). */
+  onHeight?: (h: number) => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const today = useSeason();
@@ -88,6 +101,7 @@ export function DriverRevealCard({ courier, ride, top, onClose }: { courier: Cou
       testID="driver-reveal"
       accessibilityRole="alert"
       accessibilityLiveRegion="assertive"
+      onLayout={onHeight ? (e) => onHeight(e.nativeEvent.layout.height) : undefined}
       entering={theme.reduceMotion ? undefined : FadeInUp.springify().damping(16)}
       exiting={theme.reduceMotion ? undefined : FadeOut.duration(theme.motion.duration.fast)}
       style={{
