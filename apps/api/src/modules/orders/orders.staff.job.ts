@@ -1,4 +1,5 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { OrdersStaffService } from './orders.staff.js';
 
 /** How often the W3 watchdog looks (free-cancel offers on platform failure, dispute deadlines, the stuck list's enter/leave events). */
@@ -16,9 +17,14 @@ export class OrdersStaffJob implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly staff: OrdersStaffService) {}
+  constructor(
+    private readonly staff: OrdersStaffService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Job machines only (web machines serve reads); every effect is once per order, so any number of job machines may run it.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), ORDERS_STAFF_SWEEP_MS);
     this.timer.unref();
   }

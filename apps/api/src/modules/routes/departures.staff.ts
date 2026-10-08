@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Actor, OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { DeparturesService, type StaffWrite } from './departures.service.js';
 import type { DepartureRecord } from './model.js';
 
@@ -53,10 +54,12 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     private readonly departures: DeparturesService,
     @Inject(DEPARTURES_AUDIT) private readonly audit: DepartureAuditPort,
     @Optional() @Inject(GARAGE_WATCH_RULES) private readonly rules: GarageWatchRules = DEFAULT_GARAGE_WATCH_RULES,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
-    if (!this.rules.autoCancelNoShow) return;
+    // Job machines only; the switch is off until Ali decides M-11.
+    if (!this.rules.autoCancelNoShow || !runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeSweep(), GARAGE_WATCH_SWEEP_MS);
     this.timer.unref?.();
   }
