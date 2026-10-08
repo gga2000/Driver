@@ -18,7 +18,7 @@ import { OrgsService } from '../orgs/index.js';
 import { PricingService } from '../pricing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { InMemoryCatalogRepository } from './catalog.repository.js';
-import { CatalogRpc } from './catalog.rpc.js';
+import { CARD_CONCURRENCY, CatalogRpc, type StorefrontMerchants } from './catalog.rpc.js';
 import { CatalogService } from './catalog.service.js';
 import { seedStorefronts } from './seed.js';
 import { DevBlobStore, type BlobStore } from '../places/index.js';
@@ -550,6 +550,59 @@ describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)'
     await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
     const out = await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds: [{ key: 'cone', words: ['كون'] }] });
     expect(out).toEqual([]);
+  });
+});
+
+describe('cards built side by side (perf t4)', () => {
+  it("answers exactly what one-by-one building answers, in the storefronts' order, however slowly each kitchen replies", async () => {
+    const clock = new FakeClock(SAT_EVENING);
+    const orgs = new OrgsService(undefined, clock);
+    const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+    const pricing = new PricingService(new ConfigService());
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs));
+    await seedStorefronts(orgs, catalog);
+    await seedStorefronts(orgs, catalog, DEMO_SHOPS);
+    const fronts = await catalog.storefronts('aziziyah');
+    expect(fronts.length).toBeGreaterThan(CARD_CONCURRENCY);
+    // Every kitchen posts a pot at the same instant: equal times keep the storefronts' order, so the
+    // answer shows whether cards that finished out of order were put back in place.
+    for (const f of fronts) {
+      const dish = (await catalog.menu(f.orgId)).find((i) => i.available);
+      if (dish) await catalog.postPot(f.orgId, { itemId: dish.id, note: null, until: null }, 'owner');
+    }
+    // The first kitchens in the list answer last: built in parallel, they finish in reverse.
+    const delayOf = new Map(fronts.map((f, i) => [f.orgId, (fronts.length - i) * 3]));
+    let running = 0;
+    let peak = 0;
+    const slow: StorefrontMerchants = {
+      timeZone: plain.timeZone,
+      async profile(orgId, cityId, at) {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise((r) => setTimeout(r, delayOf.get(orgId) ?? 0));
+        running -= 1;
+        return plain.profile(orgId, cityId, at);
+      },
+    };
+    const oneByOne = new CatalogRpc(catalog, plain, pricing, clock);
+    const parallel = new CatalogRpc(catalog, slow, pricing, clock);
+    const read = async (rpc: CatalogRpc) => ({
+      restaurants: await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} }),
+      picks: await rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب', 'كنافة', 'تكة'], limit: 6, dropoff: ZAKUR }),
+      search: await rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب', dropoff: ZAKUR }),
+      pots: await rpc.pots(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR }),
+    });
+    const one = await read(oneByOne);
+    const both = await read(parallel);
+    expect(both).toEqual(one);
+    // Open kitchens' pots first, each group in the storefronts' own order.
+    const order = new Map(fronts.map((f, i) => [f.orgId, i]));
+    const open = one.pots.filter((p) => p.restaurantOpen).map((p) => order.get(p.merchantOrgId)!);
+    expect(open.length).toBeGreaterThan(CARD_CONCURRENCY);
+    expect(open).toEqual([...open].sort((a, b) => a - b));
+    // Bounded: several kitchens at once, never more than the limit.
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(CARD_CONCURRENCY);
   });
 });
 
