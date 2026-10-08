@@ -471,7 +471,8 @@ export const CancellationFee = z.object({
 });
 export type CancellationFee = z.infer<typeof CancellationFee>;
 
-export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'other']);
+/** BENCH-13: rides also report the driver's behaviour or unsafe driving (a safety case); a lost item has its own chat (`chat.lostItem`). */
+export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'driver_behaviour', 'unsafe_driving', 'other']);
 export type DisputeKind = z.infer<typeof DisputeKind>;
 
 // ───────────────────────── procedure I/O ─────────────────────────
