@@ -194,6 +194,37 @@ export const OrderCancelledPayload = z
 export type OrderCancelledPayload = z.infer<typeof OrderCancelledPayload>;
 
 /**
+ * `order.rejected`: the kitchen rejected the order (or the offer timed out, `auto`). After it had
+ * accepted (`afterAccept`) the spec owes the customer `customerCreditIqd` (500) from the merchant
+ * (M-17): the ledger posts it merchant cash → customer wallet, once per order. 0 before acceptance,
+ * on an auto-reject, or while the money rule `merchantLateRejectCredit` is off. Unknown keys pass
+ * through (the inbox and Console read the envelope); the ids are optional so events written before
+ * M-17 still decode, but a credit needs them.
+ */
+export const OrderRejectedPayload = z
+  .object({
+    from: OrderState.optional(),
+    to: z.literal('merchant_rejected').optional(),
+    orderId: z.string().min(1).optional(),
+    occurredAt: z.coerce.date().optional(),
+    customerId: z.string().min(1).optional(),
+    householdId: z.string().min(1).optional(),
+    merchantOrgId: z.string().min(1).optional(),
+    reason: z.string().min(1).optional(),
+    auto: z.boolean().default(false),
+    scored: z.boolean().optional(),
+    afterAccept: z.boolean().default(false),
+    customerCreditIqd: Iqd.nonnegative().default(0),
+    creditFundedBy: z.enum(['merchant']).nullable().default(null),
+  })
+  .passthrough()
+  .refine((r) => r.customerCreditIqd === 0 || (r.afterAccept && r.creditFundedBy === 'merchant' && !!r.orderId && !!r.customerId && !!r.merchantOrgId && !!r.occurredAt), {
+    message: 'a late-reject credit needs afterAccept, creditFundedBy merchant, orderId, customerId, merchantOrgId and occurredAt',
+    path: ['customerCreditIqd'],
+  });
+export type OrderRejectedPayload = z.infer<typeof OrderRejectedPayload>;
+
+/**
  * `merchant.payable_accrued`: a cash order created the merchant's payable net of commission and a
  * courier now holds it (decisions §3). Informational for the Merchant app; the ledger posts the
  * payable from `order.cash_collected` (same numbers, one posting group).
@@ -380,6 +411,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'order.complimented': OrderComplimentedPayload,
   'order.closed': OrderClosedPayload,
   'order.cancelled': OrderCancelledPayload,
+  'order.rejected': OrderRejectedPayload,
   'merchant.payable_accrued': MerchantPayableAccruedPayload,
   'trip.accepted': TripAcceptedPayload,
   'trip.declined': TripOfferOutcomePayload,
