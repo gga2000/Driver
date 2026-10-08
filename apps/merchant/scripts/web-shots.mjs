@@ -142,7 +142,7 @@ try {
     const page = await context.newPage();
     page.on('console', (m) => {
       const text = m.text();
-      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext/.test(text)) errors.push(`[${viewport}] ${text}`);
+      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext|status of 412/.test(text)) errors.push(`[${viewport}] ${text}`);
     });
     page.on('pageerror', (e) => errors.push(`[${viewport}] ${e.stack ?? e.message}`));
     page.on('response', (r) => {

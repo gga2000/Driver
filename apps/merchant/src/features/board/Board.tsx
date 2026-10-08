@@ -23,9 +23,9 @@ import { usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
 import { printerChipState, usePrinterSnapshot, usePrintOrder } from '@/features/print/runtime';
 import { DaySummaryCard } from '@/features/day/DaySummaryCard';
-import { dayCardKey, showDayCard } from '@/features/day/logic';
+import { dayCardKey, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
-import { useCashAccount } from '@/features/money/queries';
+import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
@@ -33,7 +33,6 @@ import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
-import { stageFor } from './ladder';
 import { acceptAllTargets, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
 import { DragToReady } from './DragToReady';
 import { learn, useLessonDue } from './learn';
@@ -44,7 +43,8 @@ import { OrderDetailSheet } from './OrderDetailSheet';
 import { PassCard } from './PassCard';
 import { passFirst, passState, waitingAtPass } from './pass';
 import { isPractice, practice, usePractice } from './practice';
-import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
+import { useServerTime } from './clock';
+import { useBoard, useOnline, useOrderActions } from './queries';
 import { readyQueue, useReadyQueue } from './ready-queue';
 import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
@@ -176,7 +176,6 @@ export function Board() {
   // S-M5: the pill in one line comes from the server (owed and how it reaches him, owe, requested).
   const cash = useCashAccount(storeId, canSeeMoney);
   const online = useOnline();
-  const conn = useConnectionBanner({ live: useLiveMode(LIVE_MERCHANT_KEY), updatedAt: board.dataUpdatedAt || null });
   /** Offline: accept / reject can't reach the server; say why instead of failing. The practice order never needs the net. */
   const offlineGuard = (o?: BoardOrder) => {
     if (online || (o && isPractice(o.id))) return false;
@@ -185,7 +184,9 @@ export function Board() {
   };
   const { accept, ready, extend, handOver } = useOrderActions();
   const { setOpen } = useStoreSwitches();
-  const now = useServerNow(board.offset);
+  // h3: the board itself re-draws once a minute (pass order, «من 4 د» sorting); tickets, rings and the
+  // new-order strip follow the shared clock on their own.
+  const now = useServerTime(60_000);
   const clock = useCallback(() => Date.now() + board.offset, [board.offset]);
   const plan = useAlarmPlan();
   const soundReady = useSoundReady();
@@ -213,6 +214,10 @@ export function Board() {
   const [handingId, setHandingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
+  // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
+  const whoDetailId = canSeeMoney && detailId && !isPractice(detailId) ? detailId : null;
+  const orderWho = useOrderWho(storeId, whoDetailId, whoDetailId !== null);
+  const whoLine = whoDetailId && orderWho.data?.orderId === whoDetailId ? orderWhoLine(orderWho.data.entries, canSeeMoney, t) : null;
   // Maps program SP7a: a chime when a courier is about to walk in.
   useCourierArrivals(board.data?.orders, prefs.soundOn);
   // The ready column reads in counter order (S-M4): couriers waiting at the pass first.
@@ -482,10 +487,8 @@ export function Board() {
         rowAction={wide}
         ticks={ticks}
         onExpand={() => (wide ? pick(o) : setPickedId(o.id))}
-        now={now}
         clock={clock}
         ringing={ringing}
-        stage={ringing && o.acceptBy ? stageFor(o.acceptBy.getTime() - now) : null}
         oneTapMinutes={oneTap.shown}
         onAcceptNow={() => void onAcceptNow(o)}
         onAccept={() => onAccept(o)}
@@ -571,8 +574,8 @@ export function Board() {
           count={plan.ringing.length}
           snoozedCount={plan.snoozed.length}
           stage={plan.stage}
-          mostUrgent={urgent ? { number: urgent.number, seconds: urgent.msLeft === null ? null : Math.max(0, Math.ceil(urgent.msLeft / 1000)) } : null}
-          snoozeSeconds={plan.snoozeEndsAt === null ? null : Math.ceil((plan.snoozeEndsAt - now) / 1000)}
+          mostUrgent={urgent ? { number: urgent.number } : null}
+          snoozeEndsAt={plan.snoozeEndsAt}
           soundBlocked={prefs.soundOn && !soundReady}
           onSnooze={() => alarm.snooze(clock())}
           onUnsnooze={() => alarm.unsnooze(clock())}
@@ -586,9 +589,9 @@ export function Board() {
       ) : null}
       {!online ? (
         <InfoStrip tone="neutral" text={t('merchant.offline.strip')} testID="offline-strip" />
-      ) : conn.kind === 'stale' ? (
-        <InfoStrip tone="warning" text={t('merchant.board.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })} testID="stale-strip" />
-      ) : null}
+      ) : (
+        <StaleStrip updatedAt={board.dataUpdatedAt || null} />
+      )}
       {s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
       ) : s?.pause ? (
@@ -708,7 +711,7 @@ export function Board() {
           }
         }}
       />
-      <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
+      <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} {...(canSeeMoney ? { who: whoLine } : {})} />
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} lengths onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
@@ -759,4 +762,15 @@ export function Board() {
       ) : null}
     </SafeAreaView>
   );
+}
+
+/**
+ * «آخر تحديث قبل 40 ث» when the live channel is down and the board is getting old. Its own part, so
+ * the per-second "ago" count re-draws this strip only, never the board (h3).
+ */
+function StaleStrip({ updatedAt }: { updatedAt: number | null }) {
+  const t = useT();
+  const conn = useConnectionBanner({ live: useLiveMode(LIVE_MERCHANT_KEY), updatedAt });
+  if (conn.kind !== 'stale') return null;
+  return <InfoStrip tone="warning" text={t('merchant.board.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })} testID="stale-strip" />;
 }

@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { SegmentedControl, useTheme } from '@driver/ui';
 import { both, Loadable } from '@/components/Loadable';
 import { Page } from '@/components/Page';
+import { ActivityList } from '@/features/day/ActivityList';
 import { DayStrip } from '@/features/day/DayStrip';
 import { useDaySummary } from '@/features/day/queries';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
@@ -11,7 +12,7 @@ import { DisputesView } from '@/features/money/DisputesView';
 import { StatementView } from '@/features/money/StatementView';
 import { TodayView } from '@/features/money/TodayView';
 import { waitingCount, weekAnchor } from '@/features/money/logic';
-import { useCashAccount, useDisputes, useMoneyToday, useStatement } from '@/features/money/queries';
+import { useActivityToday, useCashAccount, useDisputes, useMoneyToday, useStatement } from '@/features/money/queries';
 import { useCurrentStore, useStoreStatus } from '@/features/store/queries';
 import { localParts } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
@@ -50,6 +51,8 @@ export default function DayScreen() {
 
   const today = useMoneyToday(orgId, canSeeMoney && tab === 'today');
   const cash = useCashAccount(orgId, canSeeMoney && tab === 'today');
+  // «مين سوّى شنو»: owner only (the server refuses staff too).
+  const activity = useActivityToday(orgId, canSeeMoney && tab === 'today');
   const statement = useStatement(orgId, weekOf, canSeeMoney && tab === 'statement');
   const disputes = useDisputes(orgId, canSeeMoney);
   const status = useStoreStatus(orgId);
@@ -84,9 +87,12 @@ export default function DayScreen() {
       {!orgId || !canSeeMoney ? null : tab === 'insights' ? (
         <InsightsPanel merchantOrgId={orgId} owner wide={wide} />
       ) : tab === 'today' ? (
-        <Loadable query={both(today, cash)} skeleton={<TodayView merchantOrgId={orgId} today={undefined} cash={undefined} now={now} wide={wide} onStatement={() => undefined} />} failed={t('merchant.money.load_failed')} testID="money-today">
-          {([day, account]) => <TodayView merchantOrgId={orgId} today={day} cash={account} now={now} wide={wide} onStatement={() => select('statement')} />}
-        </Loadable>
+        <>
+          <Loadable query={both(today, cash)} skeleton={<TodayView merchantOrgId={orgId} today={undefined} cash={undefined} now={now} wide={wide} onStatement={() => undefined} />} failed={t('merchant.money.load_failed')} testID="money-today">
+            {([day, account]) => <TodayView merchantOrgId={orgId} today={day} cash={account} now={now} wide={wide} onStatement={() => select('statement')} />}
+          </Loadable>
+          <ActivityList query={activity} />
+        </>
       ) : tab === 'statement' ? (
         <Loadable query={statement} skeleton={<StatementView statement={undefined} storeName="" back={back} onBack={() => undefined} onForward={() => undefined} now={now} wide={wide} />} failed={t('merchant.money.load_failed')} testID="money-statement">
           {(week) => <StatementView statement={week} storeName={store?.name ?? ''} back={back} onBack={() => setBack((b) => b + 1)} onForward={() => setBack((b) => Math.max(0, b - 1))} now={now} wide={wide} />}

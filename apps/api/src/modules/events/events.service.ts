@@ -105,9 +105,27 @@ export class EventsService {
     return this.repo.find({ orderId });
   }
 
-  /** Events of one aggregate (`merchant`/`org_1`…), in recording order. */
-  forAggregate(name: string, id: string): Promise<StoredEvent[]> {
-    return this.repo.find({ aggregate: { name, id } });
+  /**
+   * Events of several orders (indexed `order_id`), in recording order; `types` narrows them. An
+   * empty id list reads nothing.
+   */
+  async forOrders(orderIds: readonly string[], opts: { types?: readonly string[] } = {}): Promise<StoredEvent[]> {
+    if (orderIds.length === 0) return [];
+    return this.repo.find({ orderIds, ...(opts.types ? { types: opts.types } : {}) });
+  }
+
+  /**
+   * Events of one aggregate (`merchant`/`org_1`…), in recording order. `from`/`to` bound
+   * `occurredAt` (from inclusive, to exclusive) and `types` narrows them, on the
+   * (aggregate, aggregate_id, occurred_at) index.
+   */
+  forAggregate(name: string, id: string, opts: { from?: Date; to?: Date; types?: readonly string[] } = {}): Promise<StoredEvent[]> {
+    return this.repo.find({
+      aggregate: { name, id },
+      ...(opts.from ? { from: opts.from } : {}),
+      ...(opts.to ? { to: opts.to } : {}),
+      ...(opts.types ? { types: opts.types } : {}),
+    });
   }
 
   async pendingOutbox(): Promise<number> {

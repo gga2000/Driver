@@ -5,8 +5,8 @@ import type { Actor } from './identity-io.js';
  * The Today list (Console build plan E1, CON-12): one row per problem, so nothing falls through.
  *
  * Rows are opened by the server from domain events (an SOS, a trip nobody took, a shop that went
- * quiet, a late order, a courier who can't reach the door, a document or a new shop waiting, a خطوط
- * empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
+ * quiet, a late order, a courier who can't reach the door, an order on the stuck list, a courier over
+ * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
  * is delivered, someone took the trip, the SOS is resolved); otherwise a person closes it, always with
  * an outcome. Anyone on a desk can take a row (it is then theirs), hand it to someone, snooze it for a
  * few minutes or close it. The row keeps ids and short facts only; names are read from the vault when
@@ -18,6 +18,8 @@ export const INBOX_KINDS = [
   'store_silent',
   'late',
   'unreachable',
+  'stuck',
+  'cash_cap',
   'sweep',
   'pin_alert',
   'approval',
@@ -32,9 +34,11 @@ export const INBOX_PRIORITY: Record<InboxKind, number> = {
   pin_alert: 2,
   no_driver: 3,
   unreachable: 4,
-  store_silent: 5,
-  late: 6,
-  approval: 7,
+  stuck: 5,
+  store_silent: 6,
+  late: 7,
+  cash_cap: 8,
+  approval: 9,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -45,6 +49,7 @@ export const InboxSubjectKind = z.enum([
   'onboarding',
   'sweep_alert',
   'pin_attempt',
+  'courier',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 

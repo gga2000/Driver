@@ -8,7 +8,6 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
-import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
@@ -17,6 +16,10 @@ import { cx, NetworkBanner, ToastProvider } from './ui';
 
 // Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
 const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
+// The shortcuts list is opened on demand too.
+const ShortcutsSheet = dynamic(() => import('./shell/shortcuts').then((m) => m.ShortcutsSheet), { ssr: false });
+// Loaded after first paint: it draws nothing until live updates have been down a minute (speed budget).
+const LiveDownStrip = dynamic(() => import('./shell/watch-strip').then((m) => m.LiveDownStrip), { ssr: false });
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -83,13 +86,15 @@ export function Shell({ children }: { children: ReactNode }) {
           <SweepAlertStrip />
           {/* S-K1: cards waiting for a dispatcher, seen from every page. */}
           <GlobalTriageStrip />
+          {/* The Console watching itself: live updates down on this screen for a minute (E1 step 3). */}
+          <LiveDownStrip />
           <TopBar onSearch={() => setPalette(true)} />
           <main
             id="main"
             className={cx(
               'min-w-0',
               fullBleed
-                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px))]'
+                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px))]'
                 : 'flex-1 px-4 py-6 lg:px-8 lg:py-7',
             )}
           >
@@ -107,7 +112,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </div>
       {palette ? <CommandPalette open onClose={() => setPalette(false)} onShortcuts={() => setKeys(true)} /> : null}
-      <ShortcutsSheet open={keys} onClose={() => setKeys(false)} />
+      {keys ? <ShortcutsSheet open onClose={() => setKeys(false)} /> : null}
     </ToastProvider>
   );
 }

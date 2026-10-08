@@ -51,9 +51,9 @@ const { createApp } = await load('bootstrap.js');
 const { IdentityService } = await load('modules/identity/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
 const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
-const { OrdersService } = await load('modules/orders/index.js');
+const { OrdersService, OrdersStaffService } = await load('modules/orders/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
-const { LedgerService, LedgerFacade } = await load('modules/ledger/index.js');
+const { LedgerService, LedgerFacade, CapsService } = await load('modules/ledger/index.js');
 const { DriverAccountService } = await load('modules/driver-account/index.js');
 const { OpsService } = await load('modules/ops/index.js');
 const { FleetService, FLEET_REPOSITORY } = await load('modules/fleet/index.js');
@@ -548,6 +548,16 @@ for (const c of deskCouriers) {
   await ledger.record({ type: 'cash_collected', amount: c.held + c.settled, fromAccount: `cash:${id}`, toAccount: `customer:${customers[n]}`, occurredAt: new Date(), idempotencyKey: `demo:cash:${id}` });
   if (c.settled) await ledger.record({ type: 'driver_settlement', amount: c.settled, fromAccount: 'bank', toAccount: `cash:${id}`, occurredAt: new Date(), memo: `ops_round:D-DEMO-${n}`, idempotencyKey: `demo:settle:${id}` });
 }
+// Today list: the desk's cash above went in one line at a time (no cap watch on single lines), so
+// say once, with his real numbers, who is over his cap now (the row a real hand-in closes).
+{
+  const caps = get(CapsService);
+  for (const c of deskCouriers) {
+    const st = await caps.status(c.id);
+    if (st.overCap)
+      await events.emit(undefined, { type: 'courier.cash_over_cap', actorId: 'system', occurredAt: new Date(), idempotencyKey: `demo:cap:${c.id}`, payload: { courierId: c.id, cashIqd: st.owedIqd, capIqd: st.capIqd, cityId: 'aziziyah' } }, { name: 'driver', id: c.id });
+  }
+}
 // Muntadhar's licence runs out in 9 days: /drivers shows it under "أوراقه تنتهي".
 {
   const m = deskCouriers[2];
@@ -869,5 +879,8 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
   await run({ phone: '07814440703', name: 'حسن جبار', at: 25, seats: ['front', 'back_left'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 41966', modelKey: 'sonata', color: 'سودة' } });
   await run({ phone: '07814440704', name: 'ليث عدنان', at: 95, seats: ['front'], vehicle: { kind: 'van', layout: 7, plate: 'واسط 58302', modelKey: 'starex', color: 'بيضة' } });
 }
+
+// The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
+await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);
