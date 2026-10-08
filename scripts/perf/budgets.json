@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73"
     },
     "customer.assets_mb": {
-      "max": 6.65,
-      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08)"
+      "max": 6.85,
+      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08), door page photos: kubba, cocktail, laban (#67, 6.65 -> 6.78)"
     },
     "partner.code_mb": {
       "max": 6.15,
