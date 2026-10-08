@@ -7,6 +7,9 @@ import {
   type ComingOutResult,
   type ListActiveOrdersInput,
   type MerchantRejectInput,
+  type MerchantRemakeInput,
+  type MerchantRemakeResult,
+  type MerchantRemakeRule,
   type OpenDisputeInput,
   type Order,
   type OrderQuote,
@@ -233,6 +236,15 @@ export class OrdersRpc implements OrdersPort {
   async merchantExtendPrep(actor: Actor, input: { orderId: string }): Promise<Order> {
     await this.assertMerchantStaff(actor, input.orderId);
     return this.orders.merchantExtendPrep(actor.personId, input);
+  }
+
+  async merchantRemake(actor: Actor, input: MerchantRemakeInput): Promise<MerchantRemakeResult> {
+    await this.assertMerchantStaff(actor, input.orderId);
+    return this.staffOrThrow().merchantRemake(actor.personId, input);
+  }
+
+  async merchantRemakeRule(_actor: Actor): Promise<MerchantRemakeRule> {
+    return this.staffOrThrow().remakeRule();
   }
 
   async merchantHandOver(actor: Actor, input: { orderId: string }): Promise<Order> {

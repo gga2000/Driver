@@ -62,6 +62,18 @@ describe('orders.place — opening hours (apps review 2026-10-04 #10)', () => {
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
   });
 
+  it('h5 (Ali 2026-10-08): a shop whose tablet went silent over 5 minutes ago takes no new orders; a scheduled one still waits', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    const rest = h.merchants.merchants.get('rest_1')!;
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 4 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    rest.lastHeartbeatAt = new Date(h.clock.now().getTime() - 6 * MIN);
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_paused');
+    expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: new Date(h.clock.now().getTime() + 60 * MIN) })))).toBe('ok');
+    rest.lastHeartbeatAt = h.clock.now();
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+  });
+
   it('a merchant without a storefront (or without hours) is open whenever it is not paused', async () => {
     const h = ordersHarness();
     expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');

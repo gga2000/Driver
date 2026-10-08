@@ -285,6 +285,15 @@ describe('OrdersService — merchant acceptance', () => {
     expect(h.events.ofType('order.rejected')).toHaveLength(0);
   });
 
+  it('l4 (Ali 2026-10-08): from 15 waiting orders a kitchen\'s promise carries the busy +10 min', async () => {
+    const h = ordersHarness();
+    const placed = [];
+    for (let i = 0; i < 15; i += 1) placed.push(await h.orders.place(`c${i + 1}`, h.foodInput()));
+    await h.advance(21_000); // the waiting count is read at most every 20 s
+    const acc = await h.orders.merchantAccept('m1', { orderId: placed[14]!.id, prepMinutes: 15 });
+    expect(acc.promisedReadyAt).toEqual(new Date(h.clock.now().getTime() + 25 * MIN));
+  });
+
   it('merchants with the auto-accept flag skip acceptance', async () => {
     const h = ordersHarness();
     h.merchants.add('rest_auto', { autoAccept: true, defaultPrepMin: 25, location: { zoneKey: 'centre' } });

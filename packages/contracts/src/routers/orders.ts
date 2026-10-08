@@ -8,6 +8,9 @@ import {
   MerchantAcceptInput,
   MerchantExtendPrepInput,
   MerchantHandOverInput,
+  MerchantRemakeInput,
+  MerchantRemakeResult,
+  MerchantRemakeRule,
   MerchantHeartbeatInput,
   MerchantRejectInput,
   OpenDisputeInput,
@@ -131,5 +134,9 @@ export const ordersRouter = router({
     extendPrep: protectedProcedure(MERCHANT_ROLES).input(MerchantExtendPrepInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantExtendPrep(ctx.actor, input)),
     /** "سلّمته" (S-M4): the kitchen handed the bag to the courier at the pass; idempotent, no state change. */
     handOver: protectedProcedure(MERCHANT_ROLES).input(MerchantHandOverInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantHandOver(ctx.actor, input)),
+    /** c6: no courier within 10 min of «جاهز» → Driver pays the remade food once (money rule, off until Ali). */
+    remake: protectedProcedure(MERCHANT_ROLES).input(MerchantRemakeInput).output(MerchantRemakeResult).mutation(({ ctx, input }) => ctx.orders.merchantRemake(ctx.actor, input)),
+    /** Whether the remake button shows, and from how many minutes after «جاهز». */
+    remakeRule: protectedProcedure(MERCHANT_ROLES).output(MerchantRemakeRule).query(({ ctx }) => ctx.orders.merchantRemakeRule(ctx.actor)),
   }),
 });

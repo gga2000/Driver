@@ -14,6 +14,9 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type MerchantRemakeInput,
+  type MerchantRemakeResult,
+  type MerchantRemakeRule,
   type StaffOpsSwitches,
   type StaffMarkDeliveredInput,
   type StuckOrder,
@@ -249,7 +252,38 @@ export class OrdersStaffService implements PlatformFailurePort {
       courierLostCharge: r.courierLost.chargeCourier,
       freeCancel: r.platformFailure.freeCancel,
       cookedFoodPayer: r.platformFailure.cookedFoodPayer,
+      remakePay: r.remake.pay,
     };
+  }
+
+  /** c6: whether the Merchant app shows «نسوّيه من جديد», and from when after «جاهز». */
+  remakeRule(): MerchantRemakeRule {
+    return { pay: this.rules.remake.pay, afterReadyMin: this.rules.remake.afterReadyMin };
+  }
+
+  /**
+   * c6 (Ali's shop pick, 2026-10-08): the order was marked ready, no courier reached the pass within
+   * `afterReadyMin` and it is still waiting there, so the kitchen remakes it and Driver pays the first
+   * batch: items at menu price, platform → the shop's cash account, once per order (`order:<id>:remake`).
+   * Off (`MERCHANT_REMAKE_PAY` unset) → `money_rule_off`. The caller has checked the actor is staff
+   * of this order's shop. Nothing else changes: the order stays ready for the courier who comes.
+   */
+  async merchantRemake(actorId: string, input: MerchantRemakeInput): Promise<MerchantRemakeResult> {
+    const r = this.rules.remake;
+    if (!r.pay) throw new DriverError('money_rule_off');
+    const groupId = `order:${input.orderId}:remake`;
+    return this.uow.run(async (tx) => {
+      const order = await this.load(input.orderId, tx);
+      if (await this.ports.ledger.hasGroup(groupId, tx)) return { orderId: order.id, paidIqd: 0, alreadyPaid: true };
+      if (!MERCHANT_ORDER_TYPES.includes(order.type) || order.state !== 'ready' || !order.readyAt) throw new DriverError('order_state_conflict');
+      if (this.clock.now().getTime() - order.readyAt.getTime() < r.afterReadyMin * MIN) throw new DriverError('order_state_conflict');
+      // A courier already standing at the pass: hand the food over, nothing to remake.
+      const trip = await this.trips.activeForOrder(order.id);
+      if (trip?.stops.some((s) => s.orderId === order.id && s.type === 'pickup' && s.arrivedAt !== null)) throw new DriverError('order_state_conflict');
+      const paidIqd = await this.payKitchen(order, tx, groupId, 'remake:food');
+      await this.bridge.emit(tx, 'order.remake_paid', actorId, order, { merchantOrgId: order.merchantOrgId, readyAt: order.readyAt.toISOString(), paidIqd, tripId: trip?.id ?? null });
+      return { orderId: order.id, paidIqd, alreadyPaid: false };
+    });
   }
 
   async courierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult> {

@@ -50,6 +50,7 @@ import {
   type TripState,
   type VehicleClass,
   type Vertical,
+  MERCHANT_BUSY_RULES,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -57,6 +58,7 @@ import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
+import { ShopLoad, tabletOffline } from './shop-load.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -250,11 +252,27 @@ export class OrdersService implements OnModuleInit {
 
   private readonly logger = new Logger(OrdersService.name);
 
+  private repoForLoad(): Pick<OrdersRepository, 'findMany'> {
+    return { findMany: (filter) => this.repo.findMany(filter) };
+  }
+
+  /**
+   * The kitchen's busy extra right now: busy mode switched on in the Merchant app, or (l4) 15 orders
+   * already waiting, which slows new orders the same +10 min so the promise stays honest.
+   */
+  private async busyExtra(profile: MerchantProfile | null, now: Date): Promise<number> {
+    const manual = busyExtraMinutes(profile, now);
+    if (manual > 0 || !profile) return manual;
+    return (await this.shopLoad.crowded(profile.orgId, now)) ? MERCHANT_BUSY_RULES.extraPrepMinutes : 0;
+  }
+
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
+  /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
+  private readonly shopLoad = new ShopLoad(this.repoForLoad());
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
   slotCaps: SlotCapRules = SLOT_CAP_RULES;
   /**
@@ -608,12 +626,12 @@ export class OrdersService implements OnModuleInit {
   async kitchenTiming(merchantOrgId: string): Promise<{ prepMin: number; leadMin: number; pin: LatLng | null } | null> {
     const profile = await this.merchants.profile(merchantOrgId);
     if (!profile) return null;
-    return { prepMin: profile.defaultPrepMin + busyExtraMinutes(profile, this.clock.now()), leadMin: ORDERS_RULES.scheduledLeadMin, pin: profile.location?.pin ?? null };
+    return { prepMin: profile.defaultPrepMin + (await this.busyExtra(profile, this.clock.now())), leadMin: ORDERS_RULES.scheduledLeadMin, pin: profile.location?.pin ?? null };
   }
 
   /** The kitchen sees the order now, or at T − prep − lead for a scheduled one (review A.12). */
   private async scheduleOffer(order: OrderRecord, profile: MerchantProfile, now: Date, tx: Tx): Promise<void> {
-    const leadMin = profile.defaultPrepMin + busyExtraMinutes(profile, now) + ORDERS_RULES.scheduledLeadMin;
+    const leadMin = profile.defaultPrepMin + (await this.busyExtra(profile, now)) + ORDERS_RULES.scheduledLeadMin;
     const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
     if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
     else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
@@ -784,8 +802,9 @@ export class OrdersService implements OnModuleInit {
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
-        // Closed by hand from the Merchant app (early close): refused like a pause window.
-        if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
+        // Closed by hand from the Merchant app (early close), or its tablet offline for 5 minutes (h5,
+        // Ali 2026-10-08): refused like a pause window. A scheduled order still waits for its time.
+        if (!input.scheduledFor && (profile.closed || tabletOffline(profile, now))) throw new DriverError('merchant_paused');
       }
     }
 
@@ -1728,9 +1747,9 @@ export class OrdersService implements OnModuleInit {
   private async accept(order: OrderRecord, pickedPrepMinutes: number, actorId: string, tx: Tx, opts: { auto: boolean; partial?: boolean }): Promise<OrderRecord> {
     const now = this.clock.now();
     const profile = order.merchantOrgId ? await this.merchants.profile(order.merchantOrgId) : null;
-    // Busy mode: +10 min on whatever the kitchen picked (or its default), so the promised ready time,
-    // the courier's timing and the customer's ETA all carry it.
-    const prepMinutes = pickedPrepMinutes + busyExtraMinutes(profile, now);
+    // Busy mode (or 15 orders waiting, l4): +10 min on whatever the kitchen picked (or its default), so
+    // the promised ready time, the courier's timing and the customer's ETA all carry it.
+    const prepMinutes = pickedPrepMinutes + (await this.busyExtra(profile, now));
     const promisedReadyAt = new Date(now.getTime() + prepMinutes * 60_000);
     // Contract `order.accepted`: what dispatch needs to time and route the courier (auto-assign).
     const accepted: Omit<DomainEventInput<'order.accepted'>, 'from' | 'to'> = {

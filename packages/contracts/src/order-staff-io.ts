@@ -96,6 +96,8 @@ export const StaffOpsSwitches = z.object({
   courierLostCharge: z.boolean(),
   freeCancel: z.boolean(),
   cookedFoodPayer: z.enum(['platform', 'merchant']),
+  /** c6: Driver pays a kitchen's remake when no courier came within 10 min of «جاهز» (`MERCHANT_REMAKE_PAY`). */
+  remakePay: z.boolean(),
 });
 export type StaffOpsSwitches = z.infer<typeof StaffOpsSwitches>;
 
