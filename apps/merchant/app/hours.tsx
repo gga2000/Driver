@@ -7,7 +7,7 @@ import { EntryTile } from '@/components/EntryTile';
 import { both, LoadPending } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { HolidaySheet, HolidaysPanel, ShiftSheet, WeekPanel } from '@/features/hours/HoursParts';
 import {
   addHoliday,
@@ -52,7 +52,7 @@ export default function Hours() {
   const hours = useStoreHours(store?.orgId ?? null);
   const save = useSaveHours();
   const { setOpen } = useStoreSwitches();
-  const now = useServerNow(0, 15_000);
+  const now = useServerTime(15_000);
   const [sheet, setSheet] = useState<'close' | 'busy' | 'holiday' | null>(null);
   const [editing, setEditing] = useState<{ dow: number; index: number } | null>(null);
   const [draft, setDraft] = useState<HoursDraft | null>(null);
