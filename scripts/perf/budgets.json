@@ -11,9 +11,9 @@
       "why": "dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
-      "max": 6.15,
+      "max": 6.17,
       "target": 5.5,
-      "why": "s1 landed for the partner app: 6.26 -> 5.95; the rest is s4 (lazy screens, barrel trims)"
+      "why": "s1 landed for the partner app: 6.26 -> 5.95; the rest is s4 (lazy screens, barrel trims). +0.01 (#72): new push.* and notify.* customer messages ride the partner locale subset because contracts names the push namespace"
     },
     "partner.assets_mb": {
       "max": 3.05,
