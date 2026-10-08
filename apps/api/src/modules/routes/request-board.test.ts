@@ -89,7 +89,11 @@ describe('request board: offers, pick, 20 % deposit (customer spec §2, review C
     await h.requests.offer('d2', r.id, 40_000);
     h.wallet.set('r1', 5_000);
     expect(await code(h.requests.pick('r1', r.id, o.id))).toBe('wallet_insufficient');
+    // SEC-07: an open wallet order elsewhere on the platform leaves too little for the 6,000 deposit.
     h.wallet.set('r1', 20_000);
+    h.wallet.elsewhere.set('r1', 15_000);
+    expect(await code(h.requests.pick('r1', r.id, o.id))).toBe('wallet_insufficient');
+    h.wallet.elsewhere.delete('r1');
     const m = await h.requests.pick('r1', r.id, o.id);
     expect(m).toMatchObject({ state: 'matched', depositIqd: 6_000, pickedOfferId: o.id });
     expect(m.offers.map((x) => x.state)).toEqual(['picked', 'lost']);

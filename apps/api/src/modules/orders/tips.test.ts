@@ -4,6 +4,7 @@ import { createInMemoryEvents } from '../events/index.js';
 import { Accounts } from '../ledger/accounts.js';
 import { moneyLines } from '../ledger/customer-wallet.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
+import { WalletHolds } from '../ledger/wallet-holds.js';
 import { ordersHarness } from './test-harness.js';
 import { OrderTipsService } from './tips.js';
 
@@ -21,11 +22,11 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
-async function setup(opts: { wallet?: number; tipAtCheckout?: number } = {}) {
+async function setup(opts: { wallet?: number; tipAtCheckout?: number; holds?: WalletHolds } = {}) {
   const h = ordersHarness();
   const lh = ledgerHarness({ clock: h.clock });
   const ev = createInMemoryEvents({ clock: h.clock });
-  const tips = new OrderTipsService(h.orders, h.trips, lh.ledger, ev.events, h.clock);
+  const tips = new OrderTipsService(h.orders, h.trips, lh.ledger, ev.events, h.clock, undefined, undefined, opts.holds);
   // His wallet: a top-up at an agent (bank → customer).
   if (opts.wallet) await lh.ledger.recordAll({ id: 'topup:1', kind: 'money', occurredAt: h.clock.now(), refs: {}, lines: [{ type: 'credit_issued', amount: opts.wallet, fromAccount: 'bank', toAccount: Accounts.customer('c1'), memo: 'topup:agent' }], controls: [] });
   const o = await h.orders.place('c1', h.foodInput(opts.tipAtCheckout ? { tipIqd: opts.tipAtCheckout } : {}));
@@ -129,6 +130,19 @@ describe('tip after a good rating — the money', () => {
     // A 16,500 wallet order still open holds most of his 17,500: 1,000 left, so 2,000 is refused.
     s.h.wallets.set('customer:c1', 17_500);
     await s.h.orders.place('c1', s.h.foodInput({ paymentMethod: 'wallet' }));
+    expect(await s.tips.walletIqd('c1')).toBe(1_000);
+    expect(await code(s.tips.tip('c1', { orderId: s.o.id, amountIqd: 2000 }))).toBe('wallet_insufficient');
+    expect((await s.tips.tip('c1', { orderId: s.o.id, amountIqd: 1000 })).walletIqd).toBe(0);
+  });
+
+  it('SEC-07: not from money a prepaid seat or a request deposit holds either', async () => {
+    const holds = new WalletHolds();
+    holds.register('routes', async (customerId) => (customerId === 'c1' ? 1_500 : 0));
+    // The orders module's own source is counted by the tip itself, never twice.
+    holds.register('orders', async () => 99_000);
+    const s = await setup({ wallet: 2_500, holds });
+    await s.deliver();
+    await s.rate(5);
     expect(await s.tips.walletIqd('c1')).toBe(1_000);
     expect(await code(s.tips.tip('c1', { orderId: s.o.id, amountIqd: 2000 }))).toBe('wallet_insufficient');
     expect((await s.tips.tip('c1', { orderId: s.o.id, amountIqd: 1000 })).walletIqd).toBe(0);

@@ -38,6 +38,7 @@ describe('W3 switches', () => {
       COURIER_LOST_REFUND: 'on',
       COURIER_LOST_CHARGE: 'on',
       AGENT_CASH_ACCOUNTS: 'on',
+      MERCHANT_REMAKE_PAY: 'on',
     });
     expect(r.disputes.outcomes).toEqual(['stands', 'refund_partial']);
     expect(r.disputes.auto.enabled).toBe(true);
@@ -46,7 +47,16 @@ describe('W3 switches', () => {
     expect(r.openCash).toMatchObject({ enabled: true, prepayAfterNoAnswer: true });
     expect(r.courierLost).toEqual({ refund: true, chargeCourier: true });
     expect(r.agentCashAccounts).toBe(true);
+    expect(r.remake).toEqual({ pay: true, afterReadyMin: 10 });
     expect(outcomeRulesFromEnv({ DISPUTE_OUTCOMES: 'all' }).disputes.outcomes).toEqual([...DISPUTE_OUTCOMES]);
+  });
+});
+
+describe('orders.ops.switches', () => {
+  it('tells the Console which money outcomes are on: all off by default, void always allowed', () => {
+    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform', remakePay: false });
+    const on = make({ disputes: { outcomes: ['stands', 'refund_full'], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } }, courierLost: { refund: true, chargeCourier: false } });
+    expect(on.staff.switches()).toMatchObject({ disputeOutcomes: ['stands', 'refund_full', 'void'], courierLostRefund: true, courierLostCharge: false });
   });
 });
 
@@ -434,5 +444,53 @@ describe('stuck list', () => {
     ]);
     h.clock.advance(25 * HOUR);
     expect((await h.staff.stuck({ cityId: 'aziziyah', limit: 10 })).find((s) => s.orderId === order.id)!.reason).toBe('dispute_overdue');
+  });
+});
+
+describe('remake pay (c6, Ali 2026-10-08)', () => {
+  async function readyAndWaiting(h: ReturnType<typeof make>) {
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    await h.orders.markPreparing('m1', { orderId: o.id });
+    await h.orders.markReady('m1', { orderId: o.id });
+    const t = await h.tripFor(o.id);
+    return { o: await h.orders.get(o.id), t };
+  }
+
+  it('off by default: refused with money_rule_off, and the rule says so to the Merchant app', async () => {
+    const h = make();
+    const { o } = await readyAndWaiting(h);
+    expect(h.staff.remakeRule()).toEqual({ pay: false, afterReadyMin: 10 });
+    h.clock.advance(11 * MIN);
+    expect(await code(h.staff.merchantRemake('m1', { orderId: o.id }))).toBe('money_rule_off');
+    expect(await h.balance('merchant_cash:rest_1')).toBe(0);
+  });
+
+  it('on: from 10 minutes after «جاهز» with no courier at the pass, Driver pays the items at menu price, once', async () => {
+    const h = make({ remake: { pay: true } });
+    const { o } = await readyAndWaiting(h);
+    h.clock.advance(9 * MIN);
+    expect(await code(h.staff.merchantRemake('m1', { orderId: o.id }))).toBe('order_state_conflict');
+    h.clock.advance(1 * MIN);
+    expect(await h.staff.merchantRemake('m1', { orderId: o.id })).toEqual({ orderId: o.id, paidIqd: o.itemsTotalIqd, alreadyPaid: false });
+    expect(await h.balance('merchant_cash:rest_1')).toBe(o.itemsTotalIqd);
+    expect(h.events.last('order.remake_paid')!.payload).toMatchObject({ merchantOrgId: 'rest_1', paidIqd: o.itemsTotalIqd });
+    expect(await h.staff.merchantRemake('m1', { orderId: o.id })).toEqual({ orderId: o.id, paidIqd: 0, alreadyPaid: true });
+    expect(await h.balance('merchant_cash:rest_1')).toBe(o.itemsTotalIqd);
+    // The order stays ready for the courier who comes.
+    expect((await h.orders.get(o.id)).state).toBe('ready');
+  });
+
+  it('on: refused once the courier is at the pass, and before the food was marked ready', async () => {
+    const h = make({ remake: { pay: true } });
+    const { o, t } = await readyAndWaiting(h);
+    h.clock.advance(12 * MIN);
+    const stop = t.stops.find((s) => s.type === 'pickup')!;
+    await h.trips.arrive(t.id, stop.id, 'd1', { pin: stop.target! });
+    expect(await code(h.staff.merchantRemake('m1', { orderId: o.id }))).toBe('order_state_conflict');
+    const other = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: other.id, prepMinutes: 15 });
+    h.clock.advance(30 * MIN);
+    expect(await code(h.staff.merchantRemake('m1', { orderId: other.id }))).toBe('order_state_conflict');
   });
 });

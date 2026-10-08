@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
-import { transformer, type AppRouter, type RoleKind } from '@driver/contracts';
+import { AZIZIYAH_ZONES, transformer, type AppRouter, type RoleKind } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { createApp } from './bootstrap.js';
 import { CatalogService, seedStorefronts } from './modules/catalog/index.js';
@@ -16,6 +16,10 @@ import { TripsService } from './modules/trips/index.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
 const ZAKUR = { lat: 32.887, lng: 45.0765 };
+const pinIn = (zoneKey: string) => {
+  const z = AZIZIYAH_ZONES.find((x) => x.id === zoneKey);
+  return z ? { lat: z.lat, lng: z.lng } : ZAKUR;
+};
 const SYSTEM = { personId: 'system:e2e', sessionId: 'e2e' };
 type Client = ReturnType<typeof createTRPCClient<AppRouter>>;
 
@@ -72,7 +76,8 @@ describe('launch control room (e2e)', () => {
       merchantOrgId: khalid.orgId,
       lines: [{ catalogItemId: khalid.itemIds.get('liver_plate')!, qty: 1 }],
       paymentMethod: 'cash',
-      dropoff: { zoneKey, pin: ZAKUR },
+      // FOOD-15: the server reads the zone from the pin, so the pin is that zone's own.
+      dropoff: { zoneKey, pin: pinIn(zoneKey) },
       ...extra,
     });
 
