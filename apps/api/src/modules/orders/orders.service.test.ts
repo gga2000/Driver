@@ -459,7 +459,7 @@ describe('OrdersService — merchant heartbeat and courier release (review A.2)'
     await h.advance(20 * MIN - 1000);
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(0);
     await h.advance(1000);
-    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true });
+    expect(h.events.last('order.merchant_unresponsive')!.payload).toMatchObject({ dispatcherCard: true, call: true, cityId: 'aziziyah' });
     await h.advance(5 * MIN);
     expect(h.events.last('order.courier_released')!.payload).toMatchObject({ courierId: 'd1', compensationIqd: 500, chargedTo: 'merchant', tripId: t.id });
     expect((await h.trips.get(t.id)).orders[0]!.reason).toBe('merchant_unresponsive');

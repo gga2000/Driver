@@ -92,6 +92,7 @@ import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type Promotion
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
 import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
+import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 /** A household member as placement reads them (role and limits). */
 type HouseholdMember = NonNullable<Awaited<ReturnType<OrdersHouseholdsPort['member']>>>;
@@ -278,6 +279,26 @@ export class OrdersService implements OnModuleInit {
 
   bindRiders(port: OrdersRidersPort): void {
     this.riders = port;
+  }
+
+  /** W3 M-2 (NTF-11): free cancel when we failed; bound by the module (`OrdersStaffService`). */
+  private platformFailure: PlatformFailurePort | null = null;
+
+  bindPlatformFailure(port: PlatformFailurePort): void {
+    this.platformFailure = port;
+  }
+
+  /** W3 staff toolkit (`orders.staff.ts`): the internals it drives, so there is one copy of each. */
+  staffBridge(): OrdersStaffBridge {
+    return {
+      move: (order, to, actorId, tx, patch, payload, eventType) => this.move(order, to, actorId, tx, patch, payload, eventType),
+      close: (order, actorId, reason, tx) => this.close(order, actorId, reason, tx),
+      delivered: (order, e, tx) => this.delivered(order, e, tx),
+      cancelled: (order, c) => this.cancelled(order, c),
+      feeFor: (order) => this.feeFor(order),
+      emit: (tx, type, actorId, order, payload) => this.emit(tx, type, actorId, order, payload),
+      view: (orderId, tx) => this.view(orderId, tx),
+    };
   }
 
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
@@ -1121,7 +1142,8 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
-   * Rating closes the order early (domain §2). With scores (customer app §4 two-tap rating) it also
+   * Rating no longer closes the order (FLOW-20, W3): the 2-h complaint window stays open and the
+   * auto-close settles it. With scores (customer app §4 two-tap rating) it also
    * stores them: delivery for the courier/driver, food only on kitchen/shop orders. The first rating
    * stands (a replay returns the order unchanged); an order auto-closed before the customer rated can
    * still take its rating.
@@ -1145,6 +1167,8 @@ export class OrdersService implements OnModuleInit {
       if (rating && ratingWindowClosed(order, now)) throw new DriverError('rating_window_closed');
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
+      // The Console's "Today" list: the first scored rating, in its own transaction.
+      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1152,8 +1176,8 @@ export class OrdersService implements OnModuleInit {
         return this.view(order.id, tx);
       }
       if (!DISPUTABLE_STATES.includes(order.state)) throw new DriverError('order_state_conflict');
-      const updated = await this.repo.update(order.id, { ratedAt: this.clock.now(), ...(rating ? { rating } : {}) }, tx);
-      await this.close(updated, actorId, 'rated', tx);
+      await this.repo.update(order.id, { ratedAt: this.clock.now(), ...(rating ? { rating } : {}) }, tx);
+      // FLOW-20 (W3): rating no longer closes it, so the 2-h complaint window stays open; the auto-close settles it.
       return this.view(order.id, tx);
     });
   }
@@ -1624,7 +1648,7 @@ export class OrdersService implements OnModuleInit {
           const present = profile?.lastHeartbeatAt && now.getTime() - profile.lastHeartbeatAt.getTime() <= ORDERS_RULES.heartbeatStaleMs;
           if (present) return;
           if (name === ORDER_JOBS.readyOverdue) {
-            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
+            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
             return;
           }
           const trip = await this.trips.activeForOrder(order.id);
@@ -1998,6 +2022,13 @@ export class OrdersService implements OnModuleInit {
   }
 
   private async feeFor(order: OrderRecord): Promise<{ fee: CancellationFee; trip: Trip | null }> {
+    const out = await this.ruleFeeFor(order);
+    // W3 M-2 (NTF-11): when we failed and that switch is on, the customer cancels free.
+    const free = this.platformFailure ? await this.platformFailure.freeFeeFor(order, out.trip, out.fee) : null;
+    return free ? { fee: free, trip: out.trip } : out;
+  }
+
+  private async ruleFeeFor(order: OrderRecord): Promise<{ fee: CancellationFee; trip: Trip | null }> {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {

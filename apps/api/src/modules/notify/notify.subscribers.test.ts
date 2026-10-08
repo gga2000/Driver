@@ -366,3 +366,19 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
     expect((await run(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }), forMum())).map((r) => r.template)).toEqual(['ride_receipt']);
   });
 });
+
+describe('W3 staff outcomes → the customer', () => {
+  it('staff cancel, complaint outcomes, free-cancel offer and lost food each reach the order’s customer', async () => {
+    const h = notifyHarness();
+    const d = deps(h);
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    const params = { id: '1284', orderId: 'ord_1' };
+    expect(await one(event('order.ops_cancelled', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params }]);
+    expect(await one(event('order.free_cancel_offered', { customerId: 'cust', failure: 'no_courier' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_free_cancel', to: 'cust', params }]);
+    expect(await one(event('order.courier_lost', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_courier_lost', to: 'cust', params }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'refund_partial', refundIqd: 5_000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_refunded', to: 'cust', params: { ...params, amount: '5,000' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'stands', refundIqd: 0 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_stands', to: 'cust', params: { ...params, amount: '0' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'nonsense' }, { orderId: 'ord_1' }))).toEqual([]);
+    expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
+  });
+});

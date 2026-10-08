@@ -4,6 +4,7 @@ import { formatClock, formatWhen } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
+  encodeDomainEvent,
   type Actor,
   type CheckInChallenge,
   type CheckInResult,
@@ -337,7 +338,7 @@ export class DriverAccountService implements DriverAccountPort {
       await this.identity.attachVaultRef(actor.personId, 'documentRefs', { ref: input.uploadId, kind: input.kind, recordId: doc.id });
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'driver.document_submitted', occurredAt: now, payload: { documentId: doc.id, kind: doc.kind, expiresAt: doc.expiresAt?.toISOString() ?? null } },
+        { actorId: actor.personId, type: 'driver.document_submitted', occurredAt: now, payload: encodeDomainEvent('driver.document_submitted', { documentId: doc.id, kind: doc.kind, expiresAt: doc.expiresAt?.toISOString() ?? null, cityId: SHIFT_CITY }) },
         { name: 'person', id: actor.personId },
       );
       return documentView(doc, now);
@@ -374,7 +375,7 @@ export class DriverAccountService implements DriverAccountPort {
       );
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'driver.document_reviewed', occurredAt: now, payload: { documentId: doc.id, personId: doc.personId, kind: doc.kind, decision: input.decision } },
+        { actorId: actor.personId, type: 'driver.document_reviewed', occurredAt: now, payload: encodeDomainEvent('driver.document_reviewed', { documentId: doc.id, personId: doc.personId, kind: doc.kind, decision: input.decision, cityId: SHIFT_CITY }) },
         { name: 'person', id: doc.personId },
       );
       return documentView(updated, now);

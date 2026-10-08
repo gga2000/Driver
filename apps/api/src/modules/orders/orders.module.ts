@@ -9,7 +9,7 @@ import { IdentityModule, IdentityService } from '../identity/index.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService } from '../ledger/index.js';
-import { ControlsModule, ControlsService } from '../controls/index.js';
+import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { PromotionsModule, PromotionsService } from '../promotions/index.js';
@@ -32,6 +32,15 @@ import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
 import { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, PrismaOrderComplimentsRepository, type OrderComplimentsRepository } from './compliments.repository.js';
 import { ReferralsModule, ReferralsService } from '../referrals/index.js';
+import { ORDERS_STAFF_PORTS, OrdersStaffService, STUCK_BOARD, type OrdersStaffPorts, type OrderEventLog } from './orders.staff.js';
+import { OrdersStaffJob } from './orders.staff.job.js';
+import { CASH_LIMITS, CashLimits } from './cash-limits.js';
+import { ORDER_OUTCOME_RULES, outcomeRulesFromEnv, type OrderOutcomeRules } from './outcomes.config.js';
+
+/** The order's own events, oldest first (the W3 toolkit's "when did this dispute open"). */
+function eventLogOf(events: EventsService): OrderEventLog {
+  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
+}
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
   return factory.configured ? factory.queue<T>(name) : new InMemoryQueue<T>(name, () => clock.now());
@@ -59,8 +68,34 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     // Discounts only from the server: merchant deals from the promotions module (best one, spend reserved
     // atomically in the order's transaction); platform codes resolve nothing yet.
     { provide: ORDERS_PROMOTIONS, useFactory: (promotions: PromotionsService) => new MerchantDealsPromotions(promotions), inject: [PromotionsService] },
-    // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders.
-    { provide: ORDERS_CASH_RISK, useExisting: CapsService },
+    // W3: the money-outcome switches (M-1 … M-4, M-10, M-13), all off unless the environment turns one on.
+    { provide: ORDER_OUTCOME_RULES, useFactory: (): OrderOutcomeRules => outcomeRulesFromEnv() },
+    // Decisions §4 new-customer cash cap, enforced at place(): the ledger counts completed cash orders;
+    // W3 (SEC-10/THIN-01) wraps it with the open-cash-order cap and unpaid-fee rule (switches off).
+    {
+      provide: CASH_LIMITS,
+      useFactory: (caps: CapsService, repo: OrdersRepository, ledger: LedgerService, events: EventsService, rules: OrderOutcomeRules) =>
+        new CashLimits(caps, repo, { balanceIqd: async (a) => (await ledger.balance(a)).amount, eventsFor: (a) => ledger.eventsFor(a) }, eventLogOf(events), rules),
+      inject: [CapsService, ORDERS_REPOSITORY, LedgerService, EventsService, ORDER_OUTCOME_RULES],
+    },
+    { provide: ORDERS_CASH_RISK, useExisting: CASH_LIMITS },
+    // W3 staff way-out: the ledger, the Console audit log, role checks and the order's event log.
+    {
+      provide: ORDERS_STAFF_PORTS,
+      useFactory: (ledger: LedgerService, audit: AuditLogService, identity: IdentityService, events: EventsService): OrdersStaffPorts => ({
+        ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id) => ledger.hasGroup(id), eventsForOrder: (id) => ledger.eventsForOrder(id) },
+        audit: { record: (input, tx) => audit.record(input, tx) },
+        roles: { hasRole: (personId, kind) => identity.hasRole(personId, kind) },
+        eventLog: eventLogOf(events),
+        stuckBoard: {
+          marks: async () => (await events.forAggregate(STUCK_BOARD.name, STUCK_BOARD.id)).map((e) => ({ type: e.type, orderId: e.orderId ?? e.aggregateId, occurredAt: e.occurredAt, payload: e.payload })),
+          emit: async (tx, event) => void (await events.emit(tx, event, STUCK_BOARD)),
+        },
+      }),
+      inject: [LedgerService, AuditLogService, IdentityService, EventsService],
+    },
+    OrdersStaffService,
+    OrdersStaffJob,
     // Maps program SP3d: an order links to the saved place it goes to only when the orderer may use it.
     { provide: ORDERS_PLACES, useExisting: SavedPlacesService },
     // C-04: wallet payments at checkout are checked against the ledger balance of the paying wallet.
@@ -113,7 +148,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     OrderComplimentsService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService],
+  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService, OrdersStaffService, ORDER_OUTCOME_RULES],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);
@@ -132,7 +167,11 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly referrals: ReferralsService,
     private readonly identity: IdentityService,
     private readonly orgs: OrgsService,
+    private readonly staff: OrdersStaffService,
+    private readonly eventsService: EventsService,
   ) {}
+
+  private unsubscribeFailure: (() => void) | undefined;
 
   onModuleInit(): void {
     // The throttle and the console's zone gauges count active orders here (orders owns them).
@@ -149,6 +188,9 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     this.households.bindDecision((req) => (req.state === 'approved' || req.state === 'declined' ? this.orders.onPayerDecision(req.orderId, req.state) : Promise.resolve()));
     // Named outbox subscriber: a failure is retried with backoff by the publisher (and logged there).
     this.unsubscribe = this.events.subscribeToTrips((e) => this.orders.onTripEvent(e));
+    // W3 M-2: free cancel when we failed, and the kitchen's pay for food it cooked (switches off by default).
+    this.orders.bindPlatformFailure(this.staff);
+    this.unsubscribeFailure = this.eventsService.subscribe('orders:platform-failure', ['order.cancelled'], (e) => this.staff.onOrderCancelled(e.payload));
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {
@@ -160,6 +202,7 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
+    this.unsubscribeFailure?.();
     if (this.poller) clearInterval(this.poller);
   }
 }

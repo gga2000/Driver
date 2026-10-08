@@ -12,8 +12,10 @@ import {
   SeatMoneyPayload,
   SubscriptionChargePayload,
 } from './ledger-io.js';
+import { DriverDocumentKind } from './driver-account-io.js';
 import { CommissionTier } from './ledger-rules.js';
-import { OrderState, OrderType, PaymentMethod } from './order.js';
+import { OrderState, OrderType, PaymentMethod, RatingScore } from './order.js';
+import { StuckReason } from './order-staff-io.js';
 import { StopType, TripState, VehicleClass } from './trip.js';
 
 /**
@@ -312,6 +314,55 @@ export const SafetyIncidentClosedPayload = z.object({
 });
 export type SafetyIncidentClosedPayload = z.infer<typeof SafetyIncidentClosedPayload>;
 
+// ───────────────────────── staff "Today" list (Console) ─────────────────────────
+
+/**
+ * `order.rated`: the customer's first scored rating landed, in the rating's own transaction. `stars`
+ * is the delivery score (courier/driver), or the food score when he scored only the food.
+ */
+export const OrderRatedPayload = z.object({ orderId: z.string().min(1), stars: RatingScore, cityId: CityId });
+export type OrderRatedPayload = z.infer<typeof OrderRatedPayload>;
+
+/**
+ * `courier.cash_over_cap` / `courier.cash_under_cap`: a ledger posting moved a driver across his
+ * cash cap (money §4; exactly at the cap counts as over), emitted only on the crossing and in the
+ * posting's transaction. `cashIqd` is what counts against the cap after the posting (owed =
+ * cash he holds that is not his, net of what the platform owes him); `capIqd` his cap by role and tier.
+ */
+export const CourierCashCapPayload = z.object({ courierId: z.string().min(1), cashIqd: Iqd.nonnegative(), capIqd: Iqd.positive(), cityId: CityId });
+export type CourierCashCapPayload = z.infer<typeof CourierCashCapPayload>;
+
+/** `order.stuck`: the order entered the stuck list (`orders.ops.stuck`), seen by the W3 watchdog. `since` = when its state's clock started. */
+export const OrderStuckPayload = z.object({ orderId: z.string().min(1), cityId: CityId, reason: StuckReason, since: z.coerce.date() });
+export type OrderStuckPayload = z.infer<typeof OrderStuckPayload>;
+
+/** `order.unstuck`: the order left the stuck list. `by` = who moved it out (the actor of its latest event; `system` for a timer). */
+export const OrderUnstuckPayload = z.object({ orderId: z.string().min(1), cityId: CityId, by: z.string().min(1) });
+export type OrderUnstuckPayload = z.infer<typeof OrderUnstuckPayload>;
+
+/** `order.merchant_unresponsive`: the kitchen is past its promised time with no heartbeat (dispatcher card, call). `cityId` optional: older events have none. */
+export const OrderMerchantUnresponsivePayload = z.object({
+  merchantOrgId: z.string().min(1),
+  promisedReadyAt: z.string().nullable(),
+  lastHeartbeatAt: z.string().nullable(),
+  dispatcherCard: z.boolean(),
+  call: z.boolean(),
+  cityId: CityId.optional(),
+});
+export type OrderMerchantUnresponsivePayload = z.infer<typeof OrderMerchantUnresponsivePayload>;
+
+/** `order.late_apology`: honest-delay step one, the apology with the new time. `cityId` optional: older events have none. */
+export const OrderLateApologyPayload = z.object({ customerId: z.string().min(1), promisedAt: z.string().min(1), etaAt: z.string().min(1), cityId: CityId.optional() });
+export type OrderLateApologyPayload = z.infer<typeof OrderLateApologyPayload>;
+
+/** `driver.document_submitted`: a driver uploaded a document for review. `cityId` optional: older events have none. */
+export const DriverDocumentSubmittedPayload = z.object({ documentId: z.string().min(1), kind: DriverDocumentKind, expiresAt: z.string().nullable(), cityId: CityId.optional() });
+export type DriverDocumentSubmittedPayload = z.infer<typeof DriverDocumentSubmittedPayload>;
+
+/** `driver.document_reviewed`: staff approved or rejected a document. `cityId` optional: older events have none. */
+export const DriverDocumentReviewedPayload = z.object({ documentId: z.string().min(1), personId: z.string().min(1), kind: DriverDocumentKind, decision: z.enum(['approve', 'reject']), cityId: CityId.optional() });
+export type DriverDocumentReviewedPayload = z.infer<typeof DriverDocumentReviewedPayload>;
+
 // ───────────────────────── registry ─────────────────────────
 
 /**
@@ -348,6 +399,15 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'safety.incident_opened': SafetyIncidentOpenedPayload,
   'safety.incident_acked': SafetyIncidentAckedPayload,
   'safety.incident_closed': SafetyIncidentClosedPayload,
+  'order.rated': OrderRatedPayload,
+  'courier.cash_over_cap': CourierCashCapPayload,
+  'courier.cash_under_cap': CourierCashCapPayload,
+  'order.stuck': OrderStuckPayload,
+  'order.unstuck': OrderUnstuckPayload,
+  'order.merchant_unresponsive': OrderMerchantUnresponsivePayload,
+  'order.late_apology': OrderLateApologyPayload,
+  'driver.document_submitted': DriverDocumentSubmittedPayload,
+  'driver.document_reviewed': DriverDocumentReviewedPayload,
 } as const satisfies Record<string, z.ZodTypeAny>;
 
 export type DomainEventType = keyof typeof DOMAIN_EVENT_PAYLOADS;
