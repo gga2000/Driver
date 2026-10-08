@@ -12,6 +12,7 @@ import { queryRetry } from '@/lib/live';
 import { ageText, categoryText, contactText, contactTone, coordsText, entryText, entryTime, mapsUrl, personName, roleText, stateText, stateTone, trailPath } from '@/lib/safety';
 import { SAFETY_POLL_MS, useSafetyAlerts } from '@/lib/safety-live';
 import { withBdi } from './bdi';
+import { SafetyReportsSection, SafetyReportView } from './reports';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import {
@@ -51,8 +52,10 @@ import {
 export function SafetyDesk() {
   const trpc = useTRPC();
   const router = useRouter();
-  const params = useParams<{ id?: string }>();
+  const params = useParams<{ id?: string; ticketId?: string }>();
   const id = params?.id ? safeDecode(params.id) : null;
+  const reportId = params?.ticketId ? safeDecode(params.ticketId) : null;
+  const detail = Boolean(id || reportId);
   const signedIn = useSignedIn();
   const [scope, setScope] = useState<'open' | 'all'>('open');
   const alerts = useSafetyAlerts();
@@ -66,10 +69,10 @@ export function SafetyDesk() {
   // Open the oldest open alert when the desk opens on /safety (desktop).
   const opened = useRef(false);
   useEffect(() => {
-    if (opened.current || id || !rows[0] || typeof window === 'undefined' || window.innerWidth < 1024) return;
+    if (opened.current || id || reportId || !rows[0] || typeof window === 'undefined' || window.innerWidth < 1024) return;
     opened.current = true;
     router.replace(`/safety/${encodeURIComponent(rows[0].id)}`);
-  }, [rows, id, router]);
+  }, [rows, id, reportId, router]);
 
   const select = (next: string) => router.push(`/safety/${encodeURIComponent(next)}`);
   const move = (d: 1 | -1) => {
@@ -97,7 +100,7 @@ export function SafetyDesk() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
-      <div className={id ? 'hidden min-h-0 md:block' : 'min-h-0'}>
+      <div className={detail ? 'hidden min-h-0 md:block' : 'min-h-0'}>
         <section aria-label={t('console.safety.title')} className="flex h-full min-h-0 flex-col border-e border-line bg-surface">
           <div className="space-y-3 border-b border-line px-4 pb-3 pt-4">
             <div className="flex items-center justify-between gap-2">
@@ -120,10 +123,16 @@ export function SafetyDesk() {
           </div>
           <div
             className="min-h-0 flex-1 overflow-y-auto"
-            // A listbox must hold options: while loading, empty or failed it is a plain region.
-            role={rows.length > 0 && !source.isPending ? 'listbox' : 'region'}
+            // The SOS presses are a listbox of their own; the safety reports below are links.
+            role="region"
             aria-label={t('console.safety.title')}
           >
+            {scope === 'open' ? (
+              <h2 className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-dense font-semibold text-muted">
+                <span>{t('console.safety.sec_sos')}</span>
+                <span className="num">{rows.length}</span>
+              </h2>
+            ) : null}
             {source.error && !source.data ? (
               <div className="p-4">
                 <QueryError error={source.error} onRetry={() => void source.refetch()} />
@@ -135,18 +144,32 @@ export function SafetyDesk() {
                 ))}
               </div>
             ) : rows.length === 0 ? (
-              <div className="p-6">
-                <EmptyState bare icon={<IconCheck size={20} />} title={t('console.safety.empty')} hint={t('console.safety.empty_hint')} />
-              </div>
+              scope === 'open' ? (
+                <p className="flex items-center gap-2 border-b border-line px-4 py-3 text-dense text-muted">
+                  <span aria-hidden className="h-2 w-2 rounded-pill bg-ok-solid" />
+                  {t('console.safety.sos_none')}
+                </p>
+              ) : (
+                <div className="p-6">
+                  <EmptyState bare icon={<IconCheck size={20} />} title={t('console.safety.empty')} hint={t('console.safety.empty_hint')} />
+                </div>
+              )
             ) : (
-              rows.map((r) => <AlertRow key={r.id} row={r} selected={r.id === id} onSelect={() => select(r.id)} />)
+              <div role="listbox" aria-label={t('console.safety.sec_sos')}>
+                {rows.map((r) => (
+                  <AlertRow key={r.id} row={r} selected={r.id === id} onSelect={() => select(r.id)} />
+                ))}
+              </div>
             )}
+            {scope === 'open' ? <SafetyReportsSection selectedId={reportId} /> : null}
           </div>
         </section>
       </div>
 
-      <div className={id ? 'min-h-0 min-w-0 overflow-y-auto bg-canvas' : 'hidden min-h-0 bg-canvas md:block'}>
-        {!id ? (
+      <div className={detail ? 'min-h-0 min-w-0 overflow-y-auto bg-canvas' : 'hidden min-h-0 bg-canvas md:block'}>
+        {reportId ? (
+          <SafetyReportView ticketId={reportId} />
+        ) : !id ? (
           <div className="flex h-full items-center justify-center p-8">
             <EmptyState bare icon={<IconSiren size={20} />} title={t('console.safety.pick')} hint={t('console.safety.empty_hint')} />
           </div>

@@ -14,6 +14,7 @@ import type { Actor } from './identity-io.js';
  */
 export const INBOX_KINDS = [
   'sos',
+  'safety_report',
   'no_driver',
   'store_silent',
   'late',
@@ -30,15 +31,16 @@ export type InboxKind = z.infer<typeof InboxKind>;
 /** Most urgent first: the list sorts by this, then oldest first. */
 export const INBOX_PRIORITY: Record<InboxKind, number> = {
   sos: 0,
-  sweep: 1,
-  pin_alert: 2,
-  no_driver: 3,
-  unreachable: 4,
-  stuck: 5,
-  store_silent: 6,
-  late: 7,
-  cash_cap: 8,
-  approval: 9,
+  safety_report: 1,
+  sweep: 2,
+  pin_alert: 3,
+  no_driver: 4,
+  unreachable: 5,
+  stuck: 6,
+  store_silent: 7,
+  late: 8,
+  cash_cap: 9,
+  approval: 10,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -50,11 +52,12 @@ export const InboxSubjectKind = z.enum([
   'sweep_alert',
   'pin_attempt',
   'courier',
+  'ticket',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 
 /** Rows a person can't close here: they close when the problem is closed where it lives (the SOS desk, the خطوط check). */
-export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'sweep'];
+export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'safety_report', 'sweep'];
 
 /** Who reads the list, and who works it (finance reads only). */
 export const INBOX_READ_ROLES = ['admin', 'dispatcher', 'support', 'field_ops', 'finance'] as const;
