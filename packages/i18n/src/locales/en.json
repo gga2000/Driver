@@ -7615,5 +7615,9 @@
   "restaurant.whats_left_title": "What's left today?",
   "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
   "restaurant.whats_left_all": "Whole menu",
-  "restaurant.whats_left_only": "What's left"
+  "restaurant.whats_left_only": "What's left",
+  "datasaver.slow_hint_auto": "Your internet is slow right now, so we made the app lighter: fewer photos, a simpler map",
+  "datasaver.slow_keep": "Keep it light",
+  "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",
+  "datasaver.slow_turn_on": "Make it light"
 }

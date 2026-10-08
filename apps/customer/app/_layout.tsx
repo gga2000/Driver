@@ -18,6 +18,7 @@ import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { CachedPhoto } from '@/lib/cached-photo';
+import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
@@ -95,6 +96,8 @@ export default function RootLayout() {
                 <SeasonWatcher />
                 {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
                 <SosOutboxSync />
+                {/* The first slow connection offers low-data mode once (speed g4). */}
+                <LiteHint />
                 <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
               </ApiProvider>
             </ToastProvider>
