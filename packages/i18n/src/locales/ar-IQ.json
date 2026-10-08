@@ -8296,5 +8296,9 @@
   "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق",
   "update.title": "حدّث التطبيق",
   "update.cta": "حدّث من Google Play",
-  "update.hint_store": "حدّثه من App Store"
+  "update.hint_store": "حدّثه من App Store",
+  "partner.update_title": "أكو نسخة جديدة من التطبيق",
+  "partner.update_body": "هالنسخة صارت قديمة وما تشتغل بعد. حدّثها من المتجر، تاخذ دقيقة، وترجع تكمّل شغلك.",
+  "partner.update_offers": "لحد ما تحدّث، ما تگدر تاخذ طلبات من هالتلفون.",
+  "partner.update_button": "حدّث من المتجر"
 }
