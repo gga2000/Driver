@@ -111,6 +111,11 @@ export interface NotifyRepository {
   launchInterestsOf(personId: string): Promise<string[]>;
   /** Every interest row (the Console aggregates them; a few thousand rows at most per city). */
   launchInterests(): Promise<LaunchInterestRecord[]>;
+  /**
+   * W7 account deletion: his push tokens, notification switches, the log of what we sent him and the
+   * services he asked to hear about. Idempotent.
+   */
+  erasePerson(personId: string): Promise<void>;
 }
 
 export interface LaunchInterestRecord {
@@ -190,6 +195,18 @@ export class InMemoryNotifyRepository implements NotifyRepository {
 
   async launchInterests(): Promise<LaunchInterestRecord[]> {
     return [...this.interests.values()].map((r) => ({ ...r }));
+  }
+
+  async erasePerson(personId: string): Promise<void> {
+    for (const [token, row] of [...this.tokens]) if (row.personId === personId) this.tokens.delete(token);
+    this.prefs.delete(personId);
+    for (const [id, row] of [...this.deliveries]) {
+      if (row.personId !== personId) continue;
+      this.deliveries.delete(id);
+      this.seqOf.delete(id);
+      for (const [key, rowId] of [...this.byKey]) if (rowId === id) this.byKey.delete(key);
+    }
+    for (const [key, row] of [...this.interests]) if (row.personId === personId) this.interests.delete(key);
   }
 
   async setPreferences(personId: string, prefs: NotifyPreferences): Promise<NotifyPreferences> {
@@ -357,6 +374,14 @@ export class PrismaNotifyRepository implements NotifyRepository {
 
   async launchInterests(): Promise<LaunchInterestRecord[]> {
     return (await this.db().launchInterest.findMany({ orderBy: { updatedAt: 'desc' } })).map((r) => ({ personId: r.personId, service: r.service, zoneKey: r.zoneKey, createdAt: r.createdAt, updatedAt: r.updatedAt }));
+  }
+
+  async erasePerson(personId: string): Promise<void> {
+    const db = this.db();
+    await db.pushToken.deleteMany({ where: { personId } });
+    await db.notifyPreference.deleteMany({ where: { personId } });
+    await db.notifyDelivery.deleteMany({ where: { personId } });
+    await db.launchInterest.deleteMany({ where: { personId } });
   }
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {

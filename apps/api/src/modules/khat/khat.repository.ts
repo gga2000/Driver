@@ -60,6 +60,10 @@ export interface KhatRepository {
   closeSweepAlert(id: string, close: SweepAlertClose, tx?: Tx): Promise<{ alert: SweepAlertRecord; closed: boolean } | null>;
   /** The city's alerts raised at or after `since`, oldest first. */
   sweepAlertsSince(cityId: string, since: Date, tx?: Tx): Promise<SweepAlertRecord[]>;
+  /** W7 account deletion: subscriptions (trial, active, past due) he rides on or pays for as guardian. */
+  openSubscriptionsOf(personId: string, tx?: Tx): Promise<number>;
+  /** W7 account deletion: drops the notes he wrote on absences he reported. Idempotent. */
+  blankAbsenceNotesBy(personId: string, tx?: Tx): Promise<void>;
 }
 
 export const KHAT_REPOSITORY = Symbol('KHAT_REPOSITORY');
@@ -126,6 +130,17 @@ export class InMemoryKhatRepository implements KhatRepository {
       .filter((a) => a.cityId === cityId && a.raisedAt.getTime() >= since.getTime())
       .sort((a, b) => a.raisedAt.getTime() - b.raisedAt.getTime())
       .map((a) => ({ ...a }));
+  }
+
+  /** `subscriptions` rows, as tests seed them (the API writes none yet). */
+  readonly subscriptions: Array<{ riderId: string; guardianId: string | null; state: 'trial' | 'active' | 'past_due' | 'cancelled' }> = [];
+
+  async openSubscriptionsOf(personId: string): Promise<number> {
+    return this.subscriptions.filter((s) => (s.riderId === personId || s.guardianId === personId) && s.state !== 'cancelled').length;
+  }
+
+  async blankAbsenceNotesBy(personId: string): Promise<void> {
+    for (const r of this.rows) if (r.reportedById === personId) r.note = null;
   }
 }
 
@@ -215,5 +230,13 @@ export class PrismaKhatRepository implements KhatRepository {
 
   async sweepAlertsSince(cityId: string, since: Date, tx?: Tx): Promise<SweepAlertRecord[]> {
     return (await this.db(tx).khatSweepAlert.findMany({ where: { cityId, raisedAt: { gte: since } }, orderBy: { raisedAt: 'asc' }, select: SWEEP_FIELDS })).map(sweepFromRow);
+  }
+
+  async openSubscriptionsOf(personId: string, tx?: Tx): Promise<number> {
+    return this.db(tx).subscription.count({ where: { OR: [{ riderId: personId }, { guardianId: personId }], state: { in: ['trial', 'active', 'past_due'] } } });
+  }
+
+  async blankAbsenceNotesBy(personId: string, tx?: Tx): Promise<void> {
+    await this.db(tx).khatAbsence.updateMany({ where: { reportedById: personId, note: { not: null } }, data: { note: null } });
   }
 }

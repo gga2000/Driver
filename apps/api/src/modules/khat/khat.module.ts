@@ -7,7 +7,7 @@ import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queu
 import { ControlsModule } from '../controls/index.js';
 import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
 import { NotifyModule } from '../notify/index.js';
 import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../places/index.js';
 import { TripsModule } from '../trips/index.js';
@@ -71,9 +71,24 @@ export class KhatModule implements OnModuleInit, OnModuleDestroy {
 
   private poller: NodeJS.Timeout | undefined;
 
-  constructor(@Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null) {}
+  constructor(
+    @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null,
+    @Inject(KHAT_REPOSITORY) private readonly repo: KhatRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
 
   onModuleInit(): void {
+    // W7 account deletion: a running خطوط subscription (his own seat or a child's he pays for) ends
+    // first; the children's names already went with identity's vault rows.
+    this.erasure.register({
+      owner: 'khat',
+      tables: ['public.khat_absences'],
+      blockers: async (personId) => {
+        const count = await this.repo.openSubscriptionsOf(personId);
+        return count > 0 ? [{ kind: 'active_subscription', count }] : [];
+      },
+      erase: (personId) => this.repo.blankAbsenceNotesBy(personId),
+    });
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {

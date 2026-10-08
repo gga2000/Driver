@@ -20,6 +20,8 @@ export interface PersonRecord {
   lastVerifiedAt: Date | null;
   sharedFamilyPhone: boolean;
   deletedAt: Date | null;
+  /** W7: every module finished erasing this deleted person (null while a step still has to run). */
+  erasedAt?: Date | null;
   createdAt: Date;
 }
 
@@ -138,6 +140,20 @@ export interface ParticipantIdentityRecord {
   name: string;
 }
 
+/**
+ * The tables identity itself erases when the account closes (`closeAccount`; the inventory test counts them as
+ * identity's step). `people`, `roles`, `vault_access_logs` are kept (see the inventory).
+ */
+export const IDENTITY_ERASED_TABLES = [
+  'identity_vault.person_identities',
+  'identity_vault.child_identities',
+  'identity_vault.participant_identities',
+  'public.devices',
+  'public.sessions',
+  'public.otp_challenges',
+  'public.guardian_links',
+] as const;
+
 export interface IdentityRepository {
   // people
   findPersonById(id: string, tx?: Tx): Promise<PersonRecord | null>;
@@ -184,6 +200,8 @@ export interface IdentityRepository {
 
   // roles
   rolesOf(personId: string, tx?: Tx): Promise<RoleRecord[]>;
+  /** W7: every role kind this person ever held, revoked grants included. */
+  roleKindsEver(personId: string, tx?: Tx): Promise<RoleKind[]>;
   upsertRole(input: { personId: string; kind: RoleKind; orgId: string | null; grantedBy: string | null; now: Date }, tx?: Tx): Promise<{ role: RoleRecord; created: boolean }>;
   revokeRole(id: string, now: Date, tx?: Tx): Promise<RoleRecord>;
   setRolesFrozen(personId: string, kinds: readonly RoleKind[], frozenAt: Date | null, tx?: Tx): Promise<number>;
@@ -241,6 +259,20 @@ export interface IdentityRepository {
   findPendingGuardianLink(guardianId: string, ward: { wardPersonId: string | null; wardParticipantId: string | null }, tx?: Tx): Promise<GuardianLinkRecord | null>;
   updateGuardianLink(id: string, patch: Partial<Pick<GuardianLinkRecord, 'state' | 'consentedAt' | 'revokedAt'>>, tx?: Tx): Promise<GuardianLinkRecord>;
   guardianLinksOf(guardianId: string, tx?: Tx): Promise<GuardianLinkRecord[]>;
+
+  // account deletion (W7, docs/api/account-deletion.md)
+  /**
+   * Closes the account in one go (the person row locked): `deleted_at` set, the number kept only as its
+   * hash in `retired_phones`, the vault rows (his identity, his children, the names he gave others or
+   * was given), devices, sessions, sign-in codes and guardian links deleted, live roles revoked. False
+   * when the person is unknown or already deleted (nothing changed).
+   */
+  closeAccount(personId: string, now: Date, tx?: Tx): Promise<boolean>;
+  /** Deleted people some module still has to erase, oldest deletion first. */
+  deletedNotErased(limit: number, tx?: Tx): Promise<Array<{ id: string; deletedAt: Date }>>;
+  markErased(personId: string, now: Date, tx?: Tx): Promise<void>;
+  /** When the oldest deleted account on this number was first made (null: none was). */
+  retiredPhoneSince(phoneHash: string, tx?: Tx): Promise<Date | null>;
 }
 
 export interface RosterPage {
@@ -452,6 +484,11 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return this.db(tx).role.findMany({ where: { personId, revokedAt: null } });
   }
 
+  async roleKindsEver(personId: string, tx?: Tx) {
+    const rows = await this.db(tx).role.findMany({ where: { personId }, distinct: ['kind'], select: { kind: true } });
+    return rows.map((r) => r.kind as RoleKind);
+  }
+
   async upsertRole(input: { personId: string; kind: RoleKind; orgId: string | null; grantedBy: string | null; now: Date }, tx?: Tx) {
     const db = this.db(tx);
     const existing = await db.role.findFirst({ where: { personId: input.personId, kind: input.kind, orgId: input.orgId } });
@@ -628,10 +665,47 @@ export class PrismaIdentityRepository implements IdentityRepository {
   async guardianLinksOf(guardianId: string, tx?: Tx) {
     return this.db(tx).guardianLink.findMany({ where: { guardianId }, orderBy: { createdAt: 'asc' } });
   }
+
+  async closeAccount(personId: string, now: Date, tx?: Tx) {
+    const db = this.db(tx);
+    // The row lock makes two confirmations (two phones) close the account once.
+    const locked = await db.$queryRaw<Array<{ deleted_at: Date | null; created_at: Date }>>`
+      SELECT "deleted_at", "created_at" FROM "public"."people" WHERE "id" = ${personId} FOR UPDATE`;
+    const person = locked[0];
+    if (!person || person.deleted_at) return false;
+    const idn = await db.personIdentity.findUnique({ where: { personId }, select: { phoneHash: true } });
+    if (idn) {
+      await db.retiredPhone.create({ data: { phoneHash: idn.phoneHash, accountSince: person.created_at, retiredAt: now } });
+      await db.otpChallenge.deleteMany({ where: { phoneHash: idn.phoneHash } });
+      await db.personIdentity.delete({ where: { personId } });
+    }
+    await db.childIdentity.deleteMany({ where: { guardianId: personId } });
+    await db.participantIdentity.deleteMany({ where: { OR: [{ personId }, { givenById: personId }] } });
+    await db.guardianLink.deleteMany({ where: { OR: [{ guardianId: personId }, { wardPersonId: personId }] } });
+    await db.session.deleteMany({ where: { personId } });
+    await db.device.deleteMany({ where: { personId } });
+    await db.role.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: now } });
+    await db.person.update({ where: { id: personId }, data: { deletedAt: now } });
+    return true;
+  }
+
+  async deletedNotErased(limit: number, tx?: Tx) {
+    const rows = await this.db(tx).person.findMany({ where: { deletedAt: { not: null }, erasedAt: null }, orderBy: { deletedAt: 'asc' }, take: limit, select: { id: true, deletedAt: true } });
+    return rows.map((r) => ({ id: r.id, deletedAt: r.deletedAt! }));
+  }
+
+  async markErased(personId: string, now: Date, tx?: Tx) {
+    await this.db(tx).person.updateMany({ where: { id: personId, deletedAt: { not: null }, erasedAt: null }, data: { erasedAt: now } });
+  }
+
+  async retiredPhoneSince(phoneHash: string, tx?: Tx) {
+    const row = await this.db(tx).retiredPhone.findFirst({ where: { phoneHash }, orderBy: { accountSince: 'asc' }, select: { accountSince: true } });
+    return row?.accountSince ?? null;
+  }
 }
 
 /** Contract purposes ⇄ Prisma `OtpPurpose` enum (`phone_change` is `number_change` in the schema). */
-function toDbPurpose(p: OtpPurpose): 'login' | 'guardian_consent' | 'number_change' {
+function toDbPurpose(p: OtpPurpose): 'login' | 'guardian_consent' | 'number_change' | 'account_delete' {
   return p === 'phone_change' ? 'number_change' : p;
 }
 function fromDbPurpose(p: string): OtpPurpose {

@@ -20,3 +20,5 @@ export { BLOB_STORE, DevBlobStore, ownsStoredUpload, ObjectBlobStore, InMemoryUp
 export type { BlobStore, BlobRecord, UploadRecords, UploadContentType } from './uploads.js';
 export { DevObjectStorage, S3ObjectStorage, OBJECT_STORAGE, objectStorageFromEnv, s3ConfigFromEnv } from './object-storage.js';
 export type { ObjectStoragePort, S3StorageConfig } from './object-storage.js';
+export { PlacesErasure } from './places.erasure.js';
+export type { UploadKeeper } from './places.erasure.js';

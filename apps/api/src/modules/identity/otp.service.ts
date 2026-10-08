@@ -18,6 +18,7 @@ const BODY_BY_PURPOSE: Record<OtpPurpose, (code: string) => string> = {
   login: (c) => `رمز دخول درايفر: ${c}`,
   guardian_consent: (c) => `رمز موافقة ولي الأمر في درايفر: ${c}`,
   phone_change: (c) => `رمز تغيير الرقم في درايفر: ${c}`,
+  account_delete: (c) => `رمز حذف حسابك في درايفر: ${c}. إذا ما طلبت تحذفه لا تعطيه لأحد`,
 };
 
 /**

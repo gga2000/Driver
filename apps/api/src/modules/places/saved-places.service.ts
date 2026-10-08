@@ -63,6 +63,8 @@ export interface SavedPlacesRepository {
   setArrivalSamples(id: string, samples: readonly DoorSample[]): Promise<void>;
   put(rec: SavedPlaceRecord): Promise<void>;
   delete(id: string): Promise<void>;
+  /** W7 account deletion: every place he saved (pins, notes, door photos, arrival samples). Idempotent. */
+  deleteOwner(ownerId: string): Promise<void>;
 }
 
 export const SAVED_PLACES_REPOSITORY = Symbol('SAVED_PLACES_REPOSITORY');
@@ -108,6 +110,10 @@ export class InMemorySavedPlacesRepository implements SavedPlacesRepository {
 
   async delete(id: string) {
     this.rows.delete(id);
+  }
+
+  async deleteOwner(ownerId: string) {
+    for (const [id, r] of [...this.rows]) if (r.ownerId === ownerId) this.rows.delete(id);
   }
 }
 

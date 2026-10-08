@@ -1,10 +1,10 @@
 import { Inject, Logger, Module, type OnModuleInit } from '@nestjs/common';
-import { AZIZIYAH_MONEY_RULES, type MoneyRules } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type DeletionBlocker, type MoneyRules } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService, ROLE_READER, type RoleReader } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService, ROLE_READER, type RoleReader } from '../identity/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { ScoringModule, ScoringService } from '../scoring/index.js';
 import { AdjustmentService } from './adjustments.service.js';
@@ -15,7 +15,7 @@ import { EventsShiftActivity, SHIFT_ACTIVITY, ShiftGuaranteeService } from './gu
 import { LedgerIncidents } from './incidents.js';
 import { CustomerWalletService, WALLET_HOUSEHOLDS, WALLET_PEOPLE, type WalletHouseholds } from './customer-wallet.js';
 import { LedgerFacade } from './ledger.facade.js';
-import { LedgerService } from './ledger.service.js';
+import { Accounts, LedgerService } from './ledger.service.js';
 import { registerLedgerSubscribers } from './ledger.subscribers.js';
 import { MerchantCashService } from './merchant-cash.service.js';
 import { InMemoryMerchantSettingsRepository, PrismaMerchantSettingsRepository } from './merchant-settings.repository.js';
@@ -102,11 +102,33 @@ export class LedgerModule implements OnModuleInit {
     private readonly queues: BullMqQueueFactory,
     private readonly ledger: LedgerService,
     private readonly capWatch: CashCapWatch,
+    private readonly erasure: ErasureRegistry,
+    private readonly orgs: OrgsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.ledger.watchCaps(this.capWatch);
     registerLedgerSubscribers(this.bus, this.posting, this.merchantCash);
+    // W7 account deletion: only an empty wallet deletes (M-6 decides what happens to money in it);
+    // points are given up. The ledger itself is never touched: it is append-only and kept.
+    this.erasure.register({
+      owner: 'ledger',
+      tables: [],
+      blockers: async (personId) => {
+        const { amount } = await this.ledger.balance(Accounts.customer(personId));
+        const out: DeletionBlocker[] = [];
+        if (amount > 0) out.push({ kind: 'wallet_balance', amountIqd: amount });
+        if (amount < 0) out.push({ kind: 'wallet_owes', amountIqd: -amount });
+        // Money in a household wallet he pays into stays his until it is spent or handed over.
+        for (const home of await this.orgs.householdsOf(personId)) {
+          if (!home.members.some((m) => m.personId === personId && m.role === 'payer')) continue;
+          const held = (await this.ledger.balance(Accounts.household(home.id))).amount;
+          if (held > 0) out.push({ kind: 'household', amountIqd: held });
+        }
+        return out;
+      },
+      forfeits: async (personId) => ({ points: Math.max(0, (await this.ledger.balance(Accounts.points(personId))).amount) }),
+    });
     if (!this.queues.configured) return;
     try {
       const queue = this.queues.queue<{ day: string }>(NIGHTLY_QUEUE);

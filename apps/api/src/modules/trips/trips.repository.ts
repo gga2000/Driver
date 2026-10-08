@@ -3,6 +3,8 @@ import type { LatLng, StopState, StopType, TripState, VehicleClass, Vertical } f
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { TripOrderLookup } from './trip-order.lookup.js';
+import { Prisma } from '@driver/db';
+import { ERASURE_GRID_DEG, blurPin } from '../identity/index.js';
 
 /**
  * The trips module's persistence port: `trips`, `stops`, `trip_orders`, `trail_points` — its own
@@ -181,6 +183,8 @@ export interface TripsRepository extends TripOrderLookup {
   noteStartCodeWrong(stopId: string, alertAt: number, now: Date, tx?: Tx): Promise<{ wrong: number; alerted: boolean }>;
   /** s1: pickups whose wrong codes alerted ops at or after `since`, in the city, newest first, with their trips. */
   startCodeAlertsSince(cityId: string, since: Date): Promise<Array<{ stop: StopRecord; trip: TripRecord }>>;
+  /** W7 account deletion: the target and arrival pins of these orders' stops, blurred (`blurPin`). Idempotent. */
+  blurStopsOf(orderIds: readonly string[]): Promise<void>;
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
@@ -489,6 +493,16 @@ export class PrismaTripsRepository implements TripsRepository {
     const latest = await this.db().tripOrder.findFirst({ where: { tripId, orderId }, orderBy: { attachedAt: 'desc' } });
     return latest?.detachedAt ?? null;
   }
+
+  async blurStopsOf(orderIds: readonly string[]): Promise<void> {
+    if (orderIds.length === 0) return;
+    const grid = ERASURE_GRID_DEG;
+    await this.db().$executeRaw`
+      UPDATE "public"."stops" SET
+        target_pin = ST_SnapToGrid(target_pin::geometry, ${grid})::geography,
+        "arrivalPin" = ST_SnapToGrid("arrivalPin"::geometry, ${grid})::geography
+      WHERE order_id IN (${Prisma.join([...orderIds])})`;
+  }
 }
 
 // ───────────────────────── In-memory twin ─────────────────────────
@@ -744,5 +758,14 @@ export class InMemoryTripsRepository implements TripsRepository {
   async detachedAt(tripId: string, orderId: string): Promise<Date | null> {
     const latest = (this.linksByTrip.get(tripId) ?? []).filter((l) => l.orderId === orderId).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime())[0];
     return latest?.detachedAt ?? null;
+  }
+
+  async blurStopsOf(orderIds: readonly string[]): Promise<void> {
+    const ids = new Set(orderIds);
+    for (const s of this.stops.values()) {
+      if (!s.orderId || !ids.has(s.orderId)) continue;
+      if (s.target) s.target = blurPin(s.target);
+      if (s.arrivalPin) s.arrivalPin = blurPin(s.arrivalPin);
+    }
   }
 }

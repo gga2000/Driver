@@ -65,6 +65,11 @@ export interface SupportRepository {
   refundsOn(ticketIds: readonly string[], since: Date, tx?: Tx): Promise<EntryRecord[]>;
   /** Serialises refunds per customer across instances until `tx` ends (no-op in memory). */
   lockCustomer(customerId: string, tx?: Tx): Promise<void>;
+  /**
+   * W7 account deletion: what he wrote to support is blanked (the ticket, its refunds and the team's
+   * replies stay as the record of what was decided). Idempotent.
+   */
+  blankWrittenBy(actorId: string): Promise<void>;
 }
 
 export const SUPPORT_REPOSITORY = Symbol('SUPPORT_REPOSITORY');
@@ -150,6 +155,10 @@ export class InMemorySupportRepository implements SupportRepository {
   }
 
   async lockCustomer(): Promise<void> {}
+
+  async blankWrittenBy(actorId: string): Promise<void> {
+    for (const e of this.entryRows) if (e.actorId === actorId) e.text = '';
+  }
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Prisma row ↔ record mapping */
@@ -266,5 +275,9 @@ export class PrismaSupportRepository implements SupportRepository {
     if (!tx) throw new Error('lockCustomer needs a transaction');
     const key = `support.refund:${customerId}`;
     await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${key}))) AS l`;
+  }
+
+  async blankWrittenBy(actorId: string): Promise<void> {
+    await this.db().supportTicketEntry.updateMany({ where: { actorId }, data: { text: '' } });
   }
 }

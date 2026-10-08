@@ -1,8 +1,9 @@
-import { Module, type OnModuleInit } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
+import { routesErasure } from './routes.erasure.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
@@ -96,10 +97,16 @@ import { RoutesWriter } from './writer.js';
   exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
 })
 export class RoutesModule implements OnModuleInit {
-  constructor(private readonly controls: ControlsService) {}
+  constructor(
+    private readonly controls: ControlsService,
+    @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
 
   /** The console's corridor switches name and validate the corridors this module serves. */
   onModuleInit(): void {
+    // W7 account deletion: an open booking blocks it; afterwards his pickups are blurred, his review taken down.
+    this.erasure.register(routesErasure(this.repo));
     this.controls.registerCorridors(INTERCITY_NETWORK.corridors.map((c) => ({ id: c.id, name_ar: c.nameAr })));
   }
 }

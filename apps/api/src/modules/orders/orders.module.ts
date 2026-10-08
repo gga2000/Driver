@@ -5,7 +5,8 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
+import { ordersErasure } from './orders.erasure.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
@@ -180,6 +181,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly staff: OrdersStaffService,
     private readonly eventsService: EventsService,
     private readonly walletHolds: WalletHolds,
+    @Inject(ORDERS_REPOSITORY) private readonly repo: OrdersRepository,
+    private readonly erasure: ErasureRegistry,
   ) {}
 
   private unsubscribeFailure: (() => void) | undefined;
@@ -188,6 +191,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     // SEC-07: open orders on his own wallet are a hold every other wallet spend (seat, deposit, tip) sees.
     this.unregisterHolds = this.walletHolds.register(ORDERS_WALLET_HOLDS, (customerId) => this.orders.openWalletHoldIqd(customerId));
+    // W7 account deletion: an open order blocks it; afterwards his orders keep no note, place or name.
+    this.erasure.register(ordersErasure(this.repo, this.trips));
     // The throttle and the console's zone gauges count active orders here (orders owns them).
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
     // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.

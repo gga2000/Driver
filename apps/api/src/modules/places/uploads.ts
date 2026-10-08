@@ -50,6 +50,8 @@ export interface BlobStore {
   /** For a valid signed read: a short-lived presigned URL of the storage itself (direct storage only), else null. */
   readLocation(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<string | null>;
   remove(id: string): Promise<void>;
+  /** W7 account deletion: every upload this person made (photos, voice notes), stored or not. */
+  ownedBy(ownerId: string): Promise<string[]>;
 }
 
 export const BLOB_STORE = Symbol('BLOB_STORE');
@@ -111,6 +113,7 @@ export interface UploadRecords {
   /** pending → stored; false when it was not pending any more. */
   markStored(id: string, sizeBytes: number): Promise<boolean>;
   delete(id: string): Promise<void>;
+  idsOwnedBy(ownerId: string): Promise<string[]>;
 }
 
 export class InMemoryUploadRecords implements UploadRecords {
@@ -135,6 +138,10 @@ export class InMemoryUploadRecords implements UploadRecords {
 
   async delete(id: string): Promise<void> {
     this.rows.delete(id);
+  }
+
+  async idsOwnedBy(ownerId: string): Promise<string[]> {
+    return [...this.rows.values()].filter((r) => r.ownerId === ownerId).map((r) => r.id);
   }
 }
 
@@ -161,6 +168,10 @@ export class PrismaUploadRecords implements UploadRecords {
 
   async delete(id: string): Promise<void> {
     await this.prisma.prisma.upload.deleteMany({ where: { id } });
+  }
+
+  async idsOwnedBy(ownerId: string): Promise<string[]> {
+    return (await this.prisma.prisma.upload.findMany({ where: { ownerId }, select: { id: true } })).map((r) => r.id);
   }
 }
 
@@ -282,6 +293,10 @@ export class ObjectBlobStore implements BlobStore {
   async remove(id: string): Promise<void> {
     await this.storage.delete(id);
     await this.records.delete(id);
+  }
+
+  ownedBy(ownerId: string): Promise<string[]> {
+    return this.records.idsOwnedBy(ownerId);
   }
 }
 

@@ -4,7 +4,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { DispatchModule, DispatchService, riderState } from '../dispatch/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
 import { OrderComplimentsService, OrdersModule, OrdersService, serverFees } from '../orders/index.js';
 import { BLOB_STORE, PlacesModule, SavedPlacesService } from '../places/index.js';
 import type { BlobStore } from '../places/index.js';
@@ -276,6 +276,8 @@ export class RideHabitsModule implements OnModuleInit, OnModuleDestroy {
     @Inject(HABITS_RIDES) private readonly rides: HabitsRidesPort,
     @Inject(HABITS_SEARCH) private readonly search: HabitsSearchPort,
     private readonly events: EventsService,
+    @Inject(RIDE_HABITS_REPOSITORY) private readonly repo: RideHabitsRepository,
+    private readonly erasure: ErasureRegistry,
   ) {}
 
   /**
@@ -294,6 +296,12 @@ export class RideHabitsModule implements OnModuleInit, OnModuleDestroy {
       },
     });
     this.unsubscribe = registerFootprints(this.events, this.habits);
+    // W7 account deletion: his favourite and avoided drivers, regular trips and ride footprints go.
+    this.erasure.register({
+      owner: 'ride-habits',
+      tables: ['public.favourite_drivers', 'public.avoided_drivers', 'public.regular_trips', 'public.regular_trip_occurrences', 'public.ride_footprints'],
+      erase: (personId) => this.repo.erasePerson(personId),
+    });
   }
 
   onModuleDestroy(): void {

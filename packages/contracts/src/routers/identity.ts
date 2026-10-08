@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DeletionCheckView, DeletionConfirmInput, DeletionConfirmOutput, DeletionStartOutput } from '../account-deletion-io.js';
 import { RoleGrant, TokenPair } from '../auth.js';
 import { DriverError } from '../errors.js';
 import {
@@ -59,6 +60,22 @@ export const identityRouter = router({
   changePhone: router({
     start: protectedProcedure().input(ChangePhoneStartInput).output(ChangePhoneStartOutput).mutation(({ ctx, input }) => ctx.identity.changePhoneStart(ctx.actor, input)),
     confirm: protectedProcedure().input(ChangePhoneConfirmInput).output(MeView).mutation(({ ctx, input }) => ctx.identity.changePhoneConfirm(ctx.actor, input)),
+  }),
+  /**
+   * W7: a customer deletes his own account (docs/api/account-deletion.md). `start` sends a code to his
+   * own number; `confirm` checks it, re-checks the blockers and deletes in one transaction.
+   */
+  deleteAccount: router({
+    check: protectedProcedure().output(DeletionCheckView).query(({ ctx }) => ctx.identity.deletionCheck(ctx.actor)),
+    start: protectedProcedure().output(DeletionStartOutput).mutation(({ ctx }) => ctx.identity.deletionStart(ctx.actor)),
+    confirm: protectedProcedure().input(DeletionConfirmInput).output(DeletionConfirmOutput).mutation(({ ctx, input }) => ctx.identity.deletionConfirm(ctx.actor, input)),
+    /** Dev-only: the last code sent to the caller's own number (the demo fills it). Refused when NODE_ENV=production. */
+    devCode: protectedProcedure()
+      .output(DevLastOtpOutput)
+      .query(({ ctx }) => {
+        if (ctx.env.nodeEnv === 'production') throw new DriverError('dev_only');
+        return ctx.identity.deletionDevCode(ctx.actor);
+      }),
   }),
   /** خطوط: a guardian registers a child (name into the vault, opaque childRef back). */
   registerChild: protectedProcedure().input(RegisterChildInput).output(RegisterChildOutput).mutation(({ ctx, input }) => ctx.identity.registerChild(ctx.actor, input)),

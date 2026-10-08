@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule } from '../catalog/index.js';
 import { ChatModule, ChatService } from '../chat/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
-import { IdentityModule } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule } from '../identity/index.js';
 import { LedgerModule } from '../ledger/index.js';
 import { OrdersModule } from '../orders/index.js';
 import { OrgsModule } from '../orgs/index.js';
@@ -33,4 +33,14 @@ import { SUPPORT_CHAT, SupportService } from './support.service.js';
   ],
   exports: [SupportService],
 })
-export class SupportModule {}
+export class SupportModule implements OnModuleInit {
+  constructor(
+    @Inject(SUPPORT_REPOSITORY) private readonly repo: SupportRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: what he wrote to support is blanked; the tickets and decisions stay.
+    this.erasure.register({ owner: 'support', tables: ['public.support_ticket_entries'], erase: (personId) => this.repo.blankWrittenBy(personId) });
+  }
+}

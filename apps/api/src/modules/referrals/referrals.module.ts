@@ -1,8 +1,8 @@
 import { randomInt } from 'node:crypto';
-import { Module } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
 import { PlacesModule, SavedPlacesService } from '../places/index.js';
 import { homeCells } from './fingerprint.js';
@@ -33,6 +33,7 @@ import { REFERRAL_FINGERPRINT, REFERRAL_LEDGER, REFERRAL_NAMES, REFERRAL_RANDOM,
           const [{ phoneHash, deviceMarks }, homes] = await Promise.all([identity.referralMarks(personId), places.homePins(personId)]);
           return { phoneHash, deviceMarks, homeMarks: [...new Set(homes.flatMap((pin) => homeCells(pin).map((cell) => identity.pepperedMark(`home:${cell}`))))] };
         },
+        numberHadEarlierAccount: (personId) => identity.numberHadEarlierAccount(personId),
       }),
       inject: [IdentityService, SavedPlacesService],
     },
@@ -43,4 +44,14 @@ import { REFERRAL_FINGERPRINT, REFERRAL_LEDGER, REFERRAL_NAMES, REFERRAL_RANDOM,
   ],
   exports: [ReferralsService],
 })
-export class ReferralsModule {}
+export class ReferralsModule implements OnModuleInit {
+  constructor(
+    @Inject(REFERRALS_REPOSITORY) private readonly repo: ReferralsRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: his invite code goes; the referrals (hashes only) stay against abuse.
+    this.erasure.register({ owner: 'referrals', tables: ['public.invite_codes'], erase: (personId) => this.repo.eraseCode(personId) });
+  }
+}

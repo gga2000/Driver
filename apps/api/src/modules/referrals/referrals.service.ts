@@ -38,6 +38,8 @@ export interface ReferralLedgerPort {
  */
 export interface ReferralFingerprintPort {
   partsOf(personId: string): Promise<FingerprintParts>;
+  /** W7: his number had an account that was deleted (he is not new, whatever this account's age). */
+  numberHadEarlierAccount?(personId: string): Promise<boolean>;
 }
 
 /** Bound by the orders module (no import cycle): how many orders a person has placed. */
@@ -157,6 +159,7 @@ export class ReferralsService implements ReferralsPort {
       return this.claimed(actor.personId, referrerId);
     }
     if (this.orders && (await this.orders.placedCount(actor.personId)) > 0) throw new DriverError('invite_not_new');
+    if (await this.fingerprint.numberHadEarlierAccount?.(actor.personId)) throw new DriverError('invite_not_new');
     if (!(await this.repo.saveReferral({ refereeId: actor.personId, referrerId, code, claimedAt: this.clock.now() }))) {
       const won = await this.repo.referralOf(actor.personId);
       if (won?.referrerId !== referrerId) throw new DriverError('invite_already_claimed');

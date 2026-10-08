@@ -18,6 +18,11 @@ export interface PlacesRepository {
   landmarks(cityId: string): Promise<Place[]>;
   /** Within `radiusKm` of `pin`, nearest first. */
   nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>>;
+  /**
+   * W7 account deletion: the places this person put on the map. An approved landmark stays for
+   * everyone, with no owner; anything else he proposed goes, with its photos. Idempotent.
+   */
+  releaseOwner(personId: string): Promise<void>;
 }
 
 export const PLACES_REPOSITORY = Symbol('PLACES_REPOSITORY');
@@ -55,6 +60,14 @@ export class InMemoryPlacesRepository implements PlacesRepository {
       .map((p) => ({ ...structuredClone(p), distanceKm: distanceKm(pin, p.pin) }))
       .filter((p) => p.distanceKm <= radiusKm)
       .sort((a, b) => a.distanceKm - b.distanceKm);
+  }
+
+  async releaseOwner(personId: string): Promise<void> {
+    for (const [id, p] of [...this.places]) {
+      if (p.ownerId !== personId) continue;
+      if (p.landmark && (p.landmarkState ?? 'approved') === 'approved') delete p.ownerId;
+      else this.places.delete(id);
+    }
   }
 }
 
@@ -153,6 +166,14 @@ export class PrismaPlacesRepository implements PlacesRepository {
       ORDER BY distance_m, "id"`;
     const places = await this.withPhotos(rows);
     return places.map((p, i) => ({ ...p, distanceKm: Number(rows[i]!.distance_m) / 1000 }));
+  }
+
+  async releaseOwner(personId: string): Promise<void> {
+    const mine = Prisma.sql`"owner_id" = ${personId} AND "label" IS NULL`;
+    const kept = Prisma.sql`"landmark" AND COALESCE("landmark_state", 'approved') = 'approved'`;
+    await this.db.$executeRaw`DELETE FROM "public"."place_photos" WHERE "place_id" IN (SELECT "id" FROM "public"."places" WHERE ${mine} AND NOT (${kept}))`;
+    await this.db.$executeRaw`DELETE FROM "public"."places" WHERE ${mine} AND NOT (${kept})`;
+    await this.db.$executeRaw`UPDATE "public"."places" SET "owner_id" = NULL WHERE ${mine}`;
   }
 }
 
@@ -255,5 +276,9 @@ export class PrismaSavedPlacesRepository implements SavedPlacesRepository {
 
   async delete(id: string): Promise<void> {
     await this.db.$executeRaw`DELETE FROM "public"."places" WHERE "id" = ${id} AND "label" IS NOT NULL`;
+  }
+
+  async deleteOwner(ownerId: string): Promise<void> {
+    await this.db.$executeRaw`DELETE FROM "public"."places" WHERE "owner_id" = ${ownerId} AND "label" IS NOT NULL`;
   }
 }

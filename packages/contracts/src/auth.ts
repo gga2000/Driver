@@ -43,7 +43,7 @@ export const SHARED_PHONE_FORBIDDEN_ROLES: readonly RoleKind[] = [
   'khat_driver',
 ];
 
-export const OtpPurpose = z.enum(['login', 'guardian_consent', 'phone_change']);
+export const OtpPurpose = z.enum(['login', 'guardian_consent', 'phone_change', 'account_delete']);
 export type OtpPurpose = z.infer<typeof OtpPurpose>;
 
 /** What the access token carries. Roles are looked up live, never trusted from the token. */

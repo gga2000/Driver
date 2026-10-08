@@ -286,6 +286,11 @@ function Account() {
           {t('account.sign_out_body')}
         </Text>
       </View>
+
+      {/* W7 (store rule REL-01): delete the account in the app; the screen says what goes first. */}
+      <Card elevation={0} padding={0}>
+        <ListRow testID="account-delete" leading="trash" title={t('account.delete_row')} subtitle={t('account.delete_row_hint')} onPress={() => router.push('/profile/delete')} />
+      </Card>
     </Screen>
   );
 }

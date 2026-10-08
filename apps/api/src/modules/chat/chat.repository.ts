@@ -71,6 +71,11 @@ export interface ChatRepository {
   reopenForLostItem(threadId: string, until: Date, at: Date, tx: Tx): Promise<ChatThreadRecord>;
   /** s7: threads reopened for a lost item that are still open at `now`. */
   lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]>;
+  /**
+   * W7 account deletion: what this person wrote, sent or pinned is blanked in every chat (text,
+   * photo, voice note, location); the message stays so the other side's thread keeps its order. Idempotent.
+   */
+  blankSender(senderId: string): Promise<void>;
 }
 
 export const CHAT_REPOSITORY = Symbol('CHAT_REPOSITORY');
@@ -166,6 +171,15 @@ export class InMemoryChatRepository implements ChatRepository {
 
   async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
     return [...this.threads.values()].filter((t) => t.lostItemUntil !== null && t.lostItemUntil.getTime() > now.getTime()).map((t) => ({ ...t }));
+  }
+
+  async blankSender(senderId: string): Promise<void> {
+    for (const list of this.msgs.values()) {
+      for (const m of list) {
+        if (m.senderId !== senderId) continue;
+        Object.assign(m, { body: null, photoRef: null, voiceRef: null, durationSec: null, lat: null, lng: null });
+      }
+    }
   }
 }
 
@@ -314,5 +328,9 @@ export class PrismaChatRepository implements ChatRepository {
 
   async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
     return (await this.db().chatThread.findMany({ where: { lostItemUntil: { gt: now } }, orderBy: { lostItemAskedAt: 'desc' } })).map(threadOf);
+  }
+
+  async blankSender(senderId: string): Promise<void> {
+    await this.db().chatMessage.updateMany({ where: { senderId }, data: { body: null, photoRef: null, voiceRef: null, durationSec: null, lat: null, lng: null } });
   }
 }

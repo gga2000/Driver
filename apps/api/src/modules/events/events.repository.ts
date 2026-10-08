@@ -71,6 +71,11 @@ export interface EventsRepository {
   deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>>;
   markDelivered(outboxId: string, subscriber: string, at: Date, tx?: Tx): Promise<void>;
   recordDeliveryFailure(outboxId: string, subscriber: string, error: string, tx?: Tx): Promise<void>;
+  /**
+   * W7 account deletion: on every event (and its outbox copy) he caused or that is about him, the location
+   * goes and the payload loses its free-text and contact keys (`PERSONAL_PAYLOAD_KEYS`). Idempotent.
+   */
+  blurPerson(personId: string): Promise<void>;
 }
 
 export interface OutboxFilter {
@@ -278,4 +283,18 @@ export class PrismaEventsRepository implements EventsRepository {
       update: { attempts: { increment: 1 }, lastError: error },
     });
   }
+
+  async blurPerson(personId: string): Promise<void> {
+    const keys = [...PERSONAL_PAYLOAD_KEYS];
+    await this.db().$executeRaw`
+      UPDATE "public"."events" SET "location" = NULL, "payload" = "payload" - ${keys}::text[]
+      WHERE "actor_id" = ${personId} OR ("aggregate" = 'person' AND "aggregate_id" = ${personId})`;
+    await this.db().$executeRaw`
+      UPDATE "public"."outbox"
+      SET "payload" = jsonb_set("payload" - 'location', '{payload}', COALESCE("payload" -> 'payload', '{}'::jsonb) - ${keys}::text[])
+      WHERE "event_id" IN (SELECT "id" FROM "public"."events" WHERE "actor_id" = ${personId} OR ("aggregate" = 'person' AND "aggregate_id" = ${personId}))`;
+  }
 }
+
+/** Payload keys that can carry a person's words or contact details; W7 deletion strips them. */
+export const PERSONAL_PAYLOAD_KEYS = ['note', 'text', 'name', 'phoneMasked', 'oldPhoneMasked', 'newPhoneMasked'] as const;

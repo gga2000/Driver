@@ -156,6 +156,9 @@ export const ERROR_TABLE = {
   phone_change_same_number: { retryHint: 'never', status: 'BAD_REQUEST' },
   phone_change_taken: { retryHint: 'support', status: 'CONFLICT' },
   phone_change_not_started: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // W7 account deletion: something stands in the way (the check view says what), the switch is off.
+  account_delete_blocked: { retryHint: 'never', status: 'CONFLICT' },
+  account_deletion_off: { retryHint: 'support', status: 'FORBIDDEN' },
   lost_sim_manual: { retryHint: 'support', status: 'CONFLICT' },
   sms_not_configured: { retryHint: 'support', status: 'INTERNAL_SERVER_ERROR' },
   sms_send_failed: { retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },

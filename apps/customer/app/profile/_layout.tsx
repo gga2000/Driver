@@ -3,7 +3,7 @@ import { useTheme } from '@driver/ui';
 import { HeaderBack } from '@/features/food/HeaderBack';
 import { useT } from '@/lib/i18n';
 
-/** Profile edits (modal over the tabs): name, safety. */
+/** Profile edits (modal over the tabs): name, safety, notifications, account deletion. */
 export default function ProfileLayout() {
   const theme = useTheme();
   const t = useT();
@@ -22,6 +22,7 @@ export default function ProfileLayout() {
       <Stack.Screen name="name" options={{ title: t('profile.name_title') }} />
       <Stack.Screen name="safety" options={{ title: t('account.safety') }} />
       <Stack.Screen name="notifications" options={{ title: t('notify.settings.title') }} />
+      <Stack.Screen name="delete" options={{ title: t('delete.title') }} />
     </Stack>
   );
 }

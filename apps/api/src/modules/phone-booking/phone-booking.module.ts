@@ -1,9 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { ControlsModule } from '../controls/index.js';
 import { DispatchModule, DispatchService } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
-import { IdentityModule } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule } from '../identity/index.js';
 import { NotifyModule } from '../notify/index.js';
 import { OrdersModule, serverFees } from '../orders/index.js';
 import { PlacesModule, SavedPlacesService } from '../places/index.js';
@@ -79,4 +79,14 @@ async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
   ],
   exports: [PhoneBookingService],
 })
-export class PhoneBookingModule {}
+export class PhoneBookingModule implements OnModuleInit {
+  constructor(
+    @Inject(PHONE_BOOKINGS_REPOSITORY) private readonly repo: PhoneBookingsRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: the place names said on his phone bookings are blanked.
+    this.erasure.register({ owner: 'phone-booking', tables: ['public.phone_bookings'], erase: (personId) => this.repo.blankPlacesOf(personId) });
+  }
+}

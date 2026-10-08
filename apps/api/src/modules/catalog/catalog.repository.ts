@@ -249,6 +249,8 @@ export interface CatalogRepository {
   addUnmetSearch(input: Omit<UnmetSearchRecord, 'id'>): Promise<void>;
   /** Rows of `cityId` at or after `since`, newest first. */
   unmetSearches(cityId: string, since: Date): Promise<UnmetSearchRecord[]>;
+  /** W7 account deletion: the dishes he follows. Idempotent. */
+  eraseFollower(personId: string): Promise<void>;
 }
 
 /** One «إي گولولهم» on an empty search: the words, the zone, signed in or not — never who. */
@@ -517,6 +519,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
   async importJob(id: string): Promise<MenuImportJobRecord | null> {
     const job = this.imports.get(id);
     return job ? structuredClone(job) : null;
+  }
+
+  async eraseFollower(personId: string): Promise<void> {
+    for (const [key, f] of [...this.follows]) if (f.personId === personId) this.follows.delete(key);
   }
 }
 
@@ -868,6 +874,10 @@ export class PrismaCatalogRepository implements CatalogRepository {
   async importJob(id: string, tx?: Tx): Promise<MenuImportJobRecord | null> {
     const row = await this.db(tx).menuImportJob.findUnique({ where: { id } });
     return row ? importJobFromRow(row) : null;
+  }
+
+  async eraseFollower(personId: string): Promise<void> {
+    await this.prisma.prisma.dishFollow.deleteMany({ where: { personId } });
   }
 }
 

@@ -30,6 +30,8 @@ export interface PhoneBookingsRepository {
   inCity(cityId: string, from: Date, to: Date): Promise<PhoneBookingRecord[]>;
   /** How many rides were booked by phone for this person before `before`. */
   countForPerson(personId: string, before: Date): Promise<number>;
+  /** W7 account deletion: the place names said on his calls (his home, his street) are blanked. Idempotent. */
+  blankPlacesOf(personId: string): Promise<void>;
 }
 
 export const PHONE_BOOKINGS_REPOSITORY = Symbol('PHONE_BOOKINGS_REPOSITORY');
@@ -61,6 +63,10 @@ export class InMemoryPhoneBookingsRepository implements PhoneBookingsRepository 
 
   async countForPerson(personId: string, before: Date): Promise<number> {
     return [...this.rows.values()].filter((r) => r.personId === personId && r.createdAt.getTime() < before.getTime()).length;
+  }
+
+  async blankPlacesOf(personId: string): Promise<void> {
+    for (const r of this.rows.values()) if (r.personId === personId) Object.assign(r, { pickupName: '', dropoffName: '' });
   }
 }
 
@@ -120,5 +126,9 @@ export class PrismaPhoneBookingsRepository implements PhoneBookingsRepository {
 
   async countForPerson(personId: string, before: Date): Promise<number> {
     return this.prisma.prisma.phoneBooking.count({ where: { personId, createdAt: { lt: before } } });
+  }
+
+  async blankPlacesOf(personId: string): Promise<void> {
+    await this.prisma.prisma.phoneBooking.updateMany({ where: { personId }, data: { pickupName: '', dropoffName: '' } });
   }
 }

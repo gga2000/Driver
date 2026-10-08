@@ -127,6 +127,11 @@ export class TripsService implements OnModuleInit {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
   }
 
+  /** W7 account deletion (the orders step): these orders' stop pins, blurred. */
+  blurStopsOf(orderIds: readonly string[]): Promise<void> {
+    return this.repo.blurStopsOf(orderIds);
+  }
+
   /**
    * Dispatch binds its `DispatchOffer` check here at start-up (dispatch imports trips, so trips cannot
    * inject it). Accept and decline are internal: the only public path is `dispatch.respond`.

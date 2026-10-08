@@ -25,6 +25,7 @@
 //   - POST /demo/usuals?personId=…, /demo/pot?key=…&item=…             joy J7a: usuals, «غدا الجمعة», «قدر اليوم» (pots + stories seeded)
 //   - POST /demo/rajaa/claim|offers|topup|rode|outbound?personId=…            الرجعة boards (seeded at start; rode = «سافرت وياه قبل»)
 //   - POST /demo/account?personId=…                                  places, wallet, household
+//   - POST /demo/points?personId=…&points=…                          points only (حذف الحساب shows what is given up)
 //   - POST /demo/deals, /demo/topup/request|confirm, /demo/ops-agent      merchant deals at checkout, wallet top-up
 //   - POST /demo/chat?personId=…&scenario=courier|merchant|ride|support|support_empty, /demo/chat/clock   chat + share-trip
 //   - POST /demo/ride[?acceptMs=…], /demo/ride/accept|advance?orderId=…   taxi/tuktuk drivers for booking
@@ -154,6 +155,22 @@ app.use('/demo/popular', async (req, res) => {
       }
     }
     json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// W7 حذف الحساب: points the person gives up (the consequences screen shows them).
+//   POST /demo/points?personId=<id>&points=<n>
+app.use('/demo/points', async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const personId = url.searchParams.get('personId');
+    const points = Number(url.searchParams.get('points') ?? 1_250);
+    if (req.method !== 'POST' || !personId || !Number.isInteger(points) || points <= 0) return json(res, 400, { error: 'POST /demo/points?personId=…&points=…' });
+    const { LedgerService, Accounts } = await load('modules/ledger/index.js');
+    await app.get(LedgerService).recordAll({ id: `demo:del-points:${personId}:${points}`, kind: 'points', occurredAt: new Date(), refs: {}, lines: [{ type: 'points_earned', amount: points, fromAccount: Accounts.pointsPool, toAccount: Accounts.points(personId) }], controls: [] });
+    json(res, 200, { personId, points });
   } catch (err) {
     json(res, 500, { error: String(err?.stack ?? err) });
   }

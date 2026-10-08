@@ -97,6 +97,11 @@ export interface OpsRepository {
   decideOnboarding(id: string, patch: { state: 'active' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<OnboardingRecord | null>;
   /** Open tasks pointing at `refId` (an onboarding's follow-up). */
   openTasksFor(refId: string, tx?: Tx): Promise<TaskRecord[]>;
+  /**
+   * W7 account deletion: landmark photos this person sent that were never approved go; returns the
+   * upload ids of his approved ones, which stay up for everyone. Idempotent.
+   */
+  releaseContributor(personId: string, tx?: Tx): Promise<string[]>;
 }
 
 export const OPS_REPOSITORY = Symbol('OPS_REPOSITORY');
@@ -218,6 +223,12 @@ export class InMemoryOpsRepository implements OpsRepository {
 
   async openTasksFor(refId: string): Promise<TaskRecord[]> {
     return this.tasks.filter((t) => t.state === 'open' && t.refId === refId).map((t) => ({ ...t }));
+  }
+
+  async releaseContributor(personId: string): Promise<string[]> {
+    const mine = (p: LandmarkPhotoRecord) => p.addedById === personId;
+    this.photos.splice(0, this.photos.length, ...this.photos.filter((p) => !mine(p) || p.state === 'approved'));
+    return this.photos.filter((p) => mine(p)).map((p) => p.uploadId);
   }
 }
 
@@ -347,6 +358,11 @@ export class PrismaOpsRepository implements OpsRepository {
 
   async openTasksFor(refId: string, tx?: Tx): Promise<TaskRecord[]> {
     return (await this.db(tx).opsTask.findMany({ where: { state: 'open', refId } })).map(taskFromRow);
+  }
+
+  async releaseContributor(personId: string, tx?: Tx): Promise<string[]> {
+    await this.db(tx).landmarkPhoto.deleteMany({ where: { addedById: personId, state: { not: 'approved' } } });
+    return (await this.db(tx).landmarkPhoto.findMany({ where: { addedById: personId }, select: { uploadId: true } })).map((r) => r.uploadId);
   }
 }
 

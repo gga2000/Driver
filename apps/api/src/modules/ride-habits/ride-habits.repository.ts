@@ -86,6 +86,9 @@ export interface RideHabitsRepository {
   footprintsAround(since: Date, fromMin: number, toMin: number): Promise<Array<RideFootprint & { personId: string }>>;
   /** One rider's footprints wanted at or after `since`. */
   footprintsOf(personId: string, since: Date): Promise<RideFootprint[]>;
+
+  /** W7 account deletion: his favourite and avoided drivers, regular trips (with their days) and ride footprints. Idempotent. */
+  erasePerson(personId: string): Promise<void>;
 }
 
 export const RIDE_HABITS_REPOSITORY = Symbol('RIDE_HABITS_REPOSITORY');
@@ -190,6 +193,14 @@ export class InMemoryRideHabitsRepository implements RideHabitsRepository {
   }
   async footprintsOf(personId: string, since: Date): Promise<RideFootprint[]> {
     return [...this.prints.values()].filter((f) => f.personId === personId && f.at >= since).map((f) => withoutPerson(structuredClone(f)));
+  }
+
+  async erasePerson(personId: string): Promise<void> {
+    const keep = <T extends { personId: string }>(list: T[]) => list.splice(0, list.length, ...list.filter((r) => r.personId !== personId));
+    keep(this.favs);
+    keep(this.avoids);
+    for (const t of [...this.trips.values()]) if (t.personId === personId) await this.deleteTrip(t.id);
+    for (const [orderId, f] of [...this.prints]) if (f.personId === personId) this.prints.delete(orderId);
   }
 }
 
@@ -341,5 +352,13 @@ export class PrismaRideHabitsRepository implements RideHabitsRepository {
   }
   async footprintsOf(personId: string, since: Date): Promise<RideFootprint[]> {
     return (await this.db.rideFootprint.findMany({ where: { personId, at: { gte: since } }, orderBy: { at: 'desc' } })).map((r) => withoutPerson(printOf(r)));
+  }
+
+  async erasePerson(personId: string): Promise<void> {
+    // Regular trips take their days with them (ON DELETE CASCADE).
+    await this.db.favouriteDriver.deleteMany({ where: { personId } });
+    await this.db.avoidedDriver.deleteMany({ where: { personId } });
+    await this.db.regularTrip.deleteMany({ where: { personId } });
+    await this.db.rideFootprint.deleteMany({ where: { personId } });
   }
 }

@@ -139,7 +139,13 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('only vault tables live in the vault schema', () => {
     const inVault = models.filter((m) => /@@schema\("identity_vault"\)/.test(m.body)).map((m) => m.name).sort();
-    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'VaultAccessLog']);
+    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'RetiredPhone', 'VaultAccessLog']);
+  });
+
+  it('W7: a deleted number is kept only as a hash, with no link to the person who had it', () => {
+    const r = fields(model('RetiredPhone'));
+    expect(r).toContain('phoneHash');
+    for (const banned of ['personId', 'phoneE164', 'phone', 'name']) expect(r, `retired_phones.${banned}`).not.toContain(banned);
   });
 
   it('ride c9: the name a booker gave a rider lives in vault.participant_identities, keyed by participant', () => {

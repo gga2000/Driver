@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository, type CatalogRepository } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { FoodMediaController } from './food-media.controller.js';
+import { ErasureRegistry, IdentityModule } from '../identity/index.js';
 
 /**
  * Wiring: Prisma repository when DATABASE_URL is set (menus from `pnpm db:seed`), in-memory twin
@@ -12,6 +13,7 @@ import { FoodMediaController } from './food-media.controller.js';
  */
 @Module({
   controllers: [FoodMediaController],
+  imports: [IdentityModule],
   providers: [
     {
       provide: CATALOG_REPOSITORY,
@@ -22,4 +24,14 @@ import { FoodMediaController } from './food-media.controller.js';
   ],
   exports: [CatalogService],
 })
-export class CatalogModule {}
+export class CatalogModule implements OnModuleInit {
+  constructor(
+    @Inject(CATALOG_REPOSITORY) private readonly repo: CatalogRepository,
+    private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: the dishes he follows go.
+    this.erasure.register({ owner: 'catalog', tables: ['public.dish_follows'], erase: (personId) => this.repo.eraseFollower(personId) });
+  }
+}

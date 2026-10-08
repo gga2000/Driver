@@ -80,6 +80,7 @@ enum OtpPurpose {
   reverify
   number_change
   guardian_consent
+  account_delete
 
   @@schema("public")
 }
@@ -95,6 +96,9 @@ model Person {
   /// Edge-case §7: declared shared family phone — cannot hold guardian or driver roles.
   sharedFamilyPhone Boolean   @default(false) @map("shared_family_phone")
   deletedAt         DateTime? @map("deleted_at")
+  /// W7: every module finished erasing or blurring this deleted person's data (null while any step
+  /// still has to run; `AccountErasureJob` retries). Set only after `deleted_at`.
+  erasedAt          DateTime? @map("erased_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -365,6 +369,22 @@ model GuardianLink {
 // console and is logged.
 
 /// The identifiers for one Person. Selfie refs are dropped after 90 days (result kept on `people`).
+/// W7 account deletion: a deleted account's number, as its peppered hash only (no person id), so the
+/// account-age caps follow the number to a new account on it (docs/api/account-deletion.md).
+model RetiredPhone {
+  id           String   @id @default(cuid())
+  phoneHash    String   @map("phone_hash")
+  /// When the deleted account was first made.
+  accountSince DateTime @map("account_since")
+  retiredAt    DateTime @map("retired_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([phoneHash])
+  @@map("retired_phones")
+  @@schema("identity_vault")
+}
+
 model PersonIdentity {
   id               String    @id @default(cuid())
   personId         String    @unique @map("person_id")

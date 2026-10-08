@@ -1,4 +1,4 @@
-import { Inject, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
@@ -12,6 +12,8 @@ import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
 import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { ROLE_READER } from './role-reader.js';
+import { ACCOUNT_DELETION_ENABLED, ErasureRegistry, accountDeletionFromEnv } from './deletion.js';
+import { AccountErasureJob } from './erasure.job.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER } from './sms/provider.js';
@@ -64,13 +66,26 @@ import { SMS_PROVIDER } from './sms/provider.js';
       useFactory: (counter: WindowCounter, events: IdentityEventEmitter, clock: Clock) => new OtpGuard(counter, new EventOtpAlerts(events, clock), otpGuardConfigFromEnv()),
       inject: [WINDOW_COUNTER, IDENTITY_EVENTS, CLOCK],
     },
+    // W7 account deletion: modules register their erasure steps here; ACCOUNT_DELETION=off pauses it.
+    ErasureRegistry,
+    { provide: ACCOUNT_DELETION_ENABLED, useFactory: () => accountDeletionFromEnv() },
     IdentityService,
     { provide: ROLE_READER, useExisting: IdentityService },
+    AccountErasureJob,
   ],
-  exports: [IdentityService, ROLE_READER],
+  exports: [IdentityService, ROLE_READER, ErasureRegistry, AccountErasureJob],
 })
-export class IdentityModule implements OnModuleDestroy {
-  constructor(@Inject(AuthCache) private readonly cache: AuthCache) {}
+export class IdentityModule implements OnModuleInit, OnModuleDestroy {
+  constructor(
+    @Inject(AuthCache) private readonly cache: AuthCache,
+    private readonly events: EventsService,
+    private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: the events module can't import identity, so identity runs its step for it.
+    this.erasure.register({ owner: 'events', tables: ['public.events', 'public.outbox'], erase: (personId) => this.events.blurPerson(personId) });
+  }
 
   async onModuleDestroy(): Promise<void> {
     await this.cache.close();

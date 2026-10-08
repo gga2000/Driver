@@ -14,6 +14,8 @@ const ALLOWED = new Set([
   // Tests inside the module may reach its internals (architecture §1); the integration test cleans up vault rows.
   'modules/identity/identity.integration.test.ts',
   'modules/identity/vault-isolation.test.ts',
+  // W7: the deletion integration test checks the vault rows are gone.
+  'account-deletion.integration.test.ts',
 ]);
 const PATTERN = /\b(personIdentity|vaultAccessLog|childIdentity|person_identities|vault_access_logs|child_identities)\b/;
 

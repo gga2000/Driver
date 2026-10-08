@@ -41,6 +41,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly sessions: SessionRecord[] = [];
   readonly otps: OtpRecord[] = [];
   readonly guardianLinks: GuardianLinkRecord[] = [];
+  /** Twin of vault.retired_phones (W7). */
+  readonly retiredPhones: Array<{ phoneHash: string; accountSince: Date; retiredAt: Date }> = [];
   private seq = 0;
   private readonly journals = new WeakMap<object, Array<() => void>>();
 
@@ -231,6 +233,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async rolesOf(personId: string) {
     return this.roles.filter((r) => r.personId === personId && !r.revokedAt);
+  }
+
+  async roleKindsEver(personId: string) {
+    return [...new Set(this.roles.filter((r) => r.personId === personId).map((r) => r.kind))];
   }
 
   async peopleWithRoles(kinds: readonly RoleKind[], page: RosterPage) {
@@ -436,5 +442,65 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async guardianLinksOf(guardianId: string) {
     return this.guardianLinks.filter((g) => g.guardianId === guardianId);
+  }
+
+  /** Removes every item of `list` matching `drop`, journalled so a rollback puts them back in place. */
+  private removeWhere<T>(tx: Tx | undefined, list: T[], drop: (item: T) => boolean): void {
+    const before = [...list];
+    const kept = list.filter((x) => !drop(x));
+    if (kept.length === list.length) return;
+    list.splice(0, list.length, ...kept);
+    this.journal(tx, () => list.splice(0, list.length, ...before));
+  }
+
+  async closeAccount(personId: string, now: Date, tx?: Tx) {
+    const person = this.people.get(personId);
+    if (!person || person.deletedAt) return false;
+    const idn = this.identities.get(personId);
+    if (idn) {
+      const retired = { phoneHash: idn.phoneHash, accountSince: person.createdAt, retiredAt: now };
+      this.retiredPhones.push(retired);
+      this.added(tx, this.retiredPhones, retired);
+      this.removeWhere(tx, this.otps, (o) => o.phoneHash === idn.phoneHash);
+      this.identities.delete(personId);
+      this.journal(tx, () => this.identities.set(personId, idn));
+    }
+    this.removeWhere(tx, this.children, (c) => c.guardianId === personId);
+    for (const [id, rec] of [...this.participantNames]) {
+      if (rec.personId !== personId && rec.givenById !== personId) continue;
+      this.participantNames.delete(id);
+      this.journal(tx, () => this.participantNames.set(id, rec));
+    }
+    this.removeWhere(tx, this.guardianLinks, (l) => l.guardianId === personId || l.wardPersonId === personId);
+    this.removeWhere(tx, this.sessions, (x) => x.personId === personId);
+    this.removeWhere(tx, this.devices, (d) => d.personId === personId);
+    for (const r of this.roles) {
+      if (r.personId !== personId || r.revokedAt) continue;
+      this.keep(tx, r);
+      r.revokedAt = now;
+    }
+    this.keep(tx, person);
+    person.deletedAt = now;
+    return true;
+  }
+
+  async deletedNotErased(limit: number) {
+    return [...this.people.values()]
+      .filter((p) => p.deletedAt && !p.erasedAt)
+      .sort((a, b) => a.deletedAt!.getTime() - b.deletedAt!.getTime())
+      .slice(0, limit)
+      .map((p) => ({ id: p.id, deletedAt: p.deletedAt! }));
+  }
+
+  async markErased(personId: string, now: Date, tx?: Tx) {
+    const p = this.people.get(personId);
+    if (!p || !p.deletedAt || p.erasedAt) return;
+    this.keep(tx, p);
+    p.erasedAt = now;
+  }
+
+  async retiredPhoneSince(phoneHash: string) {
+    const since = this.retiredPhones.filter((r) => r.phoneHash === phoneHash).map((r) => r.accountSince.getTime());
+    return since.length ? new Date(Math.min(...since)) : null;
   }
 }

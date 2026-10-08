@@ -45,6 +45,11 @@ export class EventsService {
     @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
+  /** W7 account deletion (identity's events step): his events keep no location, notes or contact keys. */
+  blurPerson(personId: string): Promise<void> {
+    return this.repo.blurPerson(personId);
+  }
+
   /** Binds the trip/order detachment lookup explicitly (tests, the simulator). */
   useTripOrderLookup(lookup: TripOrderDetachments | null): void {
     this.tripOrders = lookup;

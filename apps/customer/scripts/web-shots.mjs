@@ -72,6 +72,9 @@
 //            booking sheet, the restaurant pot banner + story, the item follow row, the switch  POST /demo/usuals
 //   crash-*  the root crash screen («صار خلل بالتطبيق», a demo render error from `?crash=1`, dev tools
 //            only) and home again after «جرّب مرة ثانية»
+//   delete-* W7 حذف الحساب: the row in حسابي, what stands in the way (money, a household) on an account
+//            with /demo/account, then on a fresh account with points: what goes and what stays, the code,
+//            and the start screen after the account is gone        POST /demo/account, /demo/points
 // SHOTS=food,track (comma list of groups, or `all`; default all) runs only those flows and writes
 // only their files; sign-in always runs. ONLY=<group> and SHOTS_PREFIX=<group> are older aliases.
 // Exits non-zero on console errors or a missing screen.
@@ -134,7 +137,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'delete'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -296,12 +299,43 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  // Deleting signs the account out: runs as its own accounts, then puts the demo account back.
+  if (wants('delete')) await asOtherAccount(deleteShots);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
 } finally {
   await browser.close();
   server.close();
+}
+
+/** W7 حذف الحساب (docs/api/account-deletion.md): blocked first, then a clean account deleted. */
+async function deleteShots() {
+  const blocked = await freshSignIn('0770 456 7701');
+  await demoPost(`/demo/account?personId=${encodeURIComponent(blocked)}`);
+  await page.goto(`${origin}/account`, LOADED);
+  await byTestId('account-delete').waitFor({ timeout: 15_000 });
+  await byTestId('account-delete').scrollIntoViewIfNeeded();
+  await shot('delete-account-row');
+  await byTestId('account-delete').click();
+  await byTestId('delete-blocked').waitFor({ timeout: 15_000 });
+  await fullShot('delete-blocked');
+
+  const clean = await freshSignIn('0770 456 7702');
+  await demoPost(`/demo/points?personId=${encodeURIComponent(clean)}&points=1250`);
+  await page.goto(`${origin}/profile/delete`, LOADED);
+  await byTestId('delete-send').waitFor({ timeout: 15_000 });
+  await shot('delete-consequences');
+  await fullShot('delete-consequences-full');
+  await byTestId('delete-send').click();
+  await byTestId('delete-dev-strip').waitFor({ timeout: 15_000 });
+  await shot('delete-code');
+  await byTestId('delete-dev-strip').getByRole('button').click();
+  await shot('delete-code-filled');
+  await byTestId('delete-confirm').click();
+  // Signed out like «سجّل خروج»: the phone screen, with the goodbye toast.
+  await byTestId('phone-input').waitFor({ timeout: 20_000 });
+  await shot('delete-done');
 }
 
 /**

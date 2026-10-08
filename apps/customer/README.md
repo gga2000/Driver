@@ -112,6 +112,13 @@ sharing); `ApprovalCard`; and `sync.ts` (`useAccountSync`, mounted by the tabs l
 `useProfile().places`) and migrates device-only places and names to the server once. Photo URLs from
 the dev storage are relative to the API origin (`photoUri`).
 
+**حذف الحساب** (`app/profile/delete.tsx`, W7, `docs/api/account-deletion.md`): reached from the last
+row of حسابي. It shows what is erased and what is kept without the name, then anything in the way (an
+order on its way, money in the wallet, a household he pays for, a work role) with a way to support,
+then a code to his own number and «احذف حسابي». After it the phone forgets everything. Demo: a fresh
+account deletes; `POST /demo/points?personId=…` adds points to give up; `POST /demo/account?personId=…`
+puts money in the wallet and a household in the way. The demo fills the code (`deleteAccount.devCode`).
+
 ## Adding a flow
 
 1. **Routes** — create your folder under `app/` (e.g. `app/restaurant/[id].tsx` replaces the stub,

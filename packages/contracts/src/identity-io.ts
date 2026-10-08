@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DeletionCheckView, DeletionConfirmInput, DeletionConfirmOutput, DeletionStartOutput } from './account-deletion-io.js';
 import { DeviceInfo, RoleGrant, RoleKind, TokenPair } from './auth.js';
 
 /** Who the emergency contact is to the person (shown to the safety desk when it calls them). */
@@ -178,6 +179,12 @@ export interface IdentityPort {
   revokeGuardianLink(actor: Actor, input: z.infer<typeof RevokeGuardianLinkInput>): Promise<GuardianLinkView>;
   changePhoneStart(actor: Actor, input: z.infer<typeof ChangePhoneStartInput>): Promise<z.infer<typeof ChangePhoneStartOutput>>;
   changePhoneConfirm(actor: Actor, input: z.infer<typeof ChangePhoneConfirmInput>): Promise<MeView>;
+  /** W7 account deletion: what stands in the way, the code to his own number, the deletion itself. */
+  deletionCheck(actor: Actor): Promise<DeletionCheckView>;
+  deletionStart(actor: Actor): Promise<DeletionStartOutput>;
+  deletionConfirm(actor: Actor, input: DeletionConfirmInput): Promise<DeletionConfirmOutput>;
+  /** Dev-only (the router refuses it in production): the last code sent to the caller's own number. */
+  deletionDevCode(actor: Actor): Promise<z.infer<typeof DevLastOtpOutput>>;
   devLastOtp(phone: string): Promise<z.infer<typeof DevLastOtpOutput>>;
   registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
   /** The guardian's own children with their names (each read logged in the vault access log). */

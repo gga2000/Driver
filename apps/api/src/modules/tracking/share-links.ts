@@ -49,6 +49,8 @@ export interface ShareLinksRepository {
   forSubject(subjectKind: ShareSubject, subjectId: string, createdById: string): Promise<ShareLinkRecord[]>;
   revoke(id: string, now: Date): Promise<ShareLinkRecord>;
   addView(id: string): Promise<void>;
+  /** W7 account deletion: the links he made (anyone holding one sees «the link ended»). Idempotent. */
+  eraseCreatedBy(personId: string): Promise<void>;
 }
 
 export const SHARE_LINKS_REPOSITORY = Symbol('SHARE_LINKS_REPOSITORY');
@@ -78,6 +80,9 @@ export class InMemoryShareLinksRepository implements ShareLinksRepository {
     const r = this.rows.get(id);
     if (r) r.views += 1;
   }
+  async eraseCreatedBy(personId: string): Promise<void> {
+    for (const [id, r] of [...this.rows]) if (r.createdById === personId) this.rows.delete(id);
+  }
 }
 
 type ShareRow = { id: string; subjectKind: string; subjectId: string; createdById: string; revokedAt: Date | null; views: number; createdAt: Date };
@@ -106,6 +111,9 @@ export class PrismaShareLinksRepository implements ShareLinksRepository {
   }
   async addView(id: string): Promise<void> {
     await this.db.shareLink.update({ where: { id }, data: { views: { increment: 1 } } });
+  }
+  async eraseCreatedBy(personId: string): Promise<void> {
+    await this.db.shareLink.deleteMany({ where: { createdById: personId } });
   }
 }
 

@@ -8,7 +8,7 @@ import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queu
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
@@ -259,9 +259,16 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
     @Inject(NOTIFY_REPOSITORY) private readonly repo: NotifyRepository,
     @Inject(NOTIFY_LOOKUPS) private readonly lookups: NotifyLookups,
     private readonly events: EventsService,
+    private readonly erasure: ErasureRegistry,
   ) {}
 
   onModuleInit(): void {
+    // W7 account deletion: a deleted person's tokens, switches, message log and launch interests go.
+    this.erasure.register({
+      owner: 'notify',
+      tables: ['public.push_tokens', 'public.notify_preferences', 'public.notify_deliveries', 'public.launch_interests'],
+      erase: (personId) => this.repo.erasePerson(personId),
+    });
     this.queue.process(async (job) => this.engine.process(job.data));
     this.unsubscribe = registerNotifySubscribers(this.events, {
       engine: this.engine,

@@ -39,6 +39,11 @@ export interface OrgsRepository {
   approvals(orgId: string, filter?: { state?: PayerApprovalRequest['state'] }, tx?: Tx): Promise<PayerApprovalRequest[]>;
   /** pending → decision; null when the request was no longer pending (someone resolved it first). */
   resolveApproval(id: string, decision: 'approved' | 'declined' | 'withdrawn', tx?: Tx): Promise<PayerApprovalRequest | null>;
+  /**
+   * W7 account deletion: takes a deleted person out of every household; a household left with nobody
+   * in it loses its name (often the family's, «بيت علي»). Idempotent.
+   */
+  leaveHouseholds(personId: string, tx?: Tx): Promise<void>;
 }
 
 export const ORGS_REPOSITORY = Symbol('ORGS_REPOSITORY');
@@ -114,6 +119,14 @@ export class InMemoryOrgsRepository implements OrgsRepository {
     if (!r || r.state !== 'pending') return null;
     r.state = decision;
     return { ...r };
+  }
+
+  async leaveHouseholds(personId: string): Promise<void> {
+    for (const org of this.orgs.values()) {
+      if (org.type !== 'household' || !org.members.some((m) => m.personId === personId)) continue;
+      org.members = org.members.filter((m) => m.personId !== personId);
+      if (org.members.length === 0) org.name = '';
+    }
   }
 }
 
@@ -335,5 +348,14 @@ export class PrismaOrgsRepository implements OrgsRepository {
     const { count } = await db.payerApproval.updateMany({ where: { id, state: 'pending' }, data: { state: decision } });
     if (count === 0) return null;
     return this.approval(id, db);
+  }
+
+  async leaveHouseholds(personId: string, tx?: Tx): Promise<void> {
+    const db = this.db(tx);
+    const homes = await db.orgMember.findMany({ where: { personId, org: { type: 'household' } }, select: { orgId: true } });
+    if (homes.length === 0) return;
+    const ids = homes.map((h) => h.orgId);
+    await db.orgMember.deleteMany({ where: { personId, orgId: { in: ids } } });
+    await db.org.updateMany({ where: { id: { in: ids }, members: { none: {} } }, data: { name: '' } });
   }
 }

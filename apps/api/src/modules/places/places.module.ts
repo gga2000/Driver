@@ -1,12 +1,14 @@
-import { Logger, Module } from '@nestjs/common';
+import { Inject, Logger, Module, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule } from '../events/index.js';
+import { ErasureRegistry, IdentityModule } from '../identity/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { LandmarkFeedService } from './landmark-feed.js';
 import { objectStorageFromEnv, OBJECT_STORAGE, type ObjectStoragePort } from './object-storage.js';
 import { InMemoryPlacesRepository, PLACES_REPOSITORY, PrismaPlacesRepository, PrismaSavedPlacesRepository, type PlacesRepository } from './places.repository.js';
 import { PlacesRpc } from './places.rpc.js';
+import { PlacesErasure } from './places.erasure.js';
 import { PlacesService } from './places.service.js';
 import {
   HOUSEHOLD_PEERS,
@@ -18,7 +20,7 @@ import {
   type SavedPlacesRepository,
 } from './saved-places.service.js';
 import { UploadsController } from './uploads.controller.js';
-import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords } from './uploads.js';
+import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords, type BlobStore } from './uploads.js';
 
 /**
  * Places: learned places and landmarks (`PlacesService`), customers' saved places
@@ -29,7 +31,7 @@ import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords
  * absolute; UPLOADS_SECRET (else JWT_SECRET) signs them. See docs/persistence.md.
  */
 @Module({
-  imports: [EventsModule, OrgsModule],
+  imports: [EventsModule, OrgsModule, IdentityModule],
   controllers: [UploadsController],
   providers: [
     {
@@ -69,7 +71,22 @@ import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords
     SavedPlacesService,
     LandmarkFeedService,
     PlacesRpc,
+    {
+      provide: PlacesErasure,
+      useFactory: (places: PlacesRepository, saved: SavedPlacesRepository, blobs: BlobStore) => new PlacesErasure(places, saved, blobs),
+      inject: [PLACES_REPOSITORY, SAVED_PLACES_REPOSITORY, BLOB_STORE],
+    },
   ],
-  exports: [PlacesService, SavedPlacesService, LandmarkFeedService, PlacesRpc, BLOB_STORE],
+  exports: [PlacesService, SavedPlacesService, LandmarkFeedService, PlacesRpc, BLOB_STORE, PlacesErasure],
 })
-export class PlacesModule {}
+export class PlacesModule implements OnModuleInit {
+  constructor(
+    private readonly placesErasure: PlacesErasure,
+    @Inject(ErasureRegistry) private readonly erasure: ErasureRegistry,
+  ) {}
+
+  onModuleInit(): void {
+    // W7 account deletion: saved places, his landmark proposals, and every photo and voice note he uploaded.
+    this.erasure.register({ owner: 'places', tables: ['public.places', 'public.place_photos', 'public.uploads'], erase: (personId) => this.placesErasure.erase(personId) });
+  }
+}

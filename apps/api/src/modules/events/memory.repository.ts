@@ -1,6 +1,6 @@
 import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.js';
 import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
-import { assertKeyedFilter, newId } from './events.repository.js';
+import { assertKeyedFilter, newId, PERSONAL_PAYLOAD_KEYS } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
 import { OUTBOX_LEASE_MS } from './timestamps.js';
 
@@ -281,5 +281,24 @@ export class InMemoryEventsRepository implements EventsRepository {
       this.deliveriesByRow.set(outboxId, forRow);
     }
     return d;
+  }
+
+  async blurPerson(personId: string): Promise<void> {
+    const about = (e: { actorId?: string | null; aggregate: string; aggregateId: string }) => e.actorId === personId || (e.aggregate === 'person' && e.aggregateId === personId);
+    const strip = (p: Record<string, unknown>) => {
+      for (const k of PERSONAL_PAYLOAD_KEYS) delete p[k];
+    };
+    const ids = new Set<string>();
+    for (const e of this.events) {
+      if (!about(e)) continue;
+      ids.add(e.id);
+      delete e.location;
+      strip(e.payload);
+    }
+    for (const r of this.rows) {
+      if (!ids.has(r.eventId)) continue;
+      delete r.event.location;
+      strip(r.event.payload);
+    }
   }
 }

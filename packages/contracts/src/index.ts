@@ -5,6 +5,7 @@
  */
 export * from './common.js';
 export * from './app-version.js';
+export * from './account-deletion-io.js';
 export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';

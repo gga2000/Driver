@@ -1,6 +1,7 @@
 import { RideCargo, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
+import { blurPin } from '../identity/index.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -209,6 +210,14 @@ export interface OrdersRepository {
   courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null>;
   /** A driver's newest courier ratings (ratedAt descending), at most `limit`. */
   courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]>;
+  /** W7 account deletion: every order this person placed, with its state. */
+  statesOfOrderer(personId: string): Promise<Array<{ id: string; state: OrderState }>>;
+  /**
+   * W7 account deletion: on these orders (his own), the kitchen and courier notes go and the drop-off
+   * keeps its zone and a blurred pin (`blurPin`; saved-place id and door dropped); every participant on
+   * them, and his own participant rows on anyone's order, lose their name, note and number hash. Idempotent.
+   */
+  blurForErasure(personId: string, orderIds: readonly string[]): Promise<void>;
 }
 
 /** `courier_ratings`: what the orderer gave the courier/driver who carried the order (customer app §4). */
@@ -534,6 +543,20 @@ export class PrismaOrdersRepository implements OrdersRepository {
     const rows = await this.db(tx).courierRating.findMany({ where: { driverId }, orderBy: [{ ratedAt: 'desc' }, { id: 'desc' }], take: limit });
     return rows.map(courierRatingFrom);
   }
+
+  async statesOfOrderer(personId: string): Promise<Array<{ id: string; state: OrderState }>> {
+    return this.db().order.findMany({ where: { ordererId: personId }, select: { id: true, state: true } });
+  }
+
+  async blurForErasure(personId: string, orderIds: readonly string[]): Promise<void> {
+    const db = this.db();
+    for (const o of await db.order.findMany({ where: { id: { in: [...orderIds] } }, select: { id: true, dropoff: true } })) {
+      const dropoff = blurredDropoff(o.dropoff as DeliveryPoint | null);
+      await db.order.update({ where: { id: o.id }, data: { note: null, courierNote: null, dropoff: dropoff ?? Prisma.DbNull } });
+    }
+    await db.orderLine.updateMany({ where: { orderId: { in: [...orderIds] } }, data: { note: null } });
+    await db.participant.updateMany({ where: { OR: [{ orderId: { in: [...orderIds] } }, { personId }] }, data: { label: null, note: null, phoneHash: null } });
+  }
 }
 
 function courierRatingFrom(r: { id: string; orderId: string; tripId: string; driverId: string; customerId: string; score: number; reasons: string[]; ratedAt: Date }): CourierRatingRecord {
@@ -732,4 +755,24 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .slice(0, limit)
       .map((r) => ({ ...r, reasons: [...r.reasons] }));
   }
+
+  async statesOfOrderer(personId: string): Promise<Array<{ id: string; state: OrderState }>> {
+    return [...this.orders.values()].filter((o) => o.ordererId === personId).map((o) => ({ id: o.id, state: o.state }));
+  }
+
+  async blurForErasure(personId: string, orderIds: readonly string[]): Promise<void> {
+    const ids = new Set(orderIds);
+    for (const id of ids) {
+      const o = this.orders.get(id);
+      if (o) Object.assign(o, { note: null, courierNote: null, dropoff: blurredDropoff(o.dropoff) });
+    }
+    for (const l of this.lines) if (ids.has(l.orderId)) l.note = null;
+    for (const p of this.participants) if (ids.has(p.orderId) || p.personId === personId) Object.assign(p, { label: null, note: null, phoneHash: null });
+  }
+}
+
+/** A deleted person's drop-off: the zone stays, the pin is blurred, the saved place and door go. */
+function blurredDropoff(d: DeliveryPoint | null): DeliveryPoint | null {
+  if (!d) return null;
+  return { zoneKey: d.zoneKey, ...(d.pin ? { pin: blurPin(d.pin) } : {}) };
 }

@@ -36,6 +36,8 @@ export interface ReferralsRepository {
   /** An inviter's friends, newest first. */
   byReferrer(referrerId: string): Promise<ReferralRecord[]>;
   countInvited(referrerId: string): Promise<number>;
+  /** W7 account deletion: his invite code (the referrals made with it stay: they carry only hashes). Idempotent. */
+  eraseCode(personId: string): Promise<void>;
 }
 
 export const REFERRALS_REPOSITORY = Symbol('REFERRALS_REPOSITORY');
@@ -89,6 +91,11 @@ export class InMemoryReferralsRepository implements ReferralsRepository {
   }
   async countInvited(referrerId: string): Promise<number> {
     return [...this.referrals.values()].filter((r) => r.referrerId === referrerId).length;
+  }
+  async eraseCode(personId: string): Promise<void> {
+    const code = this.codes.get(personId);
+    this.codes.delete(personId);
+    if (code !== undefined) this.owners.delete(code);
   }
 }
 
@@ -165,5 +172,8 @@ export class PrismaReferralsRepository implements ReferralsRepository {
   }
   async countInvited(referrerId: string): Promise<number> {
     return this.db.referral.count({ where: { referrerId } });
+  }
+  async eraseCode(personId: string): Promise<void> {
+    await this.db.inviteCode.deleteMany({ where: { personId } });
   }
 }

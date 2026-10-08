@@ -15,6 +15,10 @@ import {
   type ChangePhoneStartInput,
   type ChangePhoneStartOutput,
   type ConsentGuardianLinkInput,
+  type DeletionCheckView,
+  type DeletionConfirmInput,
+  type DeletionConfirmOutput,
+  type DeletionStartOutput,
   type DeviceInfo,
   type GrantRoleInput,
   type GuardianLinkView,
@@ -40,6 +44,8 @@ import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.j
 import { SelfReadLogWindow, selfReadLogWindowMsFromEnv } from './auth-cache.js';
 import { EventOtpAlerts, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { GuardianService, guardianView } from './guardian.service.js';
+import { ACCOUNT_DELETION_ENABLED, ErasureRegistry } from './deletion.js';
+import { AccountDeletionService } from './deletion.service.js';
 import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
@@ -97,6 +103,8 @@ export class IdentityService implements IdentityPort {
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
   private readonly selfReads: SelfReadLogWindow;
+  /** W7: account deletion (`deletionCheck` / `deletionStart` / `deletionConfirm`, the erasure job). */
+  readonly deletion: AccountDeletionService;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -110,12 +118,15 @@ export class IdentityService implements IdentityPort {
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
+    @Optional() registry?: ErasureRegistry,
+    @Optional() @Inject(ACCOUNT_DELETION_ENABLED) deletionEnabled?: boolean,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
     this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
+    this.deletion = new AccountDeletionService(repo, this.otp, events, clock, uow, registry ?? new ErasureRegistry(), deletionEnabled ?? true);
   }
 
   // ───────────────────────── phone helpers ─────────────────────────
@@ -1137,6 +1148,36 @@ export class IdentityService implements IdentityPort {
       await this.events.emit(tx, { actorId: actor.personId, type: 'phone.changed', occurredAt: now, payload: { personId: actor.personId, oldPhoneMasked: maskPhone(current.phoneE164), newPhoneMasked: maskPhone(pending.newE164) } }, { name: 'person', id: actor.personId });
     });
     return this.me(actor);
+  }
+
+  // ───────────────────────── account deletion (W7) ─────────────────────────
+
+  deletionCheck(actor: Actor): Promise<DeletionCheckView> {
+    return this.deletion.check(actor.personId);
+  }
+
+  deletionStart(actor: Actor): Promise<DeletionStartOutput> {
+    return this.deletion.start(actor.personId);
+  }
+
+  deletionConfirm(actor: Actor, input: DeletionConfirmInput): Promise<DeletionConfirmOutput> {
+    return this.deletion.confirm(actor.personId, input.code);
+  }
+
+  /** Dev-only (the router refuses it in production): the demo fills the deletion code. */
+  async deletionDevCode(actor: Actor): Promise<{ phoneMasked: string; code: string | null }> {
+    const idn = await this.repo.readIdentity(actor.personId);
+    return idn ? this.devLastOtp(idn.phoneE164) : { phoneMasked: '', code: null };
+  }
+
+  /**
+   * Whether this person's number belonged to an earlier account that was deleted (W7: `retired_phones`
+   * keeps the number only as a peppered hash). A new account on such a number is not a new customer
+   * for invite rewards, so deleting and signing up again earns nothing twice.
+   */
+  async numberHadEarlierAccount(personId: string): Promise<boolean> {
+    const idn = await this.repo.readIdentity(personId);
+    return idn ? (await this.repo.retiredPhoneSince(idn.phoneHash)) !== null : false;
   }
 
   // ───────────────────────── lost SIM (edge-case §7, stub) ─────────────────────────

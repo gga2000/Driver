@@ -1,11 +1,11 @@
 import { RoutingModule } from '../routing/index.js';
-import { Module, type OnModuleInit } from '@nestjs/common';
+import { Inject, Module, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ClimateChecks, DispatchModule } from '../dispatch/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { ErasureRegistry, IdentityModule, IdentityService } from '../identity/index.js';
 import { Accounts, LedgerModule, LedgerService } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
@@ -22,6 +22,7 @@ import {
   SHARE_PHOTOS,
   SHARE_SECRET,
   ShareLinksService,
+  type ShareLinksRepository,
   shareSecret,
   type ShareIntercityPort,
 } from './share-links.js';
@@ -129,9 +130,13 @@ export class TrackingModule implements OnModuleInit {
     private readonly households: HouseholdsRpc,
     private readonly tracking: TrackingService,
     private readonly trips: TripsService,
+    @Inject(SHARE_LINKS_REPOSITORY) private readonly shareLinks: ShareLinksRepository,
+    private readonly erasure: ErasureRegistry,
   ) {}
 
   onModuleInit(): void {
+    // W7 account deletion: the live-trip links he made stop working.
+    this.erasure.register({ owner: 'tracking', tables: ['public.share_links'], erase: (personId) => this.shareLinks.eraseCreatedBy(personId) });
     // Joy w5: household approvals name the restaurant, the dishes and where it goes (orders + menus live here).
     this.households.bindOrderContext((orderId) => this.tracking.approvalContext(orderId));
     // d3: «السايق قريب، اطلع هسة» goes by the same ETA the rider's screen counts down (tracking imports trips).
