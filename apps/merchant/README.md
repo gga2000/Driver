@@ -96,6 +96,7 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).
+- Print redesign «الريل» (`docs/api/merchant-print.md`): papers `node scripts/print-shots.mjs <out>`, printer screen `SHOTS=print`.
 
 ## Copy
 

@@ -22,7 +22,7 @@ import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
 import { usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
-import { printerChipState, usePrinterSnapshot, usePrintOrder } from '@/features/print/runtime';
+import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, usePrintOrder, type StorePrint } from '@/features/print/runtime';
 import { DaySummaryCard } from '@/features/day/DaySummaryCard';
 import { dayCardKey, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
@@ -204,7 +204,8 @@ export function Board() {
   const trial = usePractice();
   const queued = useReadyQueue();
   const printerSnap = usePrinterSnapshot();
-  const print = usePrintOrder(store?.name ?? '');
+  const printStore: StorePrint = useMemo(() => ({ orgId: storeId, name: store?.name ?? '', prepKind: status.data?.prepKind }), [storeId, store?.name, status.data?.prepKind]);
+  const print = usePrintOrder(printStore);
   const { seen, markSeen } = useMissedSeen();
   const ticks = useTicks();
 
@@ -225,6 +226,9 @@ export function Board() {
   const remake = useRemake();
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
+  // Print redesign: accepted orders print when they are ready to cook (after a partial answer, at a
+  // scheduled start), and a printed order that changed prints a short «تعديل» ticket.
+  useAutoPrint(orders, printStore, prefs.autoPrint, now);
   // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
   const whoDetailId = canSeeMoney && detailId && !isPractice(detailId) ? detailId : null;
   const orderWho = useOrderWho(storeId, whoDetailId, whoDetailId !== null);
@@ -362,7 +366,7 @@ export function Board() {
     try {
       await accept.mutateAsync({ orderId: o.id, prepMinutes: oneTap.prepMinutes });
       toast.show({ message: t('merchant.accept.done', { minutes: oneTap.shown }), tone: 'success', icon: 'check' });
-      if (prefs.autoPrint) void print(o, { auto: true });
+      if (prefs.autoPrint) queueAutoPrint(o.id);
     } catch (err) {
       fail(err);
     } finally {
@@ -421,7 +425,7 @@ export function Board() {
       try {
         await accept.mutateAsync({ orderId: o.id, prepMinutes: oneTap.prepMinutes });
         done += 1;
-        if (prefs.autoPrint) void print(o, { auto: true });
+        if (prefs.autoPrint) queueAutoPrint(o.id);
       } catch (err) {
         failed = err;
       }
@@ -775,7 +779,7 @@ export function Board() {
         usualPrepMinutes={s?.defaultPrepMinutes ?? 20}
         clock={clock}
         onAccepted={(o) => {
-          if (prefs.autoPrint) void print(o, { auto: true });
+          if (prefs.autoPrint) queueAutoPrint(o.id);
         }}
       />
       <RejectSheet
