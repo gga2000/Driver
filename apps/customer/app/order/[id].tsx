@@ -644,7 +644,7 @@ export default function OrderLiveScreen() {
               {ride && phase === 'on_the_way' ? (
                 <ActionRow icon="check" label={t('ride.confirm_arrived')} hint={t('ride.confirm_arrived_hint')} onPress={endRide} testID="action-ride-arrived" />
               ) : null}
-              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t('trip.share')} onPress={() => void share()} testID="action-share" />}
+              {!v.courier || phase === 'cancelled' ? null : <ActionRow icon="share" label={t(ride ? 'trip.share' : 'order.share')} onPress={() => void share()} testID="action-share" />}
               {gift && !happy && phase !== 'cancelled' ? (
                 <ActionRow icon="gift" label={t('gift.send_title', { name: gift.name })} onPress={() => void giftHeadsUp.send('whatsapp')} testID="action-gift-heads-up" />
               ) : null}
