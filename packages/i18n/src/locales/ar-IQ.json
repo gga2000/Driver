@@ -8217,5 +8217,12 @@
   "partner.practice_row": "البروفة: طلب تجريبي",
   "partner.practice_row_hint": "3 دقايق، ما يروح لأحد",
   "partner.practice_row_done": "خلّصتها. تگدر تعيدها بأي وقت",
-  "partner.practice_intro_ring_ride": "الطلب يرن 20 ثانية، تقراه وتقبله"
+  "partner.practice_intro_ring_ride": "الطلب يرن 20 ثانية، تقراه وتقبله",
+  "partner.data_use_title": "النت اللي صرفه التطبيق",
+  "partner.data_use_shift": "بهالشفت، من {time}",
+  "partner.data_use_today": "اليوم، من نص الليل",
+  "partner.data_use_mb": "حوالي {n} ميغا",
+  "partner.data_use_packs": "باقة 1 گيگا تكفي هيج شفت حوالي {n} مرة",
+  "partner.data_use_hint": "تقدير من موبايلك. ما يحسب الصور اللي تطلع لك ولا التطبيقات الثانية. «توفير البيانات» تحت يقلله.",
+  "partner.data_use_shift_line": "صرف التطبيق حوالي {n} ميغا نت بهالشفت"
 }

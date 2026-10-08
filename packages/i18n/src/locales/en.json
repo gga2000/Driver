@@ -8217,5 +8217,12 @@
   "partner.practice_row": "Practice: a pretend order",
   "partner.practice_row_hint": "3 minutes, goes to no one",
   "partner.practice_row_done": "Done. You can run it again any time",
-  "partner.practice_intro_ring_ride": "The order rings for 20 seconds; read it and accept"
+  "partner.practice_intro_ring_ride": "The order rings for 20 seconds; read it and accept",
+  "partner.data_use_title": "Internet the app used",
+  "partner.data_use_shift": "This shift, since {time}",
+  "partner.data_use_today": "Today, since midnight",
+  "partner.data_use_mb": "About {n} MB",
+  "partner.data_use_packs": "A 1 GB pack covers a shift like this about {n} times",
+  "partner.data_use_hint": "An estimate from your phone. It leaves out pictures you see and other apps. «Data saver» below cuts it.",
+  "partner.data_use_shift_line": "The app used about {n} MB of internet this shift"
 }

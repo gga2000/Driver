@@ -7,6 +7,7 @@ import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
+import { countingEventSource, countingFetch } from './data-usage';
 import { session as appSession, type SessionStore } from './session';
 
 export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthorized } from './api-links';
@@ -40,20 +41,23 @@ configureNetwork({ apiUrl: API_URL });
 bindOnlineManager(onlineManager);
 
 /** Browsers keep their EventSource; React Native gets the XHR one (it has none). */
-const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource;
+const EventSourceImpl = countingEventSource(((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource);
+
+/** Every call is counted for «النت بهالشفت» (partner redesign l6, `data-usage.ts`). */
+const countedFetch = countingFetch(networkFetch);
 
 /** Stream tokens per client (`live.*` subscriptions): `useLiveTokens()` drops it after a 401. */
 const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: networkFetch })] });
+  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: countedFetch })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
     url,
     transformer,
-    fetch: networkFetch,
+    fetch: countedFetch,
     async headers() {
       const token = await store.getAccessToken();
       return token ? { authorization: `Bearer ${token}` } : {};
