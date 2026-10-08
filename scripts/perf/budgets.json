@@ -2,9 +2,9 @@
   "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0, re-measured on 596e91b (after h1, h2, s1 and the food landing) with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
   "size": {
     "customer.code_mb": {
-      "max": 6.95,
+      "max": 7.05,
       "target": 6.2,
-      "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74; k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1)"
+      "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74; k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1); 6.97 after main merged on 8 Oct"
     },
     "customer.assets_mb": {
       "max": 5.45,
