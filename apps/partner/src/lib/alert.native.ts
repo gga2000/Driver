@@ -62,22 +62,57 @@ export function playOfferChime(): void {
 }
 
 /** Soft volume of the rider's nudge (ride step 3): a reminder, not a second doorbell. */
-export const NUDGE_VOLUME = 0.3;
+export const NUDGE_VOLUME = 0.7;
 export const NUDGE_VIBRATION = [0, 120];
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const NUDGE = require('../../assets/sounds/nudge.wav') as number;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const CHAT = require('../../assets/sounds/chat.wav') as number;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const DONE = require('../../assets/sounds/done.wav') as number;
+let nudgePlayer: AudioPlayer | null = null;
+let chatPlayer: AudioPlayer | null = null;
+let donePlayer: AudioPlayer | null = null;
+
+/** Plays a short bundled cue once (o15: its own sound, so he knows what it is without looking). */
+function cue(which: 'nudge' | 'chat' | 'done', volume: number) {
+  void ready().then(async () => {
+    try {
+      if (which === 'nudge') nudgePlayer ??= createAudioPlayer(NUDGE);
+      else if (which === 'chat') chatPlayer ??= createAudioPlayer(CHAT);
+      else donePlayer ??= createAudioPlayer(DONE);
+      const p = which === 'nudge' ? nudgePlayer : which === 'chat' ? chatPlayer : donePlayer;
+      if (!p) return;
+      p.volume = volume;
+      await untilLoaded(p);
+      await replay(p);
+    } catch {
+      /* a cue is never worth a crash */
+    }
+  });
+}
+
 /**
- * «راكب ينتظرك»: the rider nudged this offer. While the offer's loop is already ringing, only a
- * short tap (the loop carries the sound); otherwise one quiet doorbell and the tap.
+ * «راكب ينتظرك»: the rider nudged this offer — its own soft falling chime (partner redesign o15,
+ * unlike the offer's rising doorbell) and a short tap, over the offer's loop.
  */
 export function playNudgeChime(): void {
   Vibration.vibrate(NUDGE_VIBRATION);
-  if (wanted) return;
-  void ready().then(async () => {
-    if (!sound || wanted) return;
-    sound.loop = false;
-    sound.volume = NUDGE_VOLUME;
-    await replay(sound);
-  });
+  cue('nudge', NUDGE_VOLUME);
+}
+
+/** A chat message on the job (o15): two quick high pips, loud enough over a motorbike. */
+export const CHAT_VIBRATION = [0, 80, 80, 80];
+export function playChatPing(): void {
+  Vibration.vibrate(CHAT_VIBRATION);
+  cue('chat', 1);
+}
+
+/** Partner redesign d3: the job is done — one soft bell «tink», quieter than any alert. */
+export const DONE_VOLUME = 0.5;
+export function playDoneTink(): void {
+  cue('done', DONE_VOLUME);
 }
 
 export function startOfferAlert(): void {

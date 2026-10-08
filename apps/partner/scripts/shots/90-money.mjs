@@ -20,15 +20,10 @@ async function has(p, id, timeout = 4000) {
   }
 }
 
-/** Press-and-hold the online switch until it goes offline (a short press never ends a shift). */
+/** Slide the stop slide to the end (a tap never ends a shift). */
 async function holdSwitch(p) {
   await p.page.waitForTimeout(1500);
-  const box = await p.byTestId('online-switch').boundingBox();
-  if (!box) throw new Error('online-switch: not on screen');
-  await p.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await p.page.mouse.down();
-  await p.page.waitForTimeout(1800);
-  await p.page.mouse.up();
+  await p.slide('online-switch');
 }
 
 async function doneJob(s, c) {
@@ -79,7 +74,9 @@ export default async function run(s) {
   }
 
   await c.byTestId('online-switch').click();
-  await c.page.getByText('شغّال، ندورلك طلب').waitFor({ timeout: 15_000 });
+
+  await c.page.getByTestId('check-go').click({ timeout: 4000 }).catch(() => undefined);
+  await c.page.getByText('شغّال · ندورلك طلب').waitFor({ timeout: 15_000 });
   await c.shot('home-online', { settle: 2500 });
 
   // End of job, near / over the cash cap: the settle card, no "go get more" chip.
@@ -93,7 +90,7 @@ export default async function run(s) {
   if (!shift) await s.demoPost('/demo/online?who=courier');
   await c.goto('/');
   await c.wait('online-switch');
-  await c.page.getByText('شغّال، ندورلك طلب').waitFor({ timeout: 15_000 });
+  await c.page.getByText('شغّال · ندورلك طلب').waitFor({ timeout: 15_000 });
   await holdSwitch(c);
   if (!(await has(c, 'shift-summary', 6000))) await holdSwitch(c);
   if (await has(c, 'shift-summary', 8000)) {
