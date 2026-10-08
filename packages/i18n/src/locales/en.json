@@ -8118,5 +8118,9 @@
   "partner.look_hint_auto_day": "Turns dark by itself at sunset, {time}",
   "partner.look_hint_auto_night": "Dark now so it doesn't dazzle you; light again at {time}",
   "partner.look_hint_day": "Always light, easy to read in the sun",
-  "partner.look_hint_night": "Always dark, easy on the eyes at night"
+  "partner.look_hint_night": "Always dark, easy on the eyes at night",
+  "partner.gps_weak_seen": "Weak GPS. The customer sees where you were {n} min ago",
+  "partner.gps_weak": "Weak GPS. The customer can't see you moving on the map",
+  "partner.gps_weak_tip": "Keep the phone near the windscreen so it gets a signal",
+  "partner.ready_battery_saver": "Battery saver is on for Driver: offers can reach you late with the screen off. Turn it off for Driver in settings"
 }
