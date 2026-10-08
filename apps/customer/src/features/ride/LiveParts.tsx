@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Icon, ltr, Text, useTheme } from '@driver/ui';
+import { useGlide } from './glide';
 import { useCityConfig } from './queries';
 import { freeCancelLeftSec, mmss, paidWaitPerIqd, searchProgress, searchStage, tooClose, zoneTitle, type SearchStage } from './logic';
 import { useRideMemo } from './store';
@@ -93,10 +94,10 @@ function BarPart({ fill, live, testID }: { fill: number; live: boolean; testID: 
     // The clock ticks each second: glide to the new fill over that second, so the bar moves smoothly.
     w.value = theme.reduceMotion ? fill : withTiming(fill, { duration: 950, easing: Easing.linear });
   }, [fill, w, theme.reduceMotion]);
-  const style = useAnimatedStyle(() => ({ width: `${Math.round(w.value * 1000) / 10}%` }));
+  const glide = useGlide(w);
   return (
-    <View testID={testID} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: live ? theme.colors.accentTint : theme.colors.border, overflow: 'hidden' }}>
-      <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: theme.colors.accent }, style]} />
+    <View testID={testID} onLayout={glide.onLayout} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: live ? theme.colors.accentTint : theme.colors.border, overflow: 'hidden' }}>
+      <Animated.View style={[{ width: '100%', height: 6, borderRadius: 3, backgroundColor: theme.colors.accent }, glide.fill]} />
     </View>
   );
 }

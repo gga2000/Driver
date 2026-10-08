@@ -175,14 +175,34 @@ export interface OnboardDraft {
   contactPhone: string;
   zoneKey: string | null;
   pin: LatLng | null;
-  /** Local photos (uri) with their upload id once uploaded. */
-  menuPhotos: Array<{ uri: string; uploadId: string | null }>;
+  /** Local photos (uri) with their upload id once uploaded; `failed` keeps one that didn't send, to retry. */
+  menuPhotos: DraftPhoto[];
+  /** f8: the shop door (and a landmark beside it), so couriers know the shop; optional. */
+  shopPhoto: DraftPhoto | null;
   settlementMode: SettlementMode;
   notes: string;
 }
 
+/** A photo taken on the visit: uploading (no id), sent (id), or failed (kept with its file to try again). */
+export interface DraftPhoto {
+  uri: string;
+  uploadId: string | null;
+  failed?: boolean;
+  /** The picked file, kept so a failed upload can be sent again without a new photo. */
+  file?: { uri: string; contentType: 'image/jpeg' | 'image/png' | 'image/webp' };
+}
+
+/** Photos still on their way up (not sent, not failed). */
+export function uploadingCount(photos: readonly DraftPhoto[]): number {
+  return photos.filter((p) => p.uploadId === null && !p.failed).length;
+}
+
+export function failedCount(photos: readonly DraftPhoto[]): number {
+  return photos.filter((p) => p.failed).length;
+}
+
 export function emptyDraft(): OnboardDraft {
-  return { name: '', type: 'restaurant', contactName: '', contactPhone: '', zoneKey: null, pin: null, menuPhotos: [], settlementMode: DEFAULT_SETTLEMENT, notes: '' };
+  return { name: '', type: 'restaurant', contactName: '', contactPhone: '', zoneKey: null, pin: null, menuPhotos: [], shopPhoto: null, settlementMode: DEFAULT_SETTLEMENT, notes: '' };
 }
 
 /** Whether the wizard may move past `step` with this draft. */
@@ -193,7 +213,8 @@ export function stepReady(step: OnboardStep, d: OnboardDraft): boolean {
     case 'contact':
       return d.contactName.trim().length >= 1 && normalizeIraqiPhone(d.contactPhone) !== null;
     case 'location':
-      return d.zoneKey !== null;
+      // The door photo is optional: wait only while it is on its way up (a failed one may be left).
+      return d.zoneKey !== null && !(d.shopPhoto && d.shopPhoto.uploadId === null && !d.shopPhoto.failed);
     case 'menu':
       return d.menuPhotos.every((p) => p.uploadId !== null);
     case 'settle':
@@ -214,6 +235,7 @@ export function onboardingInput(d: OnboardDraft, cityId = 'aziziyah') {
     contact: { name: d.contactName.trim(), phone },
     location: { zoneKey: d.zoneKey, ...(d.pin ? { pin: d.pin } : {}) },
     menuPhotoUploadIds: d.menuPhotos.map((p) => p.uploadId).filter((id): id is string => id !== null),
+    ...(d.shopPhoto?.uploadId ? { shopPhotoUploadId: d.shopPhoto.uploadId } : {}),
     settlementMode: d.settlementMode,
     ...(d.notes.trim() ? { notes: d.notes.trim() } : {}),
   };

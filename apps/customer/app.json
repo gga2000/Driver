@@ -7,6 +7,13 @@
     "runtimeVersion": { "policy": "fingerprint" },
     "updates": { "enabled": true, "checkAutomatically": "ON_LOAD", "fallbackToCacheTimeout": 0 },
     "orientation": "portrait",
+    "web": {
+      "name": "درايفر",
+      "shortName": "درايفر",
+      "lang": "ar",
+      "themeColor": "#FBF6EE",
+      "backgroundColor": "#FBF6EE"
+    },
     "userInterfaceStyle": "light",
     "locales": { "ar": "./locales/ar.json" },
     "extra": {

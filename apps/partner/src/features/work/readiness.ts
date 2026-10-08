@@ -27,6 +27,11 @@ export interface ReadyInputs {
   push: PushState;
   /** null: the platform can't say (web without the Battery API) — the chip is hidden. */
   battery: BatteryState | null;
+  /**
+   * The phone saves battery on Driver (Android battery optimisation, or low-power mode): offers and
+   * the live position can arrive late with the screen off (launch-week phone check, l5).
+   */
+  saver?: boolean;
 }
 
 export type ReadyKey = 'gps' | 'net' | 'sound' | 'battery';
@@ -67,7 +72,9 @@ export function readiness(i: ReadyInputs): { items: ReadyItem[]; issues: number 
     const percent = Math.round(Math.max(0, Math.min(1, i.battery.level)) * 100);
     const low = !i.battery.charging && i.battery.level < BATTERY_LOW;
     const warn = !i.battery.charging && i.battery.level < BATTERY_WARN;
-    items.push({ key: 'battery', tone: low ? 'bad' : warn ? 'warn' : 'ok', problem: low || warn ? 'partner.ready_battery_low' : null, fix: null, percent });
+    if (low || warn) items.push({ key: 'battery', tone: low ? 'bad' : 'warn', problem: 'partner.ready_battery_low', fix: null, percent });
+    else if (i.saver) items.push({ key: 'battery', tone: 'warn', problem: 'partner.ready_battery_saver', fix: 'settings', percent });
+    else items.push({ key: 'battery', tone: 'ok', problem: null, fix: null, percent });
   }
 
   return { items, issues: items.filter((x) => x.tone !== 'ok').length };

@@ -11,6 +11,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./dishes": {
+      "types": "./src/dishes.ts",
+      "default": "./src/dishes.ts"
     }
   },
   "sideEffects": false,

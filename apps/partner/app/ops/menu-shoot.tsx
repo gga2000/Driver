@@ -1,8 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
 import type { MenuPhotoDish, MenuPhotoRequestView } from '@driver/contracts';
-import { Button, Card, Chip, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, EmptyState, Icon, PhotoImage, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/features/fleet/FleetParts';
 import { canHandOver, shootProgress, VISIT_KEY, visitChoices } from '@/features/ops/logic';
@@ -140,7 +140,7 @@ function DishRow({ view, dish, divider }: { view: MenuPhotoRequestView; dish: Me
   const tile = (url: string | null, label: string) => (
     <View style={{ alignItems: 'center', gap: 2 }}>
       {url ? (
-        <Image source={{ uri: absoluteUrl(url) }} style={{ width: TILE, height: TILE, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" accessibilityLabel={label} />
+        <PhotoImage uri={absoluteUrl(url)} style={{ width: TILE, height: TILE, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} accessibilityLabel={label} />
       ) : (
         <View style={{ width: TILE, height: TILE, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
           <Text variant="caption" color="textMuted">

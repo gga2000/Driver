@@ -7,7 +7,8 @@ import { AnimatedPressable, usePressScale } from '../motion/motion';
 import { useTheme, type HapticKind } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+/** `ink`: a dark, firm action beside a primary one (the Partner dashboard's «روح هناك»). */
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'ink';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -43,6 +44,7 @@ const PALETTE: Record<ButtonVariant, { bg: ThemeColorKey | 'transparent'; fg: Th
   secondary: { bg: 'surface', fg: 'text', border: 'borderStrong' },
   ghost: { bg: 'transparent', fg: 'accentText' },
   destructive: { bg: 'danger', fg: 'onDanger' },
+  ink: { bg: 'inverse', fg: 'onInverse' },
 };
 
 export function Button({
@@ -92,6 +94,8 @@ export function Button({
         {
           minHeight: HEIGHT[size],
           paddingHorizontal: size === 'sm' ? theme.space[3] : theme.space[5],
+          // Room for a second line at large text sizes (DEV-13): the height grows, never clips.
+          paddingVertical: size === 'sm' ? theme.space[1] : theme.space[2],
           borderRadius: size === 'lg' ? theme.radius.lg : theme.radius.md,
           backgroundColor: p.bg === 'transparent' ? 'transparent' : theme.colors[p.bg],
           borderWidth: p.border ? 1.5 : 0,
@@ -107,14 +111,15 @@ export function Button({
         style,
       ]}
     >
-      {/* The label gives way (ellipsis) before the trailing amount does, so a long label never pushes it off the button. */}
+      {/* The label wraps to two lines, then gives way (ellipsis) before the trailing amount does, so a long label or
+          large text (DEV-13) never pushes the price or time off the button. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1, minWidth: 0 }}>
         {loading ? (
           <ActivityIndicator size="small" color={fg} />
         ) : icon ? (
           <Icon name={icon} size={size === 'sm' ? 18 : 20} color={fg} strokeWidth={2} />
         ) : null}
-        <Text variant={textVariant} color={fg} numberOfLines={1}>
+        <Text variant={textVariant} color={fg} numberOfLines={2} align={trailing ? undefined : 'center'} style={{ flexShrink: 1 }}>
           {loading && loadingLabel ? loadingLabel : label}
         </Text>
       </View>

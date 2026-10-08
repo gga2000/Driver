@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Platform, Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { AZIZIYAH_ZONES, PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
-import { Button, Chip, ChipGroup, Icon, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, Chip, ChipGroup, Icon, PhotoImage, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
@@ -68,7 +68,21 @@ const AZIZIYAH_CENTRE: LatLng = { lat: 32.9085, lng: 45.0655 };
  * or pick a zone when the map is hard), a note for the courier, a gate photo, and household sharing.
  * Controlled; the screen owns saving.
  */
-export function PlaceEditor({ value, onChange, canShare = false }: { value: PlaceEditorValue; onChange: (next: PlaceEditorValue) => void; canShare?: boolean }) {
+export function PlaceEditor({
+  value,
+  onChange,
+  canShare = false,
+  first = false,
+}: {
+  value: PlaceEditorValue;
+  onChange: (next: PlaceEditorValue) => void;
+  canShare?: boolean;
+  /**
+   * The first place, right after sign-in (Golden sheet): only the map with «موقعي», what the place is
+   * and a note for the courier. The landmark, gate pin, zone list and photos wait for حسابي → أماكني.
+   */
+  first?: boolean;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -125,6 +139,49 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
       setUploading(false);
     }
   };
+
+  if (first) {
+    return (
+      <View style={{ gap: theme.space[4] }}>
+        <View testID="place-map" accessibilityLabel={t(MAP_HINT_KEY[value.label])} style={{ height: 220, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+          <PinPicker initial={start} onCentre={setPin} onMoving={() => undefined} recentre={recentre} />
+          {/* The one instruction, on the map itself (it never truncates under a button). */}
+          <View pointerEvents="none" style={{ position: 'absolute', top: theme.space[3], start: theme.space[3], end: theme.space[3], alignItems: 'center' }}>
+            <View style={{ paddingHorizontal: theme.space[3], paddingVertical: 6, borderRadius: theme.radius.pill, backgroundColor: withAlpha(theme.colors.inverse, 0.86) }}>
+              <Text variant="caption" weight={600} color="onInverse" align="center">
+                {t(MAP_HINT_KEY[value.label])}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
+            <Icon name="map-pin" size={18} color={value.zoneId ? 'accentText' : 'textMuted'} />
+            <Text testID="place-zone" variant="label" color={value.zoneId ? 'text' : 'textMuted'} numberOfLines={2} style={{ flexShrink: 1 }}>
+              {value.zoneId ? t('place.zone_is', { zone: zoneName(value.zoneId, locale) }) : t('place.no_pin')}
+            </Text>
+          </View>
+          <Button size="sm" variant="secondary" icon="location-arrow" label={t('place.use_my_location')} loading={locating} onPress={() => void locateMe()} />
+        </View>
+        <ChipGroup
+          accessibilityLabel={t('onboarding.place_label')}
+          mode="single"
+          required
+          value={[value.label]}
+          onChange={(next) => setLabel((next[0] as SavedPlaceLabel | undefined) ?? value.label)}
+          items={(['home', 'work', 'custom'] as const).map((l) => ({ id: l, label: t(LABEL_KEY[l]), icon: placeIcon(l) }))}
+        />
+        <TextField
+          testID="place-note"
+          label={t('cart.note_courier')}
+          value={value.note}
+          onChangeText={(note) => onChange({ ...value, note })}
+          placeholder={t('onboarding.place_note_placeholder')}
+          maxLength={300}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ gap: theme.space[6] }}>
@@ -197,7 +254,7 @@ export function PlaceEditor({ value, onChange, canShare = false }: { value: Plac
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
           {value.photos.map((p) => (
             <View key={p.id} style={{ width: 96, height: 96, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
-              <Image source={{ uri: photoUri(p.url) }} style={{ width: 96, height: 96 }} resizeMode="cover" accessibilityIgnoresInvertColors />
+              <PhotoImage uri={photoUri(p.url)} style={{ width: 96, height: 96 }} />
               <Pressable hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t('place.photo_remove')}
