@@ -129,7 +129,9 @@ page.on('response', (r) => {
 // order / chat screens keep an SSE stream open and the map keeps fetching tiles, so the network is
 // never idle there.
 const LOADED = { waitUntil: 'load' };
-const byTestId = (id) => page.locator(`[data-testid="${id}"]`).first();
+// Visible matches only: screens stay mounted under the one on top (home's basket bar sits under a
+// restaurant's), and the first match in the page would be the hidden one.
+const byTestId = (id) => page.locator(`[data-testid="${id}"]`).filter({ visible: true }).first();
 const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
