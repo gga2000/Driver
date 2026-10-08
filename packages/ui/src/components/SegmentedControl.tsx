@@ -29,7 +29,9 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
   const [width, setWidth] = useState(0);
   const pad = 3;
   const segW = options.length ? (width - pad * 2) / options.length : 0;
-  const index = Math.max(0, options.findIndex((o) => o.value === value));
+  // A value that is none of the options shows no thumb (VIS-08), not the first option as if chosen.
+  const found = options.findIndex((o) => o.value === value);
+  const index = Math.max(0, found);
   const x = useSharedValue(0);
   const sign = theme.isRTL ? -1 : 1;
   const spring = theme.motion.spring.select;
@@ -48,7 +50,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={[{ flexDirection: 'row', padding: pad, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }, style]}
     >
-      {width > 0 ? (
+      {width > 0 && found >= 0 ? (
         <Animated.View
           style={[
             {
@@ -89,7 +91,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             }}
             style={{ flex: 1, minHeight: theme.hitTarget, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[2] }}
           >
-            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact>
+            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={2} align="center" compact>
               {o.label}
             </Text>
             {o.detail ? (

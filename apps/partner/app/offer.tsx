@@ -11,7 +11,7 @@ import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { arrivedTooLate, batchMinutes, riderTripsKey, serviceOf, SLIP_URGENT_S, speakText, timeShare } from '@/features/offer/slip';
 import { KitchenTime, PayChips, SERVICE_ICON, SlipBand, SlipNote, TimeBar } from '@/features/offer/SlipParts';
 import { speakOffer, stopSpeaking } from '@/features/offer/speak';
-import { cargoLine, isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import { cargoLine, isRide, KIND_KEY, km, msToNextSecond, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
@@ -99,10 +99,16 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
       });
       if (spoke) stopOfferAlert();
     }, OFFER_REPEAT_MS - 100);
-    const id = setInterval(() => setNow(Date.now()), 250);
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const at = Date.now();
+      setNow(at);
+      id = setTimeout(tick, msToNextSecond(offer.expiresAt, at));
+    };
+    id = setTimeout(tick, msToNextSecond(offer.expiresAt, Date.now()));
     return () => {
       clearTimeout(speakAt);
-      clearInterval(id);
+      clearTimeout(id);
       stopOfferAlert();
       stopSpeaking();
     };
@@ -159,12 +165,16 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     try {
       await respond.mutateAsync({ offerId: offer.offerId, accept });
       qc.setQueryData(api.partner.currentOffer.queryKey(), null);
-      await refresh();
       if (accept) {
+        // Speed audit o3: straight to the job, which loads there (a skeleton), instead of waiting here on
+        // three refetches. The old "no job" answer is reset so the job screen never flashes "it ended".
+        void qc.resetQueries({ queryKey: api.partner.activeJob.queryKey() });
+        void refresh();
         theme.haptic('success');
         toast.show({ message: t('partner.offer_accepted'), tone: 'success', icon: 'check' });
         router.replace('/job');
       } else {
+        void refresh();
         toast.show({ message: t('partner.slip_gone'), tone: 'neutral' });
         close();
       }

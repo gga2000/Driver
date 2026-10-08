@@ -1,11 +1,13 @@
+import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { Card, EmptyState, QueryBoundary, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
-import { Screen } from '@/components/Screen';
+import { MAX_CONTENT_WIDTH, Screen } from '@/components/Screen';
 import { BookedRideRow } from '@/features/orders/BookedRideRow';
 import { canReorder, sectionByDay } from '@/features/orders/history';
+import { flattenHistory } from '@/features/orders/history-list';
 import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
@@ -68,97 +70,147 @@ function Orders() {
     setRefreshing(false);
   };
 
-  return (
-    <Screen testID="orders" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />} contentStyle={{ gap: theme.space[5] }}>
-      <Text variant="heading" accessibilityRole="header">
-        {t('nav.orders')}
-      </Text>
-      {/* W8: a failed seat-bookings read says so in one row above the orders (not while the whole list failed). */}
-      {bookings.isError && bookings.data === undefined && history.data !== undefined ? (
-        <QueryBoundary
-          query={bookings}
-          size="inline"
-          locale={locale}
-          testID="orders-trips-state"
-          skeleton={null}
-          retry={{ server: { title: t('orders.trips_failed') }, slow: { title: t('orders.trips_failed') }, unreachable: { title: t('orders.trips_failed') } }}
+  const items = useMemo(
+    () =>
+      flattenHistory(coming, sections, {
+        coming: (c) => (c.kind === 'ride' ? c.row.order.id : c.booking.id),
+        row: (r) => (r.kind === 'trip' ? r.booking.id : r.row.order.id),
+      }),
+    [coming, sections],
+  );
+  type Item = (typeof items)[number];
+  const column = { width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' } as const;
+  const gutter = theme.space[5];
+  // One row of a card that the fast list draws piece by piece: the first row opens the card, the last closes it.
+  const segment = (tint: boolean, first: boolean, last: boolean) => ({
+    backgroundColor: tint ? theme.colors.accentTint : theme.colors.surface,
+    borderColor: tint ? theme.colors.tintBorder : theme.colors.border,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderTopWidth: first ? 1 : 0,
+    borderBottomWidth: last ? 1 : 0,
+    borderTopLeftRadius: first ? theme.radius.xl : 0,
+    borderTopRightRadius: first ? theme.radius.xl : 0,
+    borderBottomLeftRadius: last ? theme.radius.xl : 0,
+    borderBottomRightRadius: last ? theme.radius.xl : 0,
+    overflow: 'hidden' as const,
+  });
+  const renderItem = ({ item }: { item: Item }) => {
+    if (item.type === 'label') {
+      const l = item.label;
+      return (
+        <Text
+          variant="label"
+          weight={600}
+          color={l.kind === 'day' ? 'textMuted' : 'accentText'}
+          accessibilityRole="header"
+          testID={`orders-section-${l.kind === 'day' ? item.key.slice('label:'.length) : l.kind}`}
+          style={{ marginTop: item.first ? 0 : theme.space[5], marginBottom: theme.space[2] }}
         >
-          {() => null}
-        </QueryBoundary>
-      ) : null}
-      {/* W8: no network, slow or a server failure each say so with a retry; orders already on the phone stay
-          on screen (marked old) when a refresh fails, instead of being swapped for an error. */}
-      <QueryBoundary
-        query={history}
-        locale={locale}
-        testID="orders-state"
-        style={{ gap: theme.space[5] }}
-        skeleton={
-        <Card elevation={0} padding={0}>
-          <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
-            {[0, 1, 2].map((i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
-                <Skeleton width={48} height={48} radius={theme.radius.lg} />
-                <View style={{ flex: 1, gap: theme.space[2] }}>
-                  <Skeleton height={14} width="55%" />
-                  <Skeleton height={12} width="75%" />
-                  <Skeleton height={10} width="40%" />
+          {l.kind === 'trips' ? t('orders.section_trips') : l.kind === 'running' ? t('orders.section_running') : l.day ? dayLabel(t, l.day) : ''}
+        </Text>
+      );
+    }
+    if (item.type === 'coming') {
+      const c = item.value;
+      return (
+        <View style={segment(true, item.first, item.last)}>
+          {c.kind === 'ride' ? (
+            <BookedRideRow row={c.row} now={now} divider={!item.last} />
+          ) : (
+            <TripRow booking={c.booking} network={network.data} now={now} divider={!item.last} />
+          )}
+        </View>
+      );
+    }
+    const r = item.value;
+    return (
+      <View style={segment(item.tint, item.first, item.last)}>
+        {r.kind === 'trip' ? (
+          <TripRow booking={r.booking} network={network.data} now={now} divider={!item.last} />
+        ) : (
+          <OrderRow
+            row={r.row}
+            now={now}
+            divider={!item.last}
+            action={
+              canReorder(r.row.order) && (!me || r.row.order.ordererId === me) ? (
+                <ReorderButton testID={`reorder-${r.row.order.id}`} loading={reorder.busyOrderId === r.row.order.id} onPress={() => void reorder.start(r.row)} />
+              ) : undefined
+            }
+          />
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <Screen testID="orders" scroll={false} padded={false}>
+      <View style={[column, { flex: 1 }]}>
+        <View style={{ paddingHorizontal: gutter, paddingTop: theme.space[3], paddingBottom: theme.space[5], gap: theme.space[5] }}>
+          <Text variant="heading" accessibilityRole="header">
+            {t('nav.orders')}
+          </Text>
+          {/* W8: a failed seat-bookings read says so in one row above the orders (not while the whole list failed). */}
+          {bookings.isError && bookings.data === undefined && history.data !== undefined ? (
+            <QueryBoundary
+              query={bookings}
+              size="inline"
+              locale={locale}
+              testID="orders-trips-state"
+              skeleton={null}
+              retry={{ server: { title: t('orders.trips_failed') }, slow: { title: t('orders.trips_failed') }, unreachable: { title: t('orders.trips_failed') } }}
+            >
+              {() => null}
+            </QueryBoundary>
+          ) : null}
+        </View>
+        {/* W8: no network, slow or a server failure each say so with a retry; orders already on the phone stay
+            on screen (marked old) when a refresh fails, instead of being swapped for an error. */}
+        <QueryBoundary
+          query={history}
+          locale={locale}
+          testID="orders-state"
+          style={{ flex: 1 }}
+          skeleton={
+            <View style={{ paddingHorizontal: gutter }}>
+              <Card elevation={0} padding={0}>
+                <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
+                  {[0, 1, 2].map((i) => (
+                    <View key={i} style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+                      <Skeleton width={48} height={48} radius={theme.radius.lg} />
+                      <View style={{ flex: 1, gap: theme.space[2] }}>
+                        <Skeleton height={14} width="55%" />
+                        <Skeleton height={12} width="75%" />
+                        <Skeleton height={10} width="40%" />
+                      </View>
+                    </View>
+                  ))}
                 </View>
+              </Card>
+            </View>
+          }
+        >
+          {() =>
+            items.length === 0 ? (
+              <View style={{ paddingHorizontal: gutter }}>
+                <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
               </View>
-            ))}
-          </View>
-        </Card>
-        }
-      >
-        {() => (sections.length === 0 && coming.length === 0 ? (
-        <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
-      ) : (
-        <>
-        {coming.length > 0 ? (
-          <View style={{ gap: theme.space[2] }} testID="orders-section-trips">
-            <Text variant="label" weight={600} color="accentText" accessibilityRole="header">
-              {t('orders.section_trips')}
-            </Text>
-            <Card elevation={0} padding={0} tone="tint">
-              {coming.map((c, i) =>
-                c.kind === 'ride' ? (
-                  <BookedRideRow key={c.row.order.id} row={c.row} now={now} divider={i < coming.length - 1} />
-                ) : (
-                  <TripRow key={c.booking.id} booking={c.booking} network={network.data} now={now} divider={i < coming.length - 1} />
-                ),
-              )}
-            </Card>
-          </View>
-        ) : null}
-        {sections.map((s) => (
-          <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
-            <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
-              {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
-            </Text>
-            <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
-              {s.rows.map((item, i) =>
-                item.kind === 'trip' ? (
-                  <TripRow key={item.booking.id} booking={item.booking} network={network.data} now={now} divider={i < s.rows.length - 1} />
-                ) : (
-                  <OrderRow
-                    key={item.row.order.id}
-                    row={item.row}
-                    now={now}
-                    divider={i < s.rows.length - 1}
-                    action={
-                      canReorder(item.row.order) && (!me || item.row.order.ordererId === me) ? (
-                        <ReorderButton testID={`reorder-${item.row.order.id}`} loading={reorder.busyOrderId === item.row.order.id} onPress={() => void reorder.start(item.row)} />
-                      ) : undefined
-                    }
-                  />
-                ),
-              )}
-            </Card>
-          </View>
-        ))}
-        </>
-      ))}
-      </QueryBoundary>
+            ) : (
+              <FlashList
+                data={items}
+                renderItem={renderItem}
+                keyExtractor={(i) => i.key}
+                getItemType={(i) => (i.type === 'label' ? 'label' : i.type === 'coming' ? (i.value.kind === 'ride' ? 'ride' : 'seat') : i.value.kind)}
+                extraData={{ now, busy: reorder.busyOrderId, network: network.data }}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+                contentContainerStyle={{ paddingHorizontal: gutter, paddingBottom: theme.space[10] }}
+                testID="orders-list"
+              />
+            )
+          }
+        </QueryBoundary>
+      </View>
       {reorder.sheet}
     </Screen>
   );

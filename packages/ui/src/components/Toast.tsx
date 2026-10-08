@@ -7,6 +7,7 @@ import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
 import { enqueueToast, remainingAfterPause, toastDuration, yieldsToNext } from '../logic/toast';
 import { withAlpha } from '../theme/color';
+import { useAnnounce } from '../a11y/announce';
 import { useTheme } from '../theme/ThemeProvider';
 import { STATUS_TONES, type StatusTone } from './StatusPill';
 import { Text } from './Text';
@@ -85,6 +86,7 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
   const bg = theme.scheme === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
   const fg = theme.scheme === 'light' ? theme.colors.bg : theme.colors.text;
   const hold = (held: boolean) => () => onHold?.(held);
+  useAnnounce(detail ? `${message}. ${detail}` : message, { initial: true });
   return (
     <Animated.View
       accessibilityRole="alert"

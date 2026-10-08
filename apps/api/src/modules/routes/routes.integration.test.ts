@@ -247,6 +247,30 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     await expect(prisma.prisma.intercityPinAttempt.delete({ where: { id: log[0]!.id } })).rejects.toThrow(/append-only/);
   });
 
+  it('x3: the late-taxi time on a seat survives the round-trip and clears', async () => {
+    const dep = await departures.announce(
+      ids.d2,
+      AnnounceInput.parse({
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(1500),
+        latestDepartureAt: at(1530),
+        vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 3' },
+      }),
+    );
+    const held = await departures.hold(
+      ids.r2,
+      HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }),
+    );
+    wallet.set(ids.r2, 50_000);
+    const booked = await departures.book(ids.r2, held.id, 'wallet');
+    const due = new Date(Math.floor(at(1510).getTime() / 1000) * 1000);
+    await departures.taxiLate(ids.r2, booked.id, due);
+    expect((await repo.getBooking(booked.id))?.taxiLateUntil).toEqual(due);
+    await departures.taxiLate(ids.r2, booked.id, null);
+    expect((await repo.getBooking(booked.id))?.taxiLateUntil).toBeNull();
+  });
+
   it('the request board keeps offers and the deposit', async () => {
     const r = await requests.post(
       ids.r1,

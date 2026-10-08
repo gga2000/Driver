@@ -27,6 +27,7 @@ import juice from './dishes/juice.webp';
 import kebab from './dishes/kebab.webp';
 import kleicha from './dishes/kleicha.webp';
 import kubba from './dishes/kubba.webp';
+import kunafa from './dishes/kunafa.webp';
 import laban from './dishes/laban.webp';
 import lemonade from './dishes/lemonade.webp';
 import liver from './dishes/liver.webp';
@@ -71,6 +72,7 @@ export const DISH_PHOTOS = {
   kebab,
   kleicha,
   kubba,
+  kunafa,
   laban,
   lemonade,
   liver,

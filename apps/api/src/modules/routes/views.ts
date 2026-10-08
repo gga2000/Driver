@@ -236,6 +236,8 @@ export function driverDepartureView(
       checkedInAt: b.checkedInAt,
       meterMinutes: b.state === 'booked' ? riderMeterMinutes(dep, bookings, b, now) : b.lateMinutes,
       canNoShow: s.noShowVerdict(dep, bookings, b, now) !== null,
+      taxiDueAt: b.state === 'booked' ? (b.taxiLateUntil ?? null) : null,
+      seatHeld: b.state === 'booked' && (s.seatHeldUntil(dep, b)?.getTime() ?? 0) > now.getTime(),
     }));
   const open = dep.state === 'scheduled' || dep.state === 'boarding';
   const g = s.garage(dep.garageId);

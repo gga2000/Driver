@@ -62,7 +62,7 @@ describe('the x4 card (a taxi waiting at the garage)', () => {
 });
 
 describe('the x3 notice on the live ride', () => {
-  const link = (lateMin: number): GarageTaxiLink => ({ orderId: 'o', bookingId: 'bk', garage: GARAGE, departAt: new Date(), expectedAt: new Date(), lateMin, driverTold: lateMin >= 3, toldMin: lateMin >= 3 ? lateMin : null });
+  const link = (lateMin: number): GarageTaxiLink => ({ orderId: 'o', bookingId: 'bk', garage: GARAGE, departAt: new Date(), expectedAt: new Date(), lateMin, driverTold: lateMin >= 3, toldMin: lateMin >= 3 ? lateMin : null, seatHeldUntil: null });
   it('shows from 3 minutes late, never for an ordinary ride', () => {
     expect(lateNoticeShown(null)).toBe(false);
     expect(lateNoticeShown(link(2))).toBe(false);

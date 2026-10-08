@@ -10,6 +10,7 @@ import { getDeviceInfo } from './device';
 import { authRetryLink, inputTooLongForUrl, URL_RULES } from './api-links';
 import { retryDelayMs, shouldRetryQuery } from './errors';
 import { session as appSession, type SessionStore } from './session';
+import { withServerClock } from './server-clock';
 
 export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthorized } from './api-links';
 
@@ -63,11 +64,13 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
     const token = await store.getAccessToken();
     return token ? { authorization: `Bearer ${token}` } : {};
   };
+  // Every answer's Date header keeps the server clock (THIN-10: the iftar countdown never runs on a wrong phone clock).
+  const clockedFetch = withServerClock(networkFetch);
   // Batches split before their URL gets long; one query too big for a URL on its own goes as POST.
   const batch = splitLink<AppRouter>({
     condition: (op) => inputTooLongForUrl(op),
-    true: httpBatchLink({ url, transformer, fetch: networkFetch, headers, methodOverride: 'POST' }),
-    false: httpBatchLink({ url, transformer, fetch: networkFetch, headers, maxURLLength: URL_RULES.maxUrlLength }),
+    true: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, methodOverride: 'POST' }),
+    false: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, maxURLLength: URL_RULES.maxUrlLength }),
   });
   // `live.*` subscriptions go over SSE. EventSource cannot send headers, so each connection carries a
   // short-lived stream token (`live.token`, Bearer-authenticated) in tRPC connection params.
