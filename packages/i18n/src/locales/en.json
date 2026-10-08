@@ -8293,5 +8293,9 @@
   "unreachable.standing_street": "{name} is waiting on the street near your pin",
   "partner.job_street_title": "Street handover · the customer comes out",
   "partner.job_street_body": "Don't go to the door. Call when you're close; they'll meet you on the street by the pin.",
-  "error.too_far_for_ice_cream": "This shop is more than 3 km from you, and ice cream would melt on the way"
+  "error.too_far_for_ice_cream": "This shop is more than 3 km from you, and ice cream would melt on the way",
+  "partner.update_title": "There's a new version of the app",
+  "partner.update_body": "This version is too old to keep working. Update it from the store; it takes a minute, then carry on.",
+  "partner.update_offers": "Until you update, you can't take offers on this phone.",
+  "partner.update_button": "Update from the store"
 }

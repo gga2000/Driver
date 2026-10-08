@@ -8293,5 +8293,9 @@
   "unreachable.standing_street": "{name} ينطرك بالشارع قريب من الدبوس",
   "partner.job_street_title": "تسليم بالشارع · الزبون يطلعلك",
   "partner.job_street_body": "لا تروح للباب. لمن تقرب اتصل بيه، ويطلع يلاگيك بالشارع يم الدبوس.",
-  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق"
+  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق",
+  "partner.update_title": "أكو نسخة جديدة من التطبيق",
+  "partner.update_body": "هالنسخة صارت قديمة وما تشتغل بعد. حدّثها من المتجر، تاخذ دقيقة، وترجع تكمّل شغلك.",
+  "partner.update_offers": "لحد ما تحدّث، ما تگدر تاخذ طلبات من هالتلفون.",
+  "partner.update_button": "حدّث من المتجر"
 }
