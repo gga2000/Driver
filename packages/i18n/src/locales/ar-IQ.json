@@ -8139,5 +8139,6 @@
   "push.order_late_credit.title": "{amount} دينار رصيد، لأن تأخرنا عليك",
   "push.order_late_credit.body": "عدّينا الوقت اللي وعدناك بيه، فحطيناها بمحفظتك وتنصرف بأي طلب",
   "push.courier_arriving_paid.body": "طلبك مدفوع، بس استلمه من الباب",
-  "wa.courier_arriving_paid": "هلا {{1}}، الدليفري {{2}} يوصلك بعد دقيقتين بطلبك من {{3}}. طلبك مدفوع."
+  "wa.courier_arriving_paid": "هلا {{1}}، الدليفري {{2}} يوصلك بعد دقيقتين بطلبك من {{3}}. طلبك مدفوع.",
+  "notify.ask.seat_title": "نخبرك إذا تغيّر شي بسيارتك؟"
 }
