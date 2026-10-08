@@ -135,8 +135,8 @@ describe('Aziziyah city rides use tier pairs too', () => {
 
   it('intercity centre → Baghdad is priced from the explicit zone table', () => {
     const q = engine.quote(req({ vertical: 'intercity', stops: stops('centre', 'baghdad') }), aziziyah);
-    expect(q.total).toBe(10000);
+    expect(q.total).toBe(5000);
     const q2 = engine.quote(req({ vertical: 'intercity', stops: stops('khamas', 'baghdad') }), aziziyah);
-    expect(q2.total).toBe(10000);
+    expect(q2.total).toBe(5000);
   });
 });

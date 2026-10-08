@@ -11,6 +11,8 @@ import { RoadCard, type Watching } from '@/features/rajaa/RoadParts';
 import { useMe } from '@/features/account/queries';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
+import { ArmedRideCard } from '@/features/ride/ArmedRideCard';
+import { GarageTaxiCard } from '@/features/ride/GarageTaxiCard';
 import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
 import { useDinnerChance, useFavourites } from '@/features/ride-habits/queries';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
@@ -322,6 +324,11 @@ export default function BoardingPassScreen() {
       <FirstMoment kind={firstSeat ? 'rajaa' : null} haptic />
 
       {homePin && garagePin && b.state === 'booked' ? <LeaveHomeCard home={homePin} garage={garagePin} departAt={b.departure.departAt} now={now} /> : null}
+
+      {/* x2/x4 (docs/api/rajaa-taxi.md): a taxi to the garage on a seat leaving Aziziyah, a taxi home
+          waiting at the garage on a seat coming back. Each hides itself where it doesn't apply. */}
+      <GarageTaxiCard bookingId={b.id} />
+      <ArmedRideCard bookingId={b.id} />
 
       {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching} onShare={() => void onShare()} /> : null}
 
