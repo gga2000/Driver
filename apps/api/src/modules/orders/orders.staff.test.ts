@@ -33,6 +33,7 @@ describe('W3 switches', () => {
       PLATFORM_FAILURE_FREE_CANCEL: 'true',
       PLATFORM_FAILURE_FOOD_PAYER: 'merchant',
       CASH_DEBT_BLOCK: '1',
+      CASH_DEBT_COLLECT: 'on',
       OPEN_CASH_CAP: 'yes',
       PREPAY_AFTER_NO_ANSWER: 'on',
       COURIER_LOST_REFUND: 'on',
@@ -43,7 +44,7 @@ describe('W3 switches', () => {
     expect(r.disputes.outcomes).toEqual(['stands', 'refund_partial']);
     expect(r.disputes.auto.enabled).toBe(true);
     expect(r.platformFailure).toMatchObject({ freeCancel: true, cookedFoodPayer: 'merchant' });
-    expect(r.cashDebt.block).toBe(true);
+    expect(r.cashDebt).toMatchObject({ block: true, collectOnNext: true });
     expect(r.openCash).toMatchObject({ enabled: true, prepayAfterNoAnswer: true });
     expect(r.courierLost).toEqual({ refund: true, chargeCourier: true });
     expect(r.agentCashAccounts).toBe(true);

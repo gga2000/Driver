@@ -126,6 +126,8 @@ export interface OrdersTripsPort {
  */
 export interface OrdersCashRiskPort {
   newCustomerCash(customerId: string, orderTotalIqd: number): Promise<{ allowed: boolean; requiresArrivingCall: boolean; priorCashOrders: number }>;
+  /** M-3 «ينضاف لطلبك الجاي»: the owed fees his next cash order collects (0 when switched off or none). */
+  debtToCollect?(customerId: string): Promise<number>;
 }
 
 export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
@@ -439,9 +441,12 @@ export class OrdersService implements OnModuleInit {
     // W-02: the points value the checkout showed; a different figure (balance spent elsewhere) is a refresh.
     assertExpected(input.pointsIqd, p.pointsIqd);
     const total = p.totalIqd;
+    // M-3: the owed fees this order collects, as the checkout showed them (a change is a refresh).
+    const debt = await this.debtToCollect(ordererId, input, Boolean(merchantType));
+    if (input.debtCollectIqd !== undefined && input.debtCollectIqd !== debt) throw new DriverError('price_changed');
     // "الخردة علينا": the note he says he will pay with is a hint for the courier, checked on the
-    // server's own cash total (≥ total, ≤ total + 50,000, in 250s) and only on a cash order.
-    if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total, ORDERS_RULES.changeToWallet) !== null)) {
+    // server's own cash due (≥ total + owed fees, ≤ that + 50,000, in 250s) and only on a cash order.
+    if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total + debt, ORDERS_RULES.changeToWallet) !== null)) {
       throw new DriverError('tender_invalid');
     }
     // «عزيمة» (joy g1): a gift goes to a recipient; hidden prices only when the sender pays from his wallet.
@@ -521,6 +526,7 @@ export class OrdersService implements OnModuleInit {
             courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
             clientRequestId: input.clientRequestId ?? null,
             statedTenderIqd: input.statedTenderIqd ?? null,
+            debtCollectIqd: debt,
             gift: Boolean(input.gift),
             giftHidePrices: Boolean(input.gift?.hidePrices),
             scheduledFor: input.scheduledFor ?? null,
@@ -710,6 +716,7 @@ export class OrdersService implements OnModuleInit {
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
     const d = p.discount;
+    const debt = await this.debtToCollect(ordererId, input, Boolean(p.merchantType));
     const next = p.merchantType && !d && input.merchantOrgId ? await this.promotions.nextMerchantDeal(dealQuery(input.merchantOrgId, p.newLines, p.itemsTotal, p.fees.deliveryFeeIqd, now)) : null;
     return {
       itemsTotalIqd: p.itemsTotal,
@@ -742,7 +749,19 @@ export class OrdersService implements OnModuleInit {
             }),
           })
         : 0,
+      ...(debt > 0 ? { debtCollectIqd: debt } : {}),
     };
+  }
+
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (`CASH_DEBT_COLLECT`): the owed fees a cash food or shop order on his own
+   * account collects; 0 otherwise. Read outside the placing transaction: two orders placed at the
+   * same instant could both carry the same fee, and then the second payment lands as wallet credit
+   * (`debt_settled` only ever adds to his wallet), never lost.
+   */
+  private async debtToCollect(ordererId: string, input: Pick<z.output<typeof PlaceOrderInput>, 'paymentMethod' | 'householdOrgId'>, merchantType: boolean): Promise<number> {
+    if (input.paymentMethod !== 'cash' || input.householdOrgId || !merchantType || !this.cashRisk.debtToCollect) return 0;
+    return this.cashRisk.debtToCollect(ordererId);
   }
 
   /**
@@ -1812,7 +1831,7 @@ export class OrdersService implements OnModuleInit {
     if (order.state !== 'picked_up') return;
     const now = this.clock.now();
     const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now, ...(extra > 0 ? { changeToWalletIqd: extra } : {}) }, { tripId: e.tripId, courierId: e.actorId });
-    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? order.totalIqd, tx, extra);
+    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? cashDueIqd(order), tx, extra);
     await this.scheduleClose(next, now);
     return next;
   }
@@ -1839,8 +1858,8 @@ export class OrdersService implements OnModuleInit {
     const agg = await this.repo.find(orderId);
     if (!agg) return extra === undefined ? null : 'change_to_wallet_not_cash';
     const order = agg.order;
-    if (extra === undefined) return order.paymentMethod === 'cash' && collected !== undefined && collected > order.totalIqd ? 'change_to_wallet_mismatch' : null;
-    const problem = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: collected ?? Number.NaN, changeToWalletIqd: extra }, ORDERS_RULES.changeToWallet);
+    if (extra === undefined) return order.paymentMethod === 'cash' && collected !== undefined && collected > cashDueIqd(order) ? 'change_to_wallet_mismatch' : null;
+    const problem = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: cashDueIqd(order), collectedIqd: collected ?? Number.NaN, changeToWalletIqd: extra }, ORDERS_RULES.changeToWallet);
     if (problem === null) return null;
     if (problem === 'not_cash') return 'change_to_wallet_not_cash';
     if (problem === 'above_cap') return 'change_to_wallet_above_cap';
@@ -1859,8 +1878,8 @@ export class OrdersService implements OnModuleInit {
       tripId: courier.tripId,
       courierId: courier.courierId,
       amountIqd,
-      expectedIqd: order.totalIqd,
-      discrepancyIqd: amountIqd - order.totalIqd,
+      expectedIqd: cashDueIqd(order),
+      discrepancyIqd: amountIqd - cashDueIqd(order),
       changeToWalletIqd,
     };
     await this.emit(tx, 'order.cash_collected', courier.courierId, order, collected);
@@ -1906,6 +1925,7 @@ export class OrdersService implements OnModuleInit {
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
       ...(changeToWalletIqd > 0 && order.paymentMethod === 'cash' ? { changeToWalletIqd } : {}),
+      ...(order.paymentMethod === 'cash' && (order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     };
     if (order.type === 'food' || order.type === 'grocery_catalog') {
       const agg = (await this.repo.find(order.id, tx))!;
@@ -1969,7 +1989,7 @@ export class OrdersService implements OnModuleInit {
     if (order.paymentMethod === 'cash') {
       // The driver took the fare at the door: his cash cap moves now; the money posts once more, idempotently, on closed.
       const courier = await this.trips.courierOf(order.id);
-      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? order.totalIqd, tx, changeToWalletIqd);
+      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? cashDueIqd(order), tx, changeToWalletIqd);
     }
     await this.scheduleClose(next, now);
     return next;
@@ -1987,7 +2007,7 @@ export class OrdersService implements OnModuleInit {
     // A no-change credit was posted with the cash; the close fact carries the same note so the
     // posting is identical whichever of the two events the ledger sees first.
     const extra = agg.order.paymentMethod === 'cash' ? (agg.order.changeToWalletIqd ?? 0) : 0;
-    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), extra > 0 ? agg.order.totalIqd + extra : undefined, tx, extra);
+    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), extra > 0 ? cashDueIqd(agg.order) + extra : undefined, tx, extra);
     const closedPayload: DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to'> = { ...fact, reason, totalIqd: agg.order.totalIqd };
     const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, closedPayload);
     const profile = closed.merchantOrgId ? await this.merchants.profile(closed.merchantOrgId) : null;
@@ -2412,8 +2432,13 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
  */
 function noChangeExtra(order: OrderRecord, cash: number | null, raw: unknown): number {
   if (typeof raw !== 'number' || raw <= 0 || cash === null) return 0;
-  const ok = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: cash, changeToWalletIqd: raw }, ORDERS_RULES.changeToWallet) === null;
+  const ok = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: cashDueIqd(order), collectedIqd: cash, changeToWalletIqd: raw }, ORDERS_RULES.changeToWallet) === null;
   return ok ? raw : 0;
+}
+
+/** What the courier takes at the door on a cash order: its total plus the owed fees it collects (M-3). */
+export function cashDueIqd(order: Pick<OrderRecord, 'totalIqd' | 'debtCollectIqd'>): number {
+  return order.totalIqd + (order.debtCollectIqd ?? 0);
 }
 
 function verticalOf(e: TripEventEnvelope): Vertical {
@@ -2527,6 +2552,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     rating: order.rating ?? null,
     discount: discountView(order),
     statedTenderIqd: order.statedTenderIqd ?? null,
+    ...((order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     changeToWalletIqd: order.changeToWalletIqd ?? null,
     gift: giftView(order),
   };

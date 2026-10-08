@@ -1078,6 +1078,8 @@ model Order {
   statedTenderIqd    Int?          @map("stated_tender_iqd")
   /// "الخردة علينا": what went to the customer's wallet at the door because the courier had no change; null = none.
   changeToWalletIqd  Int?          @map("change_to_wallet_iqd")
+  /// M-3 «ينضاف لطلبك الجاي»: the cancellation fees he owed, locked at placement and collected in cash with this order; 0 = none.
+  debtCollectIqd     Int           @default(0) @map("debt_collect_iqd")
   scheduledFor       DateTime?     @map("scheduled_for")
   payerApprovedAt    DateTime?     @map("payer_approved_at")
   placedAt           DateTime      @default(now()) @map("placed_at")

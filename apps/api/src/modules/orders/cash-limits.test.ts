@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
+import type { OrdersCashRiskPort } from './orders.service.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import { staffHarness } from './staff-harness.js';
 
@@ -66,6 +67,60 @@ describe('cash standing (THIN-01 / M-3, SEC-10 / M-4)', () => {
     const big = make({ cashDebt: { block: true } });
     await lateCancel(big, 'c2', true);
     expect(await big.cashLimits.standing('c2')).toMatchObject({ owedIqd: 15_000, unpaidFees: 1, blockedBy: 'cash_debt_blocked' });
+  });
+
+  it('M-3 collect off: what he owes stays owed, the next order carries nothing', async () => {
+    const h = make();
+    (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
+    await lateCancel(h, 'c1');
+    expect(await h.cashLimits.debtToCollect('c1')).toBe(0);
+    expect((await h.orders.quote('c1', h.foodInput())).debtCollectIqd).toBeUndefined();
+    expect((await h.orders.place('c1', h.foodInput())).debtCollectIqd).toBeUndefined();
+  });
+
+  it('M-3 collect on («ينضاف لطلبك الجاي»): the owed fee rides on the next cash order once and settles back onto his wallet', async () => {
+    const h = make({ cashDebt: { collectOnNext: true } });
+    (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
+    await lateCancel(h, 'c1');
+    expect(await h.balance('customer:c1')).toBe(-500);
+
+    // Checkout shows it; a wallet order or a different figure never carries it.
+    expect((await h.orders.quote('c1', h.foodInput())).debtCollectIqd).toBe(500);
+    expect((await h.orders.quote('c1', h.foodInput({ paymentMethod: 'wallet' }))).debtCollectIqd).toBeUndefined();
+    expect(await code(h.orders.place('c1', h.foodInput({ debtCollectIqd: 0 })))).toBe('price_changed');
+
+    const o = await h.orders.place('c1', h.foodInput({ debtCollectIqd: 500 }));
+    expect(o.debtCollectIqd).toBe(500);
+    // Asked for once: a second order placed while the first is on its way carries nothing.
+    expect(await h.cashLimits.debtToCollect('c1')).toBe(0);
+    const second = await h.orders.place('c1', h.foodInput());
+    expect(second.debtCollectIqd).toBeUndefined();
+    await h.orders.cancel('c1', { orderId: second.id });
+
+    // The courier takes the order and the fee: the stop says so, and the wallet is back at 0.
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    await h.dropoff(t.id, { cashCollectedIqd: o.totalIqd + 500 });
+    await h.settle();
+    const collected = h.events.events.find((e) => e.type === 'order.cash_collected' && e.orderId === o.id)!;
+    expect(collected.payload).toMatchObject({ amountIqd: o.totalIqd + 500, expectedIqd: o.totalIqd + 500, discrepancyIqd: 0 });
+    expect(await h.balance('customer:c1')).toBe(o.changeIqd ?? 0);
+    expect(await h.cashLimits.debtToCollect('c1')).toBe(0);
+    expect((await h.ledger.eventsForOrder(o.id)).filter((e) => e.type === 'debt_settled').map((e) => e.amount)).toEqual([500]);
+  });
+
+  it('M-3 collect on: paying only the price leaves the fee owed for the next order', async () => {
+    const h = make({ cashDebt: { collectOnNext: true } });
+    (h.cashRisk as OrdersCashRiskPort).debtToCollect = (c) => h.cashLimits.debtToCollect(c);
+    await lateCancel(h, 'c1');
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    await h.dropoff(t.id, { cashCollectedIqd: o.totalIqd });
+    await h.settle();
+    expect(await h.cashLimits.debtToCollect('c1')).toBe(500);
   });
 
   it('M-4 prepay on: after «ما جاوب بالباب» the next order must be from the wallet', async () => {

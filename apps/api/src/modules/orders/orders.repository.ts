@@ -44,6 +44,8 @@ export interface OrderRecord {
   clientRequestId?: string | null;
   /** "الخردة علينا": the note the customer said he will pay with (`orders.stated_tender_iqd`); absent/null = none. */
   statedTenderIqd?: number | null;
+  /** M-3: the owed cancellation fees collected in cash with this order (`orders.debt_collect_iqd`); absent = 0. */
+  debtCollectIqd?: number;
   /** «عزيمة» (joy g1): a gift for the recipient participant (`orders.gift`); absent = false. */
   gift?: boolean;
   /** «عزيمة»: prices kept off the ticket and out of the courier's mouth (`orders.gift_hide_prices`); absent = false. */
@@ -291,6 +293,7 @@ function orderFromRow(r: any): OrderRecord {
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
     statedTenderIqd: r.statedTenderIqd ?? null,
+    debtCollectIqd: r.debtCollectIqd ?? 0,
     gift: r.gift ?? false,
     giftHidePrices: r.giftHidePrices ?? false,
     smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,

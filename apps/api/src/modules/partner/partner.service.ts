@@ -191,7 +191,7 @@ export class PartnerService implements PartnerPort {
     const names = await this.merchantNames(orders);
     const pickupLabel = orders[0]?.merchantOrgId ? (names.get(orders[0].merchantOrgId) ?? null) : null;
     const dropPin = dropStop?.target ?? null;
-    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
     return {
       offerId: offer.id,
       tripId: trip.id,
@@ -261,7 +261,7 @@ export class PartnerService implements PartnerPort {
     });
     const dropStop = trip.stops.find((s) => s.type === 'dropoff');
     const dropPin = dropStop?.target ?? null;
-    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
     return {
       tripId: trip.id,
       vertical: r.request.vertical,
@@ -372,7 +372,9 @@ export class PartnerService implements PartnerPort {
           // M-09: the courier reads the customer's note for him; an order placed with one note for
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
-          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // M-3: the owed fees the order collects ride on the cash he takes (`owedFeesIqd` names them).
+          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd + (order.debtCollectIqd ?? 0) : 0,
+          ...(isDrop && order?.paymentMethod === 'cash' && order.debtCollectIqd ? { owedFeesIqd: order.debtCollectIqd } : {}),
           // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
           ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.

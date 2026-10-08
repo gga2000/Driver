@@ -141,6 +141,7 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 | M-2 free cancel when we failed (NTF-11) | `PLATFORM_FAILURE_FREE_CANCEL` | off | no fee when there is no courier, the kitchen is silent or the ride driver did not show; `order.free_cancel_offered` once |
 | M-2 who pays cooked food | `PLATFORM_FAILURE_FOOD_PAYER` (`platform`\|`merchant`) | `platform` | with `platform`, a free cancel of a cooked order pays the kitchen (`order:<id>:platform_failure`) |
 | M-3 cash debt block (THIN-01) | `CASH_DEBT_BLOCK` | off | 2 unpaid fees or more than 5,000 owed stops cash orders (`cash_debt_blocked`) |
+| M-3 owed fees on the next order («ينضاف لطلبك الجاي») | `CASH_DEBT_COLLECT` | off | the next cash food or shop order collects what he owes; settled back onto his wallet (`debt_settled`) — see [owed-fees.md](owed-fees.md) |
 | M-4 open cash cap (SEC-10) | `OPEN_CASH_CAP` | off | 1 open cash order below 3 completed orders, 2 after (`open_cash_orders_cap`) |
 | M-4 prepay after «ما جاوب» | `PREPAY_AFTER_NO_ANSWER` | off | the next order after a no-answer at the door must be paid from the wallet (`prepay_required`) |
 | M-10 courier lost (NTF-13) | `COURIER_LOST_REFUND` | off | ends a lost order at once, refunded, with the kitchen paid |
