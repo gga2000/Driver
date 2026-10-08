@@ -5,17 +5,20 @@ const kinds = (q: string) => searchIntents(q).map((i) => i.kind);
 const ride = (q: string) => searchIntents(q).find((i): i is Extract<SearchIntent, { kind: 'ride' }> => i.kind === 'ride');
 
 describe('one box for the whole town (h4, D-04)', () => {
-  it('a city is a الرجعة card, outbound unless «من بغداد»', () => {
-    expect(searchIntents('بغداد')).toEqual([{ kind: 'rajaa', cityId: 'baghdad', direction: 'from_aziziyah' }]);
-    expect(searchIntents('الكوت')[0]).toMatchObject({ kind: 'rajaa', cityId: 'kut' });
-    expect(searchIntents('لبغداد')[0]).toMatchObject({ kind: 'rajaa', cityId: 'baghdad' });
-    expect(searchIntents('من بغداد')[0]).toMatchObject({ kind: 'rajaa', direction: 'to_aziziyah' });
+  it('a city shows its cars both ways, «لبغداد» only there, «من بغداد» only back (n3)', () => {
+    expect(searchIntents('بغداد')).toEqual([
+      { kind: 'rajaa', cityId: 'baghdad', direction: 'from_aziziyah' },
+      { kind: 'rajaa', cityId: 'baghdad', direction: 'to_aziziyah' },
+    ]);
+    expect(searchIntents('الكوت').map((i) => i.kind === 'rajaa' && i.cityId)).toEqual(['kut', 'kut']);
+    expect(searchIntents('لبغداد')).toEqual([{ kind: 'rajaa', cityId: 'baghdad', direction: 'from_aziziyah' }]);
+    expect(searchIntents('من بغداد')).toEqual([{ kind: 'rajaa', cityId: 'baghdad', direction: 'to_aziziyah' }]);
   });
 
-  it('the service words are الرجعة too', () => {
-    expect(kinds('رجعة')).toEqual(['rajaa']);
+  it('the service words are trips too: «الرجعة» the way back, «كراج» both ways', () => {
+    expect(searchIntents('رجعة')).toEqual([{ kind: 'rajaa', cityId: 'baghdad', direction: 'to_aziziyah' }]);
     expect(kinds('الرجعة')).toEqual(['rajaa']);
-    expect(kinds('كراج')).toEqual(['rajaa']);
+    expect(kinds('كراج')).toEqual(['rajaa', 'rajaa']);
   });
 
   it('a dish that only looks like a city stays food', () => {
@@ -50,7 +53,19 @@ describe('one box for the whole town (h4, D-04)', () => {
     expect(searchIntents('ريوگ')[0]).toMatchObject({ meal: 'breakfast' });
     expect(searchIntents('غدا')[0]).toMatchObject({ meal: 'lunch' });
     expect(searchIntents('عشا')[0]).toMatchObject({ meal: 'dinner' });
-    expect(searchIntents('حلويات')[0]).toMatchObject({ meal: 'sweet' });
+  });
+
+  it('a whole kind of shop opens its door (food doors f1); a dish word stays a dish search', () => {
+    expect(searchIntents('حلويات')).toEqual([{ kind: 'door', door: 'sweet', iceCream: false }]);
+    expect(searchIntents('الحلويات')).toEqual([{ kind: 'door', door: 'sweet', iceCream: false }]);
+    expect(searchIntents('قهوة')).toEqual([{ kind: 'door', door: 'cafe', iceCream: false }]);
+    expect(searchIntents('كافيه')).toEqual([{ kind: 'door', door: 'cafe', iceCream: false }]);
+    expect(searchIntents('عصير')).toEqual([{ kind: 'door', door: 'cold', iceCream: false }]);
+    expect(searchIntents('آيس كريم')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('ايس كريم')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('دوندرمة')).toEqual([{ kind: 'door', door: 'sweet', iceCream: true }]);
+    expect(searchIntents('كنافة')).toEqual([]);
+    expect(searchIntents('لاتيه')).toEqual([]);
   });
 
   it('coming-soon words open the sheet; «سوق» also offers the ride to the market garage', () => {

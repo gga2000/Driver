@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { AppState, Platform, Switch, View } from 'react-native';
+import { AppState, View } from 'react-native';
 import type { NotifyPreferences } from '@driver/contracts';
-import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, DataSaverCard, Icon, ListRow, QueryBoundary, Skeleton, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
@@ -81,16 +81,14 @@ export default function NotificationSettings() {
       divider={divider}
       trailing={
         prefs.data ? (
-          <Switch
+          <Toggle
             accessibilityLabel={t(r.title)}
             value={prefs.data[r.key]}
             onValueChange={(v) => toggle(r.key, v)}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-            {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
           />
-        ) : (
+        ) : prefs.isPending ? (
           <Skeleton width={44} height={24} />
-        )
+        ) : null
       }
     />
   );
@@ -117,6 +115,20 @@ export default function NotificationSettings() {
         </View>
       </Card>
 
+      {/* FLOW-29: switches that failed to load say so, with a retry, instead of skeletons forever. */}
+      {prefs.isError && prefs.data === undefined ? (
+        <QueryBoundary
+          query={prefs}
+          size="inline"
+          locale={locale}
+          testID="notify-prefs-state"
+          skeleton={null}
+          retry={{ server: { title: t('notify.settings.load_failed') }, slow: { title: t('notify.settings.load_failed') }, unreachable: { title: t('notify.settings.load_failed') } }}
+        >
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('notify.settings.section_push')} />
         <Card elevation={0} padding={0}>
@@ -141,12 +153,10 @@ export default function NotificationSettings() {
             subtitle={t('notify.settings.tracking_sounds_hint')}
             chevron={false}
             trailing={
-              <Switch
+              <Toggle
                 accessibilityLabel={t('notify.settings.tracking_sounds')}
                 value={sounds}
                 onValueChange={setSounds}
-                trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-                {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
               />
             }
           />

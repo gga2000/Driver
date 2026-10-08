@@ -67,7 +67,7 @@ export default function OtpEntry() {
 
   const onResend = async () => {
     try {
-      const res = await resend.mutateAsync({ phone, purpose: 'login', device: await getDeviceInfo() });
+      const res = await resend.mutateAsync({ phone, purpose: 'login', channel: 'sms', device: await getDeviceInfo() });
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
       setCode('');
       if (DEV_TOOLS) void devCode.refetch();
@@ -89,7 +89,7 @@ export default function OtpEntry() {
 
   return (
     <Screen>
-      <AuthHeader title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
+      <AuthHeader step={2} title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
 
       <View style={{ gap: theme.space[3] }}>
         <OtpInput

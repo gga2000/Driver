@@ -7,32 +7,47 @@ import { RetryState } from '../components/RetryState';
 import { renderUI } from '../test/render';
 import { DISH_KINDS, DishDrawing } from './dishes';
 import { archPath } from './kit';
+import { DISH_PHOTOS } from './photos/dishes';
 import { SCENE_NAMES, SketchScene } from './SketchScene';
 
 const SHAPES = 'path,circle,ellipse,rect,line,polygon';
-/** Cheap-Android budget (spec §6): a menu shows many dishes, a screen one scene. */
-const DISH_BUDGET = 40;
+/** Cheap-Android budget (spec §6): a screen shows one scene. (Dishes are pictures now: one element each.) */
 const SCENE_BUDGET = 90;
 
-describe('sketchbook dishes (joy J4)', () => {
+describe('dish pictures (joy J4)', () => {
   it('has the food-funnel S-3 archetypes', () => {
     for (const k of ['kebab', 'tikka', 'liver', 'chicken', 'shawarma', 'falafel', 'wrap', 'plate', 'tray', 'rice', 'okra', 'beans', 'soup', 'pacha', 'dolma', 'fish', 'kubba', 'bread', 'salad', 'pickles', 'hummus', 'sweet', 'tea', 'laban', 'water', 'can'] as const) {
       expect(DISH_KINDS).toContain(k);
     }
   });
 
-  it.each(DISH_KINDS)('%s draws within the element budget in every look', (kind) => {
+  it.each(DISH_KINDS)('%s paints its picture in every look', (kind) => {
     for (const look of [0, 1, 2]) {
       const { container, unmount } = renderUI(
         <Svg viewBox="0 0 200 200">
           <DishDrawing kind={kind} look={look} />
         </Svg>,
       );
-      const n = container.querySelectorAll(SHAPES).length;
-      expect(n).toBeGreaterThan(4);
-      expect(n).toBeLessThanOrEqual(DISH_BUDGET);
+      const image = container.querySelector('image');
+      expect(image?.getAttribute('href')).toMatch(/\.webp$/);
       unmount();
     }
+  });
+
+  it('every picture in the folder is a kind of dish (none bundled for nothing)', () => {
+    const shown = new Set(
+      DISH_KINDS.map((kind) => {
+        const { container, unmount } = renderUI(
+          <Svg viewBox="0 0 200 200">
+            <DishDrawing kind={kind} window={false} />
+          </Svg>,
+        );
+        const href = container.querySelector('image')?.getAttribute('href');
+        unmount();
+        return href;
+      }),
+    );
+    expect([...shown].sort()).toEqual(Object.values(DISH_PHOTOS).map(String).sort());
   });
 
   it('no two dishes share a drawing', () => {

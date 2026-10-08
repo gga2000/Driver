@@ -6,7 +6,7 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import { ConfigService } from '../config/index.js';
 import { DEFAULT_CANCELLATION_RULES, cancellationFee, type CancellationSubject } from './cancellation.js';
 import { PricingEngine, PricingError } from './engine.js';
-import { InMemoryQuoteStore, QUOTE_STORE, QUOTE_TTL_MIN, type QuoteStore } from './quote-store.js';
+import { InMemoryQuoteStore, QUOTE_PURGE_GRACE_MIN, QUOTE_STORE, QUOTE_TTL_MIN, type QuoteStore } from './quote-store.js';
 
 /** `DispatchConfig.customerFreeCancelAfterSec`'s schema default. */
 const DEFAULT_FREE_CANCEL_AFTER_SEC = 180;
@@ -51,6 +51,11 @@ export class PricingService {
   /** Takes a kept quote for one order (see `QuoteStore.claim`): false when unknown, expired or already taken. */
   claimQuote(quoteId: string, at: Date, tx?: Tx): Promise<boolean> {
     return this.store.claim(quoteId, at, tx);
+  }
+
+  /** Deletes up to `limit` kept quotes nobody booked, `QUOTE_PURGE_GRACE_MIN` after they expired. */
+  purgeExpiredQuotes(limit: number): Promise<number> {
+    return this.store.purgeExpired(new Date(this.clock.now().getTime() - QUOTE_PURGE_GRACE_MIN * 60_000), limit);
   }
 
   /**

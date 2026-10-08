@@ -185,6 +185,10 @@ export class RideHabitsService implements RideHabitsPort {
     return this.drivers.driverProfile(actor, input);
   }
 
+  ownProfile(actor: Actor): Promise<DriverProfile> {
+    return this.drivers.ownProfile(actor);
+  }
+
   avoid(actor: Actor, input: AvoidDriverInput): Promise<AvoidedDriverView[]> {
     return this.drivers.avoid(actor, input);
   }

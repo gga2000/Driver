@@ -74,7 +74,7 @@ export function ForceDialog({
       footer={
         <>
           <Button onClick={onClose}>{t('console.cancel')}</Button>
-          <Button variant="danger" type="submit" form={`${id}-f`} loading={busy} disabled={!reason.trim()}>
+          <Button variant="danger" type="submit" needsNet form={`${id}-f`} loading={busy} disabled={!reason.trim()}>
             {t('console.force_submit', { name })}
           </Button>
         </>
@@ -152,7 +152,7 @@ export function OtherDriverDialog({
       footer={
         <>
           <Button onClick={onClose}>{t('console.cancel')}</Button>
-          <Button variant="primary" type="submit" form={`${ids.driver}-f`} loading={override.isPending} disabled={!driverId.trim() || needsReason}>
+          <Button variant="primary" type="submit" needsNet form={`${ids.driver}-f`} loading={override.isPending} disabled={!driverId.trim() || needsReason}>
             {t('console.override_submit')}
           </Button>
         </>

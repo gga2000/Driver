@@ -98,6 +98,12 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1', driverId: 'drv', tripId: 'trp_1' }, { tripId: 'trp_1' }))).toEqual([{ template: 'khat_sweep_reminder', to: 'drv', params: {} }]);
     expect(await one(event('khat.sweep_missed', { alertId: 'ksw_1' }, { tripId: 'trp_1' }))).toEqual([]);
     expect(await one(event('dispatch.offer_sent', { driverId: 'drv' }, { tripId: 'trp_1' }))).toEqual([{ template: 'partner_new_job', to: 'drv', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } }]);
+    // A ride's wave offers it to several drivers at once: each hears «طلب جديد», once.
+    expect(await one(event('dispatch.wave_sent', { wave: 1, driverIds: ['d1', 'd2', 'd1'], seconds: 15 }, { tripId: 'trp_1' }))).toEqual([
+      { template: 'partner_new_job', to: 'd1', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } },
+      { template: 'partner_new_job', to: 'd2', params: { pickup: 'العزيزية (مركز)', dropoff: 'شارع ٣٠' } },
+    ]);
+    expect(await one(event('dispatch.wave_sent', { wave: 1, driverIds: [] }, { tripId: 'trp_1' }))).toEqual([]);
     // Maps program o5: "send drivers here" is one push per free driver around the zone.
     expect(await one(event('dispatch.zone_nudged', { zoneId: 'centre', zoneName_ar: 'العزيزية (مركز)', driverIds: ['d1', 'd2'] }))).toEqual([
       { template: 'partner_zone_nudge', to: 'd1', params: { zone: 'العزيزية (مركز)' } },
@@ -364,5 +370,21 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
       { template: 'ride_rider_arrived', to: 'cust', params: { name: 'ماما', time: '12:30 م', orderId: 'ride_2' } },
     ]);
     expect((await run(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }), forMum())).map((r) => r.template)).toEqual(['ride_receipt']);
+  });
+});
+
+describe('W3 staff outcomes → the customer', () => {
+  it('staff cancel, complaint outcomes, free-cancel offer and lost food each reach the order’s customer', async () => {
+    const h = notifyHarness();
+    const d = deps(h);
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    const params = { id: '1284', orderId: 'ord_1' };
+    expect(await one(event('order.ops_cancelled', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params }]);
+    expect(await one(event('order.free_cancel_offered', { customerId: 'cust', failure: 'no_courier' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_free_cancel', to: 'cust', params }]);
+    expect(await one(event('order.courier_lost', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_courier_lost', to: 'cust', params }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'refund_partial', refundIqd: 5_000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_refunded', to: 'cust', params: { ...params, amount: '5,000' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'stands', refundIqd: 0 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_stands', to: 'cust', params: { ...params, amount: '0' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'nonsense' }, { orderId: 'ord_1' }))).toEqual([]);
+    expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
   });
 });

@@ -17,5 +17,5 @@ export type Tx = Prisma.TransactionClient;
  */
 export function createPrisma(connectionString: string, opts: DbConnectionOptions = {}): PrismaClient {
   const adapter = new PrismaPg(pgPoolConfig(connectionString, opts));
-  return new PrismaClient({ adapter });
+  return new PrismaClient({ adapter, ...(opts.transactionTimeoutMs ? { transactionOptions: { timeout: opts.transactionTimeoutMs } } : {}) });
 }

@@ -32,3 +32,22 @@ export function invitePhoneHint(e164: string): string {
 export function hashPhone(e164: string, pepper: string): string {
   return createHmac('sha256', pepper).update(e164).digest('hex');
 }
+
+/**
+ * "+9647701234567" → "0770123": the 7-digit block an SMS-pumping script walks through. Used to
+ * throttle the block behind a spike; never a 4-digit carrier head, which would cut off a carrier.
+ */
+export function numberBlock(e164: string): string {
+  return `0${e164.slice(4, 10)}`;
+}
+
+export type IraqiCarrier = 'asiacell' | 'zain' | 'korek' | 'other';
+
+/** The carrier a number was issued by (077 Asiacell, 078/079 Zain, 075 Korek), for refusal and alert logs. */
+export function carrierOf(e164: string): IraqiCarrier {
+  const head = e164.slice(4, 6);
+  if (head === '77') return 'asiacell';
+  if (head === '78' || head === '79') return 'zain';
+  if (head === '75') return 'korek';
+  return 'other';
+}

@@ -2,6 +2,8 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { AccountId, isPointsAccount, kindOf, ledgerLineLabel, type LedgerEvent, type LedgerKind, type Statement, type StatementLine } from '@driver/contracts';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { Accounts } from './accounts.js';
+import type { CashCapWatch } from './cap-watch.js';
+import type { DriverPosition } from './caps.js';
 import type { PostingGroup } from './postings.js';
 import type { LedgerRepository, NewLedgerEvent } from './repository.js';
 import { LEDGER_REPOSITORY } from './tokens.js';
@@ -43,10 +45,17 @@ export interface RecordAllResult {
 
 @Injectable()
 export class LedgerService {
+  private capWatch: CashCapWatch | null = null;
+
   constructor(
     @Inject(LEDGER_REPOSITORY) private readonly repo: LedgerRepository,
     @Optional() @Inject(UnitOfWork) private readonly uow?: UnitOfWork,
   ) {}
+
+  /** Cash-cap crossings (`courier.cash_over_cap` / `_under_cap`) are emitted from every posting once this is set (module boot). */
+  watchCaps(watch: CashCapWatch | null): void {
+    this.capWatch = watch;
+  }
 
   /** Append one event. Amount must be positive; direction is from → to. Prefer `recordAll` for business facts. */
   async record(event: Omit<NewLedgerEvent, 'currency'> & { currency?: 'IQD' }, tx?: Tx): Promise<LedgerEvent> {
@@ -89,16 +98,29 @@ export class LedgerService {
           ...(l.memo ? { memo: l.memo } : {}),
         })),
       );
+      const watch = this.capWatch && rows.length > 0 ? this.capWatch : null;
+      const before = watch ? await this.positions(watch.driversIn(rows), t) : null;
       const events = rows.length > 0 ? await this.repo.appendMany(rows, t) : [];
+      if (watch && before && before.size > 0) await watch.afterPosting(rows, before, fresh[0]!.id, t);
       return { recorded: fresh.map((g) => g.id), skipped, events };
     };
     if (tx || !this.uow) return write(tx);
     return this.uow.run((t) => write(t));
   }
 
+  /** Drivers' cap positions read inside `tx`, so earlier postings of the same transaction count. */
+  private async positions(driverIds: readonly string[], tx?: Tx): Promise<Map<string, DriverPosition>> {
+    const out = new Map<string, DriverPosition>();
+    for (const id of driverIds) {
+      const [earnings, cash] = await Promise.all([this.repo.byAccount(Accounts.driver(id), tx), this.repo.byAccount(Accounts.cash(id), tx)]);
+      out.set(id, { earningsIqd: sumFor(Accounts.driver(id), earnings), cashIqd: sumFor(Accounts.cash(id), cash) });
+    }
+    return out;
+  }
+
   /** True when the group (by id) is already in the ledger. */
-  async hasGroup(groupId: string): Promise<boolean> {
-    return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0)));
+  async hasGroup(groupId: string, tx?: Tx): Promise<boolean> {
+    return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0), tx));
   }
 
   /** Balance is computed, never stored. */

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPostView, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
@@ -49,6 +49,22 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
 }
 
 /**
+ * Today's cars on every line, for the «بغداد» / «الكوت» cards (s1): one read per corridor, the same
+ * span as the board, not polled (the picked line's own board polls).
+ */
+export function useCorridorBoards(corridorIds: readonly string[], direction: IntercityDirection, span: { from: Date; to: Date }) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQueries({
+    queries: corridorIds.map((corridorId) => ({
+      ...api.routes.board.queryOptions({ corridorId, direction, from: span.from, to: span.to }),
+      enabled: signedIn,
+      staleTime: 30_000,
+    })),
+  });
+}
+
+/**
  * Who drives each departure (`routes.driverCards`, audit C-19): first name, today's check-in, photo.
  * One read for a whole board (ids sorted so the key is stable); cards change rarely.
  */
@@ -62,6 +78,17 @@ export function useDriverCards(departureIds: readonly string[]) {
     staleTime: 60_000,
     placeholderData: (prev) => prev,
     select: (cards: RajaaDriverCard[]) => new Map(cards.map((c) => [c.departureId, c])),
+  });
+}
+
+/** «ملفه» (x12–x17): the driver of a departure the rider can see. Not polled; a minute fresh is plenty. */
+export function useDriverProfile(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.driverProfile.queryOptions({ departureId: departureId ?? 'none' }),
+    enabled: signedIn && !!departureId,
+    staleTime: 60_000,
   });
 }
 
@@ -198,14 +225,6 @@ export function useCancelRequest() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
   return useMutation(api.routes.requestBoard.cancel.mutationOptions({ onSettled: () => void invalidate() }));
-}
-
-/**
- * TODO(api): the customer wallet balance. No customer wallet read exists yet, so the pay step offers
- * the wallet and lets the server answer (`wallet_insufficient` → Arabic message, switch to cash).
- */
-export function useWalletBalance(): number | null {
-  return null;
 }
 
 // ── home card ──

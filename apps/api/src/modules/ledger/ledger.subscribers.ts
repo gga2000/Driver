@@ -38,6 +38,12 @@ export function ledgerSubscribers(posting: PostingService, merchantCash: Merchan
     'seat.late_meter_settled': async (payload) => {
       await posting.lateMeter(decodeDomainEvent('seat.late_meter_settled', payload));
     },
+    'order.driver_cancelled': async (payload) => {
+      await posting.driverCancelled(decodeDomainEvent('order.driver_cancelled', payload));
+    },
+    'order.rejected': async (payload) => {
+      await posting.merchantLateReject(decodeDomainEvent('order.rejected', payload));
+    },
     'departure.cancelled': async (payload) => {
       await posting.departureCancelled(decodeDomainEvent('departure.cancelled', payload));
     },
