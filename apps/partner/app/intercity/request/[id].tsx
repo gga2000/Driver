@@ -68,7 +68,8 @@ function TripCard({ post, extra }: { post: RequestPostView; extra?: ReactNode })
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           <StatusPill label={whenLabel(t, post.when, now)} tone="neutral" icon="clock" size="sm" />
           <StatusPill label={seatsCount(t, post.seats)} tone="neutral" icon="seat" size="sm" />
-          <StatusPill label={t('partner.ic_req_travelling', { as: travellingAsLabel(t, post.travellingAs) })} tone="neutral" icon="user" size="sm" />
+          {/* As on the garage board: «رجال» is the usual case and says nothing; women or a family is worth a pill. */}
+          {post.travellingAs !== 'rijal' ? <StatusPill label={t('partner.ic_req_travelling', { as: travellingAsLabel(t, post.travellingAs) })} tone="neutral" icon="user" size="sm" /> : null}
           {post.privateCar ? <StatusPill label={t('partner.ic_req_private')} tone="info" icon="car" size="sm" /> : null}
           {post.origin === 'stranded' ? <StatusPill label={t('partner.ic_req_stranded')} tone="warning" size="sm" /> : null}
           {/* y1: what the rider asked for, so the offer prices the real trip. */}
