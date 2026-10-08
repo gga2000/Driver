@@ -398,8 +398,51 @@ export const ShiftSummary = z.object({
   guarantee: z.array(GuaranteeWindowView).default([]),
   /** Joy l4: the kind words customers picked for him during the shift, most said first (empty: none). */
   compliments: z.array(ComplimentCount).default([]),
+  /**
+   * «يومك» (partner redesign e7): the straight-line km between the stops of the shift's trips, rounded
+   * down to whole km. The road is never shorter, so the app says «أكثر من {km} كم»; null without trips.
+   */
+  minKm: z.number().int().min(0).nullable().default(null),
 });
 export type ShiftSummary = z.infer<typeof ShiftSummary>;
+
+// ───────────────────────── his best (partner redesign e3 / e4) ─────────────────────────
+
+/** How far back «أحسن وقت إلك» and his best day look: four whole weeks, so every weekday counts four times. */
+export const MY_BEST_DAYS = 28;
+/** The widest best-time window, in clock hours; edges that earned little are trimmed off it (never below 2 h). */
+export const MY_BEST_WINDOW_MAX_HOURS = 4;
+/** A best time is a habit, not one lucky night: at least this many jobs in it, on at least two different days. */
+export const MY_BEST_MIN_JOBS = 4;
+
+/**
+ * His own week and his own best, from his ledger (partner redesign e3 / e4): the earnings tab shows
+ * these instead of "less than yesterday". Nothing here is a promise or a payment: it is what he made.
+ */
+export const MyBestView = z.object({
+  /** This Baghdad week so far (Sunday start). */
+  week: z.object({ from: z.coerce.date(), netIqd: Iqd, jobs: z.number().int().min(0) }),
+  /** His best Baghdad day in the last `MY_BEST_DAYS` days (today included); null without paid jobs. */
+  bestDay: z.object({ at: z.coerce.date(), netIqd: Iqd, jobs: z.number().int().min(0) }).nullable(),
+  /**
+   * «أحسن وقت إلك: الخميس 7–11 بالليل»: the weekday and clock hours [fromHour, toHour) that paid him most
+   * in the last four weeks, and what that window paid on average per hour of it (net, his history only).
+   * Null until a window has `MY_BEST_MIN_JOBS` jobs on two different days.
+   */
+  bestWindow: z
+    .object({
+      /** 0 = Sunday … 6 = Saturday, Baghdad. */
+      weekday: z.number().int().min(0).max(6),
+      fromHour: z.number().int().min(0).max(23),
+      toHour: z.number().int().min(1).max(24),
+      perHourIqd: Iqd,
+      jobs: z.number().int().min(0),
+      days: z.number().int().min(0),
+    })
+    .nullable(),
+  sinceDays: z.number().int(),
+});
+export type MyBestView = z.infer<typeof MyBestView>;
 
 // ───────────────────────── "why was I paid this" (partner S-7) ─────────────────────────
 
@@ -509,6 +552,8 @@ export interface DriverAccountPort {
   shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
   /** «كلام الزبائن» (joy l4): his compliments counted and the latest ones. */
   compliments(actor: Actor): Promise<CourierCompliments>;
+  /** His week and his best (partner redesign e3 / e4). */
+  myBest(actor: Actor): Promise<MyBestView>;
   jobReceipt(actor: Actor, input: z.output<typeof JobReceiptInput>): Promise<JobReceipt>;
   payQuery(actor: Actor, input: z.output<typeof PayQueryInput>): Promise<PayQueryResult>;
   earnings(actor: Actor, input: z.output<typeof EarningsInput>): Promise<EarningsView>;
