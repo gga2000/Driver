@@ -5,6 +5,7 @@ import { busyExtraMinutes } from './busy.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
 import type { OrdersRepository } from './orders.repository.js';
 import type { PromotionsPort } from './promotions.port.js';
+import { ShopLoad, tabletOffline } from './shop-load.js';
 
 /** Orders that did not happen don't make a dish popular. */
 const NOT_COUNTED = new Set(['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded', 'failed']);
@@ -21,8 +22,12 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
   constructor(
     private readonly directory: Pick<MerchantDirectory, 'profile'>,
     private readonly promotions?: Pick<PromotionsPort, 'badges'>,
-    private readonly orders?: Pick<OrdersRepository, 'merchantOrdersBetween'>,
-  ) {}
+    private readonly orders?: Pick<OrdersRepository, 'merchantOrdersBetween' | 'findMany'>,
+  ) {
+    this.load = orders ? new ShopLoad(orders) : null;
+  }
+
+  private readonly load: ShopLoad | null;
 
   /** Joy o8: per dish, how many of the kitchen's orders in the window had it (once per order). */
   async dishOrderCounts(orgId: string, since: Date, until: Date): Promise<Map<string, number>> {
@@ -48,7 +53,9 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
   ): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }>; busy?: boolean; closed?: boolean; reopensAt?: Date; holiday?: boolean }> {
     const p = await this.directory.profile(orgId);
     if (!p) return { location: null, pauseWindows: [...(CITY_PAUSE_WINDOWS[cityId] ?? [])] };
-    // Busy mode and an early close from the Merchant app show on the customer's card too.
-    return { location: p.location, pauseWindows: p.pauseWindows, busy: busyExtraMinutes(p, at) > 0, closed: Boolean(p.closed), ...(p.reopensAt ? { reopensAt: p.reopensAt } : {}), ...(p.holiday ? { holiday: true } : {}) };
+    // Busy mode and an early close from the Merchant app show on the customer's card too; so do a
+    // tablet offline for 5 minutes (h5: paused, as `orders.place` refuses) and 15 orders waiting (l4: busy).
+    const busy = busyExtraMinutes(p, at) > 0 || (this.load !== null && (await this.load.crowded(orgId, at)));
+    return { location: p.location, pauseWindows: p.pauseWindows, busy, closed: Boolean(p.closed) || tabletOffline(p, at), ...(p.reopensAt ? { reopensAt: p.reopensAt } : {}), ...(p.holiday ? { holiday: true } : {}) };
   }
 }

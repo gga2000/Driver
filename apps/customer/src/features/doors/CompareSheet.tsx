@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import type { CatalogSearchDish } from '@driver/contracts';
-import { Button, DishDrawing, Icon, ModalSheet, stageOf, Text, useTheme } from '@driver/ui';
+import { Button, Icon, ModalSheet, stageOf, Text, useTheme } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { kitchenLook, motifForKitchen } from '@/features/food/food-art';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -85,7 +86,7 @@ export function CompareSheet({
     <ModalSheet
       visible={visible}
       onClose={onClose}
-      title={t('food.compare_title')}
+      title={picks.length === 2 ? t('food.compare_title_two') : t('food.compare_title')}
       testID="compare-sheet"
     >
       <View style={{ gap: theme.space[4] }}>

@@ -1,17 +1,18 @@
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
-import { MAP_COLORS_LIGHT } from '@driver/map';
 import { clamp, mercX, mercY, TILE_SIZE } from '../geo';
 import { LandmarkLayer } from './LandmarkLayer';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
+import { useMapColors } from './mapColors';
 
 /**
- * Tile-free base map: cream ground plus the zone layer and the landmarks (maps b3), with pan and pinch. Used on native until
+ * Tile-free base map: cream ground (warm dark at night, n2) plus the zone layer and the landmarks (maps b3), with pan and pinch. Used on native until
  * `@maplibre/maplibre-react-native` is in a dev-client build, and on the web when WebGL is missing.
  */
 export function SvgBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom }: BaseMapProps) {
+  const mapColors = useMapColors().map;
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const startZoom = useSharedValue(0);
@@ -53,7 +54,7 @@ export function SvgBase({ drawn, cam, size, onUserGestureStart, onUserCamera, la
 
   return (
     <GestureDetector gesture={Gesture.Simultaneous(pan, pinch)}>
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: mapColors.background }]}>
         <ZoneLayer drawn={drawn} cam={cam} size={size} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
         <LandmarkLayer drawn={drawn} cam={cam} size={size} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(landmarkNameZoom !== undefined ? { nameZoom: landmarkNameZoom } : {})} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
       </View>

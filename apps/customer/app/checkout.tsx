@@ -579,7 +579,7 @@ export default function CheckoutScreen() {
                   accessibilityLabel={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
                   value={usePoints}
                   onValueChange={setUsePoints}
-                  trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+                  trackColor={{ true: theme.colors.accent, false: theme.colors.borderStrong }}
                   {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
                 />
               }
@@ -791,7 +791,7 @@ function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: numbe
       <ChipGroup
         columns={2}
         accessibilityLabel={t('cashchange.pay_with_title')}
-        items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${amountParam(n)} ${t('cashchange.pay_with_exact')}` : amountParam(n) }))}
+        items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${t('unit.iqd', { amount: amountParam(n) })} ${t('cashchange.pay_with_exact')}` : t('unit.iqd', { amount: amountParam(n) }) }))}
         value={value !== null ? [`tender-${value}`] : []}
         onChange={(next) => onChange(next[0] ? Number(next[0].slice('tender-'.length)) : null)}
       />

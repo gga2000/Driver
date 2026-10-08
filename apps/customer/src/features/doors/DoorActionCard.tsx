@@ -1,21 +1,19 @@
 import type { ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
-import Svg, { G } from 'react-native-svg';
-import { DishDrawing, Icon, Text, useTheme, type DishKind } from '@driver/ui';
-import type { DoorSwatch } from './palette';
-
-const ART = 56;
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { Icon, Text, useTheme, type DishKind } from '@driver/ui';
+import { photoForMotif } from '@/features/food-landing/photos';
 
 /**
- * One calm way in from a door (k10 «اختارلي», s2 «ضيوف جايين؟», q1 «قهوتك المعتادة»): a drawing on the
- * door's colour, a title and one line, and either the whole card is the button or it carries its own
- * (the usual's «اطلبها نفسها»). At most one or two per door, never a banner.
+ * One calm way in from a door (k10 «اختارلي», s2 «ضيوف جايين؟», q1 «قهوتك المعتادة»): a dark strip
+ * over a real photo of what it brings (Ali 2026-10-08, concept A), a title and one gold line, and
+ * either the whole strip is the button (a saffron arrow) or it carries its own (the usual's «اطلبها
+ * نفسها»). At most one or two per door, never a banner.
  */
 export function DoorActionCard({
   art,
   title,
   body,
-  swatch,
   onPress,
   action,
   testID,
@@ -23,33 +21,80 @@ export function DoorActionCard({
   art: DishKind;
   title: string;
   body: string;
-  swatch: DoorSwatch;
   onPress?: () => void;
   action?: ReactNode;
   testID?: string;
 }) {
   const theme = useTheme();
+  const ink = theme.colors.inverse;
   const inner = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-      <View style={{ width: ART, height: ART, borderRadius: ART / 2, backgroundColor: swatch.fill, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        <Svg width={ART - 4} height={ART - 4} viewBox="0 0 200 200">
-          <G transform="translate(6 2) scale(0.94)">
-            <DishDrawing kind={art} look={0} line={5.5} window={false} />
-          </G>
+    <>
+      <Image
+        source={photoForMotif(art)}
+        resizeMode="cover"
+        accessible={false}
+        style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }}
+      />
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <Svg width="100%" height="100%" preserveAspectRatio="none">
+          <Defs>
+            {/* Darkest under the words (the reading start), the food showing at the far end. */}
+            <LinearGradient id={`action-${testID ?? art}`} x1="1" y1="0" x2="0" y2="0">
+              <Stop offset="0" stopColor={ink} stopOpacity={0.96} />
+              <Stop offset="0.6" stopColor={ink} stopOpacity={0.84} />
+              <Stop offset="1" stopColor={ink} stopOpacity={0.45} />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#action-${testID ?? art})`} />
         </Svg>
       </View>
-      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text variant="bodyStrong" weight={700} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text variant="footnote" color="textMuted" numberOfLines={2}>
-          {body}
-        </Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[3],
+          paddingHorizontal: theme.space[4],
+          paddingVertical: theme.space[4],
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text
+            weight={700}
+            color="onInverse"
+            numberOfLines={1}
+            style={{ fontSize: 18, lineHeight: 28 }}
+          >
+            {title}
+          </Text>
+          <Text variant="label" weight={500} color="onInverseAccent" numberOfLines={2}>
+            {body}
+          </Text>
+        </View>
+        {action ??
+          (onPress ? (
+            <View
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 23,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.colors.accent,
+              }}
+            >
+              <Icon name="arrow-forward" size={22} color="onAccent" />
+            </View>
+          ) : null)}
       </View>
-      {action ?? (onPress ? <Icon name="chevron-forward" size={20} color="textMuted" /> : null)}
-    </View>
+    </>
   );
-  const box = { padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border } as const;
+  const box = {
+    minHeight: 92,
+    justifyContent: 'center',
+    borderRadius: theme.radius.xl,
+    overflow: 'hidden',
+    backgroundColor: ink,
+  } as const;
   if (!onPress) {
     return (
       <View style={box} testID={testID}>

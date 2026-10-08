@@ -699,11 +699,8 @@ export class PrismaCatalogRepository implements CatalogRepository {
       await db.dishFollow.deleteMany({ where: { personId: input.personId, itemId: input.itemId } });
       return;
     }
-    await db.dishFollow.upsert({
-      where: { personId_itemId: { personId: input.personId, itemId: input.itemId } },
-      create: { personId: input.personId, merchantOrgId: input.merchantOrgId, itemId: input.itemId, createdAt: input.at },
-      update: {},
-    });
+    // ON CONFLICT DO NOTHING: a double tap racing the first follow keeps one row and no 500 (RDB-04).
+    await db.dishFollow.createMany({ data: [{ personId: input.personId, merchantOrgId: input.merchantOrgId, itemId: input.itemId, createdAt: input.at }], skipDuplicates: true });
   }
 
   async followersOf(itemId: string, tx?: Tx): Promise<string[]> {

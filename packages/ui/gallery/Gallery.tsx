@@ -7,6 +7,9 @@ import { SAFETY_RULES } from '@driver/contracts';
 import { contrastRatio, type ThemeColorKey } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
 import {
+  OfflineBanner,
+  OtpInput,
+  Toggle,
   Avatar,
   Badge,
   Button,
@@ -31,6 +34,7 @@ import {
   SeatLegend,
   SeatMap,
   SegmentRing,
+  PlateChip,
   SegmentedControl,
   Sheet,
   SosButton,
@@ -1172,6 +1176,8 @@ function Page() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: width >= 980 ? -theme.space[3] : 0 }}>
           <ButtonsSection />
           <ChoiceSection />
+          <W12Controls />
+          <TextScaleSection />
           <PriceSection />
           <CardsSection />
           <TrackingSection />
@@ -1218,5 +1224,64 @@ export function Gallery() {
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/** W12 batch 1: switched-off toggles, the typed code cell, a segment with no valid pick, the connection strip. */
+function TextScaleSection() {
+  const theme = useTheme();
+  const scales = ['normal', 'large', 'largest'] as const;
+  return (
+    <Section wide title="حجم الخط" note="إعداد التطبيق فوق حجم خط الموبايل: عادي، كبير، أكبر. الأزرار تنكسر لسطرين، والحروف داخل الصورة الشخصية واللوحة تبقى ثابتة.">
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[4] }}>
+        {scales.map((s) => (
+          <ThemeProvider key={s} theme={theme.name} textScale={s}>
+            <View testID={`scale-${s}`} style={{ width: 300, flexShrink: 0 }}>
+              <Panel>
+                <Text variant="caption" color="textMuted">{s}</Text>
+                <Text variant="heading">طلب جديد من مطعم خالد</Text>
+                <Text variant="body">استلم من الكاونتر وسلّم لباب الزبون بشارع 30.</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+                  <Avatar name="مرتضى" size={44} />
+                  <PlateChip plate="12345 واسط" accessibilityLabel="رقم السيارة" />
+                </View>
+                <SegmentedControl value="a" onChange={() => undefined} options={[{ value: 'a', label: 'اليوم' }, { value: 'b', label: 'الأسبوع' }]} />
+                <Button label="وصلت للمطعم" fullWidth />
+                <TextField label="ملاحظة" value="" onChangeText={() => undefined} />
+              </Panel>
+            </View>
+          </ThemeProvider>
+        ))}
+      </View>
+    </Section>
+  );
+}
+
+function W12Controls() {
+  const theme = useTheme();
+  const [a, setA] = useState(false);
+  const [b, setB] = useState(true);
+  const [code, setCode] = useState('48');
+  return (
+    <Section title="مفاتيح وشريط الاتصال" note="المفتاح المطفي واضح، خانة الرمز اللي تكتب بيها حبرية، والمقطع ما يختار شي إذا القيمة مو من الخيارات.">
+      <Panel>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="body">إشعارات العروض</Text>
+          <Toggle value={a} onValueChange={setA} accessibilityLabel="إشعارات العروض" testID="w12-toggle-off" />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="body">صوت التتبع</Text>
+          <Toggle value={b} onValueChange={setB} accessibilityLabel="صوت التتبع" />
+        </View>
+        <OtpInput value={code} onChange={setCode} autoFocus accessibilityLabel="رمز التحقق" />
+        <SegmentedControl value={'7' as '0' | '15'} onChange={() => undefined} options={[{ value: '0', label: ':00' }, { value: '15', label: ':15' }]} />
+      </Panel>
+      <View style={{ gap: theme.space[2] }}>
+        <OfflineBanner kind="offline" />
+        <OfflineBanner kind="unreachable" onRetry={() => undefined} />
+        <OfflineBanner kind="stale" ageSeconds={40} />
+        <OfflineBanner kind="back" />
+      </View>
+    </Section>
   );
 }

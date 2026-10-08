@@ -337,6 +337,11 @@ export const PartnerJobStop = z.object({
   note: z.string().nullable(),
   /** Cash to take at this stop (dropoffs of cash orders); 0 otherwise. */
   collectIqd: Iqd.min(0),
+  /**
+   * HUNT-02: a drop-off the customer chose «بالشارع» for (he paid 250 دينار less): he comes out to the
+   * street near the pin; the courier calls when close instead of going to the door. Absent = the door.
+   */
+  streetHandover: z.boolean().optional(),
   /** "الخردة علينا": the note the customer said he will pay with ("الزبون يدفع بـ 25,000"); null/absent = none. */
   tenderIqd: Iqd.nullable().optional(),
   arrivedAt: z.coerce.date().nullable(),
@@ -362,6 +367,12 @@ export const PartnerJobStop = z.object({
    * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * SEC-14: the person he hands the order to when someone else receives it (a gift «عزيمة», food sent
+   * to someone): the name the sender gave, read from the vault for this courier (logged), on the
+   * drop-off only. Null/absent otherwise.
+   */
+  recipient: z.object({ name: z.string() }).nullable().optional(),
   /**
    * Partner redesign j2: the public landmark the stop is near («يم جامع الرسول»), the way drivers give
    * directions — a town place from the landmark list, never a person's door; null when none is close.

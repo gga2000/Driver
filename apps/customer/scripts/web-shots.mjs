@@ -214,8 +214,15 @@ try {
   ]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await shot('app-setup');
     await byTestId('setup-save').click();
     // The welcome-home moment (joy h7) plays once after setup: shot, then tapped away.
@@ -342,7 +349,7 @@ async function rajaaTaxiShots(personId) {
   await fullShot('rajaa-taxi-preview-full');
   const states = {
     x2: ['offer-later', 'offer-now', 'offer-offline', 'booked', 'no-place', 'too-late', 'loading', 'error', 'offline'],
-    x3: ['not-told', 'told'],
+    x3: ['not-told', 'told', 'held'],
     x4: ['off', 'armed', 'placed', 'dropped', 'failed', 'no-place', 'loading', 'error'],
     n9: ['next', 'next-last-seat', 'next-offline', 'kut', 'empty-announced', 'empty', 'booked', 'held', 'loading', 'error', 'offline'],
   };
@@ -435,8 +442,7 @@ async function simpleShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
-    await byTestId('setup-next').click();
-    await byTestId('setup-skip-place').click();
+    await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
       await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
@@ -527,8 +533,15 @@ async function freshSignIn(phoneNumber) {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أبو زهراء');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -811,8 +824,15 @@ async function laterShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -920,8 +940,15 @@ async function habitsShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -1179,6 +1206,13 @@ async function trackShots(personId) {
   await byTestId('courier-marker').waitFor({ timeout: 15_000 });
   await live();
   await shot('track-preparing');
+  // The actions under the expanded sheet before pickup (HUNT-01: no street hand-over row while it is switched off).
+  await openOrder(prepId, '?sheet=2');
+  await live(1500);
+  await page.locator('[data-testid="sheet-body"]').evaluate((el) => el.scrollBy(0, 2000));
+  await live(600);
+  await shot('track-preparing-expanded-actions');
+  if ((await byTestId('action-street').count()) > 0) console.log('track-preparing-expanded-actions: street hand-over row shown');
 
   const wayId = await seed('on_the_way');
   await openOrder(wayId);
