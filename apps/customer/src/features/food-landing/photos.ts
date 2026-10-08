@@ -1,3 +1,4 @@
+import type { FoodDoor } from '@driver/contracts';
 import type { Motif } from '@/features/food/food-art';
 
 /* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles assets through require() */
@@ -10,6 +11,9 @@ const SWEET = require('../../../assets/food-landing/k-kunafa-2.webp') as number;
 const BAKLAVA = require('../../../assets/food-landing/k-baklava-1.webp') as number;
 const ZALABIA = require('../../../assets/food-landing/k-zalabia-1.webp') as number;
 const KLEICHA = require('../../../assets/food-landing/k-kleicha-1.webp') as number;
+const KUBBA = require('../../../assets/food-landing/k-kubba-1.webp') as number;
+const COCKTAIL = require('../../../assets/food-landing/k-cocktail-1.webp') as number;
+const LABAN = require('../../../assets/food-landing/k-laban-1.webp') as number;
 const TIKKA = require('../../../assets/food-landing/k-tikka-1.webp') as number;
 const DOLMA = require('../../../assets/food-landing/k-dolma-1.webp') as number;
 const COLD = require('../../../assets/food-landing/door-cold.webp') as number;
@@ -40,19 +44,31 @@ const BY_MOTIF: Partial<Record<Motif, number>> = {
   breakfast: require('../../../assets/food-landing/k-geymar-1.webp') as number,
   dolma: DOLMA,
   tea: TEA,
-  coffee: TEA,
-  dallah: TEA,
+  coffee: CAFE,
+  dallah: CAFE,
   juice: JUICE,
   pomegranate: JUICE,
   lemonade: JUICE,
   iced: JUICE,
-  cocktail: JUICE,
+  cocktail: COCKTAIL,
+  bananamilk: LABAN,
+  laban: LABAN,
   sweet: SWEET,
+  kunafa: SWEET,
+  kubba: KUBBA,
   baklava: BAKLAVA,
   kleicha: KLEICHA,
   zalabia: ZALABIA,
   cake: BAKLAVA,
   icecream: SWEETS,
+};
+
+/** Each food door's own photo: its tile on /food and the top of its page. */
+export const DOOR_PHOTOS: Readonly<Record<FoodDoor, number>> = {
+  meal: require('../../../assets/food-landing/door-meal.webp') as number,
+  cold: COLD,
+  sweet: SWEETS,
+  cafe: CAFE,
 };
 
 /** The four pictures on the «شوف كل المحلات» strip. */

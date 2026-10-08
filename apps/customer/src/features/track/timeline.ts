@@ -142,7 +142,8 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
     case 'on_the_way':
       if (ride) return t('trip.status.in_transit');
       // He pressed "وصلت" at my door (not someone else's drop first): say so, not "on the way".
-      return courierAtDoor(v) ? t('track.courier_at_door') : t('track.on_the_way');
+      // HUNT-02: an order placed «بالشارع» is met on the street, not at the door.
+      return courierAtDoor(v) ? t(v.order.streetHandover ? 'track.courier_at_street' : 'track.courier_at_door') : t('track.on_the_way');
     case 'unreachable':
       return t('unreachable.customer_title');
     case 'arrived':

@@ -22,3 +22,5 @@ export type { WalletPeople, WalletHouseholds } from './customer-wallet.js';
 export type { PostingGroup } from './postings.js';
 export { SupportCreditService, SUPPORT_CREDIT_MEMO } from './support-credit.js';
 export type { SupportCredit, SupportCreditFunder } from './support-credit.js';
+export { WalletHolds, lockWallets, walletLockKey } from './wallet-holds.js';
+export type { WalletHoldSource } from './wallet-holds.js';

@@ -373,6 +373,8 @@ export class PartnerService implements PartnerPort {
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
           collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
+          ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
