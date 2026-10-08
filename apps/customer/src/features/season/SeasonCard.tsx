@@ -3,6 +3,7 @@ import type { Timetable } from '@driver/contracts';
 import { formatClock, formatMinutes } from '@driver/i18n';
 import { Card, ChipGroup, Icon, Text, useNow, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
+import { serverClock } from '@/lib/server-clock';
 import { useSeason } from '@/lib/use-season';
 import { seasonCard, type RamadanLine } from './ramadan';
 import { useTimetable } from './use-timetable';
@@ -23,7 +24,8 @@ export function SeasonCard() {
   const season = useSeason();
   const [pick, setPick] = useTimetable();
   const tick = useNow(season.homeCard !== null, 30_000);
-  const model = seasonCard(season, pick, new Date(tick));
+  // The server's clock, not the phone's (THIN-10): a phone set a few minutes fast must not show iftar early.
+  const model = seasonCard(season, pick, serverClock.now(tick));
   if (!model) return null;
 
   const tone = model.accent ? 'tint' : 'surface';
