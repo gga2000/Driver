@@ -48,4 +48,4 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
   the shop has none); a drinks shop from setup already gets 5 written, an older one does not.
 - **Console**: the same-day photo review queue (a screen over `photoReviewQueue` / `markPhotoReviewed`
   behind an ops router).
-- **Migration**: `20261010270000_merchant_shop_rules` is a placeholder stamp.
+- **Migration**: the two columns ride in `20261010260000_merchant_setup`.
