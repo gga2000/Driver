@@ -29,7 +29,7 @@ import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, Order
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 import { SUPPORT_DESK_ROLES } from './support.js';
-import { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StuckOrder, StuckOrdersInput } from '../order-staff-io.js';
+import { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from '../order-staff-io.js';
 
 /** Merchant-side roles; the API additionally checks the role is scoped to the order's merchant org. */
 export const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_staff', 'merchant_owner'];
@@ -118,6 +118,8 @@ export const ordersRouter = router({
     resolveDispute: protectedProcedure(SUPPORT_DESK_ROLES).input(ResolveDisputeInput).output(StaffActionResult).mutation(({ ctx, input }) => ctx.orders.opsResolveDispute(ctx.actor, input)),
     /** Orders stuck past their state's deadline, oldest first, with the actions that apply. */
     stuck: protectedProcedure(CONSOLE_READ_ROLES).input(StuckOrdersInput).output(z.array(StuckOrder)).query(({ ctx, input }) => ctx.orders.opsStuck(ctx.actor, input)),
+    /** Which of the money outcomes above are switched on (read-only, no audit row). */
+    switches: protectedProcedure(CONSOLE_READ_ROLES).output(StaffOpsSwitches).query(({ ctx }) => ctx.orders.opsSwitches(ctx.actor)),
   }),
   merchant: router({
     accept: protectedProcedure(MERCHANT_ROLES).input(MerchantAcceptInput).output(Order).mutation(({ ctx, input }) => ctx.orders.merchantAccept(ctx.actor, input)),

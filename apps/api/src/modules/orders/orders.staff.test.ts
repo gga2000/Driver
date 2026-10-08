@@ -50,6 +50,14 @@ describe('W3 switches', () => {
   });
 });
 
+describe('orders.ops.switches', () => {
+  it('tells the Console which money outcomes are on: all off by default, void always allowed', () => {
+    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform' });
+    const on = make({ disputes: { outcomes: ['stands', 'refund_full'], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } }, courierLost: { refund: true, chargeCourier: false } });
+    expect(on.staff.switches()).toMatchObject({ disputeOutcomes: ['stands', 'refund_full', 'void'], courierLostRefund: true, courierLostCharge: false });
+  });
+});
+
 describe('orders.ops.cancel (NTF-10)', () => {
   it('cancels before pickup, free for the customer, detaches the courier, pushes and audits with the reason', async () => {
     const h = make();

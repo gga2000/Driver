@@ -5,7 +5,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
-import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { VehicleClass } from './trip.js';
@@ -589,6 +589,7 @@ export interface OrdersPort {
   opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;
   opsResolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult>;
   opsStuck(actor: Actor, input: StuckOrdersInput): Promise<StuckOrder[]>;
+  opsSwitches(actor: Actor): Promise<StaffOpsSwitches>;
 }
 
 /**

@@ -21,6 +21,7 @@ procedure that needs it refuses with `money_rule_off`. Shown in Arabic as «هذ
 |---|---|---|---|---|
 | `orders.cashStanding` | query | any signed-in | none | `CashStanding` |
 | `orders.ops.stuck` | query | dispatcher, support, finance, admin | `StuckOrdersInput` | `StuckOrder[]` |
+| `orders.ops.switches` | query | dispatcher, support, finance, admin | — | `StaffOpsSwitches`: `disputeOutcomes` (allowed list, `void` always in it), `agentLimitIqd`, `courierLostRefund`, `courierLostCharge`, `freeCancel`, `cookedFoodPayer`. Read-only, no audit row; the Console greys out an action whose switch is off ("waits on Ali") before staff click. |
 | `orders.ops.cancel` | mutation | dispatcher, support, admin | `StaffCancelOrderInput` | `StaffActionResult` |
 | `orders.ops.markDelivered` | mutation | dispatcher, support, admin | `StaffMarkDeliveredInput` | `StaffActionResult` |
 | `orders.ops.close` | mutation | dispatcher, support, admin | `StaffCloseOrderInput` | `StaffActionResult` |

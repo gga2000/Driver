@@ -14,6 +14,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffOpsSwitches,
   type StaffMarkDeliveredInput,
   type StuckOrder,
   type StuckOrdersInput,
@@ -238,6 +239,19 @@ export class OrdersStaffService implements PlatformFailurePort {
    * With `COURIER_LOST_REFUND` (M-10) it ends at once: nothing charged to the customer (`refunded`),
    * the kitchen paid its food by the platform, and the customer told.
    */
+  /** The money switches as they stand (no amounts beyond the support agent's refund limit). */
+  switches(): StaffOpsSwitches {
+    const r = this.rules;
+    return {
+      disputeOutcomes: [...new Set([...r.disputes.outcomes, 'void' as const])],
+      agentLimitIqd: r.disputes.agentLimitIqd,
+      courierLostRefund: r.courierLost.refund,
+      courierLostCharge: r.courierLost.chargeCourier,
+      freeCancel: r.platformFailure.freeCancel,
+      cookedFoodPayer: r.platformFailure.cookedFoodPayer,
+    };
+  }
+
   async courierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult> {
     return this.uow.run(async (tx) => {
       const order = await this.load(input.orderId, tx);
