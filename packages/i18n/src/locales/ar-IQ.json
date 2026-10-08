@@ -8342,6 +8342,8 @@
   "update.title": "حدّث التطبيق",
   "update.cta": "حدّث من Google Play",
   "update.hint_store": "حدّثه من App Store",
+  "update.chip": "نسخة جديدة جاهزة",
+  "update.safe": "حسابك ومحفظتك وطلباتك تبقى مثل ما هي",
   "partner.update_title": "أكو نسخة جديدة من التطبيق",
   "partner.update_body": "هالنسخة صارت قديمة وما تشتغل بعد. حدّثها من المتجر، تاخذ دقيقة، وترجع تكمّل شغلك.",
   "partner.update_offers": "لحد ما تحدّث، ما تگدر تاخذ طلبات من هالتلفون.",

@@ -4,7 +4,7 @@ import { createTRPCContext } from '@trpc/tanstack-react-query';
 import * as Application from 'expo-application';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
-import { transformer, type AppRouter } from '@driver/contracts';
+import { REQUEST_LIMITS, transformer, type AppRouter } from '@driver/contracts';
 import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
@@ -64,13 +64,15 @@ const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [updateRequiredLink(), httpBatchLink({ url, transformer, fetch: networkFetch, headers: () => BUILD_HEADERS })] });
+  const bare = createTRPCClient<AppRouter>({ links: [updateRequiredLink(), httpBatchLink({ url, transformer, fetch: networkFetch, maxItems: REQUEST_LIMITS.clientBatchItems, headers: () => BUILD_HEADERS })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
     url,
     transformer,
     fetch: networkFetch,
+    // The API takes at most REQUEST_LIMITS.maxBatchSize calls per request (SEC-03); split well below it.
+    maxItems: REQUEST_LIMITS.clientBatchItems,
     async headers() {
       const token = await store.getAccessToken();
       return token ? { ...BUILD_HEADERS, authorization: `Bearer ${token}` } : BUILD_HEADERS;
