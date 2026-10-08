@@ -80,6 +80,17 @@ export function staleAfterMs(seconds: number, live: boolean): number {
   return live ? 90_000 : Math.max(NET_RULES.staleAfterMs, seconds * 3_000);
 }
 
+/** Past this age data is "very old" (red), whatever the page's own refresh rate. */
+export const VERY_OLD_MS = 120_000;
+
+/** fresh → stale (amber, past the page's own threshold) → old (red, past 2 minutes). */
+export function staleLevel(ageMs: number | null, seconds: number, live: boolean): 'fresh' | 'stale' | 'old' {
+  if (ageMs === null) return 'fresh';
+  const amber = staleAfterMs(seconds, live);
+  if (ageMs > Math.max(VERY_OLD_MS, amber)) return 'old';
+  return ageMs > amber ? 'stale' : 'fresh';
+}
+
 /**
  * "يتحدّث كل 2 ثانية · آخر تحديث 7:05 م" with a pulsing dot while fetching — and honest when it isn't
  * (K-06): a red dot and "مقطوع" when the API can't be reached, an amber "البيانات قديمة" when stale.
@@ -102,18 +113,25 @@ export function LiveBadge({
   const now = useNow(1000);
   const age = updatedAt ? now - updatedAt : null;
   const down = net.state !== 'online';
-  const stale = !down && (Boolean(error) || (age !== null && age > staleAfterMs(seconds, live)));
+  const level = staleLevel(age, seconds, live);
+  const old = !down && level === 'old';
+  const stale = !down && !old && (Boolean(error) || level === 'stale');
   const ago = age !== null ? agoText(age / 1000, (k, p) => t(k, p)) : null;
-  if (down || stale) {
+  if (down || stale || old) {
+    const red = down || old;
     return (
       <p
         data-testid="live-badge"
-        data-state={down ? 'down' : 'stale'}
-        className={`inline-flex items-center gap-2 rounded-pill px-2.5 py-1 text-xs font-semibold ${down ? 'bg-bad-tint text-bad' : 'bg-warn-tint text-warn'}`}
+        data-state={down ? 'down' : old ? 'old' : 'stale'}
+        className={`inline-flex items-center gap-2 rounded-pill px-2.5 py-1 text-xs font-semibold ${red ? 'bg-bad-tint text-bad' : 'bg-warn-tint text-warn'}`}
         role="status"
       >
-        <StatusDot tone={down ? 'bad' : 'warn'} />
-        {down ? t('console.live_down') : t('console.live_stale', { ago: ago ?? '—' })}
+        <StatusDot tone={red ? 'bad' : 'warn'} />
+        {down
+          ? t('console.live_down')
+          : old
+            ? t('console.live_very_old', { ago: ago ?? '—' })
+            : t('console.live_stale', { ago: ago ?? '—' })}
         {down && ago ? (
           <span className="font-normal text-muted">· {t('console.updated_at', { time: ago })}</span>
         ) : null}
@@ -175,6 +193,9 @@ export function NetworkBanner() {
           : kind === 'unreachable'
             ? t('console.net_unreachable')
             : t('console.live_back')}
+        {kind !== 'back' ? (
+          <span className="font-normal text-muted">· {t('console.offline_frozen')}</span>
+        ) : null}
       </span>
       {kind === 'unreachable' ? (
         <button
@@ -186,6 +207,21 @@ export function NetworkBanner() {
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * In a dialog's footer while offline: why the send button is greyed. Nothing is queued, so it says
+ * plainly that it won't go by itself later.
+ */
+export function OfflineNote({ className }: { className?: string }) {
+  const net = useConsoleNetwork();
+  if (net.state === 'online') return null;
+  return (
+    <p role="status" className={`flex max-w-[46ch] items-start gap-2 text-xs font-medium text-bad ${className ?? ''}`}>
+      <StatusDot tone="bad" />
+      {t('console.offline_not_sent')}
+    </p>
   );
 }
 

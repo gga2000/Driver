@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { t } from '@driver/i18n';
 import { useState, type ReactNode } from 'react';
@@ -7,12 +8,15 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
-import { CommandPalette } from './shell/command-palette';
 import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
+import { useConsoleNetwork } from '@/lib/network';
 import { cx, NetworkBanner, ToastProvider } from './ui';
+
+// Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
+const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -24,6 +28,9 @@ export function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
+  // Offline freeze (build plan section 6): the page stays readable but dims, so nobody acts on it
+  // as if it were live; risky buttons say "not sent" (Button `needsNet`).
+  const frozen = useConsoleNetwork().state !== 'online';
   const bare = pathname === '/login';
   // Full-bleed pages fill the height and scroll inside their panes (the desk; the map and dispatch
   // fill it with the live map). They show the network banner themselves.
@@ -87,15 +94,19 @@ export function Shell({ children }: { children: ReactNode }) {
             )}
           >
             {fullBleed ? null : <NetworkBanner />}
-            {children}
+            <div
+              data-frozen={frozen || undefined}
+              className={cx(
+                'transition-[opacity,filter] duration-base data-[frozen]:opacity-70 data-[frozen]:saturate-50',
+                fullBleed && 'h-full',
+              )}
+            >
+              {children}
+            </div>
           </main>
         </div>
       </div>
-      <CommandPalette
-        open={palette}
-        onClose={() => setPalette(false)}
-        onShortcuts={() => setKeys(true)}
-      />
+      {palette ? <CommandPalette open onClose={() => setPalette(false)} onShortcuts={() => setKeys(true)} /> : null}
       <ShortcutsSheet open={keys} onClose={() => setKeys(false)} />
     </ToastProvider>
   );

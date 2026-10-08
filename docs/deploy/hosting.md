@@ -169,7 +169,7 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `DATABASE_STATEMENT_TIMEOUT_MS` | no | default `5000`: a query made while answering a phone is cancelled after 5 s ([Database time limits](#database-time-limits)). `0` = no limit |
 | `DATABASE_JOB_STATEMENT_TIMEOUT_MS` | no | default `120000`: the limit for jobs, sweeps and outbox deliveries (their transactions may stay open as long). `0` = no limit |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
-| `TIMERS_SWEEPER` | no | `off` (default) or `on`: a sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. `TIMERS_SWEEP_MS` default 5000 |
+| `TIMERS_SWEEPER` | no | `on` (toml); unset = `off`. A sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. Today it holds dispatch's far-ahead timers (a booked ride's evening offer, deadline, reminder and T−30 search; a departure's start and low-fill check), each due a minute after its Redis job and marked fired when that job ran. `TIMERS_SWEEP_MS` default 5000 |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
@@ -182,7 +182,7 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
 | `CORS_ORIGINS` | no | once the web domains exist: `https://app.<domain>,https://console.<domain>` |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
-| `OTP_RATE_LIMIT_PER_IP_HOUR`, `OTP_RATE_LIMIT_PER_DEVICE_HOUR` | no | defaults 10 / 5 |
+| `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |
 | `CALL_PROXY_NUMBER` | no | the platform number for masked calls (unset: calling is off) |
 | `LOG_FORMAT`, `LOG_LEVEL` | no | `json` (toml); `LOG_LEVEL=debug` temporarily for more |
 | `SENTRY_DSN` | yes-ish | optional error reporting (below) |

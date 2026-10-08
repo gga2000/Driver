@@ -4,6 +4,10 @@ import type { FetchLike } from '../../shared/messaging/http.js';
 import { HttpSmsProvider, httpSmsConfigFromEnv } from '../../shared/messaging/sms.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpService } from './otp.service.js';
+import { OtpGuard, RecordingOtpAlerts } from './rate-limit.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+
+const guard = () => new OtpGuard(new InMemoryWindowCounter(new FakeClock()), new RecordingOtpAlerts());
 
 /** OTP codes go out through the shared SmsPort; gateway failures become Arabic error codes. */
 describe('OTP over the SMS port', () => {
@@ -19,7 +23,7 @@ describe('OTP over the SMS port', () => {
 
   it('sends the code through the configured HTTP gateway', async () => {
     const { sms, sent } = gateway(200);
-    const otp = new OtpService(new InMemoryIdentityRepository(), sms, new FakeClock(), 'pepper');
+    const otp = new OtpService(new InMemoryIdentityRepository(), sms, new FakeClock(), 'pepper', guard());
     await otp.request('+9647701234567', 'hash-1', 'login');
     expect(sent).toHaveLength(1);
     const body = JSON.parse(sent[0]!.body) as { to: string; text: string; sender: string };
@@ -30,8 +34,8 @@ describe('OTP over the SMS port', () => {
 
   it('a failing gateway is sms_send_failed; an unset one is sms_not_configured', async () => {
     const { sms } = gateway(503);
-    await expect(new OtpService(new InMemoryIdentityRepository(), sms, new FakeClock(), 'p').request('+9647701234567', 'h', 'login')).rejects.toMatchObject({ code: 'sms_send_failed' });
+    await expect(new OtpService(new InMemoryIdentityRepository(), sms, new FakeClock(), 'p', guard()).request('+9647701234567', 'h', 'login')).rejects.toMatchObject({ code: 'sms_send_failed' });
     const unset = new HttpSmsProvider(httpSmsConfigFromEnv({}));
-    await expect(new OtpService(new InMemoryIdentityRepository(), unset, new FakeClock(), 'p').request('+9647701234567', 'h', 'login')).rejects.toMatchObject({ code: 'sms_not_configured' });
+    await expect(new OtpService(new InMemoryIdentityRepository(), unset, new FakeClock(), 'p', guard()).request('+9647701234567', 'h', 'login')).rejects.toMatchObject({ code: 'sms_not_configured' });
   });
 });

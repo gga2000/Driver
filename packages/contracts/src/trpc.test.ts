@@ -56,3 +56,43 @@ describe('procedures map DriverError to its HTTP status (tRPC v11 returns result
     expect(getHTTPStatusCodeFromError(await failure(caller.boom()))).toBe(500);
   });
 });
+
+describe('role gate reads roles once per request (CON-21)', () => {
+  const gated = router({
+    a: protectedProcedure(['dispatcher', 'support', 'admin']).query(() => 'a'),
+    b: protectedProcedure(['finance', 'admin']).query(() => 'b'),
+    c: protectedProcedure(['finance']).query(() => 'c'),
+  });
+  const make = (roles: string[]) => {
+    let reads = 0;
+    const identity = {
+      hasRole: async () => {
+        throw new Error('the gate should use activeRoles');
+      },
+      activeRoles: async () => {
+        reads += 1;
+        return roles;
+      },
+    };
+    return { identity, reads: () => reads };
+  };
+
+  it('a batch of calls in one request costs one roles read, and a missing role is still refused', async () => {
+    const id = make(['admin']);
+    const caller = t.createCallerFactory(gated)({ auth: { sub: 'p1', sid: 's1' }, authError: null, identity: id.identity } as unknown as AppContext);
+    await expect(Promise.all([caller.a(), caller.b(), caller.a()])).resolves.toEqual(['a', 'b', 'a']);
+    expect(id.reads()).toBe(1);
+    expect(getHTTPStatusCodeFromError(await failure(caller.c()))).toBe(403);
+    expect(id.reads()).toBe(1);
+  });
+
+  it('the next request reads again, so a revoked role stops working at once', async () => {
+    const roles = ['finance'];
+    const id = make(roles);
+    const request = () => t.createCallerFactory(gated)({ auth: { sub: 'p1', sid: 's1' }, authError: null, identity: id.identity } as unknown as AppContext);
+    await expect(request().c()).resolves.toBe('c');
+    roles.length = 0;
+    expect(getHTTPStatusCodeFromError(await failure(request().c()))).toBe(403);
+    expect(id.reads()).toBe(2);
+  });
+});

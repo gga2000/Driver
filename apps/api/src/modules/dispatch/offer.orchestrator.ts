@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   bookedFallbackCompensationIqd,
@@ -23,6 +23,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
+import type { TimerStore, TimerSweeper } from '../../shared/timers/index.js';
 import { ConfigService } from '../config/index.js';
 import { MONEY_RULES } from '../ledger/index.js';
 import { vehicleFits } from '../trips/index.js';
@@ -69,7 +70,22 @@ export interface TimerJob {
   epoch: number;
   /** Wave or pass the timer belongs to. */
   step: number;
+  /** Also written to the durable timer table (`bindDurableTimers`): marked fired there once it ran. */
+  durable?: true;
+  /** Durable timers only: who to name when the request itself is gone (`dispatch.needs_dispatcher`, `request_lost`). */
+  cityId?: string;
+  vertical?: Vertical;
+  orderId?: string;
 }
+
+/**
+ * Timers due this far ahead (rides booked for later, scheduled departures) also get a row in
+ * `scheduled_timers`, so losing their Redis job (a restart, a wiped Redis) only delays them; short wave
+ * timers stay Redis-only (they are many, and a lost one is caught by the next wave or the dispatcher).
+ */
+export const DURABLE_TIMER_MIN_DELAY_MS = 5 * 60_000;
+/** The durable copy is due this long after the Redis job, so it fires only when that job did not run. */
+export const DURABLE_TIMER_GRACE_MS = 60_000;
 
 export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
 
@@ -147,10 +163,14 @@ export interface BookedRideInfo {
  */
 @Injectable()
 export class OfferOrchestrator {
+  private readonly logger = new Logger(OfferOrchestrator.name);
+
   private readonly ranker: DriverRanker;
 
   /** Ride step 3: the rider's avoid list, favourites and drivers' standing (bound by ride habits). */
   private riders: RiderPrefsPort | null = null;
+
+  private timers: TimerStore | null = null;
   private readonly rules: MoneyRules;
 
   constructor(
@@ -174,7 +194,22 @@ export class OfferOrchestrator {
   ) {
     this.ranker = ranker ?? new DriverRanker();
     this.rules = rules ?? AZIZIYAH_MONEY_RULES;
-    this.queue.process(async (job) => this.onTimer(job.data));
+    this.queue.process(async (job) => {
+      await this.onTimer(job.data);
+      // Ran on time: its durable copy must not run again (it only waits for a lost Redis job).
+      if (job.data.durable && this.timers) await this.timers.markFired(DISPATCH_QUEUE_NAME, job.id, this.clock.now());
+    });
+  }
+
+  /**
+   * NTF-05: far-ahead timers (the T−30 `broadcast_start` of a ride booked for later, its offer and
+   * reminder timers, a departure's start and low-fill check) are also kept in the durable timer table,
+   * and the timer sweeper fires them through `onTimer` when their Redis job was lost. Every handler
+   * checks the request's state and epoch, so a late or second run changes nothing.
+   */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers = store;
+    sweeper?.register<TimerJob>(DISPATCH_QUEUE_NAME, (job) => this.onTimer(job.data, 'sweeper'));
   }
 
   /** The ride-habits module binds the rider's preferences at start-up (it imports this module). */
@@ -681,17 +716,17 @@ export class OfferOrchestrator {
           return;
         }
         r.status = 'assigned';
-        await this.store.retireRequest(r);
+        await this.retire(r);
         await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats, lowFillRefused: true });
         return;
       }
       r.status = 'cancelled';
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.low_fill_cancelled', r, { departureId: r.departureId, seats, minSeats: cfg.minSeatsByTMinus30 });
       return;
     }
     r.status = 'assigned';
-    await this.store.retireRequest(r);
+    await this.retire(r);
     await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats });
   }
 
@@ -1263,7 +1298,7 @@ export class OfferOrchestrator {
       r.status = 'cancelled';
       r.epoch += 1;
       r.nextTimerAt = null;
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.cancelled', r, { freeCancel: r.customerMayCancelFree }, actorId);
       if (holder && r.booked) await this.emit('dispatch.booked_cancelled', r, { orderId: r.booked.orderId, driverId: holder, scheduledFor: new Date(r.booked.scheduledFor).toISOString() }, actorId);
     });
@@ -1285,7 +1320,7 @@ export class OfferOrchestrator {
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
-    await this.store.retireRequest(r);
+    await this.retire(r);
   }
 
   async board(cityId: string): Promise<DispatchBoard> {
@@ -1412,9 +1447,18 @@ export class OfferOrchestrator {
 
   // ───────────────────────── timers ─────────────────────────
 
-  async onTimer(job: TimerJob): Promise<void> {
+  /** `from`: the Redis job, or its durable copy run by the timer sweeper because the job was lost. */
+  async onTimer(job: TimerJob, from: 'queue' | 'sweeper' = 'queue'): Promise<void> {
     const r = await this.store.getRequest(job.tripId);
-    if (!r || r.epoch !== job.epoch) return;
+    if (!r) {
+      // The durable copy runs only when its Redis job was lost, and a finished or cancelled ride
+      // settles its copies (`retire`): so a copy that finds no request means Redis lost the request
+      // too. Nobody would look for a driver; a dispatcher must (review of NTF-05). A Redis job that
+      // finds none is a ride retired long ago (its record expires after a day): nothing to do.
+      if (from === 'sweeper') await this.onRequestLost(job);
+      return;
+    }
+    if (r.epoch !== job.epoch) return;
     await this.uow.run(async () => {
       switch (job.kind) {
         case 'wave_end':
@@ -1459,6 +1503,30 @@ export class OfferOrchestrator {
     });
   }
 
+  /** Off the board (finished, cancelled, assigned for good); its far-ahead timers will never be needed. */
+  private async retire(r: DispatchRequest): Promise<void> {
+    await this.store.retireRequest(r);
+    if (this.timers) await this.timers.settlePending(DISPATCH_QUEUE_NAME, `${r.tripId}.`, this.clock.now(), this.uow.current());
+  }
+
+  private async onRequestLost(job: TimerJob): Promise<void> {
+    this.logger.error(`dispatch request ${job.tripId} is gone (its ${job.kind} timer ran): a dispatcher must take it`);
+    await this.uow.run((tx) =>
+      this.events.emit(
+        tx,
+        {
+          actorId: SYSTEM,
+          type: 'dispatch.needs_dispatcher',
+          occurredAt: this.clock.now(),
+          tripId: job.tripId,
+          payload: { cityId: job.cityId ?? null, vertical: job.vertical ?? null, reason: 'request_lost', timer: job.kind, ...(job.orderId ? { orderId: job.orderId } : {}) },
+          idempotencyKey: `dispatch.request_lost.${job.tripId}.${job.epoch}`,
+        },
+        { name: 'trip', id: job.tripId },
+      ),
+    );
+  }
+
   // ───────────────────────── helpers ─────────────────────────
 
   private now(): number {
@@ -1467,7 +1535,15 @@ export class OfferOrchestrator {
 
   private async schedule(kind: TimerKind, r: DispatchRequest, atMs: number, step: number): Promise<void> {
     // BullMQ custom ids may not contain ':'.
-    await this.queue.add(kind, { kind, tripId: r.tripId, epoch: r.epoch, step }, { delayMs: Math.max(0, atMs - this.now()), jobId: `${r.tripId}.${kind}.${r.epoch}.${step}` });
+    const jobId = `${r.tripId}.${kind}.${r.epoch}.${step}`;
+    const delayMs = Math.max(0, atMs - this.now());
+    const data: TimerJob = { kind, tripId: r.tripId, epoch: r.epoch, step };
+    if (this.timers && delayMs >= DURABLE_TIMER_MIN_DELAY_MS) {
+      Object.assign(data, { durable: true, cityId: r.cityId, vertical: r.vertical, ...(r.orderId ? { orderId: r.orderId } : {}) });
+      // Same transaction as the request it belongs to: rolled back together.
+      await this.timers.schedule({ queue: DISPATCH_QUEUE_NAME, name: kind, jobId, data, dueAt: new Date(atMs + DURABLE_TIMER_GRACE_MS) }, this.uow.current());
+    }
+    await this.queue.add(kind, data, { delayMs, jobId });
   }
 
   /** Tuktuks never get edge-zone jobs (pickup or drop-off) unless they opted in. */
