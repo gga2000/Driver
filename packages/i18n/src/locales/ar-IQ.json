@@ -8069,5 +8069,18 @@
   "datasaver.slow_hint_auto": "النت ضعيف هسة، فخلّينا التطبيق خفيف: صور أقل وخريطة أبسط",
   "datasaver.slow_keep": "خلّيه دائماً",
   "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",
-  "datasaver.slow_turn_on": "خلّيه خفيف"
+  "datasaver.slow_turn_on": "خلّيه خفيف",
+  "partner.ic_seats_left_none": "السيارة كاملة",
+  "partner.ic_seats_left_one": "باقي مقعد واحد",
+  "partner.ic_seats_left_two": "باقي مقعدين",
+  "partner.ic_seats_left_few": "باقي {n} مقاعد",
+  "partner.ic_seat_you": "إنت",
+  "partner.ic_code_cta": "دخّل رمز صعود",
+  "partner.ic_code_count": "{n} من {total}",
+  "partner.ic_code_ok": "الرمز صح · {time}",
+  "partner.ic_code_next": "الراكب الجاي",
+  "partner.ic_code_done": "تمام، كلهم صعدوا",
+  "partner.ic_code_wrong": "هذا الرمز مو لراكب بهالطلعة. باوع على تذكرته",
+  "partner.ic_aboard_title": "منو بالسيارة",
+  "partner.ic_aboard_count": "{n} بالسيارة"
 }
