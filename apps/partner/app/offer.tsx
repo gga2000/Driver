@@ -61,7 +61,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const answered = useRef(false);
   const ride = isRide(offer.vertical);
   const service = serviceOf(offer.vertical);
-  const color = partnerServices.sun[service];
+  const color = partnerServices[theme.scheme === 'dark' ? 'ember' : 'sun'][service];
   const cargo = cargoLine(offer.rideCargo ?? [], t);
   const [now, setNow] = useState(() => Date.now());
   const left = secondsLeft(offer.expiresAt, now);

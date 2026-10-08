@@ -92,6 +92,8 @@ export default async function run(s) {
   await c.goto('/account');
   await c.wait('account-tab');
   await c.shot('tab-account');
+  await c.page.locator('[data-testid="appearance"]').scrollIntoViewIfNeeded();
+  await c.shot('account-appearance', { settle: 600 });
   await c.close();
 
   // Tuktuk: a ride broadcast reaches him in wave 1.
