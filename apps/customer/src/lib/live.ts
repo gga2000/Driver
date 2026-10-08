@@ -1,7 +1,7 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
-import type { LiveEvent, LiveKey } from '@driver/contracts';
+import { LIVE_RULES, type LiveEvent, type LiveKey } from '@driver/contracts';
 import { getNetwork } from '@driver/ui';
 import {
   createLiveConnection,
@@ -146,9 +146,22 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
       onAuthError: () => tokens?.clear(),
     });
     conn.start();
-    // Back in the foreground (or the network is back): retry now instead of waiting out the backoff.
+    // In the background the stream closes after a short grace (no battery or data spent on a screen
+    // nobody sees, CORE-09); back in the foreground it reopens and resyncs, or retries now instead of
+    // waiting out the backoff.
+    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
     const appState = AppState.addEventListener('change', (s) => {
-      if (s === 'active') conn.reconnectNow();
+      if (s === 'active') {
+        if (backgroundTimer) clearTimeout(backgroundTimer);
+        backgroundTimer = null;
+        if (conn.mode() === 'stopped') conn.start();
+        else conn.reconnectNow();
+      } else if (s === 'background' && !backgroundTimer) {
+        backgroundTimer = setTimeout(() => {
+          backgroundTimer = null;
+          conn.stop();
+        }, LIVE_RULES.backgroundCloseMs);
+      }
     });
     const net = getNetwork();
     let reachable = net.getSnapshot().state === 'online';
@@ -159,6 +172,7 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
     });
     return () => {
       appState.remove();
+      if (backgroundTimer) clearTimeout(backgroundTimer);
       offNet();
       conn.stop();
       if (timer) clearTimeout(timer);

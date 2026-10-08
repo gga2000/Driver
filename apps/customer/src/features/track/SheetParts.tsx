@@ -5,6 +5,7 @@ import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking
 import { formatRange, type MessageKey } from '@driver/i18n';
 import {
   Avatar,
+  CallSoonIcon,
   Chip,
   DepartureTime,
   DriverChip,
@@ -29,6 +30,7 @@ import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 import { apiPhoto } from '@/lib/photo';
 import { DriverHero } from '@/features/ride/DriverParts';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 // ───────────────────────── collapsed header ─────────────────────────
 
@@ -248,7 +250,7 @@ export function CourierCard({
           testID="chat-courier"
         />
       ) : null}
-      {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
+      {canChat ? CALLS_LIVE ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : <CallSoonIcon locale={locale} onPress={onCall} testID="call-courier" /> : null}
       <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
     </>
   );
@@ -472,6 +474,7 @@ export function CourierFloat({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null);
   const onTrip = ride && mode === 'trip';
@@ -526,7 +529,7 @@ export function CourierFloat({
           ) : canChat ? (
             <>
               {chat}
-              <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" />
+              {CALLS_LIVE ? <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" /> : <CallSoonIcon locale={locale} onPress={onCall} testID="float-call" />}
             </>
           ) : null
         }

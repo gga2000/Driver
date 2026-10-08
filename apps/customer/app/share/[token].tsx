@@ -4,11 +4,12 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MessageKey } from '@driver/i18n';
 import type { SharedTrip, VehicleClass } from '@driver/contracts';
-import { Avatar, EmptyState, formatClock, Icon, ltr, SketchScene, Skeleton, StatusPill, Text, useTheme, type IconName, type StatusTone } from '@driver/ui';
+import { Avatar, EmptyState, formatClock, Icon, ltr, RetryState, retryKindFor, SketchScene, Skeleton, StaleNote, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, type IconName, type StatusTone } from '@driver/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { useSharedTrip } from '@/features/share/queries';
 import { ShareMap } from '@/features/share/ShareMap';
-import { apiErrorCode, apiErrorMessage } from '@/lib/api';
+import { apiErrorMessage } from '@/lib/api';
+import { publicPageFailure } from '@/lib/errors';
 import { useLocale, useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 
@@ -42,9 +43,13 @@ export default function SharePage() {
     return () => clearInterval(id);
   }, []);
 
+  const net = useNetwork();
+  const [slow, restartSlow] = useLoadTimeout(q.isPending);
   const trip = q.data;
-  if (q.isError || (trip && trip.status === 'ended')) {
-    const invalid = apiErrorCode(q.error) === 'share_link_invalid';
+  // "Ended" only on the server's word (audit FLOW-07): a failed poll keeps the live view, marked as old.
+  const failure = q.isError ? publicPageFailure(q.error) : null;
+  if (failure === 'invalid' || failure === 'final' || (trip && trip.status === 'ended')) {
+    const invalid = failure === 'invalid';
     // l8: a link that ran out after a safe arrival says so — the family's last view is reassurance.
     const safe = trip && trip.endedReason === 'expired' && trip.arrivedAt ? trip.arrivedAt : null;
     const title = safe
@@ -91,7 +96,18 @@ export default function SharePage() {
         style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}
         contentContainerStyle={{ width: '100%', maxWidth: 560, alignSelf: 'center', padding: theme.space[5], paddingBottom: theme.space[10] + insets.bottom, gap: theme.space[5] }}
       >
-        {!trip || !status ? (
+        {failure === 'transient' && trip ? <StaleNote updatedAt={q.dataUpdatedAt} force locale={locale} testID="share-stale" /> : null}
+        {(!trip || !status) && (failure === 'transient' || slow) ? (
+          <RetryState
+            kind={retryKindFor({ net, error: q.isError ? q.error : undefined, slow: !q.isError })}
+            locale={locale}
+            testID="share-retry"
+            onRetry={() => {
+              restartSlow();
+              void q.refetch();
+            }}
+          />
+        ) : !trip || !status ? (
           <View style={{ gap: theme.space[3] }}>
             <Skeleton width={120} height={22} />
             <Skeleton width="70%" height={28} />

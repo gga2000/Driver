@@ -6,13 +6,12 @@ import Svg, { G } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
 import {
   Button,
-  Card,
   Chip,
   DishDrawing,
   EmptyState,
   Icon,
+  QueryBoundary,
   Text,
-  useLoadTimeout,
   useTheme,
 } from '@driver/ui';
 import { Screen } from '@/components/Screen';
@@ -44,7 +43,7 @@ import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { UnmetAsk } from '@/features/search/UnmetAsk';
 import { appNow } from '@/lib/dev-clock';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { useSeason } from '@/lib/use-season';
 
 const ART = 112;
@@ -64,12 +63,12 @@ const ART = 112;
 export default function DoorScreen() {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const say = useDoorFactText();
   const params = useLocalSearchParams<{ door?: string }>();
   const door = isFoodDoor(params.door) ? params.door : 'meal';
   const s = doorSwatch(theme, door);
   const restaurants = useRestaurants();
-  const [slow, restartSlow] = useLoadTimeout(restaurants.isPending);
   const [refreshing, setRefreshing] = useState(false);
   const [cuisine, setCuisine] = useState<string | null>(null);
   const [craving, setCraving] = useState<string | null>(null);
@@ -87,20 +86,18 @@ export default function DoorScreen() {
     () => (tools && cuisine ? shops.open.filter((r) => r.tags.includes(cuisine)) : shops.open),
     [shops.open, tools, cuisine],
   );
-  const row = useMemo(() => cravingRow(kinds, cravings.data ?? [], list ?? [], door), [kinds, cravings.data, list, door]);
+  // The pictures row and «قهوتك المعتادة» are extras: a failed read hides them (react-query retries on its
+  // own); the shops below are the way to choose and carry their own retry.
+  const row = useMemo(() => cravingRow(kinds, cravings.isError ? [] : (cravings.data ?? []), list ?? [], door), [kinds, cravings.isError, cravings.data, list, door]);
   const chosen = row.find((c) => c.kind.key === craving) ?? null;
   const dishPicks = useMemo(() => (chosen ? cravingPicks(chosen, shops.open) : []), [chosen, shops.open]);
   const picks = useMemo(() => (chosen ? dishPicks : showBest(open.length) ? bestThree(open) : []), [chosen, dishPicks, open]);
   const rest = open.filter((r) => !picks.some((p) => p.shop.id === r.id));
-  const usual = door === 'cafe' ? usualOrder(history.data ?? [], list ?? [], door, me) : null;
+  const usual = door === 'cafe' && !history.isError ? usualOrder(history.data ?? [], list ?? [], door, me) : null;
   const cold = door === 'cold';
   const chosenName = chosen ? t(`food.craving.${chosen.kind.key}` as Key) : '';
   const fact = list ? say(doorFact(list, door)) : null;
   const name = t(`food.door.${door}`);
-  const retry = () => {
-    restartSlow();
-    void restaurants.refetch();
-  };
   const refresh = async () => {
     setRefreshing(true);
     await restaurants.refetch();
@@ -174,23 +171,23 @@ export default function DoorScreen() {
         </View>
       </View>
 
-      {restaurants.isPending && !slow ? (
-        <View style={{ gap: theme.space[3] }} accessibilityLabel={t('status.loading')}>
-          <RestaurantRowSkeleton />
-          <RestaurantRowSkeleton />
-          <RestaurantRowSkeleton />
-        </View>
-      ) : !list ? (
-        <Card lift padding={4}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-            <Icon name="x" size={20} color="dangerText" />
-            <Text variant="label" style={{ flex: 1 }}>
-              {t('home.load_failed')}
-            </Text>
-            <Button size="sm" variant="secondary" label={t('action.retry')} onPress={retry} />
+      {/* W8: no network, a slow answer or a server failure each say so in plain words with a retry; a list
+          already on the phone stays, with a line saying when it was fetched. */}
+      <QueryBoundary
+        query={restaurants}
+        size="inline"
+        locale={locale}
+        testID="door-shops-state"
+        style={{ gap: theme.space[6] }}
+        skeleton={
+          <View style={{ gap: theme.space[3] }}>
+            <RestaurantRowSkeleton />
+            <RestaurantRowSkeleton />
+            <RestaurantRowSkeleton />
           </View>
-        </Card>
-      ) : shops.open.length + shops.closed.length + shops.melted.length === 0 ? (
+        }
+      >
+        {() => (shops.open.length + shops.closed.length + shops.melted.length === 0 ? (
         <View style={{ gap: theme.space[4] }}>
           <EmptyState icon="bag" title={t('food.empty_door')} body={t('food.empty_door_hint')} />
           <UnmetAsk query={name} />
@@ -313,7 +310,8 @@ export default function DoorScreen() {
             </View>
           ) : null}
         </>
-      )}
+      ))}
+      </QueryBoundary>
       {tray ? <TraySheet mode={tray} shops={shops.open} visible onClose={() => setTray(null)} /> : null}
       {reorder.sheet}
     </Screen>

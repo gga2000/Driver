@@ -179,6 +179,8 @@ export class TrpcService {
       requestIdMiddleware,
       createExpressMiddleware({
         router: appRouter,
+        // A query whose input is too long for a URL (a big basket with notes) may come as POST (FOOD-18).
+        allowMethodOverride: true,
         createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
