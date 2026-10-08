@@ -14,6 +14,7 @@ import {
   ChipGroup,
   CountdownButton,
   CountdownRing,
+  HoldButton,
   DepartureTime,
   EmptyState,
   formatAmount,
@@ -973,6 +974,8 @@ function ConfirmSection() {
     <Section title="التأكيد" note="القبول ضغطة وحدة والوقت يخلص جوه الزر. استلمت وسلّمت سحب للآخر (بالعربي من اليمين لليسار)؛ إذا الحركة مخففة يصير ضغط وتثبيت. الشيت نافذة مقفولة: الرجوع وEscape والخلفية تسكّرها.">
       <Panel gap={4}>
         <CountdownButton key={start} label={t('partner.accept')} startedAt={start} durationMs={15_000} onPress={() => done(t('partner.offer_accepted'))} onExpire={() => setTimeout(() => setStart(Date.now()), 1500)} />
+        <HoldButton label={t('partner.slip_hold')} holdHint={t('partner.slip_hold_hint')} confirmLabel={t('partner.slip_confirm')} trailing="12" onConfirm={() => done(t('partner.offer_accepted'))} testID="gallery-hold-button" />
+        <HoldButton label={t('partner.slip_hold')} holdHint={t('partner.slip_hold_hint')} confirmLabel={t('partner.slip_confirm')} screenReader onConfirm={() => done(t('partner.offer_accepted'))} testID="gallery-hold-button-reader" />
         <SlideToConfirm label={t('partner.action_picked_up')} onConfirm={() => done(t('partner.action_picked_up'))} mode="slide" testID="gallery-slide" />
         <SlideToConfirm label={t('partner.ic_depart_cta')} onConfirm={() => done(t('partner.ic_depart_cta'))} mode="hold" testID="gallery-hold" />
         <Button label="افتح الشيت" variant="secondary" onPress={() => setSheet(true)} />

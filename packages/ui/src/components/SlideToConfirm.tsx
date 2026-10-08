@@ -22,7 +22,8 @@ import { withAlpha } from '../theme/color';
 import { useTheme, type HapticKind } from '../theme/ThemeProvider';
 import { Text } from './Text';
 
-export type SlideTone = 'accent' | 'danger';
+/** `quiet`: a cream track with an ink thumb, for ending something calmly (the Partner app's «اسحب حتى توقف»). */
+export type SlideTone = 'accent' | 'danger' | 'quiet';
 
 export interface SlideToConfirmProps {
   /** What sliding does, said as the action: "استلمت الطلب", "انتهت الرحلة". */
@@ -93,8 +94,9 @@ export function SlideToConfirm({
   const done = useRef(false);
   const inactive = disabled || loading || confirmed;
 
-  const bg = tone === 'danger' ? theme.colors.danger : theme.colors.accent;
-  const fg = tone === 'danger' ? 'onDanger' : 'onAccent';
+  const quiet = tone === 'quiet';
+  const bg = tone === 'danger' ? theme.colors.danger : quiet ? theme.colors.surface : theme.colors.accent;
+  const fg = tone === 'danger' ? 'onDanger' : quiet ? 'text' : 'onAccent';
 
   const reset = useCallback(() => {
     done.current = false;
@@ -216,6 +218,7 @@ export function SlideToConfirm({
         height: SLIDE_TRACK_HEIGHT,
         borderRadius: theme.radius.pill,
         backgroundColor: bg,
+        ...(quiet ? { borderWidth: 2, borderColor: theme.colors.borderStrong } : null),
         justifyContent: 'center',
         overflow: 'hidden',
         opacity: disabled ? theme.state.disabledOpacity : 1,
@@ -243,7 +246,7 @@ export function SlideToConfirm({
               width: SLIDE_THUMB_SIZE,
               height: SLIDE_THUMB_SIZE,
               borderRadius: SLIDE_THUMB_SIZE / 2,
-              backgroundColor: theme.colors.surface,
+              backgroundColor: quiet ? theme.colors.text : theme.colors.surface,
               alignItems: 'center',
               justifyContent: 'center',
               shadowColor: theme.colors.shadow,
@@ -257,12 +260,12 @@ export function SlideToConfirm({
         >
           {loading || confirmed ? (
             loading ? (
-              <ActivityIndicator color={bg} />
+              <ActivityIndicator color={quiet ? theme.colors.bg : bg} />
             ) : (
-              <Icon name="check" size={28} color={tone === 'danger' ? 'dangerText' : 'accentText'} strokeWidth={2.6} />
+              <Icon name="check" size={28} color={tone === 'danger' ? 'dangerText' : quiet ? 'bg' : 'accentText'} strokeWidth={2.6} />
             )
           ) : (
-            <Icon name={icon} size={28} color="text" strokeWidth={2.4} />
+            <Icon name={icon} size={28} color={quiet ? 'bg' : 'text'} strokeWidth={2.4} />
           )}
         </Animated.View>
       ) : loading ? (

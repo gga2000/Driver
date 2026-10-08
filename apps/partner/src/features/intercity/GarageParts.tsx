@@ -1,6 +1,7 @@
 import { Pressable, View, useWindowDimensions } from 'react-native';
 import type { DriverDepartureView, IntercitySeatId, IntercitySeatLayout, TravellingAs } from '@driver/contracts';
 import { Button, Chip, Icon, ModalSheet, SEAT_ROWS, StatusPill, Text, useTheme, type IconName, type Theme } from '@driver/ui';
+import { CALLS_LIVE } from '@/features/chat/calls';
 import { useT, type TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { statusTone, PinPad } from './DepartureParts';
@@ -284,10 +285,10 @@ export function RiderSheet({
                 </Text>
               ) : null}
             </View>
-            <Button testID="rider-call" label={t('partner.gm_call_rider', { name })} icon="phone" variant="secondary" size="lg" fullWidth loading={calling} onPress={onCall} />
+            <Button testID="rider-call" label={CALLS_LIVE ? t('partner.gm_call_rider', { name }) : `${t('partner.gm_call_rider', { name })} · ${t('soon.badge')}`} icon="phone" variant={CALLS_LIVE ? 'secondary' : 'ghost'} size="lg" fullWidth loading={calling} onPress={onCall} style={CALLS_LIVE ? undefined : { opacity: 0.6 }} />
           </View>
         ) : b.state === 'booked' ? (
-          <Button testID="rider-call" label={t('partner.gm_call_rider', { name })} icon="phone" variant="ghost" size="sm" loading={calling} onPress={onCall} style={{ alignSelf: 'flex-start' }} />
+          <Button testID="rider-call" label={CALLS_LIVE ? t('partner.gm_call_rider', { name }) : `${t('partner.gm_call_rider', { name })} · ${t('soon.badge')}`} icon="phone" variant="ghost" size="sm" loading={calling} onPress={onCall} style={{ alignSelf: 'flex-start', opacity: CALLS_LIVE ? 1 : 0.6 }} />
         ) : null}
         {doorPending ? (
           <View style={{ gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>

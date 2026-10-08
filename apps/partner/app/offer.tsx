@@ -2,34 +2,38 @@ import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerOffer } from '@driver/contracts';
-import { CountdownButton, Icon, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { partnerServices } from '@driver/design-tokens';
+import { HoldButton, Icon, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
-import { cargoLine, isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, offerWarnTick, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
-import { offerDetailsOpen, offerLayout, offerSummary } from '@/features/work/offer-layout';
-import { PayLines, PrepPill, RouteNodes } from '@/features/work/OfferParts';
+import { arrivedTooLate, batchMinutes, riderTripsKey, serviceOf, SLIP_URGENT_S, speakText, timeShare } from '@/features/offer/slip';
+import { KitchenTime, PayChips, SERVICE_ICON, SlipBand, SlipNote, TimeBar } from '@/features/offer/SlipParts';
+import { speakOffer, stopSpeaking } from '@/features/offer/speak';
+import { cargoLine, isRide, KIND_KEY, km, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
+import { offerLayout, offerSummary } from '@/features/work/offer-layout';
+import { RouteNodes } from '@/features/work/OfferParts';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
-import { playNudgeChime, startOfferAlert, stopOfferAlert } from '@/lib/alert';
+import { OFFER_REPEAT_MS, playNudgeChime, startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 /**
- * The 2-second offer card (partner S-1, P-03, P-04): judged at a glance, answered with one thumb.
- * Top to bottom: the map (shrinks on short phones), a small "مو هسة" decline in the top-left corner,
- * far from a right thumb; the pay, huge; one line of total km and minutes with the cash to collect;
- * pickup → drop-off; the pay components folded under "تفاصيل الأجرة"; and a full-width accept whose
- * fill is the time left (15 s food / 20 s rides, from the server's deadline). The whole offer fits a
- * 360×740 phone without scrolling. Seen after 3 s in the foreground (`dispatch.offerSeen`); the
- * answer goes through `dispatch.respond`, the only accept path.
+ * The order slip (partner redesign o1–o15, S-1): judged at a glance, answered with one thumb. A small
+ * map on top; then the slip in the service's colour (food saffron, taxi yellow, tuktuk plum, trips
+ * brown and gold) with the cash to collect as a dark chip and the time left as a bar; the money huge
+ * with its named parts as chips; the kitchen's time; one-line notes (second order on the way, the
+ * rider's nudge, AC on a hot day, cargo); both stops with a landmark; and at the bottom, under the
+ * right thumb, «ثبّت حتى تقبل» — held half a second, so a bump can't accept — with «مو هسة» beside it.
+ * The order is read aloud after the first ring (o4). Seen after 3 s in the foreground
+ * (`dispatch.offerSeen`); the answer goes through `dispatch.respond`, the only accept path.
  */
 export default function OfferScreen() {
   const status = useStatus();
   const offerQ = useCurrentOffer(true);
-  // Keep the card on screen through the refetch that follows our answer.
+  // Keep the slip on screen through the refetch that follows our answer.
   const [held, setHeld] = useState<PartnerOffer | null>(null);
   useEffect(() => {
     if (offerQ.data) setHeld(offerQ.data);
@@ -41,7 +45,7 @@ export default function OfferScreen() {
   }, [offerQ.isFetched, offerQ.data, held]);
 
   if (!offer) return <View style={{ flex: 1 }} />;
-  return <OfferCard offer={offer} vehicle={status.data?.vehicleClass ?? 'bike'} self={status.data?.position ?? null} />;
+  return <OfferCard key={offer.offerId} offer={offer} vehicle={status.data?.vehicleClass ?? 'bike'} self={status.data?.position ?? null} />;
 }
 
 function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: keyof typeof VEHICLE_ICON; self: { lat: number; lng: number } | null }) {
@@ -56,34 +60,74 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const api = useApi();
   const answered = useRef(false);
   const ride = isRide(offer.vertical);
+  const service = serviceOf(offer.vertical);
+  const color = partnerServices.sun[service];
   const cargo = cargoLine(offer.rideCargo ?? [], t);
-  const durationMs = offer.ringSec * 1000;
-  const startedAt = offer.expiresAt.getTime() - durationMs;
-  const [left, setLeft] = useState(() => secondsLeft(offer.expiresAt, Date.now()));
+  const [now, setNow] = useState(() => Date.now());
+  const left = secondsLeft(offer.expiresAt, now);
   const { height: windowHeight } = useWindowDimensions();
 
-  // Alert (P-01): heavy haptic, then the doorbell and the vibration loop until he answers or the
-  // offer goes (silent mode included on the phone); the last 5 s add a warning haptic every second.
+  const pickupZone = zoneName(offer.pickup.zoneId, locale, t);
+  const dropoffZone = zoneName(offer.dropoff.zoneId, locale, t);
+  const pickupTitle = offer.pickup.label ?? (ride ? t('partner.offer_rider') : pickupZone);
+
+  const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  const drop = (message: string | null) => {
+    qc.setQueryData(api.partner.currentOffer.queryKey(), null);
+    void refresh();
+    if (message) toast.show({ message, tone: 'neutral' });
+    close();
+  };
+
+  // Alert (P-01, o4, o15): heavy haptic, the doorbell and the vibration loop until he answers or the
+  // offer goes; with reading on, one ring, then the order read aloud, then the doorbell again.
   useEffect(() => {
+    // l8: an offer that was over before it reached the screen is dropped — never a surprise order.
+    if (arrivedTooLate(offer.expiresAt, Date.now())) {
+      answered.current = true;
+      drop(null);
+      return;
+    }
+    // Bug b2: a message from the last offer never sits over a new one.
+    toast.hide();
     theme.haptic('heavy');
     startOfferAlert();
-    const id = setInterval(() => setLeft(secondsLeft(offer.expiresAt, Date.now())), 250);
+    const speakAt = setTimeout(() => {
+      if (answered.current) return;
+      const spoke = speakOffer(speakText(offer, pickupTitle, t, locale), locale, () => {
+        if (!answered.current) startOfferAlert();
+      });
+      if (spoke) stopOfferAlert();
+    }, OFFER_REPEAT_MS - 100);
+    const id = setInterval(() => setNow(Date.now()), 250);
     return () => {
+      clearTimeout(speakAt);
       clearInterval(id);
       stopOfferAlert();
+      stopSpeaking();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.offerId]);
-  // Ride step 3: the rider nudged this offer («راكب ينتظرك») — one soft chime when it lands, not on
-  // an offer that opened already nudged (the doorbell is ringing for it anyway).
+
+  // o11: the rider nudged this offer — its own soft chime when it lands, not on an offer that opened
+  // already nudged (the doorbell is ringing for it anyway).
   const nudged = Boolean(offer.nudgedAt);
   const wasNudged = useRef(nudged);
   useEffect(() => {
     if (nudged && !wasNudged.current && !answered.current) playNudgeChime();
     wasNudged.current = nudged;
   }, [nudged]);
+
+  // o6: a soft tick each of the last seconds; at zero the offer goes (o14: a neutral word, no score talk).
   useEffect(() => {
-    if (offerWarnTick(left) && !answered.current) theme.haptic('warning');
+    if (answered.current) return;
+    if (left > 0 && left <= SLIP_URGENT_S) theme.haptic('light');
+    if (left <= 0) {
+      answered.current = true;
+      stopOfferAlert();
+      stopSpeaking();
+      drop(t('partner.slip_gone'));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 
@@ -107,43 +151,36 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer.offerId]);
 
-  const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
-
   const answer = async (accept: boolean) => {
     if (answered.current) return;
     answered.current = true;
     stopOfferAlert();
+    stopSpeaking();
     try {
       await respond.mutateAsync({ offerId: offer.offerId, accept });
       qc.setQueryData(api.partner.currentOffer.queryKey(), null);
-      await refresh();
       if (accept) {
+        // Speed audit o3: straight to the job, which loads there (a skeleton), instead of waiting here on
+        // three refetches. The old "no job" answer is reset so the job screen never flashes "it ended".
+        void qc.resetQueries({ queryKey: api.partner.activeJob.queryKey() });
+        void refresh();
         theme.haptic('success');
         toast.show({ message: t('partner.offer_accepted'), tone: 'success', icon: 'check' });
         router.replace('/job');
       } else {
-        toast.show({ message: t('partner.offer_declined'), tone: 'neutral' });
+        void refresh();
+        toast.show({ message: t('partner.slip_gone'), tone: 'neutral' });
         close();
       }
     } catch (err) {
       const code = apiErrorCode(err);
-      const message =
-        code === 'offer_taken' ? t('partner.offer_taken') : code === 'offer_expired' ? t('partner.offer_missed') : code === 'over_cap' ? t('partner.cash_cap_reached') : apiErrorMessage(err, t('error.network'), locale);
-      toast.show({ message, tone: 'warning' });
+      // l3 / l8: someone was faster, or the time ran out on the way — said kindly, never a surprise order.
+      const message = code === 'offer_taken' ? t('partner.slip_taken') : code === 'offer_expired' ? t('partner.slip_ran_out') : code === 'over_cap' ? t('partner.cash_cap_reached') : apiErrorMessage(err, t('error.network'), locale);
+      toast.show({ message, tone: code === 'offer_taken' || code === 'offer_expired' ? 'neutral' : 'warning' });
       qc.setQueryData(api.partner.currentOffer.queryKey(), null);
       void refresh();
       close();
     }
-  };
-
-  const onExpire = () => {
-    if (answered.current) return;
-    answered.current = true;
-    stopOfferAlert();
-    toast.show({ message: t('partner.offer_missed'), tone: 'warning', icon: 'clock' });
-    qc.setQueryData(api.partner.currentOffer.queryKey(), null);
-    void refresh();
-    close();
   };
 
   const pins = useMemo<MapPin[]>(() => {
@@ -157,20 +194,131 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const road = useOfferRoute(offer.offerId);
   const column = { width: '100%' as const, maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' as const };
   const layout = offerLayout(windowHeight);
+  // The slip carries more than the old card: the map gives way first.
+  const mapHeight = Math.min(layout.mapHeight, layout.compact ? 150 : 210);
   const sum = offerSummary(offer, vehicle, ride);
-  const [details, setDetails] = useState(() => offerDetailsOpen(layout, { batch: Boolean(offer.batch), components: offer.pay.components.length }, windowHeight));
-  const pickupZone = zoneName(offer.pickup.zoneId, locale, t);
-  const dropoffZone = zoneName(offer.dropoff.zoneId, locale, t);
   const fromYou = offer.distanceToPickupKm === null ? null : sum.near ? t('partner.offer_near') : t('partner.offer_from_you', { km: km(offer.distanceToPickupKm) });
+  const extraMin = batchMinutes(offer, vehicle);
   const busy = respond.isPending;
+  const share = timeShare(offer.expiresAt, offer.ringSec, now);
+  const remainingMs = Math.max(0, offer.expiresAt.getTime() - now);
+  const near = (place: string | null) => (place ? t('partner.slip_near', { place }) : null);
 
   return (
     <View testID="offer" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-      <View style={{ height: layout.mapHeight }}>
-        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} topInset={84} bottomInset={44} maxZoom={15.4} testID="offer-map" />
-        <SafeAreaView edges={['top']} pointerEvents="box-none" style={{ position: 'absolute', top: 0, start: 0, end: 0 }}>
-          {/* Laid out physically on purpose: decline sits top-left, the far corner from a right thumb (P-03). */}
-          <View pointerEvents="box-none" style={[column, { direction: 'ltr', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingTop: theme.space[2] }]}>
+      <View style={{ height: mapHeight }}>
+        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} topInset={24} bottomInset={36} maxZoom={15.4} testID="offer-map" />
+      </View>
+
+      <View testID="slip" style={{ flex: 1, marginTop: -20, backgroundColor: theme.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden' }}>
+        <View style={column}>
+          <SlipBand
+            color={color}
+            icon={SERVICE_ICON[service]}
+            kind={t(KIND_KEY[offer.vertical])}
+            isNew={t('partner.new_offer')}
+            cash={sum.collectIqd ? t('partner.offer_cash_chip', { amount: amountParam(sum.collectIqd) }) : null}
+            prepaid={!sum.collectIqd && sum.prepaid ? t('partner.offer_prepaid_chip') : null}
+          />
+        </View>
+        <TimeBar share={share} remainingMs={remainingMs} urgent={left <= SLIP_URGENT_S} ink={color.ink} label={t('partner.slip_time_left', { seconds: Math.max(0, left) })} />
+
+        <ScrollView contentContainerStyle={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[4], paddingBottom: theme.space[3], gap: layout.compact ? theme.space[3] : theme.space[4] }]}>
+          {/* o2 · what he earns, the biggest thing, with its named parts under it */}
+          <View style={{ gap: theme.space[2] }}>
+            <Text testID="offer-pay" tabular weight={700} accessibilityLabel={`${t('partner.offer_you_earn')}: ${amountParam(offer.pay.totalIqd)} ${t('quote.currency')}`} style={{ fontSize: layout.payFontSize + 6, lineHeight: layout.payLineHeight + 6, letterSpacing: -1 }}>
+              {`${amountParam(offer.pay.totalIqd)} `}
+              <Text variant="title" weight={700} color="textMuted">
+                {t('quote.currency')}
+              </Text>
+            </Text>
+            <PayChips pay={offer.pay} />
+          </View>
+
+          {/* o7 · how far and how long in total · o9 · the kitchen's time */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {sum.totalKm !== null && sum.minutes !== null ? (
+              <Text testID="offer-summary" variant="title" weight={600} tabular style={{ flexShrink: 1 }}>
+                {t('partner.offer_summary', { km: km(sum.totalKm), minutes: sum.minutes })}
+              </Text>
+            ) : null}
+            {offer.merchant ? <KitchenTime prep={offer.merchant} /> : null}
+          </View>
+
+          {/* o13 · a second order on the way: the money and roughly the minutes it adds */}
+          {offer.batch ? (
+            <SlipNote
+              testID="offer-batch"
+              icon="plus"
+              title={t('partner.offer_batch_title', { amount: amountParam(offer.batch.extraIqd, { sign: true }) })}
+              body={extraMin ? t('partner.slip_batch_minutes', { n: extraMin }) : t('partner.offer_batch_body')}
+              bg={theme.colors.accentTint}
+              ink={theme.colors.accentText}
+            />
+          ) : null}
+          {/* Joy l9: a rider booked this ride and asked for him. */}
+          {offer.favourite ? <SlipNote testID="offer-favourite" icon="heart" title={t('partner.offer_favourite_title')} body={t('partner.offer_favourite_body')} bg={color.tint} ink={color.ink} /> : null}
+          {/* o11 · the rider nudged him: a gold line */}
+          {nudged ? <SlipNote testID="offer-nudged" icon="bell" title={t('partner.offer_nudged_title')} body={t('partner.offer_nudged_body')} bg={partnerServices.sun.taxi.tint} ink={partnerServices.sun.taxi.ink} /> : null}
+          {/* o12 · a hot (cold) day: switch the AC (heating) on before the rider gets in */}
+          {offer.climate ? (
+            <SlipNote testID="offer-climate" icon={offer.climate === 'ac' ? 'snow' : 'flame'} title={t(offer.climate === 'ac' ? 'partner.slip_climate_ac' : 'partner.slip_climate_heating')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} enter={false} />
+          ) : null}
+          {/* Ride idea x5: «عنده غراض: قنينة غاز». */}
+          {cargo ? <SlipNote testID="offer-cargo" icon="bag" title={cargo} body={t('partner.offer_cargo_hint')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} enter={false} /> : null}
+          {/* Ride ideas c9/s3: booked for someone else. */}
+          {offer.rider ? <SlipNote testID="offer-rider" icon="user" title={t('partner.offer_for_rider_title', { name: offer.rider.name })} body={t('partner.offer_for_rider_body')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} enter={false} /> : null}
+
+          {/* o7 · both stops, each with the landmark people give directions by */}
+          <RouteNodes
+            gap={layout.compact ? theme.space[3] : theme.space[4]}
+            top={
+              <View testID="offer-pickup">
+                <Text variant="title" weight={700} numberOfLines={1}>
+                  {pickupTitle}
+                </Text>
+                <Text variant="footnote" color="textMuted" numberOfLines={2} tabular>
+                  {[near(offer.pickup.landmark), t('partner.offer_pickup_zone', { place: pickupZone }), fromYou].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+            }
+            bottom={
+              <View testID="offer-dropoff">
+                <Text variant="title" weight={700} numberOfLines={1}>
+                  {ride ? dropoffZone : t('partner.offer_customer')}
+                </Text>
+                <Text variant="footnote" color="textMuted" numberOfLines={2} tabular>
+                  {[near(offer.dropoff.landmark), ride ? null : t('partner.offer_dropoff_zone', { place: dropoffZone }), offer.tripKm !== null ? t('partner.offer_trip_km', { km: km(offer.tripKm) }) : null].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+            }
+          />
+
+          {/* o10 · rides: the fare is locked, and who the rider is to us (never his name before accepting) */}
+          {ride && offer.vertical !== 'khat' ? (
+            <View testID="offer-ride-trust" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.space[2] }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, minHeight: 30, backgroundColor: theme.colors.successTint }}>
+                <Icon name="lock" size={14} color="successText" strokeWidth={2.2} />
+                <Text variant="caption" weight={700} color="successText">
+                  {t('partner.slip_fare_locked')}
+                </Text>
+              </View>
+              {offer.riderTrips !== null ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, minHeight: 30, backgroundColor: theme.colors.surfaceSunken }}>
+                  <Icon name="user" size={14} color="textMuted" strokeWidth={2} />
+                  <Text variant="caption" weight={600} color="textMuted" tabular>
+                    {t(riderTripsKey(offer.riderTrips), { n: offer.riderTrips })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </ScrollView>
+
+        {/* o3 / o5 · under the right thumb: hold to accept; «مو هسة» beside it, never in a far corner */}
+        <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+          {/* Laid out physically on purpose: accept sits on the right, where a right thumb rests. */}
+          <View style={[column, { direction: 'ltr', flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4], paddingTop: theme.space[3], paddingBottom: theme.space[4] }]}>
             <Pressable
               testID="offer-decline"
               accessibilityRole="button"
@@ -182,223 +330,34 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
               }}
               style={({ pressed }) => ({
                 direction: theme.direction,
-                flexDirection: 'row',
+                height: 72,
+                width: 96,
                 alignItems: 'center',
-                gap: 6,
-                minHeight: theme.hitTarget,
-                paddingHorizontal: theme.space[4],
-                borderRadius: theme.radius.pill,
+                justifyContent: 'center',
+                gap: 2,
+                borderRadius: theme.radius.xl,
                 borderWidth: 1.5,
                 borderColor: theme.colors.borderStrong,
                 backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
-                shadowColor: theme.colors.shadow,
-                shadowOpacity: 0.12,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
               })}
             >
-              <Icon name="x" size={18} color="text" strokeWidth={2.2} />
-              <Text variant="label" weight={600}>
-                {t('partner.offer_not_now')}
+              <Icon name="x" size={20} color="textMuted" strokeWidth={2.2} />
+              <Text variant="label" weight={600} color="textMuted">
+                {t('partner.slip_not_now')}
               </Text>
             </Pressable>
-            <View style={{ direction: theme.direction, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <StatusPill label={t('partner.new_offer')} tone="accent" live size="md" />
-              <StatusPill label={t(KIND_KEY[offer.vertical])} tone="neutral" icon={ride ? VEHICLE_ICON[vehicle] : 'bag'} size="md" />
+            <View style={{ flex: 1, direction: theme.direction }}>
+              <HoldButton
+                testID="offer-accept"
+                label={t('partner.slip_hold')}
+                holdHint={t('partner.slip_hold_hint')}
+                confirmLabel={t('partner.slip_confirm')}
+                trailing={String(Math.max(0, left))}
+                loading={busy && respond.variables?.accept === true}
+                disabled={busy}
+                onConfirm={() => void answer(true)}
+              />
             </View>
-          </View>
-        </SafeAreaView>
-      </View>
-
-      <View style={{ flex: 1, marginTop: -24, backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'] }}>
-        <ScrollView contentContainerStyle={[column, { paddingHorizontal: theme.space[5], paddingTop: theme.space[5], paddingBottom: theme.space[3], gap: layout.compact ? theme.space[3] : theme.space[4] }]}>
-          {/* 1 · what he earns, huge · 2 · how far and how long, and the cash */}
-          <View style={{ gap: 2 }}>
-            <Text
-              testID="offer-pay"
-              tabular
-              weight={700}
-              accessibilityLabel={`${t('partner.offer_you_earn')}: ${amountParam(offer.pay.totalIqd)} ${t('quote.currency')}`}
-              style={{ fontSize: layout.payFontSize, lineHeight: layout.payLineHeight }}
-            >
-              {`${amountParam(offer.pay.totalIqd)} `}
-              <Text variant="title" color="textMuted">
-                {t('quote.currency')}
-              </Text>
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2] }}>
-              {sum.totalKm !== null && sum.minutes !== null ? (
-                <Text testID="offer-summary" variant="title" tabular style={{ flexShrink: 1 }}>
-                  {t('partner.offer_summary', { km: km(sum.totalKm), minutes: sum.minutes })}
-                </Text>
-              ) : null}
-              {sum.collectIqd ? (
-                <View testID="offer-cash" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], minHeight: 32 }}>
-                  <Icon name="wallet" size={16} color="warningText" strokeWidth={2} />
-                  <Text variant="label" weight={700} color="warningText" tabular>
-                    {t('partner.offer_cash_chip', { amount: amountParam(sum.collectIqd) })}
-                  </Text>
-                </View>
-              ) : sum.prepaid ? (
-                <View testID="offer-cash" accessible accessibilityLabel={t('partner.offer_prepaid')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.successTint, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], minHeight: 32 }}>
-                  <Icon name="check" size={16} color="successText" strokeWidth={2.2} />
-                  <Text variant="label" weight={700} color="successText">
-                    {t('partner.offer_prepaid_chip')}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          {offer.batch ? (
-            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-batch" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="plus" size={18} color="onAccent" strokeWidth={2.6} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={700} color="accentText" tabular>
-                  {t('partner.offer_batch_title', { amount: amountParam(offer.batch.extraIqd, { sign: true }) })}
-                </Text>
-                <Text variant="caption" color="textMuted" numberOfLines={1}>
-                  {t('partner.offer_batch_body')}
-                </Text>
-              </View>
-            </Animated.View>
-          ) : null}
-
-          {/* Joy l9: a rider booked this ride and asked for him — it rings for him alone for a minute. */}
-          {offer.favourite ? (
-            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-favourite" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.liveTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="heart" size={18} color="liveText" strokeWidth={2.4} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={700} color="liveText">
-                  {t('partner.offer_favourite_title')}
-                </Text>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_favourite_body')}
-                </Text>
-              </View>
-            </Animated.View>
-          ) : null}
-
-          {/* Ride step 3: the rider tapped «نبّه السايق» on this offer. */}
-          {nudged ? (
-            <Animated.View entering={theme.reduceMotion ? undefined : FadeInDown.duration(260)} testID="offer-nudged" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.liveTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="bell" size={18} color="liveText" strokeWidth={2.4} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={700} color="liveText">
-                  {t('partner.offer_nudged_title')}
-                </Text>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_nudged_body')}
-                </Text>
-              </View>
-            </Animated.View>
-          ) : null}
-
-          {/* Ride idea x5: «عنده غراض: قنينة غاز» — so he knows there is room before he accepts. */}
-          {cargo ? (
-            <View testID="offer-cargo" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.accentTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="bag" size={18} color="accentText" strokeWidth={2.4} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={700} color="accentText">
-                  {cargo}
-                </Text>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_cargo_hint')}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          {/* Ride ideas c9/s3: booked for someone else — the name the booker gave, and who his calls reach. */}
-          {offer.rider ? (
-            <View testID="offer-rider" style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center', backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="user" size={18} color="text" strokeWidth={2.2} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="label" weight={700} numberOfLines={1}>
-                  {t('partner.offer_for_rider_title', { name: offer.rider.name })}
-                </Text>
-                <Text variant="caption" color="textMuted">
-                  {t('partner.offer_for_rider_body')}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          {/* 3 · pickup → drop-off */}
-          <RouteNodes
-            gap={layout.compact ? theme.space[3] : theme.space[4]}
-            top={
-              <View testID="offer-pickup">
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                  <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {offer.pickup.label ?? (ride ? (offer.rider?.name ?? t('partner.offer_rider')) : pickupZone)}
-                  </Text>
-                  {offer.merchant ? <PrepPill prep={offer.merchant} /> : null}
-                </View>
-                <Text variant="footnote" color="textMuted" numberOfLines={1} tabular>
-                  {[t('partner.offer_pickup_zone', { place: pickupZone }), fromYou].filter(Boolean).join(' · ')}
-                </Text>
-              </View>
-            }
-            bottom={
-              <View testID="offer-dropoff">
-                <Text variant="title" numberOfLines={1}>
-                  {ride ? dropoffZone : t('partner.offer_customer')}
-                </Text>
-                <Text variant="footnote" color="textMuted" numberOfLines={1} tabular>
-                  {[t('partner.offer_dropoff_zone', { place: dropoffZone }), offer.tripKm !== null ? t('partner.offer_trip_km', { km: km(offer.tripKm) }) : null].filter(Boolean).join(' · ')}
-                </Text>
-              </View>
-            }
-          />
-
-          {/* 4 · every pay component, folded under "تفاصيل الأجرة" */}
-          <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-            <Pressable
-              testID="offer-details"
-              accessibilityRole="button"
-              accessibilityState={{ expanded: details }}
-              aria-expanded={details}
-              onPress={() => {
-                theme.haptic('selection');
-                setDetails((d) => !d);
-              }}
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: theme.hitTarget }}
-            >
-              <Text variant="label" color="textMuted">
-                {t('partner.offer_details')}
-              </Text>
-              <Icon name="chevron-down" size={18} color="textMuted" style={details ? { transform: [{ rotate: '180deg' }] } : undefined} />
-            </Pressable>
-            {details ? <PayLines pay={offer.pay} /> : null}
-          </View>
-        </ScrollView>
-
-        {/* 5 · accept: one tap, the countdown drains inside it */}
-        <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.colors.surface }}>
-          <View style={[column, { paddingHorizontal: theme.space[4], paddingTop: theme.space[2], paddingBottom: theme.space[4] }]}>
-            <CountdownButton
-              testID="offer-accept"
-              label={t('partner.accept')}
-              startedAt={startedAt}
-              durationMs={durationMs}
-              onExpire={onExpire}
-              loading={busy && respond.variables?.accept === true}
-              disabled={busy}
-              urgentHaptic={false}
-              onPress={() => void answer(true)}
-            />
           </View>
         </SafeAreaView>
       </View>

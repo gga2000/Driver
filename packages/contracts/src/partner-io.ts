@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { RoleKind } from './auth.js';
-import { AnswerClimateCheckInput, PartnerClimateCheck } from './climate-check.js';
+import { AnswerClimateCheckInput, ClimateFeature, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 import { RideCargo } from './ride-cargo.js';
@@ -190,6 +190,12 @@ export const PartnerOfferPlace = z.object({
   /** Merchant name at a pickup; null elsewhere (the zone name is the label). */
   label: z.string().nullable(),
   pin: LatLng.nullable(),
+  /**
+   * Partner redesign o7: the public landmark the stop is near («يم باب الجامع الكبير»), the way people
+   * here give directions. Only town garages and meeting points (never a person's door); null when none
+   * is close.
+   */
+  landmark: z.string().nullable().default(null),
 });
 export type PartnerOfferPlace = z.infer<typeof PartnerOfferPlace>;
 
@@ -228,6 +234,16 @@ export const PartnerOffer = z.object({
    * the driver («المشوار لـ أم علي»). Null for a rider who booked it himself.
    */
   rider: z.object({ name: z.string() }).nullable().default(null),
+  /**
+   * Partner redesign o12: a car ride on a hot (cold) day, when dispatch sends rides to cars with working
+   * AC (heating) first (ride idea x1) — the slip says «يوم حار · المكيّفة» so he switches it on. Null otherwise.
+   */
+  climate: ClimateFeature.nullable().default(null),
+  /**
+   * Partner redesign o10: how many rides the rider finished with us before this one (0 = first ride).
+   * Rides only; null for deliveries. The rider's name stays off the offer (every driver in the wave sees it).
+   */
+  riderTrips: z.number().int().min(0).nullable().default(null),
 });
 export type PartnerOffer =z.infer<typeof PartnerOffer>;
 
@@ -346,6 +362,17 @@ export const PartnerJobStop = z.object({
    * pickup and drop-off. «اتصل بالراكب» and the chat reach the rider, not the booker. Null/absent otherwise.
    */
   rider: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * SEC-14: the person he hands the order to when someone else receives it (a gift «عزيمة», food sent
+   * to someone): the name the sender gave, read from the vault for this courier (logged), on the
+   * drop-off only. Null/absent otherwise.
+   */
+  recipient: z.object({ name: z.string() }).nullable().optional(),
+  /**
+   * Partner redesign j2: the public landmark the stop is near («يم جامع الرسول»), the way drivers give
+   * directions — a town place from the landmark list, never a person's door; null when none is close.
+   */
+  landmark: z.string().nullable().default(null),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 
