@@ -159,12 +159,16 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     try {
       await respond.mutateAsync({ offerId: offer.offerId, accept });
       qc.setQueryData(api.partner.currentOffer.queryKey(), null);
-      await refresh();
       if (accept) {
+        // Speed audit o3: straight to the job, which loads there (a skeleton), instead of waiting here on
+        // three refetches. The old "no job" answer is reset so the job screen never flashes "it ended".
+        void qc.resetQueries({ queryKey: api.partner.activeJob.queryKey() });
+        void refresh();
         theme.haptic('success');
         toast.show({ message: t('partner.offer_accepted'), tone: 'success', icon: 'check' });
         router.replace('/job');
       } else {
+        void refresh();
         toast.show({ message: t('partner.slip_gone'), tone: 'neutral' });
         close();
       }
