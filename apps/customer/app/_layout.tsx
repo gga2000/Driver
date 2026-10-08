@@ -14,6 +14,7 @@ import { HeaderBack } from '@/features/food/HeaderBack';
 import { usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
+import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
@@ -90,6 +91,8 @@ export default function RootLayout() {
                 <SystemBanner />
                 {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
                 <SeasonWatcher />
+                {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
+                <SosOutboxSync />
                 <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
               </ApiProvider>
             </ToastProvider>
