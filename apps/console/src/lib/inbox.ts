@@ -21,6 +21,7 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
   unreachable: 'console.today.kind_unreachable',
   stuck: 'console.today.kind_stuck',
   cash_cap: 'console.today.kind_cash_cap',
+  low_rating: 'console.today.kind_low_rating',
   sweep: 'console.today.kind_sweep',
   pin_alert: 'console.today.kind_pin_alert',
   approval: 'console.today.kind_approval',
@@ -37,6 +38,7 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   store_silent: 'warn',
   late: 'warn',
   cash_cap: 'warn',
+  low_rating: 'warn',
   approval: 'neutral',
 };
 
@@ -92,6 +94,11 @@ const CHANNEL_KEY: Record<string, MessageKey> = {
   system: 'console.sup_channel_system',
   chat: 'console.sup_channel_chat',
 };
+
+const RIDE_ORDER_TYPES: ReadonlySet<string> = new Set(['ride', 'seat', 'subscription']);
+
+/** A bad-rating case closes only with a note saying what each side said (Ali, 2026-10-08). */
+export const noteRequired = (row: Pick<InboxRow, 'kind'>): boolean => row.kind === 'low_rating';
 
 /** The second line of a row: what we know about it, in a few words. */
 export function detailText(
@@ -156,6 +163,20 @@ export function detailText(
     case 'safety_report': {
       const c = typeof f['channel'] === 'string' ? CHANNEL_KEY[f['channel']] : undefined;
       if (c) parts.push(t(c));
+      break;
+    }
+    case 'low_rating': {
+      // Both scores when the food was rated too; a ride names the driver, food the courier.
+      const ride = typeof f['orderType'] === 'string' && RIDE_ORDER_TYPES.has(f['orderType']);
+      if (typeof f['stars'] === 'number') parts.push(t('console.today.rating_stars', { n: f['stars'] }));
+      if (typeof f['food'] === 'number')
+        parts.push(t('console.today.rating_food', { n: f['food'] }));
+      if (typeof f['delivery'] === 'number')
+        parts.push(
+          t(ride ? 'console.today.rating_driver' : 'console.today.rating_courier', {
+            n: f['delivery'],
+          }),
+        );
       break;
     }
     case 'pin_alert':
