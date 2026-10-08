@@ -102,9 +102,14 @@ tokens, and remove them from Supabase, Fly, Cloudflare, Expo and GitHub.
 - **Supabase daily backups** (Pro): Database → Backups, 7 days. One-click restore of the whole project
   to that day (everything after it is lost — use it for disasters only).
 - **Nightly logical dump** (`.github/workflows/backup.yml`, 01:17 UTC): `pg_dump` of `public` and
-  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), 14 days in GitHub and, with the
-  `BACKUP_S3_*` secrets, copied to a bucket you own (Cloudflare R2: free egress, $0.015/GB). Set
-  secrets `DIRECT_URL` (already there), `BACKUP_PASSPHRASE`; run it once by hand to see it work.
+  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), copied to a bucket you own
+  (Cloudflare R2: free egress, $0.015/GB; secrets `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
+  `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`). The repository is public, so no copy is
+  kept as a GitHub artifact (anyone signed in could download it); on a private repository the variable
+  `BACKUP_KEEP_ARTIFACT=true` adds a 14-day one. Set secrets `DIRECT_URL` (already there),
+  `BACKUP_PASSPHRASE` and the bucket ones; run it once by hand to see it work. Once production exists
+  (the variable `API_PUBLIC_URL` is set), a missing secret turns the nightly run **red** instead of
+  skipping, so a night without a backup is never silent (SEC-13).
 - **PITR**: off at launch (≈$100/month). Turn it on once a lost hour of orders would cost more.
 - **Redis** holds only queues and caches; it is rebuilt from the database. Its AOF survives restarts.
 
