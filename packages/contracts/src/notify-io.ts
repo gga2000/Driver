@@ -153,6 +153,8 @@ export const NotifyTemplateId = z.enum([
   'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
   'sos_desk_ring',
+  'console_unwatched_alert',
+  'console_live_down_alert',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -554,6 +556,29 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'any',
     push: { title: 'push.sos_ring.title', body: 'push.sos_ring.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // The Console watching itself (E1 step 3): nobody has had a staff screen open for 5 minutes during
+  // working hours, or live updates have been stopped on every screen for a minute. The people on call
+  // (the admins when nobody is), once per gap, push and WhatsApp; SMS twin after the usual 60 s.
+  console_unwatched_alert: {
+    id: 'console_unwatched_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.console_unwatched.title', body: 'push.console_unwatched.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.driver.iq']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  console_live_down_alert: {
+    id: 'console_live_down_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.console_live_down.title', body: 'push.console_live_down.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.driver.iq']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.

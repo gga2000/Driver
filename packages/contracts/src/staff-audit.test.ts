@@ -64,6 +64,7 @@ const GAPS: Record<string, string> = {
   'ledger.runNightly': 'ledger entries only',
   'merchantAdmin.deals.review': 'stored on the deal',
   'ops.addLandmarkPhoto': 'no trail',
+  'onCall.present': 'heartbeat (a screen is open), not an action',
   'ops.completeTask': 'stored on the task',
   'ops.confirmTopUp': 'ledger entries only (cash, CON-10)',
   'ops.menuPhotos.addShot': 'stored on the shot',

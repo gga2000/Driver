@@ -3604,6 +3604,47 @@ model AlertLadder {
   @@schema("public")
 }
 
+/// Console E1 step 3: every open staff screen says "I'm here" every 30 s, with the state of its live
+/// updates. One row per browser tab; old rows are dropped by the on-call sweep. Ids and times only.
+model ConsolePresence {
+  id         String   @id @default(cuid())
+  cityId     String   @map("city_id")
+  tabId      String   @map("tab_id")
+  personId   String   @map("person_id")
+  /// live | connecting | fallback | stopped
+  live       String
+  /// When `live` last changed.
+  liveSince  DateTime @map("live_since")
+  lastSeenAt DateTime @map("last_seen_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([cityId, tabId])
+  @@index([cityId, lastSeenAt])
+  @@map("console_presence")
+  @@schema("public")
+}
+
+/// Console E1 step 3: the Console watching itself (nobody watching, live updates down). `openKey` is
+/// "<city>:<kind>" while open and null once closed, so a city has at most one open alert per kind.
+model ConsoleWatchAlert {
+  id        String    @id @default(cuid())
+  cityId    String    @map("city_id")
+  /// unwatched | live_down
+  kind      String
+  openKey   String?   @unique @map("open_key")
+  openedAt  DateTime  @map("opened_at")
+  /// How many people were told.
+  paged     Int       @default(0)
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, openedAt])
+  @@map("console_watch_alerts")
+  @@schema("public")
+}
+
 /// Console › اليوم (E1, CON-12): one row per problem, opened and closed from domain events, worked
 /// by the desk (take, hand over, snooze, close with an outcome). Ids and short facts only.
 model InboxItem {

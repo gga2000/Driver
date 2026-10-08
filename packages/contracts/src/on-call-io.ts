@@ -161,6 +161,65 @@ export type AlertLadder = z.infer<typeof AlertLadder>;
 export const AlertLadderInput = z.object({ alertId: z.string().min(1).max(80) });
 export type AlertLadderInput = z.infer<typeof AlertLadderInput>;
 
+// ─────────────── the Console watching itself (E1 step 3, Ali 2026-10-08) ───────────────
+
+/**
+ * The Console watches itself. Every open staff screen says "I'm here" every `heartbeatSec`, with the
+ * state of its live updates. During the city's working hours, when no screen has said so for
+ * `unwatchedAfterSec`, the people on call (the SOS desk; the admins when nobody is on the roster) are
+ * told once, by push and WhatsApp. When every screen that uses live updates has had them stopped for
+ * `liveDownAfterSec`, every open screen shows a red bar and the same people are told once. Each alert
+ * closes by itself when the problem ends; a new gap pages again.
+ */
+export const CONSOLE_WATCH_RULES = {
+  heartbeatSec: 30,
+  /** A screen that hasn't said "I'm here" for this long is gone. */
+  presentForSec: 90,
+  unwatchedAfterSec: 300,
+  liveDownAfterSec: 60,
+  /**
+   * Someone must be watching from 06:00 to 02:00 city time (Ali's two shifts), and at any hour while
+   * someone is on call on the SOS desk.
+   */
+  watchFromHour: 6,
+  watchToHour: 2,
+  /** Heartbeat rows older than this are dropped. */
+  keepPresenceHours: 24,
+} as const;
+
+/** A screen's live updates: `stopped` when the page uses none (it is not counted for `live_down`). */
+export const ConsoleLiveState = z.enum(['live', 'connecting', 'fallback', 'stopped']);
+export type ConsoleLiveState = z.infer<typeof ConsoleLiveState>;
+
+export const ConsoleWatchKind = z.enum(['unwatched', 'live_down']);
+export type ConsoleWatchKind = z.infer<typeof ConsoleWatchKind>;
+
+export const ConsoleWatchAlert = z.object({
+  id: z.string(),
+  cityId: z.string(),
+  kind: ConsoleWatchKind,
+  openedAt: z.coerce.date(),
+  /** How many people were told. */
+  paged: z.number().int(),
+  closedAt: z.coerce.date().nullable(),
+});
+export type ConsoleWatchAlert = z.infer<typeof ConsoleWatchAlert>;
+
+export const ConsolePresentInput = z.object({
+  cityId: z.string().min(1).max(40),
+  /** One per browser tab (random, kept for the tab's life). */
+  tabId: z.string().min(8).max(64),
+  live: ConsoleLiveState,
+});
+export type ConsolePresentInput = z.infer<typeof ConsolePresentInput>;
+
+/** The heartbeat's answer: the city's open watch alerts (the red bar shows `live_down`). */
+export const ConsoleWatch = z.object({
+  cityId: z.string(),
+  open: z.array(ConsoleWatchAlert),
+});
+export type ConsoleWatch = z.infer<typeof ConsoleWatch>;
+
 // ─────────────── the port the safety module calls (agreed with lane A, 2026-10-07) ───────────────
 
 /** What safety hands over when an incident opens (ids only; names stay in the vault). */
@@ -197,4 +256,5 @@ export interface OnCallServicePort {
   end(actor: Actor, input: z.output<typeof OnCallEndInput>): Promise<OnCallShiftRow>;
   ladder(actor: Actor, input: z.output<typeof AlertLadderInput>): Promise<AlertLadder | null>;
   staff(actor: Actor): Promise<OnCallStaff[]>;
+  present(actor: Actor, input: ConsolePresentInput): Promise<ConsoleWatch>;
 }

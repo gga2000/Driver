@@ -33,6 +33,11 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   approval: 'neutral',
 };
 
+/** A row's chip colour: a booked ride the system lost track of is red, not amber (nobody is looking for a driver). */
+export function rowTone(row: { kind: InboxKind; facts: Record<string, unknown> }): ChipTone {
+  return row.kind === 'no_driver' && row.facts['reason'] === 'request_lost' ? 'bad' : KIND_TONE[row.kind];
+}
+
 const REASON_KEY: Record<string, MessageKey> = {
   no_acceptance: 'console.today.reason_no_acceptance',
   passes_exhausted: 'console.today.reason_passes_exhausted',
@@ -40,6 +45,7 @@ const REASON_KEY: Record<string, MessageKey> = {
   override_declined: 'console.today.reason_override_declined',
   override_timed_out: 'console.today.reason_override_timed_out',
   departure_unknown: 'console.today.reason_departure_unknown',
+  request_lost: 'console.today.reason_request_lost',
 };
 
 const VERTICAL_KEY: Record<string, MessageKey> = {

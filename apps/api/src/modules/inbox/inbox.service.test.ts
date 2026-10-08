@@ -148,6 +148,24 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(counts.oldestOpenAt).toEqual(new Date(T0));
   });
 
+  it('a booked ride whose request was lost (lane B durable timers) opens a no-driver row', async () => {
+    const h = harness();
+    await h.emit(
+      'dispatch.needs_dispatcher',
+      { tripId: 'trp_lost' },
+      { cityId: 'aziziyah', vertical: 'taxi', reason: 'request_lost', timer: 'booked_open', orderId: 'ord_ride' },
+    );
+    const [row] = await h.list();
+    expect(row).toMatchObject({
+      kind: 'no_driver',
+      subjectId: 'trp_lost',
+      orderId: 'ord_ride',
+      facts: { reason: 'request_lost', vertical: 'taxi' },
+    });
+    await h.emit('dispatch.assigned', { tripId: 'trp_lost' }, { cityId: 'aziziyah' });
+    expect(await h.list()).toEqual([]);
+  });
+
   it('closes rows by themselves when the problem ends, and only the right ones', async () => {
     const h = harness();
     await h.emit('order.late_apology', { orderId: 'ord_1' });
