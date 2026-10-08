@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { Fragment, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { longRideForHotFood } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Icon, PhotoImage, Skeleton, stageOf, Text, useTheme } from '@driver/ui';
+import { CornerFill, Icon, PhotoImage, Skeleton, stageOf, Text, useTheme, withAlpha } from '@driver/ui';
 import { DealSticker } from '@/features/food/DealBadge';
 import { FoodArt, kitchenLook, motifForKitchen, type Motif } from '@/features/food/FoodArt';
 import { LongRide } from '@/features/food/RestaurantRow';
@@ -16,13 +17,17 @@ import type { RestaurantSummary } from './restaurant-summary';
 
 /** A kitchen's picture in its row. */
 const PIC = 56;
+/** How many of the other kitchens' photos sit on «كل المحلات», their size and how far each tucks under the last. */
+const FACES = 3;
+const FACE = 38;
+const OVERLAP = 12;
 
 /**
  * «مفتوح هسة» on home (concept C, Ali 2026-10-08): the first few open kitchens as plain rows on the
  * page, flat like the cards above (no boxes, no shadow): a photo (its own, else one of its kind, else
  * its warm drawing), the name, its rating («جديد» before real ratings) and minutes. The delivery fee is
  * said once over the list when every kitchen charges the same; a row says its own only when they
- * differ. «كل المحلات» opens the rest.
+ * differ. «كل المحلات» opens the rest, in a box of its own under the rows.
  */
 export function KitchenRows({
   title,
@@ -42,13 +47,18 @@ export function KitchenRows({
   const t = useT();
   const shown = kitchens.slice(0, HOME_KITCHENS);
   const fee = sharedFee(kitchens);
-  // A kitchen without its own photo shows one for its kind (two in a row never share one), else its drawing.
-  const motifs = useMemo(() => kitchens.slice(0, HOME_KITCHENS).map((r) => motifForKitchen(r.tags, r.cuisine)), [kitchens]);
+  // A kitchen without its own photo shows one for its kind (two in a row never share one), else its
+  // drawing. The next few kitchens' photos go on «كل المحلات», never one already on the page.
+  const motifs = useMemo(() => kitchens.slice(0, HOME_KITCHENS + FACES).map((r) => motifForKitchen(r.tags, r.cuisine)), [kitchens]);
   const photos = useMemo(() => kitchenPhotos(motifs, showing), [motifs, showing]);
-  const openAll = () => {
-    theme.haptic('selection');
-    router.push({ pathname: '/restaurants', params: { preset: 'open' } });
-  };
+  const faces = useMemo(
+    () =>
+      kitchens
+        .slice(HOME_KITCHENS, HOME_KITCHENS + FACES)
+        .map((r, i) => apiPhoto(r.photoUrl) ?? photos[HOME_KITCHENS + i] ?? null)
+        .filter((f): f is string | number => f !== null),
+    [kitchens, photos],
+  );
   return (
     <View testID={testID} style={{ gap: theme.space[2] }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: theme.space[3], minHeight: 36 }}>
@@ -65,33 +75,99 @@ export function KitchenRows({
         {shown.map((r, i) => (
           <KitchenRow key={r.id} r={r} motif={motifs[i]!} photo={photos[i] ?? null} ownFee={fee === null} testID={`restaurant-${r.id}`} />
         ))}
-        {kitchens.length > HOME_KITCHENS ? (
-          <Pressable
-            testID={`${testID}-all`}
-            accessibilityRole="button"
-            accessibilityLabel={t('home.all_kitchens_a11y', { count })}
-            onPress={openAll}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: theme.space[3],
-              minHeight: theme.hitTarget + 8,
-              borderBottomWidth: StyleSheet.hairlineWidth,
-              borderBottomColor: theme.colors.border,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Text variant="bodyStrong" weight={700} style={{ flex: 1 }}>
-              {t('home.all_kitchens')}
-              <Text variant="footnote" weight={400} color="textMuted">
-                {`  ·  ${count}`}
-              </Text>
-            </Text>
-            <Icon name="chevron-forward" size={18} color="textMuted" />
-          </Pressable>
-        ) : null}
       </View>
+      {kitchens.length > HOME_KITCHENS ? <AllKitchens count={count} faces={faces} testID={`${testID}-all`} /> : null}
     </View>
+  );
+}
+
+/**
+ * «كل المحلات» (Ali 2026-10-08: "a clear beautiful box"): a Soft Tint box in the food card's own
+ * colours, so it reads as the way into the rest: the words and how many are open, a few of the other
+ * kitchens' photos, and a round ink arrow. It sinks a little under the finger, like the cards above.
+ */
+function AllKitchens({ count, faces, testID }: { count: string; faces: readonly (string | number)[]; testID: string }) {
+  const theme = useTheme();
+  const t = useT();
+  const card = theme.services.food.card;
+  const p = useSharedValue(0);
+  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.025 * p.value }] }));
+  // The photos take the room the words leave, as many as fit whole (fewer on a small phone or with large text).
+  const [room, setRoom] = useState<number | null>(null);
+  const fit = room === null ? faces.length : Math.max(0, Math.min(faces.length, Math.floor((room - FACE) / (FACE - OVERLAP)) + 1));
+  return (
+    <Animated.View style={[{ marginTop: theme.space[3] }, sink]}>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={t('home.all_kitchens_a11y', { count })}
+        onPress={() => {
+          theme.haptic('selection');
+          router.push({ pathname: '/restaurants', params: { preset: 'open' } });
+        }}
+        onPressIn={() => {
+          if (!theme.reduceMotion) p.value = withSpring(1, theme.motion.spring.press);
+        }}
+        onPressOut={() => {
+          p.value = withSpring(0, theme.motion.spring.select);
+        }}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[3],
+          minHeight: 76,
+          paddingVertical: theme.space[3],
+          paddingStart: theme.space[5],
+          paddingEnd: theme.space[4],
+          backgroundColor: card.bg,
+          borderRadius: theme.radius.xl,
+          borderWidth: 1,
+          borderColor: withAlpha(card.on, 0.07),
+          overflow: 'hidden',
+        }}
+      >
+        {card.top ? <CornerFill base={card.bg} light={card.top} /> : null}
+        <View style={{ flexShrink: 1, minWidth: 0 }}>
+          <Text variant="title" face="display" color={card.on} numberOfLines={2}>
+            {t('home.all_kitchens')}
+          </Text>
+          <Text variant="footnote" weight={500} color={card.sub} tabular>
+            {count}
+          </Text>
+        </View>
+        <View
+          onLayout={(e) => setRoom(e.nativeEvent.layout.width)}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{ flex: 1, minWidth: 0, flexDirection: 'row', justifyContent: 'flex-end', overflow: 'hidden' }}
+        >
+          {faces.slice(0, fit).map((f, i) => (
+            <View
+              key={i}
+              style={{
+                width: FACE,
+                height: FACE,
+                marginStart: i === 0 ? 0 : -OVERLAP,
+                borderRadius: FACE / 2,
+                borderWidth: 2,
+                borderColor: card.top ?? card.bg,
+                overflow: 'hidden',
+                backgroundColor: theme.colors.surfaceSunken,
+              }}
+            >
+              {typeof f === 'string' ? (
+                <PhotoImage uri={f} style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <Image source={f} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+              )}
+            </View>
+          ))}
+        </View>
+        <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: card.on }}>
+          <Icon name="chevron-forward" size={20} color={card.top ?? card.bg} strokeWidth={2.25} />
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
