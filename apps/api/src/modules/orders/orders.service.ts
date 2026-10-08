@@ -17,6 +17,7 @@ import {
   tenderProblem,
   TERMINAL_ORDER_STATES,
   encodeDomainEvent,
+  iceCreamTooFar,
   isDomainEventType,
   orderTicketNumber,
   parseOrderTicket,
@@ -771,6 +772,8 @@ export class OrdersService implements OnModuleInit {
         // Closed by hand from the Merchant app (early close): refused like a pause window.
         if (!input.scheduledFor && profile.closed) throw new DriverError('merchant_paused');
       }
+      // k7 (Ali, 2026-10-08): an ice cream shop delivers within 3 km by road; quoted and placed alike.
+      if (storefront?.tags && iceCreamTooFar(storefront.tags, profile.location?.pin, input.dropoff?.pin)) throw new DriverError('too_far_for_ice_cream');
     }
 
     // Review C2: every line is priced here from the merchant's menu, never from the client.

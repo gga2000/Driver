@@ -319,6 +319,7 @@ export const ERROR_TABLE = {
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  too_far_for_ice_cream: { retryHint: 'never', status: 'BAD_REQUEST' },
   // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
   tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
