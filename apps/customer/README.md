@@ -186,7 +186,9 @@ API port changed (otherwise the bundle can still point at another demo API).
 `docs/api/family-and-month.md`. The household hub (`app/household/index.tsx`) shows this month per
 member as bullet bars (payer: everyone; others: themselves), the requests, who orders on the household
 wallet, «سفرة البيت» and the trusted-people row; `app/household/member.tsx` sets a member's per-order
-limit and monthly budget. Checkout offers «من حساب البيت» to payers and orderers; an order over a limit
+limit and monthly budget. Checkout offers «من حساب البيت» to payers and orderers only while
+`HOUSEHOLD_PAY_ENABLED` (`src/features/account/household-pay.ts`) is on; it is off since 2026-10-08
+(RDB-03: nothing funds the household account yet). With it on, an order over a limit
 waits for the payer («ننتظر موافقة حساب البيت» on the order screen). `app/month.tsx` is «شهرك» (wallet
 and account rows; the month-start card shows on the 1st–3rd, once per device, never on a quiet day —
 try it with `?now=2026-10-02T12:00:00+03:00` in a dev build).
