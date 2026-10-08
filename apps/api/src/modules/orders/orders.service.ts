@@ -1419,6 +1419,14 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * The store's orders placed in `[from, to)` that left without its answer (`MISSED_STATES`), oldest
+   * first: the board's «طلبات فاتتك» (perf z5) reads only these few, not the whole day.
+   */
+  async merchantMissedOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
+    return (await this.repo.merchantMissedBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
+  }
+
+  /**
    * «منين زبائنك» (maps program r6): the store's delivered orders placed in `[from, to)` per drop-off
    * zone. Counts only, from one grouped read; the merchant module hides the small zones (D7).
    */

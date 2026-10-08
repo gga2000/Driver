@@ -54,6 +54,8 @@ export interface MerchantOrdersPort {
   listActive(filter: { merchantOrgId: string }): Promise<Order[]>;
   /** The store's orders placed in `[from, to)` — today's misses for the board (M-01). Optional for fakes. */
   merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Perf z5: only the store's orders placed in `[from, to)` that it missed. Fakes may leave it out (then `merchantOrders`). */
+  merchantMissedOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
   /** Delivered orders placed in `[from, to)` per drop-off zone: counts only (maps program r6). */
   deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>>;
 }
@@ -193,7 +195,9 @@ export class MerchantService implements MerchantPort {
     if (!this.orders.merchantOrders) return null;
     const local = localClock(now, DEFAULT_TIMEZONE);
     const from = new Date(Math.floor((now.getTime() - local.minutes * 60_000) / 60_000) * 60_000);
-    const today = await this.orders.merchantOrders(org.id, { from, to: new Date(now.getTime() + 1) });
+    const range = { from, to: new Date(now.getTime() + 1) };
+    // Perf z5: read the day's misses only (a few rows), not every order of the day on every board read.
+    const today = this.orders.merchantMissedOrders ? await this.orders.merchantMissedOrders(org.id, range) : await this.orders.merchantOrders(org.id, range);
     const s = await this.stores.merchantSettings(org.id);
     const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     return missedSummary(today, (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null);

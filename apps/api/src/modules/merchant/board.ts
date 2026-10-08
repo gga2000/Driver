@@ -14,6 +14,7 @@ import {
   type Trip,
 } from '@driver/contracts';
 import { bearingDeg, haversineKm } from '../dispatch/index.js';
+import { MISSED_STATES } from '../orders/index.js';
 
 /**
  * The kitchen's view of its live orders (Driver Merchant spec): pure, so the column rules, the
@@ -195,9 +196,7 @@ export const MISSED_LIST_MAX = 10;
 
 /** Why an order left without the kitchen's answer, or null when it didn't (M-01). */
 export function missedReason(o: Pick<Order, 'state' | 'cancellationReason'>): MissedReason | null {
-  if (o.state === 'merchant_rejected' && o.cancellationReason === 'merchant_timeout') return 'merchant_timeout';
-  if (o.state === 'platform_cancelled' && o.cancellationReason === 'partial_timeout') return 'partial_timeout';
-  return null;
+  return MISSED_STATES.find((m) => m.state === o.state && m.reason === o.cancellationReason)?.reason ?? null;
 }
 
 /**

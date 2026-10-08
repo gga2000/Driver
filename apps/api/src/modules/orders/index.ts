@@ -7,7 +7,7 @@ export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANS
 export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, commissionPctOf } from './orders.config.js';
 export { InMemoryMerchantDirectory, MERCHANT_DIRECTORY } from './merchants.port.js';
 export type { MerchantDirectory, MerchantProfile } from './merchants.port.js';
-export { InMemoryOrdersRepository, ORDERS_REPOSITORY } from './orders.repository.js';
+export { InMemoryOrdersRepository, MISSED_STATES, ORDERS_REPOSITORY } from './orders.repository.js';
 export type { OrderSearchFilter } from './orders.repository.js';
 export { isLate, LATE_DELIVERY_MIN, LATE_PICKUP_GRACE_MIN, ACTIVE_ORDER_STATES } from './history.js';
 export { PARTICIPANT_RESOLVER, allocatePoints, orderPoints } from './participants.js';
