@@ -10,7 +10,7 @@ import { serverFees } from '../orders/index.js';
 import { PricingService } from '../pricing/index.js';
 import { SEED_ZONES } from './area.fixtures.js';
 import { foodDeliveryFee } from './area.js';
-import { MerchantService, type MerchantAreaPort, type MerchantEventsPort, type MerchantPeoplePort, type MerchantPhotosPort } from './merchant.service.js';
+import { MerchantService, type MerchantAreaPort, type MerchantEventsPort, type MerchantPeoplePort, type MerchantPhotosPort, type MerchantSetupLinePort } from './merchant.service.js';
 
 const MIN = 60_000;
 
@@ -244,6 +244,26 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
     const opened = await svc.setOpen(staff, { merchantOrgId: khalid.id, open: true });
     expect(opened).toMatchObject({ open: true, closed: null });
     expect(recorded.map((r) => r.type)).toEqual(['merchant.closed_early', 'merchant.opened']);
+  });
+
+  it('a shop in setup: a close or quick pause leaves setup’s close in place; open is going live', async () => {
+    const { h, orgs, khalid, staff, recorded, area } = await setup();
+    const setupClose = { reason: 'other' as const, note: null, at: h.clock.now(), until: null };
+    await orgs.setMerchantSettings(khalid.id, { setup: { ...newSetupState(h.clock.now()), closedBySetup: true }, closed: setupClose });
+    const wentLive: string[] = [];
+    const line: MerchantSetupLinePort = {
+      statusLine: async () => null,
+      isInSetup: (s) => Boolean(s.setup && !s.setup.liveAt),
+      adopt: async () => undefined,
+      goLive: async (_actor, input) => void wentLive.push(input.merchantOrgId),
+    };
+    const svc = new MerchantService(h.orders, h.trips, { grants: async () => [], hasRole: async () => true, courierFirstName: async () => null, courierVehicle: async () => null }, orgs, { itemNames: async () => new Map(), storefrontTags: async () => null }, { record: async (type, _a, _o, payload) => void recorded.push({ type, payload }) }, h.clock, new EtaService(new StraightLineRouter()), area, null, line);
+    const before = recorded.length;
+    await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'power_cut', pauseMinutes: 20 });
+    expect((await orgs.merchantSettings(khalid.id)).closed).toMatchObject({ reason: 'other', until: null });
+    expect(recorded.length).toBe(before);
+    await svc.setOpen(staff, { merchantOrgId: khalid.id, open: true });
+    expect(wentLive).toEqual([khalid.id]);
   });
 
   it('a quick pause reopens by itself (counter step 5, h2): status, orders and the customer card', async () => {

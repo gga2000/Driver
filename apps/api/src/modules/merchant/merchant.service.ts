@@ -227,9 +227,10 @@ export class MerchantService implements MerchantPort {
   async setOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
-    // «جهّز محلك»: a shop still in setup opens by going live (every step done; owner only).
-    if (input.open && this.setup?.isInSetup(await this.stores.merchantSettings(org.id))) {
-      await this.setup.goLive(actor, { merchantOrgId: org.id });
+    // «جهّز محلك»: a shop still in setup opens by going live (every step done; owner only), and a
+    // close (a quick pause included) leaves setup's own close in place, so "not live" stays closed.
+    if (this.setup?.isInSetup(await this.stores.merchantSettings(org.id))) {
+      if (input.open) await this.setup.goLive(actor, { merchantOrgId: org.id });
       return this.status(org);
     }
     if (input.open) {
