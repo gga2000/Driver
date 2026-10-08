@@ -142,4 +142,22 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
     expect(runs).toBe(1);
     expect((await prisma.prisma.outbox.findFirstOrThrow({ where: { aggregateId: id } })).status).toBe('published');
   });
+
+  it('narrows an aggregate by occurred_at and type on its index; orderIds reads only resolved order rows', async () => {
+    const a = instance();
+    const agg = { name: 'org', id: `${tag}_org` };
+    const base = clock.now().getTime();
+    const at = (min: number) => new Date(base + min * 60_000);
+    await a.events.emit(undefined, { type: 'item.sold_out', actorId: 'system:test', occurredAt: at(1) }, agg);
+    await a.events.emit(undefined, { type: 'item.restocked', actorId: 'system:test', occurredAt: at(61) }, agg);
+    await a.events.emit(undefined, { type: 'item.price_changed', actorId: 'system:test', occurredAt: at(62) }, agg);
+    expect((await a.events.forAggregate(agg.name, agg.id)).map((e) => e.type)).toEqual(['item.sold_out', 'item.restocked', 'item.price_changed']);
+    expect((await a.events.forAggregate(agg.name, agg.id, { from: at(0), to: at(60) })).map((e) => e.type)).toEqual(['item.sold_out']);
+    expect((await a.events.forAggregate(agg.name, agg.id, { from: at(1), to: at(62), types: ['item.sold_out', 'item.restocked'] })).map((e) => e.type)).toEqual(['item.sold_out', 'item.restocked']);
+    // An order id that is not an orders row is stored with a NULL order_id: the indexed read does not see it.
+    await a.events.emit(undefined, { type: 'order.ready', actorId: 'system:test', occurredAt: at(2), orderId: `${tag}_ghost` }, { name: 'order', id: `${tag}_ghost` });
+    expect(await a.events.forOrders([`${tag}_ghost`], { types: ['order.ready'] })).toEqual([]);
+    expect(await a.events.forOrders([])).toEqual([]);
+    await expect(repo.find({ types: ['order.ready'] })).rejects.toThrow(/need/);
+  });
 });

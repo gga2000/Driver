@@ -600,3 +600,91 @@ describe('merchantAdmin.story (joy h5 «مطاعمنا»)', () => {
     await expect(h.svc.storySet(h.owner, { merchantOrgId: h.orgId, text: 'قصة', sinceYear: 2030, shown: true })).rejects.toMatchObject({ code: 'invalid_input' });
   });
 });
+
+describe('merchantAdmin.activity («مين سوّى شنو», owner only)', () => {
+  async function day() {
+    const h = await setup('2026-10-03T12:00:00Z'); // 15:00 Baghdad
+    await h.id.repo.updateIdentity(h.staff.personId, { name: 'منتظر' });
+    await h.id.repo.updateIdentity(h.owner.personId, { name: 'خالد' });
+    const placed = new Date('2026-10-03T09:00:00Z');
+    h.orders.push(order({ id: 'ord_a', ordererId: 'cust_1', merchantOrgId: h.orgId, placedAt: placed }), order({ id: 'ord_b', ordererId: 'cust_2', merchantOrgId: h.orgId, placedAt: placed }), order({ id: 'ord_other', merchantOrgId: 'org_other', placedAt: placed }));
+    const emit = (type: string, actorId: string, orderId: string, payload: Record<string, unknown> = {}) =>
+      h.ev.events.emit(undefined, { type, actorId, occurredAt: h.clock.now(), orderId, payload }, { name: 'order', id: orderId });
+    await emit('order.accepted', h.staff.personId, 'ord_a', { auto: false, partial: false });
+    h.clock.advanceSeconds(60);
+    await emit('order.rejected', h.staff.personId, 'ord_b', { reason: 'busy', auto: false });
+    h.clock.advanceSeconds(60);
+    // Neither of these is a kitchen tap: the pickup implied «جاهز», the customer approved a partial order.
+    await emit('order.ready', 'courier_9', 'ord_a', { implied: true });
+    await emit('order.accepted', 'cust_1', 'ord_a', { auto: false, partial: true });
+    const kas = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'كص', priceIqd: 5000 });
+    h.clock.advanceSeconds(60);
+    await h.svc.menuSoldOutToday(h.staff, { merchantOrgId: h.orgId, itemId: kas.id });
+    return h;
+  }
+
+  it('staff are refused on the server, on the day and on one order', async () => {
+    const h = await day();
+    await expect(h.svc.activityToday(h.staff, { merchantOrgId: h.orgId })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.svc.activityOrder(h.staff, { merchantOrgId: h.orgId, orderId: 'ord_a' })).rejects.toMatchObject({ code: 'forbidden' });
+    const outsider = await h.person('07700000009');
+    await expect(h.svc.activityToday(outsider, { merchantOrgId: h.orgId })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('the owner sees who accepted, rejected (with the reason) and sold out, newest first, by name only', async () => {
+    const h = await day();
+    const feed = await h.svc.activityToday(h.owner, { merchantOrgId: h.orgId });
+    expect(feed.localDate).toBe('2026-10-03');
+    expect(feed.entries.map((e) => [e.kind, e.orderId, e.dishName, e.who?.name ?? null, e.reason])).toEqual([
+      ['sold_out', null, 'كص', 'منتظر', null],
+      ['reject', 'ord_b', null, 'منتظر', 'busy'],
+      ['accept', 'ord_a', null, 'منتظر', null],
+    ]);
+    expect(feed.entries[2]!.orderNumber).toMatch(/^\d+$/);
+    expect(feed.entries[0]!.until).not.toBeNull();
+    // Name only: no phone in any shape reaches the app.
+    expect(JSON.stringify(feed)).not.toMatch(/\+964|phone/i);
+    expect(feed.entries.every((e) => e.who === null || Object.keys(e.who).sort().join() === 'name,personId,you')).toBe(true);
+    // The vault read is logged under its own purpose; never for the customer or the courier.
+    const logs = h.id.repo.accessLogs.filter((l) => l.purpose === 'merchant_activity_view');
+    expect(logs.map((l) => l.personId)).toEqual([h.staff.personId]);
+  });
+
+  it('one batched vault read per call with unique ids, not one per event', async () => {
+    const h = await day();
+    const calls: string[][] = [];
+    const real = h.id.service.memberCards.bind(h.id.service);
+    h.id.service.memberCards = async (ids, accessorId, purpose) => {
+      calls.push([...ids]);
+      return real(ids, accessorId, purpose);
+    };
+    await h.svc.activityToday(h.owner, { merchantOrgId: h.orgId });
+    expect(calls).toEqual([[h.staff.personId]]);
+    calls.length = 0;
+    await h.svc.activityOrder(h.owner, { merchantOrgId: h.orgId, orderId: 'ord_a' });
+    expect(calls).toEqual([[h.staff.personId]]);
+  });
+
+  it('one order: its kitchen actions oldest first; the viewer is «انت»; another store’s order is NOT_FOUND', async () => {
+    const h = await day();
+    await h.ev.events.emit(undefined, { type: 'order.ready', actorId: h.owner.personId, occurredAt: h.clock.now(), orderId: 'ord_b', payload: {} }, { name: 'order', id: 'ord_b' });
+    const who = await h.svc.activityOrder(h.owner, { merchantOrgId: h.orgId, orderId: 'ord_b' });
+    expect(who.entries.map((e) => [e.kind, e.who?.you, e.who?.name])).toEqual([
+      ['reject', false, 'منتظر'],
+      ['ready', true, 'خالد'],
+    ]);
+    await expect(h.svc.activityOrder(h.owner, { merchantOrgId: h.orgId, orderId: 'ord_other' })).rejects.toMatchObject({ code: 'not_found' });
+    await expect(h.svc.activityOrder(h.owner, { merchantOrgId: h.orgId, orderId: 'ord_nope' })).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('a deleted person keeps the row with no name (the app says «موظف سابق»)', async () => {
+    const h = await day();
+    h.id.repo.people.get(h.staff.personId)!.deletedAt = h.clock.now();
+    const feed = await h.svc.activityToday(h.owner, { merchantOrgId: h.orgId });
+    expect(feed.entries.map((e) => e.who)).toEqual([
+      { personId: h.staff.personId, name: null, you: false },
+      { personId: h.staff.personId, name: null, you: false },
+      { personId: h.staff.personId, name: null, you: false },
+    ]);
+  });
+});

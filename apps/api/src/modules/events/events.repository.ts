@@ -12,6 +12,27 @@ export interface EventFilter {
   aggregate?: Aggregate;
   /** Only events recorded before this one, in recording order. */
   before?: StoredEvent;
+  /**
+   * Events of any of these orders (the indexed `order_id` column: orders that exist as rows). An
+   * empty list matches nothing.
+   */
+  orderIds?: readonly string[];
+  /** Only these event types. Needs a key (`orderIds`, `orderId`, `aggregate`, `actorId`, `tripId`). */
+  types?: readonly string[];
+  /** `occurredAt >= from` (needs a key, as `types`). */
+  from?: Date;
+  /** `occurredAt < to` (needs a key, as `types`). */
+  to?: Date;
+}
+
+/** True when the filter names an indexed key; `types`/`from`/`to` alone would scan the whole log. */
+export function filterIsKeyed(filter: EventFilter): boolean {
+  return Boolean(filter.actorId || filter.tripId || filter.orderId || filter.orderIds || filter.aggregate);
+}
+
+/** Refuses a narrowing filter (`types`, `from`, `to`) with no indexed key beside it. */
+export function assertKeyedFilter(filter: EventFilter): void {
+  if ((filter.types || filter.from || filter.to) && !filterIsKeyed(filter)) throw new Error('events.find: types/from/to need orderIds, orderId, aggregate, actorId or tripId');
 }
 
 /**
@@ -138,6 +159,8 @@ export class PrismaEventsRepository implements EventsRepository {
   }
 
   async find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]> {
+    assertKeyedFilter(filter);
+    if (filter.orderIds && filter.orderIds.length === 0) return [];
     const where: Prisma.Sql[] = [];
     // Indexed column when the id resolved to a row, envelope otherwise (system actors, unknown trips).
     const ref = (col: string, key: string, v: string) =>
@@ -147,6 +170,11 @@ export class PrismaEventsRepository implements EventsRepository {
     if (filter.orderId) where.push(ref('order_id', 'orderId', filter.orderId));
     if (filter.aggregate) where.push(Prisma.sql`e."aggregate" = ${filter.aggregate.name} AND e."aggregate_id" = ${filter.aggregate.id}`);
     if (filter.before) where.push(Prisma.sql`(e."recorded_at", e."id") < (${ts(filter.before.recordedAt)}, ${filter.before.id})`);
+    // Indexed `order_id` only (no envelope fallback: an OR there would scan every unresolved row).
+    if (filter.orderIds) where.push(Prisma.sql`e."order_id" = ANY(${[...new Set(filter.orderIds)]}::text[])`);
+    if (filter.types) where.push(filter.types.length === 0 ? Prisma.sql`FALSE` : Prisma.sql`e."type" = ANY(${[...new Set(filter.types)]}::text[])`);
+    if (filter.from) where.push(Prisma.sql`e."occurred_at" >= ${ts(filter.from)}`);
+    if (filter.to) where.push(Prisma.sql`e."occurred_at" < ${ts(filter.to)}`);
     const cond = where.length ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
     const rows = await this.db(tx).$queryRaw<Array<{ payload: unknown }>>`
       SELECT o."payload" FROM "public"."events" e JOIN "public"."outbox" o ON o."event_id" = e."id"
