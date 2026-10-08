@@ -39,6 +39,23 @@ describe('minimum app version', () => {
     expect((await call(`config.city?input=${quote}`)).status).toBe(200);
   });
 
+  it('keeps the build through a POST body and inside a batch', async () => {
+    const post = (header: string) =>
+      fetch(`${base}/identity.refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-driver-app': header },
+        body: JSON.stringify({ json: { refreshToken: 'not-a-real-token' } }),
+      });
+    expect((await post('customer/1.0.0')).status).toBe(412);
+    // The minimum build gets past the gate to the procedure's own answer.
+    expect([400, 401]).toContain((await post('customer/1.2.0')).status);
+    const input = encodeURIComponent(JSON.stringify({ 1: { json: { cityId: 'aziziyah' } } }));
+    const batch = await call(`health.ping,config.city?batch=1&input=${input}`, 'customer/1.0.0');
+    const parts = (await batch.json()) as Array<{ result?: unknown; error?: { json: { data: { code: string } } } }>;
+    expect(parts[0]?.result).toBeDefined();
+    expect(parts[1]?.error?.json.data.code).toBe('update_required');
+  });
+
   it('always answers health, so the app can tell "update" from "offline"', async () => {
     expect((await call('health.ping', 'customer/0.0.1')).status).toBe(200);
   });
