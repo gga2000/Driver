@@ -366,3 +366,47 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
     expect((await run(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }), forMum())).map((r) => r.template)).toEqual(['ride_receipt']);
   });
 });
+
+describe('W2: the turns that used to leave the customer staring at a screen', () => {
+  const ETA = new Date('2026-10-04T09:52:00Z'); // 12:52 Baghdad
+  const w2 = (over: Partial<NotifyLookups> = {}) => (h: ReturnType<typeof notifyHarness>) => ({
+    ...deps(h),
+    lookups: { ...lookups, deliveryEta: async (id: string) => (id === 'ord_1' ? ETA : null), stopOrder: async (tripId: string, stopId: string) => (tripId === 'trp_1' && stopId === 's2' ? 'ord_1' : null), ...over },
+  });
+  const run = async (e: PublishedEvent, over: Partial<NotifyLookups> = {}) => (await requestsFor(e, w2(over)(notifyHarness()))).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('the kitchen said no, or never answered: told at once, naming the kitchen', async () => {
+    expect(await run(event('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'closing early' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_rejected', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
+    expect(await run(event('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'merchant_timeout' }, { orderId: 'ord_1', actorId: 'system' }))).toEqual([
+      { template: 'order_kitchen_no_answer', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } },
+    ]);
+  });
+
+  it('only what we cancelled is told; the household payer’s answer is named; his own cancel is silent', async () => {
+    const cancel = (reason: string, cancelledState = 'platform_cancelled') => event('order.cancelled', { from: 'placed', to: cancelledState, cancelledState, by: 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await run(cancel('payer_declined'))).toEqual([{ template: 'order_payer_declined', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('payer_no_answer'))).toEqual([{ template: 'order_payer_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('partial_timeout'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
+  });
+
+  it('picked up: the order screen’s own arrival time, or no time at all when none can be read', async () => {
+    const picked = event('order.picked_up', { from: 'ready', to: 'picked_up', tripId: 'trp_1', courierId: 'courier' }, { orderId: 'ord_1', actorId: 'courier' });
+    expect(await run(picked)).toEqual([{ template: 'order_picked_up', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1', time: '12:52 م' } }]);
+    expect(await run(picked, { deliveryEta: async () => null })).toEqual([{ template: 'order_on_the_way', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+  });
+
+  it('at the door, then can’t reach him: at once, and the minute-3 reminder found through its stop', async () => {
+    expect(await run(event('stop.arrived', { stopId: 's2', stopType: 'dropoff' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([{ template: 'courier_at_door', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+    expect(await run(event('stop.arrived', { stopId: 's1', stopType: 'pickup' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([]);
+    expect(await run(event('trip.unreachable_started', { stopId: 's2' }, { orderId: 'ord_1', tripId: 'trp_1', actorId: 'courier' }))).toEqual([{ template: 'courier_unreachable', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+    expect(await run(event('trip.unreachable_escalated', { stopId: 's2', courierId: 'courier' }, { tripId: 'trp_1', actorId: 'system' }))).toEqual([{ template: 'courier_unreachable_reminder', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(event('trip.unreachable_escalated', { stopId: 's9' }, { tripId: 'trp_1', actorId: 'system' }))).toEqual([]);
+  });
+
+  it('rides keep their own messages: no delivery wording on a ride', async () => {
+    expect(await run(event('order.picked_up', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
+    expect(await run(event('order.rejected', {}, { orderId: 'ride_1' }))).toEqual([]);
+    expect((await run(event('stop.arrived', { stopType: 'pickup' }, { orderId: 'ride_1', actorId: 'drv' })))[0]?.template).toBe('driver_arrived');
+  });
+});

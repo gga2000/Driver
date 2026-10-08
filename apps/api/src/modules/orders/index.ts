@@ -3,7 +3,7 @@ export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, 
 export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrdersWalletPort, OrderTimerJob, OrdersReferralsPort } from './orders.service.js';
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';
-export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, vehicleRequirement } from './order.machine.js';
+export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, orderEventType, transitionsFor, vehicleRequirement } from './order.machine.js';
 export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, commissionPctOf } from './orders.config.js';
 export { InMemoryMerchantDirectory, MERCHANT_DIRECTORY } from './merchants.port.js';
 export type { MerchantDirectory, MerchantProfile } from './merchants.port.js';

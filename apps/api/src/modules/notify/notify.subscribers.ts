@@ -43,6 +43,13 @@ export const NOTIFY_EVENT_TYPES = [
   'order.late_apology',
   'order.offered_to_merchant',
   'order.delivered',
+  // W2 CRIT1-01 / NTF-03: the turns that left the customer staring at a screen — the kitchen said no or
+  // never answered, we cancelled, the courier has it, he is at the door, he can't reach him.
+  'order.rejected',
+  'order.cancelled',
+  'order.picked_up',
+  'trip.unreachable_started',
+  'trip.unreachable_escalated',
   'stop.courier_near',
   // d3: «السايق قريب، اطلع هسة» (trips stamps it once per ride by the one ETA).
   'stop.driver_near',
@@ -294,6 +301,46 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? '') : '';
       return [{ ...base, template: 'order_accepted', to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
     }
+    case 'order.rejected': {
+      // «المطعم ما گدر ياخذ طلبك» / «المطعم ما رد»: told at once, with the way on. No credit is named
+      // here — a credit reaches him in its own message once the ledger posts it.
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type === 'ride') return [];
+      const merchant = order.merchantOrgId ? ((await L.storeName(order.merchantOrgId)) ?? 'المطعم') : 'المطعم';
+      const template = p['reason'] === 'merchant_timeout' ? ('order_kitchen_no_answer' as const) : ('order_rejected' as const);
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'order.cancelled': {
+      // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
+      // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
+      if (p['cancelledState'] !== 'platform_cancelled') return [];
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order) return [];
+      const template = p['reason'] === 'payer_declined' ? ('order_payer_declined' as const) : p['reason'] === 'payer_no_answer' ? ('order_payer_no_answer' as const) : ('order_cancelled' as const);
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
+    }
+    case 'order.picked_up': {
+      // «حيدر استلم طلبك ويوصلك الساعة 8:40» — the order screen's own ETA; without one, no time at all.
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (!order || order.type === 'ride') return [];
+      const [courier, eta] = await Promise.all([L.firstName(e.actorId, 'notify_order_picked_up'), L.deliveryEta ? L.deliveryEta(order.id, e.occurredAt) : null]);
+      const params = { courier: courier ?? 'الدليفري', orderId: order.id, ...(eta ? { time: localTime(eta) } : {}) };
+      return [{ ...base, template: eta ? 'order_picked_up' : 'order_on_the_way', to: order.customerId, orderId: order.id, params, data: { orderId: order.id } }];
+    }
+    case 'trip.unreachable_started':
+    case 'trip.unreachable_escalated': {
+      // NTF-03: the 5-minute clock at the door is never silent — push + WhatsApp at once (SMS when neither
+      // lands), then «باقي دقيقتين» at minute 3. The minute-3 event names the stop only.
+      const stopId = str(p['stopId']);
+      const orderId = e.orderId ?? (e.tripId && stopId && L.stopOrder ? await L.stopOrder(e.tripId, stopId) : null);
+      const order = orderId ? await L.order(orderId) : null;
+      if (!order || order.type === 'ride') return [];
+      if (e.type === 'trip.unreachable_escalated') {
+        return [{ ...base, template: 'courier_unreachable_reminder', to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
+      }
+      const courier = (await L.firstName(e.actorId, 'notify_courier_unreachable')) ?? 'الدليفري';
+      return [{ ...base, template: 'courier_unreachable', to: order.customerId, orderId: order.id, params: { courier, orderId: order.id }, data: { orderId: order.id } }];
+    }
     case 'stop.courier_near': {
       // "الدليفري يوصل بعد دقيقتين" (maps program SP5b): the template was defined with no producer until now.
       const order = e.orderId ? await L.order(e.orderId) : null;
@@ -359,9 +406,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
     case 'order.matched':
     case 'stop.arrived': {
       // J1c f4: "لگينالك سايق: حيدر" when a driver takes the ride; "حيدر وصل" when he is at the pickup.
-      if (e.type === 'stop.arrived' && p['stopType'] !== 'pickup') return [];
+      // W2 NTF-03: a delivery's courier at the door — «حيدر وصل بطلبك».
       const order = e.orderId ? await L.order(e.orderId) : null;
-      if (!order || order.type !== 'ride') return [];
+      if (!order) return [];
+      if (e.type === 'stop.arrived' && order.type !== 'ride') {
+        if (p['stopType'] !== 'dropoff') return [];
+        const courier = (await L.firstName(e.actorId, 'notify_courier_at_door')) ?? 'الدليفري';
+        return [{ ...base, template: 'courier_at_door', to: order.customerId, orderId: order.id, params: { courier, orderId: order.id }, data: { orderId: order.id } }];
+      }
+      if (e.type === 'stop.arrived' && p['stopType'] !== 'pickup') return [];
+      if (order.type !== 'ride') return [];
       const driver = (await L.firstName(e.actorId, e.type === 'order.matched' ? 'notify_ride_matched' : 'notify_driver_arrived')) ?? 'السايق';
       const template = e.type === 'order.matched' ? ('ride_matched' as const) : ('driver_arrived' as const);
       const own: NotifyRequest = { ...base, template, to: order.customerId, orderId: order.id, params: { driver, orderId: order.id }, data: { orderId: order.id } };

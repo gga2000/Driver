@@ -183,6 +183,16 @@ export const NotifyTemplateId = z.enum([
   'partner_booked_favourite',
   'partner_booked_reminder',
   'partner_booked_cancelled',
+  // W2 (CRIT1-01, NTF-03): the order's bad turns and the courier at the door reach the customer.
+  'order_rejected',
+  'order_kitchen_no_answer',
+  'order_cancelled',
+  'order_payer_declined',
+  'order_payer_no_answer',
+  'courier_at_door',
+  'courier_unreachable',
+  'courier_unreachable_reminder',
+  'order_on_the_way',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -276,6 +286,92 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'customer',
     push: { title: 'push.order_picked_up.title', body: 'push.order_picked_up.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // W2: picked up when no arrival time can be read (no courier fix, no locked ride minutes) — never a made-up time.
+  order_on_the_way: {
+    id: 'order_on_the_way',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_on_the_way.title', body: 'push.order_on_the_way.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // W2 CRIT1-01: the kitchen said no, or never answered — told at once, with the way on (another kitchen).
+  order_rejected: {
+    id: 'order_rejected',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_rejected.title', body: 'push.order_rejected.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_kitchen_no_answer: {
+    id: 'order_kitchen_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_kitchen_no_answer.title', body: 'push.order_kitchen_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 CRIT1-01: we cancelled it (no answer on a changed order, ops); the household payer said no or never answered.
+  order_cancelled: {
+    id: 'order_cancelled',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_cancelled.title', body: 'push.order_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_payer_declined: {
+    id: 'order_payer_declined',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_payer_declined.title', body: 'push.order_payer_declined.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_payer_no_answer: {
+    id: 'order_payer_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_payer_no_answer.title', body: 'push.order_payer_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 NTF-03: the courier is at the door. Then, if he can't reach the customer, the 5-minute clock is
+  // never silent: push + WhatsApp at once, SMS when neither is delivered in 60 s, a reminder at minute 3.
+  // Safety category: the customer can't turn these off (he is billed when the clock runs out).
+  courier_at_door: {
+    id: 'courier_at_door',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.courier_at_door.title', body: 'push.courier_at_door.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  courier_unreachable: {
+    id: 'courier_unreachable',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.unreachable.title', body: 'push.unreachable.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    whatsapp: wa('courier_unreachable', 'wa.courier_unreachable', ['courier'], ['حيدر']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  courier_unreachable_reminder: {
+    id: 'courier_unreachable_reminder',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.unreachable_reminder.title', body: 'push.unreachable_reminder.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: 30,
     quietHours: 'send',
   },
   courier_arriving: {

@@ -71,6 +71,10 @@ export interface NotifyLookups {
   riderName?(orderId: string): Promise<string | null>;
   /** c9: the car the driver came in — "Toyota Corolla · أبيض" (else تكسي / تكتك) — and its plate. */
   driverCar?(tripId: string, driverId: string): Promise<{ car: string; plate: string } | null>;
+  /** W2: when a picked-up delivery reaches the door — the order screen's own ETA; null when it can't say. */
+  deliveryEta?(orderId: string, now: Date): Promise<Date | null>;
+  /** W2: the order a trip stop serves (an event that names only the stop); null when gone. */
+  stopOrder?(tripId: string, stopId: string): Promise<string | null>;
   /** s1: the start code of a night ride, which goes in the rider's SMS; null when the ride has none. */
   startCode?(orderId: string): Promise<string | null>;
 }

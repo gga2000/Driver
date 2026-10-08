@@ -8022,5 +8022,22 @@
   "datasaver.slow_hint_auto": "النت ضعيف هسة، فخلّينا التطبيق خفيف: صور أقل وخريطة أبسط",
   "datasaver.slow_keep": "خلّيه دائماً",
   "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",
-  "datasaver.slow_turn_on": "خلّيه خفيف"
+  "datasaver.slow_turn_on": "خلّيه خفيف",
+  "push.order_rejected.title": "المطعم ما گدر ياخذ طلبك",
+  "push.order_rejected.body": "{merchant} ما يگدر يسوي طلبك هسة. ما عليك شي، اطلب من مطعم ثاني",
+  "push.order_kitchen_no_answer.title": "المطعم ما رد على طلبك",
+  "push.order_kitchen_no_answer.body": "{merchant} ما رد بالوقت، فلغينا الطلب. ما عليك شي، اطلب من مطعم ثاني",
+  "push.order_cancelled.title": "آسفين، انلغى طلبك",
+  "push.order_cancelled.body": "ما گدرنا نكمّل طلبك. التفاصيل بصفحة الطلب",
+  "push.order_payer_declined.title": "طلبك ما انوافق عليه",
+  "push.order_payer_declined.body": "اللي يدفع بالبيت ما وافق على طلبك، فانلغى. ما عليك شي",
+  "push.order_payer_no_answer.title": "اللي يدفع ما رد",
+  "push.order_payer_no_answer.body": "ما وصلنا رد على طلبك بالوقت، فانلغى. ما عليك شي",
+  "push.courier_at_door.title": "الدليفري عند بابك",
+  "push.courier_at_door.body": "{courier} وصل بطلبك. اطلع استلمه",
+  "push.unreachable_reminder.title": "الدليفري بعده ينتظرك",
+  "push.unreachable_reminder.body": "باقي دقيقتين ويرجع. اطلع له هسة أو رد على رسالته",
+  "wa.courier_unreachable": "الدليفري {{1}} عند بابك بطلبك ويحاول يوصلك. اطلع له أو رد على رسالته خلال 5 دقايق، بعدها يرجع.",
+  "push.order_on_the_way.title": "طلبك بالطريق",
+  "push.order_on_the_way.body": "{courier} استلم طلبك وجاي عليك. تابعه بصفحة الطلب"
 }

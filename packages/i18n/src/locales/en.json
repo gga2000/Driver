@@ -8022,5 +8022,22 @@
   "datasaver.slow_hint_auto": "Your internet is slow right now, so we made the app lighter: fewer photos, a simpler map",
   "datasaver.slow_keep": "Keep it light",
   "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",
-  "datasaver.slow_turn_on": "Make it light"
+  "datasaver.slow_turn_on": "Make it light",
+  "push.order_rejected.title": "The restaurant couldn’t take your order",
+  "push.order_rejected.body": "{merchant} can’t make your order right now. You owe nothing; order from another restaurant",
+  "push.order_kitchen_no_answer.title": "The restaurant didn’t answer",
+  "push.order_kitchen_no_answer.body": "{merchant} didn’t answer in time, so we cancelled the order. You owe nothing; order from another restaurant",
+  "push.order_cancelled.title": "Sorry, your order was cancelled",
+  "push.order_cancelled.body": "We couldn’t complete your order. Details are on the order page",
+  "push.order_payer_declined.title": "Your order wasn’t approved",
+  "push.order_payer_declined.body": "Your household payer didn’t approve the order, so it was cancelled. You owe nothing",
+  "push.order_payer_no_answer.title": "No answer from your payer",
+  "push.order_payer_no_answer.body": "Your household payer didn’t answer in time, so the order was cancelled. You owe nothing",
+  "push.courier_at_door.title": "Your courier is at the door",
+  "push.courier_at_door.body": "{courier} is here with your order. Step out to collect it",
+  "push.unreachable_reminder.title": "Your courier is still waiting",
+  "push.unreachable_reminder.body": "2 minutes left before they leave. Step out now or answer their message",
+  "wa.courier_unreachable": "Courier {{1}} is at your door with your order and is trying to reach you. Step out or answer their message within 5 minutes, or they will leave.",
+  "push.order_on_the_way.title": "Order on the way",
+  "push.order_on_the_way.body": "{courier} picked up your order and is on the way. Follow it on the order screen"
 }

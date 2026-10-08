@@ -12,7 +12,7 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
 import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
-import { COURIER_VEHICLES, ShareLinksService, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
+import { COURIER_VEHICLES, ShareLinksService, TrackingModule, TrackingService, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
@@ -80,6 +80,7 @@ function envInt(name: string, fallback: number): number {
         places: PlacesService,
         shares: ShareLinksService,
         vehicles: CourierVehicleDirectory,
+        tracking: TrackingService,
       ): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
@@ -167,6 +168,21 @@ function envInt(name: string, fallback: number): number {
             const place = stop.placeId ? await places.get(stop.placeId) : undefined;
             return place?.name ?? zoneName(stop.zoneKey);
           }),
+        deliveryEta: (orderId, now) =>
+          orNull(async () => {
+            // The one ETA the order screen shows (tracking's liveEta), from the courier's last fix — or the
+            // kitchen when he has none yet; else the kitchen → door minutes locked into the order at placement.
+            const [o, trip] = await Promise.all([orders.get(orderId), trips.activeForOrder(orderId)]);
+            if (trip) {
+              const fix = await trips.lastPosition(trip.id);
+              const pin = fix?.pin ?? trip.stops.find((s) => s.orderId === orderId && (s.type === 'pickup' || s.type === 'shop'))?.target ?? null;
+              const eta = pin ? await tracking.liveEta(o, trip, pin, now) : null;
+              if (eta) return eta.at;
+            }
+            const locked = (await orders.aggregate(orderId)).order.promisedRideMin;
+            return typeof locked === 'number' ? new Date(now.getTime() + locked * 60_000) : null;
+          }),
+        stopOrder: (tripId, stopId) => orNull(async () => (await trips.get(tripId)).stops.find((s) => s.id === stopId)?.orderId ?? null),
         tripZones: (tripId) =>
           orNull(async () => {
             const trip = await trips.get(tripId);
@@ -176,7 +192,7 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES, TrackingService],
     },
     {
       provide: NOTIFY_ENGINE,

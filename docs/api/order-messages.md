@@ -1,0 +1,28 @@
+# What the customer hears at each turn of an order (W2)
+
+Every change of an order's state either sends the customer a message or is silent for a stated
+reason. The table lives in code, `apps/api/src/modules/notify/notify.matrix.ts`, one line per
+transition of each order family (food and grocery, errands and parcels, rides). Its test fails when the
+order machine gains a transition the table does not answer, and runs every line through the real
+notify subscribers, so the table can't drift from what is sent.
+
+| Turn | Message | Notes |
+| --- | --- | --- |
+| Kitchen said no | `order_rejected` «المطعم ما گدر ياخذ طلبك» | push, SMS after 60 s if the push isn't delivered |
+| Kitchen never answered | `order_kitchen_no_answer` | same; the reject's reason is `merchant_timeout` |
+| We cancelled | `order_cancelled`, or `order_payer_declined` / `order_payer_no_answer` for a household order the payer refused or never answered | his own cancel is silent |
+| Picked up | `order_picked_up` «حيدر استلم طلبك ويوصلك الساعة 8:40», or `order_on_the_way` (no time) | the time is the order screen's own ETA (tracking `liveEta` from the courier's last fix); else the kitchen → door minutes locked at placement; never a made-up time |
+| At the door | `courier_at_door` | the drop-off stop's `stop.arrived` |
+| Can't reach him | `courier_unreachable` (push + WhatsApp, SMS after 60 s), `courier_unreachable_reminder` at minute 3 (push, SMS after 30 s) | safety category: can't be switched off, he is charged when the 5 minutes run out |
+
+No message names a credit: a credit is told by its own message once the ledger posts it.
+
+A second test checks that every notify template has a sender in the API (or a written reason, such as
+`marketing_offer`, whose sender is not built yet).
+
+## Push on a live host (OPS-02)
+
+With `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot unless
+`PUSH_PROVIDER=expo`: the dev push answers "delivered" for every message, so the SMS twin would never
+go and nobody would know. There, a token with no transport (raw FCM without FCM set up) fails each
+message instead, which brings the SMS twin forward. Staging may keep the dev push.
