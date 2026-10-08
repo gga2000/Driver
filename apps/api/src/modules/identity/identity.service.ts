@@ -36,7 +36,8 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
+import { SelfReadLogWindow, selfReadLogWindowMsFromEnv } from './auth-cache.js';
 import { EventOtpAlerts, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { GuardianService, guardianView } from './guardian.service.js';
 import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, type IdentityRepository, type PersonRecord, type RoleRecord } from './identity.repository.js';
@@ -95,6 +96,7 @@ export class IdentityService implements IdentityPort {
   private readonly otp: OtpService;
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
+  private readonly selfReads: SelfReadLogWindow;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -113,6 +115,7 @@ export class IdentityService implements IdentityPort {
     this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
+    this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
   }
 
   // ───────────────────────── phone helpers ─────────────────────────
@@ -343,11 +346,11 @@ export class IdentityService implements IdentityPort {
 
   /** Name from the vault (access logged) plus live roles and re-verification state. */
   async me(actor: Actor): Promise<MeView> {
-    return this.profile(actor.personId, actor.personId, 'self_profile', actor.deviceId);
+    return this.profile(actor.personId, actor.personId, 'self_profile', actor.deviceId, actor.sessionId);
   }
 
   /** Reads identifiers from the vault and writes a VaultAccessLog row with the reason (domain §13). */
-  async profile(personId: string, accessorId: string, reason: string, deviceId?: string): Promise<MeView> {
+  async profile(personId: string, accessorId: string, reason: string, deviceId?: string, sessionId?: string): Promise<MeView> {
     return this.uow.run(async (tx) => {
       const person = await this.repo.findPersonById(personId, tx);
       if (!person) throw new DriverError('person_not_found');
@@ -355,7 +358,13 @@ export class IdentityService implements IdentityPort {
       if (!identity) throw new DriverError('person_not_found');
       const trusted = trustedOf(identity);
       const fieldsRead = ['name', 'phone_e164', ...(identity.emergencyContact ? ['emergency_contact'] : []), ...(identity.trustedContacts?.length ? ['trusted_contacts'] : [])];
-      await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead, now: this.clock.now() }, tx);
+      // A person's own reads (every home open) write one row per session per window; any other read
+      // always writes its row (x4, Ali 8 Oct).
+      const selfKey = accessorId === personId && reason === 'self_profile' && sessionId ? `${sessionId}|${fieldsRead.join(',')}` : null;
+      if (!selfKey || this.selfReads.due(selfKey)) {
+        const row = await this.repo.logVaultAccess({ personId, accessorId, purpose: reason, fieldsRead, now: this.clock.now() }, tx);
+        if (selfKey && row) afterCommit(tx, () => this.selfReads.wrote(selfKey));
+      }
       const reverify = await this.reverificationRequired(personId, deviceId, tx);
       const roles = await this.repo.rolesOf(personId, tx);
       return {
