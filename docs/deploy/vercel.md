@@ -1,4 +1,4 @@
-# Customer web app on Vercel
+# Web apps on Vercel (customer and restaurant)
 
 Ali chose Vercel for the customer web app (2026-10-07). It is the same static export as the
 Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays on Fly.
@@ -16,3 +16,11 @@ Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays
   `invite.html` (the WhatsApp preview card). Headers match the Cloudflare `_headers`.
 - Plan: the free Hobby plan is for non-commercial use. Move to Pro before real customers order.
 - Own domain later: Vercel project → Domains → `app.<domain>`, then update the API's `CORS_ORIGINS`.
+
+## Restaurant (merchant) web app
+
+Same setup as a second Vercel project, `driver-merchant`, Root Directory **`apps/merchant`**
+(`apps/merchant/vercel.json`, `apps/merchant/scripts/vercel-build.sh`), same `EXPO_PUBLIC_API_URL`.
+Its address must also be in the staging API's `CORS_ORIGINS`. Every page is `noindex` (staff tool).
+On the web: no Bluetooth printer (the printer screen says so), no push, the order sound starts after
+the «ابدأ الشغل» tap (browser autoplay rule), keep-screen-on uses Wake Lock when the browser allows it.
