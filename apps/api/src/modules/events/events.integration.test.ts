@@ -75,7 +75,7 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
     // `b` drained after each commit (sync mode); reset the rows and race two drains over them.
     const rows = await prisma.prisma.outbox.findMany({ where: { aggregateId: { startsWith: `${tag}_c` } } });
     await prisma.prisma.subscriberDelivery.deleteMany({ where: { outboxId: { in: rows.map((r) => r.id) } } });
-    await prisma.prisma.outbox.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { status: 'pending', publishedAt: null } });
+    await prisma.prisma.outbox.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { status: 'pending', publishedAt: null, nextAttemptAt: clock.now() } });
     delivered.clear();
     let both = 0;
     for (;;) {
@@ -86,5 +86,30 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
     expect(both).toBeGreaterThan(0); // the two drains really overlapped
     expect(delivered.size).toBe(40);
     expect([...delivered.values()].every((n) => n === 1)).toBe(true);
+  });
+
+  it('the claim commits before delivery: subscribers run with no lock on the outbox rows', async () => {
+    const a = instance();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const running = new Promise<void>((r) => (entered = r));
+    const id = `${tag}_slow`;
+    a.registry.subscribe('it:slow', '*', async (e) => {
+      if (e.aggregateId !== id) return;
+      entered();
+      await gate; // a slow subscriber (an SMS, a push)
+    });
+    // Sync mode: the emit drains after its commit, so it settles only once the subscriber is done.
+    const drain = a.events.emit(undefined, { type: 'order.placed', actorId: 'system:test', occurredAt: clock.now() }, { name: 'order', id });
+    await running;
+    // Another connection may lock the row at once: the drain holds no lock while delivering.
+    const row = await prisma.prisma.outbox.findFirstOrThrow({ where: { aggregateId: id } });
+    const locked = await prisma.prisma.$transaction((tx) => tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "public"."outbox" WHERE "id" = ${row.id} FOR UPDATE NOWAIT`);
+    expect(locked).toHaveLength(1);
+    expect(row.nextAttemptAt.getTime()).toBeGreaterThan(clock.now().getTime()); // leased: other drains skip it
+    release();
+    await drain;
+    expect((await prisma.prisma.outbox.findFirstOrThrow({ where: { aggregateId: id } })).status).toBe('published');
   });
 });

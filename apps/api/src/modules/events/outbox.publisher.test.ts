@@ -3,6 +3,7 @@ import { FakeClock } from '../../shared/clock.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { createInMemoryEvents } from './in-memory.js';
 import type { OutboxTick } from './outbox.publisher.js';
+import { OUTBOX_LEASE_MS } from './timestamps.js';
 
 const START = '2026-10-03T09:00:00Z';
 
@@ -202,10 +203,29 @@ describe('per-subscriber dedupe (subscriber_deliveries)', () => {
     await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
     await h.publisher.drainOnce();
     const [row] = await h.repo.outbox();
-    await h.repo.updateOutbox(row!.id, { status: 'pending' }); // the worker died before marking it
+    // The worker died before marking it: still pending, with the claim's lease on it.
+    await h.repo.updateOutbox(row!.id, { status: 'pending', nextAttemptAt: new Date(h.clock.now().getTime() + OUTBOX_LEASE_MS) });
+    h.clock.advance(OUTBOX_LEASE_MS);
     await h.publisher.drainOnce();
     expect(calls).toBe(1);
     expect((await h.repo.outbox())[0]!.status).toBe('published');
+  });
+
+  it('rows a dead drain claimed wait out the lease, then come back by themselves', async () => {
+    const h = queued();
+    let calls = 0;
+    h.events.subscribe('test:count', '*', async () => {
+      calls += 1;
+    });
+    await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
+    // A drain claims the row and dies before delivering anything.
+    await h.repo.claimDue(h.clock.now(), 10, async () => undefined);
+    expect((await h.publisher.drainOnce()).claimed).toBe(0); // another drain skips the claimed row
+    h.clock.advance(OUTBOX_LEASE_MS - 1);
+    expect((await h.publisher.drainOnce()).claimed).toBe(0);
+    h.clock.advance(1);
+    expect(await h.publisher.drainOnce()).toMatchObject({ claimed: 1, published: 1 });
+    expect(calls).toBe(1);
   });
 
   it('a handler that throws commits neither its effects nor a delivery record', async () => {

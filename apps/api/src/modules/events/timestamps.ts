@@ -56,3 +56,10 @@ export function backoffMs(attempts: number): number {
 }
 
 export const OUTBOX_MAX_ATTEMPTS = 10;
+
+/**
+ * How long a drain owns the rows it claimed. The claim commits at once (no row lock is held while
+ * subscribers run); the claimed rows' next attempt moves this far ahead, so other drains skip them,
+ * and if this process dies mid-batch they come back by themselves after it.
+ */
+export const OUTBOX_LEASE_MS = 120_000;

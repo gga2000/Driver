@@ -1,7 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Clock } from '../../shared/clock.js';
 import type { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { Queue } from '../../shared/queue.js';
 import { runAsBackground } from '../../shared/request-context.js';
 import type { EventsRepository } from './events.repository.js';
@@ -151,24 +150,24 @@ export class OutboxPublisher {
     }
   }
 
-  /** One batch: claims up to `limit` due rows (SKIP LOCKED) and delivers them in order. */
+  /** One batch: claims up to `limit` due rows (a short committed claim, `claimDue`) and delivers them in order. */
   async drainOnce(limit = this.batchSize): Promise<DrainResult> {
     const now = this.clock.now();
     // Background work even when a request's commit poked it: the batch gets the job time limits.
-    return runAsBackground('outbox-drain', () => this.repo.claimDue(now, limit, async (rows, tx) => {
+    return runAsBackground('outbox-drain', () => this.repo.claimDue(now, limit, async (rows) => {
       const result: DrainResult = { claimed: rows.length, published: 0, retried: 0, failed: 0 };
       for (const row of rows) {
         // Log lines of this row's subscribers carry `outbox-<rowId>` (the e2e job maps it to its subjects).
-        const outcome = await runAsBackground(`outbox-${row.id}`, () => this.deliverRow(row, now, tx));
+        const outcome = await runAsBackground(`outbox-${row.id}`, () => this.deliverRow(row, now));
         result[outcome] += 1;
       }
       return result;
     }));
   }
 
-  private async deliverRow(row: OutboxRecord, now: Date, claimTx: Tx | undefined): Promise<'published' | 'retried' | 'failed'> {
+  private async deliverRow(row: OutboxRecord, now: Date): Promise<'published' | 'retried' | 'failed'> {
     const event = { ...row.event, outboxId: row.id };
-    const done = await this.repo.deliveredTo(row.id, claimTx);
+    const done = await this.repo.deliveredTo(row.id);
     const errors: string[] = [];
     for (const sub of this.registry.matching(event)) {
       if (done.has(sub.name)) continue;
@@ -178,21 +177,21 @@ export class OutboxPublisher {
         const msg = (err as Error).message ?? String(err);
         errors.push(`${sub.name}: ${msg}`);
         this.logger.warn(`subscriber ${sub.name} failed on ${row.type} ${row.id} (attempt ${row.attempts + 1}): ${msg}`);
-        await this.repo.recordDeliveryFailure(row.id, sub.name, msg, claimTx);
+        await this.repo.recordDeliveryFailure(row.id, sub.name, msg);
       }
     }
     if (errors.length === 0) {
-      await this.repo.updateOutbox(row.id, { status: 'published', publishedAt: now, lastError: null }, claimTx);
+      await this.repo.updateOutbox(row.id, { status: 'published', publishedAt: now, lastError: null });
       return 'published';
     }
     const attempts = row.attempts + 1;
     const lastError = errors.join('; ').slice(0, 2000);
     if (attempts >= this.maxAttempts) {
-      await this.repo.updateOutbox(row.id, { status: 'failed', attempts, lastError }, claimTx);
+      await this.repo.updateOutbox(row.id, { status: 'failed', attempts, lastError });
       this.logger.error(`outbox row ${row.id} (${row.type}) failed after ${attempts} attempts: ${lastError}`);
       return 'failed';
     }
-    await this.repo.updateOutbox(row.id, { attempts, lastError, nextAttemptAt: new Date(now.getTime() + backoffMs(attempts)) }, claimTx);
+    await this.repo.updateOutbox(row.id, { attempts, lastError, nextAttemptAt: new Date(now.getTime() + backoffMs(attempts)) });
     return 'retried';
   }
 
