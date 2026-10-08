@@ -6,7 +6,8 @@ import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { partnerThemes } from '@driver/design-tokens';
-import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CachedPhoto } from '@/lib/cached-photo';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/features/work/queries';
@@ -65,12 +66,15 @@ export default function RootLayout() {
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter}>
             <ToastProvider bottomOffset={96} placement="top">
-              <ApiProvider>
-                <StatusBar style="dark" />
-                {/* Launch status banner from the Console (system.banner), above every screen. */}
-                <SystemBanner />
-                <RootNavigator />
-              </ApiProvider>
+              {/* Network photos through expo-image with a memory and disk cache (speed d4). */}
+              <PhotoImageProvider component={CachedPhoto}>
+                <ApiProvider>
+                  <StatusBar style="dark" />
+                  {/* Launch status banner from the Console (system.banner), above every screen. */}
+                  <SystemBanner />
+                  <RootNavigator />
+                </ApiProvider>
+              </PhotoImageProvider>
             </ToastProvider>
           </CrashBoundary>
         </ThemeProvider>
