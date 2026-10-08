@@ -66,7 +66,7 @@ export function dishPhoto(name: string): number | null {
  * The photo a past order shows on home's card: its first dish that has a photo of that very dish, and
  * that photo's kind (so the kitchens below pick another). Null when none has one: the card draws it.
  */
-export function orderPhoto(items: readonly { name: string }[]): { photo: number; kind: Motif | null } | null {
+export function orderPhoto(items: readonly { name: string }[]): { photo: NonNullable<ReturnType<typeof dishPhoto>>; kind: Motif | null } | null {
   for (const it of items) {
     const photo = dishPhoto(it.name);
     if (photo !== null) return { photo, kind: dishKind(it.name) };

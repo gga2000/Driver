@@ -28,7 +28,7 @@ export function useHourFood({
   words: readonly string[];
   later: string | null;
   /** The usual card's dish photo, so the gallery doesn't show it a second time. */
-  taken: number | null;
+  taken: number | string | null;
   now: Date;
 }) {
   const pots = usePots();
