@@ -5308,7 +5308,7 @@
   "partner.ic_ride_wait_start_cta": "نزّلت الراكب · بلّش الانتظار",
   "partner.ic_ride_wait_end_cta": "رجع الراكب · وقّف العداد",
   "partner.ic_req_fetch_for": "تجيب {name}",
-  "partner.ic_ride_call_person": "اتصل بـ {name}",
+  "partner.ic_ride_call_person": "اتصل على {name}",
   "partner.ic_ride_call_rider": "اتصل بالراكب",
   "partner.ic_req_fetch_note": "جيب واحد: الشخص بمكان الصعود، مو اللي طلب",
   "partner.ic_ride_collect": "استلم {amount} دينار كاش",
