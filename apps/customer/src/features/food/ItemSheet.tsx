@@ -365,7 +365,7 @@ function ModifierGroupBlock({
                   opacity: m.available ? 1 : theme.state.disabledOpacity,
                 }}
               >
-                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? theme.colors.accent : theme.colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? theme.colors.focusRing : theme.colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
                   {on ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accent }} /> : null}
                 </View>
                 <View style={{ flex: 1, gap: 1 }}>
