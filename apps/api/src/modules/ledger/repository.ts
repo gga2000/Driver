@@ -8,7 +8,7 @@ export type NewLedgerEvent = Omit<LedgerEvent, 'id' | 'recordedAt' | 'kind'> & {
  * Accounts that keep a running balance (perf item 13): a driver's earnings (`driver:`) and the cash
  * he holds (`cash:`), read once per nearby driver per dispatch wave by the cap check. Per-driver
  * accounts only, so keeping them never serialises postings of different drivers. Keep in step with
- * `ledger_balance_projected` in migration 20261011100000_driver_running_balance.
+ * `ledger_balance_projected` in migration 20261010270000_driver_running_balance.
  */
 export function isProjectedAccount(accountId: string): boolean {
   return accountId.startsWith('driver:') || accountId.startsWith('cash:');

@@ -12,7 +12,7 @@ needs two balances per driver: earnings (`driver:<id>`) and cash held (`cash:<id
 `LedgerService.balance` read the account's whole history and summed it, so each wave got slower with
 every shift a driver worked.
 
-**What.** Table `ledger_balances` (migration `20261011100000_driver_running_balance`) holds one row per
+**What.** Table `ledger_balances` (migration `20261010270000_driver_running_balance`) holds one row per
 driver account: `account_id`, `amount_iqd` (the same sum the full history gives) and `events` (lines
 touching the account).
 
