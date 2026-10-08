@@ -56,6 +56,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { lockWallets } from '../ledger/index.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -131,11 +132,15 @@ export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
  */
 export interface OrdersWalletPort {
   balanceIqd(payer: { customerId: string; householdId: string | null }): Promise<number>;
+  /** SEC-07: what the rest of the platform holds against the customer's own wallet (prepaid seats, request deposits). */
+  heldElsewhere?(customerId: string, tx?: Tx): Promise<number>;
   /** W-02: the customer's own points balance (points are personal, also on a household order). */
   pointsBalance?(customerId: string): Promise<number>;
 }
 
 export const ORDERS_WALLET = Symbol('ORDERS_WALLET');
+/** The orders module's name in the wallet-holds registry (open orders on the customer's own wallet). */
+export const ORDERS_WALLET_HOLDS = 'orders';
 
 /**
  * Saved places (maps program SP3d): an order keeps the link to the place it goes to only when the
@@ -424,7 +429,10 @@ export class OrdersService implements OnModuleInit {
     // the payer is asked is decided inside the transaction below, under the member's lock.
     const member = input.householdOrgId ? await this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : null;
     const spendKey = input.householdOrgId ? householdSpendKey(input.householdOrgId, ordererId) : null;
-    // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders.
+    // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders
+    // (and, on his own wallet, everything else held on it). Checked again inside the transaction
+    // below under his wallet lock (SEC-07); this early answer spares the routing call.
+    const spendsOwnWallet = input.paymentMethod === 'wallet' && !input.householdOrgId && total > 0;
     if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
       const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
       if (available < total) throw new DriverError('wallet_insufficient');
@@ -436,12 +444,16 @@ export class OrdersService implements OnModuleInit {
 
     const write = () =>
       this.uow.run(async (tx) => {
+        // SEC-07: his wallet lock first (the lock-order rule), then the re-check every other spend of
+        // the same wallet (a seat, a deposit, a tip, another order) waits behind.
+        if (spendsOwnWallet && this.wallet) await lockWallets(tx, [ordererId]);
         if (input.clientRequestId) {
           // Another API instance placing with the same key commits (or rolls back) before we look.
           await advisoryXactLock(tx, `orders.place:${ordererId}:${input.clientRequestId}`);
           const prior = await this.replay(ordererId, input, tx);
           if (prior) return prior;
         }
+        if (spendsOwnWallet && this.wallet && (await this.walletAvailable(ordererId, null, tx)) < total) throw new DriverError('wallet_insufficient');
         // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
         if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
@@ -715,13 +727,17 @@ export class OrdersService implements OnModuleInit {
     return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
   }
 
-  private async walletAvailable(customerId: string, householdId: string | null): Promise<number> {
+  private async walletAvailable(customerId: string, householdId: string | null, tx?: Tx): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
-    const [balance, mine] = await Promise.all([this.wallet.balanceIqd({ customerId, householdId }), this.repo.forPerson(customerId)]);
+    const [balance, mine, elsewhere] = await Promise.all([
+      this.wallet.balanceIqd({ customerId, householdId }),
+      this.repo.forPerson(customerId),
+      householdId === null && this.wallet.heldElsewhere ? this.wallet.heldElsewhere(customerId, tx) : Promise.resolve(0),
+    ]);
     const held = mine
       .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
       .reduce((a, o) => a + o.totalIqd, 0);
-    return balance - held;
+    return balance - held - elsewhere;
   }
 
   /**
