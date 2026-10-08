@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, View } from 'react-native';
 import { MENU_PHOTO_RULES, type MenuPhotoDish, type MenuPhotoRequestView } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, Skeleton, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
 import { ChoiceTile, Panel, PanelTitle, Pill, Thumb } from '@/features/menu/parts';
@@ -64,8 +66,8 @@ export function MenuPhotosScreen() {
       </Text>
       {!owner ? (
         <View testID="menu-photos-read-only" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: theme.colors.infoTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-          <Glyph name="info" size={20} color="infoText" strokeWidth={2} />
-          <Text variant="label" color="infoText" style={{ flex: 1 }}>
+          <Glyph name="info" size={20} color="textMuted" strokeWidth={2} />
+          <Text variant="label" color="textMuted" style={{ flex: 1 }}>
             {t('merchant.menu_photos.read_only')}
           </Text>
         </View>
@@ -101,7 +103,7 @@ function CurrentRequest({ view }: { view: MenuPhotoRequestView }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const dates = useDates();
   const { cancel } = useMenuPhotoActions();
   const now = Date.now();
@@ -171,7 +173,7 @@ function ShotRow({ view, dish }: { view: MenuPhotoRequestView; dish: MenuPhotoDi
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { decide } = useMenuPhotoActions();
   const shot = dish.shot;
   if (!shot) return null;
@@ -207,7 +209,7 @@ function ShotRow({ view, dish }: { view: MenuPhotoRequestView; dish: MenuPhotoDi
           <Image
             source={{ uri: absoluteUrl(shot.photoUrl) }}
             style={{ width: SHOT_SIZE, height: SHOT_SIZE, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}
-            resizeMode="cover"
+            contentFit="cover"
             accessibilityLabel={t('merchant.menu_photos.new_photo_alt', { name: dish.nameAr })}
             accessibilityIgnoresInvertColors
           />
@@ -230,7 +232,7 @@ function RequestForm({ storeId }: { storeId: string }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const menu = useMenu(storeId);
   const { request } = useMenuPhotoActions();
   const [draft, setDraft] = useState<RequestDraft>(EMPTY_DRAFT);

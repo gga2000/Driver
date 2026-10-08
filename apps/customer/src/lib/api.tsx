@@ -4,7 +4,7 @@ import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import * as Application from 'expo-application';
-import { transformer, type AppRouter } from '@driver/contracts';
+import { REQUEST_LIMITS, transformer, type AppRouter } from '@driver/contracts';
 import { NET_RULES } from '@driver/contracts/net-client';
 import { bindFocusManager, bindOnlineManager, configureNetwork, createNetworkFetch, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
@@ -63,7 +63,7 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
   // A bare client for the refresh call: no auth header, no retry link (no recursion), and a longer
   // deadline: the server rotates the token when it answers, so a slow answer must still land (the
   // session lets waiting requests go on after 10 s).
-  const bare = createTRPCClient<AppRouter>({ links: [errorTapLink(appUpdate.noteError), httpBatchLink({ url, transformer, fetch: createNetworkFetch(NET_RULES.refreshTimeoutMs), headers: BUILD_HEADERS })] });
+  const bare = createTRPCClient<AppRouter>({ links: [errorTapLink(appUpdate.noteError), httpBatchLink({ url, transformer, fetch: createNetworkFetch(NET_RULES.refreshTimeoutMs), headers: BUILD_HEADERS, maxItems: REQUEST_LIMITS.clientBatchItems })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const headers = async () => {
@@ -72,11 +72,12 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
   };
   // Every answer's Date header keeps the server clock (THIN-10: the iftar countdown never runs on a wrong phone clock).
   const clockedFetch = withServerClock(networkFetch);
-  // Batches split before their URL gets long; one query too big for a URL on its own goes as POST.
+  // Batches split before their URL gets long, and at REQUEST_LIMITS.clientBatchItems calls (the API takes at
+  // most REQUEST_LIMITS.maxBatchSize per request, SEC-03); one query too big for a URL on its own goes as POST.
   const batch = splitLink<AppRouter>({
     condition: (op) => inputTooLongForUrl(op),
-    true: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, methodOverride: 'POST' }),
-    false: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, maxURLLength: URL_RULES.maxUrlLength }),
+    true: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, methodOverride: 'POST', maxItems: REQUEST_LIMITS.clientBatchItems }),
+    false: httpBatchLink({ url, transformer, fetch: clockedFetch, headers, maxURLLength: URL_RULES.maxUrlLength, maxItems: REQUEST_LIMITS.clientBatchItems }),
   });
   // `live.*` subscriptions go over SSE. EventSource cannot send headers, so each connection carries a
   // short-lived stream token (`live.token`, Bearer-authenticated) in tRPC connection params.

@@ -21,13 +21,13 @@
       "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
-      "max": 6.35,
+      "max": 6.55,
       "target": 5.5,
-      "why": "s1 per-app words"
+      "why": "#19 counter redesign: 6.35 -> 6.53; s1 per-app words comes in the merchant follow-up right after #19 and brings it back under 6.35"
     },
     "merchant.assets_mb": {
-      "max": 2.85,
-      "why": "dish photos moved behind @driver/ui/dishes (the merchant app draws none): 4.3 -> 2.73"
+      "max": 8.95,
+      "why": "#19 menu: Ali's 95-photo dish library (640 px WebP) and the menu's dish drawings (@driver/ui/dishes): 2.73 -> 8.9; the library moves to the API (/media/food) in the merchant follow-up right after #19, back to about 3"
     }
   },
   "screens": {
