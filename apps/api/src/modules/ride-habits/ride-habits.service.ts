@@ -19,6 +19,7 @@ import {
   sameRide,
   sameRideHabits,
   sameRidePushWindow,
+  rideSearchStartsAt,
   SaveRegularTripInput,
   shiftDate,
   westernDigits,
@@ -26,6 +27,8 @@ import {
   type Actor,
   type AvoidDriverInput,
   type AvoidedDriverView,
+  type BookedRideInput,
+  type BookedRideStatus,
   type BookingView,
   type CalendarDate,
   type ConfirmOccurrenceInput,
@@ -61,7 +64,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
+import { BOOKED_DRIVER_READ_PURPOSE, HABITS_EVENTS, HABITS_PEOPLE, HABITS_RAJAA, HABITS_RIDES, type FinishedRide, type HabitsEventsPort, type HabitsPeoplePort, type HabitsRajaaPort, type HabitsRidesPort } from './ports.js';
 import { RIDE_HABITS_REPOSITORY, type FavouriteRecord, type OccurrenceRecord, type RegularTripRecord, type RideHabitsRepository } from './ride-habits.repository.js';
 import { RiderDriversService } from './rider-drivers.service.js';
 
@@ -128,6 +131,25 @@ export class RideHabitsService implements RideHabitsPort {
     return this.favourites(actor);
   }
 
+  // ───────────────────────── booked rides (review #28) ─────────────────────────
+
+  /**
+   * His ride booked for later, as he is told it: the driver who confirmed it (first name and approved
+   * photo — a logged vault read, purpose `booked_ride_driver`), or until when drivers are asked, or when
+   * the search starts (T−30). Only his own ride booked for later (`not_found` otherwise).
+   */
+  async bookedRide(actor: Actor, input: BookedRideInput): Promise<BookedRideStatus> {
+    const order = await this.rides.order(input.orderId);
+    if (!order || order.ordererId !== actor.personId || order.type !== 'ride' || !order.scheduledFor) throw new DriverError('not_found');
+    const plan = (await this.rides.bookedRide?.(order.id)) ?? null;
+    const base = { orderId: order.id, searchAt: plan?.searchAt ?? rideSearchStartsAt(order.scheduledFor) };
+    if (!plan || plan.state === 'later') return { ...base, state: 'later', confirmBy: null, driver: null };
+    if (plan.state === 'looking' || !plan.driverId) return { ...base, state: 'looking', confirmBy: plan.confirmBy, driver: null };
+    const id = plan.driverId;
+    const [names, photos] = await Promise.all([this.people.firstNames([id], actor.personId, BOOKED_DRIVER_READ_PURPOSE), this.people.photoUrls([id], actor.personId, BOOKED_DRIVER_READ_PURPOSE)]);
+    return { ...base, state: 'confirmed', confirmBy: plan.confirmBy, driver: { firstName: names[id] ?? null, photoUrl: photos[id] ?? null } };
+  }
+
   /** The driver of his last good trip (24 h, 4–5 stars) who isn't a favourite yet: «خليه سايقك المفضل؟». */
   async recentGood(actor: Actor): Promise<RecentDriverView | null> {
     const now = this.clock.now();
@@ -161,6 +183,10 @@ export class RideHabitsService implements RideHabitsPort {
 
   driverProfile(actor: Actor, input: DriverProfileInput): Promise<DriverProfile> {
     return this.drivers.driverProfile(actor, input);
+  }
+
+  ownProfile(actor: Actor): Promise<DriverProfile> {
+    return this.drivers.ownProfile(actor);
   }
 
   avoid(actor: Actor, input: AvoidDriverInput): Promise<AvoidedDriverView[]> {

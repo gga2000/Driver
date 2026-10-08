@@ -212,7 +212,7 @@ function DayTile({ day, now, selected, onPress }: { day: ScheduleDay; now: Date;
         justifyContent: 'center',
         gap: 2,
         borderWidth: selected ? 2 : 1,
-        borderColor: selected ? theme.colors.accent : theme.colors.border,
+        borderColor: selected ? theme.colors.focusRing : theme.colors.border,
         backgroundColor: selected ? withAlpha(theme.colors.accentTint, 0.55) : pressed ? theme.colors.surfaceSunken : theme.colors.surface,
       })}
     >

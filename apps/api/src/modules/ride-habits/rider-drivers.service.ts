@@ -168,6 +168,37 @@ export class RiderDriversService {
     };
   }
 
+  /**
+   * Partner redesign r4 «هيج يشوفك الزبون»: the profile riders open (`driverProfile`), built the same
+   * way for the driver himself. No plate: riders see it only once he is their assigned driver.
+   */
+  async ownProfile(actor: Actor): Promise<DriverProfile> {
+    const driverId = actor.personId;
+    const [cards, rating, facts, record] = await Promise.all([
+      this.search.cards([driverId], driverId, DRIVER_CARD_PURPOSE),
+      this.rides.driverRating(driverId),
+      this.search.facts([driverId]),
+      this.search.record(driverId),
+    ]);
+    const card = cards[driverId];
+    const car = facts.get(driverId) ?? NO_FACTS;
+    return {
+      firstName: card?.firstName ?? null,
+      photoUrl: card?.photoRef ? this.search.photoUrl(card.photoRef) : null,
+      rating: rating?.rating ?? null,
+      ratingCount: rating?.count ?? 0,
+      tripCount: car.tripCount,
+      onTimePct: record.onTimePct,
+      memberSince: record.driverSince,
+      vehicleClass: car.vehicleClass ?? DEFAULT_CLASS.taxi,
+      vehicleModel: car.model,
+      vehicleColour: car.colour,
+      plate: null,
+      features: car.features,
+      compliments: record.compliments.slice(0, DRIVER_PROFILE_RULES.compliments),
+    };
+  }
+
   // ───────────────────────── s5: «ما أريده مرة ثانية» ─────────────────────────
 
   /**

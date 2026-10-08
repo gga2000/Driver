@@ -87,13 +87,18 @@ export class UnitOfWork {
 
   private readonly runner: TransactionRunner | (() => TransactionRunner);
 
+  /** The statement time limit for a transaction opened now (ms, 0 = none); only with a real database. */
+  private readonly statementTimeoutMs: () => number;
+
   constructor(runner: PrismaService | TransactionRunner) {
     // PrismaService opens the client lazily; resolve it only when a transaction starts.
     if (runner instanceof PrismaService) {
       const fallback = new NoDatabaseRunner();
       this.runner = () => (runner.configured ? runner.prisma : fallback);
+      this.statementTimeoutMs = () => (runner.configured ? runner.timeouts[runner.lane()] : 0);
     } else {
       this.runner = runner;
+      this.statementTimeoutMs = () => 0;
     }
   }
 
@@ -111,14 +116,18 @@ export class UnitOfWork {
     const outer = this.storage.getStore();
     if (outer) return fn(outer);
     const runner = typeof this.runner === 'function' ? this.runner() : this.runner;
+    const timeoutMs = this.statementTimeoutMs();
     let hooks: TxHooks | undefined;
     let opened: object | undefined;
     let out: T;
     try {
-      out = await runner.$transaction((tx) => {
+      out = await runner.$transaction(async (tx) => {
         hooks = { commit: [], rollback: [] };
         opened = tx as object;
         lifecycle.set(opened, hooks);
+        // The lane's limit for this transaction only. SET LOCAL survives Supabase's transaction
+        // pooler, which can drop the limit the connection was opened with (PrismaService).
+        if (timeoutMs > 0) await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${Math.trunc(timeoutMs)}`);
         return this.storage.run(tx, () => fn(tx));
       });
     } catch (err) {

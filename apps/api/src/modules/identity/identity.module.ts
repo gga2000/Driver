@@ -1,20 +1,18 @@
-import { Inject, Module, type OnModuleDestroy } from '@nestjs/common';
-import { Redis } from 'ioredis';
+import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { EventsServiceAdapter, IDENTITY_EVENTS } from './events.adapter.js';
+import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
 import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
-import { InMemoryRateLimiter, OtpRequestGuard, RedisRateLimiter, otpRateLimitsFromEnv } from './rate-limit.js';
+import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { ROLE_READER } from './role-reader.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER } from './sms/provider.js';
-
-export const IDENTITY_REDIS = Symbol('IDENTITY_REDIS');
 
 /**
  * Wiring: Prisma repository when DATABASE_URL is set, in-memory twin otherwise; SMS port
@@ -43,29 +41,17 @@ export const IDENTITY_REDIS = Symbol('IDENTITY_REDIS');
       useFactory: (repo: IdentityRepository, clock: Clock) => new SessionService(repo, clock, sessionConfigFromEnv()),
       inject: [IDENTITY_REPOSITORY, CLOCK],
     },
-    // M2 review follow-up: OTP requests limited per IP and per device (OTP_RATE_LIMIT_PER_IP_HOUR /
-    // _PER_DEVICE_HOUR, defaults 10 / 5), counted in Redis when REDIS_URL is set so every pod shares them.
-    {
-      provide: IDENTITY_REDIS,
-      useFactory: () => {
-        const url = process.env['REDIS_URL'];
-        return url ? new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 3 }) : null;
-      },
-    },
+    // The one OTP guard (audit SEC-04/05): limits per number, device and signed-in sender, the IP
+    // rule alert-only, the daily SMS budget; counted in the shared window counter (Redis across pods
+    // when REDIS_URL is set). Settings: OTP_RATE_LIMIT_*, OTP_SMS_DAILY_BUDGET, OTP_GUARD_MODE_*.
     {
       provide: OTP_REQUEST_GUARD,
-      useFactory: (redis: Redis | null, clock: Clock) => new OtpRequestGuard(redis ? new RedisRateLimiter(redis) : new InMemoryRateLimiter(clock), otpRateLimitsFromEnv()),
-      inject: [IDENTITY_REDIS, CLOCK],
+      useFactory: (counter: WindowCounter, events: IdentityEventEmitter, clock: Clock) => new OtpGuard(counter, new EventOtpAlerts(events, clock), otpGuardConfigFromEnv()),
+      inject: [WINDOW_COUNTER, IDENTITY_EVENTS, CLOCK],
     },
     IdentityService,
     { provide: ROLE_READER, useExisting: IdentityService },
   ],
   exports: [IdentityService, ROLE_READER],
 })
-export class IdentityModule implements OnModuleDestroy {
-  constructor(@Inject(IDENTITY_REDIS) private readonly redis: Redis | null) {}
-
-  onModuleDestroy(): void {
-    this.redis?.disconnect();
-  }
-}
+export class IdentityModule {}

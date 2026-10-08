@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEMAND_MAP_RULES, isPartner, type OrderRoute } from '@driver/contracts';
 import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
-import { LIVE_PARTNER_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
+import { LIVE_PARTNER_KEY, useLiveChannel, useLiveMode, useLivePollMs } from '@/lib/live';
+import { offerPollMs } from './offer-poll';
 import { useSignedIn } from '@/lib/session';
 
 /**
@@ -52,8 +53,16 @@ export function useStatus() {
 export function useCurrentOffer(enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
-  return useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
+  const mode = useLiveMode(LIVE_PARTNER_KEY);
+  const q = useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: offerPollMs(mode), staleTime: 0 });
+  // The stream just dropped: look for an offer now rather than at the next tick.
+  const was = useRef(mode);
+  const { refetch } = q;
+  useEffect(() => {
+    if (was.current === 'live' && mode !== 'live' && signedIn && enabled) void refetch();
+    was.current = mode;
+  }, [mode, signedIn, enabled, refetch]);
+  return q;
 }
 
 export function useActiveJob(enabled = true) {
@@ -141,6 +150,32 @@ export function useAnswerClimateCheck() {
   return useMutation({
     ...api.partner.answerClimateCheck.mutationOptions(),
     onSuccess: (status) => qc.setQueryData(api.partner.status.queryKey(), status),
+  });
+}
+
+/** «مشاوير باچر» (review #28): his booked rides and the open ones; re-read every minute (lighter in low-data mode). */
+export function useBookedJobs(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const lite = useLiteMode();
+  return useQuery({ ...api.partner.bookedJobs.queryOptions(), enabled: signedIn && enabled, staleTime: 30_000, refetchInterval: enabled ? liteInterval(BOOKED_REFRESH_MS, lite) : false });
+}
+
+const BOOKED_REFRESH_MS = 60_000;
+
+/** Confirm / pass / release / start: the answer comes back with the fresh list; a start opens the job. */
+export function useAnswerBookedJob() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const refresh = useRefreshWork();
+  return useMutation({
+    ...api.partner.answerBookedJob.mutationOptions(),
+    onSuccess: (jobs, input) => {
+      qc.setQueryData(api.partner.bookedJobs.queryKey(), jobs);
+      if (input.answer === 'start') void refresh();
+    },
+    // Taken by someone else, closed, or changed since the list was read: show what is true now.
+    onError: () => void qc.invalidateQueries({ queryKey: api.partner.bookedJobs.queryKey() }),
   });
 }
 

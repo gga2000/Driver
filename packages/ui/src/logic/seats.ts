@@ -105,3 +105,30 @@ export function seatsLeft(seats: readonly SeatInfo[]): number {
 export function selectionPrice(seats: readonly SeatInfo[], selection: readonly SeatId[], basePrice: number): number {
   return selection.reduce((sum, id) => sum + basePrice + (seats.find((s) => s.id === id)?.premium ?? 0), 0);
 }
+
+/** A point on a car picture, in percent of its width and height (0–100), top-left origin. */
+export interface ArtPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where each seat sits on a top-down car picture (front up, driver on the left, like `SEAT_ROWS`),
+ * so `CarSeatArt` can lay the seat buttons on the real car. The picture itself is the app's asset.
+ */
+export interface CarArtLayout {
+  /** Width ÷ height of the picture. */
+  aspect: number;
+  /** The picture's flat background, so the stage around it blends in. */
+  background: string;
+  driver: ArtPoint;
+  seats: Partial<Record<SeatId, ArtPoint>>;
+}
+
+/** A picture can carry a layout only when every seat of that layout has a place on it. */
+export function artCoversLayout(art: CarArtLayout, layout: SeatLayout): boolean {
+  return seatIds(layout).every((id) => {
+    const p = art.seats[id];
+    return !!p && p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100;
+  });
+}

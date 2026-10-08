@@ -610,3 +610,15 @@ export function surchargeEndsInMin(hours: [number, number] | null, now: Date): n
   const left = (to - mins + 1440) % 1440;
   return left > 0 && left <= SURCHARGE_TIP_MIN ? left : null;
 }
+
+/**
+ * Waiting at the pickup isn't charged yet (no caller bills `wait`; Ali sets its price on price sheet
+ * #30), so no screen promises a paid wait. Turn this on together with the server charging it.
+ */
+export const PAID_WAIT_CHARGED = false;
+
+/** What a paid minute of waiting costs (the city's `wait` rule), or null while nothing charges for it. */
+export function paidWaitPerIqd(city: Pick<CityPricingConfig, 'verticals'> | null | undefined, vertical: RideVertical, charged = PAID_WAIT_CHARGED): number | null {
+  if (!charged) return null;
+  return city?.verticals.find((v) => v.vertical === vertical)?.components.find((c) => c.key === 'wait')?.perUnit ?? null;
+}

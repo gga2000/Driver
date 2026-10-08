@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { AppState, Alert } from 'react-native';
+import { AppState } from 'react-native';
 import { POSITION_RULES } from '@driver/contracts';
 import {
   BACKGROUND_DISTANCE_M,
@@ -15,6 +15,7 @@ import {
 import { FixBuffer, toDeviceFix, worthSending } from '@/features/work/position-report';
 import { apiErrorCode } from './api-links';
 import { makeApiClient } from './api';
+import { askLocationDisclosure } from './disclosure';
 import { fixFrom, type Fix } from './location-fix';
 import { session } from './session';
 import { storage } from './storage';
@@ -97,14 +98,9 @@ session.onSignOut(() => void syncBackgroundLocation({ online: false, onJob: fals
 
 let disclosureShown = false;
 
-/** Google Play's prominent disclosure: say why, before the OS asks for "allow all the time". */
-function disclose(copy: BackgroundCopy): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(copy.disclosureTitle, copy.disclosureBody, [
-      { text: copy.disclosureLater, style: 'cancel', onPress: () => resolve(false) },
-      { text: copy.disclosureAllow, onPress: () => resolve(true) },
-    ], { cancelable: false });
-  });
+/** Google Play's prominent disclosure: say why, on our own screen, before the OS asks for "allow all the time". */
+function disclose(_copy: BackgroundCopy): Promise<boolean> {
+  return askLocationDisclosure();
 }
 
 /** Background permission, asked once per app run after the disclosure. False: on-screen updates only. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
-import { contrastPairs, minFontSize, nonTextPairs, themes, type, type ThemeName } from './tokens.js';
+import { contrastPairs, liveStages, minFontSize, nonTextPairs, services, themes, type, type ThemeName } from './tokens.js';
 
 describe('contrastRatio', () => {
   it('matches the WCAG reference values', () => {
@@ -36,12 +36,83 @@ describe.each(Object.keys(themes) as ThemeName[])('%s theme: 3:1 for every bound
   });
 });
 
+describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service tiles read (Date & Saffron)', (name) => {
+  const p = services[name];
+  const fills = (k: keyof typeof p): string[] => {
+    const s = p[k];
+    return [s.fill, ...('light' in s ? [s.light] : []), ...('mesh' in s ? s.mesh : [])];
+  };
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s: its title and live fact pass AA on every stop of the fill', (k) => {
+    for (const ink of [p[k].on, p[k].sub].filter((x): x is string => !!x)) {
+      for (const fill of fills(k)) {
+        const ratio = contrastRatio(ink, fill);
+        if (ratio < 4.5) throw new Error(`${name}: ${k} ${ink} on ${fill} is ${ratio.toFixed(2)}:1 (< 4.5:1)`);
+        expect(ratio).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s card: AA name and fact, 3:1 dot, on its wash', (k) => {
+    const card = p[k].card;
+    for (const bg of [card.bg, ...(card.top ? [card.top] : [])]) {
+      for (const [ink, min, what] of [[card.on, 4.5, 'name'], [card.sub, 4.5, 'fact'], [card.dot, 3, 'dot']] as const) {
+        const ratio = contrastRatio(ink, bg);
+        if (ratio < min) throw new Error(`${name}: ${k} card ${what} ${ink} on ${bg} is ${ratio.toFixed(2)}:1 (< ${min}:1)`);
+        expect(ratio).toBeGreaterThanOrEqual(min);
+      }
+    }
+  });
+  it('no two service cards share a wash', () => {
+    const all = [p.food.card.bg, p.taxi.card.bg, p.tuktuk.card.bg, p.trips.card.bg, p.back.card.bg];
+    expect(new Set(all).size).toBe(all.length);
+  });
+  it('the tuktuk is not the error red, and no two services share a fill', () => {
+    expect(p.tuktuk.fill).not.toBe(themes[name].danger);
+    const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill];
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe.each(Object.keys(liveStages) as ThemeName[])('%s theme: every stage of the live-order card reads', (name) => {
+  const p = liveStages[name];
+  const ratio = (fg: string, bg: string, min: number, what: string) => {
+    const r = contrastRatio(fg, bg);
+    if (r < min) throw new Error(`${name}: ${what} ${fg} on ${bg} is ${r.toFixed(2)}:1 (< ${min}:1)`);
+    expect(r).toBeGreaterThanOrEqual(min);
+  };
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s: AA text, 3:1 bar and mark, on both stops of the card', (k) => {
+    const s = p[k];
+    for (const bg of [s.fill, s.light]) {
+      ratio(s.on, bg, 4.5, `${k} title`);
+      ratio(s.sub, bg, 4.5, `${k} name and time words`);
+      ratio(s.accent, bg, 3, `${k} bar`);
+      ratio(s.marker, bg, 3, `${k} mark`);
+    }
+    ratio(s.markerOn, s.marker, 3, `${k} mark icon`);
+  });
+  it('no two stages share a colour', () => {
+    const all = Object.values(p).map((s) => s.fill);
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
 describe('warning is not the brand (joy S2-02)', () => {
   it('the warning tint and the accent tint are different colours, and the late banner is ink, not a tint', () => {
     expect(themes.light.warningTint).not.toBe(themes.light.accentTint);
     expect(themes.light.warning).not.toBe(themes.light.accent);
     expect(themes.light.inverse).toBe(themes.light.text);
     expect(contrastRatio(themes.light.onInverseCaution, themes.light.inverse)).toBeGreaterThan(7);
+  });
+});
+
+describe('controls stay visible (W12: REL-18, VIS-04)', () => {
+  it('a switched-off toggle track and every code cell edge are 3:1 on the page and on a card, in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) {
+      expect(contrastRatio(t.borderStrong, t.bg), `${name} borderStrong/bg`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(t.borderStrong, t.surface), `${name} borderStrong/surface`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('the focus ring is 3:1 on a card in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) expect(contrastRatio(t.focusRing, t.surface), name).toBeGreaterThanOrEqual(3);
   });
 });
 

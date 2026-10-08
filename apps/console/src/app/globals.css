@@ -312,9 +312,9 @@ select {
   color: rgb(var(--c-on-accent));
   z-index: 2;
 }
+/* Full colour: faded, the "+2" on a late (amber) tag fell below 4.5:1 in the light theme. */
 .ops-order .ops-order-more {
   font-weight: 500;
-  opacity: 0.85;
 }
 .maplibregl-ctrl-group {
   background: rgb(var(--c-raised)) !important;

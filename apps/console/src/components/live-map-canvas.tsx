@@ -25,7 +25,7 @@ import {
 import { useTRPC } from '@/lib/trpc';
 import { MARKER_SHAPES } from '@/lib/marker-shapes';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { LiveGeoJSON, OrderTag } from '@/lib/live-map';
+import { TRIP_DRAG_TYPE, type LiveGeoJSON, type OrderTag } from '@/lib/live-map';
 import { around, overlaps, placeLabels, stackTags, type Box, type LabelIn } from '@/lib/map-labels';
 import { ZonesSvg } from './zones-svg';
 import { FLEET_RULES, glideAt, isQuiet, type LngLatTuple } from '@/lib/fleet-motion';
@@ -41,8 +41,6 @@ export type MapSelection =
 
 export type MapHoverTarget = { kind: 'driver'; id: string } | { kind: 'order'; id: string };
 
-/** The drag payload of a queue card (dispatch): drop it on a driver marker to pick that driver. */
-export const TRIP_DRAG_TYPE = 'application/x-driver-trip';
 
 export interface LiveMapCanvasProps {
   live: LiveGeoJSON;

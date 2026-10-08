@@ -7,6 +7,7 @@ import { bindOnlineManager, configureNetwork, networkFetch } from '@driver/ui';
 import { createStreamTokenCache, installReadableStreamPolyfill, XhrEventSource, type StreamTokenCache } from '@driver/contracts/live-client';
 import { getDeviceInfo } from './device';
 import { authRetryLink } from './api-links';
+import { countingEventSource, countingFetch } from './data-usage';
 import { session as appSession, type SessionStore } from './session';
 
 export { apiErrorCode, apiErrorMessage, apiRetryAfter, authRetryLink, isUnauthorized } from './api-links';
@@ -40,20 +41,23 @@ configureNetwork({ apiUrl: API_URL });
 bindOnlineManager(onlineManager);
 
 /** Browsers keep their EventSource; React Native gets the XHR one (it has none). */
-const EventSourceImpl = ((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource;
+const EventSourceImpl = countingEventSource(((globalThis as { EventSource?: unknown }).EventSource ?? XhrEventSource) as typeof XhrEventSource);
+
+/** Every call is counted for «النت بهالشفت» (partner redesign l6, `data-usage.ts`). */
+const countedFetch = countingFetch(networkFetch);
 
 /** Stream tokens per client (`live.*` subscriptions): `useLiveTokens()` drops it after a 401. */
 const liveTokens = new WeakMap<object, StreamTokenCache>();
 
 export function makeApiClient(store: SessionStore = appSession, url: string = API_URL) {
   // A bare client for the refresh call: no auth header, no retry link (no recursion).
-  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: networkFetch, maxItems: REQUEST_LIMITS.clientBatchItems })] });
+  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, fetch: countedFetch, maxItems: REQUEST_LIMITS.clientBatchItems })] });
   store.setRefresher(async (refreshToken) => bare.identity.refresh.mutate({ refreshToken, device: await getDeviceInfo() }));
 
   const batch = httpBatchLink({
     url,
     transformer,
-    fetch: networkFetch,
+    fetch: countedFetch,
     // The API takes at most REQUEST_LIMITS.maxBatchSize calls per request (SEC-03); split well below it.
     maxItems: REQUEST_LIMITS.clientBatchItems,
     async headers() {
@@ -112,6 +116,23 @@ export function ApiProvider({ children, store = appSession }: { children: ReactN
     </QueryClientProvider>
   );
 }
+
+/**
+ * A screen tree with its own client and cache (the practice order, partner redesign l4): the screens
+ * inside call `useApi()` as usual and reach `client`, never the app's client or its cached data.
+ */
+export function ApiScope({ client, children }: { client: ApiClient; children: ReactNode }) {
+  const [queryClient] = useState(makeQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TRPCProvider trpcClient={client} queryClient={queryClient}>
+        {children}
+      </TRPCProvider>
+    </QueryClientProvider>
+  );
+}
+
+export type ApiClient = ReturnType<typeof makeApiClient>;
 
 /** Typed tRPC proxy for React Query: `useQuery(useApi().orders.mine.queryOptions())`. */
 export function useApi() {

@@ -42,6 +42,7 @@ import { amountParam } from '@/lib/money';
 import { promiseCopy } from '@/features/track/late-promise';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useProfile } from '@/lib/profile';
+import { playCue } from '@/lib/sound';
 import { cleanCard, giftInput } from '@/features/gift/gift';
 import { GiftChoice, type GiftChoiceValue } from '@/features/gift/GiftChoice';
 import { giftStore } from '@/features/gift/gift-store';
@@ -292,6 +293,8 @@ export default function CheckoutScreen() {
       const person = r.kind === 'person' ? cart.people.find((p) => p.id === r.personId) : undefined;
       const receiver = r.kind === 'other' ? { name: r.name, phone: r.phone } : person?.phone ? { name: person.name, phone: person.phone } : null;
       cartStore.markPlaced(order.id, receiver);
+      // The order is in: a spoon taps the istikan twice (quiet on silent and with order sounds off).
+      playCue('placed');
       // g1: the card line and who it goes to stay on this phone for the heads-up (never on the server).
       if (order.gift && receiver) giftStore.remember(order.id, { ...receiver, card: cleanCard(gift.card), paidByMe: payment === 'wallet' });
       void queryClient.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
@@ -576,7 +579,7 @@ export default function CheckoutScreen() {
                   accessibilityLabel={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
                   value={usePoints}
                   onValueChange={setUsePoints}
-                  trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+                  trackColor={{ true: theme.colors.accent, false: theme.colors.borderStrong }}
                   {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
                 />
               }
@@ -788,7 +791,7 @@ function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: numbe
       <ChipGroup
         columns={2}
         accessibilityLabel={t('cashchange.pay_with_title')}
-        items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${amountParam(n)} ${t('cashchange.pay_with_exact')}` : amountParam(n) }))}
+        items={options.map((n) => ({ id: `tender-${n}`, label: n === totalIqd ? `${t('unit.iqd', { amount: amountParam(n) })} ${t('cashchange.pay_with_exact')}` : t('unit.iqd', { amount: amountParam(n) }) }))}
         value={value !== null ? [`tender-${value}`] : []}
         onChange={(next) => onChange(next[0] ? Number(next[0].slice('tender-'.length)) : null)}
       />

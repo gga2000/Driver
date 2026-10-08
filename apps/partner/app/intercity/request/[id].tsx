@@ -5,7 +5,7 @@ import type { DriverRequestRide, RequestPostView } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SosControl } from '@/features/safety/SosControl';
-import { rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
+import { requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
 import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, suggestedOffer } from '@/features/intercity/logic';
 import { useMyRides, useOpenRequests, useRequestActions } from '@/features/intercity/queries';
 import { useNow } from '@/features/intercity/useNow';
@@ -71,6 +71,10 @@ function TripCard({ post, extra }: { post: RequestPostView; extra?: ReactNode })
           <StatusPill label={t('partner.ic_req_travelling', { as: travellingAsLabel(t, post.travellingAs) })} tone="neutral" icon="user" size="sm" />
           {post.privateCar ? <StatusPill label={t('partner.ic_req_private')} tone="info" icon="car" size="sm" /> : null}
           {post.origin === 'stranded' ? <StatusPill label={t('partner.ic_req_stranded')} tone="warning" size="sm" /> : null}
+          {/* y1: what the rider asked for, so the offer prices the real trip. */}
+          {requestDetailLabels(t, post.details, post.when).map((label) => (
+            <StatusPill key={label} label={label} tone="accent" size="sm" />
+          ))}
         </View>
         {post.note ? (
           <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.md, padding: theme.space[3], gap: 2 }}>
@@ -91,8 +95,13 @@ function OfferView({ post }: { post: RequestPostView }) {
   const t = useT();
   const locale = useLocale();
   const toast = useToast();
-  const { offer } = useRequestActions();
+  const { offer, seen } = useRequestActions();
   const mine = post.offers.find((o) => o.state === 'open') ?? null;
+  // y4: opening a request tells the rider one more driver saw it (once per driver; the server dedupes).
+  const markSeen = seen.mutate;
+  useEffect(() => {
+    markSeen({ postId: post.id });
+  }, [post.id, markSeen]);
   const [price, setPrice] = useState(() => mine?.priceIqd ?? suggestedOffer(post));
   useEffect(() => {
     if (mine) setPrice(mine.priceIqd);

@@ -123,6 +123,14 @@ export const ERROR_TABLE = {
   // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
   phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Console › المناوبة (on call): a shift that is not on the roster; a person who is not staff
+  on_call_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  on_call_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › اليوم (the Today list): a row that is gone; a row already closed; handing a row to someone off the desk
+  inbox_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  inbox_done: { retryHint: 'never', status: 'CONFLICT' },
+  inbox_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  inbox_close_at_source: { retryHint: 'never', status: 'CONFLICT' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -235,6 +243,14 @@ export const ERROR_TABLE = {
   // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
   climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
   avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Review #28: rides booked for later offered to drivers the evening before («مشاوير باچر»).
+  booked_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  booked_job_taken: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_closed: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_not_fit: { retryHint: 'never', status: 'FORBIDDEN' },
+  booked_job_clash: { retryHint: 'never', status: 'CONFLICT' },
+  booked_start_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  booked_start_not_ready: { retryHint: 'now', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },
@@ -335,6 +351,9 @@ export const ERROR_TABLE = {
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلمة عن السفرة» (x14): a review line with a phone number, link or @handle; ops hide/unhide
+  review_contact_info: { retryHint: 'never', status: 'BAD_REQUEST' },
+  review_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   // Menu photo service (maps k3).
   menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -343,6 +362,11 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
+  money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
+  open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
+  cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
+  prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

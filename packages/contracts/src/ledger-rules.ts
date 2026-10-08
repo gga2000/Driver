@@ -203,8 +203,45 @@ export const MoneyRules = z.object({
   afterTip: z
     .object({ amountsIqd: z.array(Iqd.positive()).min(1), minRating: z.number().int().min(1).max(5), windowHours: z.number().positive() })
     .default({ amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 }),
+  /**
+   * Evening-before booked rides (edge-case review #28, adopted): when no driver confirmed a booked ride
+   * the evening before (or the confirmed one dropped it), the normal search starts 30 minutes before
+   * "with pickup compensation" — `pickupCompensationIqd` on every offer of that search, paid by the
+   * platform to the driver who takes it.
+   *
+   * **Open decision: Ali hasn't set the amount.** `enabled` is the city's switch, off by default, and the
+   * amount is 0: no offer carries it, nothing is shown in the Partner app and nothing is paid until he
+   * decides. See `bookedFallbackCompensationIqd` and docs/api/ride-habits.md.
+   */
+  bookedRideFallback: z.object({ enabled: z.boolean().default(false), pickupCompensationIqd: Iqd.nonnegative().default(0) }).default({ enabled: false, pickupCompensationIqd: 0 }),
+  /**
+   * M-15, a ride's driver cancels after reaching the pickup: the cancellation rule's credit
+   * (`driverAfterArrivalCreditIqd`, 500) goes to the customer's wallet, paid by the driver. Ali said
+   * "yes" on 2026-10-07; the switch lets ops stop it without a release.
+   */
+  driverCancelCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
+   * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
+   * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
+   * See docs/api/merchant-late-reject.md.
+   */
+  merchantLateRejectCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
+   * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
+   * company, not the rider. Ali said "yes" on 2026-10-07. It applies whether or not the seat hold
+   * (`RIDE_SEAT_HOLD`) is on: the minutes before our taxi was due are ours either way. Our taxi's due
+   * time stops at its arrival at his door + the ride, so his own wait after that is his.
+   */
+  lateTaxiPaysMeter: z.object({ enabled: z.boolean() }).default({ enabled: false }),
 });
 export type MoneyRules = z.infer<typeof MoneyRules>;
+
+/** The pickup compensation on a booked ride's fallback search (review #28): 0 while the rule is off. */
+export function bookedFallbackCompensationIqd(rules: Pick<MoneyRules, 'bookedRideFallback'>): number {
+  return rules.bookedRideFallback.enabled ? rules.bookedRideFallback.pickupCompensationIqd : 0;
+}
 
 export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
@@ -251,6 +288,14 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   nightly: { hour: 2, utcOffsetMin: 180 },
   latePromise: { afterMin: 20, apologyAfterMin: 10, freeDeliveryCreditIqd: 1000 },
   afterTip: { amountsIqd: [500, 1000, 2000], minRating: 4, windowHours: 24 },
+  // Review #28's pickup compensation: the amount is Ali's open decision — off and 0, nothing is paid.
+  bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
+  // M-15: on (Ali, 2026-10-07, "yes").
+  driverCancelCredit: { enabled: true },
+  // M-17: on (Ali, 2026-10-08, "Yes, 500").
+  merchantLateRejectCredit: { enabled: true },
+  // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
+  lateTaxiPaysMeter: { enabled: true },
 });
 
 /** The cash step Aziziyah totals round to (Ali, 2026-10-04): 250 IQD. */

@@ -36,6 +36,8 @@ import { InsightsModule, InsightsService } from '../modules/insights/index.js';
 import { ReferralsModule, ReferralsService } from '../modules/referrals/index.js';
 import { RideHabitsModule, RideHabitsService } from '../modules/ride-habits/index.js';
 import { PhoneBookingModule, PhoneBookingService } from '../modules/phone-booking/index.js';
+import { InboxModule, InboxService } from '../modules/inbox/index.js';
+import { OnCallModule, OnCallService } from '../modules/on-call/index.js';
 import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
@@ -102,6 +104,8 @@ export class TrpcService {
     private readonly referrals: ReferralsService,
     private readonly rideHabits: RideHabitsService,
     private readonly phoneBookings: PhoneBookingService,
+    private readonly onCall: OnCallService,
+    private readonly inbox: InboxService,
     private readonly garageTaxi: GarageTaxiService,
     @Inject(WINDOW_COUNTER) counter: WindowCounter,
   ) {
@@ -180,6 +184,8 @@ export class TrpcService {
       referrals: this.referrals,
       rideHabits: this.rideHabits,
       phoneBookings: this.phoneBookings,
+      onCall: this.onCall,
+      inbox: this.inbox,
       garageTaxi: this.garageTaxi,
       auth,
       authError,
@@ -200,6 +206,8 @@ export class TrpcService {
         router: appRouter,
         // SEC-03: one request carries at most this many calls (the apps' links split at half of it).
         maxBatchSize: REQUEST_LIMITS.maxBatchSize,
+        // A query whose input is too long for a URL (a big basket with notes) may come as POST (FOOD-18).
+        allowMethodOverride: true,
         createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
         // A refused call (rate limit, resend cool-down) says when to try again in the standard header too.
         responseMeta: ({ errors }) => {
@@ -215,5 +223,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

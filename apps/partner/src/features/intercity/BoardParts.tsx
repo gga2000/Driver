@@ -3,10 +3,11 @@ import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import type { DemandBucket, DriverDepartureView, DriverRequestRide, GarageView, IntercitySeatId, RequestPostView } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Card, Icon, StatusPill, Text, useTheme, type StatusTone } from '@driver/ui';
+import { Card, Icon, StatusPill, Text, useTheme, withAlpha, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { cityName, countdownLabel, demandLine, departureState, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from './labels';
+import { cityName, countdownLabel, demandLine, departureState, requestDetailLabels, rideState, seatsCount, timeWithPeriod, whenLabel } from './labels';
+import { BandSeats, carLine, GoldTime, seatCounts } from './TripsParts';
 import { boardedSeats, clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
 
 /** Section title with an optional one-line explainer. */
@@ -75,7 +76,11 @@ export function SeatStrip({ dep, size = 'md' }: { dep: Pick<DriverDepartureView,
   );
 }
 
-/** My departure on the board: time, garage → city, state, countdown, seats, what needs him. */
+/**
+ * My departure on the board (i1): a live one is a date-brown ticket with the time big on gold
+ * split-flap tiles, where it goes, his car, the seats as gold bars and what still needs him; a past
+ * one stays a quiet card.
+ */
 export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView; garage: GarageView | undefined; now: Date }) {
   const theme = useTheme();
   const t = useT();
@@ -83,8 +88,72 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
   const pending = pendingPickups(dep).length;
   const checked = boardedSeats(dep.bookings);
   const to = cityName(t, destinationCity(corridorCity(dep.corridorId), dep.direction));
+  const band = theme.services.trips;
+  const go = () => router.push(`/intercity/departure/${dep.id}`);
+  const label = `${timeWithPeriod(t, dep.departAt)} ${garage?.nameAr ?? ''}`;
+  if (live || dep.state === 'departed') {
+    const c = seatCounts(dep);
+    return (
+      <Pressable
+        testID={`my-departure-${dep.id}`}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={() => {
+          theme.haptic('selection');
+          go();
+        }}
+        style={({ pressed }) => ({ backgroundColor: band.fill, borderRadius: theme.radius.xl, overflow: 'hidden', transform: [{ scale: pressed ? 0.985 : 1 }] })}
+      >
+        <View style={{ padding: theme.space[5], gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="bodyStrong" weight={700} color={band.on} numberOfLines={1}>
+                {t('rajaa.route', { from: garage?.nameAr ?? '', to })}
+              </Text>
+              <Text variant="caption" weight={600} color={withAlpha(band.on, 0.72)} numberOfLines={1} tabular>
+                {carLine(t, dep.vehicle)}
+              </Text>
+            </View>
+            <StatusPill label={departureState(t, dep.state)} tone={departureTone(dep.state)} live={dep.state === 'boarding' || dep.state === 'departed'} size="sm" />
+          </View>
+          <GoldTime
+            at={dep.departAt}
+            now={now}
+            size="card"
+            countdown={live}
+            note={live ? countdownLabel(t, dep.departAt, now) : undefined}
+          />
+          {live ? (
+            <Text variant="caption" weight={600} color={withAlpha(band.on, 0.72)} tabular style={{ marginTop: -theme.space[2] }}>
+              {t('partner.ic_dep_or_full', { time: clockLabel(dep.latestDepartureAt) })}
+            </Text>
+          ) : null}
+          <BandSeats dep={dep} />
+          <Text variant="label" weight={700} color={band.on} tabular>
+            {[
+              t('intercity.fill', { filled: c.sold, total: c.total }),
+              checked > 0 ? t('partner.ic_fill_checked', { n: checked }) : null,
+              dep.fill.walkUps > 0 ? t('partner.ic_fill_walkups', { n: dep.fill.walkUps }) : null,
+              dep.fill.held > 0 ? t('partner.ic_fill_held', { n: dep.fill.held }) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
+        {pending > 0 && live ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[5], paddingVertical: theme.space[3], backgroundColor: theme.colors.warningTint }}>
+            <Icon name="home" size={18} color="warningText" strokeWidth={2.2} />
+            <Text variant="label" weight={600} color="warningText" style={{ flex: 1 }}>
+              {pending === 1 ? t('partner.ic_pickups_waiting_one') : t('partner.ic_pickups_waiting_few', { n: pending })}
+            </Text>
+            <Icon name="chevron-forward" size={16} color="warningText" strokeWidth={2.4} />
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  }
   return (
-    <Card testID={`my-departure-${dep.id}`} onPress={() => router.push(`/intercity/departure/${dep.id}`)} accessibilityLabel={`${timeWithPeriod(t, dep.departAt)} ${garage?.nameAr ?? ''}`} padding={0} style={{ overflow: 'hidden' }}>
+    <Card testID={`my-departure-${dep.id}`} onPress={go} accessibilityLabel={label} padding={0} style={{ overflow: 'hidden' }}>
       <View style={{ padding: theme.space[4], gap: theme.space[3] }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
           <View style={{ flex: 1, gap: 2 }}>
@@ -100,32 +169,16 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
               {t('rajaa.route', { from: garage?.nameAr ?? '', to })}
             </Text>
           </View>
-          <StatusPill label={departureState(t, dep.state)} tone={departureTone(dep.state)} live={dep.state === 'boarding' || dep.state === 'departed'} size="sm" />
+          <StatusPill label={departureState(t, dep.state)} tone={departureTone(dep.state)} size="sm" />
         </View>
-        {live ? (
-          <Text variant="footnote" color={dep.departAt.getTime() < now.getTime() ? 'warningText' : 'textMuted'}>
-            {`${countdownLabel(t, dep.departAt, now)} · ${t('partner.ic_dep_or_full', { time: clockLabel(dep.latestDepartureAt) })}`}
-          </Text>
-        ) : null}
         <SeatStrip dep={dep} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[3], rowGap: 2 }}>
           <Text variant="label" weight={600} tabular>
             {t('intercity.fill', { filled: dep.fill.booked + dep.fill.walkUps, total: dep.fill.seatsTotal })}
           </Text>
           {checked > 0 ? <Meta text={t('partner.ic_fill_checked', { n: checked })} /> : null}
-          {dep.fill.walkUps > 0 ? <Meta text={t('partner.ic_fill_walkups', { n: dep.fill.walkUps })} /> : null}
-          {dep.fill.held > 0 ? <Meta text={t('partner.ic_fill_held', { n: dep.fill.held })} /> : null}
         </View>
       </View>
-      {pending > 0 && live ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingVertical: theme.space[3], backgroundColor: theme.colors.warningTint }}>
-          <Icon name="home" size={18} color="warningText" strokeWidth={2.2} />
-          <Text variant="label" weight={600} color="warningText" style={{ flex: 1 }}>
-            {pending === 1 ? t('partner.ic_pickups_waiting_one') : t('partner.ic_pickups_waiting_few', { n: pending })}
-          </Text>
-          <Icon name="chevron-forward" size={16} color="warningText" strokeWidth={2.4} />
-        </View>
-      ) : null}
     </Card>
   );
 }
@@ -179,6 +232,7 @@ export function RequestCard({ post, now }: { post: RequestPostView; now: Date })
   const theme = useTheme();
   const t = useT();
   const mine = post.offers.find((o) => o.state === 'open');
+  const details = requestDetailLabels(t, post.details, post.when);
   return (
     <Card testID={`request-${post.id}`} onPress={() => router.push(`/intercity/request/${post.id}`)} accessibilityLabel={t('rajaa.route', { from: post.from.label, to: post.to.label })}>
       <View style={{ gap: theme.space[2] }}>
@@ -189,8 +243,14 @@ export function RequestCard({ post, now }: { post: RequestPostView; now: Date })
           {post.origin === 'stranded' ? <StatusPill label={t('partner.ic_req_stranded')} tone="warning" size="sm" /> : post.privateCar ? <StatusPill label={t('partner.ic_req_private')} tone="info" size="sm" /> : null}
         </View>
         <Text variant="footnote" color="textMuted" tabular>
-          {[whenLabel(t, post.when, now), seatsCount(t, post.seats), travellingAsLabel(t, post.travellingAs)].join(' · ')}
+          {[whenLabel(t, post.when, now), seatsCount(t, post.seats)].join(' · ')}
         </Text>
+        {/* y1: the trip kind, bags, car and AC the rider asked for, on one line. */}
+        {details.length > 0 ? (
+          <Text variant="footnote" color="text" weight={600} numberOfLines={2} testID={`request-details-${post.id}`}>
+            {details.join(' · ')}
+          </Text>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingTop: 2 }}>
           {mine ? (
             <StatusPill label={t('partner.ic_req_my_offer', { amount: amountParam(mine.priceIqd) })} tone="accent" size="sm" icon="check" />

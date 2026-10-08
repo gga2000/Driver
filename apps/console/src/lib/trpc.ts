@@ -5,7 +5,8 @@ import { createTRPCContext } from '@trpc/tanstack-react-query';
 import { REQUEST_LIMITS, transformer, type AppRouter } from '@driver/contracts';
 import { createStreamTokenCache, type StreamTokenCache } from '@driver/contracts/live-client';
 import { consoleFetch } from './network';
-import { getAccessToken } from './session';
+import { authRetryLink } from './auth-link';
+import { getFreshAccessToken, getSession, isAuthError, refreshSession, setRefresher } from './session';
 
 export const { TRPCProvider, useTRPC, useTRPCClient } = createTRPCContext<AppRouter>();
 
@@ -19,6 +20,10 @@ export function liveTokensOf(client: object): StreamTokenCache | null {
 }
 
 export function makeTrpcClient() {
+  // A bare client for `identity.refresh`: no auth header, no retry link (no recursion).
+  const bare = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: API_URL, transformer, fetch: consoleFetch })] });
+  setRefresher((refreshToken) => bare.identity.refresh.mutate({ refreshToken }));
+  const retry = authRetryLink({ isAuthError, hasSession: () => getSession() !== null, refresh: refreshSession });
   const batch = httpBatchLink({
     url: API_URL,
     transformer,
@@ -26,18 +31,20 @@ export function makeTrpcClient() {
     fetch: consoleFetch,
     // The API takes at most REQUEST_LIMITS.maxBatchSize calls per request (SEC-03); split well below it.
     maxItems: REQUEST_LIMITS.clientBatchItems,
-    // Read per request so signing in or out takes effect without rebuilding the client.
-    headers() {
-      const token = getAccessToken();
+    // Read per request so signing in or out takes effect without rebuilding the client; a token
+    // about to run out is renewed first (CON-01), so a long shift never meets a 401.
+    async headers() {
+      const token = await getFreshAccessToken();
       return token ? { authorization: `Bearer ${token}` } : {};
     },
   });
-  const authed = createTRPCClient<AppRouter>({ links: [batch] });
+  const authed = createTRPCClient<AppRouter>({ links: [retry, batch] });
   const tokens = createStreamTokenCache(() => authed.live.token.mutate());
   // `live.*` over SSE: the browser's EventSource cannot send headers, so each connection carries a
   // short-lived stream token (minted with the Bearer token) in tRPC connection params.
   const client = createTRPCClient<AppRouter>({
     links: [
+      retry,
       splitLink({
         condition: (op) => op.type === 'subscription',
         true: httpSubscriptionLink({

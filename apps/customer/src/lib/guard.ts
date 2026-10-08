@@ -4,7 +4,7 @@ import type { SessionStatus } from './session';
  * Route guard (pure, so it is unit-tested): given the session, onboarding state and the current
  * expo-router segments, where should the app be? `null` means "stay".
  *
- * Guest browsing (Ali, 2026-10-04, audit C-18): home, search, the restaurant list, menus and the cart
+ * Guest browsing (Ali, 2026-10-04, audit C-18): home, the food doors, search, the shop list, menus and the cart
  * open without an account; the phone number is asked at "كمّل الطلب" / "احجز".
  *
  *  - signed out, first launch, on home           → /welcome (once; "يلا نبدي" goes on as a guest)
@@ -45,7 +45,7 @@ export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 's
  * Top-level segments a guest may browse. The tabs are open too: orders, wallet and account show a
  * "دخّل رقمك" card in place of their content (`GuestGate`).
  */
-export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'search', 'restaurants', 'restaurant', 'cart', 'i', 'stickers']);
+export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'food', 'search', 'restaurants', 'restaurant', 'cart', 'i', 'stickers']);
 
 export function resolveGuard({ status, setupPending, segments, pathname, welcomed = true, returnTo = null }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;

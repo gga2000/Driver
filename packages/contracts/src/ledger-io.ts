@@ -128,6 +128,11 @@ export const LateMeterPayload = z.object({
   driverId: z.string().min(1),
   /** Boarded riders who waited (excluding the late rider). */
   waitingRiderIds: z.array(z.string().min(1)).default([]),
+  /**
+   * x3: minutes of a late rider's meter that ran while our own taxi bringing him to the garage was
+   * still due (his seat was held for it). The company pays those blocks, not him (Ali 2026-10-07).
+   */
+  taxiLateMinutes: z.number().int().nonnegative().default(0),
 });
 export type LateMeterPayload = z.input<typeof LateMeterPayload>;
 
@@ -142,6 +147,23 @@ export const DepartureCancelledPayload = z.object({
   riderIds: z.array(z.string().min(1)).default([]),
 });
 export type DepartureCancelledPayload = z.input<typeof DepartureCancelledPayload>;
+
+/**
+ * A ride's driver cancelled after accepting (order.driver_cancelled, M-15). After he reached the
+ * pickup the customer gets `customerCreditIqd` from the driver as wallet credit (Ali, 2026-10-07:
+ * "yes"); 0 before arrival, or while the money rule `driverCancelCredit` is off. Once per trip.
+ */
+export const DriverCancelledPayload = z.object({
+  orderId: z.string().min(1),
+  tripId: z.string().min(1).nullable().default(null),
+  occurredAt: z.coerce.date(),
+  customerId: z.string().min(1),
+  driverId: z.string().min(1),
+  scoringHit: z.boolean().default(false),
+  customerCreditIqd: Iqd.nonnegative().default(0),
+  creditFundedBy: z.enum(['driver']).nullable().default(null),
+});
+export type DriverCancelledPayload = z.input<typeof DriverCancelledPayload>;
 
 export const SubscriptionChargePayload = z.object({
   subscriptionId: z.string().min(1),

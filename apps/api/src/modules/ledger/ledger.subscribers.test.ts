@@ -21,6 +21,8 @@ describe('ledger subscribers', () => {
         'merchant.settlement_requested',
         'order.cancelled',
         'order.closed',
+        'order.driver_cancelled',
+        'order.rejected',
         'seat.completed',
         'seat.late_meter_settled',
         'seat.no_show',
@@ -143,6 +145,34 @@ describe('ledger subscribers', () => {
     // Khat: 8 % + 1,000 → 3,400 on the cash month, 1,960 on the prorated wallet one; the prepaid month covers what he owes.
     expect(await h.caps.status('d3')).toMatchObject({ earningsIqd: 26600 + 10040, cashIqd: -30000, owedIqd: 0, payoutDueIqd: 0 });
     expect((await h.ledger.eventsFor('customer:g2')).map((e) => e.type)).toEqual(['subscription_proration']);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-15: a driver cancelling after arriving credits the customer 500 from the driver, once even if the event repeats', async () => {
+    const h = ledgerHarness();
+    const ev = wire({ orderId: 'o7', tripId: 't7', occurredAt: at, customerId: 'c7', driverId: 'd7', scoringHit: true, customerCreditIqd: 500, creditFundedBy: 'driver' });
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', ev);
+    await h.bus.publish('order.driver_cancelled', wire({ orderId: 'o8', tripId: 't8', occurredAt: at, customerId: 'c8', driverId: 'd8', scoringHit: false }));
+    expect((await h.ledger.balance('customer:c7')).amount).toBe(500);
+    expect((await h.ledger.balance('driver:d7')).amount).toBe(-500);
+    expect((await h.ledger.balance('customer:c8')).amount).toBe(0);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-17: a merchant rejecting after accepting credits the customer 500 from the merchant, once even if the event repeats; no credit posts nothing', async () => {
+    const h = ledgerHarness();
+    const ev = wire({ from: 'preparing', to: 'merchant_rejected', orderId: 'o5', occurredAt: at, customerId: 'c5', merchantOrgId: 'm5', reason: 'خلص', auto: false, scored: true, afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' });
+    await h.bus.publish('order.rejected', ev);
+    await h.bus.publish('order.rejected', ev);
+    // The switch off (or a reject before accepting): the event claims 0 and nothing posts.
+    await h.bus.publish('order.rejected', wire({ from: 'preparing', to: 'merchant_rejected', orderId: 'o6', occurredAt: at, customerId: 'c6', merchantOrgId: 'm6', reason: 'خلص', afterAccept: true, customerCreditIqd: 0, creditFundedBy: null }));
+    // An event written before M-17 (no ids) still decodes.
+    await h.bus.publish('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'merchant_timeout', auto: true, scored: true, pauseWindow: null, dispatchAlert: true });
+    expect((await h.ledger.balance('customer:c5')).amount).toBe(500);
+    expect((await h.ledger.balance('merchant_cash:m5')).amount).toBe(-500);
+    expect((await h.ledger.balance('customer:c6')).amount).toBe(0);
+    expect((await h.ledger.eventsFor('customer:c5')).map((e) => [e.type, e.memo])).toEqual([['cancellation_fee', 'merchant_late_reject']]);
     expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 

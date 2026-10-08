@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { Platform, Pressable, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { Chip, Icon, IconButton, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Chip, Icon, IconButton, Skeleton, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
 import { isRideVertical, searchSpots, smartPicks, tooClose, type Spot } from '@/features/ride/logic';
@@ -33,7 +33,7 @@ export default function RideWhereTo() {
   const toast = useToast();
   const params = useLocalSearchParams<{ vertical?: string; field?: string }>();
   const ride = useRideStore();
-  const { sources, defaultPickup } = useRideSpots();
+  const { sources, defaultPickup, landmarksLoading, landmarksFailed, retryLandmarks } = useRideSpots();
   const draft = ride.draft;
   const pickup = draft.pickup ?? defaultPickup;
   const [field, setField] = useState<Field>(params.field === 'pickup' || !pickup ? 'pickup' : 'dropoff');
@@ -281,11 +281,29 @@ export default function RideWhereTo() {
             </Section>
           ) : null}
 
+          {/* VIS-41: known places say they are loading, or that they didn't load with a retry, instead of just missing. */}
           {sources.landmarks.length > 0 ? (
             <Section title={t('ride.landmarks_title')}>
               {sources.landmarks.map((s) => (
                 <SpotRow key={s.id} spot={s} onPress={() => choose(s)} />
               ))}
+            </Section>
+          ) : landmarksLoading ? (
+            <Section title={t('ride.landmarks_title')}>
+              <View style={{ gap: theme.space[3], paddingVertical: theme.space[2] }} testID="ride-landmarks-loading">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} height={40} />
+                ))}
+              </View>
+            </Section>
+          ) : landmarksFailed ? (
+            <Section title={t('ride.landmarks_title')}>
+              <Pressable accessibilityRole="button" onPress={retryLandmarks} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44 }} testID="ride-landmarks-failed">
+                <Icon name="refresh" size={18} color="textMuted" />
+                <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+                  {t('ride.landmarks_failed')} · {t('action.retry')}
+                </Text>
+              </Pressable>
             </Section>
           ) : null}
 
@@ -376,7 +394,7 @@ function EndRow({
               borderRadius: theme.radius.md,
               backgroundColor: theme.colors.surfaceSunken,
               borderWidth: 1.5,
-              borderColor: theme.colors.accent,
+              borderColor: theme.colors.focusRing,
               color: theme.colors.text,
               fontSize: 15,
               // Native RTL swaps left/right (left = start); the web needs the physical side.
