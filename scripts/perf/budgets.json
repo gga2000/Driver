@@ -33,6 +33,14 @@
     },
     "live_order.idle_fps": { "max": 360, "target": 70, "why": "courier glide only" },
     "live_order.idle_kb": { "max": 40 },
+    "home_over_orders.open_kb": { "max": 60, "why": "home with a live order card" },
+    "home_over_orders.idle_commits": { "max": 24, "why": "the live order card updates" },
+    "home_over_orders.idle_fps": {
+      "max": 126,
+      "target": 0,
+      "why": "h1 home rest + the hidden orders tab's live pill must stop out of sight"
+    },
+    "home_over_orders.idle_kb": { "max": 32, "why": "the live order card refreshes" },
     "board.open_kb": { "max": 52 },
     "board.idle_commits": { "max": 680, "target": 70, "why": "h3 only the countdown rings tick" },
     "board.idle_fps": { "max": 960, "target": 240, "why": "alarm pulses only" },

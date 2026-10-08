@@ -30,6 +30,10 @@ const root = resolve(import.meta.dirname, '../..');
 const budgets = JSON.parse(readFileSync(join(import.meta.dirname, 'budgets.json'), 'utf8')).screens;
 const IDLE_SECS = Number(process.env.IDLE_SECS ?? 30);
 const SETTLE_MS = 5_000;
+/** The home tab's label (nav.home); the tab bar has no test ids. */
+const HOME_TAB = JSON.parse(
+  readFileSync(join(root, 'packages', 'i18n', 'src', 'locales', 'ar-IQ.json'), 'utf8'),
+)['nav.home'];
 const chromium = await loadChromium(root);
 const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
@@ -151,6 +155,14 @@ try {
       )
     ).json();
     await measure('live_order', ctx, () => go(`/order/${orderId}`, 'status-line'));
+    // Back on home after «طلباتي» was opened while an order is live: the orders tab stays mounted out of
+    // sight and must not keep animating there (its live status pill pulsed forever, found 2026-10-08).
+    await measure('home_over_orders', ctx, async () => {
+      await page.goto(dist.origin + '/orders', { waitUntil: 'load' });
+      await by(`order-${orderId}`).waitFor({ timeout: 20_000 });
+      await page.getByText(HOME_TAB, { exact: true }).last().click();
+      await by('home').waitFor({ timeout: 20_000 });
+    });
     await page.close();
   }
   // ── restaurant board (tablet) ──
