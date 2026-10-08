@@ -7792,5 +7792,9 @@
   "partner.f8_door_retry": "Try again",
   "partner.f8_door_change": "Change it",
   "partner.f8_door_review": "Door photo",
-  "partner.f8_door_none": "No door photo"
+  "partner.f8_door_none": "No door photo",
+  "restaurant.whats_left_title": "What's left today?",
+  "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
+  "restaurant.whats_left_all": "Whole menu",
+  "restaurant.whats_left_only": "What's left"
 }

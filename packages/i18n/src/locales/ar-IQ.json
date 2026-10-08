@@ -7792,5 +7792,9 @@
   "partner.f8_door_retry": "عيدها",
   "partner.f8_door_change": "غيّرها",
   "partner.f8_door_review": "صورة الباب",
-  "partner.f8_door_none": "بدون صورة باب"
+  "partner.f8_door_none": "بدون صورة باب",
+  "restaurant.whats_left_title": "شنو باقي اليوم؟",
+  "restaurant.whats_left_line": "خلص {count} من المنيو اليوم، وباقي {left} تگدر تطلبها",
+  "restaurant.whats_left_all": "كل المنيو",
+  "restaurant.whats_left_only": "الباقي بس"
 }
