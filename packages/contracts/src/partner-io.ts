@@ -337,6 +337,11 @@ export const PartnerJobStop = z.object({
   note: z.string().nullable(),
   /** Cash to take at this stop (dropoffs of cash orders); 0 otherwise. */
   collectIqd: Iqd.min(0),
+  /**
+   * HUNT-02: a drop-off the customer chose «بالشارع» for (he paid 250 دينار less): he comes out to the
+   * street near the pin; the courier calls when close instead of going to the door. Absent = the door.
+   */
+  streetHandover: z.boolean().optional(),
   /** "الخردة علينا": the note the customer said he will pay with ("الزبون يدفع بـ 25,000"); null/absent = none. */
   tenderIqd: Iqd.nullable().optional(),
   arrivedAt: z.coerce.date().nullable(),

@@ -12,7 +12,7 @@ function event(type: string, payload: Record<string, unknown>, extra: Partial<Pu
 }
 
 const lookups: NotifyLookups = {
-  order: async (id) => (id === 'ride_1' ? { id, type: 'ride', customerId: 'cust', merchantOrgId: null, totalIqd: 4000, itemCount: 0 } : id === 'ord_1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3 } : null),
+  order: async (id) => (id === 'ride_1' ? { id, type: 'ride', customerId: 'cust', merchantOrgId: null, totalIqd: 4000, itemCount: 0 } : id === 'ord_1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'cash' } : id === 'ord_w' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 12_500, itemCount: 3, paymentMethod: 'wallet' } : null),
   storeName: async (orgId) => (orgId === 'org_k' ? 'مطعم خالد' : null),
   orgPeople: async (orgId, kinds) => (orgId !== 'org_k' ? [] : kinds.includes('merchant_staff') ? ['staff', 'owner'] : ['owner']),
   firstName: async (personId) => ({ drv: 'حيدر', courier: 'كرار' })[personId] ?? null,
@@ -60,17 +60,29 @@ describe('notify subscribers: events → notifications', () => {
       { template: 'courier_arriving', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', amount: '12,500', orderId: 'ord_1' } },
     ]);
     expect(await one(event('stop.courier_near', { stopId: 's2' }, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
+    // NTF-21: paid from the wallet — the same moment without «جهّز الكاش» or an amount.
+    expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 200 }, { orderId: 'ord_w', actorId: 'courier' }))).toEqual([
+      { template: 'courier_arriving_paid', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', orderId: 'ord_w' } },
+    ]);
     expect(await one(event('merchant.paid_by_courier', { handoverId: 'MH-1', merchantId: 'org_k', courierId: 'courier', amountIqd: 45_000, merchantBalanceIqd: 5_000 }))).toEqual([
       { template: 'merchant_cash_handover', to: 'owner', params: { store: 'مطعم خالد', amount: '45,000', courier: 'كرار', date: '2026-10-04', balance: '5,000', reference: 'MH-1' } },
     ]);
     // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
+    // «جهّز محلك»: ops approved the shop — its owners (never the onboarding contact as such) hear it is live.
+    const activated = event('merchant.activated', { onboardingId: 'onb_1', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'someone', reason: null });
+    expect(await one(activated)).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.' } }]);
+    expect((await requestsFor(activated, { ...d, merchantAppUrl: 'https://merchant.driver.iq/' })).map((r) => r.params)).toEqual([{ shop: 'مطعم خالد', next: 'كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup' }]);
+    expect(await one(event('merchant.activated', {}))).toEqual([]);
     expect(await one(event('ops.cash_received', { courierId: 'courier', amountIqd: 60_000, courierCashAfterIqd: -15_000 }))).toEqual([{ template: 'courier_cash_receipt', to: 'courier', params: { amount: '60,000', date: '2026-10-04', balance: '-15,000' } }]);
     expect(await one(event('wallet.topped_up', { customerId: 'cust', amountIqd: 25_000, reference: 'TU-7' }))).toEqual([{ template: 'wallet_topup_receipt', to: 'cust', params: { amount: '25,000', date: '2026-10-04', reference: 'TU-7' } }]);
     // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 7_250, collectedIqd: 25_000, totalIqd: 17_750 }, { orderId: 'ord_1' }))).toEqual([{ template: 'cash_change_credit', to: 'cust', params: { amount: '\u2066+7,250\u2069' } }]);
     expect(await one(event('order.change_to_wallet', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
+    // NTF-22: the honest-delay credit is in his wallet — "+1,000 دينار رصيد، لأن تأخرنا عليك".
+    expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_late_credit', to: 'cust', params: { amount: '\u2066+1,000\u2069' } }]);
+    expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // The tip after a 4–5 rating (Ali, 2026-10-06): «علي كرمك 1,000 دينار» to the driver who carried it.
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'الزبون', amount: '1,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'drv', courierId: 'courier', tripId: 't1', amountIqd: 2000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'حيدر', amount: '2,000', id: '1284' } }]);
@@ -87,8 +99,8 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('support.resolved', { ticketId: 'tk1', resolution: 'الحساب صحيح', driverId: 'drv', jobKey: 't_ride', jobAt: '2026-10-03T15:30:00.000Z' }))).toEqual([
       { template: 'driver_pay_resolved', to: 'drv', params: { text: 'الحساب صحيح', key: 't_ride', at: '2026-10-03T15%3A30%3A00.000Z' } },
     ]);
-    // A customer's ticket (no driver on it) is not this push.
-    expect(await one(event('support.replied', { ticketId: 'tk2', customerId: 'cust', text: 'هلا' }))).toEqual([]);
+    // A customer's ticket (no driver on it) gets the customer's own push (NTF-02), not the driver's.
+    expect(await one(event('support.replied', { ticketId: 'tk2', customerId: 'cust', text: 'هلا' }))).toEqual([{ template: 'support_reply', to: 'cust', params: { text: 'هلا', link: 'help' } }]);
     expect(await one(event('seat.booked', { bookingId: 'bk_1' }))).toEqual([
       { template: 'rajaa_boarding_pass', to: 'cust', params: { route: 'العزيزية ← بغداد', date: '2026-10-05', time: '7:30 ص', seat: 'A1', vehicle: 'كيا · 12345', place: 'كراج البوابة 1', pin: '4821', bookingId: 'bk_1' } },
     ]);
@@ -370,5 +382,122 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
       { template: 'ride_rider_arrived', to: 'cust', params: { name: 'ماما', time: '12:30 م', orderId: 'ride_2' } },
     ]);
     expect((await run(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }), forMum())).map((r) => r.template)).toEqual(['ride_receipt']);
+  });
+});
+
+describe('W2: the turns that used to leave the customer staring at a screen', () => {
+  const ETA = new Date('2026-10-04T09:52:00Z'); // 12:52 Baghdad
+  const w2 = (over: Partial<NotifyLookups> = {}) => (h: ReturnType<typeof notifyHarness>) => ({
+    ...deps(h),
+    lookups: { ...lookups, deliveryEta: async (id: string) => (id === 'ord_1' ? ETA : null), stopOrder: async (tripId: string, stopId: string) => (tripId === 'trp_1' && stopId === 's2' ? 'ord_1' : null), ...over },
+  });
+  const run = async (e: PublishedEvent, over: Partial<NotifyLookups> = {}) => (await requestsFor(e, w2(over)(notifyHarness()))).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('the kitchen said no, or never answered: told at once, naming the kitchen', async () => {
+    expect(await run(event('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'closing early' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_rejected', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } }]);
+    expect(await run(event('order.rejected', { from: 'placed', to: 'merchant_rejected', reason: 'merchant_timeout' }, { orderId: 'ord_1', actorId: 'system' }))).toEqual([
+      { template: 'order_kitchen_no_answer', to: 'cust', params: { merchant: 'مطعم خالد', orderId: 'ord_1' } },
+    ]);
+    // M-17: after accepting, the kitchen's cancel carries 500 to his wallet, and the message says so.
+    expect(await run(event('order.rejected', { from: 'preparing', to: 'merchant_rejected', reason: 'gas ran out', customerCreditIqd: 500, afterAccept: true, creditFundedBy: 'merchant' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'order_rejected_credit', to: 'cust', params: { merchant: 'مطعم خالد', amount: '500', orderId: 'ord_1' } },
+    ]);
+    expect((await run(event('order.rejected', { reason: 'busy', customerCreditIqd: 0 }, { orderId: 'ord_1' })))[0]?.template).toBe('order_rejected');
+  });
+
+  it('only what we cancelled is told; the household payer’s answer is named; his own cancel is silent', async () => {
+    const cancel = (reason: string, cancelledState = 'platform_cancelled') => event('order.cancelled', { from: 'placed', to: cancelledState, cancelledState, by: 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await run(cancel('payer_declined'))).toEqual([{ template: 'order_payer_declined', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('payer_no_answer'))).toEqual([{ template: 'order_payer_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
+  });
+
+  it('picked up: the order screen’s own arrival time, or no time at all when none can be read', async () => {
+    const picked = event('order.picked_up', { from: 'ready', to: 'picked_up', tripId: 'trp_1', courierId: 'courier' }, { orderId: 'ord_1', actorId: 'courier' });
+    expect(await run(picked)).toEqual([{ template: 'order_picked_up', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1', time: '12:52 م' } }]);
+    expect(await run(picked, { deliveryEta: async () => null })).toEqual([{ template: 'order_on_the_way', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+  });
+
+  it('at the door, then can’t reach him: at once, and the minute-3 reminder found through its stop', async () => {
+    expect(await run(event('stop.arrived', { stopId: 's2', stopType: 'dropoff' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([{ template: 'courier_at_door', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+    expect(await run(event('stop.arrived', { stopId: 's1', stopType: 'pickup' }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([]);
+    expect(await run(event('trip.unreachable_started', { stopId: 's2' }, { orderId: 'ord_1', tripId: 'trp_1', actorId: 'courier' }))).toEqual([{ template: 'courier_unreachable', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1' } }]);
+    expect(await run(event('trip.unreachable_escalated', { stopId: 's2', courierId: 'courier' }, { tripId: 'trp_1', actorId: 'system' }))).toEqual([{ template: 'courier_unreachable_reminder', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(event('trip.unreachable_escalated', { stopId: 's9' }, { tripId: 'trp_1', actorId: 'system' }))).toEqual([]);
+  });
+
+  it('rides keep their own messages: no delivery wording on a ride', async () => {
+    expect(await run(event('order.picked_up', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
+    expect(await run(event('order.rejected', {}, { orderId: 'ride_1' }))).toEqual([]);
+    expect((await run(event('stop.arrived', { stopType: 'pickup' }, { orderId: 'ride_1', actorId: 'drv' })))[0]?.template).toBe('driver_arrived');
+  });
+});
+
+describe('BENCH-03: a dish is out — the customer is asked, and told when silence cancelled it', () => {
+  const ask = (over: Partial<NotifyLookups> = {}) => ({ engine: notifyHarness().engine, repo: notifyHarness().repo, receiptBaseUrl: 'https://driver.iq/r', lookups: { ...lookups, lineNames: async (_: string, ids: readonly string[]) => (ids.length === 1 ? ['بيبسي'] : []), ...over } });
+  const proposed = (ids: string[]) => event('order.partial_proposed', { unavailableLineIds: ids, reducedItemsTotalIqd: 10_000, reducedTotalIqd: 11_500, deadline: '2026-10-04T09:31:00Z', prepMinutes: 20 }, { orderId: 'ord_1', actorId: 'staff' });
+  const one = async (e: PublishedEvent, d = ask()) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('names the dish, the kitchen and what the rest costs', async () => {
+    expect(await one(proposed(['l2']))).toEqual([{ template: 'order_partial_ask', to: 'cust', params: { items: 'بيبسي', merchant: 'مطعم خالد', amount: '11,500', orderId: 'ord_1' } }]);
+    expect((await one(proposed(['l2', 'l3'])))[0]?.params?.['items']).toBe('صنفين من طلبك');
+    expect(await one(event('order.partial_proposed', { unavailableLineIds: ['l2'] }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+
+  it('the minute ran out: «ما وصلنا ردك», not the general cancel', async () => {
+    const timeout = event('order.cancelled', { from: 'placed', to: 'platform_cancelled', cancelledState: 'platform_cancelled', by: 'platform', reason: 'partial_timeout', free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await one(timeout)).toEqual([{ template: 'order_partial_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
+    const declined = event('order.cancelled', { from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', by: 'customer', reason: 'partial_declined', free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await one(declined)).toEqual([]);
+  });
+
+  it('short names for a push title', async () => {
+    const { missingItemsAr } = await import('./notify.subscribers.js');
+    expect(missingItemsAr(['بيبسي'], 1)).toBe('بيبسي');
+    expect(missingItemsAr(['بيبسي', 'كباب'], 2)).toBe('بيبسي وكباب');
+    expect(missingItemsAr(['بيبسي'], 3)).toBe('3 أصناف من طلبك');
+    expect(missingItemsAr([], 1)).toBe('صنف من طلبك');
+  });
+});
+
+describe('NTF-02: support’s answer reaches the customer', () => {
+  const d = () => ({ engine: notifyHarness().engine, repo: notifyHarness().repo, lookups, receiptBaseUrl: 'https://driver.iq/r' });
+  const one = async (e: PublishedEvent) => (await requestsFor(e, d())).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('a reply, a refund and the close, each opening the order (or help without one)', async () => {
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: 'cust', channel: 'phone', text: 'رجعنا نراجع الطلب ويا المطعم' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'support_reply', to: 'cust', params: { text: 'رجعنا نراجع الطلب ويا المطعم', link: 'order/ord_1' } },
+    ]);
+    expect(await one(event('support.refunded', { ticketId: 't1', customerId: 'cust', amountIqd: 3000, method: 'wallet' }, { orderId: 'ord_1' }))).toEqual([
+      { template: 'support_refund', to: 'cust', params: { amount: '3,000', where: 'بمحفظتك', link: 'order/ord_1' } },
+    ]);
+    expect(await one(event('support.resolved', { ticketId: 't1', customerId: 'cust', resolution: 'رجعنالك سعر الصحن' }))).toEqual([
+      { template: 'support_resolved', to: 'cust', params: { text: 'رجعنالك سعر الصحن', link: 'help' } },
+    ]);
+  });
+
+  it('nothing for an empty answer, a ticket with no customer, or a driver’s refund', async () => {
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: 'cust', text: '' }))).toEqual([]);
+    expect(await one(event('support.replied', { ticketId: 't1', customerId: null, text: 'هلا' }))).toEqual([]);
+    expect(await one(event('support.refunded', { ticketId: 't1', driverId: 'drv', amountIqd: 3000 }))).toEqual([]);
+  });
+});
+
+describe('W3 staff outcomes → the customer', () => {
+  it('staff cancel, complaint outcomes, free-cancel offer and lost food each reach the order’s customer', async () => {
+    const h = notifyHarness();
+    const d = deps(h);
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    const params = { id: '1284', orderId: 'ord_1' };
+    expect(await one(event('order.ops_cancelled', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params }]);
+    expect(await one(event('order.free_cancel_offered', { customerId: 'cust', failure: 'no_courier' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_free_cancel', to: 'cust', params }]);
+    expect(await one(event('order.courier_lost', { customerId: 'cust' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_courier_lost', to: 'cust', params }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'refund_partial', refundIqd: 5_000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_refunded', to: 'cust', params: { ...params, amount: '5,000' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'stands', refundIqd: 0 }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_dispute_stands', to: 'cust', params: { ...params, amount: '0' } }]);
+    expect(await one(event('order.dispute_resolved', { customerId: 'cust', outcome: 'nonsense' }, { orderId: 'ord_1' }))).toEqual([]);
+    expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
+    // The state change behind a staff cancel sends nothing of its own: one message, not two.
+    expect(await one(event('order.cancelled', { cancelledState: 'platform_cancelled', by: 'platform', reason: 'staff_cancelled' }, { orderId: 'ord_1' }))).toEqual([]);
   });
 });

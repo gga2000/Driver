@@ -30,9 +30,11 @@ export default function OtpEntry() {
   const t = useT();
   const locale = useLocale();
   const api = useApi();
-  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string }>();
+  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string }>();
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
+  // Over the SMS cap a new number's code may come on WhatsApp instead (lane D, #17): say where it went.
+  const [channel, setChannel] = useState(params.channel === 'whatsapp' ? 'whatsapp' : 'sms');
   const [resendUntil, setResendUntil] = useState(() => Date.now() + Number(params.resendAfter ?? 30) * 1000);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
@@ -67,6 +69,7 @@ export default function OtpEntry() {
     try {
       const res = await resend.mutateAsync({ phone, purpose: 'login', channel: 'sms', device: await getDeviceInfo() });
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
+      if (res.channel) setChannel(res.channel);
       setCode('');
       if (DEV_TOOLS) void devCode.refetch();
     } catch (err) {
@@ -85,7 +88,7 @@ export default function OtpEntry() {
   const shownPhone = phone ? displayPhone(phone) : (params.masked ?? '');
 
   return (
-    <AuthFrame testID="otp-screen" title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })}>
+    <AuthFrame testID="otp-screen" title={t('onboarding.otp_title')} subtitle={t(channel === 'whatsapp' ? 'onboarding.otp_sent_whatsapp' : 'onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })}>
       <View style={{ gap: theme.space[3] }}>
         <OtpInput value={code} onChange={onChange} length={CODE_LENGTH} error={!!verify.error} disabled={verify.isPending} accessibilityLabel={t('onboarding.otp_title')} autoFocus />
         {verify.isPending ? (

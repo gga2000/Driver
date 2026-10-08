@@ -17,7 +17,12 @@ export interface OtpInputProps {
 
 /** What the hidden field keeps of a typed, pasted or autofilled code: Western digits only, capped. */
 export function otpValue(raw: string, length = 6): string {
-  return westernDigits(raw).replace(/\D/g, '').slice(0, length);
+  const digits = westernDigits(raw);
+  // CORE-21: a pasted message («رمز دخولك لدرايفر: 482913. لا تعطيه لأحد») — the code is its run of
+  // exactly `length` digits, wherever it sits; otherwise every digit typed, in order.
+  const code = new RegExp(`(?:^|\\D)(\\d{${length}})(?!\\d)`).exec(digits)?.[1];
+  if (code && /\D/.test(digits.trim())) return code;
+  return digits.replace(/\D/g, '').slice(0, length);
 }
 
 /**
@@ -74,7 +79,8 @@ export const OtpInput = forwardRef<TextInput, OtpInputProps>(function OtpInput(
         keyboardType="number-pad"
         textContentType="oneTimeCode"
         autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
-        maxLength={length}
+        // Room for a whole pasted message (CORE-21): a native cap of 6 would cut it before the code.
+        maxLength={64}
         accessibilityLabel={accessibilityLabel}
         caretHidden
         style={[

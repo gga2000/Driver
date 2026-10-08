@@ -93,7 +93,9 @@ through and "توفّر …" (the exact saving); cart and checkout show the "خ�
 (`PriceBreakdown`'s `change`); the order screen's receipt and the arrival screen ("جهّز 18,000 دينار
 للدليفري", C-11) do the same; the place call sends `discountIqd` and handles `deal_changed`. Checkout
 offers the wallet (`paymentMethod: 'wallet'`, exact price) when the balance covers it — `orders.place`
-refuses `wallet_insufficient` when the balance less the customer's open wallet orders does not (C-04);
+refuses `wallet_insufficient` when the balance less the customer's open wallet orders does not (C-04),
+and on his own wallet also less his prepaid seats and request deposits, re-checked under his wallet
+lock inside the placing transaction (SEC-07, see "One wallet, every spend" below);
 the promo field is hidden until platform codes exist (C-05).
 
 ## 2. Wallet top-up with cash
@@ -136,3 +138,20 @@ table `wallet_topups`.
 - No `PromoRedemption` rows yet (order + spend counter are the record); deal auto-stop at the cap is the
   badge disappearing, no event.
 - `deals-topups.integration.test.ts` was not run locally (no Postgres here); CI runs it.
+
+## One wallet, every spend (SEC-07, 2026-10-08)
+
+A customer's own wallet (`customer:<id>`) pays for food and ride orders (debited when the order
+closes), prepaid الرجعة seats (when the seat completes), request-board deposits (when they settle) and
+the tip after a rating (at once). Until the ledger debits, each module keeps its own hold, and every
+spend now counts all of them through the ledger's `WalletHolds` registry: orders registers its open
+wallet orders, routes its prepaid seats and matched deposits.
+
+Each spend takes the wallet lock (`pg_advisory_xact_lock(hashtext('wallet:<id>'))`) as the first thing
+in its transaction, then re-checks what is left: `orders.place` (own wallet), `departures.book`
+(wallet), `requestBoard.pick` and the tip. Lock order: wallet locks (sorted by customer id), then the
+routes lock, then household / request-key locks. A routes write declares its customers up front
+(`writer.run(fn, { walletLocks })`); a nested write may only spend wallets the outer one declared.
+Seat holds from demand posts reserve no wallet money; the wallet is checked when the rider books.
+`orders/wallet-spend.integration.test.ts` races two spends of one wallet across two instances on
+Postgres: exactly one gets the money. Household wallets keep their own household lock (unchanged).

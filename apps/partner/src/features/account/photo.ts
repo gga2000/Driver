@@ -4,6 +4,7 @@ import { PHOTO_MAX_BYTES, type PhotoContentType, type PhotoUploadTicket } from '
 import { API_URL } from '@/lib/api';
 import { DOCUMENT_LONG_SIDE_PX, PHOTO_LONG_SIDE_PX } from '@/lib/photo-size';
 import { shrinkPhoto } from '@/lib/shrink-photo';
+import { countData, HEADERS_BYTES } from '@/lib/data-usage';
 
 /**
  * Photos for documents and the daily selfie: the camera on a phone (front camera for the selfie),
@@ -59,6 +60,7 @@ export async function uploadPhoto(photo: PickedPhoto, requestTicket: (input: { c
   if (blob.size === 0 || blob.size > PHOTO_MAX_BYTES) throw new Error('photo_size');
   const ticket = await requestTicket({ contentType: photo.contentType, sizeBytes: blob.size });
   const put = await fetch(absoluteUrl(ticket.uploadUrl), { method: ticket.method, headers: ticket.headers, body: blob });
+  countData(blob.size + HEADERS_BYTES);
   if (!put.ok) throw new Error(`upload_${put.status}`);
   return ticket.uploadId;
 }

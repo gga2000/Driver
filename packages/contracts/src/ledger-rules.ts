@@ -227,6 +227,12 @@ export const MoneyRules = z.object({
    * switches it on: the clock still runs and shows, nothing is added.
    */
   requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
+   * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
+   * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
+   * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
+   * See docs/api/merchant-late-reject.md.
+   */
+  merchantLateRejectCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
   /**
    * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
    * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
@@ -294,6 +300,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   driverCancelCredit: { enabled: true },
   // w4: built 2026-10-08, off until Ali switches it on.
   requestWaitExtra: { enabled: false, freeMin: 15 },
+  // M-17: on (Ali, 2026-10-08, "Yes, 500").
+  merchantLateRejectCredit: { enabled: true },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
   lateTaxiPaysMeter: { enabled: true },
 });

@@ -76,4 +76,35 @@ describe('domain event contracts', () => {
     expect(decodeDomainEvent('safety.incident_closed', encodeDomainEvent('safety.incident_closed', { incidentId: 'si1', outcome: 'false_alarm', byPersonId: null }))).toMatchObject({ outcome: 'false_alarm' });
     expect(() => encodeDomainEvent('safety.incident_acked', { incidentId: 'si1' } as never)).toThrow();
   });
+
+  it('registers the Console "Today" list events with their payloads', () => {
+    expect(decodeDomainEvent('order.rated', encodeDomainEvent('order.rated', { orderId: 'o1', stars: 4, cityId: 'aziziyah' }))).toEqual({ orderId: 'o1', stars: 4, cityId: 'aziziyah' });
+    expect(() => encodeDomainEvent('order.rated', { orderId: 'o1', stars: 6, cityId: 'aziziyah' })).toThrow();
+    expect(() => encodeDomainEvent('order.rated', { orderId: 'o1', stars: null, cityId: 'aziziyah' } as never)).toThrow();
+    for (const t of ['courier.cash_over_cap', 'courier.cash_under_cap'] as const) {
+      expect(decodeDomainEvent(t, encodeDomainEvent(t, { courierId: 'k1', cashIqd: 81000, capIqd: 75000, cityId: 'aziziyah' }))).toEqual({ courierId: 'k1', cashIqd: 81000, capIqd: 75000, cityId: 'aziziyah' });
+      expect(() => encodeDomainEvent(t, { courierId: 'k1', cashIqd: 81000, capIqd: 75000 } as never)).toThrow();
+    }
+    const stuck = encodeDomainEvent('order.stuck', { orderId: 'o1', cityId: 'aziziyah', reason: 'merchant_no_answer', since: at });
+    expect(stuck).toEqual({ orderId: 'o1', cityId: 'aziziyah', reason: 'merchant_no_answer', since: '2026-10-03T12:00:00.000Z' });
+    expect(decodeDomainEvent('order.stuck', stuck).since).toEqual(at);
+    expect(() => encodeDomainEvent('order.stuck', { orderId: 'o1', cityId: 'aziziyah', reason: 'bored', since: at } as never)).toThrow();
+    expect(decodeDomainEvent('order.unstuck', encodeDomainEvent('order.unstuck', { orderId: 'o1', cityId: 'aziziyah', by: 'ops_1' }))).toEqual({ orderId: 'o1', cityId: 'aziziyah', by: 'ops_1' });
+  });
+
+  it('cityId on merchant_unresponsive, late_apology and driver.document_* is optional: old events still parse', () => {
+    const unresponsive = { merchantOrgId: 'm1', promisedReadyAt: at.toISOString(), lastHeartbeatAt: null, dispatcherCard: true, call: true };
+    expect(decodeDomainEvent('order.merchant_unresponsive', unresponsive)).toEqual(unresponsive);
+    expect(decodeDomainEvent('order.merchant_unresponsive', { ...unresponsive, cityId: 'aziziyah' }).cityId).toBe('aziziyah');
+    const apology = { customerId: 'c1', promisedAt: at.toISOString(), etaAt: at.toISOString() };
+    expect(decodeDomainEvent('order.late_apology', apology)).toEqual(apology);
+    expect(decodeDomainEvent('order.late_apology', { ...apology, cityId: 'aziziyah' }).cityId).toBe('aziziyah');
+    const submitted = { documentId: 'doc1', kind: 'licence', expiresAt: null };
+    expect(decodeDomainEvent('driver.document_submitted', submitted)).toEqual(submitted);
+    expect(decodeDomainEvent('driver.document_submitted', { ...submitted, cityId: 'aziziyah' }).cityId).toBe('aziziyah');
+    const reviewed = { documentId: 'doc1', personId: 'p1', kind: 'photo', decision: 'approve' };
+    expect(decodeDomainEvent('driver.document_reviewed', reviewed)).toEqual(reviewed);
+    expect(decodeDomainEvent('driver.document_reviewed', { ...reviewed, cityId: 'aziziyah' }).cityId).toBe('aziziyah');
+    expect(() => decodeDomainEvent('driver.document_reviewed', { ...reviewed, decision: 'maybe' })).toThrow();
+  });
 });

@@ -23,7 +23,7 @@ export default {
 
     await goto('/insights');
     await byTestId('insights-customers-map').waitFor({ timeout: 20_000 });
-    await scrollPage(page, 'insights', 0);
+    await scrollPage(page, 'money', 0);
     // The panel's top at the top of the scroll area: the whole map and its legend on one screen.
     await byTestId('insights-customers').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await shot('customers', { wait: 1200 });

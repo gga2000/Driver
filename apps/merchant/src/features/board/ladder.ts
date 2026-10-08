@@ -1,27 +1,28 @@
 /**
  * The new-order alarm ladder (UI/UX audit M-02, signature S-M1), free of React and audio so the
- * timing is unit-tested. A kitchen needs escalation, not a metronome:
+ * timing is unit-tested. A kitchen needs escalation, not a metronome — three even steps across the
+ * 90-s window (counter redesign a2):
  *
- *   more than 30 s left   calm     chime every 4 s
- *   30 – 11 s left        urgent   chime every 2 s, ring and card border turn danger, louder
- *   10 s or less          final    continuous tone + "باقي 10 ثواني على #3912" banner, full volume
+ *   first 30 s  (90 – 61 s left)   calm     a soft chime every 4 s
+ *   next 30 s   (60 – 31 s left)   urgent   louder, every 2 s, the screen edge flashes (a8)
+ *   last 30 s   (30 s or less)     final    a steady bell + "باقي 24 ثانية على #3912", full volume
  *
  * "سكّت 30 ثانية" snoozes the orders ringing at that moment for 30 s — never for good: a snoozed order
- * rings again at 20 s left whatever happens, and a newer order rings straight away.
+ * rings again once the last 30 s start whatever happens, and a newer order rings straight away.
  */
 
 export type AlarmStage = 'calm' | 'urgent' | 'final';
 
 /** Time left (ms) at which each stage starts. */
-export const LADDER = { urgentAtMs: 30_000, finalAtMs: 10_000 } as const;
+export const LADDER = { urgentAtMs: 60_000, finalAtMs: 30_000 } as const;
 /** Chime spacing per stage; `final` is a continuous loop (the engine's urgent tone), checked each second. */
 export const STAGE_REPEAT_MS: Record<AlarmStage, number> = { calm: 4_000, urgent: 2_000, final: 1_000 };
 /** Playback volume per stage (0–1). */
 export const STAGE_VOLUME: Record<AlarmStage, number> = { calm: 0.75, urgent: 0.9, final: 1 };
 /** "سكّت 30 ثانية". */
 export const SNOOZE_MS = 30_000;
-/** A snoozed order rings again once this little time is left, snooze or not. */
-export const SNOOZE_FLOOR_MS = 20_000;
+/** A snoozed order rings again once this little time is left, snooze or not: the steady bell is never snoozed. */
+export const SNOOZE_FLOOR_MS = LADDER.finalAtMs;
 
 const RANK: Record<AlarmStage, number> = { calm: 0, urgent: 1, final: 2 };
 
@@ -92,7 +93,7 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
     const floorReached = msLeft !== null && msLeft <= SNOOZE_FLOOR_MS;
     if (until !== undefined && until > now && !floorReached) {
       snoozed.push(c.id);
-      // The snooze ends at its 30 s or at the 20-s floor, whichever comes first.
+      // The snooze ends at its 30 s or at the 30-s floor, whichever comes first.
       const ends = msLeft === null ? until : Math.min(until, now + msLeft - SNOOZE_FLOOR_MS);
       snoozeEndsAt = snoozeEndsAt === null ? ends : Math.min(snoozeEndsAt, ends);
       continue;

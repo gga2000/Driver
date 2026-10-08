@@ -20,13 +20,3 @@ export const FONT_FILES = {
   Alexandria_700Bold,
   Marhey_700Bold,
 };
-
-/** How each bundled file is exposed to CSS on web: the family @driver/ui names, and the weight. */
-export const WEB_FONT_FACES: Readonly<Record<keyof typeof FONT_FILES, { family: string; weight: number }>> = {
-  IBMPlexSansArabic_400Regular: { family: 'IBM Plex Sans Arabic', weight: 400 },
-  IBMPlexSansArabic_500Medium: { family: 'IBM Plex Sans Arabic', weight: 500 },
-  IBMPlexSansArabic_600SemiBold: { family: 'IBM Plex Sans Arabic', weight: 600 },
-  IBMPlexSansArabic_700Bold: { family: 'IBM Plex Sans Arabic', weight: 700 },
-  Alexandria_700Bold: { family: 'Alexandria', weight: 700 },
-  Marhey_700Bold: { family: 'Marhey', weight: 700 },
-};

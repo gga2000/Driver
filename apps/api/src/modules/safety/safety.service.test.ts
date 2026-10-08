@@ -151,7 +151,10 @@ describe('SafetyService — raising an SOS', () => {
     const view = await h.raise();
     expect(view).toMatchObject({ state: 'open', sharing: true, contactName: 'أم زينب', contactStatus: 'queued' });
     expect(view.cancelUntil.getTime() - view.raisedAt.getTime()).toBe(SAFETY_RULES.cancelWindowSec * 1000);
-    expect((await h.ev.events.forAggregate('safety_incident', view.incidentId)).map((e) => e.type)).toEqual(['sos.raised', 'safety.incident_opened']);
+    const raisedEvents = await h.ev.events.forAggregate('safety_incident', view.incidentId);
+    expect(raisedEvents.map((e) => e.type)).toEqual(['sos.raised', 'safety.incident_opened']);
+    // The on-call ladder's pages say what it is about: kind + ticket, no names.
+    expect(raisedEvents[0]?.payload['subjectLabel']).toEqual(expect.stringMatching(/^(مشوار|طلب|خطوط|شغلة|الرجعة)/));
     await h.run();
     const paged = [...(await h.deliveries('p_haider')), ...(await h.deliveries('p_ali'))];
     expect(paged.map((d) => [d.personId, d.template, d.channel])).toEqual([

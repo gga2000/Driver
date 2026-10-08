@@ -5,6 +5,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
@@ -12,7 +13,7 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
 import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
-import { COURIER_VEHICLES, ShareLinksService, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
+import { COURIER_VEHICLES, ShareLinksService, TrackingModule, TrackingService, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
@@ -56,7 +57,7 @@ function envInt(name: string, fallback: number): number {
  * turns domain events into notifications.
  */
 @Module({
-  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
+  imports: [CatalogModule, ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     {
@@ -80,12 +81,14 @@ function envInt(name: string, fallback: number): number {
         places: PlacesService,
         shares: ShareLinksService,
         vehicles: CourierVehicleDirectory,
+        tracking: TrackingService,
+        catalog: CatalogService,
       ): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
             const o = await orders.get(orderId);
             const riderId = o.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
-            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId };
+            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod };
           }),
         storeName: (orgId) => orNull(async () => (await orgs.get(orgId)).name),
         orgPeople: async (orgId, kinds) => (await orNull(async () => (await identity.orgRoleHolders(orgId, kinds)).filter((r) => !r.frozen).map((r) => r.personId))) ?? [],
@@ -167,6 +170,29 @@ function envInt(name: string, fallback: number): number {
             const place = stop.placeId ? await places.get(stop.placeId) : undefined;
             return place?.name ?? zoneName(stop.zoneKey);
           }),
+        deliveryEta: (orderId, now) =>
+          orNull(async () => {
+            // The one ETA the order screen shows (tracking's liveEta), from the courier's last fix — or the
+            // kitchen when he has none yet; else the kitchen → door minutes locked into the order at placement.
+            const [o, trip] = await Promise.all([orders.get(orderId), trips.activeForOrder(orderId)]);
+            if (trip) {
+              const fix = await trips.lastPosition(trip.id);
+              const pin = fix?.pin ?? trip.stops.find((s) => s.orderId === orderId && (s.type === 'pickup' || s.type === 'shop'))?.target ?? null;
+              const eta = pin ? await tracking.liveEta(o, trip, pin, now) : null;
+              if (eta) return eta.at;
+            }
+            const locked = (await orders.aggregate(orderId)).order.promisedRideMin;
+            return typeof locked === 'number' ? new Date(now.getTime() + locked * 60_000) : null;
+          }),
+        lineNames: async (orderId, lineIds) =>
+          (await orNull(async () => {
+            const o = await orders.get(orderId);
+            const lines = o.lines.filter((l) => lineIds.includes(l.id));
+            const ids = lines.map((l) => l.catalogItemId).filter((x): x is string => !!x);
+            const menu = o.merchantOrgId && ids.length > 0 ? new Map((await catalog.itemsOf(o.merchantOrgId, ids)).map((i) => [i.id, i.nameAr])) : new Map<string, string>();
+            return lines.map((l) => (l.catalogItemId ? menu.get(l.catalogItemId) : null) ?? l.freeText ?? '').filter((n) => n !== '');
+          })) ?? [],
+        stopOrder: (tripId, stopId) => orNull(async () => (await trips.get(tripId)).stops.find((s) => s.id === stopId)?.orderId ?? null),
         tripZones: (tripId) =>
           orNull(async () => {
             const trip = await trips.get(tripId);
@@ -176,7 +202,7 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES, TrackingService, CatalogService],
     },
     {
       provide: NOTIFY_ENGINE,
@@ -242,6 +268,7 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       repo: this.repo,
       lookups: this.lookups,
       receiptBaseUrl: process.env['NOTIFY_RECEIPT_BASE_URL'] ?? 'https://driver.iq/r/',
+      merchantAppUrl: process.env['MERCHANT_APP_URL'] ?? null,
     });
     const q = this.queue;
     if (q instanceof InMemoryQueue) {

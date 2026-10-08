@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n';
 import { clock12 } from '@/lib/time';
 import { OrderItems, PaymentPill } from './OrderCard';
 import type { PassState } from './pass';
+import { PickupCode } from './PickupCode';
 
 export interface PassCardProps {
   order: BoardOrder;
@@ -98,6 +99,8 @@ export function PassCard({ order, pass, onHandOver, onOpen, busy = false }: Pass
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.space[2] }}>
           {pass.plate ? <PlateChip plate={pass.plate} accessibilityLabel={t('merchant.pass.plate')} size="lg" testID={`plate-${order.number}`} /> : null}
+          {/* The code he says at the counter: hand the bag to the courier whose code matches. */}
+          {order.courier.pickupCode ? <PickupCode code={order.courier.pickupCode} testID={`pass-code-${order.number}`} /> : null}
           <PaymentPill order={order} />
         </View>
 

@@ -12,6 +12,7 @@ import {
   postDepartureCancelled,
   postDriverCancelled,
   postLateMeter,
+  postMerchantLateReject,
   postOrderClosed,
   postPoints,
   postReferral,
@@ -306,6 +307,22 @@ describe('cancellations', () => {
     expect(postCancellation(cancelled({ orderId: 'o3', feeIqd: 0, free: true, beneficiaries: [] }))).toBeNull();
   });
 
+  it('RDB-01/02: request-board money is keyed by the request and writes no foreign-key refs', () => {
+    const ride = postRideCompleted({ requestId: 'rq_1', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'intercity_private', fareIqd: 40000, cashCollectedIqd: 35000 }, rules).money;
+    validateGroup(ride);
+    expect([ride.id, ride.refs]).toEqual(['request:rq_1:money', {}]);
+    const forfeit = postCancellation(cancelled({ orderId: undefined, requestId: 'rq_1', feeIqd: 5000, beneficiaries: [{ kind: 'driver', id: 'd1', amountIqd: 5000 }] }))!;
+    expect([forfeit.id, forfeit.refs, nets(forfeit)]).toEqual(['request:rq_1:cancel', {}, { 'customer:c1': -5000, 'driver:d1': 5000 }]);
+    const noShow = postDepartureCancelled({ requestId: 'rq_1', occurredAt: at, driverId: 'd1', cancelledBy: 'driver', feeIqd: 10000, riderIds: ['c1'] })!;
+    expect([noShow.id, noShow.refs, nets(noShow)]).toEqual(['request:rq_1:driver_no_show', {}, { 'driver:d1': -10000, 'customer:c1': 10000 }]);
+    // Today's emits (the request id in tripId/orderId/departureId, no requestId) still post as before.
+    expect(postRideCompleted({ tripId: 't9', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 1000 }, rules).money.id).toBe('trip:t9:money');
+    // Neither id: refused, never a `trip:undefined` group.
+    expect(() => postRideCompleted({ occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 1000 }, rules)).toThrow(/tripId is required/);
+    expect(() => postCancellation(cancelled({ orderId: undefined, feeIqd: 0, free: true, beneficiaries: [] }))).toThrow(/orderId is required/);
+    expect(() => postDepartureCancelled({ occurredAt: at, driverId: 'd1', cancelledBy: 'driver', feeIqd: 0 })).toThrow(/departureId is required/);
+  });
+
   it('a fee whose beneficiaries do not add up is refused (the contract refine)', () => {
     expect(() => postCancellation(cancelled({ feeIqd: 1000, beneficiaries: [{ kind: 'merchant', id: 'm1', amountIqd: 500 }] }))).toThrow(/add up/);
   });
@@ -324,6 +341,26 @@ describe('cancellations', () => {
     expect(g.id).toBe('order:o9:driver_cancel:t9');
     expect(nets(g)).toEqual({ 'driver:d1': -500, 'customer:c1': 500 });
     expect(postDriverCancelled({ ...base, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+  });
+
+  it('M-17: a merchant rejecting after accepting moves 500 from his cash account to the customer, once per order', () => {
+    const base = { from: 'preparing' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص', afterAccept: true };
+    const g = postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o4:merchant_late_reject');
+    expect(g.lines.map((l) => [l.type, l.amount, l.memo])).toEqual([['cancellation_fee', 500, 'merchant_late_reject']]);
+    expect(nets(g)).toEqual({ 'merchant_cash:m1': -500, 'customer:c1': 500 });
+    // Redelivery builds the same group id, so the ledger records it once.
+    expect(postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!.id).toBe(g.id);
+  });
+
+  it('M-17: the switch off, or a reject before accepting, posts nothing', () => {
+    const base = { from: 'merchant_accepted' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص' };
+    expect(postMerchantLateReject({ ...base, afterAccept: true, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    expect(postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    // A credit the producer could not back (no merchant, or before acceptance) fails the contract.
+    expect(() => postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
+    expect(() => postMerchantLateReject({ ...base, merchantOrgId: undefined, afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
   });
 });
 

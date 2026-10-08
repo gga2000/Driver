@@ -23,7 +23,7 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
-function harness() {
+function harness(outcomes?: { agentCashAccounts: boolean }) {
   const clock = new FakeClock('2026-10-04T09:00:00Z'); // Sunday 12:00 Baghdad
   const ev = createInMemoryEvents({ clock });
   const ledgerRepo = new InMemoryLedgerRepository();
@@ -38,6 +38,7 @@ function harness() {
     clock,
     { carriesOrderOf: async (k, c) => carrying.has(`${k}|${c}`) },
     { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي أحمد', phoneMasked: '0770 ••• 4567' }])) },
+    outcomes,
   );
   const balance = async (id = 'c1') => (await ledger.balance(Accounts.customer(id))).amount;
   return { clock, ev, ledger, repo, svc, carrying, balance };
@@ -127,5 +128,19 @@ describe('wallet top-up with cash — confirmation', () => {
     h.carrying.add('k1|c1');
     expect(await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier')).toMatchObject({ channel: 'courier', walletBalanceIqd: 15_000 });
     expect((await h.ledger.balance(Accounts.cash('k1'))).amount).toBe(-15_000);
+  });
+});
+
+describe('THIN-12 / M-13: agent cash accounts (switch off by default)', () => {
+  it('off: an agent top-up is booked to the bank; on: it sits on the agent own cash account', async () => {
+    for (const on of [false, true]) {
+      const h = harness({ agentCashAccounts: on });
+      const r = await h.svc.request(customer, { amountIqd: 30_000 });
+      await h.svc.confirm(agent, { code: r.code, amountIqd: 30_000 }, 'ops_agent');
+      expect(await h.balance()).toBe(30_000);
+      expect((await h.ledger.balance(Accounts.bank)).amount).toBe(on ? 0 : -30_000);
+      expect((await h.ledger.balance(Accounts.cash(agent.personId))).amount).toBe(on ? -30_000 : 0);
+      expect((await h.ledger.checkInvariant()).ok).toBe(true);
+    }
   });
 });
