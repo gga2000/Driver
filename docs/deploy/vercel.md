@@ -25,3 +25,11 @@ Same setup as a second Vercel project, `driver-merchant`, Root Directory **`apps
 Its address must also be in the staging API's `CORS_ORIGINS`. Every page is `noindex` (staff tool).
 On the web: no Bluetooth printer (the printer screen says so), no push, the order sound starts after
 the «ابدأ الشغل» tap (browser autoplay rule), keep-screen-on uses Wake Lock when the browser allows it.
+
+## Add to home screen (customer)
+
+The customer site is an installable web app: `apps/customer/public/index.html` (the page shell:
+`lang="ar" dir="rtl"`, manifest and icon links, iOS meta tags), `public/manifest.webmanifest` and
+`public/icons/*.png`. The icons are the placeholder wordmark drawn by `apps/customer/scripts/web-icons.mjs`;
+re-run it when the brand symbol is chosen. Colours are the theme's cream `bg`;
+`src/lib/web-shell.test.ts` keeps app.json, the manifest and the tokens in step.
