@@ -13,6 +13,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="درايفر" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- Fonts (speed w3): Arabic + Latin woff2 from scripts/fonts/subset-web-fonts.py; the two main weights start at once. -->
+    <link rel="preload" href="/assets/fonts/plex-400.v1.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/assets/fonts/plex-600.v1.woff2" as="font" type="font/woff2" crossorigin />
+    <style id="driver-fonts">
+      @font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 400; font-display: swap; src: url(/assets/fonts/plex-400.v1.woff2) format("woff2"); }
+      @font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 500 600; font-display: swap; src: url(/assets/fonts/plex-600.v1.woff2) format("woff2"); }
+      @font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 700; font-display: swap; src: url(/assets/fonts/plex-700.v1.woff2) format("woff2"); }
+      @font-face { font-family: "Alexandria"; font-weight: 700; font-display: swap; src: url(/assets/fonts/alexandria-700.v1.woff2) format("woff2"); }
+      @font-face { font-family: "Marhey"; font-weight: 700; font-display: swap; src: url(/assets/fonts/marhey-700.v1.woff2) format("woff2"); }
+    </style>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */
