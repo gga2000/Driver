@@ -161,7 +161,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 
 **What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
 without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
-`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS, push other than Expo, and a `STAGING_TEST_OTP`.
+`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS and a `STAGING_TEST_OTP`; push other than Expo is
+refused where push is built (see `PUSH_PROVIDER` below).
 The log line lists every problem at once. A database or Redis that is configured but unreachable never
 stops boot: `health.ready` shows it, and `health.live` fails after 30 s without the database.
 

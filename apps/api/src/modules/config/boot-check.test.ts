@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { assertBootConfig, bootConfigProblems, deployEnvironmentFromEnv } from './boot-check.js';
 
 const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
-const live = { ...base, SMS_PROVIDER: 'http', PUSH_PROVIDER: 'expo' };
+const live = { ...base, SMS_PROVIDER: 'http' };
 
 describe('boot configuration (SEC-16)', () => {
   it('asks nothing of a laptop or a test run', () => {
@@ -21,13 +21,13 @@ describe('boot configuration (SEC-16)', () => {
     expect(bootConfigProblems({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' })).toEqual(['DATABASE_URL is not set', 'REDIS_URL is not set']);
   });
 
-  it('needs real SMS and Expo push in production, and no staging test code', () => {
+  it('needs real SMS in production, and no staging test code', () => {
     expect(bootConfigProblems(live)).toEqual([]);
-    expect(bootConfigProblems({ ...base, EXPO_ACCESS_TOKEN: 't', SMS_PROVIDER: 'twilio' })).toEqual([]);
-    const problems = bootConfigProblems({ ...base, SMS_PROVIDER: 'dev', PUSH_PROVIDER: 'dev', STAGING_TEST_OTP: '123456' });
-    expect(problems).toHaveLength(3);
-    expect(problems.join(' ')).toMatch(/SMS_PROVIDER.*PUSH_PROVIDER.*STAGING_TEST_OTP/);
-    expect(bootConfigProblems({ ...base })).toHaveLength(2);
+    expect(bootConfigProblems({ ...base, SMS_PROVIDER: 'twilio' })).toEqual([]);
+    const problems = bootConfigProblems({ ...base, SMS_PROVIDER: 'dev', STAGING_TEST_OTP: '123456' });
+    expect(problems).toHaveLength(2);
+    expect(problems.join(' ')).toMatch(/SMS_PROVIDER.*STAGING_TEST_OTP/);
+    expect(bootConfigProblems({ ...base })).toHaveLength(1);
   });
 
   it('throws the whole list at once and never echoes a value', () => {

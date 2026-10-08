@@ -19,8 +19,9 @@ export function deployEnvironmentFromEnv(env: NodeJS.ProcessEnv = process.env): 
  * `health.ready`, and `health.live` covers the database).
  *
  * - Staging and production need a database and Redis (without Redis no job, timer or outbox runs).
- * - Production also needs a real SMS provider (or nobody can sign in) and Expo push (or no phone hears
- *   about its order), and must not carry the staging test code.
+ * - Production also needs a real SMS provider (or nobody can sign in) and must not carry the staging
+ *   test code. (Expo push on production is checked where push is built, lane D's OPS-02 in
+ *   `notify/providers/push.ts`, with the same production/staging rule.)
  *
  * Returns every problem at once, so one failed deploy shows the whole list.
  */
@@ -32,8 +33,6 @@ export function bootConfigProblems(env: NodeJS.ProcessEnv = process.env): string
   if (!env['REDIS_URL']?.trim()) problems.push('REDIS_URL is not set');
   if (where === 'production') {
     if (!env['SMS_PROVIDER']?.trim() || smsProviderName(env) === 'dev') problems.push('SMS_PROVIDER must be a real provider (http or twilio): with dev nobody gets a sign-in code');
-    const push = (env['PUSH_PROVIDER'] ?? (env['EXPO_ACCESS_TOKEN'] ? 'expo' : '')).trim().toLowerCase();
-    if (push !== 'expo') problems.push('PUSH_PROVIDER must be expo: with dev no phone hears about its order');
     if (env['STAGING_TEST_OTP']) problems.push('STAGING_TEST_OTP is set outside staging: remove it (fly secrets unset STAGING_TEST_OTP)');
   }
   return problems;
