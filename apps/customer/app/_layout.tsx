@@ -32,10 +32,21 @@ import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 import { useScreenSpeed } from '@/lib/speed';
+import { noteScreenError, startWebBuild } from '@/lib/web-build';
 
 enforceRtl();
 // Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
 startCrashReports();
+// Website only: the offline worker and never staying on an old version (src/lib/web-build.ts).
+startWebBuild();
+
+/** The root boundary's reporter: also reloads the website when a screen's code didn't download. */
+const boundaryReporter: Pick<typeof crashReporter, 'capture'> = {
+  capture: (error, context) => {
+    noteScreenError(error);
+    return crashReporter.capture(error, context);
+  },
+};
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('istikan');
@@ -89,7 +100,7 @@ export default function RootLayout() {
           direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}
         >
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
-          <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+          <CrashBoundary reporter={boundaryReporter} locale={locale} onReset={disarmDevCrash}>
             <PhotoImageProvider component={CachedPhoto}>
             <ToastProvider bottomOffset={96}>
               <ApiProvider>
