@@ -7596,5 +7596,9 @@
   "kitchen.booked_body": "نبعثه لـ {name} قبل وقته حتى يوصلك حار، ونخبرك من يوافق عليه",
   "kitchen.booked_body_plain": "نبعثه للمطبخ قبل وقته حتى يوصلك حار، ونخبرك من يوافق عليه",
   "notify.settings.load_failed": "ما گدرنا نجيب اختياراتك",
-  "ride.pin_zone_failed": "ما گدرنا نتأكد من المنطقة"
+  "ride.pin_zone_failed": "ما گدرنا نتأكد من المنطقة",
+  "restaurant.whats_left_title": "شنو باقي اليوم؟",
+  "restaurant.whats_left_line": "خلص {count} من المنيو اليوم، وباقي {left} تگدر تطلبها",
+  "restaurant.whats_left_all": "كل المنيو",
+  "restaurant.whats_left_only": "الباقي بس"
 }

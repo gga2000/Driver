@@ -7596,5 +7596,9 @@
   "kitchen.booked_body": "We send it to {name} ahead of time so it reaches you hot, and tell you when they accept",
   "kitchen.booked_body_plain": "We send it to the kitchen ahead of time so it reaches you hot, and tell you when they accept",
   "notify.settings.load_failed": "Couldn't load your choices",
-  "ride.pin_zone_failed": "Couldn't check the area"
+  "ride.pin_zone_failed": "Couldn't check the area",
+  "restaurant.whats_left_title": "What's left today?",
+  "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
+  "restaurant.whats_left_all": "Whole menu",
+  "restaurant.whats_left_only": "What's left"
 }
