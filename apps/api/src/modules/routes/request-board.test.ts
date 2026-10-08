@@ -439,6 +439,10 @@ describe('private car round 2: «جيب واحد» (k1–k4), the car fetches so
     await h.requests.offer('d2', r.id, 95_000);
     h.wallet.set('r1', 100_000);
     await h.requests.pick('r1', r.id, o.id);
+    // lane D's `request_for_rider` message starts from this event: the person id, never a phone or name.
+    const matched = h.events.last('request.matched')?.payload;
+    expect(matched).toMatchObject({ requestId: r.id, driverId: 'd1', fetchPersonId: 'p_fetch_07701234567' });
+    expect(JSON.stringify({ ...matched, fetchPersonId: null })).not.toMatch(/0770|ماما/);
     const [ride] = await h.rpc.myRequestRides({ personId: 'd1', sessionId: 's' });
     expect(ride!.rider).toEqual({ name: 'ماما' });
     expect(await h.rpc.myRequestRides({ personId: 'd2', sessionId: 's' })).toEqual([]);

@@ -225,6 +225,8 @@ export class RequestBoardService {
         driverId: offer.driverId,
         priceIqd: offer.priceIqd,
         depositIqd: deposit,
+        // k2: whom a «جيب واحد» trip fetches (lane D's `request_for_rider` SMS reads it); never a phone.
+        fetchPersonId: r.fetchPersonId,
       });
       return r;
     });
