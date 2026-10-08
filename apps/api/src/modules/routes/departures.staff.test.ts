@@ -54,7 +54,11 @@ describe('a driver who never came (NTF-14)', () => {
     expect(r).toEqual({ departureId: dep.id, state: 'cancelled_by_driver', changed: true, auditId: 'audit_1' });
     expect((await h.departures.bookings(next.id)).map((b) => [b.riderId, b.state, b.origin])).toEqual([['r1', 'booked', 'moved']]);
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ cancelledBy: 'driver', feeIqd: 0, riderIds: ['r1'], driverId: 'd1' });
-    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ reason: 'السايق ما يرد', auto: false, riders: 1 });
+    // The free-text reason stays in the audit row only: the departure and its events carry the code 'ops'.
+    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ reason: 'ops', auto: false, riders: 1 });
+    expect((await h.departures.departure(dep.id)).cancelReason).toBe('ops');
+    expect(JSON.stringify(h.events.events)).not.toContain('السايق ما يرد');
+    expect(h.audits[0]!.summaryAr).toContain('السايق ما يرد');
     expect(h.events.types()).not.toContain('departure.driver_cancelled_late');
     expect(h.audits).toEqual([expect.objectContaining({ actorId: 'ops1', action: 'departure.ops_cancel', subjectKind: 'departure', subjectId: dep.id })]);
     expect(await h.staff.cancel(ops, { departureId: dep.id, reason: 'مرة ثانية' })).toMatchObject({ changed: false, auditId: null });
@@ -71,7 +75,7 @@ describe('a driver who never came (NTF-14)', () => {
     h.advance(11);
     expect(await h.staff.sweep()).toBe(1);
     expect((await h.departures.departure(dep.id)).state).toBe('cancelled_by_driver');
-    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ auto: true });
+    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ reason: 'driver_no_show', auto: true });
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ feeIqd: 0 });
     expect(h.audits).toEqual([expect.objectContaining({ actorId: 'system', action: 'departure.ops_cancel', detail: expect.objectContaining({ auto: true }) })]);
     expect(await h.staff.sweep()).toBe(0);

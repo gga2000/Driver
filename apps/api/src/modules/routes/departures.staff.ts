@@ -69,7 +69,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancel(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult> {
-    const w = await this.departures.staffCancel(actor.personId, input.departureId, input.reason, this.after(actor.personId, 'departure.ops_cancel', `ألغى الرحلة لأن السايق ما إجه: ${input.reason}`, { reason: input.reason }));
+    const w = await this.departures.staffCancel(actor.personId, input.departureId, this.after(actor.personId, 'departure.ops_cancel', `ألغى الرحلة لأن السايق ما إجه: ${input.reason}`, { reason: input.reason }));
     return result(w);
   }
 
@@ -109,7 +109,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     for (const r of await this.departures.overdue(this.rules, 200)) {
       if (r.reason !== 'driver_no_show') continue;
       const reason = `السايق ما إجه خلال ${this.rules.noShowAfterMin} دقيقة بعد آخر وقت للطلعة`;
-      const w = await this.departures.staffCancel(SYSTEM, r.dep.id, reason, this.after(SYSTEM, 'departure.ops_cancel', `تلقائياً: ${reason}`, { auto: true }), { auto: true });
+      const w = await this.departures.staffCancel(SYSTEM, r.dep.id, this.after(SYSTEM, 'departure.ops_cancel', `تلقائياً: ${reason}`, { auto: true }), { auto: true });
       if (w.changed) n += 1;
     }
     return n;

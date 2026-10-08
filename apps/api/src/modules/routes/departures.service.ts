@@ -750,12 +750,12 @@ export class DeparturesService {
    * Staff cancel of a departure whose driver never came (NTF-14). Riders are moved to the next cars
    * exactly as on a driver cancel; unlike it, no fee is taken from the driver and no credit is paid
    * (M-11 is open), so `departure.cancelled` carries fee 0 — nobody was charged yet (seats settle on
-   * arrival). `after` runs inside the same write (the audit row). Already cancelled: unchanged.
+   * arrival). `after` runs inside the same write (the audit row, the only place the staff's reason is
+   * kept); the departure and its events carry the fixed code `ops` (`driver_no_show` when automatic). Already cancelled: unchanged.
    */
   staffCancel(
     staffId: string,
     departureId: string,
-    reason: string,
     after: StaffAfter,
     opts: { auto?: boolean } = {},
   ): Promise<StaffWrite> {
@@ -769,7 +769,8 @@ export class DeparturesService {
       const riders = uniq(affected.filter((b) => b.state !== 'held').map((b) => b.riderId));
       dep.state = 'cancelled_by_driver';
       dep.cancelledAt = now;
-      dep.cancelReason = opts.auto ? 'driver_no_show' : `ops: ${reason}`.slice(0, 500);
+      // A fixed code only: the staff's free-text reason stays in the Console audit row (it may name people).
+      dep.cancelReason = opts.auto ? 'driver_no_show' : 'ops';
       await this.repo.saveDeparture(dep, tx);
       await this.relocate(tx, dep, affected, {
         from: now,
@@ -783,7 +784,7 @@ export class DeparturesService {
         feeIqd: 0,
         riderIds: riders,
       });
-      await this.emit(tx, 'departure.ops_cancelled', staffId, dep, { reason, auto: opts.auto === true, riders: riders.length });
+      await this.emit(tx, 'departure.ops_cancelled', staffId, dep, { reason: dep.cancelReason, auto: opts.auto === true, riders: riders.length });
       return { dep, changed: true, auditId: await after(tx, dep) };
     });
   }
