@@ -5,6 +5,8 @@ import {
   doorOrder,
   FOOD_DOORS,
   HOT_RIDE_LONG_MIN,
+  ICE_CREAM_MAX_KM,
+  iceCreamTooFar,
   longRideForHotFood,
   meltsOnTheWay,
   onlyIceCream,
@@ -46,6 +48,24 @@ describe('melt guard (idea i1)', () => {
     expect(meltsOnTheWay({ tags: ['ice_cream'], etaMaxMinutes: 20 })).toBe(false);
     expect(meltsOnTheWay({ tags: ['ice_cream'], etaMaxMinutes: null })).toBe(false);
     expect(meltsOnTheWay({ tags: ['kunafa', 'ice_cream'], etaMaxMinutes: 40 })).toBe(false);
+  });
+});
+
+describe('how far ice cream travels (k7: 3 km by road)', () => {
+  const shop = { lat: 32.9, lng: 45.06 };
+  // 0.018° north ≈ 2.0 km straight ≈ 2.8 km by road; 0.02° ≈ 2.2 km straight ≈ 3.1 km by road.
+  const near = { lat: 32.918, lng: 45.06 };
+  const far = { lat: 32.92, lng: 45.06 };
+  it('an ice-cream-only shop reaches 3 km by road, not past it', () => {
+    expect(ICE_CREAM_MAX_KM).toBe(3);
+    expect(iceCreamTooFar(['ice_cream'], shop, near)).toBe(false);
+    expect(iceCreamTooFar(['ice_cream'], shop, far)).toBe(true);
+  });
+  it('never for a mixed sweets shop, another door, or a missing pin', () => {
+    expect(iceCreamTooFar(['kunafa', 'ice_cream'], shop, far)).toBe(false);
+    expect(iceCreamTooFar(['grill'], shop, far)).toBe(false);
+    expect(iceCreamTooFar(['ice_cream'], null, far)).toBe(false);
+    expect(iceCreamTooFar(['ice_cream'], shop, undefined)).toBe(false);
   });
 });
 

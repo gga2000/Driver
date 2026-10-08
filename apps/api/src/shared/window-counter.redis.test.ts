@@ -41,4 +41,14 @@ describe.skipIf(!redisUrl)('shared window counter on Redis (review 2026-10-04 #2
     expect(results.filter((r) => r.allowed)).toHaveLength(5);
     expect(await pods[0]!.count(key, 60_000)).toBe(5);
   });
+  it('tally: two API instances share one fixed-window count that starts over each window', async () => {
+    const clock = new FakeClock('2026-10-04T09:00:10Z');
+    const key = `test:wc:tally:${Date.now()}:${Math.random()}`;
+    const [a, b] = [new RedisWindowCounter(connect(), clock), new RedisWindowCounter(connect(), clock)];
+    const counts = await Promise.all(Array.from({ length: 10 }, (_, i) => (i % 2 ? a : b).tally(key, 60_000)));
+    expect(counts.map((c) => c.count).sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(counts[0]!.retryAfterSec).toBe(50);
+    clock.advance(50_000);
+    expect(await a.tally(key, 60_000)).toEqual({ count: 1, retryAfterSec: 60 });
+  });
 });

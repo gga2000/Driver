@@ -3,10 +3,11 @@ import { View } from 'react-native';
 import type { StaffMember } from '@driver/contracts';
 import { Avatar, Button, Skeleton, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
+import { LoadPending } from '@/components/Loadable';
 import { OwnerOnly } from '@/components/OwnerOnly';
 import { Page } from '@/components/Page';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { invitePhone, roleKey, splitStaff } from '@/features/staff/logic';
 import { useStaff } from '@/features/staff/queries';
 import { InviteSheet, MemberSheet } from '@/features/staff/StaffSheets';
@@ -34,7 +35,7 @@ export default function StaffScreen() {
   return (
     <Page title={t('merchant.more.staff')} subtitle={staff.data ? t('merchant.staff.subtitle', { count: list.length }) : store?.name} back testID="staff" aside={wide ? add : undefined}>
       {!staff.data ? (
-        <Skeleton height={260} radius={20} />
+        <LoadPending query={staff} skeleton={<Skeleton height={260} radius={20} />} failed={t('merchant.staff.load_failed')} testID="staff" />
       ) : (
         <>
           <Panel title={t('merchant.staff.team_title')} icon="people" flush testID="staff-team">
@@ -70,7 +71,7 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
   const theme = useTheme();
   const t = useT();
   const dates = useDates();
-  const now = useServerNow(0, 60_000);
+  const now = useServerTime(60_000);
   const owner = s.role === 'merchant_owner';
   if (s.pending) {
     // A waiting invite has no name (inviting a number is not a name lookup): say who it went to.
@@ -106,7 +107,7 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
         {/* The section title already says they are waiting; the role is what the owner may still change. */}
         <Tag
           label={t(roleKey(s.role))}
-          tone={owner ? 'accent' : 'info'}
+          tone={owner ? 'accent' : 'neutral'}
           icon={owner ? 'shield' : undefined}
         />
         <MIcon name="chevron-forward" size={18} color="textMuted" />
@@ -115,7 +116,7 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
   }
   return (
     <PanelRow first={first} onPress={onPress} testID={`staff-${s.personId}`}>
-      <Avatar name={s.name ?? undefined} icon={s.name ? undefined : 'user'} size={44} tone={owner ? 'accent' : s.pending ? 'warning' : 'info'} />
+      <Avatar name={s.name ?? undefined} icon={s.name ? undefined : 'user'} size={44} tone={owner ? 'accent' : s.pending ? 'warning' : 'success'} />
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <Text variant="bodyStrong" numberOfLines={1} color={s.name ? 'text' : 'textMuted'} style={{ flexShrink: 1 }}>
@@ -130,7 +131,7 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
         ) : null}
       </View>
       {s.pending ? <Tag label={t('merchant.staff.pending')} tone="warning" icon="clock" /> : null}
-      <Tag label={t(roleKey(s.role))} tone={owner ? 'accent' : 'info'} icon={owner ? 'shield' : undefined} />
+      <Tag label={t(roleKey(s.role))} tone={owner ? 'accent' : 'neutral'} icon={owner ? 'shield' : undefined} />
       <MIcon name="chevron-forward" size={18} color="textMuted" />
     </PanelRow>
   );

@@ -163,13 +163,23 @@ jobs:
           flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --app "$APP" \
             --remote-only --image-label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}" \
             --env APP_RELEASE="${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
-      - name: Smoke (health.ping → db ok, redis ok)
+      - name: Smoke (health.live answers, health.ready → db ok)
         run: |
-          url="https://${APP}.fly.dev/trpc/health.ping"
-          for _ in $(seq 1 30); do body=$(curl -fsS "$url" 2>/dev/null) && break; sleep 2; done
-          echo "$body" | jq .
-          echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
-            echo "::error title=API smoke::$url must report db: ok and redis: ok — roll back with docs/deploy/runbook.md"; exit 1; }
+          # health.live is what Fly routes on: the process is up and its database answers. Redis down is a
+          # warning, not a failed deploy: the API serves without it (queued work waits), and failing here
+          # would only block the fix for it.
+          base="https://${APP}.fly.dev/trpc"
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null "$base/health.live" 2>/dev/null && break; sleep 2; done
+          curl -fsS "$base/health.live" | jq . || {
+            echo "::error title=API smoke::$base/health.live did not answer 200 — roll back with docs/deploy/runbook.md"; exit 1; }
+          body=$(curl -sS "$base/health.ready"); echo "$body" | jq .
+          echo "$body" | jq -e '.result.data.json.db == "ok"' > /dev/null || {
+            echo "::error title=API smoke::health.ready must report db: ok — roll back with docs/deploy/runbook.md"; exit 1; }
+          echo "$body" | jq -e '.result.data.json.redis == "ok"' > /dev/null ||
+            echo "::warning title=API smoke::health.ready reports redis not ok — the API serves, queued work waits; check the Redis app"
+          # The installed apps still probe health.ping; it must keep answering.
+          curl -fsS -o /dev/null "$base/health.ping" || {
+            echo "::error title=API smoke::$base/health.ping did not answer"; exit 1; }
 
   console:
     name: deploy Console (Fly)

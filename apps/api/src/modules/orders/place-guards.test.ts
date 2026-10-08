@@ -135,3 +135,18 @@ describe('orders.place — merchant minimum order (apps review 2026-10-04 #11, J
     expect(await h.orders.place('c1', small)).toMatchObject({ smallOrderFeeIqd: 500 });
   });
 });
+
+describe('orders.place — how far ice cream travels (k7, Ali 2026-10-08: 3 km)', () => {
+  it('an ice-cream-only shop refuses a door past 3 km by road, at quote and at place; a nearer door and other shops are fine', async () => {
+    const h = ordersHarness('2026-10-03T10:30:00Z');
+    await h.catalog.saveStorefront({ orgId: 'rest_1', cityId: 'aziziyah', nameAr: 'آيس كريم الفرات', cuisineAr: 'آيس كريم', minOrderIqd: 0, tags: ['ice_cream'] });
+    // HOME is about 1.4 km by road from the kitchen; 32.935 north is about 3.8 km.
+    expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    const far = h.foodInput({ dropoff: { zoneKey: 'zakur', pin: { lat: 32.935, lng: 45.0665 } } });
+    expect(await code(h.orders.quote('c1', far))).toBe('too_far_for_ice_cream');
+    expect(await code(h.orders.place('c1', far))).toBe('too_far_for_ice_cream');
+    expect(((await h.orders.place('c1', far).catch((e: unknown) => e)) as DriverError).envelope.message_ar).toMatch(/يذوب/);
+    await h.catalog.saveStorefront({ orgId: 'rest_1', cityId: 'aziziyah', nameAr: 'حلويات الزهراء', cuisineAr: 'حلويات', minOrderIqd: 0, tags: ['kunafa', 'ice_cream'] });
+    expect(await code(h.orders.place('c1', h.foodInput({ dropoff: { zoneKey: 'zakur', pin: { lat: 32.935, lng: 45.0665 } } })))).toBe('ok');
+  });
+});

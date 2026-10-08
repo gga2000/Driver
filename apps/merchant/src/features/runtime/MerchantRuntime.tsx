@@ -8,11 +8,14 @@ import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { usePrefs } from '@/lib/prefs';
 import { alarm, useNewOrderAlarm } from '@/features/board/alarm';
+import { AlarmEdge } from '@/features/board/AlarmEdge';
+import { holdToasts } from '@/lib/toast';
 import { alarmQuiet } from '@/features/board/ladder';
 import { useStoreStatus } from '@/features/store/queries';
 import { summaryTitle } from '@/features/board/Banners';
 import { newOrderSummary } from '@/features/board/logic';
-import { useBoard, useHeartbeat, useLiveMerchantBoard } from '@/features/board/queries';
+import { useBoard, useHeartbeat, useLiveMerchantBoard, useReadyQueueFlush } from '@/features/board/queries';
+import { ALIVE_MS, loadShift, markAlive } from '@/features/board/shift';
 import { usePrinterSync } from '@/features/print/runtime';
 
 /**
@@ -30,6 +33,14 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const { wide } = useLayout();
   useHeartbeat(storeId);
   usePrinterSync(storeId);
+  // y6: «صار جاهز» taps kept offline go out as soon as the net is back.
+  useReadyQueueFlush(storeId);
+  // y3: the shift notes it is alive, so a restart mid-shift knows how long the tablet was off.
+  useEffect(() => {
+    void loadShift();
+    const id = setInterval(() => markAlive(), ALIVE_MS);
+    return () => clearInterval(id);
+  }, []);
   // The store's live channel: a new order rings the moment the server offers it to the kitchen.
   useLiveMerchantBoard(storeId, (orderId) => alarm.ringNow(orderId, prefs.soundOn));
   const board = useBoard(storeId);
@@ -40,6 +51,11 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const status = useStoreStatus(storeId);
   const plan = useNewOrderAlarm(board.data?.orders, prefs.soundOn, clock, alarmQuiet(status.data));
   const pending = [...plan.ringing, ...plan.snoozed, ...plan.closed];
+  // a7: nothing opens over a ringing order — the counter's own toasts wait until it is answered.
+  const ringing = plan.ringing.length > 0;
+  useEffect(() => holdToasts(ringing), [ringing]);
+  // a8: the screen edge flashes on every screen while an order rings past its first 30 s.
+  const edge = <AlarmEdge stage={ringing ? plan.stage : null} wide={wide} />;
   // A tablet on the counter must never sleep through an order (native; the web asks on "ابدأ الشغل").
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -47,8 +63,8 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
     return () => releaseWakeLock();
   }, []);
 
-  if (onBoard || pending.length === 0) return null;
-  const hot = plan.stage === 'urgent' || plan.stage === 'final';
+  if (onBoard || pending.length === 0) return edge;
+  const hot = plan.stage === 'final';
   const fg = hot ? theme.colors.onDanger : theme.colors.onAccent;
   const iconColor = hot ? 'onDanger' : 'onAccent';
   // M-10: the same number and words as the board's banner and the جديد column.
@@ -57,6 +73,8 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
     // Phone: a strip docked in the layout right above the tab bar (or the bottom edge) — it takes its own
     // room, so it never covers a screen's last line (the weekly statement's «رصيد آخر الأسبوع»).
     return (
+      <>
+      {edge}
       <Pressable
         testID="new-order-pill"
         accessibilityRole="button"
@@ -79,9 +97,12 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
         </Text>
         <Icon name="chevron-forward" size={18} color={iconColor} />
       </Pressable>
+      </>
     );
   }
   return (
+    <>
+    {edge}
     <View
       pointerEvents="box-none"
       // Tablet: top centre, over the page header's empty middle.
@@ -113,5 +134,6 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
         <Icon name="chevron-forward" size={18} color={iconColor} />
       </Pressable>
     </View>
+    </>
   );
 }

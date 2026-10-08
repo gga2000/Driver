@@ -9,7 +9,7 @@ import { createApp } from './bootstrap.js';
  * the raw body and the query string (Express 5 under NestJS 11), so a framework upgrade that changes
  * either shows up here.
  */
-describe('HTTP surface (webhook, uploads)', () => {
+describe('HTTP surface (webhook, uploads, food photos)', () => {
   let app: NestExpressApplication;
   let base: string;
   const saved = { secret: process.env['WHATSAPP_APP_SECRET'], token: process.env['WHATSAPP_WEBHOOK_VERIFY_TOKEN'] };
@@ -51,6 +51,22 @@ describe('HTTP surface (webhook, uploads)', () => {
     expect((await fetch(`${base}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=4242`)).status).toBe(403);
   });
 
+  it('food photos: a stock photo comes back as a long-cached webp; bad or unknown names are 404', async () => {
+    const ok = await fetch(`${base}/media/food/k-kebab-2.webp`);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('content-type')).toContain('image/webp');
+    expect(ok.headers.get('cache-control')).toContain('immutable');
+    expect((await ok.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    // The merchant app's dish library (`lib-*`) is served from the same folder.
+    const lib = await fetch(`${base}/media/food/lib-mixed-grill-1.webp`);
+    expect(lib.status).toBe(200);
+    expect(lib.headers.get('content-type')).toContain('image/webp');
+    expect((await lib.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    expect((await fetch(`${base}/media/food/nope-1.webp`)).status).toBe(404);
+    expect((await fetch(`${base}/media/food/..%2Fpackage.json`)).status).toBe(404);
+    expect((await fetch(`${base}/media/food/K-KEBAB-2.WEBP`)).status).toBe(404);
+  });
+
   it('uploads: a body over the photo limit is refused with 413, a bad ticket with 400', async () => {
     const big = await fetch(`${base}/uploads/u1?exp=1&sig=bad`, { method: 'PUT', headers: { 'content-type': 'image/jpeg' }, body: new Uint8Array(PHOTO_MAX_BYTES + 1) });
     expect(big.status).toBe(413);
@@ -58,5 +74,15 @@ describe('HTTP surface (webhook, uploads)', () => {
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { code: string }).code).toBe('upload_invalid');
     expect((await fetch(`${base}/files/u1?exp=1&sig=bad`)).status).toBe(404);
+  });
+  it('SEC-20: every answer carries the security headers and no framework banner', async () => {
+    const res = await fetch(`${base}/trpc/health.ping`);
+    expect(res.headers.get('x-powered-by')).toBeNull();
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
+    // HSTS only in production.
+    expect(res.headers.get('strict-transport-security')).toBeNull();
   });
 });

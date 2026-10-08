@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { longRideForHotFood, type CatalogSearchDish } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
 import { Icon, PhotoImage, Text, useTheme, withAlpha } from '@driver/ui';
@@ -10,6 +10,8 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
+import type { FoodPhotoSource } from '@/features/food-landing/photos';
 
 const PHOTO_H = 150;
 
@@ -30,7 +32,7 @@ export function PickCard({
 }: {
   r: RestaurantSummary;
   reason: string;
-  photo: number;
+  photo: FoodPhotoSource;
   dish?: CatalogSearchDish;
   cold?: boolean;
   onOpen?: () => void;
@@ -84,12 +86,7 @@ export function PickCard({
             style={{ width: '100%', height: '100%' }}
           />
         ) : (
-          <Image
-            source={photo}
-            resizeMode="cover"
-            accessible={false}
-            style={{ width: '100%', height: '100%' }}
-          />
+          <FoodPhoto photo={photo} style={{ width: '100%', height: '100%' }} />
         )}
         <View
           testID={`${testID}-reason`}

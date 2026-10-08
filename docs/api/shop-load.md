@@ -7,7 +7,7 @@ picks are server rules; the Merchant app's side (t5, r5, x6, p4) is built in the
 |---|---|---|---|
 | h5 | A shop whose tablet has sent no heartbeat for **5 minutes** takes no new orders | `orders/shop-load.ts` `tabletOffline`, `orders.place`, the storefront card | live |
 | l4 | From **15 waiting orders** (placed, accepted or being made; scheduled ones not yet due don't count) new customers see the shop busy and its promise carries the busy +10 min | `orders/shop-load.ts` `ShopLoad`, `OrdersService.busyExtra`, the storefront card | live |
-| c6 | No courier at the pass within **10 minutes** of «جاهز» → the kitchen remakes and Driver pays the first batch | `orders.merchant.remake`, `OrdersStaffService.merchantRemake` | built, **switched off** (`MERCHANT_REMAKE_PAY`) |
+| c6 | No courier at the pass within **10 minutes** of «جاهز» → the kitchen remakes and Driver pays the first batch | `orders.merchant.remake`, `OrdersStaffService.merchantRemake` | live (Ali switched it on 2026-10-08; `MERCHANT_REMAKE_PAY=off` turns it off) |
 | f3 | An instant ZainCash cash-out carries a fee paid by the shop; the nightly payout stays free | — | not built: there is no instant cash-out yet (shops are paid by the nightly payout). Build the fee with the instant cash-out when it comes. |
 
 ## h5: tablet offline → paused
@@ -36,17 +36,17 @@ picks are server rules; the Merchant app's side (t5, r5, x6, p4) is built in the
   on in the Merchant app, never added twice.
 - No money moves; customers can still order.
 
-## c6: remake pay (switched off)
+## c6: remake pay (on)
 
 - `orders.merchant.remake({ orderId })` (merchant staff of that shop) → `{ orderId, paidIqd,
   alreadyPaid }`. `orders.merchant.remakeRule` → `{ pay, afterReadyMin }` so the app shows the button
   only when the rule is on, and only from 10 minutes after «جاهز».
 - Allowed when: the order is a shop order, still `ready` (not picked up), marked ready at least
   `afterReadyMin` (10) minutes ago, and no courier has arrived at its pickup stop. Otherwise
-  `order_state_conflict`; switched off → `money_rule_off`.
+  `order_state_conflict`; switched off (`MERCHANT_REMAKE_PAY=off`) → `money_rule_off`.
 - Money: one balanced group `order:<id>:remake`, `credit_issued` platform → `merchant_cash:<shop>`,
   the order's items at menu price (`itemsTotalIqd`), memo `remake:food`, once per order (a second tap
   returns `alreadyPaid: true`). The order itself is unchanged: it stays ready for the courier who comes.
 - Event `order.remake_paid` (`merchantOrgId`, `readyAt`, `paidIqd`, `tripId`); the Console's
   `orders.ops.switches` carries `remakePay`.
-- Switching it on is Ali's call (money rule): set `MERCHANT_REMAKE_PAY=on`.
+- Ali switched it on on 2026-10-08 (14:18Z). It is on by default; `MERCHANT_REMAKE_PAY=off` switches it off.

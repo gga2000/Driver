@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Order, OrderTracking } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import { lateMinutes, liveEta, signalLostMinutes } from './eta';
-import { bearingDeg, distanceM, fitCamera, layerTransform, nearestAngle, project, remainingRoute, unproject } from './geo';
+import { bearingDeg, distanceM, fitCamera, inFrame, layerTransform, nearestAngle, project, remainingRoute, unproject } from './geo';
 import { glidePos, planGlide, type Glide } from './motion';
 import { buildTimeline, phaseOf, statusLine } from './timeline';
 
@@ -164,6 +164,32 @@ describe('geo — interpolation and bearing', () => {
     expect(fitCamera([HOME], size, pad).zoom).toBe(16.5);
   });
 
+  it('keeps the first point in the frame when the points are too far apart to fit', () => {
+    const size = { w: 390, h: 844 };
+    const pad = { top: 372, bottom: 258, left: 48, right: 48 };
+    const courier = { lat: 32.95, lng: 45.05 };
+    const kitchen = { lat: 32.88, lng: 45.07 };
+    const cam = fitCamera([courier, kitchen], size, pad, [12.5, 16.5]);
+    expect(cam.zoom).toBe(12.5);
+    const p = project(courier.lat, courier.lng, cam, size);
+    expect(p.y).toBeGreaterThanOrEqual(pad.top - 1);
+    expect(p.y).toBeLessThanOrEqual(size.h - pad.bottom + 1);
+    expect(p.x).toBeGreaterThanOrEqual(pad.left - 1);
+    expect(p.x).toBeLessThanOrEqual(size.w - pad.right + 1);
+  });
+
+  it('counts a point under a card over the map as hidden, so the camera reframes (late + reveal)', () => {
+    const size = { w: 390, h: 844 };
+    // The reveal card ends at y=330, the sheet starts at 844-200: the camera pads 40 past each.
+    const pad = { top: 370, bottom: 240, left: 48, right: 48 };
+    expect(inFrame({ x: 200, y: 400 }, size, pad)).toBe(true);
+    expect(inFrame({ x: 200, y: 350 }, size, pad)).toBe(true); // in the slack strip
+    expect(inFrame({ x: 200, y: 300 }, size, pad)).toBe(false); // under the reveal card
+    expect(inFrame({ x: 200, y: 640 }, size, pad)).toBe(false); // under the sheet
+    expect(inFrame({ x: 30, y: 400 }, size, pad)).toBe(true); // thin side edge: half of it is slack
+    expect(inFrame({ x: 20, y: 400 }, size, pad)).toBe(false);
+  });
+
   it('shortens the route as the courier moves along it', () => {
     const route = [KITCHEN, { lat: 32.9, lng: 45.07 }, HOME];
     const onFirstLeg = { lat: 32.905, lng: 45.0667 };
@@ -236,6 +262,8 @@ describe('status → timeline', () => {
   it('courier at my door: "الدليفري عند بابك", not "on the way"', () => {
     const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff'), courier });
     expect(statusLine(v, t)).toBe(t('track.courier_at_door'));
+    // HUNT-02: placed «بالشارع», he waits on the street.
+    expect(statusLine(view({ state: 'picked_up', pickedUpAt: at(16), streetHandover: true }, { trip: trip('arrived_dropoff'), courier }), t)).toBe(t('track.courier_at_street'));
     expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
   });
 

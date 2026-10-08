@@ -33,6 +33,17 @@ describe('API smoke', () => {
     if (!process.env['REDIS_URL']) expect(res.redis).toBe('unavailable');
   });
 
+  it('health.live answers (a missing database only fails it after LIVE_DB_GRACE_MS); health.ready always answers', async () => {
+    const live = await fetch(`${url}/health.live`);
+    expect(live.status).toBe(200);
+    const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const ready = await client.health.ready.query();
+    expect(ready.service).toBe('driver-api');
+    expect(ready.ok).toBe(ready.db === 'ok' && ready.redis === 'ok');
+    if (!process.env['DATABASE_URL']) expect(ready.db).toBe('unavailable');
+    if (!process.env['REDIS_URL']) expect(ready.ok).toBe(false);
+  });
+
   it('serves a quote for an Aziziyah taxi trip over the wire', async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const quote = await client.pricing.quote.query({

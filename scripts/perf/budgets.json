@@ -2,18 +2,18 @@
   "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0, re-measured on 596e91b (after h1, h2, s1 and the food landing) with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
   "size": {
     "customer.code_mb": {
-      "max": 6.95,
+      "max": 6.85,
       "target": 6.2,
-      "why": "s1 landed (#45): 7.03 -> 6.73"
+      "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74"
     },
     "customer.assets_mb": {
-      "max": 6.55,
-      "why": "door page photos kubba, cocktail, laban (+0.13, #67); dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
+      "max": 5.45,
+      "why": "dish photos for /food, the door pages and home served by the API (/media/food), 6.64 -> ~5.3 (#107); web fonts w3 live in public/ (web only); size.mjs leaves public/ out since #110; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.15,
       "target": 5.5,
-      "why": "s1 landed for the partner app: 6.26 -> 5.95; the rest is s4 (lazy screens, barrel trims)"
+      "why": "s1 landed for the partner app: 6.26 -> 5.95; server-only push/WhatsApp/SMS texts left out: 6.15 -> 6.12; the rest is s4 (lazy screens, barrel trims)"
     },
     "partner.assets_mb": {
       "max": 3.05,
@@ -21,18 +21,19 @@
       "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
-      "max": 6.35,
+      "max": 6.0,
       "target": 5.5,
-      "why": "s1 per-app words"
+      "why": "s1 per-app words (merchant-slim): the shared tables carry only the strings the merchant app names (locale-subset.cjs writeMerchantLocales), 6.53 -> 5.95"
     },
     "merchant.assets_mb": {
-      "max": 2.85,
-      "why": "dish photos moved behind @driver/ui/dishes (the merchant app draws none): 4.3 -> 2.73"
+      "max": 4.1,
+      "why": "library photos from the API (merchant-slim): the 95-photo dish library is served by /media/food/lib-*.webp, 8.9 -> 4.06; what is left is the fonts and the menu's painted dish pictures (@driver/ui/dishes, 1.2 MB, the stand-in customers see for a dish with no photo)"
     }
   },
   "screens": {
     "home.open_kb": {
-      "max": 40
+      "max": 44,
+      "why": "home concept C (#70, Ali approved): the dish gallery, kitchen rows and more dishes read more of the list: 42 KB on main fda13a3"
     },
     "home.idle_commits": {
       "max": 6,

@@ -77,6 +77,6 @@ Ali, later on 2026-10-06: "hold it, switch it off" until he decides. The G-91 gu
 ## Shop rules (Ali, 2026-10-08, "Use my picks")
 - **h5 tablet offline:** a shop whose tablet has been offline for 5 minutes takes no new orders (shown closed on its card); scheduled orders still go in. Live.
 - **l4 too many orders:** from 15 waiting orders the shop shows busy to new customers and their promised time carries the busy +10 minutes. Live.
-- **c6 remake:** when no courier reaches the pass within 10 minutes of «جاهز», the kitchen remakes and Driver pays the first batch at menu price, once per order. Built behind `MERCHANT_REMAKE_PAY`, **switched off** until Ali turns it on.
+- **c6 remake:** when no courier reaches the pass within 10 minutes of «جاهز», the kitchen remakes and Driver pays the first batch at menu price, once per order. Ali switched it **on** the same day (14:18Z); `MERCHANT_REMAKE_PAY=off` stops it.
 - **f3 instant cash-out fee:** an instant ZainCash cash-out would carry a fee paid by the shop; the nightly payout stays free. Not built: there is no instant cash-out yet.
 - Details: `docs/api/shop-load.md`.
