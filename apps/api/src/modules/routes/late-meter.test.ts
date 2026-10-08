@@ -212,8 +212,8 @@ describe('forfeit after 20 minutes → automatic hold on the next car within 2 h
       prepaid: true,
       payment: 'wallet',
       seatIds: ['front'],
-      seatPriceIqd: 10_000,
-      frontPremiumIqd: 2_000,
+      seatPriceIqd: 5_000,
+      frontPremiumIqd: 1_000,
     });
     expect(settled(h, 'rider')).toEqual([
       expect.objectContaining({
@@ -245,7 +245,7 @@ describe('forfeit after 20 minutes → automatic hold on the next car within 2 h
     const [post] = await h.requests.mine('r1');
     expect(post).toMatchObject({
       origin: 'stranded',
-      priceCapIqd: 12_000,
+      priceCapIqd: 6_000,
       state: 'open',
       from: { garageId: BAB1.id },
     });

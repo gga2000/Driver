@@ -3553,3 +3553,91 @@ model OrderCompliment {
   @@map("order_compliments")
   @@schema("public")
 }
+
+/// Console E1 (CON-02, G0-9): who is reached when an alert reaches nobody. One row per person, desk
+/// and stretch of time; rank 1 is reached first, rank 2 after them. Ending a shift early stamps
+/// `ended_at` (the row stays for the record). Ids and times only (names stay in identity_vault).
+model OnCallShift {
+  id          String    @id @default(cuid())
+  cityId      String    @map("city_id")
+  /// sos | cash
+  desk        String
+  personId    String    @map("person_id")
+  rank        Int
+  startsAt    DateTime  @map("starts_at")
+  endsAt      DateTime  @map("ends_at")
+  createdById String    @map("created_by_id")
+  endedAt     DateTime? @map("ended_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, desk, endsAt])
+  @@map("on_call_shifts")
+  @@schema("public")
+}
+
+/// The ladder of one alert (an SOS today): how often the desk was rung, which on-call step was
+/// reached, and whether it is still unanswered. Driven by the on-call sweep; the state lives here so a
+/// restart or a second API machine carries on where the last one stopped (`rings` is the claim).
+model AlertLadder {
+  id         String    @id @default(cuid())
+  /// The alert's own id (the safety incident's id); one ladder per alert.
+  alertId    String    @unique @map("alert_id")
+  /// sos | safety_report | sweep_alert | pin_alert
+  kind       String
+  cityId     String    @map("city_id")
+  /// What the pages say: { raiserId, role, subjectKind, orderId } (ids and keys, never names).
+  brief      Json      @default("{}")
+  openedAt   DateTime  @map("opened_at")
+  nextRingAt DateTime  @map("next_ring_at")
+  rings      Int       @default(0)
+  /// 0: only the desk so far; 1: the first people on call reached; 2: the people after them.
+  onCallStep Int       @default(0) @map("on_call_step")
+  unanswered Boolean   @default(false)
+  takenAt    DateTime? @map("taken_at")
+  closedAt   DateTime? @map("closed_at")
+  /// [{ at, step, count }] — who was reached, newest last.
+  steps      Json      @default("[]")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([closedAt, nextRingAt])
+  @@map("alert_ladders")
+  @@schema("public")
+}
+
+/// Console › اليوم (E1, CON-12): one row per problem, opened and closed from domain events, worked
+/// by the desk (take, hand over, snooze, close with an outcome). Ids and short facts only.
+model InboxItem {
+  id           String    @id @default(cuid())
+  cityId       String    @map("city_id")
+  /// sos | no_driver | store_silent | late | unreachable | sweep | pin_alert | approval
+  kind         String
+  /// incident | trip | order | document | onboarding | sweep_alert | pin_attempt
+  subjectKind  String    @map("subject_kind")
+  subjectId    String    @map("subject_id")
+  orderId      String?   @map("order_id")
+  tripId       String?   @map("trip_id")
+  /// Short facts from the event (reason, vertical, kind…): ids and keys, never names.
+  facts        Json      @default("{}")
+  openedAt     DateTime  @map("opened_at")
+  lastSeenAt   DateTime  @map("last_seen_at")
+  times        Int       @default(1)
+  assigneeId   String?   @map("assignee_id")
+  assignedAt   DateTime? @map("assigned_at")
+  snoozedUntil DateTime? @map("snoozed_until")
+  doneAt       DateTime? @map("done_at")
+  doneById     String?   @map("done_by_id")
+  /// fixed | called | handed_over | no_action | duplicate | auto
+  outcome      String?
+  note         String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([kind, subjectId])
+  @@index([cityId, doneAt])
+  @@index([orderId])
+  @@index([tripId])
+  @@map("inbox_items")
+  @@schema("public")
+}

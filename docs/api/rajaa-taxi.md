@@ -129,7 +129,7 @@ on the server. Anywhere else, without permission or signed out: nothing is rende
   `<ArmedRideCard bookingId=…/>` (n10: a taxi waiting at the Aziziyah garage). The switch is not shown
   under a hold (it applies to a booked seat).
 - **Else the next car**: the earliest bookable car with a free seat leaving within 12 h — «تطلع 7:05 م»
-  with «بعد 25 دقيقة», «من كراج النهضة», seats left (pill) and «10,000 دينار للمقعد» (the seat price the
+  with «بعد 25 دقيقة», «من كراج النهضة», seats left (pill) and «5,000 دينار للمقعد» (the seat price the
   server gives, untouched), «احجز مقعد» → `/rajaa/departure/[id]` (the existing seat booking screen),
   and a quiet line for the one after («اللي بعدها 8:15 م · باقي مقعدين»).
 - **Else** «ماكو سيارة راجعة هسة» with the first car announced later (up to 36 h: «أول سيارة معلنة

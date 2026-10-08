@@ -7,11 +7,10 @@ import type { BoardColumn } from '@/lib/board';
 import { QUEUE_ORDER, roadKm, waitTone, type Candidate, type Queue } from '@/lib/dispatch';
 import { formatCountdown, shortId } from '@/lib/format';
 import { offerStateLabel, verticalLabel, zoneName } from '@/lib/labels';
-import { markerStateForPin } from '@/lib/live-map';
+import { markerStateForPin, TRIP_DRAG_TYPE } from '@/lib/live-map';
 import { orderLabel, personText, useNames } from '@/lib/names';
 import { CashLine, StateGlyph, WavePips } from '../map-cards';
 import { OrgName, PersonName } from '../named';
-import { TRIP_DRAG_TYPE } from '../live-map-canvas';
 import { Button, Chip, cx, IconChevronDown, Kbd } from '../ui';
 import { BLOCKER_KEY } from './assign';
 
