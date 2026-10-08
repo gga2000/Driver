@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { AppState, Platform, Switch, View } from 'react-native';
 import type { NotifyPreferences } from '@driver/contracts';
-import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, DataSaverCard, Icon, ListRow, QueryBoundary, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
@@ -88,9 +88,9 @@ export default function NotificationSettings() {
             trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
             {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
           />
-        ) : (
+        ) : prefs.isPending ? (
           <Skeleton width={44} height={24} />
-        )
+        ) : null
       }
     />
   );
@@ -116,6 +116,20 @@ export default function NotificationSettings() {
           ) : null}
         </View>
       </Card>
+
+      {/* FLOW-29: switches that failed to load say so, with a retry, instead of skeletons forever. */}
+      {prefs.isError && prefs.data === undefined ? (
+        <QueryBoundary
+          query={prefs}
+          size="inline"
+          locale={locale}
+          testID="notify-prefs-state"
+          skeleton={null}
+          retry={{ server: { title: t('notify.settings.load_failed') }, slow: { title: t('notify.settings.load_failed') }, unreachable: { title: t('notify.settings.load_failed') } }}
+        >
+          {() => null}
+        </QueryBoundary>
+      ) : null}
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('notify.settings.section_push')} />

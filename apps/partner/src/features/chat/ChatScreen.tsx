@@ -49,7 +49,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       calling={busy}
       orderReplies={(keys) => stepReplies(keys, kind, ride, stage)}
       wrapQuickReplies
-      callSoon={CALLS_LIVE ? undefined : t('soon.badge')}
+      callSoon={!CALLS_LIVE}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/job'))}
       errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)}
       errorCode={apiErrorCode}

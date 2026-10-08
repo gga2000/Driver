@@ -26,6 +26,7 @@ import {
   ListRow,
   ModalSheet,
   PriceBreakdown,
+  QueryBoundary,
   SearchField,
   SeatLegend,
   SeatMap,
@@ -50,6 +51,7 @@ import {
   VoiceRecorderBar,
   MicHoldButton,
   type PriceItem,
+  type QueryLike,
   type SeatId,
   type SeatInfo,
   type TimelineStep,
@@ -1061,6 +1063,50 @@ function SosSection() {
 
 /* ───────────────────────── states ───────────────────────── */
 
+/** Every state of the shared QueryBoundary, from fake query results (no network needed). */
+function QueryBoundaryStates() {
+  const theme = useTheme();
+  const fake = (over: Partial<QueryLike<string[]>>): QueryLike<string[]> => ({ data: undefined, error: null, isPending: false, isError: false, fetchStatus: 'idle', refetch: () => {}, ...over });
+  const answered = (httpStatus: number, code: string, message_ar: string) => Object.assign(new Error(code), { data: { httpStatus, code, message_ar, message_en: code } });
+  const states: { label: string; query: QueryLike<string[]>; slowMs?: number; size?: 'inline' }[] = [
+    { label: 'يحمّل', query: fake({ isPending: true, fetchStatus: 'fetching' }), slowMs: 60 * 60_000 },
+    { label: 'أخذ وقت (بعد 8 ثواني)', query: fake({ isPending: true, fetchStatus: 'fetching' }), slowMs: 0 },
+    { label: 'ما گدرنا نوصل', query: fake({ isError: true, error: Object.assign(new Error('request_timeout'), { name: 'TimeoutError' }) }) },
+    { label: 'مشكلة من عدنا', query: fake({ isError: true, error: answered(500, 'internal', 'مشكلة من عدنا') }) },
+    { label: 'جواب نهائي من السيرفر', query: fake({ isError: true, error: answered(409, 'store_closed', 'المطعم مسكّر هسه. يفتح الساعة 4 العصر') }) },
+    { label: 'مو موجود', query: fake({ isError: true, error: answered(404, 'not_found', 'ما لگينا المطلوب') }) },
+    { label: 'فارغ', query: fake({ data: [] }) },
+    { label: 'البيانات القديمة تبقى إذا فشل التحديث', query: fake({ data: ['كباب', 'تكة'], isError: true, error: answered(500, 'internal', 'مشكلة من عدنا'), dataUpdatedAt: Date.now() - 180_000 }) },
+    { label: 'قسم داخل الشاشة (inline): ما گدرنا نوصل', query: fake({ isError: true, error: Object.assign(new Error('request_timeout'), { name: 'TimeoutError' }) }), size: 'inline' },
+    { label: 'قسم داخل الشاشة (inline): مشكلة من عدنا', query: fake({ isError: true, error: answered(500, 'internal', 'مشكلة من عدنا') }), size: 'inline' },
+  ];
+  return (
+    <View style={{ gap: theme.space[3] }}>
+      <Text variant="label" color="textMuted">
+        QueryBoundary
+      </Text>
+      {states.map((s) => (
+        <Panel key={s.label} gap={2} pad={4}>
+          <Text variant="caption" color="textMuted">
+            {s.label}
+          </Text>
+          <QueryBoundary
+            query={s.query}
+            slowMs={s.slowMs}
+            size={s.size}
+            skeleton={<Skeleton lines={3} />}
+            isEmpty={(d) => d.length === 0}
+            empty={{ icon: 'receipt', title: t('empty.orders'), body: t('empty.orders_hint'), action: { label: t('home.order_now'), onPress: () => {} } }}
+            gone={s.label === 'مو موجود' ? { icon: 'receipt', title: 'هذا الطلب مو موجود', body: 'يمكن الرابط قديم.' } : undefined}
+          >
+            {(rows) => <Text variant="body">{rows.join(' · ')}</Text>}
+          </QueryBoundary>
+        </Panel>
+      ))}
+    </View>
+  );
+}
+
 function StatesSection() {
   const theme = useTheme();
   const toast = useToast();
@@ -1079,6 +1125,7 @@ function StatesSection() {
           </View>
           <Skeleton height={120} radius={16} />
         </Panel>
+        <QueryBoundaryStates />
         <View style={{ gap: theme.space[2] }}>
           <Toast message={t('intercity.booked')} tone="success" />
           <Toast message={t('error.network')} tone="danger" action={{ label: t('action.retry'), onPress: () => {} }} onDismiss={() => {}} />

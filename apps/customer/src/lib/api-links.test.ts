@@ -2,7 +2,7 @@ import { createTRPCClient, TRPCClientError, type TRPCLink } from '@trpc/client';
 import { observable } from '@trpc/server/observable';
 import { describe, expect, it, vi } from 'vitest';
 import type { AppRouter } from '@driver/contracts';
-import { apiErrorCode, apiErrorMessage, authRetryLink } from './api-links';
+import { apiErrorCode, apiErrorMessage, authRetryLink, inputTooLongForUrl } from './api-links';
 import { createSessionStore, type TokenPairLike } from './session';
 import { createMemoryStorage } from './storage';
 
@@ -95,5 +95,20 @@ describe('error helpers', () => {
     expect(apiErrorCode(e)).toBe('otp_invalid');
     expect(apiErrorMessage(new TypeError('offline'), 'ماكو نت')).toBe('ماكو نت');
     expect(apiErrorCode(new TypeError('offline'))).toBeNull();
+  });
+});
+
+describe('queries too long for a URL (FOOD-18)', () => {
+  const note = 'بدون بصل وزيادة طماطة رجاءً، والخبز حار إذا ممكن '.repeat(6);
+  const basket = (lines: number) => ({ lines: Array.from({ length: lines }, (_, i) => ({ itemId: `item_${i}`, qty: 1, note })) });
+
+  it('a small query stays a GET; a big basket with Arabic notes goes as POST', () => {
+    expect(inputTooLongForUrl({ type: 'query', input: { cityId: 'aziziyah', query: 'كباب' } })).toBe(false);
+    expect(inputTooLongForUrl({ type: 'query', input: basket(3) })).toBe(true);
+    expect(inputTooLongForUrl({ type: 'query', input: undefined })).toBe(false);
+  });
+
+  it('mutations already go as POST', () => {
+    expect(inputTooLongForUrl({ type: 'mutation', input: basket(25) })).toBe(false);
   });
 });
