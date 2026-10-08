@@ -10,8 +10,9 @@ Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays
 - Project environment variable `EXPO_PUBLIC_API_URL` = the **staging** API
   (`https://driver-api-staging.fly.dev/trpc`) until launch. It is baked in at build time: change it,
   then redeploy. `EXPO_PUBLIC_SHARE_BASE_URL` defaults to the project's own address.
-- Vercel deploys by itself on every push, but `ignoreCommand` lets only `main` (and this feature's
-  branch while it is open) build, so other PR branches don't queue builds.
+- Only `main` deploys. `git.deploymentEnabled` in vercel.json stops every other branch from even creating a
+  deployment (the free plan allows 100 deployments a day, and ignored builds still count), and the
+  project setting "preview deployments disabled" covers branches cut before that line existed.
 - Deep links (`/share/<token>`, `/order/<id>`) fall back to `index.html`; `/i/<code>` gets
   `invite.html` (the WhatsApp preview card). Headers match the Cloudflare `_headers`.
 - Plan: the free Hobby plan is for non-commercial use. Move to Pro before real customers order.
