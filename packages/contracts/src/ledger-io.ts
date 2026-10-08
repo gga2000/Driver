@@ -101,6 +101,11 @@ export const RideMoneyPayload = z.object({
   tipIqd: Iqd.nonnegative().default(0),
   /** Rebroadcast compensation (decisions §6), platform-funded, only for eligible drivers. */
   pickupCompensationIqd: Iqd.nonnegative().default(0),
+  /**
+   * Step 6 (a private car shared by link): the friends who paid their places from their own wallets.
+   * Each pays his part of the fare straight to the driver; the payer above owes the rest.
+   */
+  sharedBy: z.array(z.object({ customerId: z.string().min(1), amountIqd: Iqd.positive() })).default([]),
 });
 export type RideMoneyPayload = z.input<typeof RideMoneyPayload>;
 

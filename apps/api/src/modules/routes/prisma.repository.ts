@@ -1,4 +1,4 @@
-import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestShareMemberState, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -323,6 +323,10 @@ export class PrismaRoutesRepository implements RoutesRepository {
       waitStartedAt: r.waitStartedAt,
       waitEndedAt: r.waitEndedAt,
       fetchPersonId: r.fetchPersonId,
+      shareCode: r.share?.code ?? null,
+      shareBookerPlaces: r.share?.bookerPlaces ?? null,
+      sharePlaceIqd: r.share?.placeIqd ?? null,
+      shareOpenedAt: r.share?.openedAt ?? null,
       closedAt: r.closedAt,
     };
     await db.rideRequest.upsert({
@@ -347,6 +351,22 @@ export class PrismaRoutesRepository implements RoutesRepository {
         update: { state: o.state, cashState: o.cash },
       });
     }
+    for (const m of r.share?.members ?? []) {
+      await db.rideRequestShare.upsert({
+        where: { id: m.id },
+        create: {
+          id: m.id,
+          requestId: r.id,
+          personId: m.personId,
+          places: m.places,
+          amountIqd: m.amountIqd,
+          state: m.state,
+          joinedAt: m.joinedAt,
+          closedAt: m.closedAt,
+        },
+        update: { state: m.state, closedAt: m.closedAt },
+      });
+    }
   }
 
   async markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean> {
@@ -358,10 +378,15 @@ export class PrismaRoutesRepository implements RoutesRepository {
     return n > 0;
   }
 
+  async getRequestByShareCode(code: string, tx?: Tx): Promise<RequestRecord | null> {
+    const row = await this.db(tx).rideRequest.findUnique({ where: { shareCode: code }, include: REQUEST_INCLUDE });
+    return row ? toRequest(row) : null;
+  }
+
   async getRequest(id: string, tx?: Tx): Promise<RequestRecord | null> {
     const row = await this.db(tx).rideRequest.findUnique({
       where: { id },
-      include: { offers: { orderBy: { createdAt: 'asc' } } },
+      include: REQUEST_INCLUDE,
     });
     return row ? toRequest(row) : null;
   }
@@ -371,8 +396,9 @@ export class PrismaRoutesRepository implements RoutesRepository {
       where: {
         ...(f.riderId ? { riderId: f.riderId } : {}),
         ...(f.states ? { state: { in: [...f.states] } } : {}),
+        ...(f.memberId ? { shares: { some: { personId: f.memberId } } } : {}),
       },
-      include: { offers: { orderBy: { createdAt: 'asc' } } },
+      include: REQUEST_INCLUDE,
       orderBy: [{ when: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toRequest);
@@ -559,7 +585,12 @@ type BookingRow = Awaited<ReturnType<Tx['seatBooking']['findUniqueOrThrow']>>;
 type DemandRow = Awaited<ReturnType<Tx['demandPost']['findUniqueOrThrow']>>;
 type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & {
   offers: Array<Awaited<ReturnType<Tx['rideRequestOffer']['findUniqueOrThrow']>>>;
+  shares: Array<Awaited<ReturnType<Tx['rideRequestShare']['findUniqueOrThrow']>>>;
 };
+const REQUEST_INCLUDE = {
+  offers: { orderBy: { createdAt: 'asc' as const } },
+  shares: { orderBy: [{ joinedAt: 'asc' as const }, { id: 'asc' as const }] },
+} satisfies Prisma.RideRequestInclude;
 
 /** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
 /** Snapshots written before a field existed read its default (no model, no promises about the car). */
@@ -724,6 +755,24 @@ function toRequest(r: RequestRow): RequestRecord {
     waitStartedAt: r.waitStartedAt,
     waitEndedAt: r.waitEndedAt,
     fetchPersonId: r.fetchPersonId,
+    share:
+      r.shareCode && r.shareBookerPlaces !== null && r.sharePlaceIqd !== null && r.shareOpenedAt
+        ? {
+            code: r.shareCode,
+            bookerPlaces: r.shareBookerPlaces,
+            placeIqd: r.sharePlaceIqd,
+            openedAt: r.shareOpenedAt,
+            members: r.shares.map((m) => ({
+              id: m.id,
+              personId: m.personId,
+              places: m.places,
+              amountIqd: m.amountIqd,
+              state: m.state as RequestShareMemberState,
+              joinedAt: m.joinedAt,
+              closedAt: m.closedAt,
+            })),
+          }
+        : null,
     closedAt: r.closedAt,
     createdAt: r.createdAt,
   };

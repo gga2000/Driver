@@ -19,7 +19,7 @@ import { PrismaRoutesRepository } from './prisma.repository.js';
 import { RequestBoardService } from './request-board.service.js';
 import { InMemoryRequestRiders } from './request-riders.js';
 import { RoutesScheduler } from './scheduler.js';
-import { randomIds } from './support.js';
+import { randomIds, walletHolds } from './support.js';
 import { FakeWallet } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
@@ -98,6 +98,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
       where: { riderId: { in: [ids.r1, ids.r2] } },
       select: { id: true },
     });
+    await db.rideRequestShare.deleteMany({ where: { requestId: { in: rqs.map((r) => r.id) } } });
     await db.rideRequestOffer.deleteMany({ where: { requestId: { in: rqs.map((r) => r.id) } } });
     await db.rideRequest.deleteMany({ where: { id: { in: rqs.map((r) => r.id) } } });
     await db.person.deleteMany({ where: { id: { in: [ids.driver, ids.d2, ids.r1, ids.r2] } } });
@@ -440,6 +441,32 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(await repo.getBooking(home.id)).toMatchObject({ lapChildren: 0, returnDiscountIqd: 2_000, returnPairId: there.id });
     await paired.cancel(ids.r1, there.id);
     expect(await repo.getBooking(home.id)).toMatchObject({ returnDiscountIqd: 0, returnPairId: null });
+  });
+
+  it('step 6: a shared car, its link and the friends who joined round-trip; the link finds it and holds count', async () => {
+    const sharing = new RequestBoardService(repo, events, wallet, clock, writer, INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
+    sharing.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+    const r = await sharing.post(
+      ids.r1,
+      PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'بغداد' }, when: at(600), seats: 4, travellingAs: 'aila' }),
+    );
+    const offered = await sharing.offer(ids.driver, r.id, 110_000);
+    wallet.set(ids.r1, 100_000);
+    await sharing.pick(ids.r1, r.id, offered.offers[0]!.id);
+    const code = (await sharing.openShare(ids.r1, r.id, 1)).share!.code;
+    wallet.set(ids.r2, 200_000);
+    // r2 may hold seats or deposits from the tests above; the share adds to them.
+    const before = await walletHolds(repo, ids.r2);
+    await sharing.joinShare(ids.r2, code, 2);
+    const back = await repo.getRequestByShareCode(code);
+    expect(back?.id).toBe(r.id);
+    expect(back?.share).toMatchObject({ code, bookerPlaces: 1, placeIqd: 27_500, members: [{ personId: ids.r2, places: 2, amountIqd: 55_000, state: 'joined', closedAt: null }] });
+    expect((await repo.listRequests({ memberId: ids.r2, states: ['matched'] })).map((x) => x.id)).toEqual([r.id]);
+    expect(await walletHolds(repo, ids.r2)).toBe(before + 55_000);
+    await sharing.leaveShare(ids.r2, code);
+    expect((await repo.getRequest(r.id))?.share?.members[0]).toMatchObject({ state: 'left' });
+    expect(await walletHolds(repo, ids.r2)).toBe(before);
+    await sharing.cancel(ids.r1, r.id);
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {

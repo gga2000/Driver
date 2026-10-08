@@ -44,6 +44,8 @@ export interface DemandFilter {
 export interface RequestFilter {
   riderId?: string;
   states?: readonly RequestState[];
+  /** Step 6: requests this person joined as a friend (any member state). */
+  memberId?: string;
 }
 
 export interface RiderRecordStats {
@@ -97,6 +99,8 @@ export interface RoutesRepository {
    */
   markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean>;
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
+  /** Step 6: the request a share link's code opens; null when unknown. */
+  getRequestByShareCode(code: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
   /** y5: completed private trips per driver (his offer was picked and the trip completed). */
   privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>>;
@@ -292,10 +296,18 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     return r ? clone(r) : null;
   }
 
+  async getRequestByShareCode(code: string): Promise<RequestRecord | null> {
+    const r = [...this.requests.values()].find((x) => x.share?.code === code);
+    return r ? clone(r) : null;
+  }
+
   async listRequests(f: RequestFilter): Promise<RequestRecord[]> {
     return [...this.requests.values()]
       .filter(
-        (r) => (!f.riderId || r.riderId === f.riderId) && (!f.states || f.states.includes(r.state)),
+        (r) =>
+          (!f.riderId || r.riderId === f.riderId) &&
+          (!f.states || f.states.includes(r.state)) &&
+          (!f.memberId || Boolean(r.share?.members.some((m) => m.personId === f.memberId))),
       )
       .sort(
         (a, b) =>

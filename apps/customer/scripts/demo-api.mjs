@@ -734,6 +734,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 //   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
 //   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
+//   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…]   share a private car by link (step 6, demo switch on)
 //   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
@@ -1308,6 +1309,62 @@ const rajaa = await (async () => {
         await app.get(LedgerService).recordAll(postCancellation({ from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: `demo_owe_${Date.now()}`, occurredAt: new Date(), customerId: personId, by: 'customer', reason: 'request_board_rider_no_show', free: false, feeIqd: owe, beneficiaries: [{ kind: 'driver', id: D.drv_7K2Q, amountIqd: owe }] }));
       }
       json(res, 200, { offers: asked });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1] — step 6 «تقاسم السيارة» (demo switch
+  // on): a private car to Baghdad for 4 people in 10 h, علي حسن's 110,000 picked. `booker`: the person
+  // booked it and opened the link, and كرار already paid his place. `friend`: أحمد booked it and shared
+  // it, زيد took a place, and the person has the link (`joined=1`: he took a place too).
+  let shareSeq = 0;
+  const sharePeople = {};
+  async function namedPerson(name) {
+    if (sharePeople[name]) return sharePeople[name];
+    const phone = `0771977${String(1000 + Object.keys(sharePeople).length).padStart(4, '0')}`;
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code: otp } = await identity.devLastOtp(phone);
+    const id = (await identity.verifyOtp({ phone, code: otp })).personId;
+    await identity.setName({ personId: id, sessionId: 'demo' }, name);
+    sharePeople[name] = id;
+    return id;
+  }
+  const topUp = (who, amount) => ledger.record({ type: 'adjustment', amount, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
+  app.use('/demo/rajaa/share', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const as = url.searchParams.get('as') ?? 'booker';
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1]' });
+      requests.moneyRules = { ...requests.moneyRules, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+      // `postId`: كرار joins the link the person opened on that request himself.
+      const postId = url.searchParams.get('postId');
+      if (postId) {
+        const code = (await requests.get(postId))?.share?.code;
+        if (!code) return json(res, 400, { error: 'that request has no share link yet' });
+        const friend = await namedPerson('كرار حسن');
+        await topUp(friend, 30_000);
+        await requests.joinShare(friend, code, 1);
+        return json(res, 200, { postId, code });
+      }
+      shareSeq += 1;
+      const booker = as === 'friend' ? await namedPerson('أحمد علي') : personId;
+      await topUp(booker, 60_000);
+      const when = new Date(Math.ceil((Date.now() + 600 * MIN) / (5 * MIN)) * 5 * MIN);
+      const r = await requests.post(booker, { from: { label: 'العزيزية · البيت' }, to: { label: 'بغداد · مستشفى ابن النفيس' }, when, seats: 4, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 1, carKind: null, ac: true } });
+      const o = (await requests.offer(D.drv_7K2Q, r.id, 110_000)).offers.at(-1);
+      await requests.pick(booker, r.id, o.id);
+      if (url.searchParams.get('open') === '0') return json(res, 200, { postId: r.id, code: null });
+      const code = (await requests.openShare(booker, r.id, 1)).share.code;
+      const friend = await namedPerson(as === 'friend' ? 'زيد كاظم' : 'كرار حسن');
+      await topUp(friend, 30_000);
+      await requests.joinShare(friend, code, 1);
+      if (as === 'friend') {
+        await topUp(personId, 60_000);
+        if (url.searchParams.get('joined') === '1') await requests.joinShare(personId, code, 1);
+      }
+      json(res, 200, { postId: r.id, code, n: shareSeq });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

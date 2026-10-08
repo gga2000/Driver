@@ -137,7 +137,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'return', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -274,6 +274,7 @@ try {
   if (wants('agree')) await agreeShots(personId);
   if (wants('cash')) await cashShots(personId);
   if (wants('return')) await returnShots(personId);
+  if (wants('share')) await shareShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
@@ -1360,6 +1361,42 @@ async function returnShots(personId) {
   await show('rajaa-hold-return', 'return-hold');
   await byTestId('rajaa-confirm').click();
   await show('rajaa-return-paired', 'return-paired');
+}
+
+/**
+ * Step 6 «تقاسم السيارة» (docs/api/request-sharing.md): the booker opens the link on his picked private
+ * car, a friend (كرار) pays his place, and the panel shows who is in and the cash left. Then the other
+ * side: a friend's link from أحمد, before and after he takes a place.
+ */
+async function shareShots(personId) {
+  if (!personId) throw new Error('share: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  const show = async (testId, name, block = 'center') => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el, b) => el.scrollIntoView({ block: b }), block);
+    await settle(600);
+    await shot(name);
+  };
+  const { postId } = await demoPost(`/demo/rajaa/share?${q}&as=booker&open=0`);
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await show('rajaa-carshare-offer', 'share-offer');
+  await byTestId('rajaa-carshare-open').click();
+  await byTestId('rajaa-carshare').waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/share?${q}&postId=${encodeURIComponent(postId)}`);
+  await page.reload(LOADED);
+  await byTestId('rajaa-carshare-friend-0').waitFor({ timeout: 20_000 }).catch(() => errors.push('share: كرار did not show on the panel'));
+  await show('rajaa-carshare', 'share-panel', 'start');
+  await show('rajaa-carshare-send', 'share-panel-send');
+  const { code } = await demoPost(`/demo/rajaa/share?${q}&as=friend`);
+  await page.goto(`${origin}/rajaa/join/${code}`, LOADED);
+  await byTestId('rajaa-join-form').waitFor({ timeout: 20_000 });
+  await settle(800);
+  await shot('share-join');
+  await show('rajaa-join-total', 'share-join-total');
+  await byTestId('rajaa-join-cta').click();
+  await show('rajaa-join-joined', 'share-joined');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  await show('rajaa-shared-strip', 'share-board-strip');
 }
 
 /**

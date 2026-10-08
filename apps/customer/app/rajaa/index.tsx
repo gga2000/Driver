@@ -15,9 +15,10 @@ import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, haversineM, PRIMARY_CORRIDOR, RIDER_TRAVELLING_AS, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { boardTitle, cityName, seatsCount } from '@/features/rajaa/labels';
-import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useMyBookings, useNetwork, usePostDemand } from '@/features/rajaa/queries';
+import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useMyBookings, useNetwork, usePostDemand, useSharedWithMe } from '@/features/rajaa/queries';
 import { returnOfferFor } from '@/features/rajaa/return-bundle';
 import { ReturnBundleStrip } from '@/features/rajaa/ReturnParts';
+import { SharedCarStrip } from '@/features/rajaa/ShareCarParts';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { presetWindow } from '@/features/rajaa/return-trip';
@@ -70,6 +71,9 @@ export default function RajaaBoard() {
   const mine = useMyBookings();
   // Optional: when the read fails there is simply no offer line (the server prices the pair anyway).
   const returnOffer = mine.isError ? null : returnOfferFor(mine.data, corridorId, direction);
+  // Step 6: a friend's shared car he joined, one tap back to its page.
+  const shared = useSharedWithMe();
+  const sharedCar = shared.isError ? null : (shared.data?.[0] ?? null);
   // Joy l9: the rider's favourite الرجعة drivers wear «سايقك المفضل» on their cars.
   const favs = useFavourites();
   const favDrivers = useMemo(() => new Set((favs.data ?? []).filter((f) => f.kinds.includes('intercity')).map((f) => f.driverId)), [favs.data]);
@@ -219,6 +223,7 @@ export default function RajaaBoard() {
         </Card>
       ) : null}
 
+      {sharedCar ? <SharedCarStrip car={sharedCar} onPress={() => router.push({ pathname: '/rajaa/join/[code]', params: { code: sharedCar.code } })} /> : null}
       {returnOffer ? <ReturnBundleStrip percent={returnOffer.percent} outAt={returnOffer.booking.departure.departAt} /> : null}
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
 

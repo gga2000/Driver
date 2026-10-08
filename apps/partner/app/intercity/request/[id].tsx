@@ -340,7 +340,9 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
   const extraIqd = clock ? waitExtraIqd(clock, now) : 0;
   const fareIqd = ride.priceIqd + extraIqd;
   // 4b: on a cash reservation nothing came from the wallet; the deposit is only the no-show amount.
-  const collectIqd = Math.max(0, fareIqd - (ride.cashReserved ? 0 : deposit));
+  // Step 6: friends who joined a shared car paid their places from their wallets; that is not cash either.
+  const friendsIqd = ride.share?.friendsIqd ?? 0;
+  const collectIqd = Math.max(0, fareIqd - (ride.cashReserved ? 0 : deposit) - friendsIqd);
 
   const arrived = async () => {
     const fix = await currentFix(5000);
@@ -480,7 +482,11 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
             </Text>
           </View>
           <Text variant="footnote" color="textMuted" tabular>
-            {[ride.cashReserved ? t('partner.ic_ride_cash_reserved', { amount: amountParam(deposit) }) : t('partner.ic_ride_deposit', { amount: amountParam(deposit) }), t('partner.ic_req_net', { net: amountParam(privateRideNet(fareIqd)) })].join(' · ')}
+            {[
+              ride.cashReserved ? t('partner.ic_ride_cash_reserved', { amount: amountParam(deposit) }) : t('partner.ic_ride_deposit', { amount: amountParam(deposit) }),
+              ...(friendsIqd > 0 ? [t('partner.ic_ride_shared', { amount: amountParam(friendsIqd) })] : []),
+              t('partner.ic_req_net', { net: amountParam(privateRideNet(fareIqd)) }),
+            ].join(' · ')}
           </Text>
         </View>
       </Card>

@@ -8,6 +8,7 @@ import {
   offerNeedsWaitTerms,
   PostRequestInput,
   requestKnownPlace,
+  sharePlaceIqd,
   USUAL_RANGE_DAYS,
   usualRangeOf,
   waitExtraIqd,
@@ -15,6 +16,7 @@ import {
   type MoneyRules,
   type OfferWaitTerms,
   type RequestPlaceId,
+  type RequestShareView,
   type RequestTripKind,
   type RequestWaitClock,
   type TravellingAs,
@@ -26,7 +28,8 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import { haversineMeters } from '../trips/index.js';
 import { ROUTES_EVENTS, type RoutesEventEmitter } from './events.adapter.js';
 import type { IntercityNetworkConfig, IntercityRules } from './intercity.config.js';
-import type { RequestOfferRecord, RequestRecord } from './model.js';
+import { randomInt } from 'node:crypto';
+import { sharedIqd, sharedPlaces, type RequestOfferRecord, type RequestRecord } from './model.js';
 import { ROUTES_REQUEST_RIDERS, type RequestRidersPort } from './request-riders.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS, ROUTES_IDS, roundUpTo, walletHolds, type IdSource } from './support.js';
@@ -53,6 +56,11 @@ type PostInput = z.output<typeof PostRequestInput>;
  * rider no-show or late cancel posts the same `order.cancelled` fee, which with nothing held stays on
  * his wallet as debt (the platform's wallet-debt rule) while the driver is paid; a driver no-show
  * credits the rider that amount once (nothing of his was held to give back).
+ *
+ * Step 6 (item 56, s1–s4; switch `requestSharing`): the booker shares the picked car by a link; each
+ * friend's places are held on his own wallet and paid straight to the driver when the trip completes
+ * (`order.closed` ride `sharedBy`), so the booker's cash shrinks by that much. Joining closes before
+ * the trip; places nobody took stay the booker's, in cash. Any other end releases every friend's hold.
  */
 @Injectable()
 export class RequestBoardService {
@@ -69,7 +77,7 @@ export class RequestBoardService {
   ) {}
 
   /** The money rules this board reads (w4's and 4b's switches); a field so tests can switch them on. */
-  moneyRules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation'> = AZIZIYAH_MONEY_RULES;
+  moneyRules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation' | 'requestSharing'> = AZIZIYAH_MONEY_RULES;
 
   private now(): Date {
     return this.clock.now();
@@ -289,7 +297,9 @@ export class RequestBoardService {
       const late = this.now().getTime() >= r.when.getTime() - 60 * MIN_MS;
       r.state = 'cancelled';
       r.closedAt = this.now();
+      const released = this.releaseShares(r);
       await this.repo.saveRequest(r, tx);
+      await this.emitReleased(tx, riderId, r, released, 'rider_cancelled');
       if (late) await this.forfeitDeposit(tx, r, 'request_board_late_cancel');
       await this.emit(tx, 'request.cancelled', riderId, r, {
         free: !late,
@@ -316,7 +326,9 @@ export class RequestBoardService {
       const creditIqd = (r.cashReserved ? 1 : 2) * (r.depositIqd ?? 0);
       r.state = 'driver_no_show';
       r.closedAt = this.now();
+      const released = this.releaseShares(r);
       await this.repo.saveRequest(r, tx);
+      await this.emitReleased(tx, riderId, r, released, 'driver_no_show');
       await this.emit(tx, 'departure.cancelled', riderId, r, {
         departureId: r.id,
         occurredAt: this.now(),
@@ -502,6 +514,17 @@ export class RequestBoardService {
       const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
       if (r.waitStartedAt && !r.waitEndedAt) r.waitEndedAt = this.now();
       const fareIqd = offer.priceIqd + this.waitExtra(r);
+      // Step 6: friends' held places are paid from their wallets; the booker owes the rest, his
+      // deposit first (never more than his part), then cash.
+      const sharedBy = (r.share?.members ?? [])
+        .filter((m) => m.state === 'joined')
+        .map((m) => ({ customerId: m.personId, amountIqd: m.amountIqd }));
+      const friendsIqd = sharedBy.reduce((n, m) => n + m.amountIqd, 0);
+      for (const m of r.share?.members ?? []) {
+        if (m.state !== 'joined') continue;
+        m.state = 'paid';
+        m.closedAt = this.now();
+      }
       r.state = 'completed';
       r.closedAt = this.now();
       await this.repo.saveRequest(r, tx);
@@ -516,10 +539,11 @@ export class RequestBoardService {
           occurredAt: this.now(),
           customerId: r.riderId,
           payment: 'cash',
-          cashCollectedIqd: fareIqd - deposit,
+          cashCollectedIqd: Math.max(0, fareIqd - friendsIqd - deposit),
           driverId,
           takeClass: 'intercity_private',
           fareIqd,
+          ...(sharedBy.length > 0 ? { sharedBy } : {}),
         },
       });
       return r;
@@ -546,11 +570,211 @@ export class RequestBoardService {
         throw new DriverError('no_show_not_allowed');
       r.state = 'rider_no_show';
       r.closedAt = this.now();
+      const released = this.releaseShares(r);
       await this.repo.saveRequest(r, tx);
+      await this.emitReleased(tx, driverId, r, released, 'rider_no_show');
       await this.forfeitDeposit(tx, r, 'request_board_rider_no_show');
       await this.emit(tx, 'request.rider_no_show', driverId, r, { depositIqd: r.depositIqd, cashReserved: r.cashReserved });
       return r;
     });
+  }
+
+  // ───────────────────────── step 6: sharing the car ─────────────────────────
+
+  /** When joining a shared car closes (s3): the places nobody took stay the booker's from then. */
+  shareClosesAt(r: RequestRecord): Date {
+    return new Date(r.when.getTime() - this.moneyRules.requestSharing.closeBeforeMin * MIN_MS);
+  }
+
+  /** Whether friends can still join or leave. */
+  shareOpen(r: RequestRecord): boolean {
+    return (
+      this.moneyRules.requestSharing.enabled &&
+      r.share !== null &&
+      r.state === 'matched' &&
+      this.now().getTime() < this.shareClosesAt(r).getTime()
+    );
+  }
+
+  /** Whether the booker can open the link (or change his own places) now. */
+  shareable(r: RequestRecord): boolean {
+    return (
+      this.moneyRules.requestSharing.enabled &&
+      r.privateCar &&
+      r.state === 'matched' &&
+      r.seats >= 2 &&
+      this.now().getTime() < this.shareClosesAt(r).getTime()
+    );
+  }
+
+  /**
+   * s1/s2: the booker opens the link. Everyone in the car is the people he posted for; `bookerPlaces`
+   * of them are his own, the rest are offered at one even place price (rounded down to 250, fixed
+   * now). Calling it again changes his places, never below what friends already hold.
+   */
+  openShare(riderId: string, postId: string, bookerPlaces: number): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      if (!this.moneyRules.requestSharing.enabled) throw new DriverError('forbidden');
+      const r = await this.mustOwn(riderId, postId, tx);
+      if (!r.privateCar || r.state !== 'matched' || r.seats < 2) throw new DriverError('request_state_conflict');
+      if (this.now().getTime() >= this.shareClosesAt(r).getTime()) throw new DriverError('share_closed');
+      if (bookerPlaces >= r.seats) throw new DriverError('invalid_input');
+      if (r.share) {
+        if (r.seats - bookerPlaces < sharedPlaces(r.share)) throw new DriverError('share_full');
+        if (r.share.bookerPlaces === bookerPlaces) return r;
+        r.share.bookerPlaces = bookerPlaces;
+      } else {
+        r.share = {
+          code: await this.newShareCode(tx),
+          bookerPlaces,
+          placeIqd: sharePlaceIqd(this.picked(r).priceIqd, r.seats),
+          openedAt: this.now(),
+          members: [],
+        };
+      }
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.share_opened', riderId, r, {
+        people: r.seats,
+        bookerPlaces,
+        placeIqd: r.share.placeIqd,
+        closesAt: this.shareClosesAt(r),
+      });
+      return r;
+    });
+  }
+
+  /** The request a link opens; unknown codes and switched-off sharing read as not found. */
+  async byShareCode(code: string, tx?: Tx): Promise<RequestRecord> {
+    const r = this.moneyRules.requestSharing.enabled ? await this.repo.getRequestByShareCode(code, tx) : null;
+    if (!r?.share) throw new DriverError('share_not_found');
+    return r;
+  }
+
+  /**
+   * s1: a friend takes places from the link. They are held on his own wallet (checked against what
+   * his other bookings already hold) until the trip ends. One join per person: to change his places
+   * he leaves and joins again.
+   */
+  joinShare(personId: string, code: string, places: number): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.byShareCode(code, tx);
+      const share = r.share!;
+      if (personId === r.riderId || personId === this.picked(r).driverId) throw new DriverError('forbidden');
+      if (!this.shareOpen(r)) throw new DriverError('share_closed');
+      const mine = share.members.find((m) => m.personId === personId && m.state === 'joined');
+      if (mine) {
+        if (mine.places === places) return r;
+        throw new DriverError('request_state_conflict');
+      }
+      if (places > r.seats - share.bookerPlaces - sharedPlaces(share)) throw new DriverError('share_full');
+      const amountIqd = places * share.placeIqd;
+      const available = (await this.wallet.balance(personId)) - (await walletHolds(this.repo, personId, tx));
+      if (available < amountIqd) throw new DriverError('wallet_insufficient');
+      const member = {
+        id: this.ids.id('rqs'),
+        personId,
+        places,
+        amountIqd,
+        state: 'joined' as const,
+        joinedAt: this.now(),
+        closedAt: null,
+      };
+      share.members.push(member);
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.share_joined', personId, r, {
+        memberId: member.id,
+        personId,
+        places,
+        amountIqd,
+        riderId: r.riderId,
+        driverId: this.picked(r).driverId,
+      });
+      return r;
+    });
+  }
+
+  /** A friend leaves before joining closes; his hold is released at once. */
+  leaveShare(personId: string, code: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.byShareCode(code, tx);
+      const mine = r.share!.members.find((m) => m.personId === personId && m.state === 'joined');
+      if (!mine) throw new DriverError('request_state_conflict');
+      if (!this.shareOpen(r)) throw new DriverError('share_closed');
+      mine.state = 'left';
+      mine.closedAt = this.now();
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.share_left', personId, r, {
+        memberId: mine.id,
+        personId,
+        places: mine.places,
+        riderId: r.riderId,
+      });
+      return r;
+    });
+  }
+
+  /** Shared cars this person joined that are still ahead or on the road. */
+  async sharedWith(personId: string): Promise<RequestRecord[]> {
+    if (!this.moneyRules.requestSharing.enabled) return [];
+    return (await this.repo.listRequests({ memberId: personId, states: ['matched', 'driver_arrived'] })).filter((r) =>
+      r.share?.members.some((m) => m.personId === personId && m.state === 'joined'),
+    );
+  }
+
+  /**
+   * The share as the booker (with friends' first names) or the picked driver (no names, no link)
+   * sees it; null when the car is not shared.
+   */
+  shareView(r: RequestRecord, names: Readonly<Record<string, string | null>> | null): RequestShareView | null {
+    const s = r.share;
+    if (!s) return null;
+    const offer = r.offers.find((o) => o.id === r.pickedOfferId);
+    const friendsIqd = sharedIqd(s);
+    const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
+    const fare = (offer?.priceIqd ?? 0) + this.waitExtra(r);
+    return {
+      path: names ? `/rajaa/join/${s.code}` : null,
+      people: r.seats,
+      bookerPlaces: s.bookerPlaces,
+      placeIqd: s.placeIqd,
+      closesAt: this.shareClosesAt(r),
+      open: this.shareOpen(r),
+      placesLeft: Math.max(0, r.seats - s.bookerPlaces - sharedPlaces(s)),
+      members: s.members.map((m) => ({
+        firstName: names ? (names[m.personId] ?? null) : null,
+        places: m.places,
+        amountIqd: m.amountIqd,
+        state: m.state,
+      })),
+      friendsIqd,
+      cashIqd: Math.max(0, fare - friendsIqd - deposit),
+    };
+  }
+
+  /** s4: every friend still holding places gets them back (the trip will not run for them). */
+  private releaseShares(r: RequestRecord): string[] {
+    const out: string[] = [];
+    for (const m of r.share?.members ?? []) {
+      if (m.state !== 'joined') continue;
+      m.state = 'released';
+      m.closedAt = this.now();
+      out.push(m.personId);
+    }
+    return out;
+  }
+
+  private async emitReleased(tx: Tx, actorId: string, r: RequestRecord, personIds: string[], reason: string): Promise<void> {
+    if (personIds.length === 0) return;
+    await this.emit(tx, 'request.shares_released', actorId, r, { personIds, reason, riderId: r.riderId });
+  }
+
+  /** 8 letters and digits people can read out (no I, O, 0, 1); retried on the rare clash. */
+  private async newShareCode(tx: Tx): Promise<string> {
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (;;) {
+      const code = Array.from({ length: 8 }, () => abc[randomInt(abc.length)]).join('');
+      if (!(await this.repo.getRequestByShareCode(code, tx))) return code;
+    }
   }
 
   // ───────────────────────── scheduler ─────────────────────────
@@ -618,6 +842,7 @@ export class RequestBoardService {
       | 'waitStartedAt'
       | 'waitEndedAt'
       | 'fetchPersonId'
+      | 'share'
       | 'closedAt'
       | 'createdAt'
     >,
@@ -637,6 +862,7 @@ export class RequestBoardService {
       waitStartedAt: null,
       waitEndedAt: null,
       fetchPersonId: null,
+      share: null,
       closedAt: null,
       createdAt: this.now(),
     };

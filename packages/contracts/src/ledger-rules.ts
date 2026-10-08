@@ -242,6 +242,17 @@ export const MoneyRules = z.object({
    * paid on the full seat and the company covers the discount; driver: the fare itself is lower.
    * Off until Ali switches it on: no pair is made and every seat costs the full price.
    */
+  /**
+   * Step 6 (Ali's price item 56, rules s1–s4, 2026-10-07): the booker of a private car shares it by a
+   * link. The car's price is split evenly over the people he asked for (each place rounded down to
+   * 250, the rest on him); a friend pays his places from his wallet (held until the trip ends, then
+   * paid to the driver). Joining closes `closeBeforeMin` before the trip; places nobody took stay the
+   * booker's, in cash (s3). A cancelled or failed trip releases each friend's hold (s4). Off until Ali
+   * switches it on: no link can be opened.
+   */
+  requestSharing: z
+    .object({ enabled: z.boolean(), closeBeforeMin: z.number().int().min(30).max(1_440) })
+    .default({ enabled: false, closeBeforeMin: 120 }),
   intercityReturnBundle: z
     .object({
       enabled: z.boolean(),
@@ -320,6 +331,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   requestCashReservation: { enabled: false },
   // Step 5 item 51: built 2026-10-08, off until Ali switches it on (who funds it: his card, platform recommended).
   intercityReturnBundle: { enabled: false, percent: 10, fundedBy: 'platform' },
+  // Step 6 item 56 (s1–s4): built 2026-10-08, off until Ali switches it on.
+  requestSharing: { enabled: false, closeBeforeMin: 120 },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
   lateTaxiPaysMeter: { enabled: true },
 });

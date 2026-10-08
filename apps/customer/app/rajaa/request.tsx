@@ -17,6 +17,7 @@ import { useAskCash, useCancelRequest, useMyRequests, usePickOffer, usePostReque
 import { REQUEST_PLACES, OFFER_SORTS, offerWinners, placeIdFor, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
 import { DetailPills, OfferCard, SeenLine, UsualRangeLine } from '@/features/rajaa/RequestParts';
 import { SwitchRow } from '@/features/rajaa/SeatParts';
+import { BookerSharePanel } from '@/features/rajaa/ShareCarParts';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -94,6 +95,8 @@ function RequestCard({ r }: { r: RequestPostView }) {
             ) : (
               <RuleList items={[t('rajaa.deposit_rule_driver'), t('rajaa.deposit_rule_rider')]} />
             )}
+            {/* Step 6 (item 56): share the picked car by link; friends pay their places from their wallets. */}
+            <BookerSharePanel r={r} dayLabel={t(dayOf(r.when, now) === 'today' ? 'rajaa.day_today' : 'rajaa.day_tomorrow')} />
           </View>
         ) : null}
 

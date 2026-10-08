@@ -299,11 +299,20 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
   const fareType: LedgerEventType = r.takeClass === 'parcel' || r.takeClass === 'parcel_intercity' ? 'parcel_fee' : 'fare';
 
-  b.add(fareType, r.fareIqd, payer, driver, r.takeClass);
+  // Step 6: friends who joined a shared private car pay their places from their own wallets.
+  const sharedIqd = r.sharedBy.reduce((sum, f) => sum + f.amountIqd, 0);
+  if (sharedIqd > r.fareIqd) throw new RangeError(`shared places ${sharedIqd} are more than the fare ${r.fareIqd}`);
+  for (const f of r.sharedBy) {
+    const friend = Accounts.customer(f.customerId);
+    if (friend === payer) throw new RangeError('the payer cannot share with himself');
+    b.add(fareType, f.amountIqd, friend, driver, 'request_share');
+    b.control(friend, -f.amountIqd);
+  }
+  b.add(fareType, r.fareIqd - sharedIqd, payer, driver, r.takeClass);
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, r, r.fareIqd - sharedIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 

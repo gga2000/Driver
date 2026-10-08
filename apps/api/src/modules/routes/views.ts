@@ -12,6 +12,7 @@ import type {
   PrepayRail,
   RequestOfferDriver,
   RequestPostView,
+  RequestShareView,
   TravellingAs,
   UsualRange,
   MoneyRules,
@@ -311,6 +312,8 @@ export function requestView(
   rules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation'> = AZIZIYAH_MONEY_RULES,
   /** k2: the fetched person's name, read from the vault for the poster or the picked driver only. */
   riderName: string | null = null,
+  /** Step 6: the shared car as this viewer sees it, and whether the booker can open the link now. */
+  sharing: { share: RequestShareView | null; shareable: boolean } = { share: null, shareable: false },
 ): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
@@ -346,6 +349,8 @@ export function requestView(
     cashReservationOn: rules.requestCashReservation.enabled,
     waitClock: waitClockOf(r, rules.requestWaitExtra),
     rider: r.fetchPersonId && riderName !== null ? { name: riderName } : null,
+    share: sharing.share,
+    shareable: !viewerDriverId && sharing.shareable,
     createdAt: r.createdAt,
   };
 }

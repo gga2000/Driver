@@ -12,6 +12,10 @@ import {
   BoardInput,
   BookingIdInput,
   RateBookingInput,
+  RequestShareCodeInput,
+  RequestShareInvite,
+  RequestShareJoinInput,
+  RequestShareOpenInput,
   RespondAgreementInput,
   BookingView,
   BookSeatInput,
@@ -190,6 +194,30 @@ export const routesRouter = router({
       .input(RequestIdInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.cancelRequest(ctx.actor, input)),
+    /** Booker (step 6): open the share link, or change his own places while nobody has joined. */
+    openShare: protectedProcedure()
+      .input(RequestShareOpenInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.openShare(ctx.actor, input)),
+    /** Anyone signed in with the link (step 6): the trip and what a place costs. */
+    shareInvite: protectedProcedure()
+      .input(RequestShareCodeInput)
+      .output(RequestShareInvite)
+      .query(({ ctx, input }) => ctx.routes.shareInvite(ctx.actor, input)),
+    /** Friend (step 6): take places, held on his wallet until the trip ends. */
+    joinShare: protectedProcedure()
+      .input(RequestShareJoinInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.joinShare(ctx.actor, input)),
+    /** Friend (step 6): leave before joining closes; the hold is released. */
+    leaveShare: protectedProcedure()
+      .input(RequestShareCodeInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.leaveShare(ctx.actor, input)),
+    /** Friend (step 6): shared cars he joined, still ahead or on the road. */
+    sharedWithMe: protectedProcedure()
+      .output(z.array(RequestShareInvite))
+      .query(({ ctx }) => ctx.routes.sharedWithMe(ctx.actor)),
     /** Driver at the pickup (GPS recorded). */
     arrived: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestPositionInput)

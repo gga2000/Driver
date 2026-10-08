@@ -908,6 +908,50 @@ export const RequestOfferView = z.object({
 });
 export type RequestOfferView = z.infer<typeof RequestOfferView>;
 
+/**
+ * Step 6 (Ali's item 56, rules s1–s4): the booker of a private car shares it by a link. The price is
+ * split evenly over the people he posted for (`seats`): each place rounded down to 250, the rest on
+ * him. A friend pays his places from his wallet (held until the trip ends); joining closes a set
+ * time before the trip, and places nobody took stay the booker's, in cash.
+ */
+export const REQUEST_SHARE_PLACES_MAX = 6;
+export const RequestShareMemberState = z.enum(['joined', 'left', 'released', 'paid']);
+export type RequestShareMemberState = z.infer<typeof RequestShareMemberState>;
+
+/** What one place costs: the price over the people, rounded down to 250. */
+export function sharePlaceIqd(priceIqd: number, people: number): number {
+  return Math.floor(priceIqd / people / 250) * 250;
+}
+
+export const RequestShareMember = z.object({
+  /** First name from the identity vault (booker's view only); null for the driver. */
+  firstName: z.string().nullable(),
+  places: z.number().int().positive(),
+  amountIqd: Iqd,
+  state: RequestShareMemberState,
+});
+export type RequestShareMember = z.infer<typeof RequestShareMember>;
+
+export const RequestShareView = z.object({
+  /** The link's path (`/rajaa/join/<code>`); the booker's view only (null for the driver). */
+  path: z.string().nullable(),
+  /** Everyone in the car: the people the request was posted for. */
+  people: z.number().int().positive(),
+  bookerPlaces: z.number().int().positive(),
+  placeIqd: Iqd,
+  /** Joining closes at this time; after it, places nobody took stay the booker's. */
+  closesAt: z.coerce.date(),
+  open: z.boolean(),
+  placesLeft: z.number().int().nonnegative(),
+  /** Friends who joined (and those who left or were released), oldest first. */
+  members: z.array(RequestShareMember),
+  /** What friends' wallets cover now. */
+  friendsIqd: Iqd,
+  /** What is left for the driver to collect in cash at the end (after the deposit and the friends). */
+  cashIqd: Iqd,
+});
+export type RequestShareView = z.infer<typeof RequestShareView>;
+
 export const RequestPostView = z.object({
   id: z.string(),
   riderId: z.string(),
@@ -946,9 +990,56 @@ export const RequestPostView = z.object({
    * for the poster and the driver he picked only; null on other trips and for everyone else.
    */
   rider: z.object({ name: z.string() }).nullable().default(null),
+  /** Step 6: the car shared by link (booker and picked driver); null while not shared. */
+  share: RequestShareView.nullable().default(null),
+  /** Step 6: whether the booker can open the share link now (switch on, picked, before it closes, 2+ people). */
+  shareable: z.boolean().default(false),
   createdAt: z.coerce.date(),
 });
 export type RequestPostView = z.infer<typeof RequestPostView>;
+
+/** Step 6: the booker opens the link, saying how many of the places are his own (him and his family). */
+export const RequestShareOpenInput = z.object({
+  postId: z.string().min(1),
+  bookerPlaces: z.number().int().min(1).max(REQUEST_SHARE_PLACES_MAX).default(1),
+});
+export type RequestShareOpenInput = z.input<typeof RequestShareOpenInput>;
+
+export const RequestShareCodeInput = z.object({ code: z.string().regex(/^[A-Z2-9]{8}$/) });
+export type RequestShareCodeInput = z.infer<typeof RequestShareCodeInput>;
+
+export const RequestShareJoinInput = RequestShareCodeInput.extend({
+  places: z.number().int().min(1).max(REQUEST_SHARE_PLACES_MAX).default(1),
+});
+export type RequestShareJoinInput = z.input<typeof RequestShareJoinInput>;
+
+/**
+ * Step 6: what a friend sees from the link: the trip (no offers, no other prices), his own places
+ * and what they cost, and the live state once he joined.
+ */
+export const RequestShareInvite = z.object({
+  code: z.string(),
+  postId: z.string(),
+  state: RequestState,
+  from: RequestPlace,
+  to: RequestPlace,
+  when: z.coerce.date(),
+  details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  /** The booker's first name («أحمد يتقاسم السيارة وياك»). */
+  bookerName: z.string().nullable(),
+  driver: RequestOfferDriver.nullable(),
+  people: z.number().int().positive(),
+  placeIqd: Iqd,
+  placesLeft: z.number().int().nonnegative(),
+  closesAt: z.coerce.date(),
+  open: z.boolean(),
+  /** His own places (0 before he joins) and their state. */
+  myPlaces: z.number().int().nonnegative(),
+  myAmountIqd: Iqd,
+  myState: RequestShareMemberState.nullable(),
+  driverArrivedAt: z.coerce.date().nullable(),
+});
+export type RequestShareInvite = z.infer<typeof RequestShareInvite>;
 
 export const RequestIdInput = z.object({ postId: z.string().min(1) });
 export type RequestIdInput = z.infer<typeof RequestIdInput>;
@@ -1448,6 +1539,14 @@ export interface RoutesPort {
   askCash(actor: Actor, input: AskCashInput): Promise<RequestPostView>;
   cancelRequest(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportDriverNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  /** Step 6: the booker opens (or, while nobody joined, changes) the share link. */
+  openShare(actor: Actor, input: RequestShareOpenInput): Promise<RequestPostView>;
+  /** Step 6: anyone signed in with the link reads the trip. */
+  shareInvite(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  joinShare(actor: Actor, input: RequestShareJoinInput): Promise<RequestShareInvite>;
+  leaveShare(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  /** Step 6: the shared cars a friend joined that are still ahead or on the road. */
+  sharedWithMe(actor: Actor): Promise<RequestShareInvite[]>;
   // driver
   announce(actor: Actor, input: z.infer<typeof AnnounceInput>): Promise<DriverDepartureView>;
   myDepartures(actor: Actor): Promise<DriverDepartureView[]>;

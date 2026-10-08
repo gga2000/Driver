@@ -360,6 +360,10 @@ export const ERROR_TABLE = {
   demand_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  // Step 6: a shared private car's link (unknown code, joining closed, no places left).
+  share_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  share_closed: { retryHint: 'never', status: 'CONFLICT' },
+  share_full: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // w1: a «يستناك وترجع» offer must say the waiting hours included and the extra-hour price.
   offer_wait_terms_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },

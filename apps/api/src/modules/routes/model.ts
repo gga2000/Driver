@@ -15,6 +15,7 @@ import type {
   PinAttemptResult,
   RajaaRatingTag,
   RequestPlaceId,
+  RequestShareMemberState,
   RequestState,
   ReviewHideReason,
   SeatPayment,
@@ -268,8 +269,42 @@ export interface RequestRecord {
   waitEndedAt: Date | null;
   /** k2 «جيب واحد»: the person fetched (a person id only; the name the poster gave is in the vault). */
   fetchPersonId: string | null;
+  /** Step 6 (item 56): the car shared by link; null until the booker opens it. */
+  share: RequestShareRecord | null;
   closedAt: Date | null;
   createdAt: Date;
+}
+
+/** Step 6: a shared private car. Everyone in it = the request's `seats`. */
+export interface RequestShareRecord {
+  code: string;
+  /** The booker's own places (him and his family). */
+  bookerPlaces: number;
+  /** One place's price, fixed when the link opened (`sharePlaceIqd`). */
+  placeIqd: number;
+  openedAt: Date;
+  /** Friends who joined, oldest first (left and released rows are kept). */
+  members: RequestShareMemberRecord[];
+}
+
+export interface RequestShareMemberRecord {
+  id: string;
+  personId: string;
+  places: number;
+  amountIqd: number;
+  state: RequestShareMemberState;
+  joinedAt: Date;
+  closedAt: Date | null;
+}
+
+/** Places friends hold now. */
+export function sharedPlaces(s: RequestShareRecord): number {
+  return s.members.filter((m) => m.state === 'joined').reduce((n, m) => n + m.places, 0);
+}
+
+/** What friends' wallets cover now. */
+export function sharedIqd(s: RequestShareRecord | null): number {
+  return s ? s.members.filter((m) => m.state === 'joined' || m.state === 'paid').reduce((n, m) => n + m.amountIqd, 0) : 0;
 }
 
 /**

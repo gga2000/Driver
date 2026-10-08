@@ -1949,11 +1949,17 @@ model RideRequest {
   waitEndedAt      DateTime?        @map("wait_ended_at")
   /// k2 «جيب واحد»: the person the car fetches (id only; the name the poster gave lives in the identity vault)
   fetchPersonId    String?          @map("fetch_person_id")
+  /// Step 6 (item 56): the car shared by link — the link's code, the booker's own places, one place's price, when he opened it
+  shareCode         String?         @unique @map("share_code")
+  shareBookerPlaces Int?            @map("share_booker_places")
+  sharePlaceIqd     Int?            @map("share_place_iqd")
+  shareOpenedAt     DateTime?       @map("share_opened_at")
   closedAt         DateTime?        @map("closed_at")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   offers RideRequestOffer[]
+  shares RideRequestShare[]
 
   @@index([state, when])
   @@index([riderId])
@@ -1980,6 +1986,30 @@ model RideRequestOffer {
   @@index([requestId])
   @@index([driverId])
   @@map("ride_request_offers")
+  @@schema("public")
+}
+
+/// Step 6 (item 56): a friend who joined a shared private car by its link. His places are held on his
+/// wallet while `joined`; `paid` when the trip completes (the ledger posts it), `left` when he leaves
+/// before joining closes, `released` when the trip is cancelled or fails.
+model RideRequestShare {
+  id        String    @id @default(cuid())
+  requestId String    @map("request_id")
+  personId  String    @map("person_id")
+  places    Int
+  amountIqd Int       @map("amount_iqd")
+  /// joined | left | released | paid
+  state     String    @default("joined")
+  joinedAt  DateTime  @map("joined_at")
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  request RideRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId])
+  @@index([personId, state])
+  @@map("ride_request_shares")
   @@schema("public")
 }
 
