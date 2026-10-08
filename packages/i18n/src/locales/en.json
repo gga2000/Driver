@@ -8137,5 +8137,7 @@
   "push.support_resolved.title": "Your complaint is closed",
   "push.support_resolved.body": "{text}",
   "push.order_late_credit.title": "{amount} IQD credit, because we were late",
-  "push.order_late_credit.body": "We missed the time we promised you, so it is in your wallet for any order"
+  "push.order_late_credit.body": "We missed the time we promised you, so it is in your wallet for any order",
+  "push.courier_arriving_paid.body": "It's paid, just meet him at the door",
+  "wa.courier_arriving_paid": "Hi {{1}}, courier {{2}} is two minutes away with your order from {{3}}. It's already paid."
 }

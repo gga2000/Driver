@@ -27,6 +27,14 @@ A customer's complaint answered by phone, WhatsApp or in the app (`support.repli
 A second test checks that every notify template has a sender in the API (or a written reason, such as
 `marketing_offer`, whose sender is not built yet).
 
+## Two minutes away (NTF-21)
+- «الدليفري يوصل بعد دقيقتين» goes out once per drop-off, at 300 m, after its food is picked up, and
+  only when it is the courier's next door: a batched courier passing a later door on the way to an
+  earlier one says nothing there yet (`nextDoor` in trips).
+- A cash order hears «جهّز الكاش {amount} دينار إذا تدفع كاش» (`courier_arriving`); an order already paid
+  (wallet, prepaid) hears «طلبك مدفوع، بس استلمه من الباب» (`courier_arriving_paid`, WhatsApp
+  `wa.courier_arriving_paid` with no amount).
+
 ## Money landing in the wallet (NTF-22)
 - The honest-delay credit: `order.late_credit` → `order_late_credit` «+1,000 دينار رصيد، لأن تأخرنا
   عليك», like the change credit (`cash_change_credit`). See `late-promise.md`.

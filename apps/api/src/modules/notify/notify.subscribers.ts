@@ -382,15 +382,13 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         L.firstName(e.actorId, 'notify_courier_arriving'),
         order.merchantOrgId ? L.storeName(order.merchantOrgId) : Promise.resolve(null),
       ]);
+      // NTF-21: «جهّز الكاش» only when he pays cash at the door; a paid order hears the same moment without it.
+      const params = { name: name ?? '', courier: courier ?? 'الدليفري', merchant: merchant ?? 'درايفر', orderId: order.id };
+      const paid = order.paymentMethod !== undefined && order.paymentMethod !== 'cash';
       return [
-        {
-          ...base,
-          template: 'courier_arriving',
-          to: order.customerId,
-          orderId: order.id,
-          params: { name: name ?? '', courier: courier ?? 'الدليفري', merchant: merchant ?? 'درايفر', amount: iqd(order.totalIqd), orderId: order.id },
-          data: { orderId: order.id },
-        },
+        paid
+          ? { ...base, template: 'courier_arriving_paid', to: order.customerId, orderId: order.id, params, data: { orderId: order.id } }
+          : { ...base, template: 'courier_arriving', to: order.customerId, orderId: order.id, params: { ...params, amount: iqd(order.totalIqd) }, data: { orderId: order.id } },
       ];
     }
     case 'order.prep_extended': {

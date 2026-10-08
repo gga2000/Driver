@@ -8137,5 +8137,7 @@
   "push.support_resolved.title": "سكّرنا شكوتك",
   "push.support_resolved.body": "{text}",
   "push.order_late_credit.title": "{amount} دينار رصيد، لأن تأخرنا عليك",
-  "push.order_late_credit.body": "عدّينا الوقت اللي وعدناك بيه، فحطيناها بمحفظتك وتنصرف بأي طلب"
+  "push.order_late_credit.body": "عدّينا الوقت اللي وعدناك بيه، فحطيناها بمحفظتك وتنصرف بأي طلب",
+  "push.courier_arriving_paid.body": "طلبك مدفوع، بس استلمه من الباب",
+  "wa.courier_arriving_paid": "هلا {{1}}، الدليفري {{2}} يوصلك بعد دقيقتين بطلبك من {{3}}. طلبك مدفوع."
 }

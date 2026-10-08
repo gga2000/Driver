@@ -9,6 +9,8 @@ export interface OrderFacts {
   itemCount: number;
   /** A ride booked for someone else (s3): the rider's account, when he has one; null otherwise. */
   riderId?: string | null;
+  /** How it is paid (`cash` | `wallet` | `prepaid`); absent = unknown, read as cash. */
+  paymentMethod?: string;
 }
 
 export interface BookingFacts {
