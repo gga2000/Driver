@@ -7,6 +7,7 @@ import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, buildZoneCent
 import { layerTransform, pathD, project, type Camera, type Size } from '../geo';
 import type { CameraValues } from './types';
 import { useApi } from '@/lib/api';
+import { ZONE_SHAPES_QUERY } from './zone-query';
 
 const ZONES = buildZonesGeoJSON();
 const CENTROIDS = buildZoneCentroidsGeoJSON();
@@ -30,7 +31,7 @@ export interface ZoneLayerProps {
 /** The zone outlines and their centres: the live placements once loaded, the built-in ones before. */
 function useZoneShapes() {
   const api = useApi();
-  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zones = useMemo(() => (liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES), [liveZones.data]);
   const centroids = useMemo(() => (liveZones.data ? buildPlacedZoneCentroidsGeoJSON(liveZones.data) : CENTROIDS), [liveZones.data]);
   return { zones, centroids };
