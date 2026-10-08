@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73"
     },
     "customer.assets_mb": {
-      "max": 6.4,
-      "why": "dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
+      "max": 6.55,
+      "why": "door page photos kubba, cocktail, laban (+0.13, #67); dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.17,

@@ -217,6 +217,9 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
               role: subject.role,
               subjectKind: input.subject.kind,
               subjectId: input.subject.id,
+              // What the page says it is about (kind + ticket, no names). A private ride's label holds the
+              // rider's typed places, so the event carries only its kind.
+              subjectLabel: input.subject.kind === 'request' ? 'مشوار خاص' : subject.label,
               orderId: subject.orderId,
               departureId: subject.departureId,
               contactSet: Boolean(contact),

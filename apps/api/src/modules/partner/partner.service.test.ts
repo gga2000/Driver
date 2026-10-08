@@ -121,6 +121,8 @@ function harness(
     climate?: PartnerDeps['climate'];
     booked?: { online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] };
     answers?: Array<{ driverId: string; tripId: string; answer: string }>;
+    /** HUNT-02: the food order was priced «بالشارع». */
+    street?: boolean;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -179,7 +181,7 @@ function harness(
             ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) })
             : id === 'o2'
               ? order({ id: 'o2', paymentMethod: 'wallet' })
-              : order(),
+              : order(opts.street ? { streetHandover: true } : {}),
       ...(opts.startCodeFor ? { startCodeRequired: async (id: string) => opts.startCodeFor!.includes(id) } : {}),
       ...(opts.rideFor ? { riderName: async (_orderId: string, driverId: string) => (driverId === actor.personId ? opts.rideFor! : null) } : {}),
     },
@@ -420,6 +422,12 @@ describe('PartnerService', () => {
       ['s1', 'مطعم خالد', 0, null],
       ['s2', null, 15_500, 'باب أخضر يم الجامع'],
     ]);
+  });
+
+  it('HUNT-02: a «بالشارع» order tells him on the drop-off only; a door order says nothing', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [t], street: true }).activeJob(actor))!.stops.map((s) => s.streetHandover)).toEqual([undefined, true]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops.map((s) => s.streetHandover)).toEqual([undefined, undefined]);
   });
 
   it('activeJob: a drop-off at a saved place shows its door and whether he was ever there (maps f6, a5)', async () => {
