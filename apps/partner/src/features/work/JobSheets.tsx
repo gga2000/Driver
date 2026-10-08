@@ -1,38 +1,9 @@
 import { Pressable, View } from 'react-native';
-import { Button, Icon, ModalSheet, Text, useTheme } from '@driver/ui';
+import { Icon, ModalSheet, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { NAV_APPS, type NavApp } from './nav';
 
 const NAV_NAME: Record<NavApp, 'partner.nav_google' | 'partner.nav_waze'> = { google: 'partner.nav_google', waze: 'partner.nav_waze' };
-
-/**
- * "وصلت؟" (maps program d4): he has stood inside the stop's 60 m for 10 s. One big button arrives (the
- * same action as the job button); "مو بعد" closes it until he leaves and comes back.
- */
-export function ArriveSheet({ visible, place, busy, onArrive, onNotYet }: { visible: boolean; place: string; busy: boolean; onArrive: () => void; onNotYet: () => void }) {
-  const theme = useTheme();
-  const t = useT();
-  return (
-    <ModalSheet
-      visible={visible}
-      onClose={onNotYet}
-      title={t('partner.arrive_ask_title')}
-      subtitle={place}
-      locked={busy}
-      testID="arrive-sheet"
-      footer={
-        <View style={{ gap: theme.space[2] }}>
-          <Button label={t('partner.arrive_ask_yes')} icon="check" size="lg" haptic="success" loading={busy} onPress={onArrive} testID="arrive-yes" />
-          <Button label={t('partner.arrive_ask_not_yet')} variant="ghost" onPress={onNotYet} disabled={busy} testID="arrive-not-yet" />
-        </View>
-      }
-    >
-      <Text variant="body" color="textMuted">
-        {t('partner.arrive_ask_body')}
-      </Text>
-    </ModalSheet>
-  );
-}
 
 /** Google Maps or Waze (maps program d3): asked on the first "الخريطة", changeable in the account tab. */
 export function NavChooser({ visible, current, onPick, onClose }: { visible: boolean; current: NavApp | null; onPick: (app: NavApp) => void; onClose: () => void }) {

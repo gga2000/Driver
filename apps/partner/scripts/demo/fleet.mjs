@@ -177,7 +177,10 @@ export default async function register(demo) {
     vehicle: 'tuktuk',
     plate: 'واسط 40777',
   });
-  await fleet.addDriver(owner, { phone: '07701110056' });
+  // f5: سجاد picked a free tuktuk for him on the same screen; it becomes his when he says yes.
+  const spare = await fleet.addVehicle(owner, { plate: 'واسط 40912', vehicleClass: 'tuktuk', seats: 3, model: 'باجاج', colour: 'green' });
+  vehicles.f_spare = spare;
+  await fleet.addDriver(owner, { phone: '07701110056', vehicleId: spare.vehicleId });
   drivers.f_invitee = invitee;
   try {
     // Papers and today's selfie, so his home shows the invite rather than the check-in banner.
@@ -213,7 +216,7 @@ export default async function register(demo) {
         { fleetOrgId: org.id, accept: false },
       )
       .catch(() => undefined);
-    await fleet.addDriver(owner, { phone: '07701110056' });
+    await fleet.addDriver(owner, { phone: '07701110056', vehicleId: spare.vehicleId });
     demo.json(res, 200, { ok: true });
   });
   demo.route('/demo/fleet/live', async ({ res }) => {

@@ -53,7 +53,7 @@ export default async function run(s) {
   for (const k of t.code) await c.byTestId(`ops-pad-${k}`).click();
   await c.wait('job-topup-found');
   await c.shot('topup-found', { full: true, settle: 900 });
-  await c.byTestId('job-topup-confirm').click();
+  await c.slide('job-topup-confirm');
   await c.wait('job-topup-done');
   await c.shot('topup-done', { full: true, settle: 900 });
   await c.close();
