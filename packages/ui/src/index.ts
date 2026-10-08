@@ -1,6 +1,7 @@
 // Theme
 export { ThemeProvider, useTheme, createTheme, fontStyle, faceStyle } from './theme/ThemeProvider';
 export type { Theme, ThemeProviderProps, HapticKind, HapticHandler, Direction, FontMode } from './theme/ThemeProvider';
+export type { TextScale } from '@driver/design-tokens';
 export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 
 // Icons
