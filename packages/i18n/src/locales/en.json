@@ -8209,5 +8209,7 @@
   "partner.data_use_mb": "About {n} MB",
   "partner.data_use_packs": "A 1 GB pack covers a shift like this about {n} times",
   "partner.data_use_hint": "An estimate from your phone. It leaves out pictures you see and other apps. «Data saver» below cuts it.",
-  "partner.data_use_shift_line": "The app used about {n} MB of internet this shift"
+  "partner.data_use_shift_line": "The app used about {n} MB of internet this shift",
+  "partner.job_street_title": "Street handover · the customer comes out",
+  "partner.job_street_body": "Don't go to the door. Call when you're close; they'll meet you on the street by the pin."
 }
