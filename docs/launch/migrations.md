@@ -33,6 +33,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010430000 | household_invites | lane D | household invites PR (reserved) |
 | 20261010440000 | customer_waves | lane D | waves PR (reserved) |
 | 20261010450000 | account_deletion | lane D | account deletion PR (reserved) |
+| 20261010460000 | test_kitchen | lane D | store-reviewer PR (reserved) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, `20261010140000`)
 and #38 (lane B, `20261010220000`). Those two re-stamp to the next free timestamp when they land, and
