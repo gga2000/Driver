@@ -7,6 +7,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { TRPC_PATH, TrpcService } from './trpc/trpc.module.js';
+import { createAppGate } from './shared/app-gate.js';
 import { AppLogger } from './shared/logging.js';
 import { Metrics } from './shared/metrics.js';
 import { createRequestLog, type RequestLogLine } from './shared/request-log.js';
@@ -101,6 +102,8 @@ export async function createApp(opts: { logger?: LoggerService; metrics?: Metric
     else requestLogger.log(`request ${JSON.stringify(line)}`);
   };
   app.use(TRPC_PATH, createRequestLog(opts.metrics ?? new Metrics(), write));
+  // CORE-05: builds older than MIN_APP_VERSIONS are told to update (health.* still answers).
+  app.use(TRPC_PATH, createAppGate());
   app.get(TrpcService).mount(app);
   return app;
 }

@@ -208,17 +208,43 @@ function report(call: ProcedureCall): void {
   }
 }
 
+let procedureGate: ((call: { path: string; type: ProcedureCall['type'] }) => DriverError | null) | undefined;
+
+/**
+ * The API registers one gate at boot: asked before every call through `publicProcedure`; a
+ * DriverError it returns refuses the call (CORE-05: a build older than the minimum gets
+ * `update_required`). A gate that throws lets the call through.
+ */
+export function gateProcedures(gate: typeof procedureGate): void {
+  procedureGate = gate;
+}
+
+function refusal(path: string, type: ProcedureCall['type']): DriverError | null {
+  try {
+    return procedureGate?.({ path, type }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Maps a DriverError thrown anywhere below to its tRPC code (and so its HTTP status: offer_taken →
  * 409, dev_only → 403…). tRPC v11 does not throw out of `next()`: a failing resolver or middleware
  * comes back as `{ ok: false, error }` with the DriverError wrapped as INTERNAL_SERVER_ERROR's
  * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
- * tRPC with the new code. Each call is also reported to the API's observer (`observeProcedures`).
+ * tRPC with the new code. Each call is first asked of the API's gate (`gateProcedures`) and then
+ * reported to its observer (`observeProcedures`).
  */
 export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
   const started = Date.now();
   const done = (code: string, driverCode?: string) =>
     procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
+  const refused = refusal(path, type);
+  if (refused) {
+    const mapped = toTrpcError(refused);
+    done(mapped.code, refused.code);
+    throw mapped;
+  }
   let result;
   try {
     result = await next();
