@@ -11,9 +11,9 @@
       "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08)"
     },
     "partner.code_mb": {
-      "max": 6.5,
+      "max": 6.15,
       "target": 5.5,
-      "why": "s1 per-app words"
+      "why": "s1 landed for the partner app: 6.26 -> 5.95; the rest is s4 (lazy screens, barrel trims)"
     },
     "partner.assets_mb": {
       "max": 4.6,
