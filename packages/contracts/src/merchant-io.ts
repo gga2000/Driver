@@ -120,6 +120,23 @@ export const BoardCourier = z.object({
 });
 export type BoardCourier = z.infer<typeof BoardCourier>;
 
+/**
+ * What the customer pays, line by line, for the slip in the bag: `itemsIqd + deliveryFeeIqd +
+ * serviceFeeIqd + smallOrderFeeIqd − discountIqd − pointsIqd + changeIqd = totalIqd` (the order's own
+ * fields; `changeIqd` is a cash order's rounding up to 250, which goes back to his wallet).
+ */
+export const BoardBill = z.object({
+  itemsIqd: Iqd,
+  deliveryFeeIqd: Iqd,
+  serviceFeeIqd: Iqd,
+  smallOrderFeeIqd: Iqd,
+  discountIqd: Iqd,
+  pointsIqd: Iqd,
+  changeIqd: Iqd,
+  totalIqd: Iqd,
+});
+export type BoardBill = z.infer<typeof BoardBill>;
+
 export const BoardOrder = z.object({
   id: z.string(),
   /** Short ticket number the kitchen calls out ("4821"); stable per order. */
@@ -160,6 +177,12 @@ export const BoardOrder = z.object({
   handedOverAt: z.coerce.date().nullable().optional(),
   /** «عزيمة» (joy g1): a gift; `hidePrices` → the ticket prints no amounts. Null/absent = not a gift. */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
+  /**
+   * The customer slip's money (print redesign, Ali 2026-10-08 k2): every amount exactly as the server
+   * fixed it on the order, so the slip in the bag adds up without the tablet doing any sums. Absent on
+   * an older API and on a gift whose sender hid the prices (the slip then prints no amounts).
+   */
+  bill: BoardBill.optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
 
