@@ -24,13 +24,15 @@ through the Cloud API (`POST graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP
 `/webhooks/whatsapp` (verify token `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, signature `WHATSAPP_APP_SECRET`);
 a message not delivered 60 s after sending gets its SMS twin (domain §8).
 
-14 templates.
+16 templates.
 
 | Template | Meta category | Sent as notify template (category) |
 |---|---|---|
 | `otp_login` | AUTHENTICATION | the sign-in code (identity, not a notify template) |
 | `courier_arriving` | UTILITY | `courier_arriving` (order_updates) |
+| `courier_arriving_paid` | UTILITY | `courier_arriving_paid` (order_updates) |
 | `courier_cash_receipt` | UTILITY | `courier_cash_receipt` (money) |
+| `courier_unreachable` | UTILITY | `courier_unreachable` (safety) |
 | `khat_child_arrived` | UTILITY | `khat_child_arrived` (safety) |
 | `khat_sweep_dispatch_alert` | UTILITY | `khat_sweep_dispatch_alert` (safety) |
 | `merchant_cash_handover` | UTILITY | `merchant_cash_handover` (money) |
@@ -64,6 +66,25 @@ Hi {{1}}, courier {{2}} is 2 minutes away with your order from {{3}}. Amount {{4
 
 Sample values for the submission: `{{1}}` = علي · `{{2}}` = حيدر · `{{3}}` = مطعم خالد · `{{4}}` = 12,500
 
+### `courier_arriving_paid`
+
+- Category: **UTILITY** · languages: `ar`, `en` · i18n key: `wa.courier_arriving_paid` · notify template `courier_arriving_paid`
+- Body parameters, in order: `{{1}}` name, `{{2}}` courier, `{{3}}` merchant
+
+Arabic (`ar`):
+
+```text
+هلا {{1}}، الدليفري {{2}} يوصلك بعد دقيقتين بطلبك من {{3}}. طلبك مدفوع.
+```
+
+English (`en`):
+
+```text
+Hi {{1}}, courier {{2}} is two minutes away with your order from {{3}}. It's already paid.
+```
+
+Sample values for the submission: `{{1}}` = علي · `{{2}}` = حيدر · `{{3}}` = مطعم خالد
+
 ### `courier_cash_receipt`
 
 - Category: **UTILITY** · languages: `ar`, `en` · i18n key: `wa.partner_settlement_receipt` · notify template `courier_cash_receipt`
@@ -82,6 +103,25 @@ We received your settlement of {{1}} IQD on {{2}}. Your balance is now {{3}} IQD
 ```
 
 Sample values for the submission: `{{1}}` = 60,000 · `{{2}}` = 2026-10-04 · `{{3}}` = -15,000
+
+### `courier_unreachable`
+
+- Category: **UTILITY** · languages: `ar`, `en` · i18n key: `wa.courier_unreachable` · notify template `courier_unreachable`
+- Body parameters, in order: `{{1}}` courier
+
+Arabic (`ar`):
+
+```text
+الدليفري {{1}} عند بابك بطلبك ويحاول يوصلك. اطلع له أو رد على رسالته خلال 5 دقايق، بعدها يرجع.
+```
+
+English (`en`):
+
+```text
+Courier {{1}} is at your door with your order and is trying to reach you. Step out or answer their message within 5 minutes, or they will leave.
+```
+
+Sample values for the submission: `{{1}}` = حيدر
 
 ### `khat_child_arrived`
 
