@@ -8070,5 +8070,18 @@
   "datasaver.slow_hint_auto": "Your internet is slow right now, so we made the app lighter: fewer photos, a simpler map",
   "datasaver.slow_keep": "Keep it light",
   "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",
-  "datasaver.slow_turn_on": "Make it light"
+  "datasaver.slow_turn_on": "Make it light",
+  "partner.ic_seats_left_none": "The car is full",
+  "partner.ic_seats_left_one": "1 seat left",
+  "partner.ic_seats_left_two": "2 seats left",
+  "partner.ic_seats_left_few": "{n} seats left",
+  "partner.ic_seat_you": "You",
+  "partner.ic_code_cta": "Enter a boarding code",
+  "partner.ic_code_count": "{n} of {total}",
+  "partner.ic_code_ok": "Code correct · {time}",
+  "partner.ic_code_next": "Next rider",
+  "partner.ic_code_done": "Done, everyone is on",
+  "partner.ic_code_wrong": "That code isn't for a rider on this run. Check their ticket",
+  "partner.ic_aboard_title": "Who's in the car",
+  "partner.ic_aboard_count": "{n} in the car"
 }

@@ -4,7 +4,7 @@ import type { DriverBookingRow } from '@driver/contracts';
 import { Avatar, Button, Icon, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { paymentLabel, pickupLabel, riderName, seatsList, statusLabel, travellingAsLabel } from './labels';
+import { paymentLabel, pickupLabel, riderName, seatsList, statusLabel } from './labels';
 import { mapsUrl, riderStatus, type PickupStop, type RiderStatus } from './logic';
 
 // ───────────────────────── rider status tones ─────────────────────────
@@ -123,7 +123,7 @@ export function RiderRow({
             {`${name} · ${seatsList(t, booking.seatIds)}`}
           </Text>
           <Text variant="caption" color="textMuted" numberOfLines={2} tabular>
-            {[travellingAsLabel(t, booking.travellingAs), paymentLabel(t, booking), pickupLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null].filter(Boolean).join(' · ')}
+            {[paymentLabel(t, booking), pickupLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null].filter(Boolean).join(' · ')}
           </Text>
         </View>
         <StatusPill label={statusLabel(t, s, booking)} tone={STATUS_TONE[s]} size="sm" live={s === 'late'} />
