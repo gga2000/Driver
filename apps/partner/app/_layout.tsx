@@ -154,8 +154,8 @@ function OfferWatcher() {
   useJobPositions(Boolean(status.data?.activeTripId));
   // Online or on a job with the app in the background: the OS location service keeps both going.
   useBackgroundLocation(status.data);
-  // Online or on a job: the screen stays on (P-01) — a phone in a mount must not lock between offers.
-  useKeepAwakeWhile(keepScreenOn(status.data));
+  // An offer showing or a job: the screen stays on (P-01). Waiting online it may sleep (speed b2); offers ring by push.
+  useKeepAwakeWhile(keepScreenOn(status.data, Boolean(offer.data?.offerId)));
   // Job taps saved offline are replayed in order as soon as the network is back (P-09).
   useJobQueueRunner(true);
   const segments = useSegments();

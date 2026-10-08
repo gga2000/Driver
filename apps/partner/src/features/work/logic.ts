@@ -141,6 +141,15 @@ export function secondsLeft(expiresAt: Date, now: number): number {
   return Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000));
 }
 
+/**
+ * Speed b3: the offer's seconds label re-renders once a second, on the second it changes (the time bar
+ * runs on its own animation), instead of four times a second.
+ */
+export function msToNextSecond(expiresAt: Date, now: number): number {
+  const rest = (expiresAt.getTime() - now) % 1000;
+  return rest > 0 ? rest + 5 : 1000;
+}
+
 /** Offers count as seen after 3 s in the foreground (edge-case §6). */
 export const OFFER_SEEN_AFTER_MS = 3_000;
 
@@ -150,9 +159,13 @@ export function offerWarnTick(secondsLeftNow: number): boolean {
   return secondsLeftNow > 0 && secondsLeftNow <= OFFER_WARN_FROM_S;
 }
 
-/** Keep the screen on while he can get an offer or is on a job (P-01). */
-export function keepScreenOn(s: { online: boolean; activeTripId: string | null } | undefined): boolean {
-  return Boolean(s && (s.online || s.activeTripId));
+/**
+ * Keep the screen on only while an offer is showing or he is on a job (P-01, speed b2). Waiting online the
+ * phone may sleep like any other: a new offer still rings through the push alert, and an always-lit screen
+ * was the biggest battery cost of a long wait.
+ */
+export function keepScreenOn(s: { activeTripId: string | null } | undefined, offerShowing = false): boolean {
+  return offerShowing || Boolean(s?.activeTripId);
 }
 
 /**
