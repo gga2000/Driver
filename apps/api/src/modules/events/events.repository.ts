@@ -50,6 +50,13 @@ export interface EventsRepository {
   deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>>;
   markDelivered(outboxId: string, subscriber: string, at: Date, tx?: Tx): Promise<void>;
   recordDeliveryFailure(outboxId: string, subscriber: string, error: string, tx?: Tx): Promise<void>;
+  /**
+   * Deletes up to `limit` delivery records of outbox rows published before `publishedBefore` and
+   * returns how many went. A published row never drains again, so its records no longer guard
+   * anything; pending and failed rows keep theirs (a retry still needs them). The outbox rows stay:
+   * their payload is the event store's read.
+   */
+  purgeDeliveries(publishedBefore: Date, limit: number): Promise<number>;
 }
 
 export interface OutboxFilter {
@@ -249,5 +256,14 @@ export class PrismaEventsRepository implements EventsRepository {
       create: { outboxId, subscriber, attempts: 1, lastError: error },
       update: { attempts: { increment: 1 }, lastError: error },
     });
+  }
+
+  async purgeDeliveries(publishedBefore: Date, limit: number): Promise<number> {
+    return this.prisma.prisma.$executeRaw`
+      DELETE FROM "public"."subscriber_deliveries" WHERE "id" IN (
+        SELECT sd."id" FROM "public"."subscriber_deliveries" sd
+        JOIN "public"."outbox" o ON o."id" = sd."outbox_id"
+        WHERE o."status" = 'published' AND o."published_at" < ${ts(publishedBefore)}
+        LIMIT ${limit})`;
   }
 }

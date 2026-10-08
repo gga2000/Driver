@@ -118,6 +118,11 @@ export class EventsService {
     return this.repo.outboxStats();
   }
 
+  /** Retention: delivery records of rows published before `publishedBefore`, `limit` at a time. */
+  purgeDeliveries(publishedBefore: Date, limit: number): Promise<number> {
+    return this.repo.purgeDeliveries(publishedBefore, limit);
+  }
+
   /** The most recent failed outbox rows, newest first (Console system page). */
   async recentFailedOutbox(limit = 20): Promise<OutboxFailure[]> {
     const rows = await this.repo.outbox({ status: 'failed', newestFirst: true, limit });

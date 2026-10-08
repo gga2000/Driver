@@ -241,6 +241,19 @@ export class InMemoryEventsRepository implements EventsRepository {
     d.lastError = error;
   }
 
+  async purgeDeliveries(publishedBefore: Date, limit: number): Promise<number> {
+    let n = 0;
+    for (const [key, d] of this.deliveries) {
+      if (n >= limit) break;
+      const row = this.rowsById.get(d.outboxId);
+      if (row?.status !== 'published' || !row.publishedAt || row.publishedAt >= publishedBefore) continue;
+      this.deliveries.delete(key);
+      this.deliveriesByRow.get(d.outboxId)?.delete(d.subscriber);
+      n += 1;
+    }
+    return n;
+  }
+
   /** Delivery records (tests and the Console). */
   allDeliveries(): Delivery[] {
     return [...this.deliveries.values()].map((d) => ({ ...d }));

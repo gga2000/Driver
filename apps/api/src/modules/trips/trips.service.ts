@@ -449,6 +449,14 @@ export class TripsService implements OnModuleInit {
     return this.repo.purgeTrail(cutoff, keepTripIds, batch);
   }
 
+  ensureTrailPartitions(now: Date): Promise<void> {
+    return this.repo.ensureTrailPartitions(now);
+  }
+
+  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]> {
+    return this.repo.dropExpiredTrailPartitions(cutoff, keepTripIds);
+  }
+
   /**
    * s1: pickups whose wrong night-ride codes alerted ops in the last `showMin` minutes, in the city,
    * newest first (the Console safety strip).

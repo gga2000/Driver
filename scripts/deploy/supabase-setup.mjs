@@ -157,7 +157,8 @@ async function main() {
       for (const c of changes.slice(0, 12)) console.log(`  · ${c.object}: ${c.action}`);
       if (changes.length > 12) console.log(`  · … ${changes.length - 12} more`);
       ok('harden', `${changes.length} change(s)`);
-      await w.query(`SELECT public.ensure_trail_partition(date_trunc('month', now())::date), public.ensure_trail_partition((date_trunc('month', now()) + interval '1 month')::date)`);
+      // Daily trail partitions for today and the next 7 days (the API keeps making them every hour).
+      await w.query(`SELECT public.ensure_trail_day_partition(d::date) FROM generate_series(now()::date, now()::date + 7, interval '1 day') AS d`);
     }
   }
 
@@ -262,12 +263,14 @@ async function verify(db, supabase) {
        JOIN pg_namespace n ON n.oid = p.relnamespace WHERE n.nspname = 'public' AND p.relname = 'trail_points' ORDER BY 1`,
     )
   ).rows.map((r) => r.relname);
-  const month = (d) => `trail_points_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  // Today must have a partition: its day (`trail_points_YYYY_MM_DD`) or, made before daily partitions, its month.
   const now = new Date();
-  const want = ['trail_points_default', month(now)];
-  const lacking = want.filter((p) => !parts.includes(p));
-  if (lacking.length) bad('trail_points partitions', `missing ${lacking.join(', ')} (the API creates this and next month's at boot)`);
-  else ok('trail_points partitions', parts.join(', '));
+  const month = `trail_points_${now.getUTCFullYear()}_${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  const day = `${month}_${String(now.getUTCDate()).padStart(2, '0')}`;
+  const lacking = [...(parts.includes('trail_points_default') ? [] : ['trail_points_default']), ...(parts.includes(day) || parts.includes(month) ? [] : [day])];
+  const shown = parts.length > 6 ? `${parts.slice(0, 3).join(', ')} … ${parts.slice(-2).join(', ')} (${parts.length})` : parts.join(', ');
+  if (lacking.length) bad('trail_points partitions', `missing ${lacking.join(', ')} (the API makes the next days' partitions every hour)`);
+  else ok('trail_points partitions', shown);
 
   const triggers = (await db.query(`SELECT tgname FROM pg_trigger WHERE tgname IN ('ledger_events_append_only', 'vault_access_logs_append_only') ORDER BY 1`)).rows.map((r) => r.tgname);
   if (triggers.length === 2) ok('append-only triggers', triggers.join(', '));

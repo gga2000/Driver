@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { LatLng, StopState, StopType, TripState, VehicleClass, Vertical } from '@driver/contracts';
+import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { TripOrderLookup } from './trip-order.lookup.js';
@@ -168,6 +169,13 @@ export interface TripsRepository extends TripOrderLookup {
    * 30 days, then the trip row is the summary). Returns how many went; a short count means done.
    */
   purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number>;
+  /** Makes sure the trail partitions of the next `days` days exist (Postgres only; idempotent). */
+  ensureTrailPartitions(now: Date, days?: number): Promise<void>;
+  /**
+   * Detaches and drops each trail partition whose whole range is older than `cutoff`, unless it holds a
+   * point of `keepTripIds` (it waits until they are resolved). Returns the dropped partitions' names.
+   */
+  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]>;
   /** Pickup stops of trips created in `[from, to)` in the city, per zone (maps program d5's forecast). */
   pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>>;
   /** Up to `limit` completed stops before `cutoff` that still hold a delivery photo (maps program f11). */
@@ -184,6 +192,21 @@ export interface TripsRepository extends TripOrderLookup {
 }
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
+
+/** Trail partitions are made this many days ahead (hourly, so a missed hour or a slow boot never leaves a day without one). */
+export const TRAIL_PARTITION_DAYS_AHEAD = 7;
+
+/**
+ * Where a trail partition's range ends, from its name: `trail_points_YYYY_MM_DD` (a day) or
+ * `trail_points_YYYY_MM` (a month, made before daily partitions). Anything else (the default
+ * partition) has none and is never dropped.
+ */
+export function trailPartitionEnd(name: string): Date | null {
+  const m = /^trail_points_(\d{4})_(\d{2})(?:_(\d{2}))?$/.exec(name);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]) - 1, m[3] === undefined ? null : Number(m[3])];
+  return d === null ? new Date(Date.UTC(y, mo + 1, 1)) : new Date(Date.UTC(y, mo, d + 1));
+}
 
 // ───────────────────────── Prisma implementation ─────────────────────────
 
@@ -267,12 +290,47 @@ export class PrismaTripsRepository implements TripsRepository {
     return tx ?? (this.prisma.prisma as unknown as Tx);
   }
 
-  /** Creates this and next month's trail partitions (idempotent; the default partition catches the rest). */
-  async ensureTrailPartitions(now: Date): Promise<void> {
-    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-    await this.db().$executeRaw`SELECT "public"."ensure_trail_partition"(${month}::date)`;
-    await this.db().$executeRaw`SELECT "public"."ensure_trail_partition"(${next}::date)`;
+  /**
+   * Today's and the next days' trail partitions (idempotent; the default partition catches anything
+   * else). One day at a time, so a day that cannot be made (the default partition already holds its
+   * points) does not stop the others.
+   */
+  async ensureTrailPartitions(now: Date, days = TRAIL_PARTITION_DAYS_AHEAD): Promise<void> {
+    const first: string[] = [];
+    for (let i = 0; i <= days; i++) {
+      const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + i)).toISOString().slice(0, 10);
+      try {
+        await this.db().$executeRaw`SELECT "public"."ensure_trail_day_partition"(${day}::date)`;
+      } catch (err) {
+        first.push(`${day}: ${(err as Error).message}`);
+      }
+    }
+    if (first.length) throw new Error(`trail partitions not made for ${first.join('; ')}`);
+  }
+
+  async dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]> {
+    const parts = await this.db().$queryRaw<Array<{ name: string }>>`
+      SELECT c."relname" AS "name" FROM "pg_inherits" i
+      JOIN "pg_class" c ON c."oid" = i."inhrelid" JOIN "pg_class" p ON p."oid" = i."inhparent"
+      JOIN "pg_namespace" n ON n."oid" = p."relnamespace"
+      WHERE n."nspname" = 'public' AND p."relname" = 'trail_points' ORDER BY 1`;
+    const dropped: string[] = [];
+    for (const { name } of parts) {
+      const end = trailPartitionEnd(name);
+      if (!end || end.getTime() > cutoff.getTime()) continue;
+      // The name matched a strict pattern, so it is safe as an identifier.
+      const table = Prisma.raw(`"public"."${name}"`);
+      const held = await this.db().$queryRaw<unknown[]>`SELECT 1 FROM ${table} WHERE "trip_id" = ANY(${[...keepTripIds]}::text[]) LIMIT 1`;
+      if (held.length) continue;
+      await this.prisma.prisma.$transaction(async (tx) => {
+        // A partition change locks the parent: give up quickly rather than queue the drivers' positions.
+        await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
+        await tx.$executeRaw`ALTER TABLE "public"."trail_points" DETACH PARTITION ${table}`;
+        await tx.$executeRaw`DROP TABLE ${table}`;
+      });
+      dropped.push(name);
+    }
+    return dropped;
   }
 
   async createTrip(input: NewTrip, _now: Date, tx?: Tx) {
@@ -728,6 +786,13 @@ export class InMemoryTripsRepository implements TripsRepository {
       .filter((s) => s.completedAt && s.completedAt.getTime() < cutoff.getTime() && typeof s.handoverProof['photoUploadId'] === 'string')
       .slice(0, limit)
       .map((s) => ({ stopId: s.id, uploadId: s.handoverProof['photoUploadId'] as string, proof: { ...s.handoverProof } }));
+  }
+
+  async ensureTrailPartitions(): Promise<void> {}
+
+  /** In memory there are no partitions: `purgeTrail` does the whole job. */
+  async dropExpiredTrailPartitions(): Promise<string[]> {
+    return [];
   }
 
   async purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {

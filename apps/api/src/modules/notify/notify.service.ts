@@ -200,6 +200,11 @@ export class NotifyService implements NotifyPort {
 
   // ───────────────────────── module hooks ─────────────────────────
 
+  /** Retention: settled deliveries created before `before`, `limit` at a time (none without a store). */
+  purgeDeliveries(before: Date, limit: number): Promise<number> {
+    return this.repo ? this.repo.purgeDeliveries(before, limit) : Promise.resolve(0);
+  }
+
   /** A session signed out: its push tokens go with it. */
   removeSessionTokens(sessionId: string): Promise<number> {
     return this.wired().repo.deleteSessionTokens(sessionId);

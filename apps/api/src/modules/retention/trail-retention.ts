@@ -16,7 +16,12 @@ const DAY_MS = 86_400_000;
 /**
  * Decision D6 (maps program): raw driver trails are deleted after 30 days; the trip row stays as the
  * summary. A trail tied to an unresolved support incident is kept until the incident is resolved.
- * Runs hourly in every instance that runs jobs (DRIVER_ROLE all or worker); the DELETE is idempotent, so overlapping runs only share the work.
+ * Runs hourly in every instance that runs jobs (DRIVER_ROLE all or worker). Each run (speed audit z1/z2):
+ *   1. makes sure the next days' trail partitions exist (they are daily: one per day);
+ *   2. drops every partition whose whole day (or, for the old monthly ones, month) has expired and
+ *      that holds no kept trail: no row-by-row delete, no bloat;
+ *   3. deletes what is left past retention row by row (a partition a kept trail holds, the default
+ *      partition, the expired part of an old monthly one). Idempotent: overlapping runs share the work.
  */
 @Injectable()
 export class TrailRetention implements OnModuleInit, OnModuleDestroy {
@@ -42,10 +47,14 @@ export class TrailRetention implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Deletes every trail point past retention; returns how many went. */
+  /** Deletes every trail point past retention; returns how many rows went one by one (dropped days aside). */
   async tick(): Promise<number> {
-    const cutoff = new Date(this.clock.now().getTime() - TRAIL_RETENTION_DAYS * DAY_MS);
+    const now = this.clock.now();
+    await this.trips.ensureTrailPartitions(now).catch((err: unknown) => this.logger.error(`trail partitions: ${(err as Error).message}`));
+    const cutoff = new Date(now.getTime() - TRAIL_RETENTION_DAYS * DAY_MS);
     const keep = (await Promise.all(CITIES.map((c) => this.support.openIncidentTripIds(c)))).flat();
+    const dropped = await this.trips.dropExpiredTrailPartitions(cutoff, keep);
+    if (dropped.length) this.logger.log(`trail retention: dropped ${dropped.join(', ')}`);
     let total = 0;
     for (;;) {
       const n = await this.trips.purgeTrail(cutoff, keep, TRAIL_PURGE_BATCH);

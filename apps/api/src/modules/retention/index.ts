@@ -3,3 +3,4 @@ export { TrailRetention, TRAIL_PURGE_BATCH, TRAIL_PURGE_EVERY_MS } from './trail
 export { HandoverPhotoRetention, HANDOVER_PHOTO_PURGE_BATCH, HANDOVER_PHOTO_PURGE_EVERY_MS } from './handover-photo-retention.js';
 export { VoiceNoteRetention, VOICE_NOTE_PURGE_BATCH, VOICE_NOTE_PURGE_EVERY_MS } from './voice-note-retention.js';
 export { QuoteRetention, QUOTE_PURGE_BATCH, QUOTE_PURGE_EVERY_MS } from './quote-retention.js';
+export { DeliveryRetention, DELIVERY_PURGE_BATCH, DELIVERY_PURGE_EVERY_MS, NOTIFY_DELIVERY_KEEP_DAYS, SUBSCRIBER_DELIVERY_KEEP_DAYS } from './delivery-retention.js';
