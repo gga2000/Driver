@@ -100,6 +100,12 @@ export interface FleetRepository {
   /** Batched `activeVehicleOf` (one query): each driver's latest active vehicle; drivers without one are left out. */
   activeVehiclesOf?(driverIds: readonly string[], tx?: Tx): Promise<Map<string, VehicleRecord>>;
   createVehicle(input: NewVehicle, tx?: Tx): Promise<VehicleRecord>;
+  /**
+   * f5: gives the vehicle to `driverId` only if it is still active and nobody drives it (one
+   * conditional write, so two accepts racing for the same planned car can't both win); the driver
+   * leaves any other vehicle of the fleet. Null when the car was no longer free.
+   */
+  claimFreeVehicle(vehicleId: string, driverId: string, tx?: Tx): Promise<VehicleRecord | null>;
   /** Sets the vehicle's active driver (null unassigns); the driver leaves any other vehicle of the fleet. */
   setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord>;
   drivers(fleetOrgId: string, tx?: Tx): Promise<FleetDriverRecord[]>;
@@ -194,6 +200,12 @@ export class InMemoryFleetRepository implements FleetRepository {
     };
     this.vehicleRows.set(v.id, v);
     return copy(v);
+  }
+
+  async claimFreeVehicle(vehicleId: string, driverId: string): Promise<VehicleRecord | null> {
+    const v = this.vehicleRows.get(vehicleId);
+    if (!v || !v.active || v.activeDriverId !== null || v.reviewState === 'rejected') return null;
+    return this.setActiveDriver(vehicleId, driverId);
   }
 
   async setActiveDriver(vehicleId: string, driverId: string | null): Promise<VehicleRecord> {
@@ -354,6 +366,15 @@ export class PrismaFleetRepository implements FleetRepository {
         data: { plate: input.plate, class: input.vehicleClass, ownerOrgId: input.ownerOrgId, seatMap, reviewState: 'pending', model: input.model ?? null, colour: input.colour ?? null },
       }),
     );
+  }
+
+  async claimFreeVehicle(vehicleId: string, driverId: string, tx?: Tx): Promise<VehicleRecord | null> {
+    const db = this.db(tx);
+    const claimed = await db.vehicle.updateMany({ where: { id: vehicleId, active: true, activeDriverId: null, NOT: { reviewState: 'rejected' } }, data: { activeDriverId: driverId } });
+    if (claimed.count !== 1) return null;
+    const v = await db.vehicle.findUniqueOrThrow({ where: { id: vehicleId } });
+    await db.vehicle.updateMany({ where: { ownerOrgId: v.ownerOrgId, activeDriverId: driverId, NOT: { id: vehicleId } }, data: { activeDriverId: null } });
+    return vehicleFromRow(v);
   }
 
   async setActiveDriver(vehicleId: string, driverId: string | null, tx?: Tx): Promise<VehicleRecord> {

@@ -454,8 +454,7 @@ export class FleetService implements FleetPort {
         // f5: the car the owner picked with the invite becomes his now, if it is still the fleet's,
         // in service and free (the owner may have given it to someone else meanwhile).
         const v = await this.repo.vehicle(link.plannedVehicleId, tx);
-        if (v && v.ownerOrgId === input.fleetOrgId && v.active && v.reviewState !== 'rejected' && v.activeDriverId === null) {
-          await this.repo.setActiveDriver(v.id, actor.personId, tx);
+        if (v && v.ownerOrgId === input.fleetOrgId && (await this.repo.claimFreeVehicle(v.id, actor.personId, tx))) {
           await this.events.emit(
             tx,
             { actorId: actor.personId, type: 'fleet.vehicle_assigned', occurredAt: now, payload: { fleetOrgId: input.fleetOrgId, vehicleId: v.id, driverId: actor.personId, previousDriverId: null } },

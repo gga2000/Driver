@@ -130,6 +130,22 @@ describe('invite with a car (partner redesign f5)', () => {
     await h.fleet.respondInvite((await h.id.login('07700000073')).actor, { fleetOrgId: 'fleet_1', accept: false });
     expect((await h.fleet.vehicles(h.owner, {})).find((v) => v.vehicleId === other.vehicleId)!.activeDriverId).toBeNull();
   });
+
+  it('two drivers saying yes at the same moment: exactly one gets the car', async () => {
+    const h = await setup();
+    const car = await h.fleet.addVehicle(h.owner, { plate: 'واسط 4413', vehicleClass: 'car' });
+    await h.fleet.addDriver(h.owner, { phone: '07700000074', vehicleId: car.vehicleId });
+    await h.fleet.addDriver(h.owner, { phone: '07700000075', vehicleId: car.vehicleId });
+    const a = (await h.id.login('07700000074')).actor;
+    const b = (await h.id.login('07700000075')).actor;
+    await Promise.all([h.fleet.respondInvite(a, { fleetOrgId: 'fleet_1', accept: true }), h.fleet.respondInvite(b, { fleetOrgId: 'fleet_1', accept: true })]);
+    const holder = (await h.fleet.vehicles(h.owner, {}))[0]!.activeDriverId;
+    expect([a.personId, b.personId]).toContain(holder);
+    const drivers = await h.fleet.drivers(h.owner, {});
+    expect(drivers.filter((d) => d.vehicleId === car.vehicleId)).toHaveLength(1);
+    const assigned = [...(await h.ev.events.forActor(a.personId)), ...(await h.ev.events.forActor(b.personId))].filter((e) => e.type === 'fleet.vehicle_assigned');
+    expect(assigned).toHaveLength(1);
+  });
 });
 
 describe('fleet consent (review 2026-10-04 #2)', () => {
