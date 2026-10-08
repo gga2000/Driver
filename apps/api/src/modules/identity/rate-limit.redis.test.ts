@@ -22,7 +22,7 @@ describe.skipIf(!redisUrl)('the OTP guard on Redis (integration)', () => {
   const run = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-7);
   const send = (n: number, origin: OtpSendRequest['origin'] = {}): OtpSendRequest => {
     const e164 = `+9647${run.slice(0, 2)}${String(n).padStart(7, '0')}`;
-    return { phoneE164: e164, phoneHash: `hash-${run}-${e164}`, purpose: 'login', channel: undefined, whatsappAvailable: true, origin };
+    return { phoneE164: e164, phoneHash: `hash-${run}-${e164}`, purpose: 'login', channel: undefined, whatsappAvailable: true, knownNumber: async () => false, origin };
   };
 
   it('two API pods share one per-number counter: the 6th code to a number in the hour is refused with retryAfterSec', async () => {

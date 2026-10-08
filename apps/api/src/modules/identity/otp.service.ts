@@ -65,7 +65,8 @@ export class OtpService {
         throw new DriverError('otp_resend_too_soon', { retryAfterSec: Math.ceil(OTP_RESEND_SEC - sinceLast) });
       }
     }
-    const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, origin };
+    const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
+    const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
     const channel = await this.guard.admit(send);
     // One chain: a resend inherits the misses of the unused code it replaces (until a lock-out's time
     // has passed), so asking for a fresh code every 30 seconds never resets the 5-try lock-out.

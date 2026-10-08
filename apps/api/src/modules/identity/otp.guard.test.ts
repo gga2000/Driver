@@ -100,6 +100,42 @@ describe('OTP guard', () => {
     expect(h.sms.sentTo('+9647812345679')).toHaveLength(1);
   });
 
+  it('hard SMS cap (Ali: "Add the cap"): past 3 × the budget a new number gets WhatsApp even when it asks for SMS; a returning number still gets its SMS', async () => {
+    const h = harness(undefined, { otpGuard: { smsDailyBudget: 2, blockSpikePerHour: 100 } });
+    // Signed in before the day got busy: a returning number.
+    await h.login('07801111111');
+    for (let i = 0; i < 4; i += 1) await h.service.requestOtp({ phone: `07812${i}00000`, purpose: 'login', channel: 'sms' });
+    // 5 SMS today, under the cap of 6: a new number asking for SMS by name still gets one.
+    const under = await h.service.requestOtp({ phone: '07821234560', purpose: 'login', channel: 'sms' });
+    expect(under.channel).toBe('sms');
+    expect(h.otpAlerts.raised.filter((a) => a.rule === 'sms_cap')).toHaveLength(0);
+
+    // 6 SMS: the cap is reached. A new number asking for SMS gets WhatsApp; ops hear once.
+    const over = await h.service.requestOtp({ phone: '07821234561', purpose: 'login', channel: 'sms' });
+    expect(over.channel).toBe('whatsapp');
+    expect(h.sms.sentTo('+9647821234561')).toHaveLength(0);
+    expect(h.otpAlerts.raised.filter((a) => a.rule === 'sms_cap')).toEqual([{ rule: 'sms_cap', count: 6, limit: 6, mode: 'throttle' }]);
+
+    // The returning number asks for SMS by name and gets it.
+    h.clock.advanceSeconds(31);
+    const back = await h.service.requestOtp({ phone: '07801111111', purpose: 'login', channel: 'sms' });
+    expect(back.channel).toBe('sms');
+
+    // Another new number: WhatsApp again, and no second alert today.
+    expect((await h.service.requestOtp({ phone: '07821234562', purpose: 'login', channel: 'sms' })).channel).toBe('whatsapp');
+    expect(h.otpAlerts.raised.filter((a) => a.rule === 'sms_cap')).toHaveLength(1);
+
+    // The multiplier is a setting (default 3).
+    expect(DEFAULT_OTP_GUARD.smsHardCapMultiplier).toBe(3);
+    expect(otpGuardConfigFromEnv({ OTP_SMS_HARD_CAP_MULTIPLIER: '5' }).smsHardCapMultiplier).toBe(5);
+  });
+
+  it('hard SMS cap without WhatsApp: a new number waits instead of getting an SMS', async () => {
+    const h = harness(undefined, { otpGuard: { smsDailyBudget: 1, smsHardCapMultiplier: 2, blockSpikePerHour: 100 }, noWhatsApp: true });
+    for (let i = 0; i < 2; i += 1) await h.service.requestOtp({ phone: `07812${i}00000`, purpose: 'login', channel: 'sms' });
+    expect(await code(h.service.requestOtp({ phone: '07821234569', purpose: 'login', channel: 'sms' }))).toBe('rate_limited');
+  });
+
   it('OTP_BUDGET_MODE=alert: the spent budget alerts but changes nothing', async () => {
     const h = harness(undefined, { otpGuard: { smsDailyBudget: 2, blockSpikePerHour: 1, modes: { ...DEFAULT_OTP_GUARD.modes, budget: 'alert' } } });
     for (let i = 0; i < 4; i += 1) {

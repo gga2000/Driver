@@ -15,7 +15,10 @@ import { carrierOf, numberBlock, type IraqiCarrier } from './phone.js';
  *   behind a few IPs, so blocking on IP would lock real people out;
  * - a global SMS budget per 24 h (about 3 × the expected day-one installs) alerts at 50 % and 80 %;
  *   at 100 % it never locks the town out: only the 7-digit number block behind the spike is
- *   throttled, and everyone else gets the code on WhatsApp unless they ask for SMS by name.
+ *   throttled, and everyone else gets the code on WhatsApp unless they ask for SMS by name;
+ * - a hard SMS cap at `smsHardCapMultiplier` × the budget (Ali, 2026-10-07: "Add the cap"): past it,
+ *   a number that never signed in gets WhatsApp even when it asks for SMS by name, so a bot can't run
+ *   up the SMS bill; a number that signed in before always gets its SMS. Ops hear once a day.
  *
  * Each rule has a mode (`OTP_GUARD_MODE_<RULE>=enforce|alert`, `OTP_BUDGET_MODE=throttle|alert`): in
  * `alert` it only counts and raises an alert once per window. Counters live in the shared
@@ -38,6 +41,8 @@ export interface OtpGuardConfig {
   smsDailyBudget: number;
   /** Codes per hour to one 7-digit block that mark it as the spike, once the budget is spent. */
   blockSpikePerHour: number;
+  /** Past this many × `smsDailyBudget` in 24 h, numbers that never signed in get no SMS (WhatsApp only). */
+  smsHardCapMultiplier: number;
   modes: Record<OtpGuardRule, OtpRuleMode> & { budget: OtpBudgetMode };
 }
 
@@ -50,6 +55,7 @@ export const DEFAULT_OTP_GUARD: OtpGuardConfig = {
   perIpPerHour: 1000,
   smsDailyBudget: 4500,
   blockSpikePerHour: 30,
+  smsHardCapMultiplier: 3,
   modes: { number: 'enforce', device: 'enforce', actor: 'enforce', ip: 'alert', budget: 'throttle' },
 };
 
@@ -80,6 +86,7 @@ export function otpGuardConfigFromEnv(env: Record<string, string | undefined> = 
     perIpPerHour: int('OTP_RATE_LIMIT_PER_IP_HOUR', d.perIpPerHour),
     smsDailyBudget: int('OTP_SMS_DAILY_BUDGET', d.smsDailyBudget),
     blockSpikePerHour: int('OTP_BLOCK_SPIKE_PER_HOUR', d.blockSpikePerHour),
+    smsHardCapMultiplier: int('OTP_SMS_HARD_CAP_MULTIPLIER', d.smsHardCapMultiplier),
     modes: {
       number: mode('number', hard),
       device: mode('device', hard),
@@ -95,7 +102,8 @@ export function otpGuardConfigFromEnv(env: Record<string, string | undefined> = 
 export type OtpAlert =
   | { rule: OtpGuardRule; mode: 'alert'; count: number; limit: number; windowSec: number; carrier: IraqiCarrier }
   | { rule: 'sms_budget'; level: 50 | 80 | 100; count: number; limit: number; mode: OtpBudgetMode }
-  | { rule: 'block_spike'; block: string; carrier: IraqiCarrier; count: number; limit: number; throttled: boolean };
+  | { rule: 'block_spike'; block: string; carrier: IraqiCarrier; count: number; limit: number; throttled: boolean }
+  | { rule: 'sms_cap'; count: number; limit: number; mode: OtpBudgetMode };
 
 export interface OtpAlertSink {
   raise(alert: OtpAlert): Promise<void>;
@@ -117,6 +125,8 @@ export interface OtpSendRequest {
   channel: OtpChannel | undefined;
   /** WhatsApp can carry this code (configured, and a sign-in code). */
   whatsappAvailable: boolean;
+  /** Whether this number has signed in before (asked only when the hard SMS cap matters). */
+  knownNumber: () => Promise<boolean>;
   origin: OtpRequestOrigin;
 }
 
@@ -197,7 +207,22 @@ export class OtpGuard {
     }
     // Everyone else: WhatsApp unless they asked for SMS by name ("ابعث برسالة" after a WhatsApp code
     // that never came), so a number without WhatsApp can still sign in.
-    return req.channel === undefined && req.whatsappAvailable ? 'whatsapp' : wanted;
+    if (req.channel === undefined && req.whatsappAvailable) return 'whatsapp';
+    if (wanted === 'sms' && !(await this.underHardCap(req, used))) {
+      // A new number past the hard cap: WhatsApp only (refused when WhatsApp can't carry the code).
+      if (req.whatsappAvailable) return 'whatsapp';
+      this.log.warn(JSON.stringify({ event: 'otp.rate_limited', rule: 'sms_cap', carrier }));
+      throw new DriverError('rate_limited', { retryAfterSec: BLOCK_RETRY_SEC });
+    }
+    return wanted;
+  }
+
+  /** True while the day's SMS are under the hard cap, or the number signed in before. Alerts once a day. */
+  private async underHardCap(req: OtpSendRequest, used: number): Promise<boolean> {
+    const limit = this.config.smsDailyBudget * this.config.smsHardCapMultiplier;
+    if (used < limit) return true;
+    await this.alertOnce('sms_cap', DAY_MS, { rule: 'sms_cap', count: used, limit, mode: this.config.modes.budget });
+    return req.knownNumber();
   }
 
   private async alertOnce(key: string, windowMs: number, alert: OtpAlert): Promise<void> {

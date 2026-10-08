@@ -24,6 +24,7 @@ signed-in flows.
 | Per client IP | 1,000 an hour | **alert only** | `OTP_RATE_LIMIT_PER_IP_HOUR`, `OTP_GUARD_MODE_IP` |
 | SMS budget (rolling 24 h) | 4,500 SMS (3 × expected day-one installs) | throttle | `OTP_SMS_DAILY_BUDGET`, `OTP_BUDGET_MODE` |
 | Spiking number block | 30 codes an hour to one 7-digit block | used once the budget is spent | `OTP_BLOCK_SPIKE_PER_HOUR` |
+| Hard SMS cap (rolling 24 h) | 3 × the SMS budget | new numbers get WhatsApp | `OTP_SMS_HARD_CAP_MULTIPLIER` (follows `OTP_BUDGET_MODE`) |
 
 `OTP_GUARD_MODE=enforce|alert` sets the number, device and sender rules together; a per-rule
 setting wins. The IP rule stays alert-only unless `OTP_GUARD_MODE_IP=enforce` is set by name:
@@ -46,6 +47,12 @@ The town is never locked out:
 4. Someone without WhatsApp taps «دزلي رسالة ثانية», which asks for SMS by name and gets it, still
    inside the per-number limit.
 
+5. **Hard cap** (Ali, 2026-10-07: "Add the cap"): once the day's SMS reach
+   `OTP_SMS_HARD_CAP_MULTIPLIER` × the budget (default 3), a number that never signed in gets its
+   code on WhatsApp even when it asks for SMS by name, so a bot can't run up the SMS bill. A number
+   that signed in before always gets its SMS. Without WhatsApp the new number is told to try again in
+   15 minutes. Ops get one `sms_cap` alert the first time the cap is hit each day.
+
 `OTP_BUDGET_MODE=alert` keeps the alerts and changes nothing else. The Partner and Merchant apps
 always ask for SMS by name (they have no WhatsApp option on their code screens).
 
@@ -60,6 +67,7 @@ carrier and, for a spike, the 7-digit block; never a full number or an IP.
 | `ip` (or `number`, `device`, `actor` in alert mode) | the count passed the limit in its window |
 | `sms_budget` | 50, 80 and 100 % of the budget (`level`) |
 | `block_spike` | a block reached the spike count (`throttled: false`), or was throttled (`throttled: true`) |
+| `sms_cap` | the hard SMS cap was first reached in the window (`count`, `limit`) |
 
 ## Wrong codes
 
