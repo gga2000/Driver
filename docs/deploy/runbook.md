@@ -65,7 +65,10 @@ new migration that fixes it and deploy that.
 **Web apps**: Cloudflare → the Pages project → Deployments → the previous one → **Rollback**.
 **Console**: like the API (`fly releases --config deploy/fly/console.toml`).
 **OTA update**: `cd apps/<app> && eas update:roll-back-to-embedded --channel production` (or republish the
-previous update group from expo.dev).
+previous update group from expo.dev). Publish a new OTA update only with
+`node scripts/deploy/eas-update.mjs <customer|partner|merchant> <preview|production> "what changed"`, never a bare
+`eas update`: the script takes the server address from the expo.dev environment and refuses an update
+without it (CORE-04); a bare `eas update` is not checked and can point every phone at localhost.
 
 ### A migration failed
 
