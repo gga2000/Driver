@@ -36,7 +36,7 @@ git tag v1.0.3 && git push origin v1.0.3
 GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
 and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
-and stops) → smoke test (`db: ok`, `redis: ok`) → **Console** and **web apps**. A red step stops the
+and stops) → smoke test (`health.live` answers, `health.ready` shows `db: ok`; Redis down is only a warning) → **Console** and **web apps**. A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
 
