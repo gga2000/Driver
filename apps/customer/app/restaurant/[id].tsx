@@ -14,6 +14,8 @@ import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
 import { cartStore, useCart } from '@/features/food/cart-store';
 import { DishCard } from '@/features/food/DishCard';
+import { WhatsLeft } from '@/features/food/WhatsLeft';
+import { leftToday, onlyLeft, WHATS_LEFT_FROM } from '@/features/food/whats-left';
 import { AfterMeal } from '@/features/doors/AfterMeal';
 import { DrinkGrid } from '@/features/doors/DrinkGrid';
 import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
@@ -69,10 +71,16 @@ export default function RestaurantScreen() {
   // o8: a heart on a kitchen the person has really ordered from (the home rail's favourite rule).
   const myOrders = useMyOrders();
   const favourite = Boolean(myOrders.data?.some((o) => o.merchantOrgId === id));
+  // «شنو باقي اليوم؟»: once 4+ dishes are sold out today, the menu can show only what is left.
+  const soldToday = useMemo(() => leftToday(categories), [categories]);
+  const offerLeft = soldToday.soldOut >= WHATS_LEFT_FROM;
+  const [onlyNow, setOnlyNow] = useState(false);
+  const leftOnly = offerLeft && onlyNow;
+  const shown = useMemo(() => (leftOnly ? onlyLeft(categories) : categories), [leftOnly, categories]);
   const popular = useMemo(() => {
     const byId = new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i]));
-    return (menu.data?.popular ?? []).map((pid) => byId.get(pid)).filter((i): i is MenuItem => Boolean(i));
-  }, [menu.data, categories]);
+    return (menu.data?.popular ?? []).map((pid) => byId.get(pid)).filter((i): i is MenuItem => i !== undefined && (!leftOnly || i.available));
+  }, [menu.data, categories, leftOnly]);
   // b3: a drawing per dish, in menu order, never the same one twice in a row.
   const artById = useMemo(() => {
     const rows = categories.flatMap((c) => c.items.map((i) => ({ id: i.id, name: i.name, category: c.name })));
@@ -273,7 +281,7 @@ export default function RestaurantScreen() {
             accessibilityLabel={t('restaurant.menu_categories')}
             testID="category-bar"
           >
-            {categories.map((c, i) => (
+            {shown.map((c, i) => (
               <Chip key={c.id} testID={`category-${i}`} label={c.name} role="radio" selected={i === active} onPress={() => jumpTo(i)} />
             ))}
           </ScrollView>
@@ -311,6 +319,18 @@ export default function RestaurantScreen() {
           {menu.data?.pot && potItem && restaurant ? (
             <PotBanner pot={menu.data.pot} item={potItem} art={artById.get(potItem.id)} restaurant={restaurant.name} merchantOrgId={restaurant.id} onOpen={() => setOpen(potItem)} />
           ) : null}
+          {offerLeft ? (
+            <WhatsLeft
+              soldOut={soldToday.soldOut}
+              left={soldToday.left}
+              only={onlyNow}
+              onChange={(only) => {
+                sectionY.current = [];
+                setActive(0);
+                setOnlyNow(only);
+              }}
+            />
+          ) : null}
           {gridItems.length > 0 ? (
             <DrinkGrid
               title={popular.length >= 3 ? t('restaurant.popular_title') : t('restaurant.top_drinks')}
@@ -345,7 +365,7 @@ export default function RestaurantScreen() {
           ) : null}
           {menu.isPending
             ? [0, 1, 2, 3].map((i) => <DishSkeleton key={i} />)
-            : categories.map((c, i) => (
+            : shown.map((c, i) => (
                 <View key={c.id} onLayout={(e) => (sectionY.current[i] = e.nativeEvent.layout.y)} style={{ paddingTop: theme.space[5] }} testID={`section-${i}`}>
                   <Text variant="title" accessibilityRole="header">
                     {c.name}
