@@ -11,7 +11,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test && pnpm test:scripts",
-    "test:scripts": "node --test scripts/ci/*.test.mjs scripts/*.test.mjs",
+    "test:scripts": "node --test scripts/ci/*.test.mjs scripts/*.test.mjs scripts/perf/*.test.mjs",
     "test:integration": "turbo run test:integration",
     "lint": "turbo run lint",
     "db:up": "docker compose up -d --wait postgres redis",

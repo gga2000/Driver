@@ -38,6 +38,8 @@ import {
   driverMeter,
   meterApplies,
   riderMeterMinutes,
+  riderMeterStart,
+  seatHoldUntil,
   type CheckpointWaiver,
 } from './late-meter.js';
 import {
@@ -250,6 +252,11 @@ export class DeparturesService {
     };
   }
 
+  /** x3: until when this seat waits for our late taxi (null: no hold — switched off, none late, not a garage pickup). */
+  seatHeldUntil(dep: DepartureRecord, b: BookingRecord): Date | null {
+    return seatHoldUntil(dep, b, this.money.lateMeter.capMin, this.rules.seatHoldForLateTaxi === true);
+  }
+
   /** Whether the driver may leave without this rider now, and how (decisions §8, review C-32). */
   noShowVerdict(
     dep: DepartureRecord,
@@ -260,6 +267,9 @@ export class DeparturesService {
     if (b.state !== 'booked') return null;
     if (b.pickup.kind === 'garage') {
       if (b.atGarageAt) return null;
+      // x3: our taxi bringing him is late — his seat waits until it is due (capped), when switched on.
+      const held = this.seatHeldUntil(dep, b);
+      if (held && at.getTime() < held.getTime()) return null;
       if (meterApplies(b)) {
         const m = riderMeterMinutes(dep, bookings, b, at);
         if (m !== null && m >= this.money.lateMeter.capMin) return 'forfeit';
@@ -1100,6 +1110,22 @@ export class DeparturesService {
     return meter.minutes <= this.money.lateMeter.graceMin;
   }
 
+  /**
+   * x3, called by the garage-taxi module only: our taxi bringing `riderId` to this seat's garage is due
+   * at `until` and late for the car (null: on time again, or the taxi is gone). Recorded on the seat
+   * whatever the switch; it holds the seat only while `seatHoldForLateTaxi` is on (`noShowVerdict`).
+   * A seat that is no longer booked (boarded, no-show, cancelled, moved) is left alone.
+   */
+  taxiLate(riderId: string, bookingId: string, until: Date | null): Promise<void> {
+    return this.writer.run(async (tx) => {
+      const b = await this.ownBooking(riderId, bookingId, tx);
+      if (b.state !== 'booked' || b.pickup.kind !== 'garage') return;
+      if ((b.taxiLateUntil?.getTime() ?? null) === (until?.getTime() ?? null)) return;
+      b.taxiLateUntil = until;
+      await this.repo.saveBooking(b, tx);
+    });
+  }
+
   /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
 
   imHere(
@@ -1340,7 +1366,20 @@ export class DeparturesService {
       late: { kind: 'rider', id: b.riderId },
       driverId: dep.driverId,
       waitingRiderIds: waiting,
+      taxiLateMinutes: this.taxiLateMeterMinutes(dep, bookings, b, minutes),
     });
+  }
+
+  /**
+   * x3: how many of `b`'s meter minutes ran while our own taxi bringing him was still due (capped like
+   * the hold). The company pays those blocks (ledger `lateTaxiPaysMeter`), whether or not the seat
+   * hold is switched on: the lateness is ours either way. 0 when he had no late taxi.
+   */
+  private taxiLateMeterMinutes(dep: DepartureRecord, bookings: readonly BookingRecord[], b: BookingRecord, minutes: number): number {
+    const held = seatHoldUntil(dep, b, this.money.lateMeter.capMin, true);
+    const start = riderMeterStart(dep, bookings, b);
+    if (!held || !start) return 0;
+    return Math.min(minutes, Math.max(0, Math.floor((held.getTime() - start.getTime()) / MIN_MS)));
   }
 
   /**

@@ -25,7 +25,7 @@ describe('food drawings per dish (b3, UI/UX audit F-01 / S2-07)', () => {
     expect(motifForDish('شوربة عدس')).toBe('soup');
     expect(motifForDish('سلطة خضرة')).toBe('salad');
     expect(motifForDish('طرشي')).toBe('pickles');
-    expect(motifForDish('كنافة')).toBe('sweet');
+    expect(motifForDish('كنافة')).toBe('kunafa');
     expect(motifForDish('شاورما لحم')).toBe('shawarma');
     expect(motifForDish('فلافل')).toBe('falafel');
     expect(motifForDish('صمون حجري')).toBe('bread');
@@ -117,7 +117,7 @@ describe('food doors pictures (bugs b3, b4)', () => {
     expect(motifForDish('چاي كرك')).toBe('tea');
     expect(motifForDish('كوب آيس كريم قيمر')).toBe('icecream');
     expect(motifForDish('دوندرمة بالفستق')).toBe('icecream');
-    expect(motifForDish('كنافة نابلسية')).toBe('sweet');
+    expect(motifForDish('كنافة نابلسية')).toBe('kunafa');
     expect(motifForDish('عصير برتقال')).toBe('juice');
     expect(motifForDish('شي جديد', 'قهوة')).toBe('coffee');
   });

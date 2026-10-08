@@ -2,7 +2,7 @@ import { Pressable, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import type { CourierCard } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
-import { Avatar, Button, CallSoonButton, CountdownRing, Icon, PlateChip, Text, useTheme } from '@driver/ui';
+import { Avatar, Button, CallSoonButton, CountdownRing, Icon, PlateChip, Text, useTheme, useAnnounce } from '@driver/ui';
 import { LightButton, StartCode } from '@/features/ride/ArrivalParts';
 import { FREE_WAIT_SEC, WaitCounter } from '@/features/ride/LiveParts';
 import type { RideVertical } from '@/features/ride/logic';
@@ -75,6 +75,7 @@ export function DriverHereCard({
   const name = courier.firstName ?? t('track.driver_fallback');
   const swatch = rideSwatch(vertical, theme.scheme);
   const free = arrivedAt ? now - arrivedAt.getTime() < FREE_WAIT_SEC * 1000 : false;
+  useAnnounce(t('ride.here_title', { name }), { initial: true });
   return (
     <Animated.View
       testID="driver-here"

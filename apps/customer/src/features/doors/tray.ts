@@ -15,7 +15,7 @@ import { motifForDish, type Motif } from '@/features/food/food-art';
 export type TrayRole = 'main' | 'side' | 'drink' | 'sweet';
 
 const DRINK: ReadonlySet<Motif> = new Set(['tea', 'laban', 'water', 'can', 'juice', 'coffee', 'dallah', 'iced', 'pomegranate', 'lemonade', 'bananamilk', 'cocktail']);
-const SWEET: ReadonlySet<Motif> = new Set(['sweet', 'baklava', 'zalabia', 'kleicha', 'cake', 'icecream']);
+const SWEET: ReadonlySet<Motif> = new Set(['sweet', 'kunafa', 'baklava', 'zalabia', 'kleicha', 'cake', 'icecream']);
 const SIDE: ReadonlySet<Motif> = new Set(['bread', 'salad', 'pickles', 'hummus', 'soup']);
 const SIDE_SECTION = /مقبلات|شوربة|خبز|سلط|إضافات|اضافات/;
 

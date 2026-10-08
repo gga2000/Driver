@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { useState } from 'react';
 import { Image, RefreshControl, View } from 'react-native';
-import { Avatar, Button, Card, EmptyState, Skeleton, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, Card, EmptyState, PhotoImage, Skeleton, StatusPill, Text, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { Glyph } from '@/features/account/Glyph';
 import { mainPhotoNote, mainPhotoStatus } from '@/features/account/logic';
@@ -104,7 +104,7 @@ export default function MainPhoto() {
                 </View>
                 {latestUrl ? (
                   <View style={{ alignItems: 'center', gap: theme.space[1] }}>
-                    <Image testID="main-photo-latest" source={{ uri: latestUrl }} resizeMode="cover" style={{ width: 88, height: 88, borderRadius: 44, opacity: view.state === 'rejected' ? 0.55 : 1, backgroundColor: theme.colors.surfaceSunken }} />
+                    <PhotoImage testID="main-photo-latest" uri={latestUrl} style={{ width: 88, height: 88, borderRadius: 44, opacity: view.state === 'rejected' ? 0.55 : 1, backgroundColor: theme.colors.surfaceSunken }} />
                     <Text variant="caption" color="textMuted">
                       {t('partner.mainphoto_new_label')}
                     </Text>

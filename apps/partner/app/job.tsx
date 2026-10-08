@@ -659,10 +659,12 @@ function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) 
   const theme = useTheme();
   const t = useT();
   if (!gift && !topUp) return null;
-  const cream = theme.colors.bg;
+  // By day a dark ink card; at night (n2) a raised brown card instead of a cream block that glares.
+  const night = theme.scheme === 'dark';
+  const cream = night ? theme.colors.text : theme.colors.bg;
   const soft = withAlpha(cream, 0.7);
   return (
-    <View testID="job-extras" style={{ backgroundColor: theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden' }}>
+    <View testID="job-extras" style={{ backgroundColor: night ? theme.colors.surface : theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden', ...(night ? { borderWidth: 1.5, borderColor: theme.colors.border } : {}) }}>
       {gift ? (
         <View testID="job-gift" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[4] }}>
           <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>

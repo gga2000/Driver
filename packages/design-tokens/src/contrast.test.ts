@@ -104,6 +104,18 @@ describe('warning is not the brand (joy S2-02)', () => {
   });
 });
 
+describe('controls stay visible (W12: REL-18, VIS-04)', () => {
+  it('a switched-off toggle track and every code cell edge are 3:1 on the page and on a card, in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) {
+      expect(contrastRatio(t.borderStrong, t.bg), `${name} borderStrong/bg`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(t.borderStrong, t.surface), `${name} borderStrong/surface`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('the focus ring is 3:1 on a card in both themes', () => {
+    for (const [name, t] of Object.entries(themes)) expect(contrastRatio(t.focusRing, t.surface), name).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('type floor', () => {
   it('no text style is under 12 px (audit S-10)', () => {
     for (const [k, v] of Object.entries(type)) expect(v.size, k).toBeGreaterThanOrEqual(minFontSize);
