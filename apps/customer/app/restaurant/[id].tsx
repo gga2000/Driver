@@ -2,18 +2,23 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { MenuItem, RestaurantCard } from '@driver/contracts';
+import { doorOf, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
 import { Card, Chip, Icon, IconButton, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
-import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
-import { CartBar } from '@/features/food/CartBar';
+import { tasteStore, useTaste, withTaste } from '@/features/doors/taste';
+import { roleOf } from '@/features/doors/tray';
+import { cartMerchantOf, ME, type CartModifier } from '@/features/food/cart';
 import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
-import { cartStore, useCart } from '@/features/food/cart-store';
-import { DishCard } from '@/features/food/DishCard';
+import { cartStore, useCartSelect } from '@/features/food/cart-store';
+import { CartButton, LiveCartBar, LiveDishCard, LiveDrinkGrid, type MenuActions } from '@/features/food/menu-live';
+import { WhatsLeft } from '@/features/food/WhatsLeft';
+import { leftToday, onlyLeft, WHATS_LEFT_FROM } from '@/features/food/whats-left';
+import { AfterMeal } from '@/features/doors/AfterMeal';
 import { FoodArt, artOf, dishArt, motifForKitchen, type DishArt } from '@/features/food/FoodArt';
-import { stackThumbs } from '@/features/food/fly';
+import { temperatureOf, type Temperature } from '@/features/food/food-art';
+import { canQuickAdd, chosenModifiers, defaultSelection } from '@/features/food/modifiers';
 import { FlyToCart, type FlyHandle, type Rect } from '@/features/food/FlyToCart';
 import { ItemSheet } from '@/features/food/ItemSheet';
 import { KitchenStory, PotBanner } from '@/features/food/KitchenHabits';
@@ -44,7 +49,8 @@ export default function RestaurantScreen() {
   const net = useNetwork();
   // Skeletons don't wait forever (C-17): after 8 s with no menu they turn into a retry.
   const [slow, restartSlow] = useLoadTimeout(menu.isPending);
-  const cart = useCart();
+  // t1: the screen reads only whether this kitchen's bar shows; rows and the bar read their own numbers.
+  const barVisible = useCartSelect((st) => st.cart.merchant?.id === id && st.cart.lines.length > 0);
   const [open, setOpen] = useState<MenuItem | null>(null);
   const [active, setActive] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -63,10 +69,16 @@ export default function RestaurantScreen() {
   // o8: a heart on a kitchen the person has really ordered from (the home rail's favourite rule).
   const myOrders = useMyOrders();
   const favourite = Boolean(myOrders.data?.some((o) => o.merchantOrgId === id));
+  // «شنو باقي اليوم؟»: once 4+ dishes are sold out today, the menu can show only what is left.
+  const soldToday = useMemo(() => leftToday(categories), [categories]);
+  const offerLeft = soldToday.soldOut >= WHATS_LEFT_FROM;
+  const [onlyNow, setOnlyNow] = useState(false);
+  const leftOnly = offerLeft && onlyNow;
+  const shown = useMemo(() => (leftOnly ? onlyLeft(categories) : categories), [leftOnly, categories]);
   const popular = useMemo(() => {
     const byId = new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i]));
-    return (menu.data?.popular ?? []).map((pid) => byId.get(pid)).filter((i): i is MenuItem => Boolean(i));
-  }, [menu.data, categories]);
+    return (menu.data?.popular ?? []).map((pid) => byId.get(pid)).filter((i): i is MenuItem => i !== undefined && (!leftOnly || i.available));
+  }, [menu.data, categories, leftOnly]);
   // b3: a drawing per dish, in menu order, never the same one twice in a row.
   const artById = useMemo(() => {
     const rows = categories.flatMap((c) => c.items.map((i) => ({ id: i.id, name: i.name, category: c.name })));
@@ -80,13 +92,45 @@ export default function RestaurantScreen() {
   }, [menu.data, categories]);
   const story = menu.data?.story ?? null;
   const merchant = restaurant ? cartMerchantOf(restaurant) : null;
-  const mine = cart.merchant?.id === id;
-  const counts = useMemo(() => {
-    const m = new Map<string, number>();
-    if (mine) for (const l of cart.lines) m.set(l.itemId, (m.get(l.itemId) ?? 0) + l.qty);
-    return m;
-  }, [cart, mine]);
   const closed = restaurant ? !restaurant.open : false;
+  // q2: the person's usual sugar and cardamom, filled into one-tap adds too.
+  const taste = useTaste();
+  // m5: «ساخن» / «بارد» only on a menu that has both (a kebab place's بيبسي needs no label), and only on
+  // the fewer kind: a café marks its two cold drinks, not its ten hot ones.
+  const temps = useMemo(() => {
+    const m = new Map<string, Temperature>();
+    for (const c of categories) for (const i of c.items) {
+      const tp = temperatureOf(i.name, c.name);
+      if (tp) m.set(i.id, tp);
+    }
+    const hot = [...m.values()].filter((v) => v === 'hot').length;
+    const cold = m.size - hot;
+    if (hot === 0 || cold === 0) return new Map<string, Temperature>();
+    const mark: Temperature = cold <= hot ? 'cold' : 'hot';
+    return new Map([...m].filter(([, v]) => v === mark));
+  }, [categories]);
+  // m1: a café or juice bar opens on its drinks as pictures.
+  const drinkShop = restaurant ? doorOf(restaurant.tags) === 'cafe' || doorOf(restaurant.tags) === 'cold' : false;
+  const gridItems = useMemo(() => {
+    if (!drinkShop) return [];
+    const all = categories.flatMap((c) => c.items).filter((i) => i.available);
+    const first = popular.length >= 3 ? popular : all;
+    return first.slice(0, 6);
+  }, [drinkShop, categories, popular]);
+  // s7: after a meal goes in, one quiet «وياها كنافة؟» when this same kitchen makes a sweet.
+  const sweet = useMemo(() => {
+    for (const c of categories) for (const i of c.items) if (roleOf(i, c.name) === 'sweet' && i.available && canQuickAdd(i)) return i;
+    return null;
+  }, [categories]);
+  const mainIds = useMemo(() => new Set(categories.flatMap((c) => c.items.filter((i) => roleOf(i, c.name) === 'main').map((i) => i.id))), [categories]);
+  const [afterMeal, setAfterMeal] = useState<MenuItem | null>(null);
+  const offeredSweet = useRef(false);
+  const maybeOfferSweet = (added: MenuItem) => {
+    if (offeredSweet.current || !sweet || doorOf(restaurant?.tags ?? []) !== 'meal' || !mainIds.has(added.id)) return;
+    if (cartStore.getSnapshot().cart.lines.some((l) => l.itemId === sweet.id)) return;
+    offeredSweet.current = true;
+    setAfterMeal(sweet);
+  };
   const openedFromSearch = useRef(false);
   useEffect(() => {
     if (!itemParam || openedFromSearch.current || categories.length === 0) return;
@@ -96,40 +140,52 @@ export default function RestaurantScreen() {
   }, [itemParam, categories]);
 
   const photoById = useMemo(() => new Map(categories.flatMap((c) => c.items).map((i) => [i.id, i.photoUrl])), [categories]);
-  const thumbs = useMemo(
-    () => (mine ? stackThumbs(cart).map((l) => ({ ...(artById.get(l.itemId) ?? artOf({ id: l.itemId, name: l.name })), photoUrl: photoById.get(l.itemId) ?? null })) : []),
-    [cart, mine, artById, photoById],
-  );
-  const barVisible = mine && cart.lines.length > 0;
   const land = () => {
     setLandings((n) => n + 1);
     theme.haptic('selection');
   };
 
   const onAdded = () => {
+    if (open) maybeOfferSweet(open);
     setOpen(null);
     theme.haptic('light');
     // The living bar answers the add (o1, F-03): no toast over it; it announces the add to screen readers.
     land();
   };
 
-  const quickAdd = (item: MenuItem, from: Rect | null) => {
+  const quickAdd = (item: MenuItem, from: Rect | null, chosen?: CartModifier[]) => {
     if (!merchant) return;
-    const res = cartStore.add(merchant, { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers: [], qty: 1, note: null, personId: ME });
+    // A one-tap tea or coffee comes the way this person takes it (q2); a picked weight comes as picked (s1).
+    const usual = withTaste(item, defaultSelection(item), taste).selection;
+    const modifiers = chosen ?? chosenModifiers(item, usual);
+    const res = cartStore.add(merchant, { itemId: item.id, name: item.name, basePriceIqd: item.priceIqd, modifiers, qty: 1, note: null, personId: ME });
     if (!res.ok) {
       // Another kitchen's cart: the sheet asks before starting a new one.
       setOpen(item);
       return;
     }
     theme.haptic('light');
+    if (!chosen) tasteStore.learn(item, usual);
+    maybeOfferSweet(item);
     if (from && flyRef.current) flyRef.current.fly(from, { ...(artById.get(item.id) ?? artOf(item)), photoUrl: item.photoUrl });
     else land();
   };
 
   const removeOne = (item: MenuItem) => {
-    const line = [...cart.lines].reverse().find((l) => l.itemId === item.id);
+    const line = [...cartStore.getSnapshot().cart.lines].reverse().find((l) => l.itemId === item.id);
     if (line) cartStore.setQty(line.key, line.qty - 1);
   };
+  // Made once and always calling the latest handlers, so the memoised rows never redraw for a new prop.
+  const latest = useRef({ quickAdd, removeOne });
+  latest.current = { quickAdd, removeOne };
+  const actions = useMemo<MenuActions>(
+    () => ({
+      open: (item) => setOpen(item),
+      quickAdd: (item, from, chosen) => latest.current.quickAdd(item, from, chosen),
+      removeOne: (item) => latest.current.removeOne(item),
+    }),
+    [],
+  );
 
   const jumpTo = (i: number) => {
     setActive(i);
@@ -182,7 +238,7 @@ export default function RestaurantScreen() {
         {/* 0: hero + facts */}
         <View>
           <View style={{ height: HERO_H + insets.top }}>
-            {restaurant ? <FoodArt variant="hero" motif={motifForKitchen(restaurant.tags)} photoUrl={restaurant.photoUrl} /> : <Skeleton height={HERO_H + insets.top} radius={0} />}
+            {restaurant ? <FoodArt variant="hero" motif={motifForKitchen(restaurant.tags, restaurant.cuisine)} photoUrl={restaurant.photoUrl} /> : <Skeleton height={HERO_H + insets.top} radius={0} />}
             <View style={{ position: 'absolute', top: insets.top + theme.space[2], start: theme.space[4], end: theme.space[4], flexDirection: 'row', justifyContent: 'space-between' }}>
               <IconButton
                 icon="arrow-back"
@@ -202,12 +258,12 @@ export default function RestaurantScreen() {
                   <Icon name="heart" size={20} color="danger" fillColor="danger" filled />
                 </View>
               ) : null}
-              {cart.lines.length > 0 ? <IconButton icon="cart" variant="outline" badge={itemCount(cart)} accessibilityLabel={t('cart.title')} onPress={() => router.push('/cart')} /> : null}
+              <CartButton />
             </View>
           </View>
           <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', paddingHorizontal: theme.space[5], marginTop: -40 }}>
             <Card elevation={2} padding={4} testID="restaurant-facts">
-              {restaurant ? <Facts r={restaurant} /> : <FactsSkeleton />}
+              {restaurant ? <Facts r={restaurant} knownFor={story ? null : (popular[0]?.name ?? null)} /> : <FactsSkeleton />}
             </Card>
             {story ? <KitchenStory story={story} knownFor={popular[0]?.name ?? null} /> : null}
           </View>
@@ -223,7 +279,7 @@ export default function RestaurantScreen() {
             accessibilityLabel={t('restaurant.menu_categories')}
             testID="category-bar"
           >
-            {categories.map((c, i) => (
+            {shown.map((c, i) => (
               <Chip key={c.id} testID={`category-${i}`} label={c.name} role="radio" selected={i === active} onPress={() => jumpTo(i)} />
             ))}
           </ScrollView>
@@ -261,7 +317,27 @@ export default function RestaurantScreen() {
           {menu.data?.pot && potItem && restaurant ? (
             <PotBanner pot={menu.data.pot} item={potItem} art={artById.get(potItem.id)} restaurant={restaurant.name} merchantOrgId={restaurant.id} onOpen={() => setOpen(potItem)} />
           ) : null}
-          {popular.length > 0 ? (
+          {offerLeft ? (
+            <WhatsLeft
+              soldOut={soldToday.soldOut}
+              left={soldToday.left}
+              only={onlyNow}
+              onChange={(only) => {
+                sectionY.current = [];
+                setActive(0);
+                setOnlyNow(only);
+              }}
+            />
+          ) : null}
+          {gridItems.length > 0 ? (
+            <LiveDrinkGrid
+              merchantId={id}
+              title={popular.length >= 3 ? t('restaurant.popular_title') : t('restaurant.top_drinks')}
+              items={gridItems}
+              art={(i) => artById.get(i.id)}
+              actions={actions}
+            />
+          ) : popular.length > 0 ? (
             <View style={{ paddingTop: theme.space[5] }} testID="section-popular">
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                 <Icon name="star" size={18} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
@@ -270,35 +346,19 @@ export default function RestaurantScreen() {
                 </Text>
               </View>
               {popular.map((item) => (
-                <DishCard
-                  key={`popular-${item.id}`}
-                  item={item}
-                  art={artById.get(item.id)}
-                  inCart={counts.get(item.id) ?? 0}
-                  onOpen={() => setOpen(item)}
-                  onQuickAdd={(from) => quickAdd(item, from)}
-                  onDecrement={() => removeOne(item)}
-                />
+                <LiveDishCard key={`popular-${item.id}`} merchantId={id} item={item} art={artById.get(item.id)} temperature={temps.get(item.id) ?? null} actions={actions} />
               ))}
             </View>
           ) : null}
           {menu.isPending
             ? [0, 1, 2, 3].map((i) => <DishSkeleton key={i} />)
-            : categories.map((c, i) => (
+            : shown.map((c, i) => (
                 <View key={c.id} onLayout={(e) => (sectionY.current[i] = e.nativeEvent.layout.y)} style={{ paddingTop: theme.space[5] }} testID={`section-${i}`}>
                   <Text variant="title" accessibilityRole="header">
                     {c.name}
                   </Text>
                   {c.items.map((item) => (
-                    <DishCard
-                      key={item.id}
-                      item={item}
-                      art={artById.get(item.id)}
-                      inCart={counts.get(item.id) ?? 0}
-                      onOpen={() => setOpen(item)}
-                      onQuickAdd={(from) => quickAdd(item, from)}
-                      onDecrement={() => removeOne(item)}
-                    />
+                    <LiveDishCard key={item.id} merchantId={id} item={item} art={artById.get(item.id)} temperature={temps.get(item.id) ?? null} actions={actions} />
                   ))}
                 </View>
               ))}
@@ -307,8 +367,19 @@ export default function RestaurantScreen() {
 
       {barVisible ? (
         <View style={{ position: 'absolute', bottom: insets.bottom + theme.space[4], start: 0, end: 0, alignItems: 'center', paddingHorizontal: theme.space[5] }} pointerEvents="box-none">
-          <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH - 40 }}>
-            <CartBar count={itemCount(cart)} totalIqd={itemsTotal(cart)} thumbs={thumbs} bubbleRef={bubbleRef} pulseKey={landings} onPress={() => router.push('/cart')} />
+          <View style={{ width: '100%', maxWidth: MAX_CONTENT_WIDTH - 40, gap: theme.space[2] }}>
+            {afterMeal ? (
+              <AfterMeal
+                item={afterMeal}
+                art={artById.get(afterMeal.id)}
+                onAdd={() => {
+                  quickAdd(afterMeal, null);
+                  setAfterMeal(null);
+                }}
+                onDismiss={() => setAfterMeal(null)}
+              />
+            ) : null}
+            <LiveCartBar artById={artById} photoById={photoById} bubbleRef={bubbleRef} pulseKey={landings} />
           </View>
         </View>
       ) : null}
@@ -320,7 +391,12 @@ export default function RestaurantScreen() {
   );
 }
 
-function Facts({ r }: { r: RestaurantCard }) {
+/**
+ * The facts card (m3): the name, then one line — what the kitchen is known for when the town's orders
+ * say it, else its cuisine — the rating and the door time, and delivery and the minimum together on one
+ * «التفاصيل» line instead of a row of chips. Deals and busy mode as before.
+ */
+function Facts({ r, knownFor }: { r: RestaurantCard; knownFor: string | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -333,8 +409,8 @@ function Facts({ r }: { r: RestaurantCard }) {
           <Text variant="heading" accessibilityRole="header" numberOfLines={2}>
             {r.name}
           </Text>
-          <Text variant="footnote" color="textMuted">
-            {r.cuisine}
+          <Text variant="footnote" color={knownFor ? 'accentText' : 'textMuted'} weight={knownFor ? 600 : 400} testID="restaurant-known-for">
+            {knownFor ? t('restaurant.known_for', { dish: knownFor }) : r.cuisine}
           </Text>
         </View>
         <StatusPill size="sm" dot tone={r.open ? 'success' : 'neutral'} label={r.open ? t('restaurant.open') : t('restaurant.closed')} />
@@ -353,18 +429,21 @@ function Facts({ r }: { r: RestaurantCard }) {
           </Text>
         </View>
       </View>
-      <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>
-        <Fact icon="bike" label={fee} highlight={r.deliveryFeeIqd === 0} testID="restaurant-fee" />
-        {/* J-D6: below the minimum is a choice with the server's small-order fee, said up front. */}
-        <Fact
-          icon="bag"
-          label={
-            r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
+      {/* m3: delivery and the minimum on one line (J-D6: the small-order fee still said up front). */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }} testID="restaurant-details">
+        <Icon name="bike" size={16} color={r.deliveryFeeIqd === 0 ? 'successText' : 'textMuted'} />
+        <Text variant="footnote" color="textMuted" tabular style={{ flex: 1 }}>
+          <Text variant="footnote" weight={600} color={r.deliveryFeeIqd === 0 ? 'successText' : 'text'} testID="restaurant-fee">
+            {fee}
+          </Text>
+          {/* Before a place is picked the fee is a whole sentence: the minimum goes on its own line. */}
+          {r.deliveryFeeIqd === null ? '\n' : ' · '}
+          <Text variant="footnote" color="textMuted" testID="restaurant-min">
+            {r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
               ? t('restaurant.small_order_note', { amount: amountParam(r.minOrderIqd), fee: amountParam(r.smallOrderFeeIqd ?? 0) })
-              : t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })
-          }
-          testID="restaurant-min"
-        />
+              : t('restaurant.min_order', { amount: amountParam(r.minOrderIqd) })}
+          </Text>
+        </Text>
       </View>
       {/* The restaurant's live deals; the best one is applied by the server at checkout. */}
       <DealBadges deals={r.deals ?? []} testID="restaurant-deals" />
@@ -378,29 +457,6 @@ function Facts({ r }: { r: RestaurantCard }) {
           {t('restaurant.busy')}
         </Text>
       ) : null}
-    </View>
-  );
-}
-
-function Fact({ icon, label, highlight, testID }: { icon: 'bike' | 'bag'; label: string; highlight?: boolean; testID?: string }) {
-  const theme = useTheme();
-  return (
-    <View
-      testID={testID}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: theme.space[3],
-        paddingVertical: 6,
-        borderRadius: theme.radius.pill,
-        backgroundColor: highlight ? theme.colors.successTint : theme.colors.surfaceSunken,
-      }}
-    >
-      <Icon name={icon} size={16} color={highlight ? 'successText' : 'text'} />
-      <Text variant="caption" weight={600} color={highlight ? 'successText' : 'text'} tabular>
-        {label}
-      </Text>
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { formatClock, Icon, Text, usePulse, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
@@ -42,8 +42,13 @@ function Segment({ stage, label }: { stage: KitchenStage; label: string }) {
           </View>
         ) : null}
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-        {done ? <Icon name="check" size={12} color="successText" strokeWidth={2.6} /> : null}
+      {/* The check sits beside the first line, so a name that wraps at large text (VIS-19) keeps it. */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 2 }}>
+        {done ? (
+          <View style={{ height: theme.type.caption.lineHeight * theme.textScale * PixelRatio.getFontScale(), justifyContent: 'center' }}>
+            <Icon name="check" size={12} color="successText" strokeWidth={2.6} />
+          </View>
+        ) : null}
         <Text variant="caption" weight={done || active ? 600 : 500} color={done ? 'successText' : active ? 'text' : 'textMuted'} numberOfLines={2} style={{ flexShrink: 1 }}>
           {label}
         </Text>

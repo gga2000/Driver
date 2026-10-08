@@ -21,7 +21,7 @@ describe('route guard', () => {
   });
 
   it('lets guests browse home, search, the restaurant list, menus, the cart and the tabs (C-18)', () => {
-    for (const segs of [['(tabs)'], ['(tabs)', 'orders'], ['(tabs)', 'account'], ['search'], ['restaurants'], ['restaurant', '[id]'], ['cart']]) {
+    for (const segs of [['(tabs)'], ['(tabs)', 'orders'], ['(tabs)', 'account'], ['search'], ['food'], ['food', '[door]'], ['restaurants'], ['restaurant', '[id]'], ['cart']]) {
       expect(g('signedOut', segs), segs.join('/')).toBeNull();
     }
   });

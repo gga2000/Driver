@@ -22,8 +22,9 @@ const STAR_D = 'M5 0L6.1 3.9L10 5L6.1 6.1L5 10L3.9 6.1L0 5L3.9 3.9Z';
  * the kitchen's yes, the pot on the fire, the bag ready with sparkles, the courier riding toward you;
  * for a ride, the pin calling for a driver, the car coming to the pin, the car on the road. Drawn in
  * the Aziziyah sketchbook (flat paint, the date-brown ink a little off its fill) on the stage's
- * plate. Each moves on home's ambient clock, so it stops off screen; the clock's first frame is a
- * complete still picture, which is what reduced motion shows. Decoration: the card says the stage.
+ * plate. Each moves on home's ambient clock, so it stops off screen and rests after a while; the
+ * clock's first frame is a complete still picture, which is what reduced motion shows. Decoration:
+ * the card says the stage.
  */
 export function StageScene({ stage, clock, plate, arrived }: { stage: LiveStage; clock: Clock; plate: string; arrived: boolean }) {
   const theme = useTheme();

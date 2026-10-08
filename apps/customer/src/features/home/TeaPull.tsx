@@ -19,6 +19,8 @@ import { pullDistance, PULL_AT, PULL_HOLD } from './pull';
 /** iOS pulls with its own bounce (the native control, its spinner hidden); Android and the web with ours. */
 const NATIVE_PULL = Platform.OS === 'ios';
 const GLASS_H = 52;
+/** The gap's window, taller than a pull gets (the page holds at 64; even a hard iOS bounce stays under this). */
+const WELL_H = 320;
 
 export interface TeaPullScrollProps {
   children: ReactNode;
@@ -150,39 +152,45 @@ export function TeaPullScroll({
   const page = useAnimatedStyle(() => ({
     transform: [{ translateY: NATIVE_PULL ? 0 : pull.value }],
   }));
+  // The gap is a window slid down so it ends where the page starts (speed audit m2, 2026-10-07: sliding
+  // costs nothing, resizing it laid the top out again on every frame of the pull); the glass inside is
+  // slid back by the same, so it sits in the middle of the gap, and the window hides what the gap
+  // cannot hold yet.
   const well = useAnimatedStyle(() => ({
-    height: gap.value,
+    transform: [{ translateY: Math.min(gap.value, WELL_H) - WELL_H }],
     opacity: busy.value ? 1 : Math.min(1, gap.value / 24),
   }));
   // The glass grows with the gap, so it always fits whole: small at first, full size by the line.
   const glass = useAnimatedStyle(() => ({
-    transform: [{ scale: Math.max(0.35, Math.min(1, (gap.value - 8) / GLASS_H)) }],
+    transform: [
+      { translateY: WELL_H - (Math.min(gap.value, WELL_H) + GLASS_H) / 2 },
+      { scale: Math.max(0.35, Math.min(1, (gap.value - 8) / GLASS_H)) },
+    ],
   }));
 
   return (
     <View style={{ flex: 1 }}>
-      <Animated.View
+      {/* Fixed at the top, so nothing shows above the page's own top edge. */}
+      <View
         pointerEvents="none"
         accessibilityLiveRegion="polite"
         accessibilityLabel={refreshing ? t('status.refreshing') : undefined}
-        style={[
-          {
-            position: 'absolute',
-            top: 0,
-            start: 0,
-            end: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-          },
-          well,
-        ]}
+        style={{
+          position: 'absolute',
+          top: 0,
+          start: 0,
+          end: 0,
+          height: WELL_H,
+          overflow: 'hidden',
+        }}
         testID="home-tea"
       >
-        <Animated.View style={glass}>
-          <TeaGlass level={level} steaming={refreshing} height={GLASS_H} />
+        <Animated.View style={[{ height: WELL_H, alignItems: 'center', overflow: 'hidden' }, well]}>
+          <Animated.View style={[{ height: GLASS_H }, glass]}>
+            <TeaGlass level={level} steaming={refreshing} height={GLASS_H} />
+          </Animated.View>
         </Animated.View>
-      </Animated.View>
+      </View>
       <GestureDetector gesture={pan} touchAction="pan-y">
         <Animated.View style={[{ flex: 1 }, page]}>
           <Animated.ScrollView

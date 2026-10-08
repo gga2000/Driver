@@ -41,6 +41,11 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   // `completedForDriver` / `endedForDriver` (the scorecard once read `forDriver` and saw none).
   const after = (at: Date | null, since: Date) => at !== null && at.getTime() >= since.getTime();
   const tripsFake = {
+    get: async (tripId: string) => {
+      const t = trips.find((x) => x.id === tripId);
+      if (!t) throw new Error('trip not found');
+      return t;
+    },
     forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId && UNFINISHED.includes(t.state)),
     completedForDriver: async (driverId: string, since: Date) => trips.filter((t) => t.courierId === driverId && t.state === 'completed' && after(t.completedAt, since)),
     endedForDriver: async (driverId: string, since: Date) =>
@@ -83,6 +88,20 @@ describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #
     expect(h.repo.documents.get(doc.id)?.status).toBe('pending');
     const other = await h.person('07700000012', ['field_ops']);
     await expect(h.service.reviewDocument(other, { documentId: doc.id, decision: 'approve' })).resolves.toMatchObject({ status: 'approved' });
+  });
+
+  it('driver.document_* carry the city (Console "Today" list)', async () => {
+    const h = setup();
+    const d = await h.person('07700000013', ['driver']);
+    const doc = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    const ops = await h.person('07700000014', ['field_ops']);
+    await h.service.reviewDocument(ops, { documentId: doc.id, decision: 'reject', reason: 'الصورة مو واضحة' });
+    const mine = (await h.ev.events.forAggregate('person', d.personId)).filter((e) => e.type.startsWith('driver.document_'));
+    expect(mine.map((e) => [e.type, e.payload['cityId']])).toEqual([
+      ['driver.document_submitted', 'aziziyah'],
+      ['driver.document_reviewed', 'aziziyah'],
+    ]);
+    expect(mine[1]!.payload).toMatchObject({ documentId: doc.id, personId: d.personId, kind: 'licence', decision: 'reject' });
   });
 });
 
@@ -402,6 +421,15 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     expect((await h.service.shiftSummary(d, { to: new Date('2026-10-04T09:00:00Z') })).to.toISOString()).toBe('2026-10-03T21:20:00.000Z');
   });
 
+  it('«يومك» km: straight lines between the stops of the shift\'s trips; null when no trip can be read', async () => {
+    const h = setup('2026-10-03T16:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T15:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
+    expect((await h.service.shiftSummary(d, { from: new Date('2026-10-03T12:00:00Z') })).minKm).toBeNull();
+    h.trips.push({ id: 't_ride', stops: [{ target: { lat: 32.91, lng: 45.06 } }, { target: { lat: 32.94, lng: 45.06 } }] } as unknown as Trip);
+    expect((await h.service.shiftSummary(d, { from: new Date('2026-10-03T12:00:00Z') })).minKm).toBe(3);
+  });
+
   it('one scorecard nudge at most, from day 31', async () => {
     const h = setup('2026-10-03T09:00:00Z');
     const d = await h.person('07700000001', ['courier']);
@@ -413,6 +441,34 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     const s = await h.service.shiftSummary(d, {});
     expect(s.nudge?.key).toBe('acceptance');
     expect(s.nudge?.message_ar.length).toBeGreaterThan(0);
+  });
+});
+
+describe('driverAccount.myBest (partner redesign e3 / e4)', () => {
+  it('his week so far, his best day and his best weekday hours over four weeks, from his own ledger', async () => {
+    // Saturday 3 Oct 2026, 22:00 Baghdad. Thursdays 17 Sep, 24 Sep, 1 Oct; 19:00–22:00 Baghdad is 16:00–19:00Z.
+    const h = setup('2026-10-03T19:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    const order = (id: string, iso: string, tipIqd = 0) => h.ledger.posting.orderMoney(workedExample({ orderId: id, courierId: d.personId, occurredAt: new Date(iso), tipIqd }));
+    await order('o1', '2026-09-24T16:10:00Z');
+    await order('o2', '2026-09-24T17:15:00Z', 1000);
+    await order('o3', '2026-10-01T16:30:00Z');
+    await order('o4', '2026-10-01T18:20:00Z');
+    // This week (from Sunday 27 Sep 21:00Z): o3, o4 and a Saturday morning job.
+    await order('o5', '2026-10-03T06:00:00Z');
+    // Older than four weeks: not counted for the best time.
+    await order('o_old', '2026-08-27T16:10:00Z');
+    const b = await h.service.myBest(d);
+    expect(b.sinceDays).toBe(28);
+    expect(b.week).toEqual({ from: new Date('2026-09-26T21:00:00Z'), netIqd: 3000, jobs: 3 });
+    expect(b.bestDay).toEqual({ at: new Date('2026-09-23T21:00:00Z'), netIqd: 3000, jobs: 2 });
+    expect(b.bestWindow).toMatchObject({ weekday: 4, fromHour: 19, toHour: 22, jobs: 4, days: 2 });
+  });
+
+  it('nothing to say for a new driver', async () => {
+    const h = setup('2026-10-03T19:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    expect(await h.service.myBest(d)).toEqual({ week: { from: new Date('2026-09-26T21:00:00Z'), netIqd: 0, jobs: 0 }, bestDay: null, bestWindow: null, sinceDays: 28 });
   });
 });
 

@@ -48,6 +48,19 @@ export default async function run(s) {
   await c.page.waitForTimeout(1200);
   await c.shot('day', { settle: 1200 });
   await c.shot('day-full', { full: true, settle: 400 });
+  // Partner redesign e3 / e5: his best hours, and today's tips in green with the customer's words.
+  await c.page.locator('[data-testid="best-time"]').scrollIntoViewIfNeeded();
+  await c.shot('best-time', { settle: 600 });
+  await c.page.locator('[data-testid="latest-jobs"]').scrollIntoViewIfNeeded();
+  await c.shot('tips-words', { settle: 600 });
+  // «يومك» (e7): the whole day, km and the best word, to keep or share.
+  await c.page.locator('[data-testid="earnings-hero"]').scrollIntoViewIfNeeded();
+  await c.byTestId('your-day').click();
+  await c.wait('shift-stats');
+  await c.shot('your-day', { settle: 1200 });
+  await c.shot('your-day-full', { full: true, settle: 400 });
+  await c.page.goBack();
+  await c.wait('earnings-hero');
 
   await c.byTestId('segment-week').click();
   await c.page.getByText('هالأسبوع').first().waitFor();
@@ -89,15 +102,30 @@ export default async function run(s) {
   await c.wait('score-hero');
   await c.shot('scorecard', { settle: 1600 });
   await c.shot('scorecard-full', { full: true, settle: 400 });
+  // f6: the five parts of his 100, and what customers say most.
+  await c.page.locator('[data-testid="score-parts"]').scrollIntoViewIfNeeded();
+  await c.shot('score-parts', { settle: 500 });
+  await c.page.locator('[data-testid="score-words"]').scrollIntoViewIfNeeded();
+  await c.shot('score-words', { settle: 500 });
 
   // His papers are fine; the new main photo he sent waits for approval (demo seed), so the summary says «دنراجع أوراقك».
   await c.goto('/documents');
   await c.wait('docs-summary-review');
   await c.shot('documents-review', { settle: 800 });
+  // a1 / a2: the account in three groups under his approved photo.
+  await c.goto('/account');
+  await c.wait('hub-you');
+  await c.shot('account', { settle: 1200 });
+  await c.page.locator('[data-testid="hub-help"]').scrollIntoViewIfNeeded();
+  await c.shot('account-help', { settle: 500 });
   await c.close();
 
   // ── tuktuk: the take, mixed documents and the upload sheet ─────────────
   const tk = await s.signIn(PHONES.tuktuk);
+  // a3: his licence has 12 days left, so home says so (papers reach home only in their last 14 days).
+  await tk.goto('/');
+  await tk.wait('papers-banner');
+  await tk.shot('home-papers', { settle: 1200 });
   await tk.goto('/earnings/statement?period=day');
   await tk.wait('statement-jobs');
   await tk.page.locator('[data-testid="statement-jobs"] [role="button"]').first().click();

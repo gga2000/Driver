@@ -66,6 +66,11 @@ export const FleetDriver = z.object({
   phoneHint: z.string().nullable().optional(),
   /** Pending rows only: when the owner sent the invite. */
   invitedAt: z.coerce.date().nullable().optional(),
+  /**
+   * Pending rows only (partner redesign f5): the car the owner picked with the invite; it becomes the
+   * driver's car when he accepts, if it is still free. Additive.
+   */
+  plannedVehicleId: z.string().nullable().optional(),
 });
 export type FleetDriver = z.infer<typeof FleetDriver>;
 
@@ -146,7 +151,14 @@ export type SetVehicleFeaturesInput = z.infer<typeof SetVehicleFeaturesInput>;
  * Invites a driver to the fleet by phone (the driving role itself still comes from ops review). The
  * link stays pending until the driver accepts it in his app (`fleet.respondInvite`).
  */
-export const AddFleetDriverInput = FleetScopeInput.extend({ phone: z.string().min(7).max(20) });
+export const AddFleetDriverInput = FleetScopeInput.extend({
+  phone: z.string().min(7).max(20),
+  /**
+   * Partner redesign f5: the owner picks the car on the same screen. It waits on the invite and is
+   * assigned when the driver accepts, if no one drives it by then. Omit for no car yet. Additive.
+   */
+  vehicleId: z.string().min(1).optional(),
+});
 export type AddFleetDriverInput = z.infer<typeof AddFleetDriverInput>;
 
 /** One of the fleet's drivers' earnings, every component named (same view as `driverAccount.earnings`). */
@@ -162,6 +174,11 @@ export const FleetInvite = z.object({
   /** The fleet's name ("أسطول الربيعي"); null when the org is unknown here. Additive. */
   fleetName: z.string().nullable().optional(),
   accepted: z.boolean(),
+  /** Pending invites only (f5): the car the owner picked for him, so he knows what he will drive. Additive. */
+  plannedVehicle: z
+    .object({ plate: z.string(), vehicleClass: VehicleClass, model: z.string().nullable(), colour: VehicleColour.nullable() })
+    .nullable()
+    .optional(),
 });
 export type FleetInvite = z.infer<typeof FleetInvite>;
 

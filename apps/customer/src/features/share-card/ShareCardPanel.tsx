@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { Platform, Switch, View } from 'react-native';
-import { Button, ModalSheet, Text, useTheme, useToast } from '@driver/ui';
+import { Platform, View } from 'react-native';
+import { Button, ModalSheet, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { useProfile } from '@/lib/profile';
 import { shareCard } from './render';
@@ -64,14 +64,12 @@ export function ShareCardPanel({ moment, id, visible, onClose }: { moment: Share
           <Text variant="label" weight={600} style={{ flex: 1 }}>
             {t('sharecard.with_name')}
           </Text>
-          <Switch
+          <Toggle
             testID="sharecard-name"
             accessibilityLabel={t('sharecard.with_name')}
             value={withName}
             disabled={!name}
             onValueChange={setWithName}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-            {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
           />
         </View>
       </View>

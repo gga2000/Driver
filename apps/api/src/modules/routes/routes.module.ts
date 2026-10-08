@@ -4,11 +4,12 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
-import { ControlsModule, ControlsService } from '../controls/index.js';
+import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
 import { DeparturesService } from './departures.service.js';
+import { DEPARTURES_AUDIT, DeparturesStaffService, GARAGE_WATCH_RULES, garageWatchRulesFromEnv } from './departures.staff.js';
 import { EventsServiceAdapter, ROUTES_EVENTS } from './events.adapter.js';
 import { INTERCITY_NETWORK, INTERCITY_RULES } from './intercity.config.js';
 import { TrailCheckpointWaiver } from './late-meter.js';
@@ -82,8 +83,12 @@ import { RoutesWriter } from './writer.js';
     RoutesRpc,
     RoutesDeparturesPort,
     RoutesScheduler,
+    // W3 / NTF-14: the Console's way out of a dead departure; the auto-cancel switch is off by default.
+    { provide: GARAGE_WATCH_RULES, useFactory: () => garageWatchRulesFromEnv() },
+    { provide: DEPARTURES_AUDIT, useExisting: AuditLogService },
+    DeparturesStaffService,
   ],
-  exports: [RoutesRpc, DeparturesService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
+  exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
 })
 export class RoutesModule implements OnModuleInit {
   constructor(private readonly controls: ControlsService) {}

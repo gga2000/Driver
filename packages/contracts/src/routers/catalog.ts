@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CarryOverInput, CarryOverPreview, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CarryOverInput, CarryOverPreview, CatalogCraving, CatalogCravingsInput, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
 import { FollowDishInput, MyDishFollows, PotsTodayInput, TodayPot } from '../habits-io.js';
 import type { Actor } from '../identity-io.js';
 import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
@@ -48,6 +48,11 @@ export const catalogRouter = router({
     .input(CatalogPicksInput)
     .output(z.array(CatalogSearchDish))
     .query(({ ctx, input }) => ctx.catalog.picks(readerOf(ctx), input)),
+  /** «شنو بخاطرك؟» inside a food door: per kind of thing, the open shops that have it and their dish. */
+  cravings: publicProcedure
+    .input(CatalogCravingsInput)
+    .output(z.array(CatalogCraving))
+    .query(({ ctx, input }) => ctx.catalog.cravings(readerOf(ctx), input)),
   /** «العزيزية اليوم» (joy h2): today's pots in the city, open kitchens first; `followed` for the signed in. */
   pots: publicProcedure
     .input(PotsTodayInput)

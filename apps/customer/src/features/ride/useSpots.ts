@@ -30,12 +30,13 @@ export function savedSpot(p: SavedPlace, title: string, locale: 'ar-IQ' | 'en'):
  * Everything "وين رايح؟" searches (saved places, recent trips, landmarks, restaurants, the 34 zones) and the
  * default pickup: the selected deliver-to place.
  */
-export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean } {
+export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean; landmarksFailed: boolean; retryLandmarks: () => void } {
   const t = useT();
   const locale = useLocale();
   const prof = useProfile();
   const ride = useRideStore();
   const landmarks = useLandmarks();
+  const refetchLandmarks = landmarks.refetch;
   const shops = useShopPlaces();
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
 
@@ -53,7 +54,9 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
         zones: zoneSpots(lang, t('ride.zone_centre')),
       },
       defaultPickup,
-      landmarksLoading: landmarks.isPending,
+      landmarksLoading: landmarks.isLoading,
+      landmarksFailed: landmarks.isError && !landmarks.data,
+      retryLandmarks: () => void refetchLandmarks(),
     };
-  }, [prof, ride.recent, landmarks.data, landmarks.isPending, shops.data, lang, t]);
+  }, [prof, ride.recent, landmarks.data, landmarks.isLoading, landmarks.isError, refetchLandmarks, shops.data, lang, t]);
 }

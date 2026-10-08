@@ -1,5 +1,8 @@
 import 'reflect-metadata';
+import { constants as zlib } from 'node:zlib';
 import { Logger, type LoggerService } from '@nestjs/common';
+import compression from 'compression';
+import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
@@ -35,6 +38,25 @@ export function securityHeaders(production: boolean) {
   };
 }
 
+/**
+ * Answers are gzip- or brotli-compressed when the caller accepts it (phones and browsers do): JSON
+ * shrinks 7–9×, so a live order costs about a tenth of the mobile data. Levels are chosen for CPU, not
+ * the last percent (brotli's default quality 11 would cost more CPU than the whole request). Live
+ * streams (`text/event-stream`) are never compressed: a compressor holds bytes back until its buffer
+ * fills, so a ping or a position would arrive late.
+ */
+export const compressionOptions: compression.CompressionOptions = {
+  threshold: 1024,
+  level: 5,
+  brotli: { params: { [zlib.BROTLI_PARAM_QUALITY]: 4 } },
+  filter: (req: Request, res: Response) => !isEventStream(req, res) && compression.filter(req, res),
+};
+
+function isEventStream(req: Request, res: Response): boolean {
+  const type = res.getHeader('Content-Type');
+  return String(type ?? '').startsWith('text/event-stream') || String(req.headers.accept ?? '').includes('text/event-stream');
+}
+
 export async function createApp(opts: { logger?: LoggerService } = {}): Promise<NestExpressApplication> {
   // rawBody: webhook signatures (WhatsApp `X-Hub-Signature-256`) are computed over the exact bytes.
   // Express 5 parses query strings with the "simple" parser (flat keys, no `a[b]=` nesting); tRPC reads
@@ -46,6 +68,7 @@ export async function createApp(opts: { logger?: LoggerService } = {}): Promise<
   const origin = corsOriginFromEnv();
   if (production && origin === true) new Logger('Bootstrap').warn('CORS_ORIGINS is not set: any web origin may call the API (set it once the web domains exist)');
   app.enableCors({ origin });
+  app.use(compression(compressionOptions));
   // Per-IP OTP limits need the client's address: behind a load balancer set TRUST_PROXY (hop count,
   // e.g. "1", or an Express trust-proxy value) so req.ip comes from X-Forwarded-For.
   const trustProxy = process.env['TRUST_PROXY'];

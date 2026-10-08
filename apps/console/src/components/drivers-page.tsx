@@ -81,7 +81,7 @@ export function DriversPage() {
                 {p?.displayName ?? d.personId}
               </Link>
               <span className="block truncate text-xs text-muted">
-                {[vehicle || null, d.roles.map(capRoleLabel).join('، ')].filter(Boolean).join(' · ')}
+                {[vehicle || null, d.roles.map(capRoleLabel).join(t('console.list_sep'))].filter(Boolean).join(' · ')}
               </span>
             </span>
             {d.frozen ? (

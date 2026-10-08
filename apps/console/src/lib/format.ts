@@ -72,7 +72,7 @@ export function formatClock(d: Date, timeZone = 'Asia/Baghdad'): string {
   const hour = get('hour');
   const minute = get('minute');
   const pm = get('dayPeriod').toUpperCase() === 'PM';
-  return `${hour}:${minute} ${pm ? 'م' : 'ص'}`;
+  return `${hour}:${minute} ${t(pm ? 'console.clock_pm' : 'console.clock_am')}`;
 }
 
 /** "أيلول 2026" (Iraqi month names, Western digits) in the city zone. */

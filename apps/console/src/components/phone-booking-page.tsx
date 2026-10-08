@@ -188,7 +188,7 @@ function BookingForm() {
         </Field>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-          <p className="max-w-[48ch] text-xs text-muted">{offline ? t('console.net_offline') : missing.length > 0 ? t('console.phone.book_missing', { what: missing.map((m) => t(MISSING_KEY[m])).join('، ') }) : t('console.phone.audited')}</p>
+          <p className="max-w-[48ch] text-xs text-muted">{offline ? t('console.net_offline') : missing.length > 0 ? t('console.phone.book_missing', { what: missing.map((m) => t(MISSING_KEY[m])).join(t('console.list_sep')) }) : t('console.phone.audited')}</p>
           <Button type="submit" size="lg" variant="primary" icon={<IconPhone size={18} />} loading={book.isPending} disabled={missing.length > 0 || offline}>
             {t('console.phone.book')}
           </Button>

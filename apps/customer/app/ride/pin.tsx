@@ -1,10 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LatLng } from '@driver/contracts';
 import { Button, Icon, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
-import { currentFix } from '@/features/account/device';
+import { currentFix, locationDeniedToast } from '@/features/account/device';
 import { nearestZone } from '@/features/account/geo';
 import { tooClose, zoneTitle, type Spot } from '@/features/ride/logic';
 import { useZoneFor } from '@/features/ride/queries';
@@ -15,6 +15,7 @@ import { useLocale, useT } from '@/lib/i18n';
 import { color as palette } from '@driver/design-tokens';
 
 const CENTRE: LatLng = { lat: 32.905, lng: 45.06 };
+const PIN_SETTLE_MS = 1_500;
 
 /**
  * Pin adjust (customer spec §5): the map moves under a fixed pin; the zone under the tip comes from
@@ -41,12 +42,26 @@ export default function RidePin() {
   const zoneId = z?.zoneId ?? null;
   const outside = z ? !z.inService : false;
   const fresh = !zone.isPlaceholderData && !zone.isFetching;
+  // FLOW-28: the server could not say which area the pin is in (offline, a blip): say so, and retry.
+  const zoneFailed = zone.isError && !zone.isFetching;
+  // DEV-16: the sheet's lines keep fixed heights (a sheet that grows mid-drag resizes the map and drops
+  // the drag), but those heights follow the phone's text size so large text never draws over itself.
+  const { fontScale } = useWindowDimensions();
+  const scale = Math.max(1, fontScale);
+
+  // VIS-21: a touch that lifts the pin but never moves the camera sends no "settled" back, which left
+  // «ثبّت الوجهة» off for good on small screens. If nothing new comes within 1.5 s, the pin has settled.
+  useEffect(() => {
+    if (!moving) return;
+    const id = setTimeout(() => setMoving(false), PIN_SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [moving, pin]);
 
   const locate = async () => {
     setLocating(true);
     const fix = await currentFix();
     setLocating(false);
-    if (fix === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger' });
+    if (fix === 'denied') toast.show(locationDeniedToast(t));
     else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
     else setRecentre({ pin: fix.pin, seq: Date.now() });
   };
@@ -89,7 +104,8 @@ export default function RidePin() {
             style={{
               flexShrink: 1,
               paddingHorizontal: theme.space[4],
-              height: 44,
+              paddingVertical: theme.space[1],
+              minHeight: 44,
               borderRadius: 22,
               justifyContent: 'center',
               backgroundColor: theme.colors.surface,
@@ -125,15 +141,19 @@ export default function RidePin() {
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }} accessibilityLiveRegion="polite" testID="ride-pin-zone">
-          <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: outside ? theme.colors.warningTint : theme.colors.accentTint }}>
-            <Icon name="map-pin" size={22} color={outside ? 'warningText' : 'accentText'} strokeWidth={2} />
+          <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: zoneFailed ? theme.colors.dangerTint : outside ? theme.colors.warningTint : theme.colors.accentTint }}>
+            <Icon name={zoneFailed ? 'wifi-off' : 'map-pin'} size={22} color={zoneFailed ? 'dangerText' : outside ? 'warningText' : 'accentText'} strokeWidth={2} />
           </View>
           {/* Fixed line heights: a card that grows while the map is dragged would resize the map and drop the drag. */}
           <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ height: 30, justifyContent: 'center' }}>
+            <View style={{ height: Math.ceil(30 * scale), justifyContent: 'center' }}>
               {moving ? (
                 <Text color="textMuted" numberOfLines={1}>
                   {t('ride.pin_moving')}
+                </Text>
+              ) : zoneFailed ? (
+                <Text variant="bodyStrong" color="dangerText" numberOfLines={1} testID="ride-pin-zone-failed">
+                  {t('ride.pin_zone_failed')}
                 </Text>
               ) : outside && fresh ? (
                 <Text variant="bodyStrong" color="warningText" numberOfLines={1}>
@@ -147,11 +167,14 @@ export default function RidePin() {
                 <Skeleton width={160} height={22} />
               )}
             </View>
-            <Text variant="caption" color="textMuted" numberOfLines={1} style={{ height: 20 }}>
-              {t('ride.pin_hint')}
+            <Text variant="caption" color="textMuted" numberOfLines={1} style={{ height: Math.ceil(20 * scale) }}>
+              {zoneFailed ? t('ride.pin_zone_failed_hint') : t('ride.pin_hint')}
             </Text>
           </View>
         </View>
+        {zoneFailed && !moving ? (
+          <Button testID="ride-pin-retry" size="lg" variant="secondary" icon="refresh" fullWidth label={t('action.retry')} onPress={() => void zone.refetch()} />
+        ) : (
         <Button
           testID="ride-pin-confirm"
           size="lg"
@@ -161,6 +184,7 @@ export default function RidePin() {
           haptic="success"
           onPress={confirm}
         />
+        )}
       </View>
     </View>
   );

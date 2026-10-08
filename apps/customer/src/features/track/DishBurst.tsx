@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg from 'react-native-svg';
-import { DishDrawing, useTheme, type DishKind } from '@driver/ui';
+import { useTheme, type DishKind } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { BURST_BITS, BURST_MS, burstAt, type BurstBit } from './dish-burst';
 
 /** Each tiny dish is drawn this big (px). */

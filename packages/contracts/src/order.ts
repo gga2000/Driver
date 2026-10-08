@@ -5,6 +5,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { VehicleClass } from './trip.js';
@@ -471,7 +472,8 @@ export const CancellationFee = z.object({
 });
 export type CancellationFee = z.infer<typeof CancellationFee>;
 
-export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'other']);
+/** BENCH-13: rides also report the driver's behaviour or unsafe driving (a safety case); a lost item has its own chat (`chat.lostItem`). */
+export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'driver_behaviour', 'unsafe_driving', 'other']);
 export type DisputeKind = z.infer<typeof DisputeKind>;
 
 // ───────────────────────── procedure I/O ─────────────────────────
@@ -577,6 +579,16 @@ export interface OrdersPort {
   merchantExtendPrep(actor: Actor, input: MerchantExtendPrepInput): Promise<Order>;
   /** "سلّمته" (S-M4): records the hand-over at the pass (event + order history); idempotent. */
   merchantHandOver(actor: Actor, input: MerchantHandOverInput): Promise<Order>;
+  /** W3 (M-3/M-4): what he owes and how many cash orders he may have open; the orderer's own. */
+  cashStanding(actor: Actor): Promise<CashStanding>;
+  /** W3 staff way-out (docs/api/staff-ops.md): audited, with a reason; money outcomes behind their switches. */
+  opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult>;
+  opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult>;
+  opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult>;
+  opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult>;
+  opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;
+  opsResolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult>;
+  opsStuck(actor: Actor, input: StuckOrdersInput): Promise<StuckOrder[]>;
 }
 
 /**

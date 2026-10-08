@@ -44,10 +44,18 @@ import {
   RequestPositionInput,
   RequestPostView,
   RajaaDriverCard,
+  RajaaDriverProfile,
+  RajaaDriverProfileInput,
+  ReviewsOpsInput,
+  REVIEW_MODERATION_ROLES,
+  ReviewOpsView,
+  HideReviewInput,
+  UnhideReviewInput,
   RespondPickupInput,
   SelfieInput,
 } from '../routes-io.js';
 import { SafetyCallSession } from '../safety-io.js';
+import { OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from '../departure-staff-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Drivers who announce departures and offer on the request board. */
@@ -70,6 +78,11 @@ export const routesRouter = router({
     .input(DriverCardsInput)
     .output(z.array(RajaaDriverCard))
     .query(({ ctx, input }) => ctx.routes.driverCards(ctx.actor, input)),
+  /** «ملفه» (x12–x17): the driver's record, quality bars, badges and reviews; same visibility as driverCards. */
+  driverProfile: protectedProcedure()
+    .input(RajaaDriverProfileInput)
+    .output(RajaaDriverProfile)
+    .query(({ ctx, input }) => ctx.routes.driverProfile(ctx.actor, input)),
   /** Live departure board per garage (or corridor + direction), with fill and front-seat status. */
   board: protectedProcedure()
     .input(BoardInput)
@@ -135,6 +148,11 @@ export const routesRouter = router({
       .input(RequestListInput)
       .output(z.array(RequestPostView))
       .query(({ ctx, input }) => ctx.routes.openRequests(ctx.actor, input)),
+    /** Driver: he opened the request (y4); the rider sees how many drivers did. Idempotent. */
+    seen: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestSeen(ctx.actor, input)),
     /** Driver: offer a price (multiples of 1,000); a new offer replaces the driver's previous one. */
     offer: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestOfferInput)
@@ -270,5 +288,42 @@ export const routesRouter = router({
       .input(PinAlertCallInput)
       .output(SafetyCallSession)
       .mutation(({ ctx, input }) => ctx.routes.callPinAlertDriver(ctx.actor, input)),
+    /** «كلام الركاب»: riders' written reviews, newest first, shown and hidden. */
+    reviews: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(ReviewsOpsInput)
+      .output(z.array(ReviewOpsView))
+      .query(({ ctx, input }) => ctx.routes.reviews(ctx.actor, input)),
+    /** Take a review off the driver's profile (kept and logged; `unhideReview` puts it back). */
+    hideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(HideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.hideReview(ctx.actor, input)),
+    unhideReview: protectedProcedure(REVIEW_MODERATION_ROLES)
+      .input(UnhideReviewInput)
+      .output(ReviewOpsView)
+      .mutation(({ ctx, input }) => ctx.routes.unhideReview(ctx.actor, input)),
+    /**
+     * W3 / NTF-14: departures that need a person — the driver never came (past the latest departure
+     * time) or never pressed «وصلت» (past the expected arrival). Polled by the Console garage view.
+     */
+    overdueDepartures: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(OverdueDeparturesInput)
+      .output(z.array(OverdueDeparture))
+      .query(({ ctx, input }) => ctx.routes.overdueDepartures(ctx.actor, input)),
+    /** Cancel for a driver who never came: riders moved to the next cars, no fee (M-11 open), audit row. */
+    cancelDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsCancelDeparture(ctx.actor, input)),
+    /** «وصلت» on the driver's behalf: checked-in seats complete and settle as on his own tap; audit row. */
+    arriveDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsArriveDeparture(ctx.actor, input)),
+    /** Close an arrived departure now (the scheduler would after `closeAfterArrivalMin`); audit row. */
+    closeDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsCloseDeparture(ctx.actor, input)),
   }),
 });

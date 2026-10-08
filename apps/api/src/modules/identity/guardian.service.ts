@@ -2,7 +2,7 @@ import { DriverError, type GuardianLinkView } from '@driver/contracts';
 import type { Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { IdentityEventEmitter } from './events.adapter.js';
-import type { GuardianLinkRecord, IdentityRepository } from './identity.repository.js';
+import type { GuardianLinkRecord, IdentityRepository, OtpRecord } from './identity.repository.js';
 import type { OtpService } from './otp.service.js';
 
 export const GUARDIAN_STATE_AR: Record<GuardianLinkRecord['state'], string> = {
@@ -48,16 +48,19 @@ export class GuardianService {
     const now = this.clock.now();
     const key = { wardPersonId: ward.wardPersonId, wardParticipantId: ward.wardParticipantId };
     const link = (await this.repo.findPendingGuardianLink(guardianId, key, tx)) ?? (await this.repo.createGuardianLink({ guardianId, ...key, now }, tx));
-    await this.otp.request(ward.phoneE164, ward.phoneHash, 'guardian_consent', tx);
+    await this.otp.request(ward.phoneE164, ward.phoneHash, 'guardian_consent', tx, undefined, { actorId: guardianId });
     return link;
   }
 
-  /** The ward (or whoever holds the ward's phone) enters the consent code; link becomes active. */
-  async consent(linkId: string, wardPhoneHash: string, code: string, actorId: string, tx?: Tx): Promise<GuardianLinkRecord> {
+  /**
+   * The ward (or whoever holds the ward's phone) entered the consent code, already checked by
+   * `OtpService.check` outside the transaction; the link becomes active and the code is used up.
+   */
+  async consent(linkId: string, challenge: OtpRecord, actorId: string, tx?: Tx): Promise<GuardianLinkRecord> {
     const link = await this.repo.findGuardianLink(linkId, tx);
     if (!link) throw new DriverError('guardian_link_not_found');
     if (link.state !== 'pending') throw new DriverError('guardian_link_not_pending');
-    await this.otp.verify(wardPhoneHash, 'guardian_consent', code, tx);
+    await this.otp.consume(challenge, tx);
     const now = this.clock.now();
     const active = await this.repo.updateGuardianLink(link.id, { state: 'active', consentedAt: now }, tx);
     const grant = await this.repo.upsertRole({ personId: link.guardianId, kind: 'guardian', orgId: null, grantedBy: actorId, now }, tx);
