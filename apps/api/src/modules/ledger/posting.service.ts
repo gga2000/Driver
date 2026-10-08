@@ -24,6 +24,7 @@ import {
   postDriverCancelled,
   postErrand,
   postLateMeter,
+  postMerchantLateReject,
   postOrderClosed,
   postPoints,
   postReferral,
@@ -127,9 +128,8 @@ export class PostingService {
     const r = RideMoneyPayload.parse(input);
     const posted = postRideCompleted(r, this.rules);
     const points = postPoints({
-      groupId: `trip:${r.tripId}:points`,
+      ...(r.requestId !== undefined ? { groupId: `request:${r.requestId}:points`, refs: {} } : { groupId: `trip:${r.tripId}:points`, refs: { tripId: r.tripId } }),
       occurredAt: r.occurredAt,
-      refs: { tripId: r.tripId },
       points: pointsForRideTake(posted.takeIqd, this.rules),
       ordererId: r.customerId,
       recipients: [],
@@ -171,6 +171,11 @@ export class PostingService {
   /** M-15: the customer's credit when a ride's driver cancelled after reaching the pickup. */
   async driverCancelled(input: DriverCancelledPayload): Promise<RecordAllResult> {
     return this.record([postDriverCancelled(input)]);
+  }
+
+  /** M-17: the customer's credit when the merchant rejected after accepting (off until Ali says yes). */
+  async merchantLateReject(input: DomainEventInput<'order.rejected'>): Promise<RecordAllResult> {
+    return this.record([postMerchantLateReject(input)]);
   }
 
   async departureCancelled(input: DepartureCancelledPayload): Promise<RecordAllResult> {

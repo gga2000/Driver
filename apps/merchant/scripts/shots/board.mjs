@@ -39,15 +39,16 @@ export default {
     await shot('snoozed');
     await byTestId('alarm-unsnooze').click();
 
-    // Missed orders stay on the board ("طلبات فاتتك" strip, "فاتك اليوم" chip, the busy/close nudge).
+    // Missed orders: the «فاتك اليوم» chip in the status bar (a dot until seen); its sheet says what
+    // happened and offers busy mode or a short close. Closing it counts as seen.
     await demoPost('/demo/board/missed?count=2');
-    await byTestId('missed-strip').waitFor({ timeout: 15_000 });
+    await byTestId('missed-chip').waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(1500);
     await shot('missed');
     await byTestId('missed-chip').click();
-    await byTestId('missed-sheet').waitFor();
+    await byTestId('missed-new').waitFor();
     await shot('missed-sheet');
     await byTestId('missed-sheet-close').click();
-    await byTestId('missed-ok').click();
 
     // The new-order card with its 90-s ring.
     await shot('new-order', { element: page.locator('[data-testid^="order-"]').first() });
@@ -78,7 +79,7 @@ export default {
     await shot('reject');
     await byTestId('reject-sheet-close').click();
 
-    // Busy mode on: the sheet, then the board with the countdown chip.
+    // Busy mode on: the sheet, then the board with the gold chip (r3: in the bar on a phone too).
     await byTestId('busy-chip').click();
     await byTestId('busy-sheet').waitFor();
     await shot('busy-sheet');
@@ -117,15 +118,27 @@ export default {
     await page.waitForTimeout(300);
     if (await byTestId('order-detail-close').isVisible().catch(() => false)) await byTestId('order-detail-close').click();
 
-    // Cash balance and "اطلب فلوسك".
-    await byTestId('request-money').scrollIntoViewIfNeeded();
-    await byTestId('request-money').click();
-    await byTestId('cash-sheet').waitFor();
-    await shot('cash');
-    await byTestId('cash-confirm').click();
-    await page.waitForTimeout(1000);
-    await shot('cash-requested');
-    await byTestId('cash-sheet-close').click();
+    // Cash balance and "اطلب فلوسك" (on a phone it lives in "…" too). The detail and receipt sheets
+    // must be gone first, or the tap on "…" lands on a closing sheet. Once the tablet run has asked
+    // for the money the pill says «طلبت فلوسك» and has no button: the phone run then shoots the menu.
+    if (phone) {
+      await byTestId('order-detail').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+      await byTestId('receipt-preview').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+      await byTestId('header-more').click();
+      await byTestId('header-menu').waitFor();
+    }
+    if (await byTestId('request-money').waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
+      await byTestId('request-money').click();
+      await byTestId('cash-sheet').waitFor();
+      await shot('cash');
+      await byTestId('cash-confirm').click();
+      await page.waitForTimeout(1000);
+      await shot('cash-requested');
+      await byTestId('cash-sheet-close').click();
+    } else {
+      await shot('cash-requested');
+      if (phone) await byTestId('header-menu-close').click();
+    }
 
     // Early close with a reason.
     await byTestId('store-open-toggle').click();

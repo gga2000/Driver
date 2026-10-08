@@ -28,8 +28,14 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010130000 | fleet_planned_vehicle | partner app thread | #15 (merged) |
 | 20261010131000 | gift_recipient_vault | lane A | #29 |
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
-| 20261010140000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41) |
-| 20261010250000 | request_wait_clock | trips thread | private car round 2 step 2 |
-| 20261010280000 | request_fetch_person | trips thread | private car round 2 step 3 |
-| 20261010300000 | trip_agreed_items | trips thread | private car round 2 step 4 (agreed prices) |
-| 20261011090000 | store_closed_until | merchant thread | #19 |
+| 20261010230000 | store_closed_until | merchant | #19 |
+| 20261010340000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41) |
+| 20261010350000 | request_wait_clock | trips thread | private car round 2 step 2 (reserved) |
+| 20261010360000 | request_fetch_person | trips thread | private car round 2 step 3 (reserved) |
+| 20261010370000 | trip_agreed_items | trips thread | private car round 2 step 4 (reserved) |
+| 20261010380000 | seat_return_bundle | trips thread | private car round 2 step 5 (reserved) |
+| 20261010390000 | request_shares | trips thread | private car round 2 step 6 (reserved) |
+
+Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
+and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6
+re-stamped to `20261010340000`–`20261010390000` (coordinator, 22:37Z); they merge after lane A's `20261010310000`.

@@ -2,7 +2,7 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { FetchLike, HttpRequest } from '../../shared/messaging/http.js';
 import { HttpSmsProvider, httpSmsConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, formatNumber } from '../../shared/messaging/sms.js';
-import { DevPushProvider, ExpoPushProvider, FcmPushProvider, pushPortsFromEnv, type PushMessage } from './providers/push.js';
+import { DevPushProvider, ExpoPushProvider, FcmPushProvider, pushPortsFromEnv, UnconfiguredPushProvider, type PushMessage } from './providers/push.js';
 import { cloudTemplateBody, DevWhatsAppProvider, parseStatusWebhook, verifyWebhookSignature, WhatsAppCloudProvider, whatsAppPortFromEnv } from './providers/whatsapp.js';
 
 /** Records requests; answers from a script (one response per call, the last one repeats). */
@@ -237,5 +237,21 @@ describe('provider selection by env', () => {
     expect(wa).toBeInstanceOf(WhatsAppCloudProvider);
     expect(wa.statusCallbacks).toBe(true);
     expect(whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' }).statusCallbacks).toBe(false);
+  });
+
+  it('OPS-02: a live host refuses to boot on the dev push; staging may keep it', () => {
+    const live = { NODE_ENV: 'production' };
+    expect(() => pushPortsFromEnv(live, { log: false })).toThrow(/PUSH_PROVIDER must be expo/);
+    expect(() => pushPortsFromEnv({ ...live, PUSH_PROVIDER: 'dev' }, { log: false })).toThrow(/refusing to boot/);
+    expect(() => pushPortsFromEnv({ ...live, DEPLOY_ENVIRONMENT: 'production', PUSH_PROVIDER: 'dev' }, { log: false })).toThrow(/refusing to boot/);
+    expect(pushPortsFromEnv({ ...live, DEPLOY_ENVIRONMENT: 'staging' }, { log: false }).expo).toBeInstanceOf(DevPushProvider);
+    expect(pushPortsFromEnv({ ...live, PUSH_PROVIDER: 'expo' }).expo).toBeInstanceOf(ExpoPushProvider);
+  });
+
+  it('OPS-02: on a live host a token with no transport fails instead of pretending it was delivered', async () => {
+    const push = pushPortsFromEnv({ NODE_ENV: 'production', PUSH_PROVIDER: 'expo' });
+    expect(push.fcm).toBeInstanceOf(UnconfiguredPushProvider);
+    const msg: PushMessage = { token: 'fcm-token', title: 't', body: 'b', data: {}, channelId: 'orders', sound: 'default', priority: 'high' };
+    expect(await push.fcm.send([msg])).toEqual([{ token: 'fcm-token', ok: false, id: null, error: 'push_not_configured' }]);
   });
 });

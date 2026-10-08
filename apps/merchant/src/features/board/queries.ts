@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { MerchantBoard } from '@driver/contracts';
 import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { clockOffset, startServerClock } from '@/lib/time';
+import { isPractice, practice, usePractice } from './practice';
 import { applyRadar } from './radar';
+import { readyQueue, useReadyQueue, withQueuedReady } from './ready-queue';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
@@ -37,7 +39,10 @@ export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (
 /** Merchant presence ping (edge-case review A.2): silent for 2 min counts as "no presence". */
 export const HEARTBEAT_MS = 30_000;
 
-/** The live board, and the server-clock offset for timers (rings, "من 4 د"). */
+/**
+ * The live board, and the server-clock offset for timers (rings, "من 4 د"). Step 6: the practice
+ * order (device-only) sits on top, and a «صار جاهز» kept offline already reads as ready.
+ */
 export function useBoard(merchantOrgId: string | null) {
   const api = useApi();
   const signedIn = useSignedIn();
@@ -50,7 +55,14 @@ export function useBoard(merchantOrgId: string | null) {
     staleTime: 0,
   });
   const offset = q.data ? clockOffset(q.data.now, q.dataUpdatedAt) : 0;
-  return { ...q, offset };
+  const trial = usePractice().order;
+  const queue = useReadyQueue();
+  const data = useMemo(() => {
+    if (!q.data || (!trial && queue.length === 0)) return q.data;
+    const orders = withQueuedReady(q.data.orders, queue);
+    return { ...q.data, orders: trial ? [trial, ...orders] : orders };
+  }, [q.data, trial, queue]);
+  return { ...q, data, offset };
 }
 
 /** Ticks every `ms` with server time (board `now` + elapsed): the board re-renders its timers on each tick. */
@@ -60,19 +72,54 @@ export function useServerNow(offset: number, ms = 1000): number {
   return now;
 }
 
+/**
+ * A board action that the practice order answers on the device (s2): its id never reaches the server.
+ * Everything else goes to the server as before.
+ */
+function trial<O extends { mutationFn?: unknown }>(opts: O, action: Parameters<typeof practice.run>[0]): O {
+  const real = opts.mutationFn as (input: unknown, ...rest: unknown[]) => Promise<unknown>;
+  const mutationFn = (input: { orderId: string; prepMinutes?: number }, ...rest: unknown[]) => (isPractice(input.orderId) ? practice.run(action, input) : real(input, ...rest));
+  return { ...opts, mutationFn } as O;
+}
+
 export function useOrderActions() {
   const api = useApi();
   const qc = useQueryClient();
   const refresh = () => void qc.invalidateQueries(api.merchant.board.pathFilter());
   return {
-    accept: useMutation({ ...api.orders.merchant.accept.mutationOptions(), onSettled: refresh }),
-    reject: useMutation({ ...api.orders.merchant.reject.mutationOptions(), onSettled: refresh }),
-    ready: useMutation({ ...api.orders.merchant.ready.mutationOptions(), onSettled: refresh }),
+    accept: useMutation({ ...trial(api.orders.merchant.accept.mutationOptions(), 'accept'), onSettled: refresh }),
+    reject: useMutation({ ...trial(api.orders.merchant.reject.mutationOptions(), 'reject'), onSettled: refresh }),
+    ready: useMutation({ ...trial(api.orders.merchant.ready.mutationOptions(), 'ready'), onSettled: refresh }),
     /** "+5 د" once per order (M-12): moves the promised time; the customer is told. */
-    extend: useMutation({ ...api.orders.merchant.extendPrep.mutationOptions(), onSettled: refresh }),
+    extend: useMutation({ ...trial(api.orders.merchant.extendPrep.mutationOptions(), 'extend'), onSettled: refresh }),
     /** "سلّمته" (S-M4): the bag went to the courier at the pass; idempotent on the server. */
-    handOver: useMutation({ ...api.orders.merchant.handOver.mutationOptions(), onSettled: refresh }),
+    handOver: useMutation({ ...trial(api.orders.merchant.handOver.mutationOptions(), 'handOver'), onSettled: refresh }),
   };
+}
+
+/**
+ * y6: sends the «صار جاهز» taps kept offline as soon as the board can act again (and at start, for a
+ * tablet that restarted offline). Mounted once, app-wide (MerchantRuntime).
+ */
+export function useReadyQueueFlush(merchantOrgId: string | null): void {
+  const client = useApiClient();
+  const api = useApi();
+  const qc = useQueryClient();
+  const online = useOnline();
+  const queued = useReadyQueue().length;
+  useEffect(() => {
+    void readyQueue.load();
+  }, []);
+  useEffect(() => {
+    if (!online || queued === 0 || !merchantOrgId) return;
+    let alive = true;
+    void readyQueue.flush((orderId) => client.orders.merchant.ready.mutate({ orderId })).then((sent) => {
+      if (alive && sent > 0) void qc.invalidateQueries(api.merchant.board.pathFilter());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [online, queued, merchantOrgId, client, api, qc]);
 }
 
 /** Last heartbeat outcome, shared by the runtime (which pings) and the board (offline strip). */

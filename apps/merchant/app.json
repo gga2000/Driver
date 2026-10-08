@@ -10,7 +10,6 @@
     "userInterfaceStyle": "light",
     "locales": { "ar": "./locales/native/ar.json" },
     "extra": {
-      "apiUrl": "http://localhost:3000/trpc",
       "supportsRTL": true,
       "forcesRTL": true
     },
@@ -30,7 +29,7 @@
     },
     "web": { "name": "درايفر للمطاعم", "shortName": "درايفر للمطاعم", "lang": "ar", "themeColor": "#FBF6EE", "backgroundColor": "#FBF6EE" },
     "plugins": [
-      "expo-router",
+      ["expo-router", { "asyncRoutes": { "web": "production", "default": false } }],
       ["expo-localization", {}],
       ["expo-image-picker", { "photosPermission": "درايفر للمطاعم يحتاج صورك حتى ترفع صور الأكل والمنيو", "cameraPermission": "درايفر للمطاعم يحتاج الكاميرا حتى تصوّر الأكل والمنيو" }],
       ["expo-notifications", { "sounds": ["./assets/sounds/offer.wav"], "defaultChannel": "offers" }],

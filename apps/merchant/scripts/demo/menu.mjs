@@ -2,7 +2,7 @@
 // سلطات، مشروبات — with option groups (bread, sauce, size), a few dish photos (drawn placeholders: a
 // plate on a warm table), a price history, one dish sold out today and one switched off.
 //
-//   POST /demo/menu/reset     dishes back on sale (undo the screenshot run's toggles)
+//   POST /demo/menu/reset     dishes back on sale, the gus by the kilo back to one price (undo a screenshot run)
 import { Buffer } from 'node:buffer';
 import { deflateSync, crc32 } from 'node:zlib';
 
@@ -140,6 +140,9 @@ export default async function register(ctx) {
     for (const key of [...SECTIONS.flatMap(([, keys]) => keys)]) if (id(key)) await catalog.setAvailability(orgId, id(key), true);
     await catalog.soldOutToday(orgId, id('kebab_kilo'));
     await catalog.setAvailability(orgId, id('tabbouleh'), false);
+    // The glass display shots (step 4) set the gus by the kilo to sell by weight: back to one price.
+    await catalog.setModifiers(orgId, id('gus_kilo'), []);
+    await catalog.updatePrice(orgId, id('gus_kilo'), 18000, ctx.people.owner.id);
   };
   await state();
 

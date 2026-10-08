@@ -96,6 +96,7 @@ export function Avatar({ name = '', uri, icon, size = 40, tone, ring, style }: A
           <Icon name={icon} size={Math.round(inner * 0.5)} color={t.fg} strokeWidth={2} />
         ) : (
           <Text
+            fixed
             weight={700}
             color={t.fg}
             style={{ fontSize: Math.round(inner * 0.42), lineHeight: Math.round(inner * 0.62) }}

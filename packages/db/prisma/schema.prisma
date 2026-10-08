@@ -176,6 +176,8 @@ model Org {
   closedAt        DateTime?                              @map("closed_at")
   closedReason    String?                                @map("closed_reason")
   closedNote      String?                                @map("closed_note")
+  /// A short pause from the Merchant app («الكهرباء طفت · 20 دقيقة»): reopens by itself at this time; NULL = until reopened by hand.
+  closedUntil     DateTime?                              @map("closed_until")
   /// Receipt printer as the store's tablet last reported it (printer-offline marker).
   printerState    String?                                @map("printer_state")
   printerName     String?                                @map("printer_name")

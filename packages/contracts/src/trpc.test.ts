@@ -57,6 +57,45 @@ describe('procedures map DriverError to its HTTP status (tRPC v11 returns result
   });
 });
 
+describe('staff calls go through the staff limit (CON-21)', () => {
+  const staffRouter = router({
+    board: protectedProcedure(['dispatcher', 'admin']).query(() => 'ok'),
+    refund: protectedProcedure(['support', 'finance']).mutation(() => 'ok'),
+    mixed: protectedProcedure(['courier', 'field_ops']).mutation(() => 'ok'),
+    anyone: protectedProcedure().query(() => 'ok'),
+  });
+  const seen: Array<{ path: string; type: string; personId: string }> = [];
+  let refuse = false;
+  const limits = {
+    check: async () => undefined,
+    checkStaff: async (call: { path: string; type: string; personId: string }) => {
+      seen.push(call);
+      if (refuse) throw new DriverError('rate_limited', { retryAfterSec: 12 });
+    },
+  };
+  const caller = t.createCallerFactory(staffRouter)({ ...ctx, limits } as AppContext);
+
+  it('only procedures open to Console roles alone are staff calls', async () => {
+    seen.length = 0;
+    await caller.board();
+    await caller.refund();
+    await caller.mixed();
+    await caller.anyone();
+    expect(seen.map((c) => [c.path, c.type, c.personId])).toEqual([
+      ['board', 'query', 'p1'],
+      ['refund', 'mutation', 'p1'],
+    ]);
+  });
+
+  it('over the limit: 429 with the wait, the procedure does not run', async () => {
+    refuse = true;
+    const err = await failure(caller.refund());
+    refuse = false;
+    expect(getHTTPStatusCodeFromError(err)).toBe(429);
+    expect((err.cause as DriverError).envelope.retryAfterSec).toBe(12);
+  });
+});
+
 describe('role gate reads roles once per request (CON-21)', () => {
   const gated = router({
     a: protectedProcedure(['dispatcher', 'support', 'admin']).query(() => 'a'),

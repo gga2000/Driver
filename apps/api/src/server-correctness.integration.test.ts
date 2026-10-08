@@ -128,7 +128,12 @@ describe.skipIf(!url)('server correctness on Postgres (needs DATABASE_URL)', () 
     expect(a.id).toBe(ride.id);
     expect(b.id).toBe(ride.id);
     expect(await db.courierRating.count({ where: { orderId: ride.id } })).toBe(1);
-    expect((await db.order.findUniqueOrThrow({ where: { id: ride.id } })).state).toBe('closed');
+    // FLOW-20 (W3): rating no longer closes it; the 2-h auto-close does.
+    const rated = await db.order.findUniqueOrThrow({ where: { id: ride.id } });
+    expect(rated.state).toBe('completed');
+    expect(rated.ratedAt).not.toBeNull();
+    // The Console's "Today" event commits with the winning rating only.
+    expect(await db.event.count({ where: { aggregate: 'order', aggregateId: ride.id, type: 'order.rated' } })).toBe(1);
   }, 60_000);
 
   it('RDB-05: two parallel household.create calls by the same person make one household', async () => {

@@ -201,7 +201,15 @@ export const StoreStatusView = z.object({
   /** Taking orders right now: not closed by hand and not inside a pause window. */
   open: z.boolean(),
   /** Closed by hand from the app, with the reason. */
-  closed: z.object({ reason: EarlyCloseReason, note: z.string().nullable(), at: z.coerce.date() }).nullable(),
+  closed: z
+    .object({
+      reason: EarlyCloseReason,
+      note: z.string().nullable(),
+      at: z.coerce.date(),
+      /** A quick pause reopens by itself at this time (counter step 5, h2); null = until reopened by hand. */
+      until: z.coerce.date().nullable().optional(),
+    })
+    .nullable(),
   /** A scheduled pause window in force (Friday prayer): orders resume by themselves at `until` ("13:15"). */
   pause: z.object({ reason: z.string().nullable(), until: z.string() }).nullable(),
   busy: z.object({
@@ -230,11 +238,16 @@ export const StoreStatusView = z.object({
 });
 export type StoreStatusView = z.infer<typeof StoreStatusView>;
 
+/** Quick pauses from «المحل» (counter step 5, h2): from 5 minutes to a day and a half. */
+export const STORE_PAUSE_RULES = { minMinutes: 5, maxMinutes: 36 * 60 } as const;
+
 export const SetStoreOpenInput = MerchantOrgInput.extend({
   open: z.boolean(),
   /** Required when closing. */
   reason: EarlyCloseReason.optional(),
   note: z.string().trim().max(200).optional(),
+  /** Closing for a while: the store reopens by itself this many minutes from now (no reopen by hand needed). */
+  pauseMinutes: z.number().int().min(STORE_PAUSE_RULES.minMinutes).max(STORE_PAUSE_RULES.maxMinutes).optional(),
 }).refine((v) => v.open || v.reason !== undefined, { message: 'closing needs a reason', path: ['reason'] });
 export type SetStoreOpenInput = z.infer<typeof SetStoreOpenInput>;
 

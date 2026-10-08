@@ -1,5 +1,6 @@
 import { View } from 'react-native';
-import { Button, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, StatusPill, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
 import { printer, printerChipState, usePrinterSnapshot, useReceipt } from '@/features/print/runtime';
@@ -18,7 +19,7 @@ import { sampleOrder } from '@/print/sample';
 export default function PrinterScreen() {
   const theme = useTheme();
   const t = useT();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const { store } = useCurrentStore();
   const status = useStoreStatus(store?.orgId ?? null);

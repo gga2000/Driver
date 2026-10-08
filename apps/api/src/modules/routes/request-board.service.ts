@@ -46,7 +46,8 @@ type PostInput = z.output<typeof PostRequestInput>;
  * Money goes through the ledger's existing posting groups via the events it already subscribes to:
  * completion → `order.closed` (kind `ride`, `intercity_private`), rider no-show → `order.cancelled`
  * (fee = deposit, beneficiary the driver), driver no-show → `departure.cancelled` (fee = 2× deposit,
- * driver → rider). The request id (`rq_…`) stands in for the order / departure id in those payloads.
+ * driver → rider). Each carries `requestId` (`rq_…`) and no trip / order / departure id, so the ledger
+ * posts them under `request:<id>:…` groups with no foreign-key refs (docs/api/ledger-request-board.md).
  *
  * Step 4b a6 «احجز وادفع كاش» (switch `requestCashReservation`): the rider asks a driver who offered,
  * the driver says yes, and the pick holds nothing. The deposit amount is still worked out and kept: a
@@ -226,8 +227,11 @@ export class RequestBoardService {
         if (offer.cash !== 'accepted') throw new DriverError('request_state_conflict');
         await this.assertMayReserveCash(riderId, tx);
       } else {
+        // SEC-07: under the rider's wallet lock (taken by the writer), net of every other hold on it.
         const available =
-          (await this.wallet.balance(riderId)) - (await walletHolds(this.repo, riderId, tx));
+          (await this.wallet.balance(riderId)) -
+          (await walletHolds(this.repo, riderId, tx)) -
+          (await this.wallet.heldElsewhere(riderId, tx));
         if (available < deposit) throw new DriverError('wallet_insufficient');
       }
       for (const o of r.offers)
@@ -246,7 +250,7 @@ export class RequestBoardService {
         fetchPersonId: r.fetchPersonId,
       });
       return r;
-    });
+    }, { walletLocks: [riderId] });
   }
 
   /**
@@ -318,7 +322,7 @@ export class RequestBoardService {
       r.closedAt = this.now();
       await this.repo.saveRequest(r, tx);
       await this.emit(tx, 'departure.cancelled', riderId, r, {
-        departureId: r.id,
+        requestId: r.id,
         occurredAt: this.now(),
         driverId: offer.driverId,
         cancelledBy: 'driver',
@@ -512,7 +516,7 @@ export class RequestBoardService {
         reason: 'request_board_completed',
         totalIqd: fareIqd,
         ride: {
-          tripId: r.id,
+          requestId: r.id,
           occurredAt: this.now(),
           customerId: r.riderId,
           payment: 'cash',
@@ -590,7 +594,7 @@ export class RequestBoardService {
       from: 'placed',
       to: 'customer_cancelled',
       cancelledState: 'customer_cancelled',
-      orderId: r.id,
+      requestId: r.id,
       occurredAt: this.now(),
       customerId: r.riderId,
       by: 'customer',
