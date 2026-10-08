@@ -7615,5 +7615,10 @@
   "restaurant.whats_left_title": "What's left today?",
   "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
   "restaurant.whats_left_all": "Whole menu",
-  "restaurant.whats_left_only": "What's left"
+  "restaurant.whats_left_only": "What's left",
+  "welcome.title_1": "All of Aziziyah",
+  "welcome.title_2": "in one tap",
+  "welcome.body": "Food from the town's restaurants, taxis and tuktuks at a fixed price, and your seat to Baghdad. Browse without signing up.",
+  "welcome.now": "Now: {parts}",
+  "welcome.photo_a11y": "An Aziziyah street in the late afternoon: a samoon bakery, a taxi, a tuktuk and a delivery bike"
 }

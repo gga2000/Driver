@@ -7615,5 +7615,10 @@
   "restaurant.whats_left_title": "شنو باقي اليوم؟",
   "restaurant.whats_left_line": "خلص {count} من المنيو اليوم، وباقي {left} تگدر تطلبها",
   "restaurant.whats_left_all": "كل المنيو",
-  "restaurant.whats_left_only": "الباقي بس"
+  "restaurant.whats_left_only": "الباقي بس",
+  "welcome.title_1": "العزيزية كلها",
+  "welcome.title_2": "بدوسة وحدة",
+  "welcome.body": "أكلك من مطاعم الولاية، تكسي وتكتك بسعر مثبّت، ومقعدك لبغداد. تصفّح بلا تسجيل.",
+  "welcome.now": "هسة {parts}",
+  "welcome.photo_a11y": "شارع بالعزيزية وقت العصر: فرن صمون، تكسي، تكتك ودليفري"
 }
