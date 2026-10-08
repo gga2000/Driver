@@ -12,6 +12,7 @@ import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { LADDER } from './ladder';
 import { courierLine, hasAllergy } from './logic';
+import { isPractice } from './practice';
 import { AllergyPill, KitchenNote, OrderItems } from './OrderCard';
 
 export interface OrderDetailSheetProps {
@@ -94,7 +95,8 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
         </View>
       ) : null}
 
-      <Contact order={order} onLeave={onClose} />
+      {/* s2: a practice order has nobody behind it to chat with or call. */}
+      {isPractice(order.id) ? <StatusPill tone="accent" icon="bulb" label={t('merchant.practice.tag')} /> : <Contact order={order} onLeave={onClose} />}
 
       <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4] }}>
         <OrderItems order={order} />

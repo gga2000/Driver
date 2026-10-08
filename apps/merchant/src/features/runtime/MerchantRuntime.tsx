@@ -14,7 +14,8 @@ import { alarmQuiet } from '@/features/board/ladder';
 import { useStoreStatus } from '@/features/store/queries';
 import { summaryTitle } from '@/features/board/Banners';
 import { newOrderSummary } from '@/features/board/logic';
-import { useBoard, useHeartbeat, useLiveMerchantBoard } from '@/features/board/queries';
+import { useBoard, useHeartbeat, useLiveMerchantBoard, useReadyQueueFlush } from '@/features/board/queries';
+import { ALIVE_MS, loadShift, markAlive } from '@/features/board/shift';
 import { usePrinterSync } from '@/features/print/runtime';
 
 /**
@@ -32,6 +33,14 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const { wide } = useLayout();
   useHeartbeat(storeId);
   usePrinterSync(storeId);
+  // y6: «صار جاهز» taps kept offline go out as soon as the net is back.
+  useReadyQueueFlush(storeId);
+  // y3: the shift notes it is alive, so a restart mid-shift knows how long the tablet was off.
+  useEffect(() => {
+    void loadShift();
+    const id = setInterval(() => markAlive(), ALIVE_MS);
+    return () => clearInterval(id);
+  }, []);
   // The store's live channel: a new order rings the moment the server offers it to the kitchen.
   useLiveMerchantBoard(storeId, (orderId) => alarm.ringNow(orderId, prefs.soundOn));
   const board = useBoard(storeId);

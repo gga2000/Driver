@@ -9,6 +9,7 @@ import { TornEdge } from './TornEdge';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { iqd } from '@/lib/money';
+import { usePrefs } from '@/lib/prefs';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { LADDER } from './ladder';
@@ -75,14 +76,22 @@ export function AllergyPill({ testID }: { testID?: string }) {
   );
 }
 
+/** s6 «خط كبير»: ticket type 30 % bigger, read from across the kitchen (a setting on this device). */
+export const BIG_TEXT = 1.3;
+function useTicketType(): (size: number, lineHeight: number) => { fontSize: number; lineHeight: number } | null {
+  const big = usePrefs().bigText;
+  return (size, lineHeight) => (big ? { fontSize: Math.round(size * BIG_TEXT), lineHeight: Math.round(lineHeight * BIG_TEXT) } : null);
+}
+
 /** The kitchen note block: muted, or on the danger tint when it carries an allergy. */
 export function KitchenNote({ note, testID }: { note: string; testID?: string }) {
   const theme = useTheme();
   const allergy = hasAllergy({ note, groups: [] });
+  const type = useTicketType();
   return (
     <View testID={testID} style={{ flexDirection: 'row', gap: theme.space[2], backgroundColor: allergy ? theme.colors.dangerTint : theme.colors.surfaceSunken, borderRadius: theme.radius.md, padding: theme.space[3] }}>
       <MIcon name={allergy ? 'alert' : 'note'} size={18} color={allergy ? 'dangerText' : 'textMuted'} />
-      <Text variant="label" weight={700} color={allergy ? 'dangerText' : 'text'} style={{ flex: 1 }}>
+      <Text variant="label" weight={700} color={allergy ? 'dangerText' : 'text'} style={[{ flex: 1 }, type(14, 22)]}>
         {note}
       </Text>
     </View>
@@ -94,13 +103,14 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
   const theme = useTheme();
   const t = useT();
   const struck = out || done === true;
+  const type = useTicketType();
   const body = (
     <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-        <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }]}>
+        <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }, type(18, 30)]}>
           {`${qty}×`}
         </Text>
-        <Text variant="bodyStrong" weight={700} style={{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }}>
+        <Text variant="bodyStrong" weight={700} style={[{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }, type(17, 26)]}>
           {name}
         </Text>
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
@@ -111,13 +121,13 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
         ) : null}
       </View>
       {modifiers.length > 0 ? (
-        <Text variant="footnote" color="textMuted" style={{ paddingStart: 38 }}>
+        <Text variant="footnote" color="textMuted" style={[{ paddingStart: 38 }, type(13, 22)]}>
           {modifiers.join(' · ')}
         </Text>
       ) : null}
       {note ? (
         <View style={{ marginStart: 38, alignSelf: 'flex-start', backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.sm, paddingHorizontal: theme.space[2] }}>
-          <Text variant="label" weight={700} style={{ color: theme.colors.text }}>
+          <Text variant="label" weight={700} style={[{ color: theme.colors.text }, type(14, 22)]}>
             {note}
           </Text>
         </View>

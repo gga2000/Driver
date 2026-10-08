@@ -16,6 +16,7 @@ import { useLayout } from '@/lib/layout';
 import { LIVE_MERCHANT_KEY, useLiveMode } from '@/lib/live';
 import { iqd } from '@/lib/money';
 import { prefs as prefsStore, usePrefs } from '@/lib/prefs';
+import { useSession } from '@/lib/session';
 import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
 import { usePushPrompt } from '@/features/notify/Push';
@@ -35,12 +36,16 @@ import { useCourierArrivals } from './useCourierArrivals';
 import { stageFor } from './ladder';
 import { acceptAllTargets, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
 import { DragToReady } from './DragToReady';
+import { learn, useLessonDue } from './learn';
+import { LearnCards, useStartPractice } from './LearnCards';
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
 import { OrderDetailSheet } from './OrderDetailSheet';
 import { PassCard } from './PassCard';
 import { passFirst, passState, waitingAtPass } from './pass';
+import { isPractice, practice, usePractice } from './practice';
 import { useBoard, useOnline, useOrderActions, useServerNow } from './queries';
+import { readyQueue, useReadyQueue } from './ready-queue';
 import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
 import { ShiftGate } from './ShiftGate';
@@ -49,6 +54,20 @@ import { useMissedSeen } from './useMissed';
 import { useTicks } from './useTicks';
 
 const EMPTY_ICON: Record<BoardColumn, MIconName> = { new: 'bell', preparing: 'flame', ready: 'bag' };
+
+/** A line above a ticket: «طلب تجربة · ما يروح لأي زبون» (s2), «جاهز · ينبعث أول ما يرجع النت» (y6). */
+function OrderTag({ icon, text, action, testID }: { icon: MIconName; text: string; action?: { label: string; onPress: () => void }; testID: string }) {
+  const theme = useTheme();
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 36, paddingStart: theme.space[3], paddingEnd: action ? theme.space[1] : theme.space[3], borderRadius: theme.radius.lg, backgroundColor: COUNTER.sand }}>
+      <MIcon name={icon} size={16} color={COUNTER.qty} strokeWidth={2.2} />
+      <Text variant="footnote" weight={700} style={{ flex: 1, color: COUNTER.qty }}>
+        {text}
+      </Text>
+      {action ? <Button testID={`${testID}-action`} label={action.label} variant="ghost" size="sm" onPress={action.onPress} /> : null}
+    </View>
+  );
+}
 
 function EmptyColumn({ column }: { column: BoardColumn }) {
   const theme = useTheme();
@@ -158,9 +177,9 @@ export function Board() {
   const cash = useCashAccount(storeId, canSeeMoney);
   const online = useOnline();
   const conn = useConnectionBanner({ live: useLiveMode(LIVE_MERCHANT_KEY), updatedAt: board.dataUpdatedAt || null });
-  /** Offline: accept / reject / ready can't reach the server; say why instead of failing. */
-  const offlineGuard = () => {
-    if (online) return false;
+  /** Offline: accept / reject can't reach the server; say why instead of failing. The practice order never needs the net. */
+  const offlineGuard = (o?: BoardOrder) => {
+    if (online || (o && isPractice(o.id))) return false;
     toast.show({ message: t('merchant.board.offline_toast'), tone: 'warning' });
     return true;
   };
@@ -172,6 +191,11 @@ export function Board() {
   const soundReady = useSoundReady();
   const wake = useWakeState();
   const shift = useShift();
+  const personId = useSession().session?.personId ?? null;
+  const lessonDue = useLessonDue(personId);
+  const startPractice = useStartPractice();
+  const trial = usePractice();
+  const queued = useReadyQueue();
   const printerSnap = usePrinterSnapshot();
   const print = usePrintOrder(store?.name ?? '');
   const { seen, markSeen } = useMissedSeen();
@@ -268,7 +292,7 @@ export function Board() {
 
   /** The time sheet (other prep times, partial accept): quiet for this order while it is open. */
   const onAccept = (o: BoardOrder) => {
-    if (offlineGuard()) return;
+    if (offlineGuard(o)) return;
     alarm.handle(o.id);
     setDetailId(null);
     setAcceptPartial(false);
@@ -290,7 +314,7 @@ export function Board() {
     }
   };
   const onReject = (o: BoardOrder) => {
-    if (offlineGuard()) return;
+    if (offlineGuard(o)) return;
     alarm.handle(o.id);
     setDetailId(null);
     setRejectId(o.id);
@@ -305,7 +329,13 @@ export function Board() {
   };
   /** «صار جاهز» (a tap, or o9: a cooking ticket dragged toward the ready lane). True when it went through. */
   const onReady = async (o: BoardOrder): Promise<boolean> => {
-    if (offlineGuard()) return false;
+    // y6: with no net the tap is kept and sent when the net is back; the card moves to «جاهز» now.
+    if (!online && !isPractice(o.id)) {
+      readyQueue.add(o.id);
+      toast.show({ message: t('merchant.offline.ready_kept'), tone: 'warning', icon: 'clock' });
+      setDetailId(null);
+      return true;
+    }
     setReadyId(o.id);
     try {
       await ready.mutateAsync({ orderId: o.id });
@@ -360,7 +390,7 @@ export function Board() {
   };
   /** "سلّمته" (S-M4): the hand-over at the pass, recorded on the order's history. */
   const onHandOver = async (o: BoardOrder) => {
-    if (offlineGuard()) return;
+    if (offlineGuard(o)) return;
     setHandingId(o.id);
     try {
       await handOver.mutateAsync({ orderId: o.id });
@@ -389,6 +419,19 @@ export function Board() {
     const ok = await testChime();
     toast.show(ok ? { message: t('merchant.sound.on_toast'), tone: 'success', icon: 'check' } : { message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });
   };
+  /** s1: either answer to the lesson starts the shift too (the tap unlocks the sound). */
+  const finishLesson = async (withPractice: boolean) => {
+    learn.done(personId);
+    if (gateOpen) await beginShift();
+    if (withPractice) startPractice();
+  };
+  // s2: how the practice order ended, said once.
+  useEffect(() => {
+    if (!trial.ended) return;
+    const key = trial.ended === 'done' ? 'merchant.practice.done' : trial.ended === 'rejected' ? 'merchant.practice.rejected' : trial.ended === 'timeout' ? 'merchant.practice.timeout' : null;
+    if (key) toast.show({ message: t(key), tone: trial.ended === 'done' ? 'success' : 'neutral', icon: trial.ended === 'done' ? 'check' : 'bulb' });
+    practice.clearEnded();
+  }, [trial.ended, toast, t]);
   const beginShift = async () => {
     if (!prefs.soundOn) await prefsStore.setSound(true);
     const r = await startShift();
@@ -399,6 +442,22 @@ export function Board() {
   };
 
   const card = (o: BoardOrder) => {
+    const body = ticket(o);
+    // s2 / y6: a practice ticket and a «جاهز» waiting for the net say so above the ticket.
+    const tag = isPractice(o.id) ? (
+      <OrderTag testID={`practice-tag-${o.number}`} icon="bulb" text={t('merchant.practice.tag')} action={{ label: t('merchant.practice.stop'), onPress: () => practice.end('stopped') }} />
+    ) : queued.some((q) => q.orderId === o.id) ? (
+      <OrderTag testID={`queued-${o.number}`} icon="clock" text={t('merchant.offline.ready_waiting')} />
+    ) : null;
+    if (!tag) return body;
+    return (
+      <View key={o.id} style={{ gap: theme.space[1] }}>
+        {tag}
+        {body}
+      </View>
+    );
+  };
+  const ticket = (o: BoardOrder) => {
     const pass = passState(o, now);
     if (pass) {
       return (
@@ -526,7 +585,7 @@ export function Board() {
         />
       ) : null}
       {!online ? (
-        <InfoStrip tone="neutral" text={t('merchant.board.offline_actions')} testID="offline-strip" />
+        <InfoStrip tone="neutral" text={t('merchant.offline.strip')} testID="offline-strip" />
       ) : conn.kind === 'stale' ? (
         <InfoStrip tone="warning" text={t('merchant.board.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })} testID="stale-strip" />
       ) : null}
@@ -693,7 +752,11 @@ export function Board() {
           ))
         )}
       </ModalSheet>
-      {gateOpen && storeId ? <ShiftGate waiting={waiting} soundOn={prefs.soundOn} printer={printerChipState(printerSnap, s?.printer.state)} onStart={beginShift} /> : null}
+      {storeId && lessonDue ? (
+        <LearnCards onPractice={() => void finishLesson(true)} onDone={() => void finishLesson(false)} />
+      ) : gateOpen && storeId ? (
+        <ShiftGate waiting={waiting} soundOn={prefs.soundOn} printer={printerChipState(printerSnap, s?.printer.state)} onStart={beginShift} back={shift.back} online={online} />
+      ) : null}
     </SafeAreaView>
   );
 }

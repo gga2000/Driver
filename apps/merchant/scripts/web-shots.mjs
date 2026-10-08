@@ -63,8 +63,9 @@ const errors = [];
  *   settle(ms)                      fonts ready + a pause for animations
  *   shot(name, { element, full })   writes <viewport>-<list>-<name>.png (element: a locator to crop)
  *   demoPost(path)                  POST to the demo API (errors fail the run)
- *   signIn(phone, { keepGate })     fresh storage, welcome → phone → OTP (dev code) → wherever the guard lands;
- *                                   on the board it taps "ابدأ الشغل" unless keepGate (to shoot the gate)
+ *   signIn(phone, { keepGate, lesson })  fresh storage, welcome → phone → OTP (dev code) → wherever the guard lands;
+ *                                   on the board it skips the first-sign-in lesson (unless lesson) and taps
+ *                                   "ابدأ الشغل" (unless keepGate, to shoot the gate)
  *   startShift()                    taps "ابدأ الشغل" if the gate is up (after a reload)
  *   goto(path)                      client-side route change (keeps the session)
  */
@@ -94,7 +95,20 @@ function makeHelpers(page, viewport, list) {
       await byTestId('shift-gate').waitFor({ state: 'detached', timeout: 5000 });
     }
   };
-  const signIn = async (phone, { keepGate = false } = {}) => {
+  /**
+   * «تعلّم بدقيقة» shows the first time a person signs in on a device. Shots that aren't about it mark it
+   * seen for the signed-in person and reload (no shift was started, so the plain gate comes back).
+   */
+  const skipLesson = async () => {
+    if (!(await byTestId('learn-cards').waitFor({ timeout: 3000 }).then(() => true, () => false))) return;
+    await page.evaluate(() => {
+      const personId = JSON.parse(localStorage.getItem('driver.merchant.session') ?? '{}').personId || 'device';
+      localStorage.setItem('driver.merchant.learned', JSON.stringify([personId]));
+    });
+    await page.reload({ waitUntil: 'load' });
+    await byTestId('board').waitFor({ timeout: 20_000 });
+  };
+  const signIn = async (phone, { keepGate = false, lesson = false } = {}) => {
     await page.goto(`${origin}/`, { waitUntil: 'load' });
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${origin}/welcome`, { waitUntil: 'load' });
@@ -107,7 +121,9 @@ function makeHelpers(page, viewport, list) {
     if (!code) throw new Error('dev code not shown');
     await page.locator('[data-testid="otp-input"]').fill(code);
     await Promise.race(['board', 'stores', 'not-activated'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
-    if (!keepGate && (await byTestId('board').isVisible().catch(() => false))) await startShift();
+    const onBoard = await byTestId('board').isVisible().catch(() => false);
+    if (onBoard && !lesson) await skipLesson();
+    if (onBoard && !keepGate && !lesson) await startShift();
   };
   const goto = async (path) => {
     await page.evaluate((p) => {
@@ -126,7 +142,7 @@ try {
     const page = await context.newPage();
     page.on('console', (m) => {
       const text = m.text();
-      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|AudioContext/.test(text)) errors.push(`[${viewport}] ${text}`);
+      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext/.test(text)) errors.push(`[${viewport}] ${text}`);
     });
     page.on('pageerror', (e) => errors.push(`[${viewport}] ${e.stack ?? e.message}`));
     page.on('response', (r) => {
