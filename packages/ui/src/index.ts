@@ -16,6 +16,7 @@ export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
 // The dish pictures (1.2 MB of photos) live behind `@driver/ui/dishes` so an app that never draws a
 // dish (the courier app) never bundles them; only their types are here.
 export type { DishKind, DishDrawingProps } from './art/dishes';
+export type { Temperature } from './art/dish-motif';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
 // Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.

@@ -22,6 +22,7 @@ import { useAppFonts } from '@/lib/fonts';
 import { useLocale, useT } from '@/lib/i18n';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
+import { useToastTop } from '@/lib/toast';
 import { WIDE_MIN_WIDTH } from '@/lib/layout';
 import { prefs, usePrefs } from '@/lib/prefs';
 import { enforceRtl } from '@/lib/rtl';
@@ -59,16 +60,16 @@ export default function RootLayout() {
     document.documentElement.lang = locale === 'en' ? 'en' : 'ar';
     document.documentElement.dir = locale === 'en' ? 'ltr' : 'rtl';
     document.body.style.backgroundColor = chrome.colors.bg;
-    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمطاعم';
+    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمحلات';
   }, [locale]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider theme="light" fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
+        <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a frozen tablet. */}
           <CrashScreenBoundary locale={locale}>
-            <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
+            <CounterToasts bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
               <ApiProvider>
                 <StatusBar style="dark" />
                 {/* Launch status banner from the Console (system.banner), above every screen. */}
@@ -77,7 +78,7 @@ export default function RootLayout() {
                   <RootNavigator />
                 </SheetDefaults>
               </ApiProvider>
-            </ToastProvider>
+            </CounterToasts>
           </CrashScreenBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -110,7 +111,7 @@ function RootNavigator() {
   const segments = useSegments();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_MIN_WIDTH;
-  const { access, store, canSeeMoney } = useCurrentStore();
+  const { access, store } = useCurrentStore();
   const signedIn = status === 'signedIn';
   const ready = status !== 'loading' && p.loaded && (!signedIn || access !== 'loading');
 
@@ -127,7 +128,8 @@ function RootNavigator() {
 
   const section = sectionOf(segments);
   const showNav = signedIn && access === 'ready' && section !== null;
-  const items = NAV_ITEMS.filter((i) => i.section !== 'money' || canSeeMoney);
+  // Everyone gets the four tabs: staff see «يومك» without money (counter step 5).
+  const items = NAV_ITEMS;
   const board = useBoard(showNav && store ? store.orgId : null);
   // M-10: the same number as the جديد column and the banner.
   const newCount = countNew(board.data?.orders ?? []);
@@ -200,5 +202,15 @@ function Splash() {
     <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
       <Wordmark />
     </View>
+  );
+}
+
+/** The toast host, opening top toasts under the counter's status bar wherever it is showing. */
+function CounterToasts({ children, bottomOffset, maxWidth }: { children: ReactNode; bottomOffset: number; maxWidth: number | undefined }) {
+  const topOffset = useToastTop();
+  return (
+    <ToastProvider bottomOffset={bottomOffset} {...(topOffset !== undefined ? { topOffset } : {})} maxWidth={maxWidth}>
+      {children}
+    </ToastProvider>
   );
 }

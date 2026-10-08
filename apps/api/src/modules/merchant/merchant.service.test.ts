@@ -204,6 +204,30 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
     expect(recorded.map((r) => r.type)).toEqual(['merchant.closed_early', 'merchant.opened']);
   });
 
+  it('a quick pause reopens by itself (counter step 5, h2): status, orders and the customer card', async () => {
+    const { h, svc, staff, orgs, khalid, recorded } = await setup();
+    const paused = await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'power_cut', pauseMinutes: 20 });
+    const until = new Date(h.clock.now().getTime() + 20 * MIN);
+    expect(paused).toMatchObject({ open: false, closed: { reason: 'power_cut', until } });
+    expect(recorded.at(-1)?.payload).toMatchObject({ reason: 'power_cut', until: until.toISOString() });
+    const directory = new OrgsMerchantDirectory(orgs, h.clock.now.bind(h.clock));
+    expect(await directory.profile(khalid.id)).toMatchObject({ closed: true, reopensAt: until });
+    expect(await new OrdersStorefrontMerchants(directory).profile(khalid.id, 'aziziyah', h.clock.now())).toMatchObject({ closed: true, reopensAt: until });
+
+    h.clock.advance(20 * MIN);
+    expect(await svc.storeStatus(staff, { merchantOrgId: khalid.id })).toMatchObject({ open: true, closed: null });
+    const after = await directory.profile(khalid.id);
+    expect(after?.closed).toBe(false);
+    expect(after).not.toHaveProperty('reopensAt');
+  });
+
+  it('closing without a pause stays closed until reopened by hand', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'closing_early' });
+    h.clock.advance(36 * 60 * MIN);
+    expect(await svc.storeStatus(staff, { merchantOrgId: khalid.id })).toMatchObject({ open: false, closed: { reason: 'closing_early', until: null } });
+  });
+
   it('printer marker: records only changes and keeps the printer name', async () => {
     const { svc, staff, khalid, recorded } = await setup();
     expect((await svc.storeStatus(staff, { merchantOrgId: khalid.id })).printer.state).toBe('not_set_up');

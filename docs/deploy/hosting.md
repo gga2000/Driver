@@ -190,6 +190,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
 | `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
+| `REQUEST_LIMIT_IP_MODE` | no | `alert` (default) until carrier traffic is understood; `enforce` limits guests per address ([request-limits.md](../api/request-limits.md)) |
 | `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
 | `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |

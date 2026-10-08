@@ -27,7 +27,7 @@ import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
-import { useT } from '@/lib/i18n';
+import { useEnglishWords, useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
@@ -137,7 +137,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const segments = useSegments();
   const pathname = usePathname();
   const router = useRouter();
-  const ready = status !== 'loading' && prof.loaded;
+  // The website loads English only when picked (speed w5): wait for it, so an English reader never sees Arabic first.
+  const words = useEnglishWords(prof.locale);
+  const ready = status !== 'loading' && prof.loaded && words;
   // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
   useScreenSpeed(segments, ready && !fontsPending);
 

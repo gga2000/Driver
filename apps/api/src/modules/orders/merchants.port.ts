@@ -1,5 +1,5 @@
 import { holidayOn, localClock, type CommissionTier, type DeliveryPoint } from '@driver/contracts';
-import type { OrgsService } from '../orgs/index.js';
+import { closedNow, type OrgsService } from '../orgs/index.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from './orders.config.js';
 import type { PauseWindow } from './pause.js';
 
@@ -23,6 +23,8 @@ export interface MerchantProfile {
   busyUntil?: Date | null;
   /** Closed by hand from the Merchant app: `orders.place` refuses like a pause window. */
   closed?: boolean;
+  /** A quick pause from «المحل» reopens by itself at this time (counter step 5, h2); absent otherwise. */
+  reopensAt?: Date;
   /** Today is one of the store's holiday closures (Merchant app hours); `closed` is also true then. */
   holiday?: boolean;
 }
@@ -38,7 +40,7 @@ export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
 export class OrgsMerchantDirectory implements MerchantDirectory {
   constructor(
     private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'>,
-    /** The clock a holiday closure is judged by (local date). */
+    /** The clock a holiday closure (local date) and a quick pause's reopening are judged by. */
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -47,6 +49,7 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
     if (!org || (org.type !== 'restaurant' && org.type !== 'grocer')) return null;
     const s = org.merchant ?? { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
     const holiday = s.holidays ? holidayOn(s.holidays, localClock(this.now(), DEFAULT_TIMEZONE).date) !== null : false;
+    const closed = closedNow(s.closed, this.now());
     return {
       orgId,
       cityId: org.cityId,
@@ -57,7 +60,8 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
       commissionTier: s.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
       location: s.location ?? null,
       busyUntil: s.busyUntil ?? null,
-      closed: Boolean(s.closed) || holiday,
+      closed: closed !== null || holiday,
+      ...(closed?.until ? { reopensAt: closed.until } : {}),
       ...(holiday ? { holiday } : {}),
     };
   }

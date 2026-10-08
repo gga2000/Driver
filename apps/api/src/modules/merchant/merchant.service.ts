@@ -39,7 +39,7 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
-import type { MerchantPickupSpot, MerchantSettings, Org } from '../orgs/index.js';
+import { closedNow, type MerchantPickupSpot, type MerchantSettings, type Org } from '../orgs/index.js';
 import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { composeCustomerZones, composeDeliveryArea } from './area.js';
@@ -211,9 +211,10 @@ export class MerchantService implements MerchantPort {
       await this.stores.setMerchantSettings(org.id, { closed: null });
       await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString() });
     } else {
-      const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now };
+      const until = input.pauseMinutes ? new Date(now.getTime() + input.pauseMinutes * 60_000) : null;
+      const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now, until };
       await this.stores.setMerchantSettings(org.id, { closed });
-      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString() });
+      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString(), ...(until ? { until: until.toISOString() } : {}) });
     }
     return this.status(org);
   }
@@ -298,7 +299,7 @@ export class MerchantService implements MerchantPort {
     const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, pauses, DEFAULT_TIMEZONE);
     const sched = scheduleState(now, windows, holidays, DEFAULT_TIMEZONE);
-    const state: StoreHoursView['state'] = s.closed
+    const state: StoreHoursView['state'] = closedNow(s.closed, now)
       ? { open: false, reason: 'closed', closesAt: null, opensAt: null }
       : !sched.inHours
         ? {
@@ -479,7 +480,7 @@ export class MerchantService implements MerchantPort {
       name: org.name,
       now,
       busyUntil: s.busyUntil ?? null,
-      closed: s.closed ?? null,
+      closed: closedNow(s.closed, now),
       printer: s.printer ?? null,
       pause,
       lastHeartbeatAt: s.lastHeartbeatAt,

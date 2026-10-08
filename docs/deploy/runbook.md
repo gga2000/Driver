@@ -36,7 +36,7 @@ git tag v1.0.3 && git push origin v1.0.3
 GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
 and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
-and stops) → smoke test (`db: ok`, `redis: ok`) → **Console** and **web apps**. A red step stops the
+and stops) → smoke test (`health.live` answers, `health.ready` shows `db: ok`; Redis down is only a warning) → **Console** and **web apps**. A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
 
@@ -145,6 +145,7 @@ What exists today, from the narrowest to the widest:
 | A courier, driver or staff member must stop working | revoke the role (`identity.revokeRole`, admin only) | Console / API — the person keeps the account, loses the job |
 | Stop a service (food, taxi…), one kitchen, a zone or a الرجعة corridor; cap active orders in a zone | **kill switches** and the **zone throttle** (launch playbook §3), with an Arabic note for customers | Console → التحكم (`/controls`, dispatcher or admin; every change is in the audit). A stopped kitchen shows «موقوف» with the note on its card, and checkout's price check and placing both refuse with the note (REL-16) |
 | Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count app=0 worker=0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count app=2 worker=1 --config deploy/fly/api.toml` |
+| A signed-out phone or a removed role still works for up to 30 seconds (the sign-in memory, x4) and that matters now | `fly secrets set --config deploy/fly/api.toml AUTH_CACHE_TTL_SEC=0` (the API restarts); every call reads sessions and roles from the database again. Remove it to go back to the 30-second memory | Fly secrets |
 | A bad mobile update | `eas update:roll-back-to-embedded --channel production` | Expo |
 
 Stopping the API is safe for data: orders already placed stay in the database, outbox rows wait, and
