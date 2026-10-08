@@ -73,6 +73,14 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Migration timestamps (scripts/ci/check-migrations.mjs)
+        # Pull requests only: a migration this PR adds must not share a timestamp or be older than the
+        # newest one on the base branch. On push to main it was already checked in its PR.
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          node scripts/ci/check-migrations.mjs --base "origin/${GITHUB_BASE_REF}"
+
       - name: Enable pnpm (corepack, version from package.json "packageManager")
         run: |
           npm install --global corepack@latest
