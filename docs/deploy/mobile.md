@@ -41,6 +41,14 @@ react-native-worklets), new architecture only. They moved from SDK 52 one major 
   reflection: on the first `preview` APK, open every screen, sign in, take a push and play a sound
   before shipping; a missing class shows as a crash naming it, fixed with a keep rule in
   `expo-build-properties` `android.extraProguardRules`.
+- **Load on first use** (speed audit k1, Ali 2026-10-08, after launch with s4): `inlineRequires` is on in each
+  app's `metro.config.js` (Expo leaves it off), so a module loads the first time it is used, not at launch.
+  Code that must run at launch whatever opens first is imported for its side effects in the app's `index.js`
+  (the `main` entry, before `expo-router/entry`): the notification handler in all three apps, the
+  background location task and offer ring in Partner, the new-order ring in Merchant. A new module with
+  top-level work that must happen at launch (a `TaskManager.defineTask`, a handler) goes there too. On
+  the first `preview` build, check with the app killed: a courier online in the background still reports
+  his position, and an offer and a push ring at once.
 - The store Expo Go app runs only the newest SDK; real testing is on a development build (`expo run:android` / `expo run:ios`, or the EAS `preview` build below).
 
 ## Files

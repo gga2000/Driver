@@ -41,4 +41,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return (upstream ?? context.resolveRequest)(context, moduleName, platform);
 };
 
+// Startup (perf k1): each module is loaded the first time it is used instead of all at launch
+// (Expo leaves this off). Code that must run at launch whatever screen opens is imported for its side
+// effects in `index.js`, which Metro never defers.
+const upstreamTransformOptions = config.transformer.getTransformOptions;
+config.transformer.getTransformOptions = async (...args) => {
+  const base = upstreamTransformOptions ? await upstreamTransformOptions(...args) : {};
+  return { ...base, transform: { ...base.transform, inlineRequires: true } };
+};
+
 module.exports = config;
