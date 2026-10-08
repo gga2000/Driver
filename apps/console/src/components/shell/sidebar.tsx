@@ -263,7 +263,7 @@ function NavLink({
         ) : (
           <>
             <span className="min-w-0 truncate">{t(item.key)}</span>
-            {c && c.n > 0 ? <NavCount n={c.n} alert={c.alert} /> : null}
+            {c && c.n > 0 ? <NavCount n={c.n} alert={c.alert} active={active} /> : null}
           </>
         )}
       </Link>
@@ -273,12 +273,17 @@ function NavLink({
 }
 
 /** A plain number at the row's end; a red pill only when something is overdue. */
-function NavCount({ n, alert }: { n: number; alert: boolean }) {
+function NavCount({ n, alert, active }: { n: number; alert: boolean; active: boolean }) {
   return (
     <span
       className={cx(
         'num ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-pill text-xs leading-none',
-        alert ? 'bg-bad-solid px-1.5 font-semibold text-on-bad' : 'text-faint',
+        alert
+          ? 'bg-bad-solid px-1.5 font-semibold text-on-bad'
+          : // Faint ink fails contrast on the selected row's lighter tab.
+            active
+            ? 'text-text'
+            : 'text-faint',
       )}
     >
       {n > 99 ? '99+' : n}
