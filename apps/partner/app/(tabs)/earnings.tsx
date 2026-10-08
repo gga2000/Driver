@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { Pressable, RefreshControl, View } from 'react-native';
 import { Button, Card, EmptyState, Icon, IconButton, SegmentedControl, Skeleton, Text, useTheme } from '@driver/ui';
 import type { EarningsPeriod } from '@driver/contracts';
 import { Screen } from '@/components/Screen';
-import { BreakdownCard, CashCapCard, EarningsHero, JobList } from '@/features/account/EarningsParts';
+import { BestTimeCard, BreakdownCard, CashCapCard, EarningsHero, JobList } from '@/features/account/EarningsParts';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
-import { useGuarantee } from '@/features/account/queries';
+import { useGuarantee, useMyBest } from '@/features/account/queries';
 import { useEarningsPeriod } from '@/features/account/useEarningsPeriod';
 import { useStatus } from '@/features/work/queries';
 import { useT } from '@/lib/i18n';
@@ -16,7 +16,8 @@ const LATEST = 4;
 
 /**
  * الأرباح — the money tab. Day / week / month (and earlier ones with the arrows): the net counting up
- * on a dark hero with the chart, where it came from (pay, tips, bonuses, guarantee top-ups, our take
+ * on the cream page with his week, his best day and the chart (redesign e1 / e4), «يومك» to keep or
+ * share (e7), his best hours (e3), where it came from (pay, tips, bonuses, guarantee top-ups, our take
  * shown openly), cash in hand against the cap with the "سلّم الفلوس" hand-over code, and the latest
  * jobs, each opening to every pay component. The full list lives on the statement.
  */
@@ -34,6 +35,8 @@ export default function EarningsTab() {
   // Switched off (Ali, 2026-10-06) the server says `enabled: false`: nothing that promises money.
   const guarantee = useGuarantee().data;
   const pendingGuarantee = guarantee?.enabled ? guarantee.pendingIqd : 0;
+  const best = useMyBest().data;
+  const isToday = e.period === 'day' && !e.canNext;
 
   const options: { value: EarningsPeriod; label: string }[] = [
     { value: 'day', label: t('partner.earn_period_day') },
@@ -69,8 +72,7 @@ export default function EarningsTab() {
           view={v}
           period={e.period}
           rangeLabel={e.label}
-          prevLabel={e.prevLabel}
-          prevNetIqd={e.prevNetIqd}
+          best={best}
           onPrev={e.goPrev}
           onNext={e.goNext}
           canNext={e.canNext}
@@ -85,6 +87,8 @@ export default function EarningsTab() {
         </Card>
       ) : (
         <>
+          {isToday && v.totals.jobs > 0 ? <YourDayRow onPress={() => router.push({ pathname: '/shift', params: { day: '1' } })} /> : null}
+          {best && e.period !== 'month' ? <BestTimeCard best={best} /> : null}
           {v.totals.netIqd !== 0 || v.totals.jobs > 0 ? <BreakdownCard totals={v.totals} /> : null}
           {canDrive ? <CashCapCard view={v} rangeLabel={e.label} onHandover={() => setHandover(true)} /> : null}
           {pendingGuarantee > 0 ? (
@@ -126,5 +130,43 @@ export default function EarningsTab() {
       )}
       <HandoverSheet visible={handover} onClose={() => setHandover(false)} heldIqd={v?.cash.heldIqd ?? status?.cash.heldIqd ?? 0} owedIqd={v?.cap.owedIqd ?? status?.cash.owedIqd ?? 0} />
     </Screen>
+  );
+}
+
+/** «يومك» (partner redesign e7): today's card — jobs, km, money, the best compliment — to keep or share. */
+function YourDayRow({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Pressable
+      testID="your-day"
+      accessibilityRole="button"
+      onPress={() => {
+        theme.haptic('selection');
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        minHeight: 64,
+        paddingHorizontal: theme.space[4],
+        borderRadius: theme.radius.xl,
+        backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.accent,
+      })}
+    >
+      <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="share" size={20} color="onAccent" strokeWidth={2.2} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text variant="bodyStrong">{t('partner.e5_your_day')}</Text>
+        <Text variant="caption" color="textMuted">
+          {t('partner.e5_your_day_sub')}
+        </Text>
+      </View>
+      <Icon name="chevron-forward" size={18} color="textMuted" strokeWidth={2.2} />
+    </Pressable>
   );
 }

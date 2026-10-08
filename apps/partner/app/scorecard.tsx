@@ -1,16 +1,17 @@
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { View } from 'react-native';
 import { Card, EmptyState, Skeleton, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { MetricPreview, MetricRow, NoConsequenceNote, NudgesCard, ObservationCard, ScoreHero } from '@/features/account/ScoreParts';
-import { useScorecard } from '@/features/account/queries';
+import { MetricPreview, MetricRow, NoConsequenceNote, NudgesCard, ObservationCard, ScoreHero, ScorePartsCard, ScoreWordsCard } from '@/features/account/ScoreParts';
+import { useCompliments, useScorecard } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 
 /**
  * التقييم (scoring spec §1). From day 31: the reliability index on a gauge, his tier on the ladder
  * with its cash cap, this week's nudges with the Sunday they would apply, and each component against
- * its target and Silver line. Days 1–30: a friendly "تقييمك يبين بعد 30 يوم" card, day n of 30,
+ * its target and Silver line. Partner redesign a4 / f6: the score in one sentence on the hero, its five
+ * parts of the 100, and what customers say about him most. Days 1–30: a friendly "تقييمك يبين بعد 30 يوم" card, day n of 30,
  * month one has no consequences, and what will be measured.
  */
 export default function Scorecard() {
@@ -19,6 +20,7 @@ export default function Scorecard() {
   const locale = useLocale();
   const q = useScorecard();
   const card = q.data;
+  const words = useCompliments().data;
   return (
     <Screen testID="scorecard" edges={['bottom']}>
       <Stack.Screen options={{ title: t('partner.hub_scorecard') }} />
@@ -34,6 +36,8 @@ export default function Scorecard() {
         <>
           <ScoreHero card={card} />
           <NudgesCard nudges={card.nudges} consequencesFrom={card.consequencesFrom} />
+          <ScorePartsCard card={card} />
+          {words ? <ScoreWordsCard compliments={words} onOpen={() => router.push('/compliments')} /> : null}
           <View style={{ gap: theme.space[2] }}>
             <Text variant="title" style={{ paddingHorizontal: theme.space[1] }}>
               {t('partner.score_metrics_title')}

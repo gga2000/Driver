@@ -90,6 +90,38 @@ export function playNudgeChime(): void {
   buzz(NUDGE_VIBRATION);
 }
 
+/** A chat message on the job (partner redesign o15): two quick high pips, unlike offer and nudge. */
+export const CHAT_VIBRATION = [0, 80, 80, 80];
+export function playChatPing(): void {
+  const c = audio();
+  if (c) {
+    try {
+      if (c.state === 'suspended') void c.resume?.();
+      const t = c.currentTime + 0.01;
+      tone(c, 1568, t, 0.09, 0.3);
+      tone(c, 1568, t + 0.15, 0.12, 0.3);
+    } catch {
+      /* audio blocked until the first tap: the badge still shows it */
+    }
+  }
+  buzz(CHAT_VIBRATION);
+}
+
+/** Partner redesign d3: the job is done — one soft bell «tink», quieter than any alert. */
+export const DONE_GAIN = 0.14;
+export function playDoneTink(): void {
+  const c = audio();
+  if (!c) return;
+  try {
+    if (c.state === 'suspended') void c.resume?.();
+    const t = c.currentTime + 0.01;
+    tone(c, 2093, t, 0.7, DONE_GAIN);
+    tone(c, 1046.5, t, 0.5, DONE_GAIN * 0.4);
+  } catch {
+    /* audio blocked: the check and the count still tell him */
+  }
+}
+
 function buzz(pattern: number[]) {
   const nav = (globalThis as { navigator?: { vibrate?: (p: number[] | number) => boolean } }).navigator;
   try {

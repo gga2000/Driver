@@ -283,6 +283,15 @@ export class OrdersService implements OnModuleInit {
     return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
   }
 
+  /** Partner redesign o10: rides the orderer of `orderId` finished before it (a count only); null when unknown. */
+  async finishedRidesBefore(orderId: string): Promise<number | null> {
+    const agg = await this.repo.find(orderId);
+    // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
+    if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
+    const order = agg.order;
+    return (await this.repo.forPerson(order.ordererId)).filter((o) => o.id !== orderId && o.ordererId === order.ordererId && o.type === 'ride' && o.state === 'completed').length;
+  }
+
   onModuleInit(): void {
     this.queue.process((job) => this.handleTimer(job.name, job.data));
   }

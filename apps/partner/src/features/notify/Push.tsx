@@ -1,13 +1,14 @@
+import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { PermissionPrompt } from '@driver/ui';
-import { useApiClient } from '@/lib/api';
+import { useApi, useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { pushDevice } from '@/lib/push';
 import { useSignedIn } from '@/lib/session';
 import { storage } from '@/lib/storage';
-import { deepLinkPath, PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
+import { deepLinkPath, isOfferPush, PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
 
 let registeredToken: string | null = null;
 const listeners = new Set<() => void>();
@@ -18,6 +19,8 @@ const listeners = new Set<() => void>();
  */
 export function usePushRegistration(): void {
   const client = useApiClient();
+  const api = useApi();
+  const qc = useQueryClient();
   const signedIn = useSignedIn();
   useEffect(() => {
     if (!signedIn) return;
@@ -33,6 +36,8 @@ export function usePushRegistration(): void {
     const again = () => void register();
     listeners.add(again);
     const offReceive = pushDevice.onReceive((data) => {
+      // An offer push in the foreground: the live stream may be silently dead, so show the offer now.
+      if (isOfferPush(data)) void qc.invalidateQueries(api.partner.currentOffer.pathFilter());
       if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: false }).catch(() => undefined);
     });
     const offOpen = pushDevice.onOpen((data) => {
@@ -46,7 +51,7 @@ export function usePushRegistration(): void {
       offReceive();
       offOpen();
     };
-  }, [client, signedIn]);
+  }, [client, api, qc, signedIn]);
 }
 
 export async function unregisterPush(client: ReturnType<typeof useApiClient>): Promise<void> {
