@@ -5,6 +5,7 @@ import type { PartnerMode } from '@driver/contracts';
 import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, Toggle, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { AppearanceCard } from '@/features/account/AppearanceCard';
+import { DataUseCard } from '@/features/account/DataUseCard';
 import { practiceKindFor } from '@/features/practice/scenario';
 import { usePracticeDone } from '@/features/practice/store';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
@@ -236,6 +237,7 @@ export default function Account() {
         </Card>
       </View>
       <AppearanceCard />
+      {canDrive ? <DataUseCard onlineSince={s?.online ? (s.onlineSince ?? null) : null} /> : null}
       <DataSaverCard onChange={(p) => void saveDataSaverPref(p)} />
       <NavChooser
         visible={choosingNav}
