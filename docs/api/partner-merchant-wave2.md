@@ -370,6 +370,14 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   older apps keep working. His position, the city's demand hint and today's earnings are not in the
   version: the app keeps the position it sent, and `partner.status` (re-read on live events and by its
   poll) brings the rest.
+- **Lighter heartbeat** (speed x2): the app's own reads (`partner.goOnline`, `partner.status`) keep his
+  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`; the tier reads his whole event history),
+  while his cash and earnings are read on every beat, so what he holds is never stale. Dispatch's
+  over-cap check and the money desk always work the limit out fresh. His ringing offer is found from
+  his own open offers (one indexed read of `dispatch_offers` by driver and state) instead of reading
+  the offers of every live trip in the city. Seeded town: the small beat 14 → 13 statements with the
+  two event-history reads gone; the full status 15 → 13; the offer lookup stays at one read however
+  busy the board is (before: one per live trip).
 - Shift-guarantee top-ups are shown when the ledger has them (`driver_incentive`, memo `guarantee…`);
   no job posts them yet. Courier-waiting charges to merchants are not ledger lines yet.
 - The khat run is read from the driver's khat trips; spawning a day's trips from a khat `Route` /
