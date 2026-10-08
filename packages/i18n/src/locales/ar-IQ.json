@@ -6642,6 +6642,7 @@
   "console.ev_order_unstuck": "الطلب طلع من قائمة المعلّقة",
   "console.ev_order_late_apology": "اعتذرنا من الزبون على التأخير وعطيناه وقت جديد",
   "error.ride_schedule_invalid": "تكدر تحجز مشوار من 20 دقيقة لحد 7 أيام قدّام",
+  "error.order_schedule_invalid": "هذا الوقت ما ينفع للطلب. اختار وقت من اليوم أو باچر",
   "error.favourite_needs_schedule": "السايق المفضل بس للمشاوير المحجوزة لوكت ثاني",
   "error.favourite_not_found": "هذا السايق مو بين سواقك المفضلين",
   "error.favourite_needs_good_rating": "تكدر تختار سايق مفضل بعد مشوار قيّمته 4 أو 5 نجوم",
@@ -8208,5 +8209,6 @@
   "partner.data_use_mb": "حوالي {n} ميغا",
   "partner.data_use_packs": "باقة 1 گيگا تكفي هيج شفت حوالي {n} مرة",
   "partner.data_use_hint": "تقدير من موبايلك. ما يحسب الصور اللي تطلع لك ولا التطبيقات الثانية. «توفير البيانات» تحت يقلله.",
-  "partner.data_use_shift_line": "صرف التطبيق حوالي {n} ميغا نت بهالشفت"
+  "partner.data_use_shift_line": "صرف التطبيق حوالي {n} ميغا نت بهالشفت",
+  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق"
 }

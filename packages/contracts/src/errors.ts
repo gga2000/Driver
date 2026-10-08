@@ -226,6 +226,7 @@ export const ERROR_TABLE = {
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  order_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
   // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
   ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -319,6 +320,7 @@ export const ERROR_TABLE = {
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  too_far_for_ice_cream: { retryHint: 'never', status: 'BAD_REQUEST' },
   // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
   tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
