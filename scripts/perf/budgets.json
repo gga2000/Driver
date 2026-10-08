@@ -1,0 +1,41 @@
+{
+  "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0 with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
+  "size": {
+    "customer.code_mb": { "max": 7.1, "target": 6.2, "why": "s1 per-app words" },
+    "customer.assets_mb": { "max": 5.0, "why": "dish photos (AI dishes) 1.5 MB" },
+    "partner.code_mb": { "max": 6.3, "target": 5.5, "why": "s1 per-app words" },
+    "partner.assets_mb": {
+      "max": 4.35,
+      "target": 2.75,
+      "why": "1.5 MB dish photos the courier app never shows"
+    },
+    "merchant.code_mb": { "max": 6.25, "target": 5.5, "why": "s1 per-app words" },
+    "merchant.assets_mb": { "max": 4.4 }
+  },
+  "screens": {
+    "home.open_kb": { "max": 40 },
+    "home.idle_commits": { "max": 6, "target": 0 },
+    "home.idle_fps": { "max": 66, "target": 0, "why": "h1 home's moving touches rest" },
+    "home.idle_kb": { "max": 4 },
+    "menu.open_kb": { "max": 28 },
+    "menu.idle_commits": { "max": 4, "target": 0 },
+    "menu.idle_fps": { "max": 4, "target": 0 },
+    "menu.idle_kb": { "max": 4 },
+    "orders.open_kb": { "max": 8 },
+    "orders.idle_commits": { "max": 4, "target": 0 },
+    "orders.idle_fps": { "max": 4, "target": 0 },
+    "orders.idle_kb": { "max": 4 },
+    "live_order.open_kb": { "max": 72 },
+    "live_order.idle_commits": {
+      "max": 215,
+      "target": 12,
+      "why": "h2 tick only where seconds show"
+    },
+    "live_order.idle_fps": { "max": 360, "target": 70, "why": "courier glide only" },
+    "live_order.idle_kb": { "max": 40 },
+    "board.open_kb": { "max": 52 },
+    "board.idle_commits": { "max": 680, "target": 70, "why": "h3 only the countdown rings tick" },
+    "board.idle_fps": { "max": 960, "target": 240, "why": "alarm pulses only" },
+    "board.idle_kb": { "max": 4 }
+  }
+}
