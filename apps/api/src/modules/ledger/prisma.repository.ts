@@ -1,6 +1,6 @@
 import { kindOf, type LedgerEvent } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { LedgerRepository, NewLedgerEvent } from './repository.js';
+import { isProjectedAccount, type LedgerRepository, type NewLedgerEvent, type RunningBalance } from './repository.js';
 
 /**
  * The subset of the generated Prisma client this repository needs. Declaring it structurally
@@ -34,8 +34,79 @@ interface LedgerRow {
   occurredAt: Date;
 }
 
+/** Tagged-template raw SQL, as the Prisma client and its transaction client offer it. */
+export interface RawSqlClient {
+  $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
+}
+
+export interface RawSqlRunner extends RawSqlClient {
+  $transaction<T>(fn: (tx: RawSqlClient) => Promise<T>): Promise<T>;
+}
+
+/**
+ * `ledger_balances` (perf item 13). The database keeps it: the `ledger_balances_apply` trigger adds
+ * every inserted `ledger_events` line to its driver accounts in the same transaction, whatever wrote
+ * the line, so this class only reads it and, for the nightly check, repairs it.
+ */
+export class PrismaLedgerBalanceStore {
+  constructor(private readonly db: RawSqlRunner) {}
+
+  async find(accountId: string): Promise<RunningBalance | undefined> {
+    const rows = await this.db.$queryRaw<Array<{ amount: number; events: number }>>`
+      SELECT "amount_iqd" AS amount, "events" FROM "public"."ledger_balances" WHERE "account_id" = ${accountId}`;
+    return rows[0] ? { amount: rows[0].amount, events: rows[0].events } : undefined;
+  }
+
+  async all(): Promise<Map<string, RunningBalance>> {
+    const rows = await this.db.$queryRaw<Array<{ account: string; amount: number; events: number }>>`
+      SELECT "account_id" AS account, "amount_iqd" AS amount, "events" FROM "public"."ledger_balances"`;
+    return new Map(rows.map((r) => [r.account, { amount: r.amount, events: r.events }]));
+  }
+
+  /**
+   * Under READ COMMITTED: the first statement takes the account's row lock (creating the row if
+   * missing), so any posting already holding it commits first; the sum then runs on a fresh snapshot
+   * that includes it, and any later posting waits for this commit and adds on top.
+   */
+  async repair(accountId: string): Promise<{ before: RunningBalance; after: RunningBalance }> {
+    return this.db.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<Array<{ amount: number; events: number }>>`
+        INSERT INTO "public"."ledger_balances" ("id", "account_id", "amount_iqd", "events", "updated_at")
+        VALUES (gen_random_uuid()::TEXT, ${accountId}, 0, 0, CURRENT_TIMESTAMP)
+        ON CONFLICT ("account_id") DO UPDATE SET "account_id" = EXCLUDED."account_id"
+        RETURNING "amount_iqd" AS amount, "events"`;
+      const [full] = await tx.$queryRaw<Array<{ amount: number; events: number }>>`
+        SELECT COALESCE(SUM(CASE WHEN "to_account" = ${accountId} THEN "amount_iqd" ELSE -"amount_iqd" END), 0)::INT AS amount,
+               COUNT(*)::INT AS events
+        FROM "public"."ledger_events" WHERE "to_account" = ${accountId} OR "from_account" = ${accountId}`;
+      await tx.$queryRaw`
+        UPDATE "public"."ledger_balances" SET "amount_iqd" = ${full!.amount}, "events" = ${full!.events}, "updated_at" = CURRENT_TIMESTAMP
+        WHERE "account_id" = ${accountId} RETURNING "id"`;
+      return { before: { amount: locked!.amount, events: locked!.events }, after: { amount: full!.amount, events: full!.events } };
+    });
+  }
+}
+
 export class PrismaLedgerRepository implements LedgerRepository {
-  constructor(private readonly delegate: LedgerEventDelegate) {}
+  /** `balances` absent (tests with a bare delegate): every balance read sums the full history. */
+  constructor(
+    private readonly delegate: LedgerEventDelegate,
+    private readonly balances?: PrismaLedgerBalanceStore,
+  ) {}
+
+  async runningBalance(accountId: string): Promise<RunningBalance | undefined> {
+    if (!this.balances || !isProjectedAccount(accountId)) return undefined;
+    return (await this.balances.find(accountId)) ?? { amount: 0, events: 0 };
+  }
+
+  async runningBalances(): Promise<Map<string, RunningBalance> | undefined> {
+    return this.balances?.all();
+  }
+
+  async repairRunningBalance(accountId: string): Promise<{ before: RunningBalance; after: RunningBalance }> {
+    if (!this.balances) throw new Error('ledger_balances is not configured');
+    return this.balances.repair(accountId);
+  }
 
   /** Inside a unit of work, write through the transaction's delegate so the group commits with it. */
   private db(tx?: Tx): LedgerEventDelegate {

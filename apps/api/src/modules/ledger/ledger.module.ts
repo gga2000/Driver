@@ -21,7 +21,7 @@ import { InMemoryMerchantSettingsRepository, PrismaMerchantSettingsRepository } 
 import { NIGHTLY_QUEUE, NightlyJob } from './nightly.job.js';
 import { PostingService } from './posting.service.js';
 import { SupportCreditService } from './support-credit.js';
-import { PrismaLedgerRepository, type LedgerEventDelegate } from './prisma.repository.js';
+import { PrismaLedgerBalanceStore, PrismaLedgerRepository, type LedgerEventDelegate, type RawSqlRunner } from './prisma.repository.js';
 import { InMemoryLedgerRepository } from './repository.js';
 import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT_SETTINGS_REPOSITORY, MONEY_RULES } from './tokens.js';
 
@@ -36,7 +36,9 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     {
       provide: LEDGER_REPOSITORY,
       useFactory: (prisma: PrismaService) =>
-        prisma.configured ? new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate) : new InMemoryLedgerRepository(),
+        prisma.configured
+          ? new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate, new PrismaLedgerBalanceStore(prisma.prisma as unknown as RawSqlRunner))
+          : new InMemoryLedgerRepository(),
       inject: [PrismaService],
     },
     {
