@@ -579,7 +579,7 @@ export default function CheckoutScreen() {
                   accessibilityLabel={t('checkout.points_row', { amount: amountParam(pointsOffer.valueIqd) })}
                   value={usePoints}
                   onValueChange={setUsePoints}
-                  trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+                  trackColor={{ true: theme.colors.accent, false: theme.colors.borderStrong }}
                   {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
                 />
               }

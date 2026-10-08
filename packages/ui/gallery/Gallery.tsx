@@ -7,6 +7,9 @@ import { SAFETY_RULES } from '@driver/contracts';
 import { contrastRatio, type ThemeColorKey } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
 import {
+  OfflineBanner,
+  OtpInput,
+  Toggle,
   Avatar,
   Badge,
   Button,
@@ -1172,6 +1175,7 @@ function Page() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: width >= 980 ? -theme.space[3] : 0 }}>
           <ButtonsSection />
           <ChoiceSection />
+          <W12Controls />
           <PriceSection />
           <CardsSection />
           <TrackingSection />
@@ -1218,5 +1222,35 @@ export function Gallery() {
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/** W12 batch 1: switched-off toggles, the typed code cell, a segment with no valid pick, the connection strip. */
+function W12Controls() {
+  const theme = useTheme();
+  const [a, setA] = useState(false);
+  const [b, setB] = useState(true);
+  const [code, setCode] = useState('48');
+  return (
+    <Section title="مفاتيح وشريط الاتصال" note="المفتاح المطفي واضح، خانة الرمز اللي تكتب بيها حبرية، والمقطع ما يختار شي إذا القيمة مو من الخيارات.">
+      <Panel>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="body">إشعارات العروض</Text>
+          <Toggle value={a} onValueChange={setA} accessibilityLabel="إشعارات العروض" testID="w12-toggle-off" />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="body">صوت التتبع</Text>
+          <Toggle value={b} onValueChange={setB} accessibilityLabel="صوت التتبع" />
+        </View>
+        <OtpInput value={code} onChange={setCode} autoFocus accessibilityLabel="رمز التحقق" />
+        <SegmentedControl value={'7' as '0' | '15'} onChange={() => undefined} options={[{ value: '0', label: ':00' }, { value: '15', label: ':15' }]} />
+      </Panel>
+      <View style={{ gap: theme.space[2] }}>
+        <OfflineBanner kind="offline" />
+        <OfflineBanner kind="unreachable" onRetry={() => undefined} />
+        <OfflineBanner kind="stale" ageSeconds={40} />
+        <OfflineBanner kind="back" />
+      </View>
+    </Section>
   );
 }
