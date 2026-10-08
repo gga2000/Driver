@@ -25,6 +25,11 @@ export interface OrderDetailSheetProps {
   onReject: (o: BoardOrder) => void;
   onReady: (o: BoardOrder) => void;
   onPrint: (o: BoardOrder) => void;
+  /**
+   * «قبله منتظر 9:32 م · جهّزه علي 9:51 م»: who pressed what on this order. The owner's only: the
+   * board passes it for the owner and never for staff (the server refuses staff as well).
+   */
+  who?: string | null;
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -42,7 +47,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /** The whole ticket: every line by person, times, money, courier; print and the column's actions. */
-export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint }: OrderDetailSheetProps) {
+export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint, who }: OrderDetailSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -79,6 +84,12 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
         </View>
       }
     >
+      {who ? (
+        <Text testID="detail-who" variant="footnote" color="textMuted">
+          {who}
+        </Text>
+      ) : null}
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
         {hasAllergy(order) ? <AllergyPill testID="detail-allergy" /> : null}
         {courier ? <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} /> : <StatusPill tone="neutral" icon="bike" label={t('merchant.courier.none')} />}

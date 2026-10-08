@@ -144,7 +144,9 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 ```
 
 Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board), `0770 999 0000` staff at two
-stores (picker), `0770 555 0000` no store (gate). The board section seeds 3 new orders (a group order
+stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate). مصطفى and
+علي accept, add time, reject and mark ready on the seeded orders and mark dishes sold out, so the
+owner's «مين سوّى شنو» card (يومك → اليوم) has names. The board section seeds 3 new orders (a group order
 for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,500 دينار cash balance
 and a disconnected printer. New orders auto-reject after 90 s as in production:
 `POST /demo/board/fresh` puts 3 fresh ones on the board; `POST /demo/board/missed?count=2` adds orders

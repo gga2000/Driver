@@ -23,9 +23,9 @@ import { usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
 import { printerChipState, usePrinterSnapshot, usePrintOrder } from '@/features/print/runtime';
 import { DaySummaryCard } from '@/features/day/DaySummaryCard';
-import { dayCardKey, showDayCard } from '@/features/day/logic';
+import { dayCardKey, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
-import { useCashAccount } from '@/features/money/queries';
+import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
@@ -213,6 +213,10 @@ export function Board() {
   const [handingId, setHandingId] = useState<string | null>(null);
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
+  // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
+  const whoDetailId = canSeeMoney && detailId && !isPractice(detailId) ? detailId : null;
+  const orderWho = useOrderWho(storeId, whoDetailId, whoDetailId !== null);
+  const whoLine = whoDetailId && orderWho.data?.orderId === whoDetailId ? orderWhoLine(orderWho.data.entries, canSeeMoney, t) : null;
   // Maps program SP7a: a chime when a courier is about to walk in.
   useCourierArrivals(board.data?.orders, prefs.soundOn);
   // The ready column reads in counter order (S-M4): couriers waiting at the pass first.
@@ -708,7 +712,7 @@ export function Board() {
           }
         }}
       />
-      <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} />
+      <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} {...(canSeeMoney ? { who: whoLine } : {})} />
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} lengths onClose={() => setSheet(null)} /> : null}
       {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
