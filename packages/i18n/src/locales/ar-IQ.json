@@ -7798,5 +7798,9 @@
   "restaurant.whats_left_title": "شنو باقي اليوم؟",
   "restaurant.whats_left_line": "خلص {count} من المنيو اليوم، وباقي {left} تگدر تطلبها",
   "restaurant.whats_left_all": "كل المنيو",
-  "restaurant.whats_left_only": "الباقي بس"
+  "restaurant.whats_left_only": "الباقي بس",
+  "datasaver.slow_hint_auto": "النت ضعيف هسة، فخلّينا التطبيق خفيف: صور أقل وخريطة أبسط",
+  "datasaver.slow_keep": "خلّيه دائماً",
+  "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",
+  "datasaver.slow_turn_on": "خلّيه خفيف"
 }
