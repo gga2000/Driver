@@ -165,7 +165,9 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `PORT` | no | `3000` (toml) |
 | `DATABASE_URL` | **yes** | Supabase transaction pooler, port 6543 |
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
-| `DATABASE_POOL_MAX` | no | `10` (toml), per process: 3 processes use 30 of Small compute's 400 pooled clients |
+| `DATABASE_POOL_MAX` | no | `10` (toml), per lane per process. Each process has a request lane and a background lane (below), opened on first use: web machines mostly use the request lane, the worker the background lane, so 3 processes stay well under Small compute's 400 pooled clients |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | no | default `5000`: a query made while answering a phone is cancelled after 5 s ([Database time limits](#database-time-limits)). `0` = no limit |
+| `DATABASE_JOB_STATEMENT_TIMEOUT_MS` | no | default `120000`: the limit for jobs, sweeps and outbox deliveries (their transactions may stay open as long). `0` = no limit |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
 | `TIMERS_SWEEPER` | no | `off` (default) or `on`: a sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. `TIMERS_SWEEP_MS` default 5000 |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
@@ -191,6 +193,31 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 
 New providers (notifications, SMS, maps) add their variables to `.env.example`; put the keys in with
 `fly secrets set` the same way.
+
+## Database time limits
+
+One database role, two lanes. While the API answers an HTTP request, its queries go through the
+**request lane**: each statement may run 5 s, so one slow query can't hold a connection that a crowd
+is queueing for. Queued jobs, interval sweeps, outbox deliveries and boot use the **background
+lane**: 2 minutes (Supabase's own global cap), and their transactions may stay open as long. The
+limits are set twice: when a connection opens, and again at the start of every transaction
+(`SET LOCAL`), because Supabase's transaction pooler (port 6543) may drop the first.
+
+Check after each first deploy (staging, then production): the log of every process says once per
+lane `database request lane: statement_timeout 5000 ms` (and `background … 120000 ms`). A warning
+`… is 120000 ms, wanted 5000 ms (connection setting dropped …)` means the pooler dropped the
+connection setting: transactions still get theirs, but single queries outside a transaction get the
+role's default. If so, give the role the request limit once, in the Supabase SQL editor:
+
+```sql
+ALTER ROLE postgres SET statement_timeout = '5s';
+```
+
+Then the warning disappears from web machines; the background lane keeps its 2 minutes inside
+transactions. Migrations run through the session pooler (port 5432) with the same role, so from
+then on a migration that may run long (a big index, a backfill) starts with its own
+`SET statement_timeout = '10min';` next to `SET lock_timeout = '3s';`. Undo with
+`ALTER ROLE postgres RESET statement_timeout;`.
 
 ## Rotating the JWT secret
 

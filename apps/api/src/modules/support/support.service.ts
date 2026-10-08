@@ -270,7 +270,8 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     await this.create(
       {
         cityId: order?.cityId ?? 'aziziyah',
-        kind: 'dispute',
+        // BENCH-13: unsafe driving is a safety case, so it opens as an incident and ranks first in the queue.
+        kind: kind === 'unsafe_driving' ? 'incident' : 'dispute',
         channel: e.payload['openedBy'] === 'system' ? 'system' : 'in_app',
         subject: DISPUTE_SUBJECT_AR[kind],
         note: note ? `${DISPUTE_SUBJECT_AR[kind]}: ${note}` : DISPUTE_SUBJECT_AR[kind],
