@@ -27,6 +27,8 @@ import {
   IconMap,
   IconOrders,
   IconPhone,
+  IconBell,
+  IconInbox,
   IconPricing,
   IconSidebar,
   IconSupport,
@@ -42,6 +44,7 @@ import {
 import { BrandWordmark } from './brand';
 
 export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
+  today: IconInbox,
   map: IconMap,
   dispatch: IconDispatch,
   orders: IconOrders,
@@ -57,13 +60,15 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   reviews: IconChat,
   safety: IconSiren,
   phone: IconPhone,
+  oncall: IconBell,
   system: IconSystem,
 };
 
 /**
  * The RTL sidebar on the start (right) edge: the Driver mark, sections grouped by job, live count
  * badges, the support desk's smart views nested under الدعم while you're on it, and a collapse to an
- * icon rail. The selected page is a white tab lifted off the cream, with an orange icon.
+ * icon rail. It is the date-brown island (`data-ink="date"`, CON-11): cream ink on the dark of a dried
+ * date in both themes, the selected page a lighter date tab with a saffron bar.
  */
 export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
   const pathname = usePathname();
@@ -79,8 +84,9 @@ export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
   return (
     <aside
       aria-label={t('app.console')}
+      data-ink="date"
       className={cx(
-        'sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-e border-line bg-sidebar transition-[width] duration-base ease-standard lg:flex',
+        'sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-e border-line bg-sidebar text-text transition-[width] duration-base ease-standard lg:flex',
         collapsed ? 'w-[68px]' : 'w-[var(--sidebar-w)]',
       )}
     >
@@ -110,7 +116,7 @@ export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
             {collapsed ? (
               <div aria-hidden className="mx-3 mb-2 border-t border-line" />
             ) : (
-              <p className="mb-1 px-3 text-xs font-medium text-faint">{t(g.key)}</p>
+              <p className="mb-1 px-3 pt-1 text-xs font-medium tracking-[0.02em] text-faint">{t(g.key)}</p>
             )}
             <ul className="space-y-0.5">
               {g.items.map((item) => {
@@ -135,8 +141,8 @@ export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
                         'group relative flex h-9 items-center gap-3 rounded-md text-sm transition-colors duration-fast',
                         collapsed ? 'justify-center px-0' : 'px-3',
                         active
-                          ? 'bg-surface font-semibold text-text shadow-card'
-                          : 'text-muted hover:bg-surface/70 hover:text-text',
+                          ? 'bg-accent-tint font-semibold text-text'
+                          : 'text-muted hover:bg-surface-2 hover:text-text',
                       )}
                     >
                       {active ? (
@@ -149,7 +155,7 @@ export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
                         size={18}
                         className={cx(
                           'shrink-0',
-                          active ? 'text-accent-text' : 'text-muted group-hover:text-text',
+                          active ? 'text-accent' : 'text-muted group-hover:text-text',
                         )}
                       />
                       {collapsed ? (
@@ -198,7 +204,7 @@ export function Sidebar({ onShortcuts }: { onShortcuts: () => void }) {
           <button
             type="button"
             onClick={onShortcuts}
-            className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm text-muted transition-colors hover:bg-surface/70 hover:text-text"
+            className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-text"
           >
             <IconKeyboard size={18} />
             <span className="flex-1 text-start">{t('console.shortcuts')}</span>
@@ -241,7 +247,7 @@ function SupportViewsNav() {
                 'flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-dense transition-colors',
                 on
                   ? 'bg-accent-tint font-semibold text-text'
-                  : 'text-muted hover:bg-surface/70 hover:text-text',
+                  : 'text-muted hover:bg-surface-2 hover:text-text',
               )}
             >
               <span className="flex-1 truncate text-start">

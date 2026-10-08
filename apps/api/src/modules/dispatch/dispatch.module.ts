@@ -1,8 +1,9 @@
-import { Inject, Injectable, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { ConfigModule } from '../config/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
@@ -31,8 +32,9 @@ import { ZoneDirectory } from './zones.js';
 export const DISPATCH_REDIS = Symbol('DISPATCH_REDIS');
 
 /**
- * Owns dispatch's Redis connection (geo index, locks, runtime state) and, when there is no Redis,
- * ticks the in-memory timer queue once a second so dev boxes still see waves advance.
+ * Owns dispatch's Redis connection (geo index, locks, runtime state), hands the far-ahead timers to the
+ * durable timer table, and, when there is no Redis, ticks the in-memory timer queue once a second so dev
+ * boxes still see waves advance.
  */
 @Injectable()
 export class DispatchRuntime implements OnModuleDestroy {
@@ -41,7 +43,12 @@ export class DispatchRuntime implements OnModuleDestroy {
   constructor(
     @Inject(DISPATCH_REDIS) private readonly redis: Redis | null,
     @Inject(DISPATCH_QUEUE) queue: Queue<TimerJob>,
+    orchestrator: OfferOrchestrator,
+    @Inject(TIMER_STORE) timers: TimerStore,
+    @Optional() sweeper: TimerSweeper | null,
   ) {
+    // NTF-05: booked rides' and departures' far-ahead timers survive a lost Redis job.
+    orchestrator.bindDurableTimers(timers, sweeper ?? null);
     if (queue instanceof InMemoryQueue) {
       this.timer = setInterval(() => void queue.drain().catch(() => undefined), 1000);
       this.timer.unref();

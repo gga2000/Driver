@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DeviceInfo, OtpPurpose, RoleGrant, RoleKind, TokenPair } from './auth.js';
+import { DeviceInfo, RoleGrant, RoleKind, TokenPair } from './auth.js';
 
 /** Who the emergency contact is to the person (shown to the safety desk when it calls them). */
 export const EmergencyRelation = z.enum(['mother', 'father', 'spouse', 'sibling', 'child', 'relative', 'friend', 'other']);
@@ -90,10 +90,17 @@ export type OtpChannel = z.infer<typeof OtpChannel>;
 
 export const RequestOtpInput = z.object({
   phone: z.string().min(7).max(20),
-  purpose: OtpPurpose.default('login'),
-  /** Absent = SMS. */
+  /**
+   * Only sign-in codes go out from this public endpoint; guardian-consent and phone-change codes are
+   * sent by their own signed-in flows (audit SEC-17).
+   */
+  purpose: z.literal('login').default('login'),
+  /**
+   * Absent = the server's choice: SMS, or WhatsApp while the day's SMS budget is spent. An explicit
+   * `sms` ("ابعث برسالة") always tries SMS.
+   */
   channel: OtpChannel.optional(),
-  /** The requesting app's device: OTP requests are rate-limited per device (and per IP) — `rate_limited`. */
+  /** The requesting app's device: OTP requests are limited per number, device and account — `rate_limited`. */
   device: DeviceInfo.optional(),
 });
 /** Where a public request came from, as the transport saw it (client IP for per-IP rate limits). */
@@ -162,6 +169,8 @@ export interface IdentityPort {
   me(actor: Actor): Promise<MeView>;
   updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView>;
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
+  /** Live (unfrozen) role kinds in one read; the role gate uses it so a check is one query, not one per role. */
+  activeRoles?(personId: string): Promise<RoleKind[]>;
   grantRole(actor: Actor, input: z.infer<typeof GrantRoleInput>): Promise<RoleGrant>;
   revokeRole(actor: Actor, input: z.infer<typeof RevokeRoleInput>): Promise<void>;
   linkGuardian(actor: Actor, input: z.infer<typeof LinkGuardianInput>): Promise<GuardianLinkView>;

@@ -199,21 +199,24 @@ describe('API smoke', () => {
   });
 
   // Keep last: it uses up this client IP's OTP allowance for the hour.
-  it('M2 follow-up: identity.requestOtp is rate-limited per client IP over the wire (rate_limited + retryAfterSec)', async () => {
+  it('W5: identity.requestOtp is limited per device over the wire (rate_limited + retryAfterSec), never per client IP', async () => {
     const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     type Refusal = { data: { code: string; httpStatus: number; retryAfterSec?: number } };
+    // One shared IP (carrier NAT): twelve different people from 127.0.0.1 all get their code.
+    for (let i = 0; i < 12; i += 1) await anon.identity.requestOtp.mutate({ phone: `0771250${String(i).padStart(4, '0')}`, purpose: 'login' });
+    // One device: the 6th code in the hour is refused.
+    const device = { fingerprint: 'smoke-device-1', platform: 'android' as const };
     let refused = null as Refusal | null;
     let sent = 0;
-    for (let i = 0; i < 12 && !refused; i += 1) {
+    for (let i = 0; i < 7 && !refused; i += 1) {
       try {
-        await anon.identity.requestOtp.mutate({ phone: `0771250${String(i).padStart(4, '0')}`, purpose: 'login' });
+        await anon.identity.requestOtp.mutate({ phone: `0771260${String(i).padStart(4, '0')}`, purpose: 'login', device });
         sent += 1;
       } catch (e) {
         refused = e as Refusal;
       }
     }
-    // Earlier tests in this file already used part of 127.0.0.1's 10 per hour.
-    expect(sent).toBeLessThan(10);
+    expect(sent).toBe(5);
     expect(refused?.data).toMatchObject({ code: 'rate_limited', httpStatus: 429, retryAfterSec: expect.any(Number) });
     expect(refused!.data.retryAfterSec!).toBeGreaterThan(3500);
   });
