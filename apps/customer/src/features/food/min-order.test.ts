@@ -62,6 +62,16 @@ describe('totals with the small-order fee and points (J-D6, f13)', () => {
     // The lines add up to the price.
     expect(lines.reduce((a, l) => a + l.amount, 0)).toBe(totals.priceIqd);
   });
+
+  it('price lines: a quote taken «بالشارع» names the delivery line «توصيل · بالشارع» (HUNT-02)', () => {
+    const cart = cartWith([['wrap', 'لفة كباب', 6000]]);
+    const street = checkoutTotals(cart, { components: [comp('base', 1000), comp('street_pickup', -250), comp('service_fee', 500)] }, null);
+    const lines = priceItems(street, t, 'ar-IQ');
+    expect(lines.find((l) => l.key === 'base')?.label).toBe('track.price_delivery_street');
+    expect(lines.find((l) => l.key === 'street_pickup')?.amount).toBe(-250);
+    // At the door, the plain «توصيل».
+    expect(priceItems(checkoutTotals(cart, QUOTE, null), t, 'ar-IQ').find((l) => l.key === 'base')?.label).toBe('quote.delivery');
+  });
 });
 
 describe('cart upsell ranking (F-15)', () => {

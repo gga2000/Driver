@@ -32,7 +32,8 @@
   },
   "screens": {
     "home.open_kb": {
-      "max": 40
+      "max": 44,
+      "why": "home concept C (#70, Ali approved): the dish gallery, kitchen rows and more dishes read more of the list: 42 KB on main fda13a3"
     },
     "home.idle_commits": {
       "max": 6,

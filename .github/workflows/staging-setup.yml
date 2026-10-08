@@ -17,7 +17,7 @@
 # STAGING_TEST_OTP (the staging test numbers' code, chosen by a person). Variables:
 # DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
 # (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
-# CORS_ORIGINS (default the customer web version on Vercel; the staging Console is added when FLY_CONSOLE_APP is set).
+# CORS_ORIGINS (default the customer and restaurant web versions on Vercel; the staging Console is added when FLY_CONSOLE_APP is set).
 # Secrets are staged: they reach the API on its next deploy (Actions → Deploy → staging).
 name: Staging setup
 
@@ -100,7 +100,7 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
-          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app' }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app' }}
           CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
           # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
           # and kept only as this environment's secret: never generated, printed or written anywhere here.
