@@ -44,7 +44,7 @@ export function StaffActionDialog({
 }: {
   order: Pick<StuckOrder, 'orderId' | 'ticket' | 'totalIqd' | 'paymentMethod'>;
   action: StaffAction;
-  /** Lane A's `orders.ops.switches`; null until it is on main (money lines then read "waits on Ali"). */
+  /** Lane A's `orders.ops.switches`; null while it loads (money lines then read "waits on Ali"). */
   switches?: OpsSwitches | null;
   onClose: () => void;
 }) {

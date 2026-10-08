@@ -24,6 +24,7 @@ export function StuckRowActions({ orderId }: { orderId: string }) {
   const { roles } = useMyRoles();
   const stuck = useQuery(trpc.orders.ops.stuck.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: false, refetchInterval: 30_000 }));
   const order = stuck.data?.find((s) => s.orderId === orderId);
+  const switches = useQuery(trpc.orders.ops.switches.queryOptions(undefined, { enabled: signedIn, retry: false, staleTime: 60_000 }));
   const [open, setOpen] = useState<StaffAction | null>(null);
   const actions = order ? actionsFor(order, roles) : [];
   if (!order || actions.length === 0) return null;
@@ -35,7 +36,7 @@ export function StuckRowActions({ orderId }: { orderId: string }) {
           {t(ACTION_KEY[a])}
         </Button>
       ))}
-      {open ? <StaffActionDialog order={order} action={open} onClose={() => setOpen(null)} /> : null}
+      {open ? <StaffActionDialog order={order} action={open} switches={switches.data ?? null} onClose={() => setOpen(null)} /> : null}
     </div>
   );
 }

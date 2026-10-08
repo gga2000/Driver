@@ -27,12 +27,13 @@ export function StuckStrip({ orderId }: { orderId: string }) {
   const { roles, loaded } = useMyRoles();
   const stuck = useQuery(trpc.orders.ops.stuck.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: false, refetchInterval: 30_000 }));
   const order = stuck.data?.find((s) => s.orderId === orderId);
+  const switches = useQuery(trpc.orders.ops.switches.queryOptions(undefined, { enabled: signedIn, retry: false, staleTime: 60_000 }));
   const [open, setOpen] = useState<StaffAction | null>(null);
   if (!order || !loaded) return null;
   return (
     <>
       <StuckBanner order={order} actions={actionsFor(order, roles)} onPick={setOpen} />
-      {open ? <StaffActionDialog order={order} action={open} onClose={() => setOpen(null)} /> : null}
+      {open ? <StaffActionDialog order={order} action={open} switches={switches.data ?? null} onClose={() => setOpen(null)} /> : null}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import type { RoleKind, StuckOrder } from '@driver/contracts';
+import type { RoleKind, StaffOpsSwitches, StuckOrder } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -52,23 +52,8 @@ export interface Consequence {
   waits?: boolean;
 }
 
-/**
- * Lane A's `orders.ops.switches` read: which money rules are on. It is not on main yet, so callers
- * pass `null` and every money line reads "waits on Ali" (the server still refuses with
- * `money_rule_off` when a switch is off, and the dialog shows that).
- */
-export interface OpsSwitches {
-  /** Always includes 'void'. */
-  disputeOutcomes: readonly DisputeOutcomeChoice[];
-  agentLimitIqd: number;
-  courierLostRefund: boolean;
-  courierLostCharge: boolean;
-  freeCancel: boolean;
-  /** Who pays a kitchen for cooked food on a cancel; only applies while `freeCancel` is on. */
-  cookedFoodPayer: 'platform' | 'merchant';
-  /** c6: Driver pays the shop a remake when no courier came 10 min after ready (the order shows `order.remake_paid`). */
-  remakePay: boolean;
-}
+/** Lane A's `orders.ops.switches`: which money rules are on. Null while it loads (every money line then reads "waits on Ali"). */
+export type OpsSwitches = StaffOpsSwitches;
 
 export function consequences(action: StaffAction, o: { paymentMethod: string }, sw: OpsSwitches | null = null): Consequence[] {
   switch (action) {
