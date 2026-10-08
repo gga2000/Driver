@@ -66,6 +66,8 @@ export interface OpsSwitches {
   freeCancel: boolean;
   /** Who pays a kitchen for cooked food on a cancel; only applies while `freeCancel` is on. */
   cookedFoodPayer: 'platform' | 'merchant';
+  /** c6: Driver pays the shop a remake when no courier came 10 min after ready (the order shows `order.remake_paid`). */
+  remakePay: boolean;
 }
 
 export function consequences(action: StaffAction, o: { paymentMethod: string }, sw: OpsSwitches | null = null): Consequence[] {

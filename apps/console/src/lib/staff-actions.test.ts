@@ -23,7 +23,7 @@ describe('stuck-order way-outs', () => {
 });
 
 describe('with the money switches read', () => {
-  const sw: OpsSwitches = { disputeOutcomes: ['stands', 'refund_full', 'void'], agentLimitIqd: 25_000, courierLostRefund: true, courierLostCharge: true, freeCancel: true, cookedFoodPayer: 'platform' };
+  const sw: OpsSwitches = { disputeOutcomes: ['stands', 'refund_full', 'void'], agentLimitIqd: 25_000, courierLostRefund: true, courierLostCharge: true, freeCancel: true, cookedFoodPayer: 'platform', remakePay: false };
 
   it('says what a switched-on rule does instead of "waits on Ali"', () => {
     const lost = consequences('courierLost', { paymentMethod: 'cash' }, sw);

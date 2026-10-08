@@ -6649,6 +6649,7 @@
   "console.ev_order_rated": "الزبون قيّم الطلب",
   "console.ev_order_stuck": "الطلب تعلّق: يحتاج واحد يتابعه",
   "console.ev_order_unstuck": "الطلب طلع من قائمة المعلّقة",
+  "console.ev_order_remake_paid": "دفعنا للمطعم يسوّي الأكل من جديد، لأن ما وصل دليفري خلال 10 دقايق من جهوزه",
   "console.ev_order_late_apology": "اعتذرنا من الزبون على التأخير وعطيناه وقت جديد",
   "error.ride_schedule_invalid": "تكدر تحجز مشوار من 20 دقيقة لحد 7 أيام قدّام",
   "error.favourite_needs_schedule": "السايق المفضل بس للمشاوير المحجوزة لوكت ثاني",

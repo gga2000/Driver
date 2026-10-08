@@ -6649,6 +6649,7 @@
   "console.ev_order_rated": "Customer rated the order",
   "console.ev_order_stuck": "Order got stuck: needs someone on it",
   "console.ev_order_unstuck": "Order left the stuck list",
+  "console.ev_order_remake_paid": "We paid the shop to cook it again: no courier came within 10 minutes of it being ready",
   "console.ev_order_late_apology": "We apologised for the delay and gave a new time",
   "error.ride_schedule_invalid": "You can book a ride from 20 minutes up to 7 days ahead",
   "error.favourite_needs_schedule": "A favourite driver is only for rides booked for later",
