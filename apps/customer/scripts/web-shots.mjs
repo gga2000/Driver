@@ -12,6 +12,7 @@
 //   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, welcome-home (once after setup), home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
+//   battery-* CRIT3-01: the notifications screen's battery guide for a Xiaomi and a Huawei (`?maker=`, dev builds)
 //   partial-* BENCH-03: the kitchen has a dish out — the ask (opened from the push, names from the menu),
 //            the last seconds, then «أرسل الباقي» → the live order            POST /demo/active-order?accept=0, /demo/kitchen?action=partial
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
@@ -133,7 +134,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -266,6 +267,7 @@ try {
   if (wants('acct')) await acctShots(personId);
   if (wants('food')) await foodFlow(khalid);
   if (wants('partial')) await partialShots(personId);
+  if (wants('battery')) await batteryShots();
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
   if (wants('driver')) await driverShots(personId);
@@ -1155,6 +1157,15 @@ async function foodFlow(khalid) {
 }
 
 /** BENCH-03: a dish is out. The order is placed through the demo hook, so the ask reads names from the menu. */
+async function batteryShots() {
+  for (const maker of ['xiaomi', 'huawei']) {
+    await page.goto(`${origin}/profile/notifications?maker=${maker}`, LOADED);
+    await byTestId('battery-guide').waitFor({ timeout: 15_000 });
+    await settle();
+    await shot(`battery-${maker}`);
+  }
+}
+
 async function partialShots(personId) {
   if (!personId) throw new Error('partial shots need a signed-in person');
   const placed = await demoPost(`/demo/active-order?personId=${encodeURIComponent(personId)}&accept=0`);

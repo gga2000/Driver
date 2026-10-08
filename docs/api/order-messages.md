@@ -43,6 +43,20 @@ A second test checks that every notify template has a sender in the API (or a wr
 - Points per order: no push. They show on the delivered order's screen and in the wallet, and a push
   for every order would be noise.
 
+## On the phone (customer app)
+- The notification ask (CRIT2-05): food on the kitchen-waiting screen, rides in the sheet while
+  searching, and now a Baghdad/Kut seat on its boarding pass («نخبرك إذا تغيّر شي بسيارتك؟»), so a
+  seat-only customer is asked too.
+- A tapped push (CORE-08/17): a tap that launched the app from closed opens its screen once the app has
+  signed in and the sign-in guard has nothing to redirect (read once, then cleared). Tapping a push for
+  the screen already open does nothing; the same screen with other details in its link is swapped in
+  place. One tap opens one screen.
+- The battery guide (CRIT3-01): on Xiaomi/Redmi/Poco, Oppo/Realme/OnePlus, Tecno/Infinix/itel, Huawei/
+  Honor and Samsung phones, Settings → Notifications shows that maker's three steps to stop the battery
+  manager holding our pushes, and a button to the app's settings. Huawei's third step points to the
+  SMS switch for phones without Google services. The SMS fallback when a push is not confirmed (D-9)
+  waits for Ali's answer. Screenshots: `SHOTS=battery` (`?maker=` on dev builds).
+
 ## Push on a live host (OPS-02)
 
 With `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot unless
