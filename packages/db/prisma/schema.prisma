@@ -2539,6 +2539,9 @@ model LedgerEvent {
   @@index([toAccount, occurredAt])
   @@index([kind, occurredAt])
   @@index([postingGroupId])
+  // An order's or a trip's money lines (receipts, disputes, the Console): byOrder / byTrip.
+  @@index([orderId, occurredAt])
+  @@index([tripId, occurredAt])
   @@map("ledger_events")
   @@schema("public")
 }
