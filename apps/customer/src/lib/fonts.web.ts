@@ -1,34 +1,32 @@
-import { useFonts } from 'expo-font';
 import { useEffect, useState } from 'react';
-import { FONT_FILES, WEB_FONT_FACES } from './font-files';
 
 /**
- * On web @driver/ui styles text with CSS families ("IBM Plex Sans Arabic" plus `font-weight`, and
- * "Alexandria" / "Marhey" for the brand faces), not one family per weight like native. expo-font
- * registers the bundled files under their per-weight names, so once they load we alias each one as a
- * weight of its CSS family (expo-font ≥ 14 quotes the family name and URL in its generated CSS; both
- * forms are read). The files are bundled assets: no network fetch to Google Fonts, works offline.
+ * Web fonts (speed w3, Ali 2026-10-08): public/index.html declares the faces @driver/ui names in CSS
+ * ("IBM Plex Sans Arabic" by `font-weight`, "Alexandria" and "Marhey" for the brand faces) from small
+ * woff2 files with only Arabic and Latin letters (scripts/fonts/subset-web-fonts.py), and starts the
+ * two main weights downloading with the page itself, before the program. Medium (500) is drawn with
+ * the 600 file. Here we only wait for those two main weights; the root layout stops waiting after
+ * FONT_HOLD_MAX_MS and the rest swap in when they arrive (font-display: swap). No Google Fonts call.
  */
+export const MAIN_WEB_FACES = ['400 16px "IBM Plex Sans Arabic"', '600 16px "IBM Plex Sans Arabic"'] as const;
+
 export function useAppFonts(): boolean {
-  const [loaded] = useFonts(FONT_FILES);
-  const [aliased, setAliased] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    if (!loaded || aliased || typeof document === 'undefined') return;
-    const generated = document.getElementById('expo-generated-fonts')?.textContent ?? '';
-    const rules: string[] = [];
-    for (const m of generated.matchAll(/font-family:"?(\w+)"?;src:url\(([^)]+)\)/g)) {
-      const face = WEB_FONT_FACES[(m[1] ?? '') as keyof typeof WEB_FONT_FACES] as (typeof WEB_FONT_FACES)[keyof typeof WEB_FONT_FACES] | undefined;
-      if (face) rules.push(`@font-face{font-family:"${face.family}";font-weight:${face.weight};font-display:swap;src:url(${m[2]})}`);
+    const fonts = typeof document === 'undefined' ? undefined : (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (!fonts) {
+      setLoaded(true);
+      return;
     }
-    if (rules.length) {
-      const el = document.createElement('style');
-      el.id = 'driver-font-alias';
-      el.textContent = rules.join('\n');
-      document.head.appendChild(el);
-    }
-    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
-    const ready = fonts ? Promise.all(Object.values(WEB_FONT_FACES).map((f) => fonts.load(`${f.weight} 16px "${f.family}"`, 'ع'))) : Promise.resolve();
-    void ready.catch(() => undefined).then(() => setAliased(true));
-  }, [loaded, aliased]);
-  return loaded && aliased;
+    let live = true;
+    void Promise.all(MAIN_WEB_FACES.map((f) => fonts.load(f, 'ع')))
+      .catch(() => undefined)
+      .then(() => {
+        if (live) setLoaded(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return loaded;
 }
