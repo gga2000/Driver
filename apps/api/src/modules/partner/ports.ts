@@ -104,6 +104,10 @@ export interface PartnerDeps {
     startCodeRequired?(orderId: string): Promise<boolean>;
     /** Ride ideas c9/s3: the name the booker gave a ride's rider, read for this driver (logged); null when he booked it himself. Optional for fakes. */
     riderName?(orderId: string, driverId: string): Promise<string | null>;
+    /** SEC-14: the name the sender gave the order's recipient, read for this courier (logged); null when none. Optional for fakes. */
+    recipientName?(orderId: string, driverId: string): Promise<string | null>;
+    /** o10: rides the ride's orderer finished before this one (a count, no names). Optional for fakes. */
+    riderTrips?(orderId: string): Promise<number | null>;
   };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };

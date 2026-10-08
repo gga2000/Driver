@@ -152,6 +152,7 @@ export const NotifyTemplateId = z.enum([
   'khat_sweep_reminder',
   'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
+  'sos_desk_ring',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -543,6 +544,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.driver.iq/safety/sos_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  // SOS ladder (Console E1, CON-02): nobody took it yet, so the desk is rung again every 30 s. Push
+  // only and never an SMS twin (the on-call step at 60 s carries WhatsApp and SMS).
+  sos_desk_ring: {
+    id: 'sos_desk_ring',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.sos_ring.title', body: 'push.sos_ring.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.

@@ -37,13 +37,25 @@ export default async function run(s) {
   await p.wait('fleet-add-vehicle-form');
   await p.byTestId('fleet-class-van').click();
   await p.page.locator('[data-testid="fleet-plate-input"]').fill('واسط 70455');
+  await p.page.locator('[data-testid="fleet-model-input"]').fill('هيونداي H1');
+  await p.byTestId('colour-white').click();
   await p.shot('add-vehicle', { settle: 500 });
   await p.byTestId('fleet-save-vehicle').click();
-  await p.page.waitForTimeout(1200);
+  // Saved (a van needs its model and colour, so both are filled above): the toast names the plate.
+  await p.page.getByText('انضافت واسط 70455 لأسطولك').first().waitFor({ timeout: 10_000 });
 
+  // f5: one screen, the number and the car (the new van is free; the green tuktuk waits on حيدر's invite).
   await p.goto('/fleet/add-driver');
   await p.wait('fleet-add-driver-form');
   await p.page.locator('[data-testid="fleet-driver-phone"]').fill('07801234567');
-  await p.shot('add-driver', { settle: 500 });
+  await p.wait('fleet-add-driver-car');
+  // The new van is the one free car, so it is already picked.
+  await p.page.getByText('واسط 70455').first().waitFor();
+  await p.shot('add-driver', { settle: 800 });
+  await p.shot('add-driver-full', { full: true, settle: 300 });
+  await p.byTestId('fleet-add-driver-save').click();
+  await p.wait('fleet-pending');
+  await p.byTestId('fleet-pending').scrollIntoViewIfNeeded();
+  await p.shot('add-driver-pending', { settle: 900 });
   await p.close();
 }

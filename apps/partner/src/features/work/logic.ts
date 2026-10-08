@@ -176,7 +176,7 @@ export function jobAction(stop: Pick<PartnerJobStop, 'type' | 'state' | 'collect
   const arrived = stop.state === 'arrived';
   if (pickup) {
     return arrived
-      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : 'partner.action_picked_up', title: ride ? 'partner.task_go_rider' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
+      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
       : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
   }
   return arrived

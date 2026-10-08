@@ -2,7 +2,8 @@ import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import type { CheckInChallenge } from '@driver/contracts';
-import { Button, Card, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import type { MessageKey } from '@driver/i18n';
+import { Button, Card, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { GestureIllustration, ResultMark, SelfieFrame } from '@/features/account/CheckInParts';
 import { Glyph } from '@/features/account/Glyph';
@@ -117,7 +118,8 @@ export default function CheckIn() {
         testID="checkin-failed"
         kind="failed"
         title={t('partner.checkin_failed_title')}
-        body={t('partner.checkin_failed_left')}
+        body={t('partner.f8_failed_left')}
+        tips
         attempt={s.failuresToday + 1}
         action={{ label: t('partner.checkin_try_again'), onPress: () => void start(), testID: 'checkin-retry', loading: m.challenge.isPending }}
       />
@@ -239,17 +241,27 @@ function Tip({ text }: { text: string }) {
   );
 }
 
+
+/** f8: why a selfie doesn't match, in the order it usually goes wrong: light, distance, a covered face. */
+const RETRY_TIPS: ReadonlyArray<{ key: MessageKey; icon: IconName }> = [
+  { key: 'partner.f8_tip_light', icon: 'bulb' },
+  { key: 'partner.f8_tip_close', icon: 'camera' },
+  { key: 'partner.f8_tip_clear', icon: 'user' },
+];
 function Result({
   kind,
   title,
   body,
   badge,
   attempt,
+  tips = false,
   action,
   secondary,
   testID,
 }: {
   kind: 'passed' | 'failed' | 'locked';
+  /** f8: after a failed match, the three things that make the next selfie match. */
+  tips?: boolean;
   title: string;
   body: string;
   badge?: string;
@@ -273,6 +285,23 @@ function Result({
         {badge ? <StatusPill tone="success" label={badge} style={{ alignSelf: 'center', marginTop: theme.space[1] }} /> : null}
         {attempt ? <StatusPill tone="warning" icon="clock" label={t('partner.checkin_attempt', { n: attempt })} style={{ alignSelf: 'center', marginTop: theme.space[1] }} /> : null}
       </View>
+      {tips ? (
+        <View testID="checkin-tips" style={{ gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+          <Text variant="label" weight={700}>
+            {t('partner.f8_tips_title')}
+          </Text>
+          {RETRY_TIPS.map((tip) => (
+            <View key={tip.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name={tip.icon} size={18} color="accentText" strokeWidth={2.2} />
+              </View>
+              <Text variant="label" style={{ flex: 1 }}>
+                {t(tip.key)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={{ gap: theme.space[2] }}>
         <Button testID={action.testID} label={action.label} icon={action.icon} loading={action.loading} size="lg" fullWidth onPress={action.onPress} />
         {secondary ? <Button label={secondary.label} variant="ghost" fullWidth onPress={secondary.onPress} /> : null}

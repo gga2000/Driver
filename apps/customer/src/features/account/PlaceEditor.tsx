@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Platform, Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { AZIZIYAH_ZONES, PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
-import { Button, Chip, ChipGroup, Icon, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Chip, ChipGroup, Icon, PhotoImage, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
@@ -254,7 +254,7 @@ export function PlaceEditor({
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
           {value.photos.map((p) => (
             <View key={p.id} style={{ width: 96, height: 96, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
-              <Image source={{ uri: photoUri(p.url) }} style={{ width: 96, height: 96 }} resizeMode="cover" accessibilityIgnoresInvertColors />
+              <PhotoImage uri={photoUri(p.url)} style={{ width: 96, height: 96 }} />
               <Pressable hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t('place.photo_remove')}

@@ -594,6 +594,10 @@ const keepOnline = async () => {
 await keepOnline();
 setInterval(() => void keepOnline(), 20_000).unref?.();
 
+// Trips: the phone bookings and the SOS demo below both use it.
+const { TripsService } = await load('modules/trips/index.js');
+const trips = get(TripsService);
+
 // ───────────────────────── حجز بالتلفون ─────────────────────────
 // Callers without the app, booked by زينب and علي: rides of the callers' own (new) accounts.
 {
@@ -640,7 +644,8 @@ setInterval(() => void keepOnline(), 20_000).unref?.();
     const doneTrip = await takeBy(hassan, done.orderId, { vehicleClass: 'car', plate: '31877 واسط', label: 'تويوتا كورولا · فضي' });
     const [p, d] = doneTrip.stops;
     await trips.arrive(doneTrip.id, p.id, hassan, { pin: p.target });
-    await trips.completeStop(doneTrip.id, p.id, hassan);
+    const startCode = (await orders.startCodeOf(done.orderId)) ?? undefined; // the rider reads it out
+    await trips.completeStop(doneTrip.id, p.id, hassan, startCode ? { startCode } : {});
     await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
     await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
     // Cancelled: the caller found a lift.
@@ -660,9 +665,7 @@ setInterval(() => void keepOnline(), 20_000).unref?.();
 // phone keeps sending a fix every 5 s for two minutes (a short walk), so the trail and the contact's
 // message show. Also run once at start-up when DEMO_SOS=1.
 const { SafetyService } = await load('modules/safety/index.js');
-const { TripsService } = await load('modules/trips/index.js');
 const safety = get(SafetyService);
-const trips = get(TripsService);
 raiseDemoSos = async function raiseDemoSos(who = 'driver') {
   const live = (await trips.active('aziziyah')).filter((t) => t.courierId && t.stops.some((s) => s.orderId));
   const trip = live.find((t) => t.vertical === 'tuktuk' || t.vertical === 'taxi') ?? live[0];

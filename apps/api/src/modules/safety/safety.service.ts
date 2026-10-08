@@ -1,7 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
+  encodeDomainEvent,
   liveChannel,
   SAFETY_PAGED_ROLES,
   SAFETY_RULES,
@@ -38,6 +39,7 @@ import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, maskPhone, shortDisplayName } from '../identity/index.js';
 import { LIVE_BUS, type LiveBus } from '../live/index.js';
 import { emergencyContactRecipient, NotifyService } from '../notify/index.js';
+import { askOnCall, ON_CALL_FALLBACK_CODE, ON_CALL_PORT, type IncidentForPaging, type OnCallPort } from './on-call.js';
 import { LIVE_STATES, SAFETY_REPOSITORY, type EntryRecord, type FixRecord, type IncidentRecord, type SafetyRepository } from './safety.repository.js';
 import { resolveSubject, type SafetySources } from './safety.subjects.js';
 
@@ -68,6 +70,20 @@ const HOUR_MS = 60 * MIN_MS;
 const NAME_TTL_MS = 5 * MIN_MS;
 const ROLE_AR = { driver: 'سايق', customer: 'زبون' } as const;
 const OUTCOME_AR = { safe: 'الشخص بخير', false_alarm: 'تنبيه بالغلط', emergency: 'وصلنا الشرطة أو الإسعاف', escalated: 'صعّدناه لعلي' } as const;
+
+/** The incident as the on-call rota sees it (an order SOS on a ride names the ride too). */
+function pagingOf(inc: Pick<IncidentRecord, 'id' | 'cityId' | 'orderId' | 'tripId' | 'subjectKind' | 'subjectId' | 'raisedAt'>): IncidentForPaging {
+  return {
+    incidentId: inc.id,
+    kind: 'sos',
+    cityId: inc.cityId,
+    zoneKey: null,
+    orderId: inc.orderId,
+    rideId: inc.subjectKind === 'request' ? inc.subjectId : null,
+    tripId: inc.tripId,
+    createdAt: inc.raisedAt,
+  };
+}
 
 const isUnique = (err: unknown) => /unique|P2002|client_id_key/i.test(String((err as { code?: string; message?: string })?.code ?? '') + String((err as Error)?.message ?? ''));
 
@@ -107,6 +123,8 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     private readonly staff: StaffNames,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    /** The on-call rota (optional): who gets the first page. Absent → every live dispatcher. */
+    @Optional() @Inject(ON_CALL_PORT) private readonly onCall: OnCallPort | null = null,
   ) {}
 
   onModuleInit(): void {
@@ -135,10 +153,10 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     // A second press while one is still open joins it: one person, one red banner.
     const open = recent.find((r) => LIVE_STATES.includes(r.state));
     if (open) return this.joinPress(open, input.position, now);
-    if (recent.length >= SAFETY_RULES.maxPerHour) {
-      const oldest = recent[recent.length - 1]!;
-      throw new DriverError('sos_rate_limited', { retryAfterSec: Math.max(1, Math.ceil((oldest.raisedAt.getTime() + HOUR_MS - now.getTime()) / 1000)) });
-    }
+    // An SOS is never refused (FLOW-08). Cancelled false alarms don't count; past the hourly limit the
+    // alert still goes out, flagged on its timeline so the desk knows it may be a repeat.
+    const kept = recent.filter((r) => r.state !== 'cancelled').length;
+    const repeated = kept >= SAFETY_RULES.maxPerHour;
     const subject = await resolveSubject(this.sources, actor.personId, input.subject, now);
     // No GPS on the phone: start from where the car last was (when the person is in it).
     const position: SosPosition | null = input.position ?? (subject.carFix ? { lat: subject.carFix.lat, lng: subject.carFix.lng, accuracyM: null, at: subject.carFix.at } : null);
@@ -181,7 +199,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
           tx,
         );
         if (position) await this.repo.addFix({ incidentId: created.id, lat: position.lat, lng: position.lng, accuracyM: position.accuracyM, deviceAt: position.at, at: now }, tx);
-        await this.repo.addEntry({ incidentId: created.id, kind: 'raised', at: now, byId: null, note: null, data: { role: subject.role, ...(input.category ? { category: input.category } : {}) } }, tx);
+        await this.repo.addEntry({ incidentId: created.id, kind: 'raised', at: now, byId: null, note: null, data: { role: subject.role, ...(input.category ? { category: input.category } : {}), ...(repeated ? { repeated: String(kept) } : {}) } }, tx);
         if (!contact) await this.repo.addEntry({ incidentId: created.id, kind: 'contact', at: now, byId: null, note: null, data: { status: 'none' } }, tx);
         // Server time on purpose: the device's clock is in the payload, never a reason to quarantine an SOS.
         const ev = await this.events.emit(
@@ -205,6 +223,11 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
               pressedAt: input.pressedAt?.toISOString() ?? null,
             },
           },
+          { name: 'safety_incident', id: created.id },
+        );
+        await this.events.emit(
+          tx,
+          { type: 'safety.incident_opened', actorId: actor.personId, occurredAt: now, idempotencyKey: `safety:${created.id}:opened`, payload: encodeDomainEvent('safety.incident_opened', pagingOf(created)) },
           { name: 'safety_incident', id: created.id },
         );
         return this.repo.update(created.id, { raiseEventId: ev.id }, tx);
@@ -231,6 +254,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
       const updated = await this.repo.update(inc.id, { state: 'cancelled', cancelledAt: now, outcome: 'false_alarm' }, tx);
       await this.repo.addEntry({ incidentId: inc.id, kind: 'cancelled', at: now, byId: null, note: null, data: {} }, tx);
       await this.events.emit(tx, { type: 'sos.cancelled', actorId: actor.personId, occurredAt: now, idempotencyKey: `sos:${inc.id}:cancelled`, payload: { incidentId: inc.id, cityId: inc.cityId } }, { name: 'safety_incident', id: inc.id });
+      await this.events.emit(tx, { type: 'safety.incident_closed', actorId: actor.personId, occurredAt: now, idempotencyKey: `safety:${inc.id}:closed`, payload: encodeDomainEvent('safety.incident_closed', { incidentId: inc.id, outcome: 'false_alarm', byPersonId: null }) }, { name: 'safety_incident', id: inc.id });
       return updated;
     });
     await this.publish('sos.cancelled');
@@ -342,6 +366,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
         await this.repo.update(inc.id, { state: 'acknowledged', acknowledgedAt: now, acknowledgedById: actor.personId }, tx);
         await this.repo.addEntry({ incidentId: inc.id, kind: 'acknowledged', at: now, byId: actor.personId, note: null, data: { afterSec: String(Math.round((now.getTime() - inc.raisedAt.getTime()) / 1000)) } }, tx);
         await this.events.emit(tx, { type: 'sos.acknowledged', actorId: actor.personId, occurredAt: now, idempotencyKey: `sos:${inc.id}:acknowledged`, payload: { incidentId: inc.id, cityId: inc.cityId } }, { name: 'safety_incident', id: inc.id });
+        await this.emitAcked(tx, inc.id, actor.personId, now);
         await this.audits.record({ cityId: inc.cityId, actorId: actor.personId, action: 'safety.acknowledge', subjectKind: 'safety_incident', subjectId: inc.id, summaryAr: `استلم تنبيه طوارئ (${inc.subjectLabel})` }, tx);
       });
       await this.publish('sos.acknowledged');
@@ -367,6 +392,9 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
       await this.repo.update(inc.id, { state: 'resolved', resolvedAt: now, resolvedById: actor.personId, outcome: input.outcome, resolution: note, ...(inc.acknowledgedAt ? {} : { acknowledgedAt: now, acknowledgedById: actor.personId }) }, tx);
       await this.repo.addEntry({ incidentId: inc.id, kind: 'resolved', at: now, byId: actor.personId, note, data: { outcome: input.outcome } }, tx);
       await this.events.emit(tx, { type: 'sos.resolved', actorId: actor.personId, occurredAt: now, idempotencyKey: `sos:${inc.id}:resolved`, payload: { incidentId: inc.id, cityId: inc.cityId, outcome: input.outcome } }, { name: 'safety_incident', id: inc.id });
+      // Resolved without a separate "take it": the resolver took it (stops the on-call escalation too).
+      if (!inc.acknowledgedAt) await this.emitAcked(tx, inc.id, actor.personId, now);
+      await this.events.emit(tx, { type: 'safety.incident_closed', actorId: actor.personId, occurredAt: now, idempotencyKey: `safety:${inc.id}:closed`, payload: encodeDomainEvent('safety.incident_closed', { incidentId: inc.id, outcome: input.outcome, byPersonId: actor.personId }) }, { name: 'safety_incident', id: inc.id });
       await this.audits.record({ cityId: inc.cityId, actorId: actor.personId, action: 'safety.resolve', subjectKind: 'safety_incident', subjectId: inc.id, summaryAr: `سكّر تنبيه طوارئ: ${OUTCOME_AR[input.outcome]}`, detail: { outcome: input.outcome } }, tx);
     });
     await this.publish('sos.resolved');
@@ -390,20 +418,50 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
 
   // ───────────────────────── alerts: paging, the contact, escalation ─────────────────────────
 
-  /** `safety:alerts`: every live dispatcher and admin (`sos.raised`), the admins again (`sos.escalated`). */
+  private async emitAcked(tx: Tx, incidentId: string, byPersonId: string, now: Date): Promise<void> {
+    await this.events.emit(tx, { type: 'safety.incident_acked', actorId: byPersonId, occurredAt: now, idempotencyKey: `safety:${incidentId}:acked`, payload: encodeDomainEvent('safety.incident_acked', { incidentId, byPersonId }) }, { name: 'safety_incident', id: incidentId });
+  }
+
+  /**
+   * `safety:alerts` (after the incident has committed, never inside the SOS transaction). `sos.raised`:
+   * the on-call rota's first page when it answers, else every live dispatcher and admin (logged
+   * fallback). `sos.escalated`: the admins again, only when the first page was the fallback — with a
+   * rota, escalation after the first page is the on-call module's job.
+   */
   private async page(e: PublishedEvent, tx: Tx): Promise<void> {
     const incidentId = typeof e.payload['incidentId'] === 'string' ? e.payload['incidentId'] : null;
     const inc = incidentId ? await this.repo.get(incidentId, tx) : null;
     if (!inc) return;
-    const roles = e.type === 'sos.escalated' ? (['admin'] as const) : SAFETY_PAGED_ROLES;
-    const roster = await this.identity.roster({ kinds: roles, limit: 200 });
-    const to = roster.rows.filter((r) => !r.frozen && r.personId !== inc.raiserId).map((r) => r.personId);
+    let to: string[];
+    let source: 'roster' | 'fallback_all_dispatchers' = 'fallback_all_dispatchers';
+    let step: string | null = null;
+    if (e.type === 'sos.escalated') {
+      const first = (await this.repo.entries(inc.id, tx)).find((x) => x.kind === 'paged');
+      if (first?.data['source'] === 'roster') return;
+      to = await this.livePeople(['admin'], inc.raiserId);
+    } else {
+      const asked = await askOnCall(this.onCall, pagingOf(inc));
+      if (asked.plan) {
+        to = [...new Set(asked.plan.staffPersonIds)];
+        source = 'roster';
+        step = asked.plan.step;
+      } else {
+        this.logger.warn(`${ON_CALL_FALLBACK_CODE} reason=${asked.fallback} incident=${inc.id}${'error' in asked && asked.error ? ` error=${asked.error}` : ''}`);
+        to = await this.livePeople(SAFETY_PAGED_ROLES, inc.raiserId);
+      }
+    }
     const name = (await this.identity.displayNamesFor([inc.raiserId], 'system:safety', 'sos_page'))[inc.raiserId]?.displayName ?? 'شخص';
     const params = { name, role: ROLE_AR[inc.raiserRole], what: inc.subjectLabel, link: `${this.config.consoleBase.replace(/\/$/, '')}/safety/${inc.id}`, incidentId: inc.id };
     for (const personId of to) {
       await this.notify.dispatch({ eventId: e.id, template: 'sos_dispatch_alert', to: personId, params, data: { incidentId: inc.id }, ...(inc.orderId ? { orderId: inc.orderId } : {}) }, tx);
     }
-    if (e.type === 'sos.raised') await this.repo.addEntry({ incidentId: inc.id, kind: 'paged', at: this.clock.now(), byId: null, note: null, data: { count: String(to.length) } }, tx);
+    if (e.type === 'sos.raised') await this.repo.addEntry({ incidentId: inc.id, kind: 'paged', at: this.clock.now(), byId: null, note: null, data: { count: String(to.length), source, ...(step !== null ? { step: String(step) } : {}) } }, tx);
+  }
+
+  /** Every live (not frozen) holder of `roles`, except the person who pressed. */
+  private async livePeople(roles: readonly ('dispatcher' | 'admin')[], raiserId: string): Promise<string[]> {
+    const roster = await this.identity.roster({ kinds: roles, limit: 200 });
+    return roster.rows.filter((r) => !r.frozen && r.personId !== raiserId).map((r) => r.personId);
   }
 
   /** The emergency contact's WhatsApp, once, after the cancel window, while the incident is still live. */

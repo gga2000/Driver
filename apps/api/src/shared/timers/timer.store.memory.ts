@@ -90,6 +90,12 @@ export class InMemoryTimerStore implements TimerStore {
     if (r) Object.assign(r, { status: 'fired', firedAt: now, claimedUntil: null, updatedAt: now });
   }
 
+  async settlePending(queue: string, jobIdPrefix: string, now: Date): Promise<number> {
+    const due = this.rows.filter((r) => r.queue === queue && r.status === 'pending' && r.jobId?.startsWith(jobIdPrefix));
+    for (const r of due) Object.assign(r, { status: 'fired', firedAt: now, claimedUntil: null, updatedAt: now });
+    return due.length;
+  }
+
   async prune(now: Date, limit = 5_000): Promise<number> {
     const t = now.getTime();
     let n = 0;

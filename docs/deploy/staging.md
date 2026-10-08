@@ -51,24 +51,46 @@ sizes, process groups, limits or checks: a change to `api.toml` reaches both.
 
 Actions → **Deploy** → Run workflow → environment **staging** → target `all` (or `api`). It migrates
 the staging database, deploys both process groups blue-green and runs the same smoke as production.
-The first time, set the machine counts:
+A first deploy starts production's layout (2 web + 1 worker). Then pick how much runs with
+**Actions → Staging machines** (below).
 
-```bash
-fly scale count app=2 worker=1 --config deploy/fly/api.toml --app driver-api-staging
-```
+## How much runs: Actions → Staging machines
 
-## Between tests: stop it
+Staging is billed by the hour, so nobody runs `fly` by hand: **Actions → Staging machines → Run
+workflow** (`.github/workflows/staging-machines.yml`) and pick a mode.
 
-Staging is billed by the hour. When no test is planned:
+| Mode | Runs | For |
+| --- | --- | --- |
+| `everyday` | 1 web + 1 worker + Redis | people trying the apps and the web version |
+| `launch` | 2 web + 1 worker + Redis (production's layout) | the load test, the game day |
+| `off` | nothing (machines stopped; disks kept) | no test planned |
 
-```bash
-fly scale count app=0 worker=0 --config deploy/fly/api.toml --app driver-api-staging --yes
-fly scale count 0 --config deploy/fly/redis.toml --app driver-redis-staging --yes
-```
+Sizes always come from `api.toml`; the mode only changes how many machines run. In `off`, a browser
+or phone calling the API wakes one web machine by itself (Fly auto-start), but background jobs wait
+until the next `everyday` or `launch`. The database, Redis's data and every secret survive all modes.
+Before a load test also set the Supabase project to **Small**; when staging stays off for weeks,
+pause the project in Supabase (and **Restore** it before switching back on).
 
-and pause the `driver-staging` project in Supabase. Bring it back with the same commands
-(`app=2 worker=1`, Redis `1`) and **Restore** in Supabase. Data in the database and the Redis volume
-survives.
+## Which web sites may call staging (CORS)
+
+`CORS_ORIGINS` on the staging API lists the exact web origins allowed to call it from a browser.
+Staging setup sets it on every run: the GitHub variable `CORS_ORIGINS` on the `staging` environment,
+default `https://driver-customer-iota.vercel.app` (the customer web version,
+[vercel.md](vercel.md)), plus `https://<FLY_CONSOLE_APP>.fly.dev` when a staging Console exists.
+Exact origins only: Vercel preview links are not on the list. After changing it, run Staging setup,
+then Deploy → staging (the setting reaches the API with the deploy). Phones send no origin and are
+never affected.
+
+## Test sign-in numbers on staging
+
+Staging sends no real SMS. For trying the apps there are staging test numbers (0770 000 0100–0199, never
+staff roles; [docs/api/staging-test-numbers.md](../api/staging-test-numbers.md)) that all take one fixed
+code. That code is chosen by a person and lives only in GitHub: **Settings → Environments → staging →
+Add environment secret**, name `STAGING_TEST_OTP`, value the code. Type it there only, never in a chat,
+an issue or a commit (this repository is public). Then run Staging setup and Deploy → staging. Staging
+setup also marks the API host as staging (`DEPLOY_ENVIRONMENT=staging` on Fly): the test numbers refuse
+to work on any other host. To change the code, edit the secret and run both again; to turn the test
+numbers off, delete the secret and remove it on Fly (`flyctl secrets unset STAGING_TEST_OTP`).
 
 ## Rules
 

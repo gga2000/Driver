@@ -41,6 +41,8 @@ export * from './catalog-io.js';
 export * from './habits-io.js';
 export * from './ride-habits-io.js';
 export * from './phone-booking-io.js';
+export * from './on-call-io.js';
+export * from './inbox-io.js';
 export * from './garage-taxi-io.js';
 export * from './booked-rides.js';
 export * from './carry-over.js';

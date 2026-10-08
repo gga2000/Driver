@@ -4,11 +4,14 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTimi
 import Svg, { Circle } from 'react-native-svg';
 import { AZIZIYAH_MONEY_RULES, type ScoreMetric, type ScoreNudge, type ScorecardView } from '@driver/contracts';
 import { Card, Icon, StatusPill, Text, useTheme, withAlpha } from '@driver/ui';
+import { pluralKey } from '@driver/i18n';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { useCountFrom } from './EarningsParts';
 import { Glyph } from './Glyph';
-import { dayMonth, METRIC_DESC, METRIC_NAME, METRIC_PREVIEW, metricFormat, metricPos, nextTierProgress, observation, TIER_STEPS, tierTrackShare } from './logic';
+import { dayMonth, METRIC_DESC, METRIC_NAME, METRIC_PREVIEW, metricFormat, metricPos, nextTierProgress, observation, scoreParts, TIER_STEPS, tierTrackShare, weakestPart, type ScorePart } from './logic';
+import { ComplimentPills } from './ComplimentParts';
+import type { CourierCompliments } from '@driver/contracts';
 
 type Tier = 'bronze' | 'silver' | 'gold';
 
@@ -78,6 +81,7 @@ export function ScoreHero({ card }: { card: ScorecardView }) {
           </Text>
         </View>
       </View>
+      <ScoreSentence card={card} />
       <TierLadder tier={tier} index={index} />
       <Text variant="footnote" weight={600} color="accentText" align="center" style={{ marginTop: theme.space[3] }} tabular>
         {next ? t(next.key, { points: amountParam(next.points, { sign: true }), trips: card.completedTrips }) : t('partner.score_top')}
@@ -293,5 +297,95 @@ export function MetricPreview() {
         ))}
       </Card>
     </View>
+  );
+}
+
+/**
+ * a4: his score in one sentence — the part that costs him most and how many points — or that he is
+ * doing well; what to do this week follows in the nudges card under it.
+ */
+function ScoreSentence({ card }: { card: ScorecardView }) {
+  const theme = useTheme();
+  const t = useT();
+  const weak = weakestPart(scoreParts(card.metrics, card.index ?? 0));
+  return (
+    <View testID="score-sentence" style={{ marginTop: theme.space[4], flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start', backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Icon name={weak ? 'bulb' : 'check'} size={18} color={weak ? 'accentText' : 'successText'} strokeWidth={2.2} style={{ marginTop: 2 }} />
+      <Text variant="footnote" style={{ flex: 1 }} tabular>
+        {weak ? t('partner.f6_score_weak', { part: t(METRIC_NAME[weak.key]), points: t(pluralKey('partner.f6_points', weak.max - weak.points), { n: weak.max - weak.points }), tip: t(`partner.f6_tip_${weak.key}`) }) : t('partner.f6_score_good')}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * f6: the five parts of his 100 — each with its points of its share («14 من 27»), biggest first, so he
+ * sees where the number comes from. Parts without data yet say so and count for nothing.
+ */
+export function ScorePartsCard({ card }: { card: ScorecardView }) {
+  const theme = useTheme();
+  const t = useT();
+  const parts = scoreParts(card.metrics, card.index ?? 0);
+  return (
+    <Card testID="score-parts" elevation={1} padding={5}>
+      <View style={{ gap: theme.space[4] }}>
+        <View style={{ gap: 2 }}>
+          <Text variant="title">{t('partner.f6_parts_title')}</Text>
+          <Text variant="caption" color="textMuted" tabular>
+            {t('partner.f6_parts_sub', { index: card.index ?? 0 })}
+          </Text>
+        </View>
+        {parts.map((p) => (
+          <PartRow key={p.key} p={p} />
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+function PartRow({ p }: { p: ScorePart }) {
+  const theme = useTheme();
+  const t = useT();
+  const share = p.max > 0 ? p.points / p.max : 0;
+  const tone = p.noData ? theme.colors.borderStrong : share >= 0.95 ? theme.colors.success : share >= 0.7 ? theme.colors.accent : theme.colors.warning;
+  return (
+    <View testID={`score-part-${p.key}`} style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
+        <Text variant="label" weight={600} style={{ flex: 1 }}>
+          {t(METRIC_NAME[p.key])}
+        </Text>
+        <Text variant="label" weight={700} tabular color={p.noData ? 'textMuted' : 'text'}>
+          {p.noData ? t('partner.score_no_data') : t('partner.f6_part_points', { points: p.points, max: p.max })}
+        </Text>
+      </View>
+      {/* The track is as long as the part's share of the 100, so the five read as one whole. */}
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden' }}>
+        <View style={{ width: `${Math.round(share * 100)}%`, height: 8, borderRadius: 4, backgroundColor: tone }} />
+      </View>
+    </View>
+  );
+}
+
+/** f6: what customers say about him most, three words at most, opening «كلام الزبائن». */
+export function ScoreWordsCard({ compliments, onOpen }: { compliments: CourierCompliments; onOpen: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  if (compliments.counts.length === 0) return null;
+  return (
+    <Card testID="score-words" elevation={1} padding={5} onPress={onOpen} accessibilityLabel={t('partner.f6_words_title')}>
+      <View style={{ gap: theme.space[3] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <Icon name="heart" size={18} color="successText" filled fillColor="successText" />
+          <Text variant="title" style={{ flex: 1 }}>
+            {t('partner.f6_words_title')}
+          </Text>
+          <Icon name="chevron-forward" size={18} color="textMuted" strokeWidth={2.2} />
+        </View>
+        <ComplimentPills counts={compliments.counts.slice(0, 3)} />
+        <Text variant="caption" color="textMuted" tabular>
+          {t(pluralKey('partner.compliments_customers', compliments.customers), { n: compliments.customers })}
+        </Text>
+      </View>
+    </Card>
   );
 }
