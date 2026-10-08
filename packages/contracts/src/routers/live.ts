@@ -16,6 +16,7 @@ import {
 import { PARTNER_DRIVING_ROLES } from '../partner-io.js';
 import { SAFETY_DESK_ROLES } from '../safety-io.js';
 import { SHARE_LIVE_RULES, SharedTripInput } from '../share-io.js';
+import { TripChatRef } from '../trip-chat-io.js';
 import {
   protectedProcedure,
   publicProcedure,
@@ -173,6 +174,21 @@ export const liveRouter = router({
         check: async () => {
           const threads = await ctx.chat.threads(ctx.actor, { orderId: input.orderId });
           if (!threads.some((t) => t.kind === input.kind)) throw new DriverError('chat_not_party');
+        },
+        signal,
+      }),
+    ),
+  /**
+   * One Baghdad/Kut pair thread (step 4c; `chat.trip.thread` scope). The thread is keyed by the side
+   * named in `with`, or by the caller when he is that side (the rider of a run, the driver of a request).
+   */
+  tripChat: liveProcedure()
+    .input(TripChatRef)
+    .subscription(({ ctx, input, signal }) =>
+      stream(ctx, {
+        channels: [liveChannel.tripChat(input.id, input.with ?? ctx.actor.personId)],
+        check: async () => {
+          await ctx.tripChat.thread(ctx.actor, { ...input, afterSeq: Number.MAX_SAFE_INTEGER });
         },
         signal,
       }),

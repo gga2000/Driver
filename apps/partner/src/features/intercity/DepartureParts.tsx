@@ -1,7 +1,7 @@
 import { Linking, Pressable, View } from 'react-native';
 import { openNav, useNavApp } from '@/features/work/nav';
 import type { DriverBookingRow } from '@driver/contracts';
-import { Avatar, Button, Icon, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
+import { Avatar, Button, Icon, IconButton, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { dropLabel, paymentLabel, pickupLabel, riderName, seatsList, statusLabel } from './labels';
@@ -101,12 +101,15 @@ export function RiderRow({
   firstName,
   onNoShow,
   onPickup,
+  onMessage,
   busy,
 }: {
   booking: DriverBookingRow;
   firstName: string | null;
   onNoShow: () => void;
   onPickup: (accept: boolean) => void;
+  /** Step 4c: his chat with this rider. */
+  onMessage?: () => void;
   busy: boolean;
 }) {
   const theme = useTheme();
@@ -127,6 +130,7 @@ export function RiderRow({
           </Text>
         </View>
         <StatusPill label={statusLabel(t, s, booking)} tone={STATUS_TONE[s]} size="sm" live={s === 'late'} />
+        {onMessage ? <IconButton icon="chat" variant="tonal" accessibilityLabel={t('chat.trip.message_rider')} onPress={onMessage} testID={`rider-chat-${booking.bookingId}`} /> : null}
       </View>
       {doorPending ? (
         <View style={{ gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>

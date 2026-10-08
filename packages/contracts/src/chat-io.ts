@@ -15,6 +15,9 @@ import type { Actor } from './identity-io.js';
  *  - `customer_support`  — the customer and our support desk about this order («كلّم الدعم»). Open
  *    from placement until `CHAT_SUPPORT_CLOSE_AFTER_H` after the order is done; the desk answers it
  *    from the Console case (it opens a support ticket by itself, docs/api/support-chat.md).
+ *  - `rider_driver`      — Baghdad/Kut (private car round 2 step 4c): a rider and the driver of a seat
+ *    run or of a private-car offer, one thread per pair, with the agreed-price cards. Its key is the
+ *    run or request id plus the other side (`chat.trip.*`, trip-chat-io.ts, docs/api/trip-chat.md).
  *
  * Support (support, dispatcher, admin) may read and join any thread. A thread opens at accept (the
  * courier's accept for the courier threads, the kitchen's for `customer_merchant`) and closes 30
@@ -23,15 +26,19 @@ import type { Actor } from './identity-io.js';
  * server before the message is stored.
  */
 
-export const ChatThreadKind = z.enum(['customer_courier', 'merchant_courier', 'customer_merchant', 'customer_support']);
+export const ChatThreadKind = z.enum(['customer_courier', 'merchant_courier', 'customer_merchant', 'customer_support', 'rider_driver']);
 export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 
 /** Who wrote a message (or who a participant is) inside a thread. */
 export const ChatRole = z.enum(['customer', 'courier', 'merchant', 'support']);
 export type ChatRole = z.infer<typeof ChatRole>;
 
-/** `system`: a line the server writes into the thread (s7 «الراكب يدور على غرض نساه»); nobody types one. */
-export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location', 'voice', 'system']);
+/**
+ * `system`: a line the server writes into the thread (s7 «الراكب يدور على غرض نساه»); nobody types one.
+ * `card`: an agreed-price card in a `rider_driver` thread (step 4c), written by the server when a price is
+ * asked or named; its live state comes with the message (`ChatMessage.card`).
+ */
+export const ChatMessageKind = z.enum(['text', 'quick_reply', 'photo', 'location', 'voice', 'system', 'card']);
 export type ChatMessageKind = z.infer<typeof ChatMessageKind>;
 
 /** `not_open`: before accept · `open` · `closed`: 30 min after completion (read-only). */
@@ -44,6 +51,7 @@ export const CHAT_THREAD_PARTIES: Readonly<Record<ChatThreadKind, readonly [Chat
   merchant_courier: ['merchant', 'courier'],
   customer_merchant: ['customer', 'merchant'],
   customer_support: ['customer', 'support'],
+  rider_driver: ['customer', 'courier'],
 };
 
 export const CHAT_TEXT_MAX = 500;
@@ -76,7 +84,7 @@ export type VoiceContentType = z.infer<typeof VoiceContentType>;
  * Where voice notes are offered: the customer and his courier / driver, and the customer and our
  * support desk (n7/n8). The kitchen's threads stay text and photos (the merchant app has no player).
  */
-export const VOICE_THREAD_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'customer_support'];
+export const VOICE_THREAD_KINDS: readonly ChatThreadKind[] = ['customer_courier', 'customer_support', 'rider_driver'];
 export function voiceAllowedIn(kind: ChatThreadKind): boolean {
   return VOICE_THREAD_KINDS.includes(kind);
 }
@@ -123,6 +131,13 @@ export const QUICK_REPLIES = {
   merchant_ready: { role: 'merchant', kinds: ['merchant_courier'] },
   merchant_item_out: { role: 'merchant', kinds: ['customer_merchant'] },
   merchant_left_with_courier: { role: 'merchant', kinds: ['customer_merchant'] },
+  // Baghdad/Kut (step 4c): the rider and the driver of his run or private car.
+  rider_trip_where: { role: 'customer', kinds: ['rider_driver'] },
+  rider_trip_bags: { role: 'customer', kinds: ['rider_driver'] },
+  rider_trip_coming: { role: 'customer', kinds: ['rider_driver'] },
+  driver_trip_on_time: { role: 'courier', kinds: ['rider_driver'] },
+  driver_trip_at_garage: { role: 'courier', kinds: ['rider_driver'] },
+  driver_trip_bags_ok: { role: 'courier', kinds: ['rider_driver'] },
 } as const satisfies Record<string, QuickReplyDef>;
 
 export type QuickReplyKey = keyof typeof QUICK_REPLIES;
@@ -154,10 +169,46 @@ export function chatPushTitle(senderRole: ChatRole, ride: boolean, locale: Local
 export function chatPushBody(messageKind: ChatMessageKind, preview: string | null, locale: Locale = 'ar-IQ'): string {
   if (preview) return preview;
   if (messageKind === 'voice') return t('push.chat_message.voice', {}, locale);
+  // Step 4c: an agreed-price card (a price asked or named) on a Baghdad/Kut trip.
+  if (messageKind === 'card') return t('push.chat_message.card' as MessageKey, {}, locale);
   return t(messageKind === 'photo' ? 'push.chat_message.photo' : 'push.chat_message.location', {}, locale);
 }
 
 // ───────────────────────── views ─────────────────────────
+
+/**
+ * Step 4c: what an agreed-price card is about. `pin_pickup` and `door_drop` are a seat run's agreements
+ * (`routes.agreements.*`); `cash_reservation` is a private-car offer's «احجز وادفع كاش» ask (step 4b).
+ */
+export const TripCardKind = z.enum(['pin_pickup', 'door_drop', 'cash_reservation']);
+export type TripCardKind = z.infer<typeof TripCardKind>;
+
+/**
+ * Where the thing the card is about stands now, read when the thread is read:
+ * `asked` (waiting for the driver's price or answer) · `proposed` (a price waiting for the rider) ·
+ * `accepted` · `declined` · `expired` · `withdrawn` · `used` (locked on a booking) ·
+ * `replaced` (a newer card about the same thing: this one is history).
+ */
+export const TripCardState = z.enum(['asked', 'proposed', 'accepted', 'declined', 'expired', 'withdrawn', 'used', 'replaced']);
+export type TripCardState = z.infer<typeof TripCardState>;
+
+export const TripChatCard = z.object({
+  kind: TripCardKind,
+  /** The agreement (`ag_…`) or the private-car offer the card is about. */
+  refId: z.string(),
+  /** What the message was: the rider's ask, or a price the driver named. */
+  stage: z.enum(['ask', 'price']),
+  /** The amount this card named (0 = «ببلاش»); null on an ask. A cash card: the no-show amount. */
+  amountIqd: z.number().int().min(0).nullable(),
+  state: TripCardState,
+  /** The rider's note on the place («قرب السيطرة»); null when none. */
+  note: z.string().nullable(),
+  /** A pin pickup: how far the pin is from the garage the run leaves from (km, one decimal); else null. */
+  distanceKm: z.number().nullable(),
+  /** An unanswered price lapses then (30 min, a7). */
+  expiresAt: z.coerce.date().nullable(),
+});
+export type TripChatCard = z.infer<typeof TripChatCard>;
 
 export const ChatMessage = z.object({
   id: z.string(),
@@ -185,6 +236,8 @@ export const ChatMessage = z.object({
   createdAt: z.coerce.date(),
   /** Mine and seen by the other party (read receipt). Always false for others' messages. */
   read: z.boolean(),
+  /** A `card` message's card (step 4c); absent or null on every other kind. */
+  card: TripChatCard.nullable().optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -349,6 +402,11 @@ export const ChatMessageSentPayload = z.object({
   recipientIds: z.array(z.string()),
   /** Short preview: the (masked) text or the quick reply, cut to 80 characters; null for photo / location / voice. */
   preview: z.string().nullable(),
+  /**
+   * A `rider_driver` thread (step 4c): the run or request (`orderId` is its id) and the other side of the
+   * pair (the rider on a run, the driver on a request); null on order threads.
+   */
+  trip: z.object({ subject: z.enum(['departure', 'request']), partyId: z.string() }).nullable().default(null),
 });
 export type ChatMessageSentPayload = z.infer<typeof ChatMessageSentPayload>;
 

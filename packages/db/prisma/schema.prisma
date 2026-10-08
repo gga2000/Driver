@@ -2266,8 +2266,11 @@ model SafetyIncidentFix {
 /// No foreign keys: orders are owned by the orders module.
 model ChatThread {
   id              String    @id @default(cuid())
+  /// The order; on a `rider_driver` thread (Baghdad/Kut, step 4c) the run (`dep_…`) or request (`rq_…`).
   orderId         String    @map("order_id")
   kind            String
+  /// A `rider_driver` thread's other key: the rider on a run, the driver on a request; '' on order threads.
+  partyId         String    @default("") @map("party_id")
   /// Highest message seq (the next message takes lastSeq + 1 under a row lock).
   lastSeq         Int       @default(0) @map("last_seq")
   /// s7 «نسيت غرض»: a completed ride's chat reopened by the customer until this time (ride end + 24 h).
@@ -2277,7 +2280,7 @@ model ChatThread {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  @@unique([orderId, kind])
+  @@unique([orderId, kind, partyId])
   @@index([lostItemUntil])
   @@map("chat_threads")
   @@schema("public")
@@ -2302,6 +2305,10 @@ model ChatMessage {
   lng           Float?
   masked        Boolean  @default(false)
   clientId      String   @map("client_id")
+  /// A `card` message (step 4c): what it is about (pin_pickup · door_drop · cash_reservation), its id, the amount it named.
+  refKind       String?  @map("ref_kind")
+  refId         String?  @map("ref_id")
+  refAmountIqd  Int?     @map("ref_amount_iqd")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

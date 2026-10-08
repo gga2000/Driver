@@ -50,6 +50,10 @@ export default async function register(demo) {
   const routes = await demo.load('modules/routes/index.js');
   const rpc = demo.app.get(routes.RoutesRpc);
   const repo = demo.app.get(routes.ROUTES_REPOSITORY);
+  const tripChat = demo.app.get((await demo.load('modules/chat/index.js')).TripChatService);
+  let said = 0;
+  /** Step 4c: a line in the Baghdad/Kut chat, as the app would send it. */
+  const say = (who, ref, text) => tripChat.send(who, { ...ref, clientId: `demo-ic-${Date.now()}-${++said}`, text });
   const people = {};
   for (const [key, phone, name] of [...RIDERS, ...POSTERS]) {
     people[key] = await demo.person({ phone, name });
@@ -148,8 +152,12 @@ export default async function register(demo) {
     const noorPin = await agree('noor', 'pin_pickup', { ...ROAD_PIN, note: 'سيطرة المدائن، صوب الكازية' }, 2_000, true);
     const noorDoor = await agree('noor', 'door_drop', { ...HASHIMI_DOOR, note: 'بيت باب أسود، مقابل جامع الهاشمي' }, 0, true);
     await book('noor', b.id, ['front'], 'nisa', 'wallet', { kind: 'pin', agreementId: noorPin.id }, false, { dropoff: { agreementId: noorDoor.id } });
+    // Step 4c: سارة writes first, then asks about her spot (the ask comes in as a card); هدى thanks him
+    // under his price card.
+    await say(actor('sara'), { subject: 'departure', id: b.id }, 'السلام عليكم، تگدر تاخذني من مفرق الجسر الحديدي؟ عندي جنطة وحدة بس');
     await agree('sara', 'pin_pickup', { ...ROAD_PIN_2, note: 'مفرق الجسر الحديدي' }, null, false);
     await agree('huda', 'door_drop', { ...AZIZIYAH_DOOR, note: 'حي العسكري، الشارع الثاني' }, 3_000, false);
+    await say(actor('huda'), { subject: 'departure', id: b.id }, 'تسلم، أشوف ويا أهلي وأرد عليك');
     await book('sajjad', b.id, ['back_left'], 'rijal', 'wallet', { kind: 'door', ...BAGHDAD_DOOR, note: 'زيونة، قرب أسواق الحمراء' });
     await book('ali', b.id, ['back_right'], 'rijal', 'cash', { kind: 'meeting_point', meetingPointId: 'mp_ic_diyala_bridge' });
     await book('yasir', b.id, ['back_middle'], 'rijal', null);
@@ -215,6 +223,7 @@ export default async function register(demo) {
     board.moneyRules = { ...board.moneyRules, requestCashReservation: { enabled: true } };
     const kufa = await postRequest(actor('ali'), { from: { label: 'العزيزية، حي العسكري' }, to: { label: 'الكوفة' }, when: new Date(hourFromNow(5).getTime()), seats: 2, privateCar: true, travellingAs: 'rijal' });
     const kufaOffer = (await rpc.offerOnRequest(driver, { postId: kufa.id, priceIqd: 45_000 })).offers.at(-1);
+    await say(actor('ali'), { subject: 'request', id: kufa.id, with: driver.personId }, 'عندي جهال وياي، السيارة بيها تبريد؟');
     await rpc.askCash(actor('ali'), { postId: kufa.id, offerId: kufaOffer.id });
     const kut = await postRequest(actor('yasir'), { from: { label: 'كراج البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت، المستشفى' }, when: new Date(now + 50 * MIN), seats: 1, privateCar: true, travellingAs: 'rijal' });
     const kutOffer = (await rpc.offerOnRequest(driver, { postId: kut.id, priceIqd: 20_000 })).offers.at(-1);
@@ -226,7 +235,7 @@ export default async function register(demo) {
     state.runB = b.id;
     state.pins = { hussein: hussein.pin, maryam: maryam.pin, ahmed: ahmed.pin };
     state.bookings = { hussein: hussein.id, maryam: maryam.id, ahmed: ahmed.id };
-    return { runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, fetchRide: fetchPost.id, cashRide: kut.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id, cashAsk: kufa.id }, pins: state.pins, bookings: state.bookings };
+    return { riders: { sara: people.sara, huda: people.huda }, runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, fetchRide: fetchPost.id, cashRide: kut.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id, cashAsk: kufa.id }, pins: state.pins, bookings: state.bookings };
   }
 
   await seed({ who: 'intercity' });

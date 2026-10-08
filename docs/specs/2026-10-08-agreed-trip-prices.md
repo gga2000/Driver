@@ -15,8 +15,9 @@ way 2 (price cards in the chat plus a pinned «اللي اتفقنا عليه» 
   without chat: the rider asks from the booking flow, the driver answers from his list.
 - **4b (built, off):** the private-car «احجز وادفع كاش» ask and the no-show debt (a money rule, behind
   `MoneyRules.requestCashReservation`, off).
-- **4c (needs Ali's yes on taking over chat):** the same agreements shown as cards inside the chat,
-  the pinned strip, «اسأله» on private-car offers. Chat only *renders* agreements; the rules stay here.
+- **4c (built 2026-10-08, after Ali's yes on taking over chat, 22:36Z):** the same agreements shown as
+  cards inside the rider ↔ driver chat, the pinned «اللي اتفقنا عليه» strip, «اسأل السايق» on a run and
+  «اسأله» on private-car offers. Chat only *renders* agreements; the rules stay here. `docs/api/trip-chat.md`.
 
 ## The agreement record (4a)
 
@@ -75,4 +76,4 @@ Rules (a1–a7):
 `agreement.expired`, `agreement.withdrawn`: payload `{agreementId, departureId, riderId, kind, amountIqd}`,
 actor the side that acted (`system` for expiry). A price applied to a booked seat also emits
 `seat.agreement_applied` `{bookingId, agreementId, kind, amountIqd, totalIqd}`.
-Pushes come from these in 4c (chat) or lane D; 4a sends none of its own.
+Pushes come from these through the chat (4c: each ask and price is a card, which pushes the other side); 4a sends none of its own.

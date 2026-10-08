@@ -1438,6 +1438,34 @@ const rajaa = await (async () => {
     }
   });
 
+  // Step 4c: the Baghdad/Kut chat. The rider asks the driver about a spot on the road (سيطرة المدائن) and
+  // his door at the far end (each ask comes in as a card), the driver answers in words and prices both (2,000 and 3,000).
+  app.use('/demo/rajaa/trip-chat', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/trip-chat?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const { TripChatService } = await load('modules/chat/index.js');
+      const agreements = app.get(AgreementsService);
+      const chat = app.get(TripChatService);
+      const dep = await deps.departure(departureId);
+      const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+      const pin = await agreements.ask(personId, { departureId: dep.id, kind: 'pin_pickup', lat: 33.1667, lng: 44.5517, note: 'سيطرة المدائن، صوب الكازية' });
+      const door = await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'حي العسكري، قرب الجامع' });
+      const driver = { personId: dep.driverId, sessionId: 'demo' };
+      const ref = { subject: 'departure', id: dep.id, with: personId };
+      await new Promise((r) => setTimeout(r, 400));
+      await chat.send(driver, { ...ref, clientId: `demo-tc-${Date.now()}-1`, text: 'هلا بيك، إي أگدر. شوف الأسعار تحت' });
+      await agreements.propose(dep.driverId, { agreementId: pin.id, amountIqd: 2_000 });
+      await agreements.propose(dep.driverId, { agreementId: door.id, amountIqd: 3_000 });
+      json(res, 200, { pin: pin.id, door: door.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   app.use('/demo/rajaa/topup', async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://x');

@@ -83,6 +83,7 @@ export {
   type ChatVoicePlayer,
   type ChatVoiceRecorder,
 } from './components/ChatThread';
+export { TripCard, TripDealStrip, tripCardTitle, tripCardTurn, tripPrice, type TripChatSide } from './components/TripChatParts';
 export { MicHoldButton, VoiceNotePlayer, VoiceRecorderBar, type MicHoldButtonProps, type VoiceNotePlayerProps, type VoicePlayState, type VoiceRecorderBarProps } from './components/VoiceNote';
 export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosSheetPhase } from './components/SosButton';

@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, waitExtraIqd, type DriverRequestRide, type OfferCashState, type RequestPostView } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast, WaitClock } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { RequestChatEntry } from '@/features/chat/TripChatEntry';
 import { SosControl } from '@/features/safety/SosControl';
 import { countedKey, requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
 import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, stepExtraHour, suggestedOffer } from '@/features/intercity/logic';
@@ -164,6 +165,8 @@ function OfferView({ post }: { post: RequestPostView }) {
       <Stack.Screen options={{ title: t('partner.ic_req_title') }} />
       <TripCard post={post} />
       {mine?.cash ? <CashAsk cash={mine.cash} priceIqd={mine.priceIqd} busy={answerCash.isPending ? (answerCash.variables?.accept ?? null) : undefined} onAnswer={(a) => void answer(a)} /> : null}
+      {/* Step 4c: the rider can ask him before picking; he answers here. */}
+      {mine ? <RequestChatEntry id={post.id} /> : null}
 
       <Card padding={5} testID="offer-price">
         <View style={{ gap: theme.space[4] }}>
@@ -460,6 +463,7 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
               loading={caller.busyKey === ride.id}
               onPress={call}
             />
+            <RequestChatEntry id={ride.id} testID="ride-chat" />
           </View>
         </Card>
       ) : null}

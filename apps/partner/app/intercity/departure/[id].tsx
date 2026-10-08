@@ -33,6 +33,7 @@ import {
   type SeatOccupant,
 } from '@/features/intercity/logic';
 import { useDeparture, useDepartureAgreements, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
+import { RunChats } from '@/features/chat/TripChatEntry';
 import { PriceAsks, PriceSheet } from '@/features/intercity/AgreeParts';
 import { useNow } from '@/features/intercity/useNow';
 import { useRunCall } from '@/features/intercity/useRunCall';
@@ -409,6 +410,8 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
           </Card>
         </View>
       ) : null}
+      {/* Step 4c: the riders who wrote to him on this run. */}
+      <RunChats id={dep.id} />
       {open && agreements.isError ? (
         <QueryBoundary query={agreements} size="inline" skeleton={null} testID="ic-agreements-read">
           {() => null}
@@ -519,7 +522,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
                 manifest.map((b, i) => (
                   <View key={b.bookingId}>
                     {i > 0 ? <Rule /> : null}
-                    <RiderRow booking={b} firstName={names.get(b.bookingId) ?? null} busy={busy} onNoShow={() => void noShow(b.bookingId)} onPickup={(accept) => void respondPickup(b.bookingId, accept)} />
+                    <RiderRow booking={b} firstName={names.get(b.bookingId) ?? null} busy={busy} onNoShow={() => void noShow(b.bookingId)} onPickup={(accept) => void respondPickup(b.bookingId, accept)} onMessage={live ? () => router.push({ pathname: '/intercity/chat/[subject]/[id]', params: { subject: 'departure', id: dep.id, with: b.riderId } }) : undefined} />
                   </View>
                 ))
               )}

@@ -9,6 +9,7 @@ import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/label
 import { cashPhase } from '@/features/rajaa/cash';
 import { CashPanel } from '@/features/rajaa/CashParts';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
+import { TripChatEntry } from '@/features/chat/TripChatEntry';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, RIDER_TRAVELLING_AS, type RequestDay } from '@/features/rajaa/logic';
 import { FETCH_TYPED, fetchOptions, fetchPick, fetchRiderInput, type FetchDrop } from '@/features/rajaa/fetch';
 import { FetchWho, TripKindCards } from '@/features/rajaa/FetchParts';
@@ -83,6 +84,7 @@ function RequestCard({ r }: { r: RequestPostView }) {
               {t('rajaa.req_matched', { name: picked.driver?.firstName ?? t('rajaa.driver_unnamed'), amount: amountParam(picked.priceIqd) })}
             </Text>
             <RajaaDriver dep={{ vehicle: picked.driver?.vehicle ?? null }} card={picked.driver} testID="rajaa-req-matched-driver" />
+            <TripChatEntry subject="request" id={r.id} withId={picked.driverId} />
             {r.depositIqd ? (
               <Text variant="footnote" color="textMuted" testID="rajaa-req-deposit">
                 {r.cashReserved ? t('rajaa.cash_reserved', { amount: amountParam(picked.priceIqd) }) : t('request.deposit', { amount: amountParam(r.depositIqd) })}
@@ -137,7 +139,13 @@ function RequestCard({ r }: { r: RequestPostView }) {
                     !open ? (
                       <View style={{ gap: theme.space[2] }}>
                         {cash === 'accepted' ? <StatusPill size="sm" tone="success" icon="cash" label={t('rajaa.cash_pill')} testID={`offer-cash-${o.id}`} /> : null}
-                        <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} />
+                        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                          <View style={{ flex: 1 }}>
+                            <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} />
+                          </View>
+                          {/* Step 4c: ask this driver before picking him. */}
+                          <TripChatEntry subject="request" id={r.id} withId={o.driverId} compact testID={`offer-chat-${o.id}`} />
+                        </View>
                       </View>
                     ) : null
                   }

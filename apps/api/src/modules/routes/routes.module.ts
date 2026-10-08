@@ -8,6 +8,7 @@ import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
 import { AgreementsService } from './agreements.service.js';
+import { TripChatSubjects } from './trip-chat.subjects.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
 import { DeparturesService } from './departures.service.js';
@@ -99,6 +100,7 @@ import { RoutesWriter } from './writer.js';
     DeparturesService,
     DemandService,
     AgreementsService,
+    TripChatSubjects,
     RoutesRpc,
     RoutesDeparturesPort,
     RoutesScheduler,
@@ -107,7 +109,7 @@ import { RoutesWriter } from './writer.js';
     { provide: DEPARTURES_AUDIT, useExisting: AuditLogService },
     DeparturesStaffService,
   ],
-  exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
+  exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler, TripChatSubjects],
 })
 export class RoutesModule implements OnModuleInit {
   constructor(private readonly controls: ControlsService) {}

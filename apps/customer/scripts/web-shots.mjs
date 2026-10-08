@@ -22,6 +22,8 @@
 //            offer, the panel with the no-show line, booked with no deposit     POST /demo/rajaa/cash
 //   return-* step 5: the way-back offer on the pass, the board and seat screen of the way back (a child
 //            on the lap), the hold with the saving, the paired pass            POST /demo/rajaa/return
+//   tripchat-*  step 4c Baghdad/Kut chat: «اسأل السايق», his question, the asks and prices as cards,
+//            the pinned strip, agreed                                         POST /demo/rajaa/trip-chat
 //   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
 //            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
@@ -140,7 +142,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -286,6 +288,7 @@ try {
   if (wants('agree')) await agreeShots(personId);
   if (wants('cash')) await cashShots(personId);
   if (wants('return')) await returnShots(personId);
+  if (wants('tripchat')) await tripChatShots(personId);
   if (wants('share')) await shareShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
@@ -1429,6 +1432,42 @@ async function returnShots(personId) {
  * car, a friend (كرار) pays his place, and the panel shows who is in and the cash left. Then the other
  * side: a friend's link from أحمد, before and after he takes a place.
  */
+/**
+ * Step 4c, the Baghdad/Kut chat (docs/api/trip-chat.md): «اسأل السايق» on a car from Baghdad, the
+ * empty chat, his question, then (demo hook) his asks as cards, the driver's words and prices with
+ * «موافق / لا» and the pinned «اللي اتفقنا عليه» strip; he agrees the pin.
+ */
+async function tripChatShots(personId) {
+  if (!personId) throw new Error('tripchat: no person');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const car = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').nth(1);
+  await car.waitFor({ timeout: 15_000 });
+  await car.click();
+  await byTestId('trip-chat-entry').waitFor({ timeout: 15_000 });
+  const departureId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() ?? '');
+  await byTestId('trip-chat-entry').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(500);
+  await shot('tripchat-entry');
+  await byTestId('trip-chat-entry').click();
+  await byTestId('chat-screen').waitFor({ timeout: 15_000 });
+  await byTestId('chat-input').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('tripchat-empty');
+  await byTestId('chat-input').fill('تگدر تاخذني من سيطرة المدائن؟ وتنزلني بباب البيت بحي العسكري');
+  await byTestId('chat-send').click();
+  await page.locator('[data-testid^="chat-msg-"]').first().waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/trip-chat?personId=${encodeURIComponent(personId)}&departureId=${encodeURIComponent(departureId)}`);
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').nth(1).waitFor({ timeout: 25_000 }).catch(() => errors.push('tripchat: the driver\'s prices did not come in as cards'));
+  await byTestId('trip-deal').waitFor({ timeout: 15_000 }).catch(() => errors.push('tripchat: no pinned strip'));
+  await settle(800);
+  await shot('tripchat-cards');
+  await fullShot('tripchat-cards-full');
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').first().click();
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').nth(1).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('tripchat: the pin was not agreed'));
+  await settle(800);
+  await shot('tripchat-agreed');
+}
+
 async function shareShots(personId) {
   if (!personId) throw new Error('share: no person');
   const q = `personId=${encodeURIComponent(personId)}`;

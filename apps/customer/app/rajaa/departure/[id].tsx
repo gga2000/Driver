@@ -27,6 +27,7 @@ import { Screen } from '@/components/Screen';
 import { carArtFor } from '@/features/rajaa/car-art';
 import { cityName, seatsList } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
+import { TripChatEntry } from '@/features/chat/TripChatEntry';
 import { agreementPhase } from '@/features/rajaa/agree';
 import { AgreementSlot, FreeLine } from '@/features/rajaa/AgreeParts';
 import {
@@ -350,6 +351,7 @@ export default function BookSeat() {
             {t('intercity.leaves_at_or_full', { time: clockLabel(dep.departAt) })} · {t('intercity.latest_departure', { time: clockLabel(dep.latestDepartureAt) })}
           </Text>
           <RajaaDriver dep={dep} card={driverCard} record={{ departureId: dep.id }} testID="rajaa-departure-driver" style={{ marginTop: theme.space[2] }} />
+          <TripChatEntry subject="departure" id={dep.id} />
           {dep.familyOnly ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="user" size={16} color="infoText" />
