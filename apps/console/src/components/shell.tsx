@@ -8,16 +8,18 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
-import { ShortcutsSheet } from './shell/shortcuts';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
-import { LiveDownStrip } from './shell/watch-strip';
 import { useConsoleNetwork } from '@/lib/network';
 import { cx, NetworkBanner, ToastProvider } from './ui';
 
 // Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
 const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
+// The shortcuts list is opened on demand too.
+const ShortcutsSheet = dynamic(() => import('./shell/shortcuts').then((m) => m.ShortcutsSheet), { ssr: false });
+// Loaded after first paint: it draws nothing until live updates have been down a minute (speed budget).
+const LiveDownStrip = dynamic(() => import('./shell/watch-strip').then((m) => m.LiveDownStrip), { ssr: false });
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -110,7 +112,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </div>
       {palette ? <CommandPalette open onClose={() => setPalette(false)} onShortcuts={() => setKeys(true)} /> : null}
-      <ShortcutsSheet open={keys} onClose={() => setKeys(false)} />
+      {keys ? <ShortcutsSheet open onClose={() => setKeys(false)} /> : null}
     </ToastProvider>
   );
 }
