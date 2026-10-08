@@ -7,6 +7,7 @@ import type {
   RequestState,
   RequestTripKind,
 } from '@driver/contracts';
+import { requestKnownPlace } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { FINISHED_RUN, type BookingRecord, type DemandPostRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 
@@ -278,7 +279,7 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     const out: number[] = [];
     for (const r of this.requests.values()) {
       if (r.state !== 'completed' || r.origin !== 'rider' || !r.privateCar) continue;
-      if (r.to.placeId !== f.placeId || r.details.trip !== f.trip) continue;
+      if (requestKnownPlace(r) !== f.placeId || r.details.trip !== f.trip) continue;
       if (!r.closedAt || r.closedAt.getTime() < f.since.getTime()) continue;
       const picked = r.offers.find((o) => o.id === r.pickedOfferId);
       if (picked) out.push(picked.priceIqd);

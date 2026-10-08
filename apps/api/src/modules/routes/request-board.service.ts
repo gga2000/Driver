@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   DEFAULT_REQUEST_DETAILS,
@@ -7,6 +7,7 @@ import {
   isDomainEventType,
   offerNeedsWaitTerms,
   PostRequestInput,
+  requestKnownPlace,
   USUAL_RANGE_DAYS,
   usualRangeOf,
   waitExtraIqd,
@@ -26,6 +27,7 @@ import { haversineMeters } from '../trips/index.js';
 import { ROUTES_EVENTS, type RoutesEventEmitter } from './events.adapter.js';
 import type { IntercityNetworkConfig, IntercityRules } from './intercity.config.js';
 import type { RequestRecord } from './model.js';
+import { ROUTES_REQUEST_RIDERS, type RequestRidersPort } from './request-riders.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS, ROUTES_IDS, roundUpTo, walletHolds, type IdSource } from './support.js';
 import { ROUTES_NETWORK, ROUTES_RULES } from './tokens.js';
@@ -57,6 +59,7 @@ export class RequestBoardService {
     @Inject(ROUTES_NETWORK) private readonly network: IntercityNetworkConfig,
     @Inject(ROUTES_RULES) private readonly rules: IntercityRules,
     @Inject(ROUTES_IDS) private readonly ids: IdSource,
+    @Optional() @Inject(ROUTES_REQUEST_RIDERS) readonly riders: RequestRidersPort | null = null,
   ) {}
 
   /** The money rules this board reads (w4's switch); a field so tests can switch it on. */
@@ -73,8 +76,17 @@ export class RequestBoardService {
 
   // ───────────────────────── rider ─────────────────────────
 
-  post(riderId: string, input: PostInput): Promise<RequestRecord> {
-    return this.writer.run(async (tx) => {
+  /**
+   * A rider posts a request. k2 «جيب واحد»: the person fetched is resolved first (a typed number may
+   * become a new pseudonymous person in identity's own write), then the request is written with only
+   * their person id, then the name the poster gave them goes to the vault under the request.
+   */
+  async post(riderId: string, input: PostInput): Promise<RequestRecord> {
+    const fetching = input.details.trip === 'fetch';
+    if (fetching !== Boolean(input.rider)) throw new DriverError('invalid_input');
+    if (input.rider && !this.riders) throw new DriverError('ride_rider_unknown');
+    const fetched = input.rider && this.riders ? await this.riders.resolve(riderId, input.rider) : null;
+    const r = await this.writer.run(async (tx) => {
       if (input.when.getTime() < this.now().getTime() - 15 * MIN_MS)
         throw new DriverError('invalid_input');
       const garage = input.from.garageId
@@ -94,6 +106,7 @@ export class RequestBoardService {
         origin: 'rider',
         priceCapIqd: null,
       });
+      r.fetchPersonId = fetched?.personId ?? null;
       await this.repo.saveRequest(r, tx);
       await this.emit(tx, 'request.posted', riderId, r, {
         when: r.when,
@@ -102,6 +115,23 @@ export class RequestBoardService {
         to: r.to.label,
       });
       return r;
+    });
+    if (fetched && this.riders) await this.riders.remember(r.id, fetched.personId, riderId, fetched.name);
+    return r;
+  }
+
+  /**
+   * k2: whom the picked driver's call rings: the person fetched on a «جيب واحد» trip, else the poster.
+   * Only while the trip is live, and logged on the request (the call id, never a number).
+   */
+  async callee(driverId: string, postId: string, callId: string): Promise<{ request: RequestRecord; calleeId: string }> {
+    return this.writer.run(async (tx) => {
+      const r = await this.must(postId, tx);
+      if (this.picked(r).driverId !== driverId) throw new DriverError('request_state_conflict');
+      if (r.state !== 'matched' && r.state !== 'driver_arrived') throw new DriverError('request_state_conflict');
+      const calleeId = r.fetchPersonId ?? r.riderId;
+      await this.emit(tx, 'request.call_requested', driverId, r, { calleeId, callId });
+      return { request: r, calleeId };
     });
   }
 
@@ -162,7 +192,7 @@ export class RequestBoardService {
     const byKey = new Map<string, Promise<UsualRange | null>>();
     const out = new Map<string, UsualRange | null>();
     for (const r of records) {
-      const placeId = r.to.placeId;
+      const placeId = requestKnownPlace(r);
       if (!placeId || !r.privateCar || r.origin !== 'rider') continue;
       const key = `${placeId}|${r.details.trip}`;
       if (!byKey.has(key)) byKey.set(key, this.usualRange(placeId, r.details.trip));
@@ -512,6 +542,7 @@ export class RequestBoardService {
       | 'driverArrivedPin'
       | 'waitStartedAt'
       | 'waitEndedAt'
+      | 'fetchPersonId'
       | 'closedAt'
       | 'createdAt'
     >,
@@ -529,6 +560,7 @@ export class RequestBoardService {
       driverArrivedPin: null,
       waitStartedAt: null,
       waitEndedAt: null,
+      fetchPersonId: null,
       closedAt: null,
       createdAt: this.now(),
     };

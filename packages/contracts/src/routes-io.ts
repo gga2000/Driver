@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CityId, Iqd, LatLng } from './common.js';
-import type { Actor } from './identity-io.js';
+import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
+import { RIDE_RIDER_NAME_MAX } from './order.js';
 import type { CallSession } from './chat-io.js';
 import type { SafetyCallSession } from './safety-io.js';
 import { modelFitsLayout, VehicleModelKey } from './vehicle-models.js';
@@ -568,10 +569,12 @@ export const RequestPlace = z.object({
 export type RequestPlace = z.infer<typeof RequestPlace>;
 
 /**
- * What kind of trip a private-car request is (idea y1, Ali 2026-10-07): one way; there and back the
- * same day with the driver waiting some hours; or there one day and back on another (within a week).
+ * What kind of trip a private-car request is (idea y1, Ali 2026-10-07): one way («بس رايح»); there and
+ * back the same day with the driver waiting some hours; there one day and back on another (within a
+ * week); or «جيب واحد» (k1, Ali 2026-10-07): the car goes to fetch someone else and brings them to
+ * home or another place (k4), booked and paid by the poster, who need not be in the car.
  */
-export const RequestTripKind = z.enum(['one_way', 'wait_return', 'two_days']);
+export const RequestTripKind = z.enum(['one_way', 'wait_return', 'two_days', 'fetch']);
 export type RequestTripKind = z.infer<typeof RequestTripKind>;
 
 /** Hours a driver may be asked to wait on a same-day return. */
@@ -596,6 +599,14 @@ export const RequestDetails = z.object({
 export type RequestDetails = z.infer<typeof RequestDetails>;
 export const DEFAULT_REQUEST_DETAILS: RequestDetails = { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false };
 
+/**
+ * p1 with k1: the known place a trip's usual range is kept for, the far end of the trip: where a
+ * «جيب واحد» car fetches someone from, otherwise where the trip goes.
+ */
+export function requestKnownPlace(r: { from: Pick<RequestPlace, 'placeId'>; to: Pick<RequestPlace, 'placeId'>; details: Pick<RequestDetails, 'trip'> }): RequestPlaceId | null {
+  return (r.details.trip === 'fetch' ? r.from.placeId : r.to.placeId) ?? null;
+}
+
 /** Why a request's details don't hold together (checked on the server and, for the form, the app). */
 export function requestDetailsProblem(d: RequestDetails, when: Date): 'wait_hours_needed' | 'return_needed' | 'return_too_early' | 'return_too_late' | null {
   if (d.trip === 'wait_return' && d.waitHours === null) return 'wait_hours_needed';
@@ -605,6 +616,19 @@ export function requestDetailsProblem(d: RequestDetails, when: Date): 'wait_hour
   if (d.returnAt.getTime() > when.getTime() + REQUEST_RETURN_DAYS_MAX * 86_400_000) return 'return_too_late';
   return null;
 }
+
+/**
+ * k2 «جيب واحد»: who the car fetches, as on a taxi booked for someone else (`RideRiderInput`,
+ * docs/api/ride-for-someone.md): a name and Iraqi mobile number typed now, one of the poster's trusted
+ * people (w9, by list position), or someone in his household. The server turns it into a person; the
+ * name lives in the identity vault only and the number never leaves it.
+ */
+export const RequestRiderInput = z.discriminatedUnion('from', [
+  z.object({ from: z.literal('typed'), name: z.string().trim().min(1).max(RIDE_RIDER_NAME_MAX), phone: z.string().min(7).max(20) }),
+  z.object({ from: z.literal('trusted'), index: z.number().int().min(0).max(TRUSTED_CONTACTS_MAX - 1) }),
+  z.object({ from: z.literal('household'), householdId: z.string().min(1), personId: z.string().min(1) }),
+]);
+export type RequestRiderInput = z.infer<typeof RequestRiderInput>;
 
 export const PostRequestInput = z
   .object({
@@ -617,10 +641,14 @@ export const PostRequestInput = z
     travellingAs: TravellingAs,
     note: z.string().max(300).optional(),
     details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+    /** k2: the person a «جيب واحد» trip fetches; required on that kind, refused on the others. */
+    rider: RequestRiderInput.optional(),
   })
   .superRefine((v, ctx) => {
     const problem = requestDetailsProblem(v.details, v.when);
     if (problem) ctx.addIssue({ code: 'custom', path: ['details'], message: problem });
+    if (v.details.trip === 'fetch' && !v.rider) ctx.addIssue({ code: 'custom', path: ['rider'], message: 'rider_needed' });
+    if (v.details.trip !== 'fetch' && v.rider) ctx.addIssue({ code: 'custom', path: ['rider'], message: 'rider_only_on_fetch' });
   });
 export type PostRequestInput = z.input<typeof PostRequestInput>;
 
@@ -784,6 +812,11 @@ export const RequestPostView = z.object({
   depositIqd: Iqd.nullable(),
   /** w2: the waiting clock once the driver started it («يستناك وترجع» only). */
   waitClock: RequestWaitClock.nullable().default(null),
+  /**
+   * k2 «جيب واحد»: the person fetched, by the name the poster gave them («ماما»), read from the vault
+   * for the poster and the driver he picked only; null on other trips and for everyone else.
+   */
+  rider: z.object({ name: z.string() }).nullable().default(null),
   createdAt: z.coerce.date(),
 });
 export type RequestPostView = z.infer<typeof RequestPostView>;
@@ -1294,6 +1327,7 @@ export interface RoutesPort {
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
   requestWaitStart(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   requestWaitEnd(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  requestCall(actor: Actor, input: RequestIdInput): Promise<CallSession>;
   requestCompleted(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportRiderNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   myRequestRides(actor: Actor): Promise<DriverRequestRide[]>;

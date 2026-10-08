@@ -28,8 +28,9 @@ export function returnDays(when: Date, returnAt: Date): number {
 }
 
 /** y1 as the drivers and the rider read it back: trip kind (with the wait or the day back), bags, car, AC. */
-export function detailPills(t: TFn, d: RequestDetails, when: Date): { key: string; label: string; icon: 'clock' | 'suitcase' | 'car' | 'rajaa' }[] {
+export function detailPills(t: TFn, d: RequestDetails, when: Date): { key: string; label: string; icon: 'clock' | 'suitcase' | 'car' | 'rajaa' | 'user' }[] {
   const out: ReturnType<typeof detailPills> = [];
+  if (d.trip === 'fetch') out.push({ key: 'trip', icon: 'user', label: t('rajaa.req_trip.fetch') });
   if (d.trip === 'wait_return' && d.waitHours !== null)
     out.push({ key: 'trip', icon: 'clock', label: `${t('rajaa.req_trip.wait_return')} · ${t('rajaa.req_sum.wait', { hours: t(countKey('rajaa.req_hours', d.waitHours), { n: d.waitHours }) })}` });
   if (d.trip === 'two_days' && d.returnAt) {

@@ -2,11 +2,14 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { IntercityVehicleKind, REQUEST_WAIT_HOURS_MAX, requestDetailsProblem, type RequestDetails, type RequestPostView, type RequestTripKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Chip, ChipGroup, Icon, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, WaitClock, type StatusTone } from '@driver/ui';
+import { Button, Card, Chip, ChipGroup, Icon, QueryBoundary, SegmentedControl, Skeleton, StatusPill, Stepper, Text, TextField, useTheme, useToast, WaitClock, type StatusTone } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { useHousehold, useMe } from '@/features/account/queries';
 import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/labels';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, RIDER_TRAVELLING_AS, type RequestDay } from '@/features/rajaa/logic';
+import { FETCH_TYPED, fetchOptions, fetchPick, fetchRiderInput, type FetchDrop } from '@/features/rajaa/fetch';
+import { FetchWho, TripKindCards } from '@/features/rajaa/FetchParts';
 import { RuleList, Section } from '@/features/rajaa/Option';
 import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest, useUsualRange } from '@/features/rajaa/queries';
 import { REQUEST_PLACES, OFFER_SORTS, offerWinners, placeIdFor, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
@@ -17,10 +20,11 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { countKey } from '@/lib/plural';
+import type { TypedRiderError } from '@/features/ride/rider';
 
 const TONE: Partial<Record<RequestPostView['state'], StatusTone>> = { open: 'accent', matched: 'success', driver_arrived: 'success', driver_no_show: 'danger' };
 
-const TRIPS: readonly RequestTripKind[] = ['one_way', 'wait_return', 'two_days'];
+const TRIPS: readonly RequestTripKind[] = ['one_way', 'wait_return', 'two_days', 'fetch'];
 /** Two-day trips: back after one, two or three days (the contract allows a week; these cover nearly all). */
 const RETURN_DAYS = [1, 2, 3] as const;
 const DAY_MS = 86_400_000;
@@ -62,6 +66,7 @@ function RequestCard({ r }: { r: RequestPostView }) {
           </View>
           <StatusPill size="sm" tone={TONE[r.state] ?? 'neutral'} live={r.state === 'open'} label={r.waitClock && !r.waitClock.endedAt && r.state === 'driver_arrived' ? t('rajaa.wait_title_rider') : requestStateLabel(t, r.state)} />
         </View>
+        {r.rider ? <StatusPill size="sm" tone="info" icon="user" label={t('rajaa.req_for', { name: r.rider.name })} testID="rajaa-req-for" /> : null}
         <DetailPills details={r.details} when={r.when} testID="rajaa-req-details" />
 
         {(r.state === 'matched' || r.state === 'driver_arrived') && picked ? (
@@ -195,6 +200,16 @@ export default function RequestBoard() {
   const [bigBags, setBigBags] = useState(0);
   const [carKind, setCarKind] = useState<RequestDetails['carKind']>(null);
   const [ac, setAc] = useState(false);
+  // k1–k4 «جيب واحد»: who is fetched, and where to.
+  const me = useMe();
+  const household = useHousehold();
+  const fetchChoices = useMemo(() => fetchOptions(me.data?.trustedContacts, household.data), [me.data, household.data]);
+  const [fetchChip, setFetchChip] = useState<string | null>(null);
+  const [fetchName, setFetchName] = useState('');
+  const [fetchPhone, setFetchPhone] = useState('');
+  const [fetchErrors, setFetchErrors] = useState<TypedRiderError[]>([]);
+  const [fetchDrop, setFetchDrop] = useState<FetchDrop>('home');
+  const fetching = trip === 'fetch';
 
   const active = (mine.data ?? []).filter((r) => r.state === 'open' || r.state === 'matched' || r.state === 'driver_arrived');
   const showForm = composing || (!mine.isPending && active.length === 0);
@@ -208,20 +223,31 @@ export default function RequestBoard() {
     carKind,
     ac,
   };
-  // p1: a destination picked from (or typed as) a chip has a usual range once enough trips finished.
-  const placeId = placeIdFor(to, (id) => t(`rajaa.req_place.${id}` as MessageKey));
-  const range = useUsualRange(privateCar ? placeId : null, trip);
-  const ready = from.trim().length > 0 && to.trim().length > 0 && hourOk && requestDetailsProblem(details, when) === null;
+  // p1: a place picked from (or typed as) a chip has a usual range once enough trips finished — where
+  // the trip goes, or for «جيب واحد» where the car fetches from (`requestKnownPlace`).
+  const placeLabel = (id: string) => t(`rajaa.req_place.${id}` as MessageKey);
+  const fromPlaceId = fetching ? placeIdFor(from, placeLabel) : null;
+  const toLabel = fetching && fetchDrop === 'home' ? t('rajaa.req_fetch_home_label') : to.trim();
+  const toPlaceId = fetching && fetchDrop === 'home' ? null : placeIdFor(to, placeLabel);
+  const range = useUsualRange(privateCar ? (fetching ? fromPlaceId : toPlaceId) : null, trip);
+  const who = fetching ? fetchPick(fetchChip, fetchChoices, fetchName, fetchPhone) : null;
+  const whoReady = !fetching || (who !== null && 'pick' in who) || fetchChip === FETCH_TYPED;
+  const ready = from.trim().length > 0 && toLabel.length > 0 && whoReady && hourOk && requestDetailsProblem(details, when) === null;
 
   const submit = () => {
     if (!ready) {
-      toast.show({ message: t('rajaa.req_missing'), tone: 'warning' });
+      toast.show({ message: t(fetching ? 'rajaa.req_fetch_missing' : 'rajaa.req_missing'), tone: 'warning' });
+      return;
+    }
+    if (who && 'errors' in who) {
+      theme.haptic('error');
+      setFetchErrors(who.errors);
       return;
     }
     post.mutate(
       {
-        from: { label: from.trim() },
-        to: { label: to.trim(), ...(placeId ? { placeId } : {}) },
+        from: { label: from.trim(), ...(fromPlaceId ? { placeId: fromPlaceId } : {}) },
+        to: { label: toLabel, ...(toPlaceId ? { placeId: toPlaceId } : {}) },
         when,
         seats,
         privateCar,
@@ -229,6 +255,7 @@ export default function RequestBoard() {
         travellingAs: RIDER_TRAVELLING_AS,
         ...(note.trim() ? { note: note.trim() } : {}),
         details,
+        ...(who && 'pick' in who ? { rider: fetchRiderInput(who.pick) } : {}),
       },
       {
         onSuccess: () => {
@@ -236,6 +263,9 @@ export default function RequestBoard() {
           setFrom('');
           setTo('');
           setNote('');
+          setFetchChip(null);
+          setFetchName('');
+          setFetchPhone('');
         },
         onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000),
       },
@@ -269,30 +299,9 @@ export default function RequestBoard() {
 
       {showForm ? (
         <View style={{ gap: theme.space[6] }} testID="rajaa-request-form">
-          <View style={{ gap: theme.space[3] }}>
-            <TextField testID="rajaa-req-from" label={t('rajaa.req_from')} placeholder={t('rajaa.req_from_placeholder')} value={from} onChangeText={setFrom} maxLength={120} leadingIcon="map-pin" />
-            <View style={{ flexDirection: 'row' }}>
-              <Chip testID="req-from-aziziyah" icon="home" label={t('rajaa.req_from_aziziyah')} selected={from === t('rajaa.req_from_aziziyah')} onPress={() => setFrom(t('rajaa.req_from_aziziyah'))} />
-            </View>
-            <TextField testID="rajaa-req-to" label={t('rajaa.req_to')} placeholder={t('rajaa.req_to_placeholder')} value={to} onChangeText={setTo} maxLength={120} leadingIcon="location-arrow" />
-            {/* y2: where most private trips go, one tap. */}
-            <View accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.req_places_a11y')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
-              {REQUEST_PLACES.map((p) => {
-                const label = t(`rajaa.req_place.${p.id}` as MessageKey);
-                return <Chip key={p.id} testID={`req-place-${p.id}`} role="radio" icon={p.icon} label={label} selected={to === label} onPress={() => setTo(label)} />;
-              })}
-            </View>
-          </View>
-
-          {/* y1: one way, there and back with the driver waiting, or back another day. */}
+          {/* y1 + k1: one way, there and back with the driver waiting, back another day, or «جيب واحد». */}
           <Section title={t('rajaa.req_trip_q')}>
-            <SegmentedControl
-              testIDPrefix="req-trip"
-              accessibilityLabel={t('rajaa.req_trip_a11y')}
-              options={TRIPS.map((v) => ({ value: v, label: t(`rajaa.req_trip.${v}` as MessageKey), detail: t(`rajaa.req_trip_detail.${v}` as MessageKey) }))}
-              value={trip}
-              onChange={setTrip}
-            />
+            <TripKindCards kinds={TRIPS} value={trip} onChange={setTrip} />
             {trip === 'wait_return' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }} testID="req-wait">
                 <Text variant="label" weight={600} style={{ flex: 1 }}>
@@ -323,9 +332,97 @@ export default function RequestBoard() {
                 </View>
               </View>
             ) : null}
-            {/* A hint, not a step: if the read fails the line is left out (the offers show the range again). */}
-            {range.data && !range.isError ? <UsualRangeLine range={range.data} testID="rajaa-form-usual-range" /> : null}
           </Section>
+
+          {fetching ? (
+            <Section title={t('rajaa.req_fetch_who_q')} testID="req-fetch">
+              <FetchWho
+                options={fetchChoices}
+                chip={fetchChip}
+                onChip={(id) => {
+                  setFetchChip(id);
+                  setFetchErrors([]);
+                }}
+                name={fetchName}
+                onName={(v) => {
+                  setFetchName(v);
+                  setFetchErrors((e) => e.filter((x) => x !== 'name'));
+                }}
+                phone={fetchPhone}
+                onPhone={(v) => {
+                  setFetchPhone(v);
+                  setFetchErrors((e) => e.filter((x) => x !== 'phone'));
+                }}
+                errors={fetchErrors}
+              />
+              {/* His people are a shortcut: if they can't be read, say so (with retry); «شخص ثاني» still works. */}
+              {me.isError ? (
+                <QueryBoundary query={me} size="inline" skeleton={null} testID="req-fetch-me-read">
+                  {() => null}
+                </QueryBoundary>
+              ) : null}
+              {household.isError ? (
+                <QueryBoundary query={household} size="inline" skeleton={null} testID="req-fetch-household-read">
+                  {() => null}
+                </QueryBoundary>
+              ) : null}
+            </Section>
+          ) : null}
+
+          {fetching ? (
+            <View style={{ gap: theme.space[3] }} testID="req-fetch-places">
+              {/* k2: where the person is now; the known places are one tap. */}
+              <TextField testID="rajaa-req-from" label={t('rajaa.req_fetch_where_q')} placeholder={t('rajaa.req_fetch_where_placeholder')} value={from} onChangeText={setFrom} maxLength={120} leadingIcon="map-pin" />
+              <View accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.req_fetch_where_q')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+                {REQUEST_PLACES.map((p) => {
+                  const label = placeLabel(p.id);
+                  return <Chip key={p.id} testID={`req-fetch-from-${p.id}`} role="radio" icon={p.icon} label={label} selected={from === label} onPress={() => setFrom(label)} />;
+                })}
+              </View>
+              {/* k4: home in Aziziyah, or anywhere else (Baghdad airport → Kut hospital). */}
+              <Text variant="label" weight={600}>
+                {t('rajaa.req_fetch_to_q')}
+              </Text>
+              <SegmentedControl
+                testIDPrefix="req-fetch-drop"
+                accessibilityLabel={t('rajaa.req_fetch_to_q')}
+                options={[
+                  { value: 'home', label: t('rajaa.req_fetch_to_home') },
+                  { value: 'other', label: t('rajaa.req_fetch_to_other') },
+                ]}
+                value={fetchDrop}
+                onChange={(v) => setFetchDrop(v as FetchDrop)}
+              />
+              {fetchDrop === 'other' ? (
+                <>
+                  <TextField testID="rajaa-req-to" label={t('rajaa.req_to')} placeholder={t('rajaa.req_fetch_to_placeholder')} value={to} onChangeText={setTo} maxLength={120} leadingIcon="location-arrow" />
+                  <View accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.req_places_a11y')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+                    {REQUEST_PLACES.map((p) => {
+                      const label = placeLabel(p.id);
+                      return <Chip key={p.id} testID={`req-place-${p.id}`} role="radio" icon={p.icon} label={label} selected={to === label} onPress={() => setTo(label)} />;
+                    })}
+                  </View>
+                </>
+              ) : null}
+            </View>
+          ) : (
+            <View style={{ gap: theme.space[3] }}>
+              <TextField testID="rajaa-req-from" label={t('rajaa.req_from')} placeholder={t('rajaa.req_from_placeholder')} value={from} onChangeText={setFrom} maxLength={120} leadingIcon="map-pin" />
+              <View style={{ flexDirection: 'row' }}>
+                <Chip testID="req-from-aziziyah" icon="home" label={t('rajaa.req_from_aziziyah')} selected={from === t('rajaa.req_from_aziziyah')} onPress={() => setFrom(t('rajaa.req_from_aziziyah'))} />
+              </View>
+              <TextField testID="rajaa-req-to" label={t('rajaa.req_to')} placeholder={t('rajaa.req_to_placeholder')} value={to} onChangeText={setTo} maxLength={120} leadingIcon="location-arrow" />
+              {/* y2: where most private trips go, one tap. */}
+              <View accessibilityRole="radiogroup" accessibilityLabel={t('rajaa.req_places_a11y')} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+                {REQUEST_PLACES.map((p) => {
+                  const label = t(`rajaa.req_place.${p.id}` as MessageKey);
+                  return <Chip key={p.id} testID={`req-place-${p.id}`} role="radio" icon={p.icon} label={label} selected={to === label} onPress={() => setTo(label)} />;
+                })}
+              </View>
+            </View>
+          )}
+          {/* A hint, not a step: if the read fails the line is left out (the offers show the range again). */}
+          {range.data && !range.isError ? <UsualRangeLine range={range.data} testID="rajaa-form-usual-range" /> : null}
 
           <Section title={t('rajaa.req_when')}>
             <ChipGroup

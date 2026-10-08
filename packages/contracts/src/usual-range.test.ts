@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extraWaitHours, OfferWaitTerms, offerNeedsWaitTerms, waitExtraIqd, pricierThanUsual, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
+import { extraWaitHours, OfferWaitTerms, offerNeedsWaitTerms, waitExtraIqd, pricierThanUsual, requestKnownPlace, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
 
 describe('the usual private-car price (p1–p3, Ali 2026-10-07)', () => {
   it('needs at least 5 finished trips; below that there is no number at all', () => {
@@ -50,5 +50,15 @@ describe('extra waiting (w4)', () => {
     const c = { startedAt: new Date('2026-10-08T08:00:00Z'), endedAt: new Date('2026-10-08T14:00:00Z'), includedHours: 4, extraHourIqd: 5_000, freeMin: 15 };
     expect(waitExtraIqd({ ...c, charged: false }, new Date())).toBe(0);
     expect(waitExtraIqd({ ...c, charged: true }, new Date())).toBe(10_000);
+  });
+});
+
+describe('requestKnownPlace (p1 with k1)', () => {
+  it('keeps a «جيب واحد» trip under where the car fetched from, any other under where it goes', () => {
+    const from = { placeId: 'baghdad_airport' as const };
+    const to = { placeId: 'kut' as const };
+    expect(requestKnownPlace({ from, to, details: { trip: 'fetch' } })).toBe('baghdad_airport');
+    expect(requestKnownPlace({ from, to, details: { trip: 'one_way' } })).toBe('kut');
+    expect(requestKnownPlace({ from: {}, to: {}, details: { trip: 'fetch' } })).toBeNull();
   });
 });

@@ -14,7 +14,7 @@
 //   Request board: a family to الحلة (private car), a ziyara to النجف tomorrow, a stranded rider at
 //          her seat price, and a ride to الصويرة where the rider already picked his offer.
 //
-//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, waitRides, posts, pins }
+//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, waitRides, fetchRide, posts, pins }
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
 import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
@@ -186,12 +186,16 @@ export default async function register(demo) {
     };
     const waitReady = await waitRide('poster6', null);
     const waiting = await waitRide('poster7', 231);
+    // k1–k4 «جيب واحد»: poster8 sends the car to Baghdad airport for his mother, back home to Aziziyah.
+    const fetchPost = await postRequest(actor('poster8'), { from: { label: 'مطار بغداد', placeId: 'baghdad_airport' }, to: { label: 'العزيزية · البيت' }, when: new Date(now + 90 * MIN), seats: 1, privateCar: true, travellingAs: 'aila', details: { trip: 'fetch', bigBags: 2 }, rider: { from: 'typed', name: 'ماما', phone: '07701239876' } });
+    const fetchOffer = await rpc.offerOnRequest(driver, { postId: fetchPost.id, priceIqd: 75_000 });
+    await rpc.pickOffer(actor('poster8'), { postId: fetchPost.id, offerId: fetchOffer.offers.at(-1).id });
 
     state.runA = a.id;
     state.runB = b.id;
     state.pins = { hussein: hussein.pin, maryam: maryam.pin, ahmed: ahmed.pin };
     state.bookings = { hussein: hussein.id, maryam: maryam.id, ahmed: ahmed.id };
-    return { runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id }, pins: state.pins, bookings: state.bookings };
+    return { runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, fetchRide: fetchPost.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id }, pins: state.pins, bookings: state.bookings };
   }
 
   await seed({ who: 'intercity' });

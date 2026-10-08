@@ -21,6 +21,7 @@ import {
 } from './intercity.config.js';
 import { TrailCheckpointWaiver, type CheckpointWaiver } from './late-meter.js';
 import { RequestBoardService } from './request-board.service.js';
+import { InMemoryRequestRiders } from './request-riders.js';
 import { InMemoryRoutesRepository } from './routes.repository.js';
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
@@ -47,6 +48,8 @@ export function routesHarness(
   const writer = new RoutesWriter(uow, repo);
   const ids = new SequentialIds();
   const rules: IntercityRules = { ...INTERCITY_RULES, ...opts.rules };
+  /** k2: whom «جيب واحد» trips fetch (typed numbers only), names kept like the vault, reads recorded. */
+  const riders = new InMemoryRequestRiders({ '07701000001': 'p_rider' });
   const requests = new RequestBoardService(
     repo,
     events,
@@ -56,6 +59,7 @@ export function routesHarness(
     INTERCITY_NETWORK,
     rules,
     ids,
+    riders,
   );
   const departures = new DeparturesService(
     repo,
@@ -183,6 +187,7 @@ export function routesHarness(
     departures,
     demand,
     rpc,
+    riders,
     riderNames,
     nameReads,
     scheduler,

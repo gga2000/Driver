@@ -314,6 +314,7 @@ export class PrismaRoutesRepository implements RoutesRepository {
         : Prisma.DbNull,
       waitStartedAt: r.waitStartedAt,
       waitEndedAt: r.waitEndedAt,
+      fetchPersonId: r.fetchPersonId,
       closedAt: r.closedAt,
     };
     await db.rideRequest.upsert({
@@ -378,7 +379,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
           origin: 'rider',
           privateCar: true,
           closedAt: { gte: f.since },
-          toPlace: { path: ['placeId'], equals: f.placeId },
+          // k1: a «جيب واحد» trip is known by where the car fetched from (`requestKnownPlace`).
+          ...(f.trip === 'fetch' ? { fromPlace: { path: ['placeId'], equals: f.placeId } } : { toPlace: { path: ['placeId'], equals: f.placeId } }),
           details: { path: ['trip'], equals: f.trip },
         },
       },
@@ -644,6 +646,7 @@ function toRequest(r: RequestRow): RequestRecord {
     driverArrivedPin: (r.driverArrivedPin as unknown as RequestRecord['driverArrivedPin']) ?? null,
     waitStartedAt: r.waitStartedAt,
     waitEndedAt: r.waitEndedAt,
+    fetchPersonId: r.fetchPersonId,
     closedAt: r.closedAt,
     createdAt: r.createdAt,
   };

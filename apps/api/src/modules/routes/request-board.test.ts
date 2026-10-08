@@ -403,3 +403,85 @@ describe('private car round 2: the waiting clock (w2) and the fair extra-hour co
     expect(await bal(l, 'platform')).toBe(5_600);
   });
 });
+
+describe('private car round 2: «جيب واحد» (k1–k4), the car fetches someone else', () => {
+  const fetchInput = (h: RoutesHarness, rider: unknown = { from: 'typed', name: 'ماما', phone: '07701234567' }) =>
+    PostRequestInput.parse({
+      from: { label: 'مطار بغداد', placeId: 'baghdad_airport' },
+      // k4: brought to another place, not home.
+      to: { label: 'مستشفى الكوت' },
+      when: h.at(120),
+      seats: 1,
+      travellingAs: 'aila',
+      details: { trip: 'fetch' },
+      rider,
+    });
+
+  it('a «جيب واحد» request needs who to fetch, and only that kind takes one', () => {
+    const base = { from: { label: 'بغداد' }, to: { label: 'العزيزية' }, when: new Date('2026-10-04T08:00:00Z'), seats: 1, travellingAs: 'aila' };
+    expect(PostRequestInput.safeParse({ ...base, details: { trip: 'fetch' } }).error?.issues[0]?.message).toBe('rider_needed');
+    expect(PostRequestInput.safeParse({ ...base, rider: { from: 'typed', name: 'ماما', phone: '07701234567' } }).error?.issues[0]?.message).toBe('rider_only_on_fetch');
+    expect(PostRequestInput.safeParse({ ...base, details: { trip: 'fetch' }, rider: { from: 'typed', name: ' ', phone: '07701234567' } }).success).toBe(false);
+  });
+
+  it('keeps only the person id on the request; the poster and the picked driver see the name, nobody else', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    expect(r.fetchPersonId).toBe('p_fetch_07701234567');
+    expect(r.to).toEqual({ label: 'مستشفى الكوت' });
+    const [mine] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(mine!.rider).toEqual({ name: 'ماما' });
+    // Drivers on the board see the trip kind, never the name.
+    const [board] = (await h.rpc.openRequests({ personId: 'd1', sessionId: 's' }, {})).filter((x) => x.id === r.id);
+    expect(board!.details.trip).toBe('fetch');
+    expect(board!.rider).toBeNull();
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    await h.requests.offer('d2', r.id, 95_000);
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    const [ride] = await h.rpc.myRequestRides({ personId: 'd1', sessionId: 's' });
+    expect(ride!.rider).toEqual({ name: 'ماما' });
+    expect(await h.rpc.myRequestRides({ personId: 'd2', sessionId: 's' })).toEqual([]);
+    expect(h.riders.reads.map((x) => [x.accessorId, x.purpose])).toEqual([
+      ['r1', 'request_rider_name'],
+      ['d1', 'partner_request_rider'],
+    ]);
+  });
+
+  it('refuses the poster’s own number and a rider on another kind', async () => {
+    const h = routesHarness();
+    expect(await code(h.requests.post('p_rider', fetchInput(h, { from: 'typed', name: 'أني', phone: '07701000001' })))).toBe('ride_rider_is_you');
+    const oneWay = { ...fetchInput(h), details: { ...fetchInput(h).details, trip: 'one_way' as const } };
+    expect(await code(h.requests.post('r1', oneWay))).toBe('invalid_input');
+  });
+
+  it('the picked driver’s call rings the person fetched, only while the trip is live', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    expect(await code(h.requests.callee('d1', r.id, 'call_1'))).toBe('request_state_conflict');
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    expect(await code(h.requests.callee('d2', r.id, 'call_2'))).toBe('request_state_conflict');
+    expect((await h.requests.callee('d1', r.id, 'call_3')).calleeId).toBe('p_fetch_07701234567');
+    expect(h.events.last('request.call_requested')?.payload).toMatchObject({ requestId: r.id, calleeId: 'p_fetch_07701234567', callId: 'call_3' });
+    // Any other kind: the call rings the poster.
+    const h2 = routesHarness();
+    const plain = await matched(h2);
+    expect((await h2.requests.callee('d1', plain.id, 'call_4')).calleeId).toBe('r1');
+  });
+
+  it('settles like any private trip: the poster pays, the deposit counts, the 8 % take applies', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    h.advance(120);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ totalIqd: 90_000, ride: { fareIqd: 90_000, cashCollectedIqd: 72_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'platform')).toBe(7_200);
+  });
+});

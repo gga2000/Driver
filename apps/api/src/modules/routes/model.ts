@@ -219,6 +219,8 @@ export interface RequestRecord {
   /** w2: the waiting clock on a «يستناك وترجع» trip, started and stopped by the driver. */
   waitStartedAt: Date | null;
   waitEndedAt: Date | null;
+  /** k2 «جيب واحد»: the person fetched (a person id only; the name the poster gave is in the vault). */
+  fetchPersonId: string | null;
   closedAt: Date | null;
   createdAt: Date;
 }

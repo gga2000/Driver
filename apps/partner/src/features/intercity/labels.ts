@@ -146,6 +146,7 @@ const BAGHDAD_MS = 3 * 3_600_000;
  */
 export function requestDetailLabels(t: TFn, d: RequestDetails, when: Date): string[] {
   const out: string[] = [];
+  if (d.trip === 'fetch') out.push(t('rajaa.req_trip.fetch'));
   if (d.trip === 'wait_return' && d.waitHours !== null)
     out.push(`${t('rajaa.req_trip.wait_return')} · ${t('rajaa.req_sum.wait', { hours: t(countedKey('rajaa.req_hours', d.waitHours), { n: d.waitHours }) })}`);
   if (d.trip === 'two_days' && d.returnAt) {

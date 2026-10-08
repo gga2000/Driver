@@ -1469,6 +1469,29 @@ async function rajaaShots(personId) {
     }
   }
 
+  // k1–k4 «جيب واحد»: the four kinds as cards; who to fetch (a typed name and number), where they are
+  // (a known place), brought home or somewhere else; posted, the card says who it is for.
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await byTestId('rajaa-request-new').click().catch(() => {});
+  await byTestId('req-trip-fetch').waitFor({ timeout: 15_000 });
+  await byTestId('req-trip-fetch').click();
+  await byTestId('req-fetch-who').waitFor({ timeout: 5_000 });
+  await byTestId('chip-other').click();
+  await page.locator('[data-testid="req-fetch-name"]').fill('ماما');
+  await page.locator('[data-testid="req-fetch-phone"]').fill('07701239876');
+  await byTestId('req-fetch-from-baghdad_airport').click();
+  await byTestId('rajaa-request-form').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await shot('rajaa-fetch-form');
+  await fullShot('rajaa-fetch-form-full');
+  await byTestId('req-fetch-drop-other').click();
+  await page.locator('[data-testid="rajaa-req-to"]').fill('مستشفى الكوت');
+  await byTestId('req-fetch-drop-other').scrollIntoViewIfNeeded();
+  await shot('rajaa-fetch-other-place');
+  await byTestId('rajaa-request-submit').click();
+  await byTestId('rajaa-req-for').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('fetch: «لـ ماما» not on the posted request'));
+  await byTestId('rajaa-req-for').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+  await shot('rajaa-fetch-posted');
+
   // Home: the الرجعة card now reads the live board (and the booked trip).
   await page.goto(`${origin}/`, LOADED);
   await byTestId('home-rajaa-summary').waitFor({ timeout: 15_000 });

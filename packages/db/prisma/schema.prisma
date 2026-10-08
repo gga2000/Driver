@@ -1935,6 +1935,8 @@ model RideRequest {
   /// w2: the waiting clock on a «يستناك وترجع» trip (driver starts it at the drop, stops it on the way back)
   waitStartedAt    DateTime?        @map("wait_started_at")
   waitEndedAt      DateTime?        @map("wait_ended_at")
+  /// k2 «جيب واحد»: the person the car fetches (id only; the name the poster gave lives in the identity vault)
+  fetchPersonId    String?          @map("fetch_person_id")
   closedAt         DateTime?        @map("closed_at")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")

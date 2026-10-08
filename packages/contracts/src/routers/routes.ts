@@ -188,6 +188,14 @@ export const routesRouter = router({
       .input(RequestIdInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.requestWaitEnd(ctx.actor, input)),
+    /**
+     * k2: the picked driver calls the person he is fetching on a «جيب واحد» trip, or the poster on any
+     * other kind, through the masked-call bridge; never a raw number in production.
+     */
+    callPerson: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(CallSession)
+      .mutation(({ ctx, input }) => ctx.routes.requestCall(ctx.actor, input)),
     complete: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestIdInput)
       .output(RequestPostView)

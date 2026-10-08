@@ -146,6 +146,10 @@ export default async function run(s) {
   await p.wait('ride-wait-clock');
   await p.wait('ride-wait-end');
   await p.shot('ride-waiting', { full: true, settle: 1000 });
+  // k2 «جيب واحد»: who he fetches, that the person at the pickup isn't the one who booked, and the call.
+  await p.goto(`/intercity/request/${seed.fetchRide}`);
+  await p.wait('ride-fetch-for');
+  await p.shot('ride-fetch', { full: true, settle: 1000 });
 
   await p.goto('/intercity');
   await p.wait('intercity-board');

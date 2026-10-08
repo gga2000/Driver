@@ -16,6 +16,7 @@ import { INTERCITY_NETWORK, INTERCITY_RULES } from './intercity.config.js';
 import { TrailCheckpointWaiver } from './late-meter.js';
 import { PrismaRoutesRepository } from './prisma.repository.js';
 import { RequestBoardService } from './request-board.service.js';
+import { InMemoryRequestRiders } from './request-riders.js';
 import { RoutesScheduler } from './scheduler.js';
 import { randomIds } from './support.js';
 import { FakeWallet } from './wallet.js';
@@ -45,6 +46,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     INTERCITY_NETWORK,
     INTERCITY_RULES,
     randomIds,
+    new InMemoryRequestRiders(),
   );
   const departures = new DeparturesService(
     repo,
@@ -342,6 +344,24 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     // Another kind of trip, or a later window, does not see it.
     expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'one_way', since })).not.toContain(47_000);
     expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since: new Date(clock.now().getTime() + 60_000) })).toEqual([]);
+  });
+
+  it('«جيب واحد» (k2): the fetched person id round-trips; a plain trip keeps none', async () => {
+    const r = await requests.post(
+      ids.r1,
+      PostRequestInput.parse({
+        from: { label: 'باب المعظم' },
+        to: { label: 'مستشفى الكوت', placeId: 'kut' },
+        when: new Date(clock.now().getTime() + 3 * 3600_000),
+        seats: 1,
+        travellingAs: 'aila',
+        details: { trip: 'fetch' },
+        rider: { from: 'typed', name: 'ماما', phone: '07701234567' },
+      }),
+    );
+    const back = await repo.getRequest(r.id);
+    expect(back?.fetchPersonId).toBe('p_fetch_07701234567');
+    expect(back?.details.trip).toBe('fetch');
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {

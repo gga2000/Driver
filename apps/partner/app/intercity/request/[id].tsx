@@ -9,7 +9,8 @@ import { countedKey, requestDetailLabels, rideState, seatsCount, timeWithPeriod,
 import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, stepExtraHour, suggestedOffer } from '@/features/intercity/logic';
 import { useMyRides, useOpenRequests, useRequestActions } from '@/features/intercity/queries';
 import { useNow } from '@/features/intercity/useNow';
-import { apiErrorMessage } from '@/lib/api';
+import { useRunCall } from '@/features/intercity/useRunCall';
+import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
@@ -265,7 +266,13 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
   const toast = useToast();
   const now = useNow(5_000);
   const actions = useRequestActions();
+  const client = useApiClient();
+  const caller = useRunCall();
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+  // k2 «جيب واحد»: the person at the pickup is the one fetched, not the one who booked.
+  const fetchName = ride.details.trip === 'fetch' ? (ride.rider?.name ?? t('rajaa.req_trip.fetch')) : null;
+  const callWho = fetchName ?? t('partner.ic_ride_call_rider');
+  const call = () => void caller.call(ride.id, callWho, () => client.routes.requestBoard.callPerson.mutate({ postId: ride.id }));
   const noShowOpen = ride.riderNoShowAt !== null && ride.riderNoShowAt.getTime() <= now.getTime();
   const deposit = ride.depositIqd ?? 0;
   // w2/w4: a «يستناك وترجع» trip has a waiting clock; extra waiting (when the charge is on) is cash too.
@@ -364,6 +371,36 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <StatusPill label={clock && !clock.endedAt && live ? t('rajaa.wait_title_driver') : rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
       </View>
+      {live ? (
+        <Card padding={4} testID="ride-person">
+          <View style={{ gap: theme.space[3] }}>
+            {fetchName ? (
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentTint }}>
+                  <Icon name="user" size={20} color="accentText" strokeWidth={2.2} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text variant="bodyStrong" testID="ride-fetch-for">
+                    {t('partner.ic_req_fetch_for', { name: fetchName })}
+                  </Text>
+                  <Text variant="footnote" color="textMuted">
+                    {t('partner.ic_req_fetch_note')}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+            <Button
+              testID="ride-call"
+              variant="secondary"
+              icon="phone"
+              fullWidth
+              label={fetchName ? t('partner.ic_ride_call_person', { name: fetchName }) : t('partner.ic_ride_call_rider')}
+              loading={caller.busyKey === ride.id}
+              onPress={call}
+            />
+          </View>
+        </Card>
+      ) : null}
       <TripCard post={ride} />
       {clock ? <WaitClock clock={clock} now={now} side="driver" locale={locale} testID="ride-wait-clock" /> : null}
       <Card padding={5} testID="ride-money">

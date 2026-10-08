@@ -300,6 +300,8 @@ export function requestView(
   drivers?: ReadonlyMap<string, RequestOfferDriver>,
   usualRange: UsualRange | null = null,
   waitRule: MoneyRules['requestWaitExtra'] = AZIZIYAH_MONEY_RULES.requestWaitExtra,
+  /** k2: the fetched person's name, read from the vault for the poster or the picked driver only. */
+  riderName: string | null = null,
 ): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
@@ -331,6 +333,7 @@ export function requestView(
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
     waitClock: waitClockOf(r, waitRule),
+    rider: r.fetchPersonId && riderName !== null ? { name: riderName } : null,
     createdAt: r.createdAt,
   };
 }
