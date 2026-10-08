@@ -662,7 +662,7 @@ export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
 export const OfferWaitTerms = z.object({
   includedHours: z.number().int().min(0).max(REQUEST_WAIT_HOURS_MAX),
   /** 0 = extra hours free; otherwise in multiples of 1,000 like the offer. */
-  extraHourIqd: Iqd.max(50_000),
+  extraHourIqd: Iqd.min(0).max(50_000),
 });
 export type OfferWaitTerms = z.infer<typeof OfferWaitTerms>;
 

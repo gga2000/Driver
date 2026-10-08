@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { offerNeedsWaitTerms, pricierThanUsual, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
+import { OfferWaitTerms, offerNeedsWaitTerms, pricierThanUsual, usualRangeOf, DEFAULT_REQUEST_DETAILS } from './routes-io.js';
 
 describe('the usual private-car price (p1–p3, Ali 2026-10-07)', () => {
   it('needs at least 5 finished trips; below that there is no number at all', () => {
@@ -26,5 +26,13 @@ describe('the usual private-car price (p1–p3, Ali 2026-10-07)', () => {
     expect(offerNeedsWaitTerms({ ...DEFAULT_REQUEST_DETAILS, trip: 'wait_return', waitHours: 3 })).toBe(true);
     expect(offerNeedsWaitTerms(DEFAULT_REQUEST_DETAILS)).toBe(false);
     expect(offerNeedsWaitTerms({ ...DEFAULT_REQUEST_DETAILS, trip: 'two_days' })).toBe(false);
+  });
+});
+
+describe('offer waiting terms (w1)', () => {
+  it('never takes a negative extra-hour price', () => {
+    expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: -5_000 }).success).toBe(false);
+    expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: 0 }).success).toBe(true);
+    expect(OfferWaitTerms.safeParse({ includedHours: 4, extraHourIqd: 50_001 }).success).toBe(false);
   });
 });

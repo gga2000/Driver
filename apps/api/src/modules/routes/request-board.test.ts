@@ -188,6 +188,7 @@ describe('private car round 2: waiting terms in the offer (w1), the usual price 
     );
     expect(await code(h.requests.offer('d1', wait.id, 40_000))).toBe('offer_wait_terms_invalid');
     expect(await code(h.requests.offer('d1', wait.id, 40_000, { includedHours: 4, extraHourIqd: 2_500 }))).toBe('offer_wait_terms_invalid');
+    expect(await code(h.requests.offer('d1', wait.id, 40_000, { includedHours: 4, extraHourIqd: -5_000 }))).toBe('offer_wait_terms_invalid');
     await h.requests.offer('d1', wait.id, 40_000, { includedHours: 3, extraHourIqd: 5_000 });
     await h.requests.offer('d2', wait.id, 45_000, { includedHours: 4, extraHourIqd: 0 });
     const [mine] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });

@@ -299,7 +299,8 @@ export class RequestBoardService {
       // w1: a «يستناك وترجع» offer names its waiting terms; no other trip kind carries them.
       if (offerNeedsWaitTerms(r.details) !== (wait !== undefined))
         throw new DriverError('offer_wait_terms_invalid');
-      if (wait && wait.extraHourIqd % step !== 0) throw new DriverError('offer_wait_terms_invalid');
+      // The contract already floors it at 0; checked here too because -5000 % 1000 is -0, which passes the step.
+      if (wait && (wait.extraHourIqd < 0 || wait.extraHourIqd % step !== 0)) throw new DriverError('offer_wait_terms_invalid');
       for (const o of r.offers)
         if (o.driverId === driverId && o.state === 'open') o.state = 'withdrawn';
       const offer = {
