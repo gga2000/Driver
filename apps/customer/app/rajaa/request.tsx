@@ -66,8 +66,7 @@ function RequestCard({ r }: { r: RequestPostView }) {
           </View>
           <StatusPill size="sm" tone={TONE[r.state] ?? 'neutral'} live={r.state === 'open'} label={r.waitClock && !r.waitClock.endedAt && r.state === 'driver_arrived' ? t('rajaa.wait_title_rider') : requestStateLabel(t, r.state)} />
         </View>
-        {r.rider ? <StatusPill size="sm" tone="info" icon="user" label={t('rajaa.req_for', { name: r.rider.name })} testID="rajaa-req-for" /> : null}
-        <DetailPills details={r.details} when={r.when} testID="rajaa-req-details" />
+        <DetailPills details={r.details} when={r.when} riderName={r.rider?.name ?? null} testID="rajaa-req-details" />
 
         {(r.state === 'matched' || r.state === 'driver_arrived') && picked ? (
           <View style={{ gap: theme.space[2] }}>

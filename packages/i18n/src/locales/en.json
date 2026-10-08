@@ -3870,7 +3870,7 @@
   "rajaa.req_fetch_home_label": "Aziziyah · home",
   "rajaa.req_fetch_hint": "The driver sees the name you wrote and calls the number before arriving. You pay and follow the request here.",
   "rajaa.req_fetch_missing": "Choose who to bring and where they are now",
-  "rajaa.req_for": "For {name}",
+  "rajaa.req_for": "Bring {name}",
   "rajaa.req_wait_q": "How long does he wait there?",
   "rajaa.req_hours": "{n} hours",
   "rajaa.req_hours_one": "1 hour",

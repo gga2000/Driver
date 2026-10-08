@@ -1488,8 +1488,8 @@ async function rajaaShots(personId) {
   await byTestId('req-fetch-drop-other').scrollIntoViewIfNeeded();
   await shot('rajaa-fetch-other-place');
   await byTestId('rajaa-request-submit').click();
-  await byTestId('rajaa-req-for').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('fetch: «لـ ماما» not on the posted request'));
-  await byTestId('rajaa-req-for').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+  await page.getByText('جيب ماما').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('fetch: «جيب ماما» not on the posted request'));
+  await page.getByText('جيب ماما').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
   await shot('rajaa-fetch-posted');
 
   // Home: the الرجعة card now reads the live board (and the booked trip).

@@ -3870,7 +3870,7 @@
   "rajaa.req_fetch_home_label": "العزيزية · البيت",
   "rajaa.req_fetch_hint": "السايق يشوف الاسم اللي كتبته ويتصل بالرقم قبل ما يوصل. انت تدفع وتتابع الطلب من هنا.",
   "rajaa.req_fetch_missing": "اختار منو تجيب ووين هو هسه",
-  "rajaa.req_for": "لـ {name}",
+  "rajaa.req_for": "جيب {name}",
   "rajaa.req_wait_q": "كم ساعة ينتظرك هناك؟",
   "rajaa.req_hours": "{n} ساعة",
   "rajaa.req_hours_one": "ساعة وحدة",
