@@ -79,9 +79,30 @@ node scripts/load/prepare.mjs --revoke
 `prepare.mjs` refuses any database that is not local unless `LOAD_TARGET=staging` and
 `DEPLOY_ENVIRONMENT=staging`.
 
+## Six weeks of history
+
+The launch run should hit a database that looks like week six, not day one: "my orders", menus, scorecards
+and cash caps all slow down as orders pile up. `scripts/load/history.mjs` copies real finished orders:
+
+1. Run a smoke (or longer) run with couriers, so the load test itself takes food orders all the way through
+   (placed, accepted, ridden, delivered). Wait 2 hours: orders close 2 h after delivery.
+2. `node scripts/load/history.mjs --orders 49500 --days 45` on the same database.
+
+It copies each closed order with every row it left (lines, trip, stops, offers, ETA samples, events, published
+outbox rows, ledger postings) under new ids, gives it a load customer (median 29 orders each over six weeks,
+p99 114) and a time in the past 45 days (lunch and dinner peaks, Baghdad time). Then each courier's day is
+settled (he pays the kitchens and hands the rest to ops), so nobody starts the run over a cash cap. Nothing is
+replayed: no timer is copied and the outbox rows are copied already published. Running it again only tops up
+to `--orders`. `--allow-delivered` also uses delivered orders not yet closed (local trials only).
+
+About 49,500 orders take roughly 1.5 GB, more than Supabase's free 500 MB: staging needs Pro for this.
+
+First finding (2026-10-08, locally with 2,000 copied orders): an event lookup by courier scanned the whole
+events table on every dispatch cash-cap check (home p95 1.3 s against 0.8 s). The fix is the events index
+change (migration `20261010290000_events_lookup_refs`); with it, home p95 was about 0.3–0.6 s and no query
+took over 25 ms.
+
 ## Still to come
 
-- Six weeks of history (≥ 45,000 orders, 1,500 customers weighted by how often they order) seeded before
-  the run, since "my orders", menus and history get slower as orders pile up.
 - The 1,500-sign-in spike from 3 addresses and the probe herd (1,500 clients probing `health.ping` during a
   2-minute 503 storm).
