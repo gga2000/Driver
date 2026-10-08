@@ -22,6 +22,10 @@ requireFromApi('reflect-metadata');
 const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 
 const PORT = Number(process.env.PORT ?? 3301);
+// The demo signs in many people from one address (the studio, the screenshot runs): lift the per-IP
+// and per-device OTP limits here, as the e2e run does. Real deployments keep the defaults.
+process.env.OTP_RATE_LIMIT_PER_IP_HOUR ??= '10000';
+process.env.OTP_RATE_LIMIT_PER_DEVICE_HOUR ??= '10000';
 const { createApp } = await load('bootstrap.js');
 const app = await createApp();
 // /demo/* hooks hang off one router mounted before init (Express routes added after Nest's init
