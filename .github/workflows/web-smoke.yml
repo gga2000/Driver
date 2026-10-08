@@ -1,0 +1,63 @@
+# Live check of the web apps on Vercel (docs/deploy/vercel.md, "Live check"): after every production
+# deploy Vercel reports to GitHub, and every 6 hours, a real browser opens the site and fails this run
+# (GitHub emails the repo owner) when the page is blank, throws, can't reach the API or loses its icons.
+name: Web live check
+
+on:
+  deployment_status:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  API_URL: https://driver-api-staging.fly.dev/trpc
+  CUSTOMER_URL: https://driver-customer-iota.vercel.app
+  # Set once the restaurant site's first production build exists (repo variable MERCHANT_WEB_URL).
+  MERCHANT_URL: ${{ vars.MERCHANT_WEB_URL }}
+
+jobs:
+  check:
+    name: web live check
+    # Only Vercel's production deploys that finished, or the timer / a manual run.
+    if: >-
+      github.event_name != 'deployment_status' ||
+      (github.event.deployment_status.state == 'success' && startsWith(github.event.deployment.environment, 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/deploy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install a browser
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Check
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright/index.mjs
+          DEPLOY_ENV: ${{ github.event.deployment.environment }}
+          DEPLOY_URL: ${{ github.event.deployment_status.environment_url }}
+        run: |
+          status=0
+          check() { node scripts/deploy/web-smoke.mjs "$1" "$2" --api-url "$API_URL" || status=1; }
+          if [ "$GITHUB_EVENT_NAME" = deployment_status ]; then
+            case "$DEPLOY_ENV" in
+              *driver-merchant*) check merchant "$DEPLOY_URL" ;;
+              *driver-customer*) check customer "$DEPLOY_URL" ;;
+              *) echo "not a web app deploy: $DEPLOY_ENV" ;;
+            esac
+          else
+            check customer "$CUSTOMER_URL"
+            if [ -n "$MERCHANT_URL" ]; then check merchant "$MERCHANT_URL"; else echo "MERCHANT_WEB_URL not set yet: skipping the restaurant site"; fi
+          fi
+          exit $status

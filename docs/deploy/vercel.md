@@ -33,3 +33,12 @@ The customer site is an installable web app: `apps/customer/public/index.html` (
 `public/icons/*.png`. The icons are the placeholder wordmark drawn by `apps/customer/scripts/web-icons.mjs`;
 re-run it when the brand symbol is chosen. Colours are the theme's cream `bg`;
 `src/lib/web-shell.test.ts` keeps app.json, the manifest and the tokens in step.
+
+## Live check
+
+`.github/workflows/web-smoke.yml` opens the live site in a real browser after every production deploy
+(Vercel reports it to GitHub as a deployment) and every 6 hours, using `scripts/deploy/web-smoke.mjs`:
+the page draws with no script error, the API answers a call from that origin (so a missing
+`CORS_ORIGINS` entry shows up here), and the customer manifest and icons are served. A red run emails
+the repo owner. Once the restaurant site has its address, set the repo variable `MERCHANT_WEB_URL` so
+the timed run checks it too. Run it by hand: Actions → Web live check → Run workflow.
