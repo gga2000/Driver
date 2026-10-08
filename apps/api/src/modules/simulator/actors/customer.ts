@@ -61,7 +61,8 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
   const pickupZone = zoneAt(c.home);
   const grid = RIDE_HABIT_RULES.schedule.gridMin * 60_000;
   const scheduledFor = p.bookAheadMin === null ? null : new Date(Math.ceil((ctx.t + p.bookAheadMin * 60_000) / grid) * grid);
-  const quote = ctx.s.pricing.quote(
+  // The app's `pricing.quote`: a kept quote the order (and its trip) reference (LOAD-01).
+  const quote = await ctx.s.pricing.keepQuote(
     PriceRequest.parse({ cityId: CITY, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: p.dropoffZone, type: 'dropoff' }], at: scheduledFor ?? new Date(ctx.t) }),
   );
   const order = await ctx.call('customer.place', () =>

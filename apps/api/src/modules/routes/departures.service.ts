@@ -14,7 +14,11 @@ import {
   type SeatPayment,
   type TravellingAs,
   type RajaaRatingTag,
+  type ReviewHideReason,
+  reviewTextProblem,
+  type VehicleModelKey,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -85,6 +89,15 @@ const TRAIL_MAX = 300;
 export interface PinVerdict {
   result: PinAttemptResult;
   matched: BookingRecord | null;
+}
+
+/**
+ * The car's name as riders, pushes, SOS and share pages read it: a listed model by its Iraqi name
+ * («النترا»), `other` (or a pre-list client) by what the driver typed.
+ */
+export function vehicleModelText(modelKey: VehicleModelKey | undefined, typed: string | undefined): string | null {
+  if (modelKey && modelKey !== 'other') return t(`vehicle.model_${modelKey}`, undefined, 'ar-IQ');
+  return typed?.trim() || null;
 }
 
 /**
@@ -343,8 +356,12 @@ export class DeparturesService {
         vehicle: {
           kind: input.vehicle.kind,
           plate: input.vehicle.plate,
-          model: input.vehicle.model ?? null,
+          modelKey: input.vehicle.modelKey ?? null,
+          model: vehicleModelText(input.vehicle.modelKey, input.vehicle.model),
           color: input.vehicle.color ?? null,
+          noSmoking: input.vehicle.noSmoking ?? false,
+          ac: input.vehicle.ac ?? false,
+          bigBags: input.vehicle.bigBags ?? false,
         },
         familyOnly: input.familyOnly,
         seatPriceIqd: corridor.seatPriceIqd,
@@ -916,17 +933,75 @@ export class DeparturesService {
     });
   }
 
-  /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
-  /** «شلون كانت الرجعة؟» (joy r2): once, on the rider's own completed booking. */
-  rate(riderId: string, bookingId: string, rating: { stars: number; tags: readonly RajaaRatingTag[] }): Promise<BookingRecord> {
+  /**
+   * «شلون كانت الرجعة؟» (joy r2): once, on the rider's own completed booking — stars, chips and (x14)
+   * an optional line that other riders read on the driver's profile. A line carrying a phone number,
+   * link or handle is refused whole, so nothing is half-saved.
+   */
+  rate(
+    riderId: string,
+    bookingId: string,
+    rating: { stars: number; tags: readonly RajaaRatingTag[]; comment?: string | undefined },
+  ): Promise<BookingRecord> {
+    const text = rating.comment?.trim() || null;
+    if (text && reviewTextProblem(text)) throw new DriverError('review_contact_info');
     return this.writer.run(async (tx) => {
       const b = await this.ownBooking(riderId, bookingId, tx);
       if (b.state !== 'completed' || b.rating) throw new DriverError('booking_state_conflict');
-      b.rating = { stars: rating.stars, tags: [...new Set(rating.tags)], at: this.now() };
+      const now = this.now();
+      b.rating = { stars: rating.stars, tags: [...new Set(rating.tags)], at: now };
+      b.review = text ? { text, at: now, hiddenAt: null, hiddenBy: null, hiddenReason: null } : null;
       await this.repo.saveBooking(b, tx);
+      const dep = await this.departure(b.departureId, tx);
+      await this.emit(tx, 'seat.rated', riderId, dep, {
+        bookingId: b.id,
+        driverId: dep.driverId,
+        stars: b.rating.stars,
+        tags: b.rating.tags,
+        withReview: text !== null,
+      });
       return b;
     });
   }
+
+  /** Ops (Console «كلام الركاب»): take a review off the driver's profile. The text is kept; the hide is an event. */
+  hideReview(staffId: string, bookingId: string, reason: ReviewHideReason): Promise<BookingRecord> {
+    return this.writer.run(async (tx) => {
+      const b = await this.repo.getBooking(bookingId, tx);
+      if (!b?.review) throw new DriverError('review_not_found');
+      if (b.review.hiddenAt) return b;
+      b.review = { ...b.review, hiddenAt: this.now(), hiddenBy: staffId, hiddenReason: reason };
+      await this.repo.saveBooking(b, tx);
+      await this.emit(tx, 'review.hidden', staffId, await this.departure(b.departureId, tx), { bookingId: b.id, reason });
+      return b;
+    });
+  }
+
+  /** Ops: put a hidden review back. */
+  unhideReview(staffId: string, bookingId: string): Promise<BookingRecord> {
+    return this.writer.run(async (tx) => {
+      const b = await this.repo.getBooking(bookingId, tx);
+      if (!b?.review) throw new DriverError('review_not_found');
+      if (!b.review.hiddenAt) return b;
+      b.review = { ...b.review, hiddenAt: null, hiddenBy: null, hiddenReason: null };
+      await this.repo.saveBooking(b, tx);
+      await this.emit(tx, 'review.unhidden', staffId, await this.departure(b.departureId, tx), { bookingId: b.id });
+      return b;
+    });
+  }
+
+  /**
+   * Whether a finished run was on time, by the same garage meter that pays waiting riders: on time
+   * when the driver's minutes (late check-in, unless waived at a checkpoint, plus sitting past the hard
+   * latest time) stayed within the meter's grace. Null when the run has no garage check-in to judge.
+   */
+  runOnTime(dep: DepartureRecord): boolean | null {
+    if (!dep.driverCheckIn || !dep.departedAt) return null;
+    const meter = driverMeter(dep, dep.departedAt, this.waiver.waives(dep, this.corridor(dep.corridorId)));
+    return meter.minutes <= this.money.lateMeter.graceMin;
+  }
+
+  /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
 
   imHere(
     riderId: string,

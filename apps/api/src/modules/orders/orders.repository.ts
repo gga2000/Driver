@@ -486,9 +486,16 @@ export class PrismaOrdersRepository implements OrdersRepository {
   }
 
   async forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]> {
+    // SCALE-02: an OR across orders and participants makes Postgres scan every order. A UNION lets
+    // each half use its own index (orders by orderer, participants by person); the rows then load by id.
+    const ids = await this.db(tx).$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "public"."orders" WHERE "orderer_id" = ${personId}
+      UNION
+      SELECT "order_id" FROM "public"."participants" WHERE "person_id" = ${personId}`;
+    if (ids.length === 0) return [];
     const rows = await this.db(tx).order.findMany({
-      where: { OR: [{ ordererId: personId }, { participants: { some: { personId } } }] },
-      orderBy: { placedAt: 'desc' },
+      where: { id: { in: ids.map((r) => r.id) } },
+      orderBy: [{ placedAt: 'desc' }, { id: 'desc' }],
     });
     return rows.map(orderFromRow);
   }
@@ -679,7 +686,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const viaParticipant = new Set(this.participants.filter((p) => p.personId === personId).map((p) => p.orderId));
     return [...this.orders.values()]
       .filter((o) => o.ordererId === personId || viaParticipant.has(o.id))
-      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
+      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime() || b.id.localeCompare(a.id))
       .map((o) => ({ ...o }));
   }
 

@@ -210,5 +210,6 @@ earlier: edge-case decisions line 36 ("evening-before scheduled rides"), review 
 - Added from the screenshots: `RegularTripView.booked` (days booked and still ahead), so a ride booked from a
   regular trip shows its route on any phone; checkout says «بعد وصولك · 4:55» instead of «وياك» when the
   kitchen can't make his arrival; the الرجعة tiles resolve the driver's photo URL (they showed initials).
-- Deviations: no evening-before pre-assignment of booked rides (decision 1); the الرجعة board keeps its time
+- Deviations: no evening-before pre-assignment of booked rides (decision 1) — built on 2026-10-07, see
+  `2026-10-07-evening-before-rides.md`; the الرجعة board keeps its time
   order (the favourite's car is badged, and first only in a regular trip's day).

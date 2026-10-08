@@ -4,6 +4,9 @@ import type { RestaurantCard } from '@driver/contracts';
 export interface RestaurantSummary {
   id: string;
   name: string;
+  /** With `pickup` and `minOrderIqd`: what the basket needs to start an order here (`cartMerchantOf`). */
+  cityId: string;
+  pickup: RestaurantCard['pickup'];
   /** Short cuisine line under the name. */
   cuisine: string;
   zoneId: string | null;
@@ -39,6 +42,8 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
   return {
     id: card.id,
     name: card.name,
+    cityId: card.cityId,
+    pickup: card.pickup,
     cuisine: card.cuisine,
     zoneId: card.pickup?.zoneKey ?? null,
     rating: card.rating?.avg ?? null,

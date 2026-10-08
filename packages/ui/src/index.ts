@@ -9,10 +9,15 @@ export { ICONS, ICON_NAMES, MIRRORED, type IconName } from './icons/paths';
 export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } from './icons/GlyphShapes';
 
 // Illustration: the Aziziyah sketchbook (joy J4)
-export { SKETCH } from './art/kit';
+export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
+// The Date & Saffron pictures Ali approved (services, empty and status screens).
+export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
 export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
+// Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.
+export { CornerFill, DotHalo, DownFill, MeshFill, StarPattern, STAR_TILE, SkyBackdrop, useDriftClock } from './art/decor';
+export { TeaGlass, type TeaGlassProps } from './art/tea';
 
 // Motion
 export { usePressScale, useSelectSpring, usePulse, AnimatedPressable } from './motion/motion';
@@ -38,6 +43,8 @@ export { Badge, type BadgeProps } from './components/Badge';
 export { StatusPill, STATUS_TONES, type StatusPillProps, type StatusTone } from './components/StatusPill';
 export { Timeline, stepStates, type TimelineProps, type TimelineStep, type StepState } from './components/Timeline';
 export { SeatMap, SeatLegend, type SeatMapProps } from './components/SeatMap';
+export { CarSeatArt, type CarSeatArtProps } from './components/CarSeatArt';
+export { MeterBar, StatStrip, type MeterBarProps, type StatStripItem } from './components/StatStrip';
 export { CountdownRing, type CountdownRingProps } from './components/CountdownRing';
 export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { Skeleton, type SkeletonProps } from './components/Skeleton';
@@ -45,6 +52,7 @@ export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from 
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
+export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
 export { SlideToConfirm, type SlideToConfirmProps, type SlideTone } from './components/SlideToConfirm';
 export { CountdownButton, type CountdownButtonProps } from './components/CountdownButton';
@@ -97,6 +105,7 @@ export * from './logic/voice-note';
 export * from './logic/sos';
 export * from './logic/photo-fallback';
 export * from './logic/voice';
+export * from './logic/sky';
 export * from './format';
 
 // Phase 3 "الخردة علينا" (cash at the door): the big-key amount pad.
@@ -106,6 +115,7 @@ export { SegmentRing, type SegmentRingProps } from './components/SegmentRing';
 export { ringArcs, RING_MAX_SEGMENTS, type RingArc } from './logic/ring';
 // Phase 3 · garage board (customer audit d-2): the departure-board time
 export { DepartureTime, type DepartureTimeProps, type DepartureTimeSize, type DepartureTimeTone } from './components/DepartureTime';
+export { RollingDigits, type RollingDigitsProps } from './components/RollingDigits';
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';

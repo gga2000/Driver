@@ -438,22 +438,28 @@ model ParticipantIdentity {
 
 /// Every read of an identifier, by whom and why. Append-only like the ledger.
 model VaultAccessLog {
-  id         String   @id @default(cuid())
-  personId   String   @map("person_id")
-  accessorId String   @map("accessor_id")
-  purpose    String
+  id           String   @id @default(cuid())
+  personId     String   @map("person_id")
+  /// The person who read, when the reader is a person (accessorKind 'person'); null otherwise.
+  accessorId   String?  @map("accessor_id")
+  /// 'person', or the kind of a synthetic reader: 'system' (system:notify, system:safety…), 'share_link', 'sos_link'…
+  accessorKind String   @default("person") @map("accessor_kind")
+  /// A synthetic reader's id as the code names it ("system:notify", "share:<linkId>"); null for a person.
+  accessorRef  String?  @map("accessor_ref")
+  purpose      String
   /// Which columns were read, e.g. ["phone_e164","name"].
-  fieldsRead String[] @default([]) @map("fields_read")
+  fieldsRead   String[] @default([]) @map("fields_read")
   /// Set when the read was a child's identity (vault.child_identities.id); personId is then the guardian.
-  childRef   String?  @map("child_ref")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  childRef     String?  @map("child_ref")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  subject  Person @relation("VaultSubject", fields: [personId], references: [id])
-  accessor Person @relation("VaultAccessor", fields: [accessorId], references: [id])
+  subject  Person  @relation("VaultSubject", fields: [personId], references: [id])
+  accessor Person? @relation("VaultAccessor", fields: [accessorId], references: [id], onDelete: Restrict)
 
   @@index([personId, createdAt])
   @@index([accessorId, createdAt])
+  @@index([accessorRef, createdAt])
   @@map("vault_access_logs")
   @@schema("identity_vault")
 }
@@ -926,6 +932,8 @@ model Quote {
   shadowTotalIqd Int       @map("shadow_total_iqd")
   request        Json
   parentQuoteId  String?   @map("parent_quote_id")
+  /// Until when an order may take this quote (LOAD-01: `pricing.quote` keeps what it hands out).
+  expiresAt      DateTime? @map("expires_at")
   lockedAt       DateTime? @map("locked_at")
   acceptedAt     DateTime? @map("accepted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -936,6 +944,7 @@ model Quote {
   order      Order?
 
   @@index([cityId, vertical, createdAt])
+  @@index([expiresAt])
   @@map("quotes")
   @@schema("public")
 }
@@ -1195,6 +1204,7 @@ model Participant {
   seats         Seat[]
 
   @@index([orderId])
+  @@index([personId])
   @@index([phoneHash])
   @@map("participants")
   @@schema("public")
@@ -1811,6 +1821,15 @@ model SeatBooking {
   movedToBookingId   String?          @map("moved_to_booking_id")
   /// Joy r2: the rider's rating after the trip {stars, tags, at}; null = not rated.
   rating             Json?
+  /// x14 «كلمة عن السفرة»: the rider's one line with the rating, public on the driver's profile (no
+  /// name) unless ops hid it. Hiding keeps the text; the hide is logged as an event.
+  reviewText         String?          @map("review_text")
+  reviewAt           DateTime?        @map("review_at")
+  reviewHiddenAt     DateTime?        @map("review_hidden_at")
+  /// Staff person id who hid it.
+  reviewHiddenBy     String?          @map("review_hidden_by")
+  /// rude | personal_info | not_about_trip | untrue
+  reviewHiddenReason String?          @map("review_hidden_reason")
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -1818,6 +1837,7 @@ model SeatBooking {
 
   @@index([departureId, state])
   @@index([riderId, state])
+  @@index([reviewAt])
   @@map("seat_bookings")
   @@schema("public")
 }
@@ -1894,6 +1914,10 @@ model RideRequest {
   privateCar       Boolean          @default(true) @map("private_car")
   travellingAs     TravellingAs     @map("travelling_as")
   note             String?
+  /// y1: {trip, waitHours, returnAt, bigBags, carKind, ac} (RequestDetails)
+  details          Json             @default("{}")
+  /// y4: drivers who opened the request (ids only; the rider sees the count)
+  seenDriverIds    String[]         @default([]) @map("seen_driver_ids")
   state            RideRequestState @default(open)
   /// rider | stranded (opened by the platform at the seat price, review C-40/46)
   origin           String           @default("rider")
@@ -2626,6 +2650,47 @@ model Outbox {
   @@index([status, nextAttemptAt, createdAt])
   @@index([aggregate, aggregateId])
   @@map("outbox")
+  @@schema("public")
+}
+
+enum TimerStatus {
+  pending
+  fired
+  failed
+
+  @@schema("public")
+}
+
+/// Durable timers (plan W4, SCALE-08/09, OPS-03): every delayed job (auto-reject, courier release,
+/// household auto-cancel, nightly close…) is a row written in the caller's transaction. BullMQ only
+/// fires it sooner; the sweeper (`apps/api/src/shared/timers`) claims due rows with a lease and
+/// `SKIP LOCKED`, retries with backoff and marks them fired, so losing Redis only delays a timer.
+/// `data` holds ids only, never personal data.
+model ScheduledTimer {
+  id           String      @id @default(cuid())
+  /// The queue whose handler runs it (`orders.timers`, `dispatch`, …).
+  queue        String
+  /// Job name inside the queue (`order.autoReject`, …).
+  name         String
+  /// Same id as the BullMQ job: scheduling it again while pending is a no-op.
+  jobId        String?     @map("job_id")
+  data         Json
+  status       TimerStatus @default(pending)
+  dueAt        DateTime    @map("due_at")
+  attempts     Int         @default(0)
+  maxAttempts  Int         @default(5) @map("max_attempts")
+  /// A sweeper holds the row until then; past it, another sweeper may claim it (a crashed worker).
+  claimedUntil DateTime?   @map("claimed_until")
+  claimedBy    String?     @map("claimed_by")
+  firedAt      DateTime?   @map("fired_at")
+  lastError    String?     @map("last_error")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@unique([queue, jobId])
+  @@index([status, dueAt])
+  @@index([status, firedAt])
+  @@map("scheduled_timers")
   @@schema("public")
 }
 

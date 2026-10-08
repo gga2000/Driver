@@ -1,6 +1,8 @@
 # Driver (درايفر) CI — plan docs/plans/2026-10-02-milestone-2-platform-core.md, Step 9.
-# One job against real Postgres+PostGIS and Redis service containers. How to read a failure and how to
-# run the same thing locally with docker compose: docs/ci.md.
+# Two jobs, both against real Postgres+PostGIS and Redis service containers: `ci` (migrate, lint,
+# typecheck, tests, build, smoke, simulate) and `e2e-postgres` (the built API on Postgres, five core
+# flows, every error attributed to a flow, with the known-failures ratchet). How to read a failure and
+# how to run the same thing locally: docs/ci.md.
 name: CI
 
 on:
@@ -17,7 +19,8 @@ permissions:
 
 jobs:
   verify:
-    name: migrate · lint · typecheck · test · build · smoke · simulate
+    # The required check's name (migrate · lint · typecheck · test · build · smoke · simulate).
+    name: ci
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -69,6 +72,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+
+      - name: Migration timestamps (scripts/ci/check-migrations.mjs)
+        # Pull requests only: a migration this PR adds must not share a timestamp or be older than the
+        # newest one on the base branch. On push to main it was already checked in its PR.
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          node scripts/ci/check-migrations.mjs --base "origin/${GITHUB_BASE_REF}"
 
       - name: Enable pnpm (corepack, version from package.json "packageManager")
         run: |
@@ -168,4 +179,133 @@ jobs:
           path: |
             api.log
             simulation.log
+          if-no-files-found: ignore
+
+  # W0 "Postgres truth": the BUILT API on real Postgres + Redis, driven over HTTP by
+  # scripts/e2e/realdb-core.mjs (sign-in, food place, SOS, ride with a quote, share link with a driver).
+  # Every error the API logs is pinned on a flow by its x-request-id prefix (or its order / trip /
+  # incident / person ids); a failing flow passes only while it is listed in
+  # scripts/e2e/known-failures.json, and a listed flow that passes fails the job (the list only shrinks).
+  e2e-postgres:
+    name: e2e-postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: driver
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d driver"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/driver
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/driver_shadow
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-dummy-jwt-secret-not-used-anywhere-else
+      JWT_KID: ci
+      PHONE_HASH_PEPPER: ci-only-dummy-pepper
+      SMS_PROVIDER: fake
+      TURBO_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      # The seeded admin the flows sign in as to grant roles and dispatch (seed.ts `SEED_ADMIN_PHONE`).
+      SEED_ADMIN_PHONE: '07700000099'
+      E2E_ADMIN_PHONE: '07700000099'
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm (corepack, version from package.json "packageManager")
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+          pnpm --version
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages (prisma generate with real engines)
+        run: pnpm turbo run build --filter='./packages/*'
+
+      - name: Migrate (prisma migrate deploy)
+        run: pnpm db:migrate
+
+      - name: Seed (with the admin the flows use)
+        run: pnpm db:seed
+
+      - name: Build API
+        run: pnpm turbo run build --filter=@driver/api
+
+      - name: Core flows on Postgres (scripts/e2e/realdb-core.mjs)
+        env:
+          NODE_ENV: test
+          LOG_FORMAT: json
+          PORT: '3999'
+          # Nine sign-ins from one address in a few seconds.
+          OTP_RATE_LIMIT_PER_IP_HOUR: '10000'
+          OTP_RATE_LIMIT_PER_DEVICE_HOUR: '10000'
+          E2E_API_URL: http://localhost:3999
+          E2E_API_LOG: api.log
+        run: |
+          : > api.log
+          node apps/api/dist/main.js >> api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          body=''
+          for _ in $(seq 1 60); do
+            if body=$(curl -fsS http://localhost:3999/trpc/health.ping 2>/dev/null); then break; fi
+            body=''
+            sleep 0.5
+          done
+          if [ -z "$body" ] || ! echo "$body" | jq -e '.result.data.json.db == "ok"' > /dev/null; then
+            echo "::error title=e2e-postgres::the API never answered health.ping with db: ok"
+            echo "$body"
+            cat api.log
+            exit 1
+          fi
+          echo "$body" | jq -c '.result.data.json'
+          node scripts/e2e/realdb-core.mjs
+
+      - name: Upload API log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-postgres-api-log
+          path: api.log
           if-no-files-found: ignore

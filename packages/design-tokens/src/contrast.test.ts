@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
-import { contrastPairs, minFontSize, nonTextPairs, themes, type, type ThemeName } from './tokens.js';
+import { contrastPairs, liveStages, minFontSize, nonTextPairs, services, themes, type, type ThemeName } from './tokens.js';
 
 describe('contrastRatio', () => {
   it('matches the WCAG reference values', () => {
@@ -33,6 +33,51 @@ describe.each(Object.keys(themes) as ThemeName[])('%s theme: 3:1 for every bound
       throw new Error(`${name}: ${pair.fg} ${theme[pair.fg]} against ${pair.bg} ${theme[pair.bg]} is ${ratio.toFixed(2)}:1 (< 3:1) — used for ${pair.use}`);
     }
     expect(ratio).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service tiles read (Date & Saffron)', (name) => {
+  const p = services[name];
+  const fills = (k: keyof typeof p): string[] => {
+    const s = p[k];
+    return [s.fill, ...('light' in s ? [s.light] : []), ...('mesh' in s ? s.mesh : [])];
+  };
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s: its title and live fact pass AA on every stop of the fill', (k) => {
+    for (const ink of [p[k].on, p[k].sub].filter((x): x is string => !!x)) {
+      for (const fill of fills(k)) {
+        const ratio = contrastRatio(ink, fill);
+        if (ratio < 4.5) throw new Error(`${name}: ${k} ${ink} on ${fill} is ${ratio.toFixed(2)}:1 (< 4.5:1)`);
+        expect(ratio).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+  it('the tuktuk is not the error red, and no two services share a fill', () => {
+    expect(p.tuktuk.fill).not.toBe(themes[name].danger);
+    const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill];
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe.each(Object.keys(liveStages) as ThemeName[])('%s theme: every stage of the live-order card reads', (name) => {
+  const p = liveStages[name];
+  const ratio = (fg: string, bg: string, min: number, what: string) => {
+    const r = contrastRatio(fg, bg);
+    if (r < min) throw new Error(`${name}: ${what} ${fg} on ${bg} is ${r.toFixed(2)}:1 (< ${min}:1)`);
+    expect(r).toBeGreaterThanOrEqual(min);
+  };
+  it.each(Object.keys(p) as (keyof typeof p)[])('%s: AA text, 3:1 bar and mark, on both stops of the card', (k) => {
+    const s = p[k];
+    for (const bg of [s.fill, s.light]) {
+      ratio(s.on, bg, 4.5, `${k} title`);
+      ratio(s.sub, bg, 4.5, `${k} name and time words`);
+      ratio(s.accent, bg, 3, `${k} bar`);
+      ratio(s.marker, bg, 3, `${k} mark`);
+    }
+    ratio(s.markerOn, s.marker, 3, `${k} mark icon`);
+  });
+  it('no two stages share a colour', () => {
+    const all = Object.values(p).map((s) => s.fill);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 

@@ -1,6 +1,10 @@
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { describe, expect, it } from 'vitest';
 import { LEDGER_SUBSCRIBED_EVENTS } from './ledger.subscribers.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
+
+/** The rules once Ali approves the invite amounts (M-5): the referral switch on, nothing else changed. */
+const referralOn = { ...AZIZIYAH_MONEY_RULES, referral: { ...AZIZIYAH_MONEY_RULES.referral, enabled: true } };
 
 const at = new Date('2026-10-03T12:00:00Z');
 const day = (d: number) => new Date(Date.UTC(2026, 9, d, 12));
@@ -64,8 +68,16 @@ describe('ledger subscribers', () => {
     expect((await h.ledger.balance('customer:c1')).amount).toBe(-16000);
   });
 
-  it('referral unlocks on the referee’s second completed cash order ≥ 10,000; wallet and small orders do not count', async () => {
+  it('referral pays nothing while the money-rule switch is off (THIN-18, M-5 not approved yet)', async () => {
     const h = ledgerHarness();
+    expect(AZIZIYAH_MONEY_RULES.referral.enabled).toBe(false);
+    for (const n of [1, 2, 3]) await h.posting.orderClosed(workedExample({ orderId: `off-${n}`, customerId: 'b', referredBy: 'a', itemsSubtotalIqd: 20000, occurredAt: day(3) }));
+    expect((await h.ledger.eventsFor('points:a')).some((e) => e.type === 'referral_bonus')).toBe(false);
+    expect((await h.ledger.eventsFor('points:b')).some((e) => e.type === 'referral_bonus')).toBe(false);
+  });
+
+  it('referral unlocks on the referee’s second completed cash order ≥ 10,000; wallet and small orders do not count', async () => {
+    const h = ledgerHarness({ rules: referralOn });
     const order = (id: string, items: number, over = {}) => workedExample({ orderId: id, customerId: 'b', referredBy: 'a', itemsSubtotalIqd: items, occurredAt: day(3), ...over });
     await h.posting.orderClosed(order('b1', 12000));
     await h.posting.orderClosed(order('b2', 7000)); // 8,500 paid < 10,000
@@ -80,7 +92,7 @@ describe('ledger subscribers', () => {
   });
 
   it('referrer monthly cap: the 11th referee this month still gets 200, the referrer does not; next month resets', async () => {
-    const h = ledgerHarness();
+    const h = ledgerHarness({ rules: referralOn });
     const unlock = async (referee: string, d: Date) => {
       for (const n of [1, 2]) await h.posting.orderClosed(workedExample({ orderId: `${referee}-${n}`, customerId: referee, referredBy: 'a', occurredAt: d }));
     };

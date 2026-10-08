@@ -169,6 +169,17 @@ export const Trip = z.object({
 });
 export type Trip = z.infer<typeof Trip>;
 
+/**
+ * The order a courier works the jobs he holds: the order he took them (`acceptedAt`, which trips keeps
+ * strictly increasing per courier), then the trip id. Batching plans his pickups in this order (dispatch
+ * reads it when checking the hot-wait and detour rules), and the Partner app and the simulator drive them
+ * in it — one route, the one that was checked.
+ */
+export function jobOrder<T extends Pick<Trip, 'id' | 'acceptedAt'>>(trips: readonly T[]): T[] {
+  const at = (t: T) => t.acceptedAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  return [...trips].sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 // ───────────────────────── procedure I/O ─────────────────────────
 
 export const TripIdInput = z.object({ tripId: z.string().min(1) });

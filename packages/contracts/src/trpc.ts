@@ -45,7 +45,8 @@ import { transformer } from './transformer.js';
  * internals. The API supplies the implementation through `AppContext`.
  */
 export interface AppContext {
-  pricing: { quote(req: PriceRequest): Quote };
+  /** The quote a client may book with: kept server-side for a while (LOAD-01), hence async. */
+  pricing: { quote(req: PriceRequest): Quote | Promise<Quote> };
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
