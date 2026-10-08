@@ -168,6 +168,7 @@ export default function HoldAndPay() {
           <Rule style={{ marginVertical: theme.space[2] }} />
           <PriceLine label={t('rajaa.line_seats', { n: b.seatIds.length, amount: amountParam(b.seatPriceIqd) })} amount={seatsTotal} />
           {b.frontPremiumIqd > 0 ? <PriceLine label={t('rajaa.line_front')} amount={b.frontPremiumIqd} /> : null}
+          {b.lapChildren > 0 ? <FreeLine label={t('rajaa.line_lap', { n: b.lapChildren })} /> : null}
           {b.pickupFeeIqd > 0 ? (
             <PriceLine
               label={b.pickup.kind === 'door' ? t('rajaa.line_pickup_door') : b.pickup.kind === 'pin' ? t('rajaa.line_pickup_pin') : t('rajaa.line_pickup_way')}
@@ -180,6 +181,8 @@ export default function HoldAndPay() {
           ) : b.dropoff ? (
             <FreeLine label={t('rajaa.line_dropoff_door')} />
           ) : null}
+          {/* Step 5: priced by the server when his seat the other way is still booked; locked at «ثبّت». */}
+          {b.returnDiscountIqd > 0 ? <PriceLine testID="rajaa-hold-return" label={t('rajaa.line_return_bundle')} amount={-b.returnDiscountIqd} /> : null}
           <PriceLine label={t('rajaa.total')} amount={b.totalIqd} strong />
           {b.pickup.kind === 'pin' || b.dropoff ? <AgreedNote /> : null}
           {b.pickup.status === 'pending' ? (

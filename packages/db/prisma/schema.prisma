@@ -1813,6 +1813,12 @@ model SeatBooking {
   /// {kind, meetingPointId?, lat, lng, note?, feeIqd, status, detourMin?}
   pickup             Json
   largeBags          Boolean          @default(false) @map("large_bags")
+  /// Step 5: small children riding free on a lap (one per seat, never the front seat).
+  lapChildren        Int              @default(0) @map("lap_children")
+  /// Step 5: the return-trip discount on this booking (off the total); 0 = none.
+  returnDiscountIqd  Int              @default(0) @map("return_discount_iqd")
+  /// Step 5: the rider's booking the other way on the same road this one is paired with.
+  returnPairId       String?          @map("return_pair_id")
   heldUntil          DateTime?        @map("held_until")
   bookedAt           DateTime?        @map("booked_at")
   /// Rider's "أني بالكراج" inside the garage geofence: blocks a no-show (review C-32).

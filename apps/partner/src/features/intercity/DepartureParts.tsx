@@ -123,7 +123,7 @@ export function RiderRow({
             {`${name} · ${seatsList(t, booking.seatIds)}`}
           </Text>
           <Text variant="caption" color="textMuted" numberOfLines={2} tabular>
-            {[paymentLabel(t, booking), pickupLabel(t, booking), dropLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null].filter(Boolean).join(' · ')}
+            {[paymentLabel(t, booking), pickupLabel(t, booking), dropLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null, booking.lapChildren > 0 ? t('partner.ic_lap', { n: booking.lapChildren }) : null].filter(Boolean).join(' · ')}
           </Text>
         </View>
         <StatusPill label={statusLabel(t, s, booking)} tone={STATUS_TONE[s]} size="sm" live={s === 'late'} />

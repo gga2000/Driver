@@ -427,6 +427,21 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     }
   });
 
+  it('step 5: a return pair with its discount and a lap child round-trip; cancelling the first seat drops the pair', async () => {
+    const paired = new DeparturesService(repo, events, wallet, clock, writer, requests, INTERCITY_NETWORK, INTERCITY_RULES, { ...AZIZIYAH_MONEY_RULES, intercityReturnBundle: { enabled: true, percent: 10, fundedBy: 'platform' } }, new TrailCheckpointWaiver(), randomIds);
+    const vehicle = { kind: 'saloon' as const, layout: 4 as const, plate: 'واسط 5' };
+    const out = await paired.announce(ids.driver, AnnounceInput.parse({ garageId: 'mp_garage_bab1', corridorId: 'aziziyah_baghdad', departAt: at(2400), latestDepartureAt: at(2430), vehicle }));
+    const back = await paired.announce(ids.d2, AnnounceInput.parse({ garageId: 'mp_garage_nahdha', corridorId: 'aziziyah_baghdad', departAt: at(2700), latestDepartureAt: at(2730), vehicle }));
+    const seat = (departureId: string, lapChildren = 0) =>
+      HoldSeatInput.parse({ departureId, selection: { kind: 'seats', seatIds: ['back_left', 'back_right'] }, travellingAs: 'aila', lapChildren });
+    const there = await paired.book(ids.r1, (await paired.hold(ids.r1, seat(out.id, 1))).id, 'cash');
+    const home = await paired.book(ids.r1, (await paired.hold(ids.r1, seat(back.id))).id, 'cash');
+    expect(await repo.getBooking(there.id)).toMatchObject({ lapChildren: 1, returnDiscountIqd: 0, returnPairId: home.id });
+    expect(await repo.getBooking(home.id)).toMatchObject({ lapChildren: 0, returnDiscountIqd: 2_000, returnPairId: there.id });
+    await paired.cancel(ids.r1, there.id);
+    expect(await repo.getBooking(home.id)).toMatchObject({ returnDiscountIqd: 0, returnPairId: null });
+  });
+
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
     // A second writer stands in for a second API machine: its own in-process mutex, the same database,
     // so only the transaction's advisory lock keeps «seen» and «pick» apart. Its reads are slowed, so

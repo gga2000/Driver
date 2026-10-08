@@ -3,6 +3,7 @@ import {
   AZIZIYAH_MONEY_RULES,
   HoldSeatInput,
   type IntercitySeatId,
+  type MoneyRules,
   type PickupChoice,
   type SeatPayment,
   type TravellingAs,
@@ -39,7 +40,7 @@ export const NAHDHA = INTERCITY_NETWORK.garages.find((g) => g.id === 'mp_garage_
  * 15:00 Baghdad). Shared by the unit tests.
  */
 export function routesHarness(
-  opts: { start?: string; rules?: Partial<IntercityRules>; waiver?: CheckpointWaiver } = {},
+  opts: { start?: string; rules?: Partial<IntercityRules>; waiver?: CheckpointWaiver; money?: Partial<MoneyRules> } = {},
 ) {
   const clock = new FakeClock(opts.start ?? '2026-10-03T12:00:00Z');
   const repo = new InMemoryRoutesRepository();
@@ -71,7 +72,7 @@ export function routesHarness(
     requests,
     INTERCITY_NETWORK,
     rules,
-    AZIZIYAH_MONEY_RULES,
+    { ...AZIZIYAH_MONEY_RULES, ...opts.money },
     opts.waiver ?? new TrailCheckpointWaiver(),
     ids,
   );

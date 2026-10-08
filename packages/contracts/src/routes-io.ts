@@ -388,6 +388,14 @@ export type IntercityBoard = z.infer<typeof IntercityBoard>;
 
 // ───────────────────────── bookings ─────────────────────────
 
+/** Step 5: most children on laps in one booking (and never more than its seats other than the front). */
+export const LAP_CHILDREN_MAX = 3;
+
+/** Step 5: lap children a booking of these seats may carry: one per seat, the front seat none. */
+export function lapChildrenAllowed(seatIds: readonly IntercitySeatId[]): number {
+  return Math.min(LAP_CHILDREN_MAX, seatIds.filter((s) => s !== 'front').length);
+}
+
 export const SeatSelection = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('seats'), seatIds: z.array(IntercitySeatId).min(1).max(7) }),
   /** "Book the row". */
@@ -406,6 +414,11 @@ export const HoldSeatInput = z.object({
   largeBags: z.boolean().default(false),
   /** Step 4: a door drop at the agreed price. */
   dropoff: AgreementIdInput.optional(),
+  /**
+   * Step 5 (Ali's item 52): small children riding on a lap, free. At most one per booked seat, never on
+   * the front seat; the driver sees them on his list.
+   */
+  lapChildren: z.number().int().min(0).max(LAP_CHILDREN_MAX).default(0),
 });
 export type HoldSeatInput = z.input<typeof HoldSeatInput>;
 
@@ -503,6 +516,20 @@ export const BookingView = z.object({
   pickupFeeIqd: Iqd,
   /** Step 4: the agreed door drop's price (0 without one); in `totalIqd`. */
   dropoffFeeIqd: Iqd.default(0),
+  /**
+   * Step 5: the return-trip discount on this booking (taken off `totalIqd`). On a hold it is what booking
+   * now would give (his seat the other way is still booked); on a booking it is locked with its pair.
+   */
+  returnDiscountIqd: Iqd.default(0),
+  /** Step 5: the booking the other way this one is paired with (null: none). */
+  returnPairBookingId: z.string().nullable().default(null),
+  /**
+   * Step 5: booking a seat back on this road now takes this percent off both (switch on, this seat is
+   * booked, unpaired, and its car has not left); null otherwise. Labels only: the server prices it.
+   */
+  returnOfferPercent: z.number().int().nullable().default(null),
+  /** Step 5: small children riding free on a lap. */
+  lapChildren: z.number().int().nonnegative().default(0),
   totalIqd: Iqd,
   payment: SeatPayment.nullable(),
   prepaid: z.boolean(),
@@ -1157,6 +1184,8 @@ export const DriverBookingRow = z.object({
   /** Step 4: the agreed door drop, or null (the destination garage). */
   dropoff: DropoffView.nullable().default(null),
   largeBags: z.boolean(),
+  /** Step 5: small children riding free on a lap. */
+  lapChildren: z.number().int().nonnegative().default(0),
   atGarage: z.boolean(),
   checkedInAt: z.coerce.date().nullable(),
   /** Minutes on this rider's late meter now (null: not running). */
@@ -1400,7 +1429,8 @@ export interface RoutesPort {
   network(): Promise<IntercityNetwork>;
   board(actor: Actor, input: BoardInput): Promise<IntercityBoard>;
   // customer
-  holdSeat(actor: Actor, input: z.infer<typeof HoldSeatInput>): Promise<BookingView>;
+  /** Step 5: in-server callers (a habit's rebooking) may leave `lapChildren` out (none). */
+  holdSeat(actor: Actor, input: Omit<z.infer<typeof HoldSeatInput>, 'lapChildren'> & { lapChildren?: number }): Promise<BookingView>;
   bookSeat(actor: Actor, input: BookSeatInput): Promise<BookingView>;
   cancelSeat(actor: Actor, input: BookingIdInput): Promise<BookingView>;
   myBookings(actor: Actor): Promise<BookingView[]>;

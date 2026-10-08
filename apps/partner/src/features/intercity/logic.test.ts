@@ -50,6 +50,7 @@ function row(over: Partial<DriverBookingRow> & { bookingId: string }): DriverBoo
     pickup: { kind: 'garage', meetingPointId: null, nameAr: 'كراج البوابة ١', lat: GARAGE.lat, lng: GARAGE.lng, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
     dropoff: null,
     largeBags: false,
+    lapChildren: 0,
     atGarage: false,
     checkedInAt: null,
     meterMinutes: null,

@@ -341,6 +341,8 @@ export const ERROR_TABLE = {
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
   // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
   cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  /** Step 5: more children on laps than the booking's seats allow (one per seat, none on the front seat). */
+  lap_children_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   seat_cancel_too_late: { retryHint: 'never', status: 'CONFLICT' },
   pin_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   walkup_seat_taken: { retryHint: 'never', status: 'CONFLICT' },

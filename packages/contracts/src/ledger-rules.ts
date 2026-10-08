@@ -236,6 +236,20 @@ export const MoneyRules = z.object({
    */
   requestCashReservation: z.object({ enabled: z.boolean() }).default({ enabled: false }),
   /**
+   * Step 5 (Ali's price item 51, 2026-10-07): a الرجعة seat and the seat back on the same road, booked
+   * before the first car leaves, each take `percent` off the seat price (seats only, not the front
+   * premium or pickup and drop fees), rounded down to 250. `fundedBy` platform: the driver is still
+   * paid on the full seat and the company covers the discount; driver: the fare itself is lower.
+   * Off until Ali switches it on: no pair is made and every seat costs the full price.
+   */
+  intercityReturnBundle: z
+    .object({
+      enabled: z.boolean(),
+      percent: z.number().int().min(1).max(50),
+      fundedBy: z.enum(['platform', 'driver']),
+    })
+    .default({ enabled: false, percent: 10, fundedBy: 'platform' }),
+  /**
    * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
    * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
    * company, not the rider. Ali said "yes" on 2026-10-07. It applies whether or not the seat hold
@@ -304,6 +318,8 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   requestWaitExtra: { enabled: false, freeMin: 15 },
   // Step 4b a6: built 2026-10-08, off until Ali switches it on.
   requestCashReservation: { enabled: false },
+  // Step 5 item 51: built 2026-10-08, off until Ali switches it on (who funds it: his card, platform recommended).
+  intercityReturnBundle: { enabled: false, percent: 10, fundedBy: 'platform' },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").
   lateTaxiPaysMeter: { enabled: true },
 });

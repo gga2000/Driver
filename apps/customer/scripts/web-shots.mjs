@@ -17,6 +17,8 @@
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
 //   cash-*   step 4b «احجز وادفع كاش» on a private car: owed first, the ask, waiting, his yes on the
 //            offer, the panel with the no-show line, booked with no deposit     POST /demo/rajaa/cash
+//   return-* step 5: the way-back offer on the pass, the board and seat screen of the way back (a child
+//            on the lap), the hold with the saving, the paired pass            POST /demo/rajaa/return
 //   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
 //            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
@@ -135,7 +137,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'agree', 'cash', 'return', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -271,6 +273,7 @@ try {
   if (wants('rajaa')) await rajaaShots(personId);
   if (wants('agree')) await agreeShots(personId);
   if (wants('cash')) await cashShots(personId);
+  if (wants('return')) await returnShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
   if (wants('topup')) await topupShots();
@@ -1324,6 +1327,39 @@ async function cashShots(personId) {
   await show('rajaa-cash-accepted', 'cash-accepted');
   await byTestId('rajaa-cash-book').click();
   await show('rajaa-req-deposit', 'cash-matched');
+}
+
+/**
+ * Step 5 «رايح وراجع» (docs/api/return-bundle.md): a cash seat out to Baghdad; its pass offers the way back
+ * for 10 % off both seats; the board and the seat screen back say so; he adds a child on his lap (free),
+ * holds (the server's saving shows), books, and the pass says what he saved.
+ */
+async function returnShots(personId) {
+  if (!personId) throw new Error('return: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  const { bookingId, backDepartureIds } = await demoPost(`/demo/rajaa/return?${q}`);
+  const show = async (testId, name) => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(600);
+    await shot(name);
+  };
+  await page.goto(`${origin}/rajaa/pass/${bookingId}`, LOADED);
+  await show('rajaa-return-offer', 'return-offer');
+  await byTestId('rajaa-return-offer-cta').click();
+  await page.waitForURL(/\/rajaa(\?|$)/, { timeout: 15_000 });
+  await byTestId('rajaa-return-strip').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('return-board');
+  await page.goto(`${origin}/rajaa/departure/${backDepartureIds[0]}?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
+  await byTestId('rajaa-lap').waitFor({ timeout: 20_000 });
+  await byTestId('rajaa-lap').locator('[data-testid="stepper-inc"]').click();
+  await show('rajaa-lap', 'return-lap');
+  await show('rajaa-quote', 'return-quote');
+  await byTestId('rajaa-hold').click();
+  await show('rajaa-hold-return', 'return-hold');
+  await byTestId('rajaa-confirm').click();
+  await show('rajaa-return-paired', 'return-paired');
 }
 
 /**

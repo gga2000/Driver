@@ -151,6 +151,12 @@ export interface BookingRecord {
   pin: string;
   pickup: PickupRecord;
   largeBags: boolean;
+  /** Step 5: small children riding free on a lap; absent = 0. */
+  lapChildren?: number;
+  /** Step 5: the return-trip discount (off the total); absent = 0. */
+  returnDiscountIqd?: number;
+  /** Step 5: the rider's booking the other way it is paired with; absent/null = none. */
+  returnPairId?: string | null;
   heldUntil: Date | null;
   bookedAt: Date | null;
   atGarageAt: Date | null;
@@ -298,12 +304,21 @@ export const OPEN_DEPARTURE: readonly IntercityDepartureState[] = ['scheduled', 
 export const FINISHED_RUN: readonly IntercityDepartureState[] = ['arrived', 'closed'];
 
 export function bookingTotal(
-  b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd' | 'dropoffFeeIqd'>,
+  b: Pick<
+    BookingRecord,
+    'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd' | 'dropoffFeeIqd' | 'returnDiscountIqd'
+  >,
 ): number {
   return (
     b.seatIds.length * b.seatPriceIqd +
     (b.seatIds.includes('front') ? b.frontPremiumIqd : 0) +
     b.pickupFeeIqd +
-    (b.dropoffFeeIqd ?? 0)
+    (b.dropoffFeeIqd ?? 0) -
+    (b.returnDiscountIqd ?? 0)
   );
+}
+
+/** Step 5: the return-trip discount on `seats` seats at `seatPriceIqd`: `percent` off, rounded down to 250. */
+export function returnDiscount(seats: number, seatPriceIqd: number, percent: number): number {
+  return Math.floor((seats * seatPriceIqd * percent) / 100 / 250) * 250;
 }

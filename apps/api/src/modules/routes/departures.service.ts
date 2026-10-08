@@ -5,6 +5,7 @@ import {
   encodeDomainEvent,
   HoldSeatInput,
   isDomainEventType,
+  lapChildrenAllowed,
   type IntercitySeatId,
   type MoneyRules,
   type PickupChoice,
@@ -44,6 +45,7 @@ import {
 } from './late-meter.js';
 import {
   bookingTotal,
+  returnDiscount,
   LIVE,
   OCCUPYING,
   OPEN_DEPARTURE,
@@ -63,7 +65,8 @@ import { ROUTES_WALLET, type WalletPort } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
 type Announce = z.output<typeof AnnounceInput>;
-type Hold = z.output<typeof HoldSeatInput>;
+/** Step 5: `lapChildren` may be left out by in-server callers (rebooking a habit) and means none. */
+type Hold = Omit<z.output<typeof HoldSeatInput>, 'lapChildren'> & { lapChildren?: number };
 
 /** Fill of a departure as the board and the T−30 rule read it. */
 export interface Fill {
@@ -828,6 +831,7 @@ export class DeparturesService {
         pickup: input.pickup,
         dropoff: input.dropoff ?? null,
         largeBags: input.largeBags,
+        lapChildren: input.lapChildren,
         origin: 'rider',
         state: 'held',
       });
@@ -889,6 +893,10 @@ export class DeparturesService {
       if (b.state === 'booked' && b.payment === payment) return b;
       if (b.state !== 'held') throw new DriverError('booking_state_conflict');
       this.requireState(dep, OPEN_DEPARTURE);
+      // Step 5: paired with his seat the other way (if it is still booked), at this moment's price.
+      const back = await this.returnPartner(tx, b, dep);
+      const pair = back ? this.pairDiscount(b, dep, back.b, back.dep) : null;
+      b.returnDiscountIqd = pair?.mine ?? 0;
       const total = bookingTotal(b);
       if (payment === 'wallet') {
         if ((await this.walletAvailable(riderId, tx, b.id)) < total)
@@ -907,6 +915,12 @@ export class DeparturesService {
       b.state = 'booked';
       b.bookedAt = this.now();
       b.heldUntil = null;
+      if (back && pair) {
+        b.returnPairId = back.b.id;
+        back.b.returnPairId = b.id;
+        back.b.returnDiscountIqd = pair.theirs;
+        await this.repo.saveBooking(back.b, tx);
+      }
       await this.repo.saveBooking(b, tx);
       await this.emit(tx, 'seat.booked', riderId, dep, {
         bookingId: b.id,
@@ -916,6 +930,13 @@ export class DeparturesService {
         trusted: b.trusted,
         totalIqd: total,
       });
+      if (back && pair)
+        await this.emit(tx, 'seat.return_paired', riderId, dep, {
+          bookingId: b.id,
+          pairBookingId: back.b.id,
+          discountIqd: pair.mine + pair.theirs,
+          discountedBookingId: pair.mine > 0 ? b.id : back.b.id,
+        });
       return b;
     });
   }
@@ -944,6 +965,7 @@ export class DeparturesService {
       }
       b.state = 'cancelled_by_rider';
       b.cancelledAt = this.now();
+      await this.dropPair(tx, b, 'rider_cancelled');
       await this.repo.saveBooking(b, tx);
       await this.emit(tx, 'seat.cancelled', riderId, dep, {
         bookingId: b.id,
@@ -1235,6 +1257,7 @@ export class DeparturesService {
     const now = this.now();
     b.state = 'no_show';
     b.noShowAt = now;
+    await this.dropPair(tx, b, 'no_show');
     await this.repo.saveBooking(b, tx);
     if (b.prepaid) {
       // Domain §2: the driver keeps a prepaid no-show's fare (ledger `seat.no_show`).
@@ -1372,6 +1395,8 @@ export class DeparturesService {
         b.state = 'moved';
         b.movedToBookingId = moved.id;
         await this.repo.saveBooking(b, tx);
+        // Step 5: the pair follows the seat to its new car.
+        await this.repointPair(tx, b, moved.id);
         await this.emit(tx, 'seat.moved', 'system', dep, {
           bookingId: b.id,
           riderId: b.riderId,
@@ -1386,6 +1411,8 @@ export class DeparturesService {
       } else {
         b.state = 'cancelled';
         b.cancelledAt = now;
+        // Step 5: a rider who missed his car loses the pair; a car we cancelled does not cost him it.
+        if (origin === 'forfeit_hold') await this.dropPair(tx, b, 'forfeited');
         await this.repo.saveBooking(b, tx);
         const corridor = this.corridor(dep.corridorId);
         await this.emit(tx, 'intercity.rider_stranded', 'system', dep, {
@@ -1524,12 +1551,16 @@ export class DeparturesService {
       /** Step 4: an accepted door-drop agreement. */
       dropoff?: { agreementId: string } | null;
       largeBags: boolean;
+      /** Step 5: children on a lap (free). */
+      lapChildren?: number;
       origin: BookingRecord['origin'];
       demandPostId?: string;
       state: 'held';
     },
   ): Promise<BookingRecord> {
     this.requireState(dep, OPEN_DEPARTURE);
+    const lapChildren = spec.lapChildren ?? 0;
+    if (lapChildren > lapChildrenAllowed(spec.seatIds)) throw new DriverError('lap_children_invalid');
     const now = this.now();
     if (now.getTime() >= dep.latestDepartureAt.getTime())
       throw new DriverError('departure_state_conflict');
@@ -1576,6 +1607,9 @@ export class DeparturesService {
       pin: this.uniquePin(bookings),
       pickup,
       largeBags: spec.largeBags,
+      lapChildren,
+      returnDiscountIqd: 0,
+      returnPairId: null,
       heldUntil: new Date(now.getTime() + this.rules.holdMin * MIN_MS),
       bookedAt: null,
       atGarageAt: null,
@@ -1589,6 +1623,9 @@ export class DeparturesService {
       movedToBookingId: null,
       createdAt: now,
     };
+    // Step 5: the price a booking now would get (locked with its pair at «ثبّت»).
+    const back = await this.returnPartner(tx, b, dep);
+    if (back) b.returnDiscountIqd = this.pairDiscount(b, dep, back.b, back.dep).mine;
     await this.repo.saveBooking(b, tx);
     await this.emit(tx, 'seat.held', spec.riderId, dep, {
       bookingId: b.id,
@@ -1757,6 +1794,7 @@ export class DeparturesService {
     seatId: IntercitySeatId,
     first: boolean,
   ): Record<string, unknown> {
+    const discount = this.discountSplit(b);
     return {
       seatId: `${b.id}.${seatId}`,
       departureId: dep.id,
@@ -1764,10 +1802,110 @@ export class DeparturesService {
       customerId: b.riderId,
       payment: b.payment === 'wallet' ? 'wallet' : 'cash',
       driverId: dep.driverId,
-      fareIqd: b.seatPriceIqd + (first ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) : 0),
+      fareIqd: b.seatPriceIqd + (first ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) - discount.driver : 0),
       frontPremiumIqd: seatId === 'front' ? b.frontPremiumIqd : 0,
       walkUp: false,
+      platformDiscountIqd: first ? discount.platform : 0,
     };
+  }
+
+  /**
+   * Step 5: who pays this booking's return discount. Company-funded: all of it. Driver-funded: each
+   * driver gives up his own seat's share only, so the company still covers the other car's share that
+   * rides on this (the later) seat.
+   */
+  private discountSplit(b: BookingRecord): { platform: number; driver: number } {
+    const d = b.returnDiscountIqd ?? 0;
+    if (d === 0) return { platform: 0, driver: 0 };
+    const r = this.money.intercityReturnBundle;
+    if (r.fundedBy === 'platform') return { platform: d, driver: 0 };
+    const own = Math.min(d, returnDiscount(b.seatIds.length, b.seatPriceIqd, r.percent));
+    return { platform: d - own, driver: own };
+  }
+
+  // ───────────────────────── step 5: return bundle ─────────────────────────
+
+  /**
+   * Booking a seat back on this road now takes this percent off the pair: the switch is on, `b` is
+   * booked, not paired yet, and its car has not left. Null otherwise.
+   */
+  returnOfferPercent(dep: DepartureRecord, b: BookingRecord): number | null {
+    const r = this.money.intercityReturnBundle;
+    if (!r.enabled || b.state !== 'booked' || b.returnPairId) return null;
+    return OPEN_DEPARTURE.includes(dep.state) ? r.percent : null;
+  }
+
+  /**
+   * The rider's seat the other way on the same road that `b` pairs with: booked (or checked in) on a car
+   * that has not left, not paired yet, on another departure. The nearest in time wins. Null when the
+   * switch is off or there is none.
+   */
+  private async returnPartner(
+    tx: Tx,
+    b: BookingRecord,
+    dep: DepartureRecord,
+  ): Promise<{ b: BookingRecord; dep: DepartureRecord } | null> {
+    if (!this.money.intercityReturnBundle.enabled) return null;
+    const mine = await this.repo.bookingsOfRider(b.riderId, ['booked', 'checked_in'], tx);
+    let best: { b: BookingRecord; dep: DepartureRecord } | null = null;
+    for (const o of mine) {
+      if (o.id === b.id || o.returnPairId || o.departureId === dep.id) continue;
+      const od = await this.repo.getDeparture(o.departureId, tx);
+      if (!od || od.corridorId !== dep.corridorId || od.direction === dep.direction) continue;
+      if (!OPEN_DEPARTURE.includes(od.state)) continue;
+      const gap = Math.abs(od.departAt.getTime() - dep.departAt.getTime());
+      if (!best || gap < Math.abs(best.dep.departAt.getTime() - dep.departAt.getTime())) best = { b: o, dep: od };
+    }
+    return best;
+  }
+
+  /**
+   * The pair's discount (both seats' `percent`, each rounded down to 250) rides whole on the seat that
+   * leaves later: if the first trip is cancelled or missed before it runs, the later one simply goes
+   * back to full price, and nothing given on a trip already ridden is ever taken back.
+   */
+  private pairDiscount(
+    b: BookingRecord,
+    dep: DepartureRecord,
+    o: BookingRecord,
+    od: DepartureRecord,
+  ): { mine: number; theirs: number } {
+    const pct = this.money.intercityReturnBundle.percent;
+    const d = returnDiscount(b.seatIds.length, b.seatPriceIqd, pct) + returnDiscount(o.seatIds.length, o.seatPriceIqd, pct);
+    return dep.departAt.getTime() >= od.departAt.getTime() ? { mine: d, theirs: 0 } : { mine: 0, theirs: d };
+  }
+
+  /**
+   * `b` ends without riding (rider cancel, no-show, missed car): its own discount goes, and its pair loses
+   * the discount too unless that seat already boarded.
+   */
+  private async dropPair(tx: Tx, b: BookingRecord, reason: 'rider_cancelled' | 'no_show' | 'forfeited'): Promise<void> {
+    b.returnDiscountIqd = 0;
+    if (!b.returnPairId) return;
+    const o = await this.repo.getBooking(b.returnPairId, tx);
+    b.returnPairId = null;
+    if (!o || o.returnPairId !== b.id) return;
+    o.returnPairId = null;
+    // A seat that already boarded keeps what it was given; nothing ridden is taken back.
+    const was = o.state === 'booked' || o.state === 'held' ? (o.returnDiscountIqd ?? 0) : 0;
+    if (was > 0) o.returnDiscountIqd = 0;
+    await this.repo.saveBooking(o, tx);
+    if (was > 0)
+      await this.emit(tx, 'seat.return_unpaired', 'system', await this.departure(o.departureId, tx), {
+        bookingId: o.id,
+        pairBookingId: b.id,
+        reason,
+        discountIqd: was,
+      });
+  }
+
+  /** A paired seat moved to another car: its pair now points at the new booking. */
+  private async repointPair(tx: Tx, from: BookingRecord, toId: string): Promise<void> {
+    if (!from.returnPairId) return;
+    const o = await this.repo.getBooking(from.returnPairId, tx);
+    if (!o || o.returnPairId !== from.id) return;
+    o.returnPairId = toId;
+    await this.repo.saveBooking(o, tx);
   }
 
   /** Review C-33: walk-up share > 60 % over the driver's last five departures flags a garage check. */

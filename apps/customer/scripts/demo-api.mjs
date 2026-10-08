@@ -734,6 +734,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 //   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
 //   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
+//   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1095,6 +1096,44 @@ const rajaa = await (async () => {
       const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
       const booked = await deps.book(personId, held.id, 'wallet');
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/return?personId=… — step 5 «رايح وراجع» (demo switch on): a cash seat on a car to
+  // Baghdad in 3 h and two cars back from النهضة later today, so the pass offers the way back for 10 %.
+  let returnSeq = 0;
+  app.use('/demo/rajaa/return', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/return?personId=…' });
+      deps.money = { ...deps.money, intercityReturnBundle: { enabled: true, percent: 10, fundedBy: 'platform' } };
+      const n = (++returnSeq).toString(36).toUpperCase();
+      const at = (min) => new Date(Math.ceil((Date.now() + min * MIN) / (5 * MIN)) * 5 * MIN);
+      const out = await deps.announce(`drv_RTO${n}`, {
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(180),
+        latestDepartureAt: at(210),
+        vehicle: { ...saloon('63411 واسط', 'النترا', 'رصاصي'), ac: true },
+        familyOnly: false,
+      });
+      const back = [];
+      for (const [i, min] of [420, 480].entries()) {
+        const dep = await deps.announce(`drv_RTB${n}${i}`, {
+          garageId: 'mp_garage_nahdha',
+          corridorId: 'aziziyah_baghdad',
+          departAt: at(min),
+          latestDepartureAt: at(min + 30),
+          vehicle: { ...saloon(i === 0 ? '52817 بغداد' : '47205 واسط', i === 0 ? 'كورولا' : 'سوناتا', 'بيضاء'), ac: true },
+          familyOnly: false,
+        });
+        back.push(dep.id);
+      }
+      const held = await deps.hold(personId, { departureId: out.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'aila', pickup: { kind: 'garage' }, largeBags: false, lapChildren: 0 });
+      const booked = await deps.book(personId, held.id, 'cash');
+      json(res, 200, { departureId: out.id, bookingId: booked.id, backDepartureIds: back });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

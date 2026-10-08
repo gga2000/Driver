@@ -115,6 +115,11 @@ export const SeatMoneyPayload = z.object({
   frontPremiumIqd: Iqd.nonnegative().default(0),
   /** Walk-up seats carry no commission at launch (domain §2). */
   walkUp: z.boolean().default(false),
+  /**
+   * Step 5: the return-trip discount the company pays (`intercityReturnBundle.fundedBy` platform), on
+   * the booking's first seat. The driver is paid the full fare; the rider is charged this much less.
+   */
+  platformDiscountIqd: Iqd.nonnegative().default(0),
 });
 export type SeatMoneyPayload = z.input<typeof SeatMoneyPayload>;
 

@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { IntercityDirection, IntercityRow, IntercitySeatId, PickupChoice } from '@driver/contracts';
+import { lapChildrenAllowed, type IntercityDirection, type IntercityRow, type IntercitySeatId, type PickupChoice } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import {
   Button,
@@ -46,7 +46,9 @@ import {
 } from '@/features/rajaa/logic';
 import { OptionCard, Section } from '@/features/rajaa/Option';
 import { BagSwitch, BlockedLine, PickupTiles, WayPointRow, type PickupKind, type PickupTile } from '@/features/rajaa/SeatParts';
-import { garageName, useBoard, useDriverCards, useHoldSeat, useMyAgreements, useNetwork } from '@/features/rajaa/queries';
+import { garageName, useBoard, useDriverCards, useHoldSeat, useMyAgreements, useMyBookings, useNetwork } from '@/features/rajaa/queries';
+import { returnOfferFor } from '@/features/rajaa/return-bundle';
+import { LapChildRow, ReturnBundleStrip } from '@/features/rajaa/ReturnParts';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -80,6 +82,8 @@ export default function BookSeat() {
   const [pickup, setPickup] = useState<Pickup>({ kind: 'garage' });
   const [doorNote, setDoorNote] = useState('');
   const [largeBags, setLargeBags] = useState(false);
+  /** Step 5: small children on a lap (free). */
+  const [lap, setLap] = useState(0);
   const [blocked, setBlocked] = useState<'adjacency' | 'family_only' | null>(null);
   /** Step 4: the agreed door drop he books with; null = the garage. */
   const [drop, setDrop] = useState<string | null>(null);
@@ -91,6 +95,9 @@ export default function BookSeat() {
   const driverCard = useDriverCards(dep ? [dep.id] : []).data?.get(dep?.id ?? '');
   const garage = network.data?.garages.find((g) => g.id === dep?.garageId) ?? null;
   const agreements = useMyAgreements(dep?.id);
+  const mine = useMyBookings();
+  // Optional: when the read fails there is simply no offer line (the server prices the pair anyway).
+  const returnOffer = mine.isError ? null : returnOfferFor(mine.data, corridorId, direction);
   const pinPhase = agreementPhase(agreements.data, 'pin_pickup');
   const doorPhase = agreementPhase(agreements.data, 'door_drop');
   const pinDeal = pinPhase.phase === 'agreed' ? pinPhase.agreement : null;
@@ -179,6 +186,9 @@ export default function BookSeat() {
     pickup.kind === 'meeting_point' ? (mp?.feeIqd ?? 0) : pickup.kind === 'door' ? (doorFee ?? 0) : pickup.kind === 'pin' ? (pinDeal?.amountIqd ?? 0) : 0;
   const dropFee = drop && doorDeal ? (doorDeal.amountIqd ?? 0) : 0;
   const quote = dep ? quoteSelection(seatIds, dep, pickupFee, dropFee) : null;
+  // Step 5: one child on a lap per seat, none on the front seat; fewer seats trim the count.
+  const lapMax = lapChildrenAllowed(seatIds);
+  const lapChildren = Math.min(lap, lapMax);
   const toCity = dep ? cityName(t, dep.toCityId) : '';
   /** Step 4: the pin screen opens on the road (the first meeting point) or at the far garage. */
   const askFor = (kind: 'pin_pickup' | 'door_drop') => {
@@ -217,6 +227,7 @@ export default function BookSeat() {
         pickup: choice,
         ...(drop ? { dropoff: { agreementId: drop } } : {}),
         largeBags,
+        lapChildren,
       },
       {
         onSuccess: (b) => router.replace({ pathname: '/rajaa/booking/[id]', params: { id: b.id } }),
@@ -320,6 +331,7 @@ export default function BookSeat() {
         </View>
       }
     >
+      {returnOffer ? <ReturnBundleStrip percent={returnOffer.percent} outAt={returnOffer.booking.departure.departAt} /> : null}
       {/* The car, at a glance. */}
       <Card padding={4} elevation={0}>
         <View style={{ gap: theme.space[2] }}>
@@ -464,6 +476,7 @@ export default function BookSeat() {
           </View>
         )}
         <BagSwitch value={largeBags} onChange={setLargeBags} />
+        <LapChildRow value={lapChildren} max={lapMax} onChange={setLap} />
       </Section>
 
       <Section title={t('rajaa.drop_title')} testID="rajaa-drop">
@@ -502,6 +515,7 @@ export default function BookSeat() {
             </Text>
             <PriceLine label={t('rajaa.line_seats', { n: quote.seats, amount: amountParam(quote.seatPriceIqd) })} amount={quote.baseIqd} />
             {quote.frontIqd > 0 ? <PriceLine label={t('rajaa.line_front')} amount={quote.frontIqd} /> : null}
+            {lapChildren > 0 ? <FreeLine label={t('rajaa.line_lap', { n: lapChildren })} testID="rajaa-quote-lap" /> : null}
             {quote.pickupIqd > 0 ? (
               <PriceLine
                 label={pickup.kind === 'door' ? t('rajaa.line_pickup_door') : pickup.kind === 'pin' ? t('rajaa.line_pickup_pin') : t('rajaa.line_pickup_way')}

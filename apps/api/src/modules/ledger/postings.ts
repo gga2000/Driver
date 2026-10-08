@@ -309,7 +309,7 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
 
 // ───────────────────────── intercity seats ─────────────────────────
 
-/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch. */
+/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch; a company-paid return discount is `promo_funded`. */
 export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostings {
   const s = SeatMoneyPayload.parse(input);
   const b = new GroupBuilder(`seat:${s.seatId}:money`, 'money', s.occurredAt, { departureId: s.departureId, routeId: s.routeId });
@@ -322,7 +322,10 @@ export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostin
   b.add('commission_accrued', seatTake, driver, Accounts.platform, 'take:intercity_seat');
   b.add('seat_premium', s.frontPremiumIqd, payer, driver, 'front');
   b.add('commission_accrued', premiumTake, driver, Accounts.platform, 'take:front_seat_premium');
-  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd, Accounts.cash(s.driverId), rules);
+  // Step 5: the return-trip discount the company pays comes off what the rider owes, not the driver's fare.
+  if (s.platformDiscountIqd > s.fareIqd) throw new RangeError(`return discount ${s.platformDiscountIqd} is more than the seat fare ${s.fareIqd}`);
+  b.add('promo_funded', s.platformDiscountIqd, Accounts.platform, payer, 'return_bundle');
+  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd - s.platformDiscountIqd, Accounts.cash(s.driverId), rules);
   return { money: b.build(), takeIqd: seatTake + premiumTake, totalIqd: total };
 }
 

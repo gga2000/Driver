@@ -18,7 +18,8 @@ import { DinnerCard, FavouriteToggle } from '@/features/ride-habits/Cards';
 import { useDinnerChance, useFavourites } from '@/features/ride-habits/queries';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { SosControl } from '@/features/safety/SosControl';
-import { cancelRule, clockLabel, boardingOpensAt, endpoints, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
+import { cancelRule, clockLabel, boardingOpensAt, endpoints, flip, haversineM, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
+import { ReturnBundleCard, ReturnPairedLine } from '@/features/rajaa/ReturnParts';
 import { ShareMomentButton } from '@/features/share-card/ShareMomentButton';
 import { currentLocation } from '@/features/rajaa/location';
 import { garageName, useBoardingPass, useBooking, useCancelSeat, useDriverCards, useImHere, useMyBookings, useNetwork } from '@/features/rajaa/queries';
@@ -284,13 +285,18 @@ export default function BoardingPassScreen() {
         </View>
         <Perforation />
         <View style={{ padding: theme.space[5], flexDirection: 'row', flexWrap: 'wrap', rowGap: theme.space[4], columnGap: theme.space[3] }}>
-          <Field icon="seat" label={t('rajaa.seat_label')} value={seatsList(t, b.seatIds)} />
+          <Field icon="seat" label={t('rajaa.seat_label')} value={b.lapChildren > 0 ? `${seatsList(t, b.seatIds)} · ${t('rajaa.line_lap', { n: b.lapChildren })}` : seatsList(t, b.seatIds)} />
           <Field icon={atPoint ? 'map-pin' : 'garage'} label={atPoint ? t('rajaa.stop_label') : t('rajaa.garage_label')} value={stopName} />
           {b.dropoff ? (
             <Field icon="home" label={t('rajaa.drop_label')} value={b.dropoff.note ?? (toCity ? t('rajaa.agree_door_title', { city: cityName(t, toCity) }) : t('rajaa.agree_ask_door'))} />
           ) : null}
           <Field icon="wallet" label={t('rajaa.payment_label')} value={`${prepayLabel(t, p?.prepayRail ?? (b.prepaid ? 'wallet' : 'cash_reservation'))} · ${iqd(b.totalIqd, { locale })}`} />
         </View>
+        {b.returnPairBookingId ? (
+          <View style={{ paddingHorizontal: theme.space[5], paddingBottom: theme.space[4] }}>
+            <ReturnPairedLine savedIqd={b.returnDiscountIqd} />
+          </View>
+        ) : null}
         <Perforation />
         <RajaaDriver dep={b.departure} card={driverCard} size="lg" eyebrow record={{ departureId: b.departure.id, line: true }} testID="rajaa-pass-driver" style={{ padding: theme.space[5], paddingBottom: theme.space[3] }} />
         {b.pickup.status === 'pending' ? (
@@ -338,6 +344,13 @@ export default function BoardingPassScreen() {
       <GarageTaxiCard bookingId={b.id} />
       <ArmedRideCard bookingId={b.id} />
 
+      {/* Step 5: before his car leaves, the way back booked now takes the percent off both seats. */}
+      {b.returnOfferPercent !== null ? (
+        <ReturnBundleCard
+          percent={b.returnOfferPercent}
+          onPress={() => router.push({ pathname: '/rajaa', params: { corridor: b.departure.corridorId, direction: flip(b.departure.direction) } })}
+        />
+      ) : null}
       {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching}
           unknown={
             <QueryBoundary query={me} size="inline" skeleton={<Skeleton height={44} radius={12} />} testID="rajaa-watching-read">

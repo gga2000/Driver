@@ -32,4 +32,5 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010250000 | request_wait_clock | trips thread | private car round 2 step 2 |
 | 20261010280000 | request_fetch_person | trips thread | private car round 2 step 3 |
 | 20261010300000 | trip_agreed_items | trips thread | private car round 2 step 4 (agreed prices) |
+| 20261010320000 | seat_return_bundle | trips thread | private car round 2 step 5 (return bundle + lap children) |
 | 20261011090000 | store_closed_until | merchant thread | #19 |
