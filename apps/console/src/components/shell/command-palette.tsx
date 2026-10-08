@@ -105,6 +105,7 @@ function PaletteBody({ onClose, onShortcuts }: { onClose: () => void; onShortcut
   const items = useMemo<CommandItem[]>(() => {
     const out: CommandItem[] = [];
     for (const g of visibleNav(roles, loaded)) {
+      const group = g.key ? t(g.key) : undefined;
       for (const item of g.items)
         out.push({
           id: `p:${item.href}`,
@@ -112,8 +113,8 @@ function PaletteBody({ onClose, onShortcuts }: { onClose: () => void; onShortcut
           label: t(item.key),
           href: item.href,
           icon: item.icon,
-          keywords: [t(g.key)],
-          hint: t(g.key),
+          keywords: group ? [group] : [],
+          hint: group,
         });
     }
     out.push(
