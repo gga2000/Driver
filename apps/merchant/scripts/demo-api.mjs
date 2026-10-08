@@ -45,6 +45,10 @@ const { DispatchService } = await load('modules/dispatch/index.js');
 const { LedgerService, Accounts } = await load('modules/ledger/index.js');
 const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
 
+// CORE-05 (minimum app version): merchant builds below 0.0.2 are too old here, so a dev-tools web
+// export opened with `?demoBuild=0.0.1` gets `update_required` and shows «حدّث التطبيق»
+// (shots: SHOTS=app-version). Real builds (0.1.0 and up) and the plain web app are never refused.
+process.env.MIN_APP_VERSIONS ??= 'merchant:0.0.2';
 const app = await createApp();
 /**
  * Demo hooks live in one table so sections can add them after `app.init()` (Nest closes the router

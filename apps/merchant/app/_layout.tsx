@@ -1,7 +1,7 @@
 import { router, Stack, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { Linking, Platform, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,7 +14,9 @@ import { MerchantRuntime } from '@/features/runtime/MerchantRuntime';
 import { newCount as countNew } from '@/features/board/logic';
 import { useBoard } from '@/features/board/queries';
 import { useCurrentStore } from '@/features/store/queries';
+import { UpdateRequired } from '@/features/update/UpdateRequired';
 import { ApiProvider } from '@/lib/api';
+import { isUpdateRequired, subscribeUpdateRequired } from '@/lib/app-version';
 import { SystemBanner } from '@/components/SystemBanner';
 import { SUPPORT_PHONE } from '@/lib/env';
 import { crashReporter, startCrashReports } from '@/lib/crash';
@@ -49,6 +51,8 @@ export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   const { locale } = usePrefs();
   const { width } = useWindowDimensions();
+  // CORE-05: the server refused this build; nothing else mounts (no queries, no live stream) until a restart.
+  const updateRequired = useSyncExternalStore(subscribeUpdateRequired, isUpdateRequired, isUpdateRequired);
 
   useEffect(() => {
     void session.hydrate();
@@ -69,16 +73,23 @@ export default function RootLayout() {
         <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a frozen tablet. */}
           <CrashScreenBoundary locale={locale}>
-            <CounterToasts bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
-              <ApiProvider>
+            {updateRequired ? (
+              <>
                 <StatusBar style="dark" />
-                {/* Launch status banner from the Console (system.banner), above every screen. */}
-                <SheetDefaults>
-                  <SystemBanner />
-                  <RootNavigator />
-                </SheetDefaults>
-              </ApiProvider>
-            </CounterToasts>
+                <UpdateRequired />
+              </>
+            ) : (
+              <CounterToasts bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
+                <ApiProvider>
+                  <StatusBar style="dark" />
+                  {/* Launch status banner from the Console (system.banner), above every screen. */}
+                  <SheetDefaults>
+                    <SystemBanner />
+                    <RootNavigator />
+                  </SheetDefaults>
+                </ApiProvider>
+              </CounterToasts>
+            )}
           </CrashScreenBoundary>
         </ThemeProvider>
       </SafeAreaProvider>

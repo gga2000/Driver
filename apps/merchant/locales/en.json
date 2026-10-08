@@ -1475,5 +1475,8 @@
   "merchant.who.auto_reject": "missed {time}",
   "merchant.who.ready": "readied by {who} {time}",
   "merchant.who.extend": "time added by {who} {time}",
-  "merchant.who.hand_over": "handed over by {who} {time}"
+  "merchant.who.hand_over": "handed over by {who} {time}",
+  "merchant.update.title": "Update the app",
+  "merchant.update.body": "This version is out of date and the new one is on the store. Update it to keep working.",
+  "merchant.update.open_store": "Open the store"
 }

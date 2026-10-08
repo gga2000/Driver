@@ -1475,5 +1475,8 @@
   "merchant.who.auto_reject": "فات {time}",
   "merchant.who.ready": "جهّزه {who} {time}",
   "merchant.who.extend": "زاد وقته {who} {time}",
-  "merchant.who.hand_over": "سلّمه {who} {time}"
+  "merchant.who.hand_over": "سلّمه {who} {time}",
+  "merchant.update.title": "حدّث التطبيق",
+  "merchant.update.body": "هالنسخة صارت قديمة، والجديدة موجودة بالمتجر. حدّثها حتى تكمّل شغلك.",
+  "merchant.update.open_store": "افتح المتجر"
 }
