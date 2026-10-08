@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { encodeDomainEvent, type MoneyRules } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { idOf } from './accounts.js';
@@ -15,8 +16,15 @@ export const CAP_WATCH_CITY = 'aziziyah';
  * `courier.cash_over_cap`; from over to under (a hand-in, a settlement) `courier.cash_under_cap`.
  * Nothing is emitted for a posting that leaves him on the same side, and nothing is posted or
  * changed: it only reads amounts and caps.
+ *
+ * It never fails the posting: an error of its own (the cap profile, the emit) is logged and the
+ * crossing is skipped, and on a real database the emit runs inside a SAVEPOINT so a failed insert
+ * does not abort the posting's transaction. The posting's own writes happen before it runs, outside
+ * this guard, so their errors still fail the posting.
  */
 export class CashCapWatch {
+  private readonly logger = new Logger('CashCapWatch');
+
   constructor(
     private readonly profiles: DriverCapProfileResolver,
     private readonly rules: MoneyRules,
@@ -41,28 +49,56 @@ export class CashCapWatch {
     if (rows.length === 0) return;
     const at = rows.reduce((latest, r) => (r.occurredAt.getTime() > latest.getTime() ? r.occurredAt : latest), rows[0]!.occurredAt);
     for (const [driverId, pos] of before) {
-      const after = applyLines(driverId, pos, rows);
-      const owedBefore = owedOf(pos);
-      const owedAfter = owedOf(after);
-      if (owedBefore === owedAfter) continue;
-      const { role, tier } = await this.profiles.profile(driverId);
-      const capIqd = capFor(role, tier, this.rules);
-      const wasOver = isOverCapAmount(owedBefore, capIqd);
-      const isOver = isOverCapAmount(owedAfter, capIqd);
-      if (wasOver === isOver) continue;
-      const type = isOver ? 'courier.cash_over_cap' : 'courier.cash_under_cap';
-      await this.bus.emit(
-        tx,
-        {
-          type,
-          actorId: 'system',
-          occurredAt: at,
-          idempotencyKey: `${type}:${driverId}:${key}`,
-          payload: encodeDomainEvent(type, { courierId: driverId, cashIqd: owedAfter, capIqd, cityId: this.cityId }),
-        },
-        { name: 'driver', id: driverId },
-      );
+      try {
+        await this.watchOne(driverId, pos, rows, at, key, tx);
+      } catch (err) {
+        this.logger.error(`cap watch for ${driverId} on ${key} failed (posting kept): ${(err as Error).message}`, (err as Error).stack);
+      }
     }
+  }
+
+  private async watchOne(driverId: string, pos: DriverPosition, rows: readonly NewLedgerEvent[], at: Date, key: string, tx: Tx | undefined): Promise<void> {
+    const after = applyLines(driverId, pos, rows);
+    const owedBefore = owedOf(pos);
+    const owedAfter = owedOf(after);
+    if (owedBefore === owedAfter) return;
+    const { role, tier } = await this.profiles.profile(driverId);
+    const capIqd = capFor(role, tier, this.rules);
+    const wasOver = isOverCapAmount(owedBefore, capIqd);
+    const isOver = isOverCapAmount(owedAfter, capIqd);
+    if (wasOver === isOver) return;
+    const type = isOver ? 'courier.cash_over_cap' : 'courier.cash_under_cap';
+    await inSavepoint(tx, () => this.bus.emit(
+      tx,
+      {
+        type,
+        actorId: 'system',
+        occurredAt: at,
+        idempotencyKey: `${type}:${driverId}:${key}`,
+        payload: encodeDomainEvent(type, { courierId: driverId, cashIqd: owedAfter, capIqd, cityId: this.cityId }),
+      },
+      { name: 'driver', id: driverId },
+    ));
+  }
+}
+
+let savepointSeq = 0;
+
+/** `fn` inside a SAVEPOINT of a real Postgres transaction (rolled back on failure, error rethrown); as is otherwise. */
+async function inSavepoint<T>(tx: Tx | undefined, fn: () => Promise<T>): Promise<T> {
+  const raw = (tx as { $executeRawUnsafe?: unknown } | undefined)?.$executeRawUnsafe;
+  if (!tx || typeof raw !== 'function') return fn();
+  savepointSeq = (savepointSeq + 1) % 1_000_000_000;
+  const name = `cap_watch_${savepointSeq}`;
+  await tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+  try {
+    const out = await fn();
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+    return out;
+  } catch (err) {
+    await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+    throw err;
   }
 }
 

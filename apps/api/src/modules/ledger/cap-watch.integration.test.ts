@@ -70,6 +70,26 @@ describe.skipIf(!url)('cash-cap crossings on Postgres (needs DATABASE_URL)', () 
     expect(await crossings(k)).toEqual(['courier.cash_over_cap', 'courier.cash_under_cap']);
   });
 
+  it('a crossing emit that fails in SQL is rolled back to its savepoint: the posting still commits', async () => {
+    const k = `${tag}_k3`;
+    const failing = new LedgerService(new PrismaLedgerRepository(prisma.prisma.ledgerEvent as unknown as LedgerEventDelegate), uow);
+    failing.watchCaps(
+      new CashCapWatch(new StaticCapProfiles(), rules, {
+        emit: async (tx) => {
+          await tx!.$executeRawUnsafe('SELECT 1/0');
+          throw new Error('unreachable');
+        },
+      }),
+    );
+    await uow.run(async (tx) => {
+      await failing.recordAll(collection(k, 'o4', 80000), tx);
+      // The transaction is still usable after the failed emit.
+      await failing.recordAll(collection(k, 'o5', 1000), tx);
+    });
+    expect((await ledger.balance(`cash:${k}`)).events).toBeGreaterThan(0);
+    expect(await crossings(k)).toEqual([]);
+  });
+
   it('a rolled-back posting leaves no crossing event', async () => {
     const k = `${tag}_k2`;
     await expect(

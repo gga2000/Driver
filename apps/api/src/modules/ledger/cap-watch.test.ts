@@ -51,6 +51,24 @@ describe('cash-cap crossings (courier.cash_over_cap / courier.cash_under_cap)', 
     expect(crossings().map((e) => e.type)).toEqual(['courier.cash_over_cap', 'courier.cash_under_cap', 'courier.cash_over_cap']);
   });
 
+  it('never fails the posting: a cap-profile or emit error is logged and the money still posts', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(cashOrder('o1', 40000));
+    const profile = h.profiles.profile.bind(h.profiles);
+    h.profiles.profile = async () => {
+      throw new Error('profiles down');
+    };
+    await h.posting.orderMoney(cashOrder('o2', 40000));
+    h.profiles.profile = profile;
+    expect((await h.caps.status('k1')).overCap).toBe(true);
+    expect(h.bus.emitted.filter((e) => e.type.startsWith('courier.cash_'))).toHaveLength(0);
+    const emit = h.bus.emit.bind(h.bus);
+    h.bus.emit = async (...args: Parameters<typeof emit>) => (args[1].type.startsWith('courier.cash_') ? Promise.reject(new Error('bus down')) : emit(...args));
+    const owed = (await h.caps.status('k1')).owedIqd;
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: owed - 70000, channel: 'agent', reference: 'AG-X' });
+    expect((await h.caps.status('k1')).overCap).toBe(false);
+  });
+
   it('exactly at the cap counts as over; a driver with a bigger cap does not cross where a courier would', async () => {
     const h = ledgerHarness();
     h.profiles.set('k1', { role: 'courier', tier: 'silver' });
