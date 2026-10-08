@@ -344,7 +344,7 @@ describe('OnCallService — the roster', () => {
       'on_call.shift_added',
       'on_call.shift_ended',
     ]);
-    expect(h.vault.every((v) => v.includes('on_call_roster'))).toBe(true);
+    expect(h.vault.every((v) => v.includes('console_staff'))).toBe(true);
   });
 
   it('shows the admins fallback when nobody is on call, and refuses people who are not staff', async () => {

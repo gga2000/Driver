@@ -28,6 +28,7 @@ import {
   IconOrders,
   IconPhone,
   IconBell,
+  IconInbox,
   IconPricing,
   IconSidebar,
   IconSupport,
@@ -43,6 +44,7 @@ import {
 import { BrandWordmark } from './brand';
 
 export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
+  today: IconInbox,
   map: IconMap,
   dispatch: IconDispatch,
   orders: IconOrders,

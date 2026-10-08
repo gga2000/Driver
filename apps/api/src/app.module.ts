@@ -30,6 +30,7 @@ import { InsightsModule } from './modules/insights/index.js';
 import { ReferralsModule } from './modules/referrals/index.js';
 import { RideHabitsModule } from './modules/ride-habits/index.js';
 import { PhoneBookingModule } from './modules/phone-booking/index.js';
+import { InboxModule } from './modules/inbox/index.js';
 import { OnCallModule } from './modules/on-call/index.js';
 import { GarageTaxiModule } from './modules/garage-taxi/index.js';
 import { ControlsModule } from './modules/controls/index.js';
@@ -72,6 +73,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     RideHabitsModule,
     PhoneBookingModule,
     OnCallModule,
+    InboxModule,
     GarageTaxiModule,
     ControlsModule,
     ControlRoomModule,

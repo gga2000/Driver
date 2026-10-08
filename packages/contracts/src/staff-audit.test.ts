@@ -41,6 +41,11 @@ const AUDITED = [
   'system.clearSeason',
   'phoneBookings.book',
   'phoneBookings.cancel',
+  'inbox.take',
+  'inbox.assign',
+  'inbox.snooze',
+  'inbox.done',
+  'inbox.note',
   'onCall.add',
   'onCall.end',
 ];

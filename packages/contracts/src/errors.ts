@@ -126,6 +126,11 @@ export const ERROR_TABLE = {
   // Console › المناوبة (on call): a shift that is not on the roster; a person who is not staff
   on_call_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   on_call_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › اليوم (the Today list): a row that is gone; a row already closed; handing a row to someone off the desk
+  inbox_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  inbox_done: { retryHint: 'never', status: 'CONFLICT' },
+  inbox_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  inbox_close_at_source: { retryHint: 'never', status: 'CONFLICT' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },

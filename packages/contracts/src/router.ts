@@ -27,6 +27,7 @@ import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
 import { rideHabitsRouter } from './routers/ride-habits.js';
 import { phoneBookingsRouter } from './routers/phone-booking.js';
+import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { publicProcedure, router, t } from './trpc.js';
@@ -95,6 +96,7 @@ export const appRouter = router({
   // Taxi/tuktuk step 4 (v4): Console › حجز بالتلفون — a ride booked for a caller without the app.
   phoneBookings: phoneBookingsRouter,
   onCall: onCallRouter,
+  inbox: inboxRouter,
   // Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (to the car, late notice, waiting at the garage).
   garageTaxi: garageTaxiRouter,
   finance: financeRouter,

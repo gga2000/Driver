@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RoleKind } from '@driver/contracts';
+import { ON_CALL_READ_ROLES, type RoleKind } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useState } from 'react';
 import { formatClock } from '@/lib/format';
+import { CITY_ID, queryRetry } from '@/lib/live';
 import { useConsoleNetwork } from '@/lib/network';
 import { modLabel } from '@/lib/hotkeys';
 import { useMyRoles } from '@/lib/me';
@@ -64,6 +65,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         </button>
         <ApiStatus />
         <div className="ms-auto flex items-center gap-1.5">
+          <OnShift />
           <Clock />
           <ViewToggles />
           {signedIn ? (
@@ -106,6 +108,35 @@ function ApiStatus() {
       <StatusDot tone={tone} pulse={tone === 'ok'} />
       {label}
     </p>
+  );
+}
+
+/**
+ * Who holds SOS right now (rank 1 on the المناوبة roster). Red when nobody does: an unanswered SOS
+ * then goes to the admins. Opens the roster.
+ */
+function OnShift() {
+  const trpc = useTRPC();
+  const { roles } = useMyRoles();
+  const allowed = ON_CALL_READ_ROLES.some((r) => roles.has(r));
+  const now = useQuery(trpc.onCall.now.queryOptions({ cityId: CITY_ID }, { enabled: allowed, retry: queryRetry, refetchInterval: 60_000 }));
+  const sos = now.data?.find((d) => d.desk === 'sos');
+  if (!allowed || !sos) return null;
+  const first = sos.people[0];
+  const nobody = !first;
+  return (
+    <Link
+      href="/on-call"
+      title={nobody ? t('console.oncall_nobody_sos') : t('console.oncall_until', { time: formatClock(first.until) })}
+      className={cx(
+        'me-1 hidden h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-3 text-xs font-medium transition-colors md:inline-flex',
+        nobody ? 'bg-bad-tint font-semibold text-bad hover:bg-bad-tint/80' : 'bg-surface-3 text-muted hover:text-text',
+      )}
+      data-testid="on-shift-chip"
+    >
+      <StatusDot tone={nobody ? 'bad' : 'ok'} />
+      {nobody ? t('console.oncall_chip_nobody') : t('console.oncall_chip', { name: first.displayName ?? t('console.oncall_no_name') })}
+    </Link>
   );
 }
 

@@ -3557,3 +3557,39 @@ model AlertLadder {
   @@map("alert_ladders")
   @@schema("public")
 }
+
+/// Console › اليوم (E1, CON-12): one row per problem, opened and closed from domain events, worked
+/// by the desk (take, hand over, snooze, close with an outcome). Ids and short facts only.
+model InboxItem {
+  id           String    @id @default(cuid())
+  cityId       String    @map("city_id")
+  /// sos | no_driver | store_silent | late | unreachable | sweep | pin_alert | approval
+  kind         String
+  /// incident | trip | order | document | onboarding | sweep_alert | pin_attempt
+  subjectKind  String    @map("subject_kind")
+  subjectId    String    @map("subject_id")
+  orderId      String?   @map("order_id")
+  tripId       String?   @map("trip_id")
+  /// Short facts from the event (reason, vertical, kind…): ids and keys, never names.
+  facts        Json      @default("{}")
+  openedAt     DateTime  @map("opened_at")
+  lastSeenAt   DateTime  @map("last_seen_at")
+  times        Int       @default(1)
+  assigneeId   String?   @map("assignee_id")
+  assignedAt   DateTime? @map("assigned_at")
+  snoozedUntil DateTime? @map("snoozed_until")
+  doneAt       DateTime? @map("done_at")
+  doneById     String?   @map("done_by_id")
+  /// fixed | called | handed_over | no_action | duplicate | auto
+  outcome      String?
+  note         String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([kind, subjectId])
+  @@index([cityId, doneAt])
+  @@index([orderId])
+  @@index([tripId])
+  @@map("inbox_items")
+  @@schema("public")
+}

@@ -1,6 +1,6 @@
 import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
+import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 
 /**
  * Console sections, grouped as the sidebar shows them (العمليات · الخدمة · الفلوس · النظام). `roles`
@@ -15,6 +15,7 @@ const APPROVALS: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
 const FINANCE: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
 
 export type IconName =
+  | 'today'
   | 'map'
   | 'dispatch'
   | 'orders'
@@ -51,6 +52,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     key: 'console.navg_ops',
     items: [
+      // E1 (CON-12): the home page, one row per problem with its owner.
+      { href: '/', key: 'console.nav_today', icon: 'today', roles: INBOX_READ_ROLES, jump: 't' },
       { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
       {
         href: '/dispatch',

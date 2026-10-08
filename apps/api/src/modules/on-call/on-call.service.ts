@@ -247,7 +247,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         ? await this.identity.displayNamesFor(
             rows.map((r) => r.personId),
             actor.personId,
-            'on_call_roster',
+            'console_staff',
           )
         : {};
     return rows.map((r) => ({
@@ -267,7 +267,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         ? await this.identity.displayNamesFor(
             shifts.map((s) => s.personId),
             actor.personId,
-            'on_call_roster',
+            'console_staff',
           )
         : {};
     return shifts.map((s) => ({
