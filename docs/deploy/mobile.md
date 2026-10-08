@@ -68,9 +68,15 @@ Set `version` to `1.0.0` in each `app.json` before the first store build.
 JavaScript-only changes (screens, text, logic) can reach installed apps without a store review:
 
 ```bash
-cd apps/customer
-EXPO_PUBLIC_API_URL=https://driver-api.fly.dev/trpc eas update --channel production --message "Fix checkout text"
+node scripts/deploy/eas-update.mjs customer production "Fix checkout text"
 ```
+
+Always publish through `scripts/deploy/eas-update.mjs` (app: `customer`, `partner` or `merchant`;
+channel: `preview` or `production`), **never a bare `eas update`**: the script ties the EAS environment
+to the channel, so the update takes the server address set on expo.dev (never one typed on this
+computer), and the app refuses the bundle if that address is missing or not https. A bare
+`eas update` skips that check. `EXPO_PUBLIC_API_URL` (and `EXPO_PUBLIC_SHARE_BASE_URL` for the
+customer app) must be set in **each** expo.dev environment, preview and production (step 3 below).
 
 The **fingerprint** runtime policy makes this safe: when a change touches native code (a new native
 library, a permission, an SDK upgrade) the fingerprint changes, old binaries no longer match, and they
