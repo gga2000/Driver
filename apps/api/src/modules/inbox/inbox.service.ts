@@ -54,12 +54,14 @@ export const INBOX_START_EVENTS = [
   'seat.pin_alert',
   'order.stuck',
   'courier.cash_over_cap',
+  'support.ticket_opened',
   'driver.document_submitted',
   'merchant.onboarding_drafted',
 ] as const;
 
 /** The events that end a problem (the row closes by itself, outcome `auto`), or take it. */
 export const INBOX_END_EVENTS = [
+  'support.resolved',
   'sos.acknowledged',
   'sos.resolved',
   'sos.cancelled',
@@ -85,6 +87,7 @@ export const INBOX_END_EVENTS = [
 
 const KIND_AR: Record<InboxKind, string> = {
   sos: 'طوارئ',
+  safety_report: 'بلاغ سلامة',
   no_driver: 'محد أخذ المشوار',
   store_silent: 'مطعم ما يرد',
   late: 'طلب متأخر',
@@ -163,6 +166,20 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
               subjectKind: 'incident',
               subjectId: id,
               facts: facts({ role: p['role'], subject: p['subjectKind'] }),
+            }
+          : null;
+      }
+      case 'support.ticket_opened': {
+        // Only safety cases (incident tickets: unsafe driving, a phoned-in near miss) reach Today; the
+        // rest of support keeps its own queue. Handled and closed in support, as today (y1 off).
+        const id = str(p['ticketId']);
+        return id && p['kind'] === 'incident'
+          ? {
+              ...base,
+              kind: 'safety_report',
+              subjectKind: 'ticket',
+              subjectId: id,
+              facts: facts({ channel: p['channel'] }),
             }
           : null;
       }
@@ -322,6 +339,8 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
       case 'sos.resolved':
       case 'sos.cancelled':
         return closeSubject('sos', str(p['incidentId']));
+      case 'support.resolved':
+        return closeSubject('safety_report', str(p['ticketId']));
       case 'dispatch.assigned':
       case 'dispatch.cancelled':
       case 'trip.accepted':

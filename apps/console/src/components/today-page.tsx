@@ -23,6 +23,7 @@ import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
   buttonCls,
@@ -419,6 +420,9 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
           </>
         ) : null}
       </div>
+      {row.kind === 'stuck' && row.subjectKind === 'order' && row.mine && !done ? (
+        <StuckRowActions orderId={row.subjectId} />
+      ) : null}
       {closing ? (
         <CloseDialog row={row} onClose={() => setClosing(false)} onDone={refresh} />
       ) : null}
