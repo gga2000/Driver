@@ -11,6 +11,7 @@ import {
   type LiveSubscriptionHandlers,
 } from '@driver/contracts/live-client';
 import { useApi, useApiClient, useLiveTokens } from './api';
+import { needsResync } from './live-resync';
 
 /**
  * The real-time channel in this app (`live.*` over SSE; same file in customer, partner and merchant).
@@ -120,15 +121,20 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
   useEffect(() => {
     if (!opts.enabled) return;
     const names = [opts.key, ...(aliasKey ? aliasKey.split('|') : [])];
-    const pending = new Set<LiveKey>();
+    // Key → whether only a resync asked for it (then fresh data is kept). A server `invalidate` wins.
+    const pending = new Map<LiveKey, boolean>();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
       timer = null;
-      for (const k of pending) void qc.invalidateQueries(liveFilter(api, k));
+      const now = Date.now();
+      for (const [k, resyncOnly] of pending) {
+        const filter = liveFilter(api, k);
+        void qc.invalidateQueries(resyncOnly ? { ...filter, predicate: (q) => needsResync(q.state.dataUpdatedAt, now) } : filter);
+      }
       pending.clear();
     };
-    const invalidate = (keys: readonly LiveKey[]) => {
-      for (const k of keys) pending.add(k);
+    const invalidate = (keys: readonly LiveKey[], resyncOnly = false) => {
+      for (const k of keys) pending.set(k, resyncOnly && (pending.get(k) ?? true));
       timer ??= setTimeout(flush, 250);
     };
     const conn = createLiveConnection({
@@ -137,7 +143,7 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
         if (e.type === 'invalidate') invalidate(e.keys);
         ref.current.onEvent?.(e, qc, api);
       },
-      onResync: () => invalidate(ref.current.resyncKeys),
+      onResync: () => invalidate(ref.current.resyncKeys, true),
       onModeChange: (m) => {
         setLocalMode(m);
         setMode(names, m === 'stopped' ? null : m);
