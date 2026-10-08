@@ -172,6 +172,8 @@ model Org {
   payoutSettings  Json                                   @default("{}") @map("payout_settings")
   /// Busy mode (Driver Merchant): every prep time +10 min until this time; NULL = off.
   busyUntil       DateTime?                              @map("busy_until")
+  /// The busy minutes picked when busy mode was switched on (Ali 2026-10-08, r5): 10 or 20; NULL = +10.
+  busyExtraMin    Int?                                   @map("busy_extra_min")
   /// Closed by hand from the Merchant app (early-close reason); NULL = open.
   closedAt        DateTime?                              @map("closed_at")
   closedReason    String?                                @map("closed_reason")
@@ -200,6 +202,8 @@ model Org {
   pickupPhotoRefs String[]                               @default([]) @map("pickup_photo_refs")
   /// When the owner last saved the pickup spot; NULL = never set.
   pickupUpdatedAt DateTime?                              @map("pickup_updated_at")
+  /// «جهّز محلك»: a new shop's first-day setup (steps he confirmed, when it went live, its first order). NULL = a shop from before setup: nothing changes for it.
+  setup           Json?                                  @map("setup")
   createdAt       DateTime                               @default(now()) @map("created_at")
   updatedAt       DateTime                               @updatedAt @map("updated_at")
 
@@ -814,6 +818,10 @@ model CatalogItem {
   servesMax       Int?      @map("serves_max")
   /// The kitchen's dish labels (joy o8): spicy, new, family.
   labels          String[]  @default([])
+  /// «جهّز محلك»: the photo is Driver's library photo of this dish (its slug), «صورة توضيحية» to customers; NULL = the kitchen's own.
+  photoLibrary    String?   @map("photo_library")
+  /// p4 (Ali 2026-10-08): the shop's own uploaded photo shows at once; set when it was uploaded and Driver's team has not looked yet. NULL = nothing waiting.
+  photoReviewPendingAt DateTime? @map("photo_review_pending_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

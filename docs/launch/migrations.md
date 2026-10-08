@@ -31,6 +31,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
 | 20261010230000 | store_closed_until | merchant | #19 |
 | 20261010240000 | console_watch | lane E | #37 |
+| 20261010260000 | merchant_setup (+ shop rules columns) | merchant | setup PR |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, `20261010140000`)
 and #38 (lane B, `20261010220000`). Those two re-stamp to the next free timestamp when they land, and

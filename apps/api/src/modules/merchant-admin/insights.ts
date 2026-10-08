@@ -38,6 +38,8 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
   let onTime = 0;
   let offered = 0;
   let rejected = 0;
+  let ratingSum = 0;
+  let ratingCount = 0;
   const peak = Array.from({ length: 24 }, () => 0);
   const grid = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
   const sold = new Map<string, { qty: number; orders: number; salesIqd: number }>();
@@ -67,6 +69,8 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
     }
     const food = o.rating?.food;
     if (!food) continue;
+    ratingSum += food;
+    ratingCount += 1;
     // The food score and its text go to the order's main dish (largest line), not the drinks and
     // sides that rode along — otherwise a pickle inherits every complaint about the liver wrap.
     const main = [...o.lines].filter((l) => l.catalogItemId).sort((a, b) => b.qty * (b.unitPriceIqd ?? 0) - a.qty * (a.unitPriceIqd ?? 0))[0];
@@ -106,6 +110,7 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
       .sort((a, b) => b.salesIqd - a.salesIqd || b.qty - a.qty || a.itemId.localeCompare(b.itemId))
       .slice(0, BEST_SELLERS),
     orders: input.orders.length,
+    foodRating: { avg: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null, count: ratingCount },
   };
 }
 

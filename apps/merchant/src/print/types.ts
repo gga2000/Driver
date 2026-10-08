@@ -1,7 +1,7 @@
-import type { Receipt } from './receipt';
+import type { PrintJob } from './doc';
 
 /**
- * One interface for every receipt printer. `printer.ts` (web/dev) shows an on-screen 80 mm preview
+ * One interface for every receipt printer. `printer.ts` (web/dev) shows an on-screen true-size preview
  * and can hand it to the browser's print dialog; `printer.native.ts` is the Bluetooth ESC/POS driver
  * for the tablet (stubbed until the dev-client build ships a BLE module).
  */
@@ -21,8 +21,8 @@ export interface PrinterDriver {
   /** Pair/connect (Bluetooth) — the preview printer is always "connected". */
   connect(): Promise<PrinterSnapshot>;
   disconnect(): Promise<PrinterSnapshot>;
-  /** Prints (or previews) one ticket. Rejects when the printer is unreachable. */
-  print(receipt: Receipt): Promise<void>;
+  /** Prints (or previews) one job: its documents in order, beep and cuts as the job says. Rejects when the printer is unreachable. */
+  print(job: PrintJob): Promise<void>;
 }
 
 /** Thrown by drivers that cannot do something on this platform yet. */

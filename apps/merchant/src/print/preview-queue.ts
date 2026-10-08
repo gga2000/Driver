@@ -1,17 +1,17 @@
-import type { Receipt } from './receipt';
+import type { PrintJob } from './doc';
 
 /**
- * The ticket currently shown in the on-screen 80 mm preview (null = closed). The web printer pushes
- * every ticket here; on any platform "شوف الوصل" pushes one too. `ReceiptPreview` renders it.
+ * The ticket currently shown in the on-screen preview (null = closed). The web printer pushes
+ * every ticket here; on any platform "شوف الوصل" pushes one too. `PrintJobPreview` renders it.
  */
 type Listener = () => void;
 
-let current: Receipt | null = null;
+let current: PrintJob | null = null;
 const listeners = new Set<Listener>();
 
 export const previewQueue = {
-  get: (): Receipt | null => current,
-  show(r: Receipt) {
+  get: (): PrintJob | null => current,
+  show(r: PrintJob) {
     current = r;
     for (const l of listeners) l();
   },

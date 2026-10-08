@@ -21,9 +21,9 @@
       "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
-      "max": 6.0,
+      "max": 6.2,
       "target": 5.5,
-      "why": "s1 per-app words (merchant-slim): the shared tables carry only the strings the merchant app names (locale-subset.cjs writeMerchantLocales), 6.53 -> 5.95"
+      "why": "PR B (shop setup «جهّز محلك», shop rules, the printed tickets «الريل»): 5.95 -> 6.16 (+0.21 MB): about 2,200 lines of setup screens, 2,500 of print (kitchen ticket, bag stub, slip, ESC/POS plan), 700 of board shop-load parts, and 360 more words in each merchant locale. Before: s1 per-app words (merchant-slim), 6.53 -> 5.95"
     },
     "merchant.assets_mb": {
       "max": 4.1,

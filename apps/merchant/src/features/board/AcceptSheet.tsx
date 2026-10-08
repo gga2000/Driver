@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { mentionsAllergy, type BoardOrder } from '@driver/contracts';
+import { mentionsAllergy, type BoardOrder, type PrepKind } from '@driver/contracts';
 import { Button, Chip, CountdownRing, Icon, ModalSheet, Stepper, Text, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { clampPrep, committedPrep, defaultPrepChoice, kitchenNotes, partialValid, PREP_MAX, PREP_MIN, PREP_OPTIONS } from './logic';
+import { clampPrep, committedPrep, defaultPrepChoice, kitchenNotes, partialValid, PREP_MAX, prepMin, prepOptions } from './logic';
 import { KitchenNote, PaymentPill } from './OrderCard';
 import { useOrderActions } from './queries';
 
 export interface AcceptSheetProps {
   order: BoardOrder | null;
   onClose: () => void;
-  busyOn: boolean;
+  /** The busy minutes in force (+10 or +20, r5); 0 when busy mode is off. */
+  busyMinutes: number;
+  /** t5: a juice bar or café picks 3 / 5 / 8; food 10 / 15 / 25. */
+  prepKind: PrepKind;
   usualPrepMinutes: number;
   clock: () => number;
   /** Fired after a full accept (auto-print hooks in here). */
@@ -23,23 +26,24 @@ export interface AcceptSheetProps {
 }
 
 /**
- * Accept with a prep time (10 / 15 / 25 / custom). Busy mode adds 10 and says so. "صنف خلص؟" turns
+ * Accept with a prep time (10 / 15 / 25 / custom; 3 / 5 / 8 for a juice bar or café). Busy mode adds
+ * its +10 or +20 and says so. "صنف خلص؟" turns
  * the sheet into partial accept: tick what's out and the customer gets 60 s to approve the rest.
  */
-export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, onAccepted, startPartial = false }: AcceptSheetProps) {
+export function AcceptSheet({ order, onClose, busyMinutes, prepKind, usualPrepMinutes, clock, onAccepted, startPartial = false }: AcceptSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useCounterToast();
   const { accept } = useOrderActions();
-  const [choice, setChoice] = useState<number | 'custom'>(defaultPrepChoice(usualPrepMinutes));
-  const [custom, setCustom] = useState(30);
+  const [choice, setChoice] = useState<number | 'custom'>(defaultPrepChoice(usualPrepMinutes, prepKind));
+  const [custom, setCustom] = useState(prepKind === 'drinks' ? 10 : 30);
   const [partial, setPartial] = useState(false);
   const [missing, setMissing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!order) return;
-    setChoice(defaultPrepChoice(usualPrepMinutes));
+    setChoice(defaultPrepChoice(usualPrepMinutes, prepKind));
     setPartial(startPartial);
     setMissing(new Set());
     accept.reset();
@@ -47,8 +51,8 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
   }, [order?.id]);
 
   if (!order) return null;
-  const picked = choice === 'custom' ? clampPrep(custom) : choice;
-  const total = committedPrep(picked, busyOn);
+  const picked = choice === 'custom' ? clampPrep(custom, prepKind) : choice;
+  const total = committedPrep(picked, busyMinutes);
   const lines = order.groups.flatMap((g) => g.lines.filter((l) => l.availability === 'available').map((l) => ({ ...l, who: g })));
   const lineIds = lines.map((l) => l.lineId);
   const canPartial = partialValid(missing, lineIds);
@@ -109,7 +113,7 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
         <View style={{ gap: theme.space[3] }}>
           <Text variant="title">{t('merchant.accept.prep_q')}</Text>
           <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-            {PREP_OPTIONS.map((m) => {
+            {prepOptions(prepKind).map((m) => {
               const selected = choice === m;
               return (
                 <Pressable
@@ -167,14 +171,14 @@ export function AcceptSheet({ order, onClose, busyOn, usualPrepMinutes, clock, o
           {choice === 'custom' ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
               <Text variant="label">{t('merchant.accept.custom_label')}</Text>
-              <Stepper value={custom} onChange={(v) => setCustom(clampPrep(v))} min={PREP_MIN} max={PREP_MAX} accessibilityLabel={t('merchant.accept.custom_label')} />
+              <Stepper value={custom} onChange={(v) => setCustom(clampPrep(v, prepKind))} min={prepMin(prepKind)} max={PREP_MAX} accessibilityLabel={t('merchant.accept.custom_label')} />
             </View>
           ) : null}
-          {busyOn ? (
+          {busyMinutes > 0 ? (
             <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center', backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>
               <MIcon name="flame" size={20} color="warningText" />
               <Text variant="label" color="warningText" style={{ flex: 1 }}>
-                {t('merchant.accept.busy_note', { total })}
+                {t('merchant.accept.busy_note_minutes', { extra: busyMinutes, total })}
               </Text>
             </View>
           ) : null}

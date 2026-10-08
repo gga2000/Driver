@@ -8343,6 +8343,7 @@
   "datasaver.slow_keep": "خلّيه دائماً",
   "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",
   "datasaver.slow_turn_on": "خلّيه خفيف",
+  "error.setup_not_ready": "باقي شغلات قبل ما تفتح. كمّلها بـ «جهّز محلك»",
   "push.order_rejected.title": "المطعم ما گدر ياخذ طلبك",
   "push.order_rejected.body": "{merchant} ما يگدر يسوي طلبك هسة. ما عليك شي، اطلب من مطعم ثاني",
   "push.order_kitchen_no_answer.title": "المطعم ما رد على طلبك",

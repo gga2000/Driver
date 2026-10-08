@@ -8343,6 +8343,7 @@
   "datasaver.slow_keep": "Keep it light",
   "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",
   "datasaver.slow_turn_on": "Make it light",
+  "error.setup_not_ready": "A few setup steps are left before you can open. Finish them in «Set up your shop»",
   "push.order_rejected.title": "The restaurant couldn’t take your order",
   "push.order_rejected.body": "{merchant} can’t make your order right now. You owe nothing; order from another restaurant",
   "push.order_kitchen_no_answer.title": "The restaurant didn’t answer",
