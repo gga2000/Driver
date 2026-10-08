@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import type { MenuImportJob } from '@driver/contracts';
-import { Button, Skeleton, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { Button, Skeleton, Text, TextField, useNetwork, useTheme, withAlpha } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
+import { LoadFailedLine } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -36,6 +38,7 @@ export function ImportScreen() {
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const job = useImportJob(storeId, jobId);
+  const net = useNetwork();
   const menu = useMenu(storeId);
   const actions = useImportActions();
   const upload = usePhotoUpload();
@@ -143,7 +146,7 @@ export function ImportScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
               {picked.map((p, i) => (
                 <View key={`${p.uri}-${i}`} style={{ width: wide ? 148 : 100, aspectRatio: 3 / 4, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
-                  <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                   <View style={{ position: 'absolute', top: 6, start: 6, paddingHorizontal: 8, height: 24, borderRadius: 12, justifyContent: 'center', backgroundColor: withAlpha(color.neutral[900], 0.7) }}>
                     <Text variant="caption" weight={700} style={{ color: color.neutral[0] }} tabular>
                       {i + 1}
@@ -181,6 +184,7 @@ export function ImportScreen() {
               label={picked.length > 0 ? t('merchant.import.start', { count: picked.length }) : t('merchant.import.start_empty')}
               onPress={() => void start()}
             />
+            {jobId && !job.data && job.isError ? <LoadFailedLine kind={net.online ? 'unreachable' : 'offline'} title={t('merchant.import.load_failed')} onRetry={() => void job.refetch()} testID="import-error" /> : null}
           </Panel>
           <View style={{ width: wide ? 320 : undefined, alignSelf: 'stretch', gap: theme.space[3] }}>
             <Text variant="title">{t('merchant.import.tips_title')}</Text>
@@ -228,13 +232,13 @@ export function ImportScreen() {
   const viewer = (
     <Panel padded={false} style={{ overflow: 'hidden' }}>
       <View style={{ aspectRatio: wide ? 3 / 4 : 4 / 3, backgroundColor: theme.colors.surfaceSunken }}>
-        {current ? <Image testID="import-photo" source={{ uri: absoluteUrl(current) }} style={{ width: '100%', height: '100%' }} resizeMode="contain" /> : <Skeleton height={320} />}
+        {current ? <Image testID="import-photo" source={{ uri: absoluteUrl(current) }} style={{ width: '100%', height: '100%' }} contentFit="contain" /> : <Skeleton height={320} />}
       </View>
       {photos.length > 1 ? (
         <ScrollView horizontal contentContainerStyle={{ gap: theme.space[2], padding: theme.space[3] }}>
           {photos.map((u, i) => (
             <Pressable key={`${u}-${i}`} accessibilityRole="button" accessibilityLabel={t('merchant.import.photo_n', { n: i + 1 })} onPress={() => setPhotoIdx(i)} style={{ width: 52, height: 64, borderRadius: theme.radius.md, overflow: 'hidden', borderWidth: 2, borderColor: i === photoIdx ? theme.colors.accent : 'transparent' }}>
-              {u ? <Image source={{ uri: absoluteUrl(u) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : null}
+              {u ? <Image source={{ uri: absoluteUrl(u) }} style={{ width: '100%', height: '100%' }} contentFit="cover" /> : null}
             </Pressable>
           ))}
         </ScrollView>

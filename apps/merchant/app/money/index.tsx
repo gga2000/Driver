@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { SegmentedControl, useTheme } from '@driver/ui';
+import { both, Loadable } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { DayStrip } from '@/features/day/DayStrip';
 import { useDaySummary } from '@/features/day/queries';
@@ -61,7 +62,9 @@ export default function DayScreen() {
   };
   return (
     <Page title={t('merchant.nav.day')} subtitle={store ? `${store.name} · ${dates.dow(localParts(now).dow)} ${dates.dayMonth(now)}` : undefined} testID="money" maxWidth={1160}>
-      <DayStrip summary={summary.data} waiting={waiting} wide={wide} {...(canSeeMoney ? { onWaiting: () => select('disputes') } : {})} />
+      <Loadable query={both(status, summary)} compact stale={false} skeleton={<DayStrip summary={undefined} waiting={0} wide={wide} />} failed={t('merchant.dayscreen.day_failed')} testID="day-strip">
+        {([, day]) => <DayStrip summary={day} waiting={waiting} wide={wide} {...(canSeeMoney ? { onWaiting: () => select('disputes') } : {})} />}
+      </Loadable>
       {store && !canSeeMoney ? (
         <InsightsPanel merchantOrgId={orgId} owner={false} wide={wide} />
       ) : (
@@ -81,11 +84,17 @@ export default function DayScreen() {
       {!orgId || !canSeeMoney ? null : tab === 'insights' ? (
         <InsightsPanel merchantOrgId={orgId} owner wide={wide} />
       ) : tab === 'today' ? (
-        <TodayView merchantOrgId={orgId} today={today.data} cash={cash.data} now={now} wide={wide} onStatement={() => select('statement')} />
+        <Loadable query={both(today, cash)} skeleton={<TodayView merchantOrgId={orgId} today={undefined} cash={undefined} now={now} wide={wide} onStatement={() => undefined} />} failed={t('merchant.money.load_failed')} testID="money-today">
+          {([day, account]) => <TodayView merchantOrgId={orgId} today={day} cash={account} now={now} wide={wide} onStatement={() => select('statement')} />}
+        </Loadable>
       ) : tab === 'statement' ? (
-        <StatementView statement={statement.data} storeName={store?.name ?? ''} back={back} onBack={() => setBack((b) => b + 1)} onForward={() => setBack((b) => Math.max(0, b - 1))} now={now} wide={wide} />
+        <Loadable query={statement} skeleton={<StatementView statement={undefined} storeName="" back={back} onBack={() => undefined} onForward={() => undefined} now={now} wide={wide} />} failed={t('merchant.money.load_failed')} testID="money-statement">
+          {(week) => <StatementView statement={week} storeName={store?.name ?? ''} back={back} onBack={() => setBack((b) => b + 1)} onForward={() => setBack((b) => Math.max(0, b - 1))} now={now} wide={wide} />}
+        </Loadable>
       ) : (
-        <DisputesView merchantOrgId={orgId} disputes={disputes.data} now={now} wide={wide} />
+        <Loadable query={disputes} skeleton={<DisputesView merchantOrgId={orgId} disputes={undefined} now={now} wide={wide} />} failed={t('merchant.money.load_failed')} testID="money-disputes">
+          {(list) => <DisputesView merchantOrgId={orgId} disputes={list} now={now} wide={wide} />}
+        </Loadable>
       )}
       <View style={{ height: theme.space[4] }} />
     </Page>

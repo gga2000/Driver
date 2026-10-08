@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, Platform, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { PICKUP_SPOT_RULES, pickupDraft, type PickupDraft } from '@driver/contracts';
 import { Button, EmptyState, Skeleton, Text, TextField, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
@@ -93,7 +94,7 @@ export function PickupSpotScreen() {
 
   const photoTiles = current.photos.map((p, i) => (
     <View key={p.id} testID={`pickup-photo-${i}`} style={{ flexBasis: '45%', flexGrow: 1, aspectRatio: 4 / 3, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
-      <Image source={{ uri: absoluteUrl(p.url) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityLabel={t('merchant.pickup.photo_alt', { n: i + 1 })} accessibilityIgnoresInvertColors />
+      <Image source={{ uri: absoluteUrl(p.url) }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityLabel={t('merchant.pickup.photo_alt', { n: i + 1 })} accessibilityIgnoresInvertColors />
       {editable ? (
         <View style={{ position: 'absolute', top: theme.space[2], end: theme.space[2] }}>
           <GlyphButton glyph="trash" variant="outline" color="dangerText" label={t('merchant.pickup.photo_remove', { n: i + 1 })} testID={`pickup-photo-remove-${i}`} onPress={() => change(pickupDraft.removePhoto(current, p.id))} />

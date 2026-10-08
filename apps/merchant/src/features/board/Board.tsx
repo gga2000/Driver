@@ -444,6 +444,8 @@ export function Board() {
   };
 
   const loading = !board.data && board.isPending;
+  // The first read failed: say so with a retry, and never show "no new orders" for a board we can't see.
+  const failed = !board.data && board.isError;
   const skeleton = (
     <View style={{ gap: theme.space[3] }}>
       <Skeleton height={220} radius={20} />
@@ -541,7 +543,7 @@ export function Board() {
       ) : offHours ? (
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
-      {board.isError && !board.data ? <InfoStrip tone="danger" text={t('merchant.board.error')} /> : null}
+      {failed ? <InfoStrip tone="danger" testID="board-error" text={t('merchant.board.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void board.refetch(), testID: 'board-error-retry' }} /> : null}
       {push.visible ? (
         <InfoStrip
           tone="neutral"
@@ -579,7 +581,7 @@ export function Board() {
                 contentContainerStyle={{ gap: c === 'new' && rush ? theme.space[3] : theme.space[5], paddingBottom: theme.space[6], paddingHorizontal: 3, paddingTop: 9 }}
                 showsVerticalScrollIndicator={false}
               >
-                {loading ? skeleton : cols[c].length === 0 ? <EmptyColumn column={c} /> : cols[c].map(card)}
+                {failed ? null : loading ? skeleton : cols[c].length === 0 ? <EmptyColumn column={c} /> : cols[c].map(card)}
               </ScrollView>
             </View>
           ))}
@@ -596,8 +598,10 @@ export function Board() {
           </View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], padding: theme.space[4], paddingBottom: theme.space[10] }}>
             {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : null}
-            {segment === 'preparing' && !loading ? <CookingTotals totals={totals} /> : null}
-            {loading
+            {segment === 'preparing' && !loading && !failed ? <CookingTotals totals={totals} /> : null}
+            {failed
+              ? null
+              : loading
               ? skeleton
               : cols[segment].length === 0
                 ? <EmptyColumn column={segment} />

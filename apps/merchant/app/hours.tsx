@@ -4,6 +4,7 @@ import type { HoursShift } from '@driver/contracts';
 import { Button, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { EntryTile } from '@/components/EntryTile';
+import { both, LoadPending } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
 import { useServerNow } from '@/features/board/queries';
@@ -149,7 +150,7 @@ export default function Hours() {
       aside={dirty && editable ? saveButton : undefined}
     >
       {!s || !h || !current ? (
-        <Skeleton height={140} radius={20} />
+        <LoadPending query={both(status, hours)} skeleton={<Skeleton height={140} radius={20} />} failed={t('merchant.hours.load_failed')} testID="hours" />
       ) : (
         <>
           <View

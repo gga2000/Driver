@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Image, Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import { DishDrawing, dishLook, motifForDish, Text, useTheme, type StatusTone } from '@driver/ui';
 import { COUNTER } from '@/lib/counter';
@@ -140,7 +141,7 @@ export function Thumb({ url, name, size = 64, dim, radius, id, section }: { url:
   const r = radius ?? Math.round(size * 0.22);
   return (
     <View style={{ width: size, height: size, borderRadius: r, overflow: 'hidden', backgroundColor: COUNTER.sand, opacity: dim ? 0.5 : 1 }}>
-      {url ? <Image source={{ uri: absoluteUrl(url) }} style={{ width: size, height: size }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <DishArt name={name} id={id} section={section} />}
+      {url ? <Image source={{ uri: absoluteUrl(url) }} recyclingKey={id ?? url} transition={120} style={{ width: size, height: size }} contentFit="cover" accessibilityIgnoresInvertColors /> : <DishArt name={name} id={id} section={section} />}
     </View>
   );
 }

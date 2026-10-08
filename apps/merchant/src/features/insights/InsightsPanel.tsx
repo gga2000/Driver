@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { SegmentedControl, Text, useTheme } from '@driver/ui';
+import { Loadable } from '@/components/Loadable';
 import { CustomerZonesPanel } from '@/features/area/CustomerZonesPanel';
 import { useT } from '@/lib/i18n';
 import { InsightsView } from './InsightsView';
@@ -35,7 +36,9 @@ export function InsightsPanel({ merchantOrgId, owner, wide }: { merchantOrgId: s
           />
         </View>
       </View>
-      <InsightsView data={insights.data} wide={wide} />
+      <Loadable query={insights} skeleton={<InsightsView data={undefined} wide={wide} />} failed={t('merchant.insights.load_failed')} testID="insights-view">
+        {(data) => <InsightsView data={data} wide={wide} />}
+      </Loadable>
       {owner ? <CustomerZonesPanel merchantOrgId={merchantOrgId} days={days} wide={wide} /> : null}
     </View>
   );

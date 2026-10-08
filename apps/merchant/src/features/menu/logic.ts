@@ -369,3 +369,28 @@ export function trayColumns(width: number, gap: number, wide: boolean): number {
   const min = wide ? TRAY_MIN_WIDTH.tablet : TRAY_MIN_WIDTH.phone;
   return Math.max(2, Math.min(6, Math.floor((width + gap) / (min + gap))));
 }
+
+/** One row of the menu shelf list: a section's title, a row of trays, or a section with no dishes yet. */
+export type ShelfRow<S extends { key: string; items: readonly unknown[] }> =
+  | { kind: 'head'; key: string; section: S }
+  | { kind: 'trays'; key: string; section: S; items: S['items']; last: boolean }
+  | { kind: 'empty'; key: string; section: S };
+
+/**
+ * The menu as rows for a list that draws only what is on screen (perf m1): each section's title, then
+ * its trays `cols` to a row (the last row marked, for the space before the next section).
+ */
+export function shelfRows<S extends { key: string; items: readonly unknown[] }>(sections: readonly S[], cols: number): ShelfRow<S>[] {
+  const rows: ShelfRow<S>[] = [];
+  for (const section of sections) {
+    rows.push({ kind: 'head', key: `h:${section.key}`, section });
+    if (section.items.length === 0) {
+      rows.push({ kind: 'empty', key: `e:${section.key}`, section });
+      continue;
+    }
+    for (let i = 0; i < section.items.length; i += cols) {
+      rows.push({ kind: 'trays', key: `t:${section.key}:${i / cols}`, section, items: section.items.slice(i, i + cols), last: i + cols >= section.items.length });
+    }
+  }
+  return rows;
+}

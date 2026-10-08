@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, View } from 'react-native';
 import { MENU_PHOTO_RULES, type MenuPhotoDish, type MenuPhotoRequestView } from '@driver/contracts';
 import { Button, EmptyState, Skeleton, Text, TextField, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
@@ -208,7 +209,7 @@ function ShotRow({ view, dish }: { view: MenuPhotoRequestView; dish: MenuPhotoDi
           <Image
             source={{ uri: absoluteUrl(shot.photoUrl) }}
             style={{ width: SHOT_SIZE, height: SHOT_SIZE, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}
-            resizeMode="cover"
+            contentFit="cover"
             accessibilityLabel={t('merchant.menu_photos.new_photo_alt', { name: dish.nameAr })}
             accessibilityIgnoresInvertColors
           />

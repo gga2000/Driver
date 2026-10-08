@@ -1,9 +1,11 @@
 import { router, useIsFocused } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, SearchField, Skeleton, Text, useTheme } from '@driver/ui';
+import { Button, SearchField, Skeleton, StaleNote, Text, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
+import { LoadPending } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -11,7 +13,7 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { CategoryNameSheet, ReorderSheet } from './CategorySheets';
 import { Glyph } from './Glyph';
-import { categoryNames, filterMenu, itemStatus, sectionCounts, trayColumns, type MenuCategoryLike } from './logic';
+import { categoryNames, filterMenu, itemStatus, sectionCounts, shelfRows, trayColumns, type MenuCategoryLike, type ShelfRow } from './logic';
 import { Tray } from './Tray';
 import { GlyphButton, Panel, Pill } from './parts';
 import { PotEntry } from '@/features/pot/PotEntry';
@@ -191,14 +193,19 @@ export function MenuScreen() {
 
   const body = (() => {
     if (menu.isLoading || !menu.data) {
-      return menu.isError ? (
-        <EmptyState icon="x" title={t('merchant.menu.load_failed')} action={{ label: t('merchant.menu.retry'), onPress: () => void menu.refetch() }} />
-      ) : (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
-          {Array.from({ length: wide ? 8 : 4 }, (_, i) => (
-            <Skeleton key={i} width={wide ? 196 : '47%'} height={wide ? 220 : 200} radius={theme.radius.xl} />
-          ))}
-        </View>
+      return (
+        <LoadPending
+          query={menu}
+          failed={t('merchant.menu.load_failed')}
+          testID="menu"
+          skeleton={
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
+              {Array.from({ length: wide ? 8 : 4 }, (_, i) => (
+                <Skeleton key={i} width={wide ? 196 : '47%'} height={wide ? 220 : 200} radius={theme.radius.xl} />
+              ))}
+            </View>
+          }
+        />
       );
     }
     if (allItems.length === 0 && pending.length === 0) {
@@ -229,27 +236,26 @@ export function MenuScreen() {
         </Panel>
       );
     }
-    return (
-      <View style={{ gap: theme.space[5] }}>
-        {paneSections.map((s) => (
-          <SectionBlock
-            key={s.key}
-            section={s}
-            now={now}
-            wide={wide}
-            showHeader
-            big={wide && !searching}
-            onRename={s.nameAr ? () => setNameSheet({ renameFrom: s.nameAr }) : undefined}
-            onAdd={() => addItem(s.nameAr)}
-            onOpen={openItem}
-            onBack={onBack}
-            onSoldOut={onSoldOut}
-            onPhoto={openPhoto}
-          />
-        ))}
-      </View>
-    );
+    // The shelf itself: a list that draws only the rows on screen (below).
+    return null;
   })();
+
+  const stale = <StaleNote updatedAt={menu.dataUpdatedAt} testID="menu-stale" />;
+  const shelf = (header: ReactElement) => (
+    <Shelf
+      sections={paneSections}
+      header={header}
+      now={now}
+      wide={wide}
+      big={wide && !searching}
+      onRename={(s) => setNameSheet({ renameFrom: s })}
+      onAdd={addItem}
+      onOpen={openItem}
+      onBack={onBack}
+      onSoldOut={onSoldOut}
+      onPhoto={openPhoto}
+    />
+  );
 
   const sheets = (
     <>
@@ -299,17 +305,25 @@ export function MenuScreen() {
               <CustomerHint />
             </ScrollView>
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: theme.space[10] }}>
-            {body}
-          </ScrollView>
+          <View style={{ flex: 1 }}>
+            {body ? (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: theme.space[10] }}>
+                {stale}
+                {body}
+              </ScrollView>
+            ) : (
+              shelf(stale)
+            )}
+          </View>
         </View>
         {sheets}
       </Page>
     );
   }
 
-  return (
-    <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} testID="menu">
+  // The phone's top (the pot, search, filters, section chips) scrolls away with the shelf.
+  const top = (
+    <>
       <PotEntry merchantOrgId={storeId} />
       {search}
       {filters}
@@ -324,7 +338,21 @@ export function MenuScreen() {
           {named.length > 1 ? <SectionChip testID="menu-reorder" label={t('merchant.menu.reorder_short')} glyph="sort" selected={false} onPress={() => setReorderOpen(true)} /> : null}
         </ScrollView>
       ) : null}
-      {body}
+      {stale}
+    </>
+  );
+  if (body) {
+    return (
+      <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} testID="menu">
+        {top}
+        {body}
+        {sheets}
+      </Page>
+    );
+  }
+  return (
+    <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} scroll={false} testID="menu">
+      {shelf(<View style={{ gap: theme.space[5], paddingTop: theme.space[4], paddingBottom: theme.space[5] }}>{top}</View>)}
       {sheets}
     </Page>
   );
@@ -427,93 +455,96 @@ function SectionNavRow({ section, now, selected, onPress, index }: { section: Se
   );
 }
 
-function SectionBlock({
-  section,
-  now,
-  wide,
-  big,
-  onRename,
-  onAdd,
-  onOpen,
-  onBack,
-  onSoldOut,
-  onPhoto,
-}: {
-  section: Section;
+interface ShelfProps {
+  sections: readonly Section[];
+  /** Everything above the trays (the phone's search and chips, the tablet's stale note). */
+  header: ReactElement;
   now: number;
   wide: boolean;
-  showHeader: boolean;
   big: boolean;
-  onRename?: (() => void) | undefined;
-  onAdd: () => void;
+  onRename: (section: string) => void;
+  onAdd: (section: string | null) => void;
   onOpen: (item: AdminMenuItem) => void;
   onBack: (item: AdminMenuItem) => void;
   onSoldOut: (item: AdminMenuItem) => void;
   onPhoto: (item: AdminMenuItem) => void;
-}) {
+}
+
+/**
+ * The trays, section by section, in a list that draws only the rows on screen (perf m1): a big menu of
+ * 150 dishes keeps a cheap tablet smooth. Trays sit as many to a row as fit the shelf's width.
+ */
+function Shelf({ sections, header, now, wide, big, onRename, onAdd, onOpen, onBack, onSoldOut, onPhoto }: ShelfProps) {
   const theme = useTheme();
   const t = useT();
-  const c = sectionCounts(section.items, now);
-  const title = section.nameAr ?? t('merchant.menu.no_section');
-  const summary = [t('merchant.menu.items_count', { count: c.total }), c.soldOutToday ? t('merchant.menu.count_sold_out', { count: c.soldOutToday }) : null, c.off ? t('merchant.menu.count_off', { count: c.off }) : null].filter(Boolean).join(' · ');
-  return (
-    <View style={{ gap: theme.space[3] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <View style={{ flex: 1 }}>
-          <Text variant={big ? 'heading' : 'title'} accessibilityRole="header" numberOfLines={1}>
-            {title}
-          </Text>
-          <Text variant="footnote" color="textMuted" tabular>
-            {section.pending ? t('merchant.menu.section_empty_short') : summary}
-          </Text>
+  const [width, setWidth] = useState(0);
+  const focused = useIsFocused();
+  const gap = wide ? 14 : 10;
+  const cols = trayColumns(width, gap, wide);
+  // On the web a screen under another stays in the page, hidden, and the dish drawings' gradients are
+  // looked up page-wide: hidden copies would blank the same drawing in the dish editor on top. Off screen
+  // there is nothing to see, so the shelf steps aside until the menu is back.
+  const hidden = Platform.OS === 'web' && !focused;
+  const rows = useMemo(() => (hidden ? [] : shelfRows(sections, cols)), [hidden, sections, cols]);
+
+  const renderItem = ({ item: row }: { item: ShelfRow<Section> }) => {
+    const section = row.section;
+    if (row.kind === 'head') {
+      const c = sectionCounts(section.items, now);
+      const title = section.nameAr ?? t('merchant.menu.no_section');
+      const summary = [t('merchant.menu.items_count', { count: c.total }), c.soldOutToday ? t('merchant.menu.count_sold_out', { count: c.soldOutToday }) : null, c.off ? t('merchant.menu.count_off', { count: c.off }) : null].filter(Boolean).join(' · ');
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingBottom: theme.space[3] }}>
+          <View style={{ flex: 1 }}>
+            <Text variant={big ? 'heading' : 'title'} accessibilityRole="header" numberOfLines={1}>
+              {title}
+            </Text>
+            <Text variant="footnote" color="textMuted" tabular>
+              {section.pending ? t('merchant.menu.section_empty_short') : summary}
+            </Text>
+          </View>
+          {section.nameAr ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={() => onRename(section.nameAr ?? '')} /> : null}
+          {wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} />}
         </View>
-        {onRename ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={onRename} /> : null}
-        {wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={onAdd} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={onAdd} />}
-      </View>
-      {section.items.length === 0 ? (
-        <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8], gap: theme.space[3] }}>
+      );
+    }
+    if (row.kind === 'empty') {
+      return (
+        <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8], gap: theme.space[3], marginBottom: theme.space[5] }}>
           <Text variant="bodyStrong" align="center">
             {t('merchant.menu.section_empty_title')}
           </Text>
           <Text variant="footnote" color="textMuted" align="center" style={{ maxWidth: 360 }}>
             {t('merchant.menu.section_empty_body')}
           </Text>
-          <Button label={t('merchant.menu.add_first')} icon="plus" onPress={onAdd} />
+          <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => onAdd(section.nameAr)} />
         </Panel>
-      ) : (
-        <TrayGrid items={section.items} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
-      )}
-    </View>
-  );
-}
+      );
+    }
+    return (
+      <View style={{ flexDirection: 'row', gap, paddingBottom: row.last ? theme.space[5] : gap }}>
+        {row.items.map((item) => (
+          <Tray key={item.id} item={item} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
+        ))}
+        {Array.from({ length: cols - row.items.length }, (_, i) => (
+          <View key={`gap-${i}`} style={{ flex: 1 }} />
+        ))}
+      </View>
+    );
+  };
 
-/**
- * The glass display's shelf: as many trays a row as fit (two on a phone, four to six on a tablet), every
- * row the same height so the prices line up; a short last row keeps its trays tray-sized.
- */
-function TrayGrid({ items, now, wide, onOpen, onBack, onSoldOut, onPhoto }: { items: readonly AdminMenuItem[]; now: number; wide: boolean; onOpen: (item: AdminMenuItem) => void; onBack: (item: AdminMenuItem) => void; onSoldOut: (item: AdminMenuItem) => void; onPhoto: (item: AdminMenuItem) => void }) {
-  const [width, setWidth] = useState(0);
-  const focused = useIsFocused();
-  const gap = wide ? 14 : 10;
-  const cols = trayColumns(width, gap, wide);
-  const rows: AdminMenuItem[][] = [];
-  for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
-  // On the web a screen under another stays in the page, hidden, and the dish drawings' gradients are
-  // looked up page-wide: hidden copies would blank the same drawing in the dish editor on top. Off screen
-  // there is nothing to see, so the shelf steps aside until the menu is back.
-  if (Platform.OS === 'web' && !focused) return null;
   return (
-    <View testID="tray-grid" onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ gap }}>
-      {rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: 'row', gap }}>
-          {row.map((item) => (
-            <Tray key={item.id} item={item} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
-          ))}
-          {Array.from({ length: cols - row.length }, (_, i) => (
-            <View key={`gap-${i}`} style={{ flex: 1 }} />
-          ))}
-        </View>
-      ))}
+    <View testID="tray-grid" style={{ flex: 1 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      <FlashList
+        data={rows}
+        renderItem={renderItem}
+        keyExtractor={(r) => r.key}
+        getItemType={(r) => r.kind}
+        extraData={now}
+        ListHeaderComponent={header}
+        contentContainerStyle={{ paddingBottom: theme.space[10] }}
+        keyboardShouldPersistTaps="handled"
+      />
     </View>
   );
 }

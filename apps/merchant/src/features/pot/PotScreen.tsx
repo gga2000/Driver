@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Button, Chip, EmptyState, SearchField, Skeleton, Text, TextField, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
+import { LoadPending } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
 import { Panel, PanelTitle } from '@/features/menu/parts';
@@ -132,8 +133,8 @@ export function PotScreen() {
           </View>
         ) : null}
         <SearchField testID="pot-search" value={query} onChangeText={setQuery} placeholder={t('merchant.pot.search')} accessibilityLabel={t('merchant.pot.search')} />
-        {menu.isPending ? (
-          <Skeleton height={160} radius={theme.radius.lg} />
+        {!menu.data ? (
+          <LoadPending query={menu} compact skeleton={<Skeleton height={160} radius={theme.radius.lg} />} failed={t('merchant.menu.load_failed')} testID="pot-menu" />
         ) : candidates.length === 0 ? (
           <Text variant="label" color="textMuted" testID="pot-none">
             {query.trim() ? t('merchant.menu.no_results', { query: query.trim() }) : t('merchant.pot.none_on_sale')}

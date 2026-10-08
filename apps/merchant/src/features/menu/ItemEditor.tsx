@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
 import { Button, ChipGroup, EmptyState, SegmentedControl, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
+import { LoadPending } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -13,6 +15,7 @@ import { amountParam, iqd } from '@/lib/money';
 import { Glyph } from './Glyph';
 import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
 import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, toDraftGroups, type DraftGroup } from './logic';
+import { LibrarySheet, libraryPhoto } from './LibrarySheet';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
 import { DishArt, Panel, PanelTitle, Pill, Toggle } from './parts';
 import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKind } from './tiers';
@@ -71,6 +74,7 @@ export function ItemEditor() {
   const [groups, setGroups] = useState<DraftGroup[]>([]);
   const [newSection, setNewSection] = useState(false);
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tried, setTried] = useState(false);
@@ -104,20 +108,33 @@ export function ItemEditor() {
       toast.show({ message: t('merchant.item.photo_denied'), tone: 'warning' });
       return;
     }
-    if (!picked?.[0] || !storeId) return;
+    if (picked?.[0]) await applyPhoto(picked[0]);
+  };
+  // A new dish keeps the photo until it is saved; a saved one swaps its photo now.
+  const applyPhoto = async (picked: PickedPhoto): Promise<boolean> => {
+    if (!storeId) return false;
     if (isNew || !item) {
-      setPhoto(picked[0]);
-      return;
+      setPhoto(picked);
+      return true;
     }
     setUploading(true);
     try {
-      const uploadId = await upload(picked[0]);
+      const uploadId = await upload(picked);
       await actions.replacePhoto.mutateAsync({ merchantOrgId: storeId, itemId: item.id, uploadId });
       toast.show({ message: t('merchant.item.photo_done'), tone: 'success' });
+      return true;
     } catch (err) {
       fail(err);
+      return false;
     } finally {
       setUploading(false);
+    }
+  };
+  const pickFromLibrary = async (source: number | string) => {
+    try {
+      if (await applyPhoto(await libraryPhoto(source))) setLibraryOpen(false);
+    } catch (err) {
+      fail(err);
     }
   };
 
@@ -247,7 +264,11 @@ export function ItemEditor() {
   if (!isNew && !item) {
     return (
       <Page title={t('merchant.item.title')} back testID="item-editor">
-        {menu.isLoading ? <Skeleton height={320} radius={theme.radius.xl} /> : <EmptyState icon="x" title={t('merchant.item.not_found')} action={{ label: t('merchant.item.back_to_menu'), onPress: () => router.replace('/menu') }} />}
+        {!menu.data ? (
+          <LoadPending query={menu} skeleton={<Skeleton height={320} radius={theme.radius.xl} />} failed={t('merchant.menu.load_failed')} testID="item-editor" />
+        ) : (
+          <EmptyState icon="x" title={t('merchant.item.not_found')} action={{ label: t('merchant.item.back_to_menu'), onPress: () => router.replace('/menu') }} />
+        )}
       </Page>
     );
   }
@@ -260,7 +281,7 @@ export function ItemEditor() {
     <Panel testID="photo-panel" padded={false} style={[{ overflow: 'hidden' }, forPhoto && !photoUri ? { borderWidth: 2, borderColor: theme.colors.accent } : null]}>
       <View style={{ aspectRatio: wide ? 4 / 3 : 16 / 9, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
         {photoUri ? (
-          <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors />
+          <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors />
         ) : (
           <View style={{ alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[4] }}>
             {/* p2: until a photo arrives, the drawing customers see for this dish (from its name). */}
@@ -281,6 +302,10 @@ export function ItemEditor() {
       <View style={{ flexDirection: 'row', gap: theme.space[2], padding: theme.space[3] }}>
         <Button testID="photo-library" size="sm" variant={photoUri ? 'secondary' : 'primary'} label={photoUri ? t('merchant.item.photo_replace') : t('merchant.item.photo_add')} trailing={<Glyph name="photo" size={18} strokeWidth={2} color={photoUri ? 'text' : 'onAccent'} />} onPress={() => void choosePhoto('library')} style={{ flex: 1 }} />
         {Platform.OS !== 'web' ? <Button size="sm" variant="secondary" label={t('merchant.item.photo_camera')} trailing={<Glyph name="camera" size={18} strokeWidth={2} />} onPress={() => void choosePhoto('camera')} style={{ flex: 1 }} /> : null}
+      </View>
+      {/* «من صورنا»: no time for a photo yet, take one of Driver's own until the shop's arrives. */}
+      <View style={{ paddingHorizontal: theme.space[3], paddingBottom: theme.space[3], marginTop: -theme.space[1] }}>
+        <Button testID="photo-from-library" size="sm" variant="ghost" label={t('merchant.library.open')} trailing={<Glyph name="sparkle" size={18} strokeWidth={2} />} onPress={() => setLibraryOpen(true)} />
       </View>
       {photoUri ? (
         <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3] }}>
@@ -555,6 +580,7 @@ export function ItemEditor() {
           <HistorySheet visible={historyOpen} name={item.nameAr} history={history.data} loading={history.isLoading} onClose={() => setHistoryOpen(false)} />
         </>
       ) : null}
+      <LibrarySheet visible={libraryOpen} name={form.nameAr} section={form.categoryAr || null} busy={uploading} onClose={() => setLibraryOpen(false)} onPick={(src) => void pickFromLibrary(src)} />
       <TierSheet
         visible={tierEdit !== null}
         kind={tierEdit ?? 'weight'}

@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
 import { temperatureOf, Text, useTheme, withAlpha } from '@driver/ui';
 import { COUNTER } from '@/lib/counter';
@@ -80,7 +81,7 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
         })}
       >
         <View onLayout={(e) => setPicH(e.nativeEvent.layout.height)} style={{ aspectRatio: 1.3, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: COUNTER.sand }}>
-          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <DishArt name={item.nameAr} id={item.id} section={item.categoryAr} />}
+          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} recyclingKey={item.id} transition={120} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors /> : <DishArt name={item.nameAr} id={item.id} section={item.categoryAr} />}
           {!on ? <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: withAlpha(COUNTER.sand, 0.62) }} /> : null}
           {status === 'sold_out_today' ? <Stamp wide={wide} title={t('merchant.menu.sold_out_today')} sub={t('merchant.display.stamp_back')} tone="late" /> : null}
           {status === 'off' ? <Stamp wide={wide} title={t('merchant.menu.off')} tone="off" /> : null}

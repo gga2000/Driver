@@ -4,6 +4,7 @@ import { Linking, Pressable, View } from 'react-native';
 import type { MerchantInsights, StoreHoursView, StoreStatusView } from '@driver/contracts';
 import { Skeleton, Text, useTheme } from '@driver/ui';
 import { EntryTile } from '@/components/EntryTile';
+import { Loadable, type QueryState } from '@/components/Loadable';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Page } from '@/components/Page';
 import { Panel } from '@/components/Panel';
@@ -102,18 +103,20 @@ export function ShopScreen() {
     { id: 'settings', icon: 'sliders', title: t('merchant.more.settings'), hint: t('merchant.more.settings_hint'), href: '/settings' },
   ];
 
-  const front = s ? (
-    <View style={{ gap: theme.space[4] }}>
-      <ShopFront status={s} hours={hours.data} wide={wide} busy={setOpen.isPending} onClose={() => setClosing('shutter')} onOpen={() => void reopen()} />
-      <Pauses status={s} hours={hours.data} now={now} wide={wide} busy={setOpen.isPending} onPause={(p) => void pause(p)} onOther={() => setClosing('other')} />
-    </View>
-  ) : (
-    <Skeleton height={wide ? 330 : 300} radius={theme.radius.xl} />
+  const front = (
+    <Loadable query={status} skeleton={<Skeleton height={wide ? 330 : 300} radius={theme.radius.xl} />} failed={t('merchant.shop.load_failed')} testID="shop-front">
+      {(st) => (
+        <View style={{ gap: theme.space[4] }}>
+          <ShopFront status={st} hours={hours.data} wide={wide} busy={setOpen.isPending} onClose={() => setClosing('shutter')} onOpen={() => void reopen()} />
+          <Pauses status={st} hours={hours.data} now={now} wide={wide} busy={setOpen.isPending} onPause={(p) => void pause(p)} onOther={() => setClosing('other')} />
+        </View>
+      )}
+    </Loadable>
   );
   const side = (
     <View style={{ gap: theme.space[4] }}>
-      <WeekPanel hours={hours.data} dayMonth={(d) => dates.dayMonth(new Date(`${d}T12:00:00+03:00`))} />
-      <WhyPanel data={insights.data} />
+      <WeekPanel query={hours} dayMonth={(d) => dates.dayMonth(new Date(`${d}T12:00:00+03:00`))} />
+      <WhyPanel query={insights} />
     </View>
   );
 
@@ -259,7 +262,8 @@ function PauseChip({ icon, title, sub, wide, disabled, onPress, testID }: { icon
 }
 
 /** «الدوام بالأسبوع» (h3): the week folded into a few lines, «عدّل» opens the hours screen. */
-function WeekPanel({ hours, dayMonth }: { hours: StoreHoursView | undefined; dayMonth: (date: string) => string }) {
+function WeekPanel({ query, dayMonth }: { query: QueryState<StoreHoursView>; dayMonth: (date: string) => string }) {
+  const hours = query.data;
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -273,31 +277,33 @@ function WeekPanel({ hours, dayMonth }: { hours: StoreHoursView | undefined; day
   const day = (dow: number) => t(`merchant.date.dow_${dow}` as TKey);
   return (
     <Panel title={t('merchant.shop.week_title')} icon="clock" aside={edit} testID="shop-week">
-      {!hours ? (
-        <Skeleton height={64} />
-      ) : hours.source === 'none' ? (
-        <Text variant="body" color="textMuted">
-          {t('merchant.shop.week_none')}
-        </Text>
-      ) : (
-        <View style={{ gap: theme.space[2] }}>
-          {weekRuns(hours.days).map((r) => (
-            <View key={r.from} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-              <Text variant="bodyStrong" style={{ width: 128 }}>
-                {r.from === r.to ? day(r.from) : `${day(r.from)}–${day(r.to)}`}
-              </Text>
-              <Text variant="body" color={r.shifts.length ? 'text' : 'textMuted'} tabular style={{ flex: 1 }}>
-                {r.shifts.length ? r.shifts.map((x) => shiftLabel(t, x, locale)).join('، ') : t('merchant.shop.day_closed')}
-              </Text>
-            </View>
-          ))}
-          {hours.holidays[0] ? (
-            <Text variant="footnote" color="warningText">
-              {t('merchant.hours.state_holiday', { date: dayMonth(hours.holidays[0].to) })}
+      <Loadable query={query} compact stale={false} skeleton={<Skeleton height={64} />} failed={t('merchant.shop.week_failed')} testID="shop-week">
+        {(hours) =>
+          hours.source === 'none' ? (
+            <Text variant="body" color="textMuted">
+              {t('merchant.shop.week_none')}
             </Text>
-          ) : null}
-        </View>
-      )}
+          ) : (
+            <View style={{ gap: theme.space[2] }}>
+              {weekRuns(hours.days).map((r) => (
+                <View key={r.from} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+                  <Text variant="bodyStrong" style={{ width: 128 }}>
+                    {r.from === r.to ? day(r.from) : `${day(r.from)}–${day(r.to)}`}
+                  </Text>
+                  <Text variant="body" color={r.shifts.length ? 'text' : 'textMuted'} tabular style={{ flex: 1 }}>
+                    {r.shifts.length ? r.shifts.map((x) => shiftLabel(t, x, locale)).join('، ') : t('merchant.shop.day_closed')}
+                  </Text>
+                </View>
+              ))}
+              {hours.holidays[0] ? (
+                <Text variant="footnote" color="warningText">
+                  {t('merchant.hours.state_holiday', { date: dayMonth(hours.holidays[0].to) })}
+                </Text>
+              ) : null}
+            </View>
+          )
+        }
+      </Loadable>
     </Panel>
   );
 }
@@ -306,7 +312,8 @@ function WeekPanel({ hours, dayMonth }: { hours: StoreHoursView | undefined; day
  * «ليش الزبون يختارك» (x1–x3): the shop's own numbers that customers' «أحسن 3» reasons are made from,
  * the dish it is known for, and how to earn a place. Written by Driver from real orders, never bought.
  */
-function WhyPanel({ data }: { data: MerchantInsights | undefined }) {
+function WhyPanel({ query }: { query: QueryState<MerchantInsights> }) {
+  const data = query.data;
   const theme = useTheme();
   const t = useT();
   const onTime = data?.prepHonesty.onTimeShare;
@@ -319,31 +326,31 @@ function WhyPanel({ data }: { data: MerchantInsights | undefined }) {
   ].filter((x): x is string => x !== null);
   return (
     <Panel title={t('merchant.shop.why_title')} caption={t('merchant.shop.why_caption')} icon="star" testID="shop-why">
-      {!data ? (
-        <Skeleton height={72} />
-      ) : (
-        <View style={{ gap: theme.space[2] }}>
-          {facts.length === 0 ? (
-            <Text variant="body" color="textMuted">
-              {t('merchant.shop.why_none')}
-            </Text>
-          ) : (
-            facts.map((f) => (
-              <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-                <MIcon name="check" size={18} color="successText" strokeWidth={2.2} />
-                <Text variant="body" style={{ flex: 1 }}>
-                  {f}
-                </Text>
-              </View>
-            ))
-          )}
-          <View style={{ marginTop: theme.space[1], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: COUNTER.sand }}>
-            <Text variant="footnote" weight={600} style={{ color: COUNTER.date }}>
-              {t('merchant.shop.why_earn')}
-            </Text>
+      <Loadable query={query} compact stale={false} skeleton={<Skeleton height={72} />} failed={t('merchant.shop.why_failed')} testID="shop-why">
+        {() => (
+          <View style={{ gap: theme.space[2] }}>
+            {facts.length === 0 ? (
+              <Text variant="body" color="textMuted">
+                {t('merchant.shop.why_none')}
+              </Text>
+            ) : (
+              facts.map((f) => (
+                <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                  <MIcon name="check" size={18} color="successText" strokeWidth={2.2} />
+                  <Text variant="body" style={{ flex: 1 }}>
+                    {f}
+                  </Text>
+                </View>
+              ))
+            )}
+            <View style={{ marginTop: theme.space[1], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: COUNTER.sand }}>
+              <Text variant="footnote" weight={600} style={{ color: COUNTER.date }}>
+                {t('merchant.shop.why_earn')}
+              </Text>
+            </View>
           </View>
-        </View>
-      )}
+        )}
+      </Loadable>
     </Panel>
   );
 }
