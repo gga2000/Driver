@@ -54,7 +54,7 @@ describe('W3 switches', () => {
 
 describe('orders.ops.switches', () => {
   it('tells the Console which money outcomes are on: all off by default, void always allowed', () => {
-    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform', remakePay: false });
+    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform', remakePay: true });
     const on = make({ disputes: { outcomes: ['stands', 'refund_full'], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } }, courierLost: { refund: true, chargeCourier: false } });
     expect(on.staff.switches()).toMatchObject({ disputeOutcomes: ['stands', 'refund_full', 'void'], courierLostRefund: true, courierLostCharge: false });
   });
@@ -457,13 +457,16 @@ describe('remake pay (c6, Ali 2026-10-08)', () => {
     return { o: await h.orders.get(o.id), t };
   }
 
-  it('off by default: refused with money_rule_off, and the rule says so to the Merchant app', async () => {
-    const h = make();
+  it('on by default (Ali 2026-10-08); MERCHANT_REMAKE_PAY=off switches it off and refuses with money_rule_off', async () => {
+    expect(outcomeRulesFromEnv({}).remake).toEqual({ pay: true, afterReadyMin: 10 });
+    expect(outcomeRulesFromEnv({ MERCHANT_REMAKE_PAY: 'off' }).remake.pay).toBe(false);
+    const h = make({ remake: { pay: false } });
     const { o } = await readyAndWaiting(h);
     expect(h.staff.remakeRule()).toEqual({ pay: false, afterReadyMin: 10 });
     h.clock.advance(11 * MIN);
     expect(await code(h.staff.merchantRemake('m1', { orderId: o.id }))).toBe('money_rule_off');
     expect(await h.balance('merchant_cash:rest_1')).toBe(0);
+    expect(make().staff.remakeRule()).toEqual({ pay: true, afterReadyMin: 10 });
   });
 
   it('on: from 10 minutes after «جاهز» with no courier at the pass, Driver pays the items at menu price, once', async () => {
