@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { Button, Card, RetryState, retryKindFor, Skeleton, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { ShiftDataLine } from '@/features/account/DataUseCard';
 import { HandoverSheet } from '@/features/account/HandoverSheet';
 import { startOfLocalDay } from '@/features/account/logic';
 import { useShiftSummary } from '@/features/account/queries';
@@ -109,6 +110,7 @@ export default function ShiftSummaryScreen() {
           {wholeDay ? null : <ShiftCompliments s={s} onOpen={() => router.push('/compliments')} />}
           <ShiftTomorrow s={s} />
           <ShiftNudge s={s} onOpen={() => router.push('/scorecard')} />
+          <ShiftDataLine from={from} />
           {/* The picture "شارك يومك" captures on a phone; the web draws it on a canvas instead. */}
           {Platform.OS !== 'web' && model ? (
             <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ position: 'absolute', top: 0, left: -10_000 }}>
