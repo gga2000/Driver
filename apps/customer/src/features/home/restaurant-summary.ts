@@ -9,6 +9,8 @@ export interface RestaurantSummary {
   pickup: RestaurantCard['pickup'];
   /** Short cuisine line under the name. */
   cuisine: string;
+  /** The kitchen's own photo (its storefront upload); home shows one for its kind until it has one. */
+  photoUrl?: string | null;
   zoneId: string | null;
   /** Null = new kitchen (no ratings yet). */
   rating: number | null;
@@ -45,6 +47,7 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     cityId: card.cityId,
     pickup: card.pickup,
     cuisine: card.cuisine,
+    photoUrl: card.photoUrl,
     zoneId: card.pickup?.zoneKey ?? null,
     rating: card.rating?.avg ?? null,
     ratingCount: card.rating?.count ?? 0,
