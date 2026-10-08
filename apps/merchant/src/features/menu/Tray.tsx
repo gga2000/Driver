@@ -85,6 +85,19 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
           {!on ? <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: withAlpha(COUNTER.sand, 0.62) }} /> : null}
           {status === 'sold_out_today' ? <Stamp wide={wide} title={t('merchant.menu.sold_out_today')} sub={t('merchant.display.stamp_back')} tone="late" /> : null}
           {status === 'off' ? <Stamp wide={wide} title={t('merchant.menu.off')} tone="off" /> : null}
+          {/* p4 (Ali 2026-10-08): his new photo is already on the customer menu; our team looks at it the same day. */}
+          {item.photoUrl && item.photoReviewPending ? (
+            <View
+              testID={`tray-review-${item.id}`}
+              accessibilityLabel={`${t('merchant.menu.photo_pending')} · ${t('merchant.menu.photo_pending_hint')}`}
+              style={{ position: 'absolute', bottom: 8, start: 8, maxWidth: '90%', flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 26, paddingHorizontal: 8, paddingVertical: 2, borderRadius: theme.radius.pill, backgroundColor: withAlpha(COUNTER.paper, 0.95), borderWidth: 1, borderColor: COUNTER.dateEdge }}
+            >
+              <Glyph name="history" size={13} color={COUNTER.date} strokeWidth={2} />
+              <Text weight={700} numberOfLines={1} style={{ flexShrink: 1, color: COUNTER.date, fontSize: 12, lineHeight: 17 }}>
+                {t('merchant.menu.photo_pending')}
+              </Text>
+            </View>
+          ) : null}
           {temp && on ? (
             <View style={{ position: 'absolute', top: 8, end: 8, flexDirection: 'row', alignItems: 'center', gap: 4, height: 24, paddingHorizontal: 8, borderRadius: theme.radius.pill, backgroundColor: temp === 'cold' ? COUNTER.date : COUNTER.newBadge }}>
               <Glyph name={temp === 'cold' ? 'snow' : 'steam'} size={13} color={COUNTER.onDate} strokeWidth={2} />

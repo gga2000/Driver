@@ -73,6 +73,11 @@ export interface CatalogItemRecord {
    * «صورة توضيحية» until the kitchen puts up its own; null/absent = the kitchen's own photo.
    */
   photoLibrary?: string | null;
+  /**
+   * p4 (Ali 2026-10-08): the shop's own uploaded photo shows to customers at once; this is when it went
+   * up, until Driver's team has looked at it (same day). Null/absent = nothing waiting.
+   */
+  photoReviewPendingAt?: Date | null;
 }
 
 /** Wave 2: one price edit (merchant app "price edit with history"). */
@@ -108,7 +113,7 @@ export interface MenuImportJobRecord {
   appliedCount: number;
 }
 
-export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'photoLibrary' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
+export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'photoLibrary' | 'photoReviewPendingAt' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
   soldOutUntil?: Date | null;
 };
 
@@ -221,6 +226,8 @@ export interface CatalogRepository {
   // ── wave 2: merchant menu admin ──
   item(id: string, tx?: Tx): Promise<CatalogItemRecord | null>;
   updateItem(id: string, patch: CatalogItemPatch, tx?: Tx): Promise<CatalogItemRecord>;
+  /** p4: dishes whose shop-uploaded photo waits for Driver's look, oldest first (every city). */
+  photoReviewQueue(limit: number, tx?: Tx): Promise<CatalogItemRecord[]>;
   /** Replaces every modifier group (and modifier) of the item. */
   replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord>;
   addPriceChange(input: Omit<PriceChangeRecord, 'id'>, tx?: Tx): Promise<PriceChangeRecord>;
@@ -464,6 +471,14 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     return clone(item);
   }
 
+  async photoReviewQueue(limit: number): Promise<CatalogItemRecord[]> {
+    return [...this.items.values()]
+      .filter((i) => i.photoReviewPendingAt)
+      .sort((a, b) => a.photoReviewPendingAt!.getTime() - b.photoReviewPendingAt!.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit)
+      .map((i) => clone(i));
+  }
+
   async replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[]): Promise<CatalogItemRecord> {
     const item = this.items.get(itemId);
     if (!item) throw new Error(`catalog item ${itemId} not found`);
@@ -553,6 +568,7 @@ type ItemRow = {
   servesMax?: number | null;
   labels?: string[];
   photoLibrary?: string | null;
+  photoReviewPendingAt?: Date | null;
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -590,6 +606,7 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     servesMax: r.servesMax ?? null,
     labels: [...(r.labels ?? [])],
     photoLibrary: r.photoLibrary ?? null,
+    photoReviewPendingAt: r.photoReviewPendingAt ?? null,
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -810,6 +827,11 @@ export class PrismaCatalogRepository implements CatalogRepository {
     const data = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
     const row = await this.db(tx).catalogItem.update({ where: { id }, data, include: WITH_MODIFIERS });
     return fromRow(row as unknown as ItemRow);
+  }
+
+  async photoReviewQueue(limit: number, tx?: Tx): Promise<CatalogItemRecord[]> {
+    const rows = await this.db(tx).catalogItem.findMany({ where: { photoReviewPendingAt: { not: null } }, include: WITH_MODIFIERS, orderBy: [{ photoReviewPendingAt: 'asc' }, { id: 'asc' }], take: limit });
+    return (rows as unknown as ItemRow[]).map(fromRow);
   }
 
   async replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord> {

@@ -25,3 +25,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010130000 | fleet_planned_vehicle | partner app thread | #15 |
 | 20261010230000 | store_closed_until | merchant | #19 |
 | 20261010260000 | merchant_setup | merchant | setup PR |
+| 20261010270000 | merchant_shop_rules (PLACEHOLDER stamp, coordinator to assign) | merchant | shop rules t5/r5/x6/p4 |

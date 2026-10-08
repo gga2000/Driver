@@ -232,10 +232,30 @@ export class CatalogService {
     return this.repo.priceChanges(itemId, tx);
   }
 
-  async replacePhoto(orgId: string, itemId: string, photoUrl: string, tx?: Tx, photoLibrary: string | null = null): Promise<CatalogItemRecord> {
+  /**
+   * `shopUpload`: the shop took this photo itself (p4, Ali 2026-10-08) — it shows to customers at once
+   * and waits for Driver's same-day look; Driver's own photos (library, menu photo service) do not.
+   */
+  async replacePhoto(orgId: string, itemId: string, photoUrl: string, tx?: Tx, photoLibrary: string | null = null, shopUpload = false): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
     // A new photo of his own ends the library's «صورة توضيحية»; setup passes the library slug.
-    return this.repo.updateItem(itemId, { photoUrl, photoLibrary }, tx);
+    const photoReviewPendingAt = shopUpload && photoLibrary === null ? this.clock.now() : null;
+    return this.repo.updateItem(itemId, { photoUrl, photoLibrary, photoReviewPendingAt }, tx);
+  }
+
+  /**
+   * p4: dishes whose shop-uploaded photo still waits for Driver's look, oldest first — for the Console's
+   * review queue (another team wires the screen).
+   */
+  photoReviewQueue(limit = 200, tx?: Tx): Promise<CatalogItemRecord[]> {
+    return this.repo.photoReviewQueue(limit, tx);
+  }
+
+  /** p4: Driver's team looked at the photo (kept or replaced elsewhere): the dish leaves the queue. */
+  async markPhotoReviewed(itemId: string, tx?: Tx): Promise<CatalogItemRecord> {
+    const item = await this.repo.item(itemId, tx);
+    if (!item) throw new DriverError('menu_item_not_found');
+    return item.photoReviewPendingAt ? this.repo.updateItem(itemId, { photoReviewPendingAt: null }, tx) : item;
   }
 
   /** Creates (no `itemId`) or edits an item; a price edit goes through `updatePrice` for its history row. */

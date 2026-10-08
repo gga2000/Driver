@@ -60,7 +60,8 @@ export function setupCatalogOf(catalog: CatalogService): SetupCatalogPort {
           actorId,
         )
       ).item,
-    setPhoto: (orgId, itemId, photoUrl, library) => catalog.replacePhoto(orgId, itemId, photoUrl, undefined, library),
+    // p4: his own photo (no library slug) waits for the team's same-day look; a library photo does not.
+    setPhoto: (orgId, itemId, photoUrl, library) => catalog.replacePhoto(orgId, itemId, photoUrl, undefined, library, library === null),
   };
 }
 
@@ -174,7 +175,7 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
     const { org } = await this.inSetup(actor, input.merchantOrgId);
     await this.assertUpload(input.uploadId, actor.personId);
     await this.catalog.setPhoto(org.id, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, input.librarySlug ?? null);
-    await this.events.record('item.photo_replaced', actor.personId, org.id, { itemId: input.itemId, library: input.librarySlug ?? null });
+    await this.events.record('item.photo_replaced', actor.personId, org.id, { itemId: input.itemId, library: input.librarySlug ?? null, ...(input.librarySlug ? {} : { review: 'pending' }) });
     return this.view(org);
   }
 

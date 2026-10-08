@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
-import { CUSTOMER_ZONE_MIN_ORDERS, DELIVERY_AREA_CACHE_MS, DriverError, type RoleKind } from '@driver/contracts';
+import { CUSTOMER_ZONE_MIN_ORDERS, DELIVERY_AREA_CACHE_MS, DriverError, MerchantAcceptInput, SetBusyInput, type RoleKind } from '@driver/contracts';
 import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
 import { OrdersStorefrontMerchants } from '../orders/storefront.port.js';
 import { HARNESS_MENU, HOME, KITCHEN, ordersHarness } from '../orders/test-harness.js';
-import { OrgsService } from '../orgs/index.js';
+import { newSetupState, OrgsService } from '../orgs/index.js';
 import { ConfigService } from '../config/index.js';
 import { serverFees } from '../orders/index.js';
 import { PricingService } from '../pricing/index.js';
@@ -27,7 +27,7 @@ const code = async (p: Promise<unknown>) => {
  * MerchantService over the orders harness (orders + trips in memory, fake clock) and a real
  * in-memory OrgsService. `org_1` is Khalid's (staff `s1`, owner `o1`), `org_2` a second store.
  */
-async function setup(opts: { photos?: MerchantPhotosPort } = {}) {
+async function setup(opts: { photos?: MerchantPhotosPort; tags?: string[] } = {}) {
   const h = ordersHarness();
   const orgs = new OrgsService(undefined, h.clock);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'o1' });
@@ -63,7 +63,7 @@ async function setup(opts: { photos?: MerchantPhotosPort } = {}) {
   };
   const names = new Map(HARNESS_MENU.map((m) => [m.id, m.nameAr]));
   const area = testArea();
-  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])) }, events, h.clock, new EtaService(new StraightLineRouter()), area, opts.photos ?? null);
+  const svc = new MerchantService(h.orders, h.trips, people, orgs, { itemNames: async (_org, ids) => new Map(ids.map((id) => [id, names.get(id) ?? id])), storefrontTags: async () => opts.tags ?? null }, events, h.clock, new EtaService(new StraightLineRouter()), area, opts.photos ?? null);
   const staff = { personId: 's1', sessionId: 'x' };
   const owner = { personId: 'o1', sessionId: 'y' };
   return { h, orgs, svc, khalid, other, staff, owner, recorded, nameReads, area };
@@ -193,6 +193,48 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
     const off = await svc.setBusy(staff, { merchantOrgId: khalid.id, on: false });
     expect(off.busy.on).toBe(false);
     expect(recorded.map((r) => r.type)).toEqual(['merchant.busy_on', 'merchant.busy_off']);
+  });
+
+  it('r5: busy mode picks +10 or +20 (still for the hour); the schema lets nothing else through', async () => {
+    const { h, svc, staff, khalid, recorded, orgs } = await setup();
+    const on = await svc.setBusy(staff, { merchantOrgId: khalid.id, on: true, extraMinutes: 20 });
+    expect(on.busy).toEqual({ on: true, until: new Date(h.clock.now().getTime() + 60 * MIN), extraPrepMinutes: 20 });
+    expect((await orgs.merchantSettings(khalid.id)).busyExtraMin).toBe(20);
+    expect(recorded.at(-1)).toEqual({ type: 'merchant.busy_on', payload: { until: on.busy.until!.toISOString(), extraMinutes: 20 } });
+    const off = await svc.setBusy(staff, { merchantOrgId: khalid.id, on: false });
+    expect(off.busy).toEqual({ on: false, until: null, extraPrepMinutes: 0 });
+    expect((await orgs.merchantSettings(khalid.id)).busyExtraMin).toBeNull();
+    // Named nothing: the old +10.
+    expect((await svc.setBusy(staff, { merchantOrgId: khalid.id, on: true })).busy.extraPrepMinutes).toBe(10);
+    expect(SetBusyInput.safeParse({ merchantOrgId: 'org_1', on: true, extraMinutes: 20 }).success).toBe(true);
+    expect(SetBusyInput.safeParse({ merchantOrgId: 'org_1', on: true, extraMinutes: 10 }).success).toBe(true);
+    for (const bad of [0, 5, 15, 30, 10.5, '20']) expect(SetBusyInput.safeParse({ merchantOrgId: 'org_1', on: true, extraMinutes: bad }).success).toBe(false);
+  });
+
+  it('t5: a juice bar or café gets the drinks prep choices and a 5-minute usual time; food and mixed shops stay food', async () => {
+    const juice = await setup({ tags: ['juice', 'smoothie'] });
+    const j = await juice.svc.storeStatus(juice.staff, { merchantOrgId: juice.khalid.id });
+    expect(j.prepKind).toBe('drinks');
+    expect(j.defaultPrepMinutes).toBe(5);
+    const cafe = await setup({ tags: ['coffee', 'cake'] });
+    expect((await cafe.svc.storeStatus(cafe.staff, { merchantOrgId: cafe.khalid.id })).prepKind).toBe('food');
+    const grill = await setup({ tags: ['grill', 'juice'] });
+    expect((await grill.svc.storeStatus(grill.staff, { merchantOrgId: grill.khalid.id })).prepKind).toBe('food');
+    const none = await setup();
+    const n = await none.svc.storeStatus(none.staff, { merchantOrgId: none.khalid.id });
+    expect(n.prepKind).toBe('food');
+    expect(n.defaultPrepMinutes).toBe(20);
+    // A shop's own usual time wins; «شنو تبيع؟» from setup wins over the storefront's tags.
+    await juice.orgs.setMerchantSettings(juice.khalid.id, { defaultPrepMin: 4 });
+    expect((await juice.svc.storeStatus(juice.staff, { merchantOrgId: juice.khalid.id })).defaultPrepMinutes).toBe(4);
+    await juice.orgs.setMerchantSettings(juice.khalid.id, { setup: { ...newSetupState(juice.h.clock.now()), kinds: ['meal', 'cold'] } });
+    expect((await juice.svc.storeStatus(juice.staff, { merchantOrgId: juice.khalid.id })).prepKind).toBe('food');
+    await juice.orgs.setMerchantSettings(juice.khalid.id, { setup: { ...newSetupState(juice.h.clock.now()), kinds: ['cafe', 'cold'] } });
+    expect((await juice.svc.storeStatus(juice.staff, { merchantOrgId: juice.khalid.id })).prepKind).toBe('drinks');
+  });
+
+  it('t5: the accept validation takes the drinks choices 3 / 5 / 8', async () => {
+    for (const m of [3, 5, 8, 10, 15, 25]) expect(MerchantAcceptInput.safeParse({ orderId: 'o1', prepMinutes: m }).success).toBe(true);
   });
 
   it('early close with a reason, then open again', async () => {

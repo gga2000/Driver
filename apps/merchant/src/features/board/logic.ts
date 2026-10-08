@@ -1,4 +1,4 @@
-import { MERCHANT_BUSY_RULES, mentionsAllergy, type BoardColumn, type BoardCourier, type BoardOrder } from '@driver/contracts';
+import { PREP_CHOICES, mentionsAllergy, type BoardColumn, type PrepKind, type StoreStatusView, type BoardCourier, type BoardOrder } from '@driver/contracts';
 import type { TKey } from '@/lib/i18n-core';
 import { minutesBetween, minutesLeft } from '@/lib/time';
 import { arriving } from './radar';
@@ -22,34 +22,51 @@ export function splitColumns(orders: readonly BoardOrder[]): Record<BoardColumn,
   return out;
 }
 
-/** Spec: accept with a prep-time choice of 10 / 15 / 25 or a custom number. */
-export const PREP_OPTIONS = [10, 15, 25] as const;
+/**
+ * Spec: accept with a prep-time choice of 10 / 15 / 25 or a custom number. Ali 2026-10-08 (t5): a juice
+ * bar or café (drinks only) picks 3 / 5 / 8 instead; a shop selling food as well keeps 10 / 15 / 25.
+ */
+export const PREP_OPTIONS = PREP_CHOICES.food;
+export function prepOptions(kind: PrepKind | undefined): readonly number[] {
+  return PREP_CHOICES[kind ?? 'food'];
+}
+/** The custom stepper's floor: a drink can honestly be 1 minute, a meal never under 5. */
 export const PREP_MIN = 5;
+export const PREP_MIN_DRINKS = 1;
 export const PREP_MAX = 120;
+export function prepMin(kind: PrepKind | undefined): number {
+  return kind === 'drinks' ? PREP_MIN_DRINKS : PREP_MIN;
+}
 
 /** The chip to preselect: the store's usual prep time rounded to the nearest option (ties go up — be honest). */
-export function defaultPrepChoice(usualMinutes: number): number {
-  let best: number = PREP_OPTIONS[0];
-  for (const o of PREP_OPTIONS) if (Math.abs(o - usualMinutes) <= Math.abs(best - usualMinutes)) best = o;
+export function defaultPrepChoice(usualMinutes: number, kind?: PrepKind): number {
+  const options = prepOptions(kind);
+  let best: number = options[0]!;
+  for (const o of options) if (Math.abs(o - usualMinutes) <= Math.abs(best - usualMinutes)) best = o;
   return best;
 }
 
-export function clampPrep(minutes: number): number {
-  return Math.min(PREP_MAX, Math.max(PREP_MIN, Math.round(minutes)));
+export function clampPrep(minutes: number, kind?: PrepKind): number {
+  return Math.min(PREP_MAX, Math.max(prepMin(kind), Math.round(minutes)));
 }
 
-/** What the customer will see: the kitchen's pick plus the busy buffer while busy mode is on. */
-export function committedPrep(picked: number, busyOn: boolean): number {
-  return picked + (busyOn ? MERCHANT_BUSY_RULES.extraPrepMinutes : 0);
+/** The busy minutes in force (r5: +10 or +20 picked when switched on; 0 when busy mode is off). */
+export function busyExtra(status: Pick<StoreStatusView, 'busy'> | null | undefined): number {
+  return status?.busy.on ? status.busy.extraPrepMinutes : 0;
+}
+
+/** What the customer will see: the kitchen's pick plus the busy minutes while busy mode is on. */
+export function committedPrep(picked: number, busyMinutes: number): number {
+  return picked + Math.max(0, busyMinutes);
 }
 
 /**
  * One-tap accept (M-12, approved by Ali): "اقبل · 15 د" accepts with the store's usual prep time. The
  * server adds the busy minutes itself, so we send the usual time and show what the customer will see.
  */
-export function oneTapPrep(usualMinutes: number, busyOn: boolean): { prepMinutes: number; shown: number } {
-  const prepMinutes = clampPrep(usualMinutes);
-  return { prepMinutes, shown: committedPrep(prepMinutes, busyOn) };
+export function oneTapPrep(usualMinutes: number, busyMinutes: number, kind?: PrepKind): { prepMinutes: number; shown: number } {
+  const prepMinutes = clampPrep(usualMinutes, kind);
+  return { prepMinutes, shown: committedPrep(prepMinutes, busyMinutes) };
 }
 
 /** "+5 د": once per order, on an accepted order still being prepared (the server enforces it too). */

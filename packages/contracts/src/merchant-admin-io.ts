@@ -70,6 +70,11 @@ export const AdminMenuItem = z.object({
   labels: z.array(DishLabel).optional(),
   /** «جهّز محلك»: the photo is Driver's library photo (its slug), «صورة توضيحية» to customers; null = his own. */
   photoLibrary: z.string().nullable().optional(),
+  /**
+   * p4 (Ali 2026-10-08): a photo the shop uploaded shows to customers at once and Driver's team checks
+   * it the same day; true while it waits for that look («ينتظر المراجعة»). Absent = false.
+   */
+  photoReviewPending: z.boolean().optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 
@@ -487,6 +492,11 @@ export const MerchantInsights = z.object({
   bestSellers: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), qty: z.number().int(), orders: z.number().int(), salesIqd: Iqd.nullable() })).default([]),
   /** Orders placed in the window (any outcome). */
   orders: z.number().int().default(0),
+  /**
+   * The customers' food score over the window, every rated order (x6 «وضعك»): avg 1–5 to one decimal,
+   * null with no ratings. Absent on an older API.
+   */
+  foodRating: z.object({ avg: z.number().nullable(), count: z.number().int() }).optional(),
 });
 export type MerchantInsights = z.infer<typeof MerchantInsights>;
 

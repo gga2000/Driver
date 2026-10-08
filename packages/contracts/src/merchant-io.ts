@@ -15,8 +15,25 @@ import { ZonePlacement } from './zones-io.js';
  * `ledger.requestSettlement`. Implemented by the API's `merchant` module behind `ctx.merchant`.
  */
 
-/** Busy mode (spec "Driver Merchant"): +10 min on every prep time, switches itself off after an hour. */
-export const MERCHANT_BUSY_RULES = { extraPrepMinutes: 10, durationMinutes: 60 } as const;
+/**
+ * Busy mode (spec "Driver Merchant"): +10 min on every prep time, switches itself off after an hour.
+ * Ali 2026-10-08 (r5): the shop picks +10 or +20 when it switches busy mode on; still for an hour.
+ * `extraPrepMinutes` stays the default (+10) for a switch that names no minutes.
+ */
+export const MERCHANT_BUSY_RULES = { extraPrepMinutes: 10, extraChoices: [10, 20], durationMinutes: 60 } as const;
+/** The busy minutes a shop may pick (r5): only 10 or 20. */
+export const BusyExtraMinutes = z.union([z.literal(10), z.literal(20)]);
+export type BusyExtraMinutes = z.infer<typeof BusyExtraMinutes>;
+
+/**
+ * Prep-time choices on accept (Ali 2026-10-08, t5): a juice bar or café («شنو تبيع؟» = the drinks doors
+ * only) picks 3 / 5 / 8 minutes; every other shop, and one that sells both, 10 / 15 / 25.
+ */
+export const PrepKind = z.enum(['food', 'drinks']);
+export type PrepKind = z.infer<typeof PrepKind>;
+export const PREP_CHOICES: Readonly<Record<PrepKind, readonly number[]>> = { food: [10, 15, 25], drinks: [3, 5, 8] };
+/** A drinks shop's usual prep time when it has none of its own (the setup writes the same 5). */
+export const DRINKS_DEFAULT_PREP_MIN = 5;
 
 /** What a person is at a store: the owner (money, staff) or staff (orders, menu). */
 export const MerchantStoreRole = z.enum(['owner', 'staff']);
@@ -217,6 +234,8 @@ export const StoreStatusView = z.object({
     until: z.coerce.date().nullable(),
     extraPrepMinutes: z.number().int(),
   }),
+  /** Which prep choices the accept sheet offers (t5); absent on an older API = food. */
+  prepKind: PrepKind.optional(),
   printer: z.object({ state: PrinterState, name: z.string().nullable(), updatedAt: z.coerce.date().nullable() }),
   lastHeartbeatAt: z.coerce.date().nullable(),
   defaultPrepMinutes: z.number().int(),
@@ -265,7 +284,11 @@ export const SetStoreOpenInput = MerchantOrgInput.extend({
 }).refine((v) => v.open || v.reason !== undefined, { message: 'closing needs a reason', path: ['reason'] });
 export type SetStoreOpenInput = z.infer<typeof SetStoreOpenInput>;
 
-export const SetBusyInput = MerchantOrgInput.extend({ on: z.boolean() });
+export const SetBusyInput = MerchantOrgInput.extend({
+  on: z.boolean(),
+  /** Switching on: +10 or +20 (r5); absent = +10. Ignored when switching off. */
+  extraMinutes: BusyExtraMinutes.optional(),
+});
 export type SetBusyInput = z.infer<typeof SetBusyInput>;
 
 export const SetPrinterStatusInput = MerchantOrgInput.extend({

@@ -2,7 +2,7 @@ export { MerchantModule } from './merchant.module.js';
 export { MerchantService, MERCHANT_AREA, MERCHANT_CATALOG, MERCHANT_EVENTS, MERCHANT_ORDERS, MERCHANT_PEOPLE, MERCHANT_PHOTOS, MERCHANT_SETUP_LINE, MERCHANT_STORES, MERCHANT_TRIPS } from './merchant.service.js';
 export type { MerchantAreaPort, MerchantCatalogPort, MerchantEventsPort, MerchantOrdersPort, MerchantPeoplePort, MerchantPhotosPort, MerchantSetupLinePort, MerchantStoresPort, MerchantTripsPort } from './merchant.service.js';
 export { boardColumn, courierView, radarOf, groupLines, missedReason, missedSummary, MISSED_LIST_MAX, modifierNames, sortBoard, ticketNumber, toBoardOrder } from './board.js';
-export { busyUntilFor, toStoreStatus } from './status.js';
+export { busyExtraFor, busyUntilFor, toStoreStatus } from './status.js';
 export { MerchantSetupService, MERCHANT_SETUP_CATALOG, setupCatalogOf } from './setup.service.js';
 export type { SetupCatalogPort } from './setup.service.js';
 export { cardsOf, cardsState, firstOrderAfter, pendingCards, progressOf, setupFacts, suggestedDoors, cuisineLine } from './setup.js';

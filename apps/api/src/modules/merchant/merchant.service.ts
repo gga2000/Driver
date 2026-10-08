@@ -1,7 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DELIVERY_AREA_CACHE_MS,
+  DRINKS_DEFAULT_PREP_MIN,
   DriverError,
+  doorsOfTags,
+  prepKindOf,
   daysFromWindows,
   localClock,
   scheduleState,
@@ -21,6 +24,7 @@ import {
   type MissedSummary,
   type Order,
   type PartnerPickupSpot,
+  type PrepKind,
   type PickupSpotPhoto,
   type PickupSpotView,
   type RoleKind,
@@ -44,7 +48,7 @@ import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { composeCustomerZones, composeDeliveryArea } from './area.js';
 import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
-import { busyUntilFor, toStoreStatus } from './status.js';
+import { busyExtraFor, busyUntilFor, toStoreStatus } from './status.js';
 
 /**
  * The slices of other modules' public services the Merchant app's reads and switches need. Typed
@@ -80,6 +84,8 @@ export interface MerchantCatalogPort {
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
   /** The customer storefront's weekly hours (the onboarding seed); null when the store has none. */
   storefrontHours?(orgId: string): Promise<WeeklyWindow[] | null>;
+  /** The customer storefront's tags (what it sells, for shops from before «شنو تبيع؟»); null without one. */
+  storefrontTags?(orgId: string): Promise<string[] | null>;
   /** Writes the store's own weekly hours onto its customer storefront (the card's open/closed). */
   mirrorHours?(orgId: string, windows: readonly WeeklyWindow[]): Promise<void>;
 }
@@ -242,8 +248,10 @@ export class MerchantService implements MerchantPort {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
     const busyUntil = busyUntilFor(input.on, now);
-    await this.stores.setMerchantSettings(org.id, { busyUntil });
-    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null });
+    // r5 (Ali 2026-10-08): +10 or +20, still for the hour; the schema lets only 10 or 20 through.
+    const busyExtraMin = input.on ? busyExtraFor(input.extraMinutes) : null;
+    await this.stores.setMerchantSettings(org.id, { busyUntil, busyExtraMin });
+    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null, ...(busyExtraMin !== null ? { extraMinutes: busyExtraMin } : {}) });
     return this.status(org);
   }
 
@@ -492,7 +500,10 @@ export class MerchantService implements MerchantPort {
     // (older shops keep reading no hours as always open).
     const sched = s.setup && weekly.length === 0 ? { inHours: false, holiday: null, closesAt: null, opensAt: null } : scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
     const setup = this.setup ? await this.setup.statusLine(org, s) : null;
+    const prepKind = await this.prepKind(org.id, s);
     return toStoreStatus({
+      prepKind,
+      busyExtraMin: s.busyExtraMin ?? null,
       setup,
       schedule: {
         inHours: sched.inHours,
@@ -508,8 +519,19 @@ export class MerchantService implements MerchantPort {
       printer: s.printer ?? null,
       pause,
       lastHeartbeatAt: s.lastHeartbeatAt,
-      defaultPrepMinutes: s.defaultPrepMin ?? ORDERS_RULES.defaultPrepMin,
+      defaultPrepMinutes: s.defaultPrepMin ?? (prepKind === 'drinks' ? DRINKS_DEFAULT_PREP_MIN : ORDERS_RULES.defaultPrepMin),
     });
+  }
+
+  /**
+   * t5 (Ali 2026-10-08): juice bars and cafés pick 3 / 5 / 8 minutes. What the shop sells comes from
+   * «شنو تبيع؟» when it went through setup, else from its storefront's tags; a shop with food as well,
+   * or with nothing on file, is food.
+   */
+  private async prepKind(orgId: string, s: MerchantSettings): Promise<PrepKind> {
+    if (s.setup?.kinds && s.setup.kinds.length > 0) return prepKindOf(s.setup.kinds);
+    const tags = (await this.catalog.storefrontTags?.(orgId)) ?? [];
+    return prepKindOf(doorsOfTags(tags));
   }
 
   private async courierOf(order: Order, kitchen: LatLng | null, readerId: string): Promise<BoardCourier> {

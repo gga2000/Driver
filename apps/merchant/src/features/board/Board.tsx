@@ -37,7 +37,7 @@ import { AcceptSheet } from './AcceptSheet';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
-import { acceptAllTargets, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
+import { acceptAllTargets, busyExtra, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
 import { DragToReady } from './DragToReady';
 import { learn, useLessonDue } from './learn';
 import { LearnCards, useStartPractice } from './LearnCards';
@@ -288,7 +288,8 @@ export function Board() {
   const { dismissed: dayDismissed, dismiss: dismissDay } = useDayDismissed();
   const showDay = showDayCard(daySummary.data, dayDismissed);
   const busyOn = s?.busy.on ?? false;
-  const oneTap = oneTapPrep(s?.defaultPrepMinutes ?? 20, busyOn);
+  const busyMinutes = busyExtra(s);
+  const oneTap = oneTapPrep(s?.defaultPrepMinutes ?? 20, busyMinutes, s?.prepKind);
   // m6a: orders still waiting while the store is closed count (and show) too, but never ring.
   const waiting = plan.ringing.length + plan.snoozed.length + plan.closed.length;
   const gateOpen = shiftGateNeeded(shift.startedDay, Date.now());
@@ -740,7 +741,8 @@ export function Board() {
         order={byId(acceptId)}
         onClose={closeAccept}
         startPartial={acceptPartial}
-        busyOn={busyOn}
+        busyMinutes={busyMinutes}
+        prepKind={s?.prepKind ?? 'food'}
         usualPrepMinutes={s?.defaultPrepMinutes ?? 20}
         clock={clock}
         onAccepted={(o) => {

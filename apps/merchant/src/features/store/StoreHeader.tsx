@@ -330,7 +330,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         testID="busy-chip"
         icon="flame"
         tone="warning"
-        label={wide ? t('merchant.busy.chip_until', { time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
+        label={wide ? t('merchant.busy.chip_until_extra', { extra: status.busy.extraPrepMinutes, time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
         onPress={busyPress}
       />
     ) : (

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Actor } from './identity-io.js';
 import { FOOD_DOORS, type FoodDoor } from './food-doors.js';
 import { ImportedItem } from './merchant-admin-io.js';
-import { MerchantOrgInput } from './merchant-io.js';
+import { MerchantOrgInput, type PrepKind } from './merchant-io.js';
 import { hhmmToMinutes, storeHoursProblems, type DayHours, type HoursShift } from './store-hours.js';
 
 /**
@@ -184,6 +184,11 @@ export function drinksOnly(doors: readonly FoodDoor[]): boolean {
  */
 export function prepDefaultsFor(doors: readonly FoodDoor[]): { storeMinutes: number; dishMinutes: number } | null {
   return drinksOnly(doors) ? { storeMinutes: 5, dishMinutes: 5 } : null;
+}
+
+/** The accept sheet's prep choices for a shop's doors (t5): drinks only → 3/5/8; anything with food → 10/15/25. */
+export function prepKindOf(doors: readonly FoodDoor[]): PrepKind {
+  return drinksOnly(doors) ? 'drinks' : 'food';
 }
 
 // ───────────────────────── hours in one tap ─────────────────────────

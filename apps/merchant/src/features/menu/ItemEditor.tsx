@@ -121,7 +121,8 @@ export function ItemEditor() {
     try {
       const uploadId = await upload(picked);
       await actions.replacePhoto.mutateAsync({ merchantOrgId: storeId, itemId: item.id, uploadId });
-      toast.show({ message: t('merchant.item.photo_done'), tone: 'success' });
+      // p4: it is on the customer menu now; our team looks at it today.
+      toast.show({ message: t('merchant.item.photo_done_review'), tone: 'success' });
       return true;
     } catch (err) {
       fail(err);

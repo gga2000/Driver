@@ -53,6 +53,8 @@ export interface MerchantSettings {
   location: DeliveryPoint | null;
   /** Busy mode (Driver Merchant): prep times +10 min until this time; null = off. */
   busyUntil?: Date | null;
+  /** The busy minutes picked when it was switched on (r5: 10 or 20); null/absent = the default +10. */
+  busyExtraMin?: number | null;
   /**
    * Closed by hand from the Merchant app (early-close reason); null = open. `until`: a quick pause
    * that reopens by itself (counter step 5, h2) — read it through `closedNow`, never directly.
@@ -181,6 +183,7 @@ export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
   commissionTier: null,
   location: null,
   busyUntil: null,
+  busyExtraMin: null,
   closed: null,
   printer: null,
   openingHours: null,

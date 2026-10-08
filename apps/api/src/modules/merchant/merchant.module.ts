@@ -70,6 +70,7 @@ import {
             start: w.start,
             end: w.end,
           })) ?? null,
+        storefrontTags: async (orgId) => (await catalog.storefront(orgId))?.tags ?? null,
         mirrorHours: async (orgId, windows) => {
           const front = await catalog.storefront(orgId);
           if (front)
