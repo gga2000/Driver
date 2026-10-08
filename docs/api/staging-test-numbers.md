@@ -25,6 +25,12 @@ The boot also stops when the code is malformed or easy.
   fixed code. The guard's limits per number, device, sender and IP still count each request, and at
   most `STAGING_TEST_DAILY_CODES` such codes go out a day across the range (`rate_limited` beyond).
   The resend wait, 3-minute expiry and 5-try lock are the same as everyone's.
+- **The «عبّيه» button** (Ali, 8 Oct). On the customer app's code screen, a test number shows
+  «رمز التجربة: …» with «عبّيه», which fills the code in. The app asks `identity.stagingTestCode`,
+  which answers with the code only on staging (the range is on), only for a number in the range and
+  never for one that holds a staff role. On every other host, and for every other number, it answers
+  null and nothing shows. So on staging the fixed code is open to anyone who tries a test number:
+  fine for made-up test accounts, and the reason they can never be staff.
 - **Other codes** (guardian consent, a phone change) for a test number are the same fixed code, so
   guardian and phone-change flows can be tried on staging.
 - **Customer and partner roles** work as usual (a courier test account is granted in the Console).

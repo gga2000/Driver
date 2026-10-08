@@ -1179,6 +1179,25 @@ export class IdentityService implements IdentityPort {
 
   // ───────────────────────── dev ─────────────────────────
 
+  /**
+   * Staging only: a staging test number's fixed code, for the code screen's «عبّيه» button (Ali, 8 Oct).
+   * Null when the range is off (every host but staging), for any other number, and for a test number
+   * that holds a staff role. Nothing personal is read: the code is the range's, not the person's.
+   */
+  async stagingTestCode(phone: string): Promise<{ code: string | null }> {
+    if (!this.stagingTest) return { code: null };
+    let n: { e164: string; hash: string };
+    try {
+      n = this.phone(phone);
+    } catch {
+      return { code: null };
+    }
+    if (!isStagingTestNumber(n.e164)) return { code: null };
+    const person = await this.repo.findPersonByPhoneHash(n.hash);
+    if (person && (await this.holdsStaffRole(person.id))) return { code: null };
+    return { code: this.stagingTest.code };
+  }
+
   async devLastOtp(phone: string): Promise<{ phoneMasked: string; code: string | null }> {
     const { e164, masked } = this.phone(phone);
     const code = this.otp.devWhatsAppCode(e164) ?? (this.sms instanceof DevSmsProvider ? this.sms.lastCodeFor(e164) : null);

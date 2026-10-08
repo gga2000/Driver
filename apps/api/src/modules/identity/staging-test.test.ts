@@ -100,4 +100,21 @@ describe('staging test numbers', () => {
     expect(() => stagingTestFromEnv({ STAGING_TEST_OTP: '444444', DEPLOY_ENVIRONMENT: 'staging' })).toThrow();
     expect(() => stagingTestFromEnv({ STAGING_TEST_OTP: TEST.code, DEPLOY_ENVIRONMENT: 'staging', STAGING_TEST_DAILY_CODES: '0' })).toThrow();
   });
+
+  it('the code screen button: the fixed code for a test number on staging, nothing anywhere else', async () => {
+    const on = harness(undefined, { stagingTest: TEST });
+    expect(await on.service.stagingTestCode(PHONE)).toEqual({ code: TEST.code });
+    expect(await on.service.stagingTestCode('0771 234 5678')).toEqual({ code: null });
+    expect(await on.service.stagingTestCode('not a phone')).toEqual({ code: null });
+    const off = harness();
+    expect(await off.service.stagingTestCode(PHONE)).toEqual({ code: null });
+  });
+
+  it('the code screen button never gives the code for a test number that holds a staff role', async () => {
+    const h = harness(undefined, { stagingTest: TEST });
+    await h.service.requestOtp({ phone: PHONE, purpose: 'login' });
+    const { personId } = await h.service.verifyOtp({ phone: PHONE, code: TEST.code });
+    await h.repo.upsertRole({ personId, kind: 'support', orgId: null, grantedBy: SYSTEM.personId, now: h.clock.now() });
+    expect(await h.service.stagingTestCode(PHONE)).toEqual({ code: null });
+  });
 });
