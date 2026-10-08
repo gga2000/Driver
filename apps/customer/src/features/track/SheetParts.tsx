@@ -19,6 +19,7 @@ import {
   type IconName,
   type PriceItem,
   type StatusTone,
+  useAnnounce,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -79,6 +80,8 @@ export function SheetHeader({
   const theme = useTheme();
   const t = useT();
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - now) / 60_000)) : null;
+  // REL-17: iOS VoiceOver hears each new status too (Android reads the live region).
+  useAnnounce(status);
   const live = phase !== 'done' && phase !== 'arrived' && phase !== 'cancelled' && phase !== 'failed' && phase !== 'disputed';
   const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>

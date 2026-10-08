@@ -91,7 +91,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
             }}
             style={{ flex: 1, minHeight: theme.hitTarget, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[2] }}
           >
-            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={1} compact>
+            <Text variant="label" weight={selected ? 700 : 500} color={selected ? 'onSegmentSelected' : 'textMuted'} numberOfLines={2} align="center" compact>
               {o.label}
             </Text>
             {o.detail ? (
