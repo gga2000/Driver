@@ -27,7 +27,7 @@ const BY_MOTIF: Partial<Record<Motif, number>> = {
   liver: KEBAB,
   tikka: TIKKA,
   shawarma: require('../../../assets/food-landing/k-shawarma-2.webp') as number,
-  wrap: require('../../../assets/food-landing/k-shawarma-2.webp') as number,
+  wrap: KEBAB,
   fish: require('../../../assets/food-landing/k-masgouf-1.webp') as number,
   chicken: require('../../../assets/food-landing/k-chicken-1.webp') as number,
   rice: RICE,
