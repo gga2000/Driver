@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
-import Svg, { Line, Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import type { ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
@@ -54,9 +54,8 @@ const FLOAT = 0.18;
 const FLOAT_MAX = 26;
 /** How far a vehicle pulls forward in its tile's moment (px). */
 const PULL = 12;
-/** The round-trip ticket: بغداد والكوت's share of the row (الرجعة has 1), and the notch at the tear line. */
+/** بغداد والكوت's share of the round-trip card (الرجعة has 1). */
 const TRIPS_FLEX = 1.75;
-const NOTCH = 14;
 /** The live dot, and one beat of its ring. */
 const DOT = 7;
 const PULSE_MS = 2400;
@@ -198,23 +197,22 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
           </Tile>
         </View>
       </View>
-      {/* Out to Baghdad and Kut and back home: one round-trip ticket, torn into its two halves. */}
+      {/* Out to Baghdad and Kut and back home: one card in two colours, each half its own button (Ali
+          picked it over the torn ticket, 2026-10-08). */}
       <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
         <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} joint="end" style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
-          <Road color={ride(s.trips.card).sub} />
           <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
           <SideWords text={PLACE.trips.text}>
             <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
           </SideWords>
         </Tile>
         <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} joint="start" style={{ flex: 1 }} onPress={() => press('rajaa')}>
-          <Road color={ride(s.back.card).sub} />
+          <Seam color={ride(s.back.card).on} />
           <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
           <SideWords text={PLACE.rajaa.text}>
             <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
           </SideWords>
         </Tile>
-        <TearLine at={TRIPS_FLEX / (TRIPS_FLEX + 1)} color={ride(s.trips.card).sub} />
       </View>
     </View>
   );
@@ -223,7 +221,7 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
 /**
  * One card: its wash with the light falling on its top corner and a fine edge, the picture and words
  * clipped inside; it sinks a little under the finger. `joint` is the side where it meets the other
- * half of the round-trip ticket: square there, no edge, and it barely sinks so the ticket stays whole.
+ * half of the round-trip card: square there, no edge, and it barely sinks so the card stays whole.
  */
 function Tile({
   id,
@@ -364,32 +362,9 @@ function SideWords({ text, children }: { text: DimensionValue; children: ReactNo
   return <View style={{ position: 'absolute', top: 0, bottom: 0, start: theme.space[3], width: text, justifyContent: 'center' }}>{children}</View>;
 }
 
-/** A faint dashed road under the ticket's cars, running on from one half into the other. */
-function Road({ color }: { color: string }) {
-  return (
-    <View pointerEvents="none" style={{ position: 'absolute', start: 0, end: 0, bottom: 7, height: 2 }}>
-      <Svg width="100%" height={2}>
-        <Line x1="0" y1="1" x2="100%" y2="1" stroke={withAlpha(color, 0.28)} strokeWidth={1.5} strokeDasharray="7 6" />
-      </Svg>
-    </View>
-  );
-}
-
-/** The ticket's tear line where its halves meet (`at`, a share of the row from the start): a dotted cut between two notches. */
-function TearLine({ at, color }: { at: number; color: string }) {
-  const theme = useTheme();
-  const notch: ViewStyle = { position: 'absolute', width: NOTCH, height: NOTCH, borderRadius: NOTCH / 2, backgroundColor: theme.colors.bg };
-  return (
-    <View pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, start: `${at * 100}%`, width: NOTCH, marginStart: -NOTCH / 2, alignItems: 'center' }}>
-      <View style={{ position: 'absolute', top: NOTCH / 2 + 4, bottom: NOTCH / 2 + 4, width: 2 }}>
-        <Svg width={2} height="100%">
-          <Line x1="1" y1="0" x2="1" y2="100%" stroke={withAlpha(color, 0.45)} strokeWidth={1.5} strokeDasharray="3 4" strokeLinecap="round" />
-        </Svg>
-      </View>
-      <View style={[notch, { top: -NOTCH / 2 }]} />
-      <View style={[notch, { bottom: -NOTCH / 2 }]} />
-    </View>
-  );
+/** Where the round-trip card's two colours meet: a faint line, short of its top and bottom. */
+function Seam({ color }: { color: string }) {
+  return <View pointerEvents="none" style={{ position: 'absolute', start: 0, top: 16, bottom: 16, width: 1, backgroundColor: withAlpha(color, 0.12) }} />;
 }
 
 /**
