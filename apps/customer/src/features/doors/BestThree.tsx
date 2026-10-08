@@ -38,7 +38,8 @@ export function BestThree({
   return (
     <View style={{ gap: theme.space[3] }} testID={testID}>
       <View style={{ gap: 2 }}>
-        <SectionHeader big title={title ?? t('food.best')} {...(action ? { action } : {})} />
+        {/* The heading gets the full width (a craving name plus «كل المحلات» squeezed it onto two lines at 360 px). */}
+        <SectionHeader big title={title ?? t('food.best')} />
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.space[2] }}>
           <Text variant="footnote" color="textMuted">
             {t('food.best_hint')}
@@ -54,6 +55,19 @@ export function BestThree({
               {t('food.why')}
             </Text>
           </Pressable>
+          {action ? (
+            <Pressable
+              testID={`${testID}-clear`}
+              accessibilityRole="button"
+              onPress={action.onPress}
+              hitSlop={12}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 28 }}
+            >
+              <Text variant="footnote" weight={700} color="accentText">
+                {action.label}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
       {picks.map((p) => (

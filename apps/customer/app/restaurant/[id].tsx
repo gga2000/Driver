@@ -436,7 +436,8 @@ function Facts({ r, knownFor }: { r: RestaurantCard; knownFor: string | null }) 
           <Text variant="footnote" weight={600} color={r.deliveryFeeIqd === 0 ? 'successText' : 'text'} testID="restaurant-fee">
             {fee}
           </Text>
-          {' · '}
+          {/* Before a place is picked the fee is a whole sentence: the minimum goes on its own line. */}
+          {r.deliveryFeeIqd === null ? '\n' : ' · '}
           <Text variant="footnote" color="textMuted" testID="restaurant-min">
             {r.minOrderIqd > 0 && (r.smallOrderFeeIqd ?? 0) > 0
               ? t('restaurant.small_order_note', { amount: amountParam(r.minOrderIqd), fee: amountParam(r.smallOrderFeeIqd ?? 0) })
