@@ -1,6 +1,7 @@
 // Monorepo-aware Metro config for pnpm: watch workspace packages, resolve through the pnpm
 // virtual store, and pin the React singletons to this app's copies.
 const { getDefaultConfig } = require('expo/metro-config');
+const fs = require('fs');
 const path = require('path');
 
 const projectRoot = __dirname;
@@ -37,11 +38,27 @@ let localeSubset = null;
 const subsetLocales = () =>
   (localeSubset ??= require('./scripts/locale-subset.cjs').writeCustomerLocales({ repoRoot: workspaceRoot, outDir: path.join(projectRoot, 'node_modules/.cache/customer-locale') }));
 const LOCALE_FILE = /^\.\/locales\/(ar-IQ|en)\.json$/;
+// Speed w5: the production website ships an empty English table and loads the words as their own small
+// file (`@driver/i18n/en-words`, src/lib/english.web.ts) only when someone picks English. Phones keep it inline.
+const EN_WORDS = '@driver/i18n/en-words';
+const emptyEnglish = () => {
+  const file = path.join(projectRoot, 'node_modules/.cache/customer-locale/en.empty.json');
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{}');
+  }
+  return file;
+};
 
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  const locale = process.env.NODE_ENV === 'production' ? LOCALE_FILE.exec(moduleName) : null;
-  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  const production = process.env.NODE_ENV === 'production';
+  if (moduleName === EN_WORDS) return { type: 'sourceFile', filePath: production ? subsetLocales().en : path.join(workspaceRoot, 'packages/i18n/src/locales/en.json') };
+  const locale = production ? LOCALE_FILE.exec(moduleName) : null;
+  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) {
+    if (platform === 'web' && locale[1] === 'en') return { type: 'sourceFile', filePath: emptyEnglish() };
+    return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  }
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
   if (pkg) {
     const origin = path.join(projectRoot, 'package.json');
