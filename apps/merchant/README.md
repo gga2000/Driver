@@ -158,6 +158,13 @@ minute, one group order with an allergy and a courier note). Shots: `SHOTS=rush`
 behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
 keepGate: true })` keeps it for a shot).
 
+Shop picks from the server (`docs/api/shop-load.md`, `scripts/demo/shop-load.mjs`, shots `SHOTS=shop-server`):
+`POST /demo/shop/crowd?count=12` accepts 12 more orders (15+ waiting → «زحمة تلقائية», `count=0`
+cancels them); `POST /demo/shop/remake?on=1` switches remake pay on in the demo process only and readies
+an order 12 minutes ago with its courier still on the way («أعدنا تسويه»; `on=0` switches it off). The
+h5 pause («متوقف للزباين») is the app's own count from its last answered heartbeat (kept on the device
+as `driver.merchant.beat`); the shots stop the API from answering on a fake clock.
+
 ## Native notes
 
 - Alarm (UI/UX audit S-01, M-02, M-04): the ladder in `features/board/ladder.ts` — a chime every 4 s,

@@ -10,6 +10,8 @@ import { amountParam, iqd } from '@/lib/money';
 import { COUNTER } from '@/lib/counter';
 import { clock12, minutesLeft } from '@/lib/time';
 import { endOfDayClose, OTHER_LENGTHS } from '@/features/shop/pauses';
+import { AutoBusyNote } from '@/features/board/ShopLoadParts';
+import type { AutoBusy } from '@/features/board/shop-load';
 import { useRequestSettlement, useStoreSwitches } from './queries';
 
 const CLOSE_ICON: Record<EarlyCloseReason, MIconName> = {
@@ -129,7 +131,7 @@ export function CloseStoreSheet({ status, visible, onClose, lengths = false }: {
  * Busy mode: +10 or +20 for an hour (Ali 2026-10-08, r5). Switching on, the shop picks how many
  * minutes (+10 is preselected, the old behaviour); switched on, the sheet says which and when it ends.
  */
-export function BusySheet({ status, visible, onClose, now }: { status: StoreStatusView; visible: boolean; onClose: () => void; now: number }) {
+export function BusySheet({ status, visible, onClose, now, auto = null }: { status: StoreStatusView; visible: boolean; onClose: () => void; now: number; /** l4: the automatic busy (15 waiting), explained under the switch. */ auto?: AutoBusy | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -238,6 +240,9 @@ export function BusySheet({ status, visible, onClose, now }: { status: StoreStat
           </Text>
         </View>
       )}
+      <View style={{ marginTop: theme.space[4] }}>
+        <AutoBusyNote auto={auto} />
+      </View>
     </ModalSheet>
   );
 }

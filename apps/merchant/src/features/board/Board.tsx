@@ -8,7 +8,7 @@ import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { COUNTER } from '@/lib/counter';
 import { testChime } from '@/lib/alert-sound';
-import { apiErrorMessage } from '@/lib/api';
+import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { localDayKey } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
@@ -48,7 +48,9 @@ import { PassCard } from './PassCard';
 import { passFirst, passState, waitingAtPass } from './pass';
 import { isPractice, practice, usePractice } from './practice';
 import { useServerTime } from './clock';
-import { useBoard, useOnline, useOrderActions } from './queries';
+import { useBoard, useOnline, useOrderActions, useRemake, useRemakeRule } from './queries';
+import { autoBusy, busyMinutesNow, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders, type RemakeOutcome } from './shop-load';
+import { AutoBusyStrip, PauseStrip, RemakeSheet } from './ShopLoadParts';
 import { readyQueue, useReadyQueue } from './ready-queue';
 import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
@@ -216,6 +218,11 @@ export function Board() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [handingId, setHandingId] = useState<string | null>(null);
+  // c6 «أعدنا تسويه»: shown only while the money rule pays (it is a switch Ali turns on).
+  const [remakeId, setRemakeId] = useState<string | null>(null);
+  const [remade, setRemade] = useState<Record<string, RemakeOutcome>>({});
+  const remakeRule = useRemakeRule(!!storeId);
+  const remake = useRemake();
 
   const orders = useMemo(() => board.data?.orders ?? [], [board.data]);
   // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
@@ -260,6 +267,21 @@ export function Board() {
     setScrollTo(o.id);
   };
   const byId = (id: string | null) => (id ? (orders.find((o) => o.id === id) ?? null) : null);
+  const remakeOrder = byId(remakeId);
+  const onRemake = async () => {
+    if (!remakeOrder || offlineGuard()) return;
+    try {
+      const r = await remake.mutateAsync({ orderId: remakeOrder.id });
+      setRemade((m) => ({ ...m, [r.orderId]: remakeOutcome(r) }));
+    } catch (err) {
+      const code = apiErrorCode(err);
+      // Switched off meanwhile: re-read the rule so the button goes.
+      if (code === 'money_rule_off') void remakeRule.refetch();
+      const key = remakeErrorKey(code);
+      setRemakeId(null);
+      toast.show({ message: key ? t(key) : apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'warning' });
+    }
+  };
   const s = status.data;
   // «جهّز محلك» (s1, s5, l3): until the shutter goes up the board keeps a setup card instead of the
   // closed strip, the first visit of a session opens setup for the owner (once; «بعدين» is always
@@ -288,7 +310,10 @@ export function Board() {
   const { dismissed: dayDismissed, dismiss: dismissDay } = useDayDismissed();
   const showDay = showDayCard(daySummary.data, dayDismissed);
   const busyOn = s?.busy.on ?? false;
-  const busyMinutes = busyExtra(s);
+  // l4: from 15 waiting orders the server adds the busy +10 itself (never on top of busy mode), so the
+  // one-tap and the accept sheet show what the customer will be promised.
+  const auto = useMemo(() => autoBusy(waitingOrders(orders, now), busyOn), [orders, now, busyOn]);
+  const busyMinutes = busyMinutesNow(busyExtra(s), auto);
   const oneTap = oneTapPrep(s?.defaultPrepMinutes ?? 20, busyMinutes, s?.prepKind);
   // m6a: orders still waiting while the store is closed count (and show) too, but never ring.
   const waiting = plan.ringing.length + plan.snoozed.length + plan.closed.length;
@@ -485,6 +510,7 @@ export function Board() {
     toast.show(r.sound ? { message: t('merchant.shift.started'), tone: 'success', icon: 'check' } : { message: t('merchant.shift.no_sound'), tone: 'warning' });
   };
 
+  const remadeText = (r: RemakeOutcome) => (r.kind === 'paid' ? t('merchant.remake.paid_tag', { amount: iqd(r.amountIqd, { locale }) }) : t('merchant.remake.already'));
   const card = (o: BoardOrder) => {
     const body = ticket(o);
     // s2 / y6: a practice ticket and a «جاهز» waiting for the net say so above the ticket.
@@ -494,6 +520,10 @@ export function Board() {
       <OrderTag testID={`practice-tag-${o.number}`} icon="bulb" text={t('merchant.practice.tag')} action={{ label: t('merchant.practice.stop'), onPress: () => practice.end('stopped') }} />
     ) : queued.some((q) => q.orderId === o.id) ? (
       <OrderTag testID={`queued-${o.number}`} icon="clock" text={t('merchant.offline.ready_waiting')} />
+    ) : remade[o.id] ? (
+      <OrderTag testID={`remade-${o.number}`} icon="check" text={remadeText(remade[o.id]!)} />
+    ) : remakeOffer(o, remakeRule.data, now) !== null ? (
+      <OrderTag testID={`remake-${o.number}`} icon="refresh" text={t('merchant.remake.tag', { minutes: remakeOffer(o, remakeRule.data, now)! })} action={{ label: t('merchant.remake.action'), onPress: () => setRemakeId(o.id) }} />
     ) : null;
     if (!tag) return body;
     return (
@@ -629,11 +659,10 @@ export function Board() {
           acceptAll={all.targets.length > 0 ? { count: all.targets.length, minutes: oneTap.shown, busy: acceptingAll, onPress: () => void onAcceptAll(all.targets, all.skipped) } : null}
         />
       ) : null}
-      {!online ? (
-        <InfoStrip tone="neutral" text={t('merchant.offline.strip')} testID="offline-strip" />
-      ) : (
-        <StaleStrip updatedAt={board.dataUpdatedAt || null} />
-      )}
+      {/* h5: offline it counts down to «متوقف للزباين»; back after a pause it says how long customers saw it closed. */}
+      <PauseStrip online={online} />
+      {online ? <StaleStrip updatedAt={board.dataUpdatedAt || null} /> : null}
+      {auto.on && !inSetup ? <AutoBusyStrip auto={auto} manualOn={busyOn} onMore={() => setSheet('busy')} /> : null}
       {inSetup ? null : s?.closed ? (
         <InfoStrip tone="danger" testID="closed-strip" text={t('merchant.board.closed_banner')} action={{ label: t('merchant.board.open_again'), onPress: () => void toggleOpen() }} />
       ) : s?.pause ? (
@@ -765,7 +794,15 @@ export function Board() {
       />
       <OrderDetailSheet order={byId(detailId)} now={now} clock={clock} onClose={() => setDetailId(null)} onAccept={onAccept} onReject={onReject} onReady={(o) => void onReady(o)} onPrint={(o) => void print(o)} {...(canSeeMoney ? { who: whoLine } : {})} />
       {s ? <CloseStoreSheet status={s} visible={sheet === 'close'} lengths onClose={() => setSheet(null)} /> : null}
-      {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} /> : null}
+      {s ? <BusySheet status={s} visible={sheet === 'busy'} onClose={() => setSheet(null)} now={now} auto={auto} /> : null}
+      <RemakeSheet
+        order={remakeId ? byId(remakeId) : null}
+        minutes={remakeOrder ? (remakeOffer(remakeOrder, remakeRule.data, now) ?? remakeRule.data?.afterReadyMin ?? 10) : 0}
+        outcome={remakeId ? (remade[remakeId] ?? null) : null}
+        busy={remake.isPending}
+        onConfirm={() => void onRemake()}
+        onClose={() => setRemakeId(null)}
+      />
       {storeId ? <CashSheet merchantOrgId={storeId} balance={balance.data} visible={sheet === 'cash'} onClose={() => setSheet(null)} /> : null}
       <ModalSheet visible={sheet === 'missed'} onClose={closeMissed} title={t('merchant.missed.sheet_title')} testID="missed-sheet">
         {missedNew.length > 0 ? (
