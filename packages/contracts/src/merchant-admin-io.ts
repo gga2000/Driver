@@ -614,4 +614,59 @@ export interface MerchantAdminPort {
   /** Joy h5 «مطاعمنا»: the kitchen's story (staff read; the owner writes and decides if it shows). */
   storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView>;
   storySet(actor: Actor, input: z.output<typeof SetKitchenStoryInput>): Promise<KitchenStoryView>;
+  /** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; staff FORBIDDEN). */
+  activityToday(actor: Actor, input: z.output<typeof ActivityTodayInput>): Promise<MerchantActivity>;
+  /** One order's kitchen actions with who did each (owner only; staff FORBIDDEN). */
+  activityOrder(actor: Actor, input: z.output<typeof OrderWhoInput>): Promise<OrderWho>;
 }
+
+// ───────────────────────── who pressed what (owner only) ─────────────────────────
+
+/**
+ * One kitchen action on the owner's «مين سوّى شنو» feed: accepted (by hand or by itself), offered a
+ * partial order, rejected (by hand or timed out), marked ready, took «+5 د», handed the bag over,
+ * marked a dish sold out or back on.
+ */
+export const ActivityKind = z.enum(['accept', 'auto_accept', 'partial', 'reject', 'auto_reject', 'ready', 'extend', 'hand_over', 'sold_out', 'back_on']);
+export type ActivityKind = z.infer<typeof ActivityKind>;
+
+/**
+ * Who did it: a person who holds or held a role at the store. `name` only (never a phone); null for
+ * a deleted person or a missing name (the app shows «موظف سابق»). `you`: the viewer himself.
+ */
+export const ActivityWho = z.object({ personId: z.string(), name: z.string().nullable(), you: z.boolean() });
+export type ActivityWho = z.infer<typeof ActivityWho>;
+
+export const ActivityEntry = z.object({
+  at: z.coerce.date(),
+  kind: ActivityKind,
+  /** The order (order kinds); null for a dish action. */
+  orderId: z.string().nullable(),
+  /** The kitchen ticket number ("#6347"); null for a dish action. */
+  orderNumber: z.string().nullable(),
+  /** The dish (sold out / back on); null for an order action. */
+  dishName: z.string().nullable(),
+  /** Sold out until (e.g. «خلص اليوم» until midnight); null when until put back by hand. */
+  until: z.coerce.date().nullable(),
+  /** Null for what the system did by itself (`auto_accept`, `auto_reject`). */
+  who: ActivityWho.nullable(),
+  /** Rejection reason as stored (`busy`, `closing`, `merchant_timeout`…); null otherwise. */
+  reason: z.string().nullable(),
+});
+export type ActivityEntry = z.infer<typeof ActivityEntry>;
+
+/** `date` = a Baghdad local day (YYYY-MM-DD); default today. */
+export const ActivityTodayInput = MerchantScope.extend({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+export type ActivityTodayInput = z.input<typeof ActivityTodayInput>;
+
+/** Newest first, at most `MERCHANT_ACTIVITY_MAX` entries. */
+export const MerchantActivity = z.object({ merchantOrgId: z.string(), localDate: z.string(), entries: z.array(ActivityEntry) });
+export type MerchantActivity = z.infer<typeof MerchantActivity>;
+export const MERCHANT_ACTIVITY_MAX = 200;
+
+export const OrderWhoInput = MerchantScope.extend({ orderId: z.string().min(1) });
+export type OrderWhoInput = z.input<typeof OrderWhoInput>;
+
+/** One order's kitchen actions, oldest first (the order sheet's «قبله منتظر 9:32 · جهّزه علي 9:51»). */
+export const OrderWho = z.object({ orderId: z.string(), entries: z.array(ActivityEntry) });
+export type OrderWho = z.infer<typeof OrderWho>;

@@ -242,6 +242,8 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deal
 | `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` |
 | `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` (also cancels a waiting invite) |
 | `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he signed in |
+| `activity.today` | query | `{merchantOrgId, date?: YYYY-MM-DD}` (Baghdad day, default today) | `{merchantOrgId, localDate, entries[] {at, kind, orderId, orderNumber, dishName, until, who {personId, name, you}\|null, reason}}` newest first, ≤ 200. **Owner only** (staff `FORBIDDEN` on the server). «مين سوّى شنو» (2026-10-08) |
+| `activity.order` | query | `{merchantOrgId, orderId}` | `{orderId, entries[]}` oldest first (the order sheet's who-line). **Owner only**; another store's order `NOT_FOUND` |
 
 Additive fields (Merchant app wave 2): statement lines carry `commissionPct`, `discountIqd`, `discountFunder`
 (platform promos today: they don't lower the merchant's net); disputes carry `respondBy` (opened + 48 h, then
@@ -253,6 +255,16 @@ rejections, ratings and peaks are unchanged); staff rows carry
 `pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup). `merchant.paid_by_courier` events carry `confirmedBy`.
 `orders`, and a rated order's food score goes to its main dish (largest line) only; staff rows carry
 `pending` (given the role and not signed in or refreshed since; review 2026-10-04: a pending row has `name: null`, so inviting a phone is not a name lookup), and pending rows carry `phoneHint` ("0780 ••• 3344"), `invitedAt`, `inviteSentAt`, `resendAfter` (follow-ups 2026-10-04). `merchant.paid_by_courier` events carry `confirmedBy`.
+
+«مين سوّى شنو» (`activity.*`, 2026-10-08): `kind` is `accept`, `auto_accept`, `partial`, `reject`, `auto_reject`
+(timed out; `reason: merchant_timeout`), `ready`, `extend` («+5 د»), `hand_over`, `sold_out` (`until` when «خلص اليوم»),
+`back_on`. Read from `order.accepted`/`order.auto_accepted`/`order.partial_proposed`/`order.rejected`/`order.ready`/
+`order.prep_extended`/`order.handed_over` on the day's orders (indexed `order_id`) and `item.sold_out`/`item.restocked`
+on `org/<merchantOrgId>` (indexed aggregate + `occurred_at`). Left out: the customer approving a partial order
+(`order.accepted` with `partial: true`) and a «جاهز» implied by the courier's pickup (`implied: true`), so neither a
+customer's nor a courier's id is ever named. `who` is null for what the system did; otherwise the name comes from one
+batched vault read per call (purpose `merchant_activity_view`, logged), name only (no phone); a deleted person or a
+missing name has `name: null` (the app shows «موظف سابق»). Board and order payloads never carry actor ids.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
 `deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `upload_invalid`.

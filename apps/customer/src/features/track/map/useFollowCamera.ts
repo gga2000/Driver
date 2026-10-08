@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Easing, runOnJS, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
-import { fitCamera, mercX, mercY, project, type Camera, type LngLat, type Size } from '../geo';
+import { fitCamera, inFrame, mercX, mercY, project, type Camera, type LngLat, type Size } from '../geo';
 
 /** Before anything is known: the town. */
 export const AZIZIYAH_CAMERA: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
@@ -52,16 +52,13 @@ export function useFollowCamera({ size, focus, zoom, pad }: { size: Size; focus:
         setDrawn(target);
         return;
       }
-      // Move only when the frame is off by a noticeable amount — or when a focus point is about to
-      // leave the visible map (half the padding as margin).
+      // Move only when the frame is off by a noticeable amount — or when a focus point slips under
+      // what covers the map (a card that just opened over him, the late banner growing).
       const zz = z.value;
       const dx = Math.abs(mercX(target.lng, zz) - mercX(lng.value, zz));
       const dy = Math.abs(mercY(target.lat, zz) - mercY(lat.value, zz));
       const now = { lng: lng.value, lat: lat.value, zoom: zz };
-      const inView = focus.every((p) => {
-        const at = project(p.lat, p.lng, now, size);
-        return at.x >= pad.left / 2 && at.x <= size.w - pad.right / 2 && at.y >= pad.top / 2 && at.y <= size.h - pad.bottom / 2;
-      });
+      const inView = focus.every((p) => inFrame(project(p.lat, p.lng, now, size), size, pad));
       if (!force && inView && dx < size.w * 0.12 && dy < size.h * 0.1 && Math.abs(target.zoom - zz) < 0.4) return;
       const ease = { duration: FOLLOW_MS, easing: Easing.inOut(Easing.cubic) };
       lng.value = withTiming(target.lng, ease);
@@ -90,3 +87,4 @@ export function useFollowCamera({ size, focus, zoom, pad }: { size: Size; focus:
     },
   };
 }
+

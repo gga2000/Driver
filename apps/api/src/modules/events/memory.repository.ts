@@ -1,6 +1,6 @@
 import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.js';
 import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
-import { newId } from './events.repository.js';
+import { assertKeyedFilter, newId } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
 import { OUTBOX_LEASE_MS } from './timestamps.js';
 
@@ -143,6 +143,10 @@ export class InMemoryEventsRepository implements EventsRepository {
   }
 
   async find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]> {
+    assertKeyedFilter(filter);
+    if (filter.orderIds && filter.orderIds.length === 0) return [];
+    const orderIds = filter.orderIds ? new Set(filter.orderIds) : null;
+    const types = filter.types ? new Set(filter.types) : null;
     // Narrow by an index when the filter has a key (the rest of the filter still applies below);
     // this transaction's staged events come last, after every committed one, as in a full scan.
     const indexed = filter.tripId
@@ -153,9 +157,11 @@ export class InMemoryEventsRepository implements EventsRepository {
           ? this.byActor.get(filter.actorId)
           : filter.aggregate
             ? this.byAggregate.get(aggKey(filter.aggregate.name, filter.aggregate.id))
-            : null;
+            : orderIds
+              ? this.byOrders(orderIds)
+              : null;
     const staged = tx ? this.staged.get(tx as object) : undefined;
-    const keyed = Boolean(filter.tripId || filter.orderId || filter.actorId || filter.aggregate);
+    const keyed = Boolean(filter.tripId || filter.orderId || filter.actorId || filter.aggregate || orderIds);
     const all = keyed ? [...(indexed ?? []), ...(staged?.events ?? [])] : this.visibleEvents(tx);
     let scope = all;
     if (filter.before) {
@@ -168,8 +174,19 @@ export class InMemoryEventsRepository implements EventsRepository {
         (!filter.actorId || e.actorId === filter.actorId) &&
         (!filter.tripId || e.tripId === filter.tripId) &&
         (!filter.orderId || e.orderId === filter.orderId) &&
-        (!filter.aggregate || (e.aggregate === filter.aggregate.name && e.aggregateId === filter.aggregate.id)),
+        (!filter.aggregate || (e.aggregate === filter.aggregate.name && e.aggregateId === filter.aggregate.id)) &&
+        (!orderIds || (e.orderId !== undefined && orderIds.has(e.orderId))) &&
+        (!types || types.has(e.type)) &&
+        (!filter.from || e.occurredAt.getTime() >= filter.from.getTime()) &&
+        (!filter.to || e.occurredAt.getTime() < filter.to.getTime()),
     );
+  }
+
+  /** The committed events of several orders, in recording order. */
+  private byOrders(orderIds: ReadonlySet<string>): StoredEvent[] {
+    const out: StoredEvent[] = [];
+    for (const id of orderIds) out.push(...(this.byOrder.get(id) ?? []));
+    return out.sort((a, b) => (this.position.get(a.id) ?? 0) - (this.position.get(b.id) ?? 0));
   }
 
   // ───────────────────────── outbox ─────────────────────────
