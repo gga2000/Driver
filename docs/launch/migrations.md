@@ -20,3 +20,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009092000 | participants_person_id_index | lane B | #13 (merged) |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
 | 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
+| 20261010140000 | request_offer_wait_terms | trips thread | private car round 2 step 1 |

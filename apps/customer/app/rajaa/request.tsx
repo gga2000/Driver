@@ -319,7 +319,8 @@ export default function RequestBoard() {
                 </View>
               </View>
             ) : null}
-            {range.data ? <UsualRangeLine range={range.data} testID="rajaa-form-usual-range" /> : null}
+            {/* A hint, not a step: if the read fails the line is left out (the offers show the range again). */}
+            {range.data && !range.isError ? <UsualRangeLine range={range.data} testID="rajaa-form-usual-range" /> : null}
           </Section>
 
           <Section title={t('rajaa.req_when')}>

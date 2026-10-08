@@ -105,7 +105,8 @@ export function departureSummary(s: DeparturesService, dep: DepartureRecord): De
   return {
     id: dep.id,
     corridorId: dep.corridorId,
-    cityId: s.corridor(dep.corridorId).cityId,
+    // A list must still show if a corridor is ever retired from config; the app falls back to its own lookup.
+    cityId: s.network.corridors.find((c) => c.id === dep.corridorId)?.cityId,
     direction: dep.direction,
     garageId: dep.garageId,
     departAt: dep.departAt,
