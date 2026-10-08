@@ -392,7 +392,7 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     const cancel = (reason: string, cancelledState = 'platform_cancelled') => event('order.cancelled', { from: 'placed', to: cancelledState, cancelledState, by: 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
     expect(await run(cancel('payer_declined'))).toEqual([{ template: 'order_payer_declined', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('payer_no_answer'))).toEqual([{ template: 'order_payer_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
-    expect(await run(cancel('partial_timeout'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
+    expect(await run(cancel('ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
   });
 
@@ -414,5 +414,32 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect(await run(event('order.picked_up', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([]);
     expect(await run(event('order.rejected', {}, { orderId: 'ride_1' }))).toEqual([]);
     expect((await run(event('stop.arrived', { stopType: 'pickup' }, { orderId: 'ride_1', actorId: 'drv' })))[0]?.template).toBe('driver_arrived');
+  });
+});
+
+describe('BENCH-03: a dish is out — the customer is asked, and told when silence cancelled it', () => {
+  const ask = (over: Partial<NotifyLookups> = {}) => ({ engine: notifyHarness().engine, repo: notifyHarness().repo, receiptBaseUrl: 'https://driver.iq/r', lookups: { ...lookups, lineNames: async (_: string, ids: readonly string[]) => (ids.length === 1 ? ['بيبسي'] : []), ...over } });
+  const proposed = (ids: string[]) => event('order.partial_proposed', { unavailableLineIds: ids, reducedItemsTotalIqd: 10_000, reducedTotalIqd: 11_500, deadline: '2026-10-04T09:31:00Z', prepMinutes: 20 }, { orderId: 'ord_1', actorId: 'staff' });
+  const one = async (e: PublishedEvent, d = ask()) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+
+  it('names the dish, the kitchen and what the rest costs', async () => {
+    expect(await one(proposed(['l2']))).toEqual([{ template: 'order_partial_ask', to: 'cust', params: { items: 'بيبسي', merchant: 'مطعم خالد', amount: '11,500', orderId: 'ord_1' } }]);
+    expect((await one(proposed(['l2', 'l3'])))[0]?.params?.['items']).toBe('صنفين من طلبك');
+    expect(await one(event('order.partial_proposed', { unavailableLineIds: ['l2'] }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+
+  it('the minute ran out: «ما وصلنا ردك», not the general cancel', async () => {
+    const timeout = event('order.cancelled', { from: 'placed', to: 'platform_cancelled', cancelledState: 'platform_cancelled', by: 'platform', reason: 'partial_timeout', free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await one(timeout)).toEqual([{ template: 'order_partial_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
+    const declined = event('order.cancelled', { from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', by: 'customer', reason: 'partial_declined', free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    expect(await one(declined)).toEqual([]);
+  });
+
+  it('short names for a push title', async () => {
+    const { missingItemsAr } = await import('./notify.subscribers.js');
+    expect(missingItemsAr(['بيبسي'], 1)).toBe('بيبسي');
+    expect(missingItemsAr(['بيبسي', 'كباب'], 2)).toBe('بيبسي وكباب');
+    expect(missingItemsAr(['بيبسي'], 3)).toBe('3 أصناف من طلبك');
+    expect(missingItemsAr([], 1)).toBe('صنف من طلبك');
   });
 });

@@ -5,6 +5,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
@@ -56,7 +57,7 @@ function envInt(name: string, fallback: number): number {
  * turns domain events into notifications.
  */
 @Module({
-  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
+  imports: [CatalogModule, ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     {
@@ -81,6 +82,7 @@ function envInt(name: string, fallback: number): number {
         shares: ShareLinksService,
         vehicles: CourierVehicleDirectory,
         tracking: TrackingService,
+        catalog: CatalogService,
       ): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
@@ -182,6 +184,14 @@ function envInt(name: string, fallback: number): number {
             const locked = (await orders.aggregate(orderId)).order.promisedRideMin;
             return typeof locked === 'number' ? new Date(now.getTime() + locked * 60_000) : null;
           }),
+        lineNames: async (orderId, lineIds) =>
+          (await orNull(async () => {
+            const o = await orders.get(orderId);
+            const lines = o.lines.filter((l) => lineIds.includes(l.id));
+            const ids = lines.map((l) => l.catalogItemId).filter((x): x is string => !!x);
+            const menu = o.merchantOrgId && ids.length > 0 ? new Map((await catalog.itemsOf(o.merchantOrgId, ids)).map((i) => [i.id, i.nameAr])) : new Map<string, string>();
+            return lines.map((l) => (l.catalogItemId ? menu.get(l.catalogItemId) : null) ?? l.freeText ?? '').filter((n) => n !== '');
+          })) ?? [],
         stopOrder: (tripId, stopId) => orNull(async () => (await trips.get(tripId)).stops.find((s) => s.id === stopId)?.orderId ?? null),
         tripZones: (tripId) =>
           orNull(async () => {
@@ -192,7 +202,7 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES, TrackingService],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES, TrackingService, CatalogService],
     },
     {
       provide: NOTIFY_ENGINE,

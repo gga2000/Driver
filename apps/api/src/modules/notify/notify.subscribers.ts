@@ -16,6 +16,13 @@ export function itemsAr(n: number): string {
   return `${n} صنف`;
 }
 
+/** «بيبسي» · «بيبسي وكباب» · «3 أصناف»: what the kitchen has run out of, short enough for a push title. */
+export function missingItemsAr(names: readonly string[], count: number): string {
+  if (names.length === count && count === 1) return names[0]!;
+  if (names.length === count && count === 2) return `${names[0]} و${names[1]}`;
+  return count === 1 ? 'صنف من طلبك' : count === 2 ? 'صنفين من طلبك' : `${count} أصناف من طلبك`;
+}
+
 /**
  * The notify module's own outbox subscriber (kept apart from the realtime fan-out and every other
  * consumer). Each event below becomes zero or more `NotifyRequest`s; the engine dedupes them by
@@ -47,6 +54,8 @@ export const NOTIFY_EVENT_TYPES = [
   // never answered, we cancelled, the courier has it, he is at the door, he can't reach him.
   'order.rejected',
   'order.cancelled',
+  // BENCH-03: a dish is out — he chooses within 60 s.
+  'order.partial_proposed',
   'order.picked_up',
   'trip.unreachable_started',
   'trip.unreachable_escalated',
@@ -311,13 +320,30 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const template = p['reason'] === 'merchant_timeout' ? ('order_kitchen_no_answer' as const) : ('order_rejected' as const);
       return [{ ...base, template, to: order.customerId, orderId: order.id, params: { merchant, orderId: order.id }, data: { orderId: order.id } }];
     }
+    case 'order.partial_proposed': {
+      // «بيبسي خلص بمطعم خالد — نرسل الباقي بـ 11,500 دينار، لو تلغي ببلاش؟» (BENCH-03). Opens the
+      // kitchen screen, where he answers; the minute is the kitchen's wait, so nothing is held.
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      const reduced = num(p['reducedTotalIqd']);
+      const lineIds = Array.isArray(p['unavailableLineIds']) ? p['unavailableLineIds'].filter((x): x is string => typeof x === 'string') : [];
+      if (!order || order.type === 'ride' || reduced === null || lineIds.length === 0) return [];
+      const [merchant, names] = await Promise.all([order.merchantOrgId ? L.storeName(order.merchantOrgId) : Promise.resolve(null), L.lineNames ? L.lineNames(order.id, lineIds) : Promise.resolve([])]);
+      return [{ ...base, template: 'order_partial_ask', to: order.customerId, orderId: order.id, params: { items: missingItemsAr(names, lineIds.length), merchant: merchant ?? 'المطعم', amount: iqd(reduced), orderId: order.id }, data: { orderId: order.id } }];
+    }
     case 'order.cancelled': {
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
       if (p['cancelledState'] !== 'platform_cancelled') return [];
       const order = e.orderId ? await L.order(e.orderId) : null;
       if (!order) return [];
-      const template = p['reason'] === 'payer_declined' ? ('order_payer_declined' as const) : p['reason'] === 'payer_no_answer' ? ('order_payer_no_answer' as const) : ('order_cancelled' as const);
+      const template =
+        p['reason'] === 'payer_declined'
+          ? ('order_payer_declined' as const)
+          : p['reason'] === 'payer_no_answer'
+            ? ('order_payer_no_answer' as const)
+            : p['reason'] === 'partial_timeout'
+              ? ('order_partial_no_answer' as const)
+              : ('order_cancelled' as const);
       return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.picked_up': {

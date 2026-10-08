@@ -193,6 +193,8 @@ export const NotifyTemplateId = z.enum([
   'courier_unreachable',
   'courier_unreachable_reminder',
   'order_on_the_way',
+  'order_partial_ask',
+  'order_partial_no_answer',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -312,6 +314,26 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.order_kitchen_no_answer.title', body: 'push.order_kitchen_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 BENCH-03: the kitchen has a dish out — he has 60 s to send the rest or cancel free. Push at once;
+  // the SMS twin at 20 s still leaves time to open the app. Then, if no answer came, why it was cancelled.
+  order_partial_ask: {
+    id: 'order_partial_ask',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_partial_ask.title', body: 'push.order_partial_ask.body', androidChannel: 'orders', deepLink: 'driver://kitchen/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: 20,
+    quietHours: 'send',
+  },
+  order_partial_no_answer: {
+    id: 'order_partial_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_partial_no_answer.title', body: 'push.order_partial_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',

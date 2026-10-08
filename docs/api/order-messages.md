@@ -8,6 +8,8 @@ notify subscribers, so the table can't drift from what is sent.
 
 | Turn | Message | Notes |
 | --- | --- | --- |
+| A dish is out (BENCH-03) | `order_partial_ask` «بيبسي خلص بمطعم خالد · نرسل الباقي بـ 11,500 دينار، لو تلغي ببلاش» | push at once, SMS at 20 s; opens the kitchen screen, where he answers «أرسل الباقي» or «ألغِ الطلب ببلاش» (`orders.respondPartial`) |
+| He didn't answer within the minute | `order_partial_no_answer` | the order is cancelled free (today's rule; Ali's call open) |
 | Kitchen said no | `order_rejected` «المطعم ما گدر ياخذ طلبك» | push, SMS after 60 s if the push isn't delivered |
 | Kitchen never answered | `order_kitchen_no_answer` | same; the reject's reason is `merchant_timeout` |
 | We cancelled | `order_cancelled`, or `order_payer_declined` / `order_payer_no_answer` for a household order the payer refused or never answered | his own cancel is silent |

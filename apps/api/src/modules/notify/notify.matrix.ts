@@ -13,7 +13,7 @@ export type NotifyFamily = 'merchant' | 'courier' | 'ride';
 export type TransitionKey = `${OrderState}>${OrderState}`;
 
 const OWN_CANCEL = { silent: 'his own cancel: the app shows it as he taps' } as const;
-const WE_CANCELLED = { templates: ['order_cancelled', 'order_payer_declined', 'order_payer_no_answer'] } as const;
+const WE_CANCELLED = { templates: ['order_cancelled', 'order_payer_declined', 'order_payer_no_answer', 'order_partial_no_answer'] } as const;
 const REJECTED = { templates: ['order_rejected', 'order_kitchen_no_answer'] } as const;
 const KITCHEN_WORKING = { silent: 'the kitchen at work: shown live on the order screen; the next message is the pickup' } as const;
 const DISPUTE = { silent: 'a dispute: support answers in the app (W3 staff tools own the message)' } as const;

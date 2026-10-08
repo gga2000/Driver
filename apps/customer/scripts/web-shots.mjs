@@ -12,6 +12,8 @@
 //   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, welcome-home (once after setup), home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
+//   partial-* BENCH-03: the kitchen has a dish out — the ask (opened from the push, names from the menu),
+//            the last seconds, then «أرسل الباقي» → the live order            POST /demo/active-order?accept=0, /demo/kitchen?action=partial
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
@@ -131,7 +133,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -263,6 +265,7 @@ try {
   // Each flow starts from its own navigation, so any subset (SHOTS=…) runs in this order.
   if (wants('acct')) await acctShots(personId);
   if (wants('food')) await foodFlow(khalid);
+  if (wants('partial')) await partialShots(personId);
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
   if (wants('driver')) await driverShots(personId);
@@ -1149,6 +1152,26 @@ async function foodFlow(khalid) {
   await page.locator('[data-testid^="suggest-move-"]').first().click();
   await page.locator('[data-testid="cart"]:visible').waitFor({ timeout: 15_000 });
   await shot('food-carried');
+}
+
+/** BENCH-03: a dish is out. The order is placed through the demo hook, so the ask reads names from the menu. */
+async function partialShots(personId) {
+  if (!personId) throw new Error('partial shots need a signed-in person');
+  const placed = await demoPost(`/demo/active-order?personId=${encodeURIComponent(personId)}&accept=0`);
+  if (!placed) return;
+  if (!(await demoPost(`/demo/kitchen?orderId=${placed.orderId}&action=partial`))) return;
+  await page.goto(`${origin}/kitchen/${placed.orderId}`, LOADED);
+  await byTestId('kitchen-partial').waitFor({ timeout: 15_000 });
+  await byTestId('kitchen-partial-total').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(2500);
+  await shot('partial-ask');
+  await page.waitForTimeout(46_000); // the last 15 seconds turn the line to the warning colour
+  await shot('partial-ask-late');
+  await byTestId('kitchen-partial-send').click();
+  await page.waitForURL(/\/order\//, { timeout: 20_000 }).catch(() => errors.push('sending the rest did not open /order/[id]'));
+  await byTestId('status-line').waitFor({ timeout: 15_000 }).catch(() => errors.push('live order not shown after sending the rest'));
+  await page.waitForTimeout(2000);
+  await shot('partial-sent');
 }
 
 /**
