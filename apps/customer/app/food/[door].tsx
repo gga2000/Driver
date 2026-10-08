@@ -4,16 +4,8 @@ import type { MessageKey as Key } from '@driver/i18n';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
-import {
-  Button,
-  Chip,
-  DishDrawing,
-  EmptyState,
-  Icon,
-  QueryBoundary,
-  Text,
-  useTheme,
-} from '@driver/ui';
+import { Button, Chip, EmptyState, Icon, QueryBoundary, Text, useTheme } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { BestThree } from '@/features/doors/BestThree';

@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73"
     },
     "customer.assets_mb": {
-      "max": 6.8,
-      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08); home gallery's own 4 rice-dish photos, 0.24 MB (concept C): 6.74"
+      "max": 6.25,
+      "why": "dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.1; home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.15,
@@ -16,9 +16,9 @@
       "why": "s1 landed for the partner app: 6.26 -> 5.95; the rest is s4 (lazy screens, barrel trims)"
     },
     "partner.assets_mb": {
-      "max": 4.6,
+      "max": 3.05,
       "target": 2.75,
-      "why": "1.5 MB dish photos the courier app never shows"
+      "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
       "max": 6.35,
@@ -26,7 +26,8 @@
       "why": "s1 per-app words"
     },
     "merchant.assets_mb": {
-      "max": 4.45
+      "max": 2.85,
+      "why": "dish photos moved behind @driver/ui/dishes (the merchant app draws none): 4.3 -> 2.73"
     }
   },
   "screens": {

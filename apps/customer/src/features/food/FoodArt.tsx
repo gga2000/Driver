@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
-import { DishDrawing, PhotoImage, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { PhotoImage, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import Svg, { Circle, Ellipse, G } from 'react-native-svg';
 import { apiPhoto } from '@/lib/photo';
 import { ART_LOOKS, type Motif } from './food-art';

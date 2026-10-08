@@ -281,6 +281,15 @@ working.) `PHONE_HASH_PEPPER` is never rotated.
 
   Sentry shows minified stacks for now (no source-map upload yet); the message, the screen's component
   stack and the release are enough to find most crashes.
+- **Speed reports from real phones (optional, built 2026-10-08, customer app; off until the DSN above
+  is set)**: the same DSN also carries how long the app took to start (`app start`, from the native
+  process start to the first screen drawn after the splash, plus the JS heap then) and how long each
+  screen took to open (from the tap to the new screen drawn, named by its route pattern such as
+  `restaurant/[id]`, never an id). They show in Sentry → Performance (Insights → Mobile vitals /
+  transactions). Only 1 app session in 10 reports (`EXPO_PUBLIC_SPEED_SAMPLE`, 0–1; e.g. `1` for a
+  test build), at most 20 a minute, never in development; nothing personal, no timers (nothing runs
+  on an idle screen). Code: `packages/contracts/src/speed-report.ts`, `apps/customer/src/lib/speed.ts`.
+  The lab numbers in CI are `docs/perf-budgets.md`; these are the phones people actually hold.
 - **Graceful shutdown**: on every deploy or restart the old machine gets SIGTERM and, within 25 s, stops
   taking requests, finishes the ones in flight, delivers the outbox rows still due, lets the BullMQ
   workers finish their current job, closes Redis and Postgres, and exits. Anything left is retried by
