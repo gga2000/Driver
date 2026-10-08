@@ -14,7 +14,7 @@ import { PrismaLedgerBalanceStore, PrismaLedgerRepository, type LedgerEventDeleg
  * the nightly check repairs a line written past the trigger. Skipped without DATABASE_URL.
  */
 const url = process.env['DATABASE_URL'];
-const migration = fileURLToPath(new URL('../../../../../packages/db/prisma/migrations/20261010101000_driver_running_balance/migration.sql', import.meta.url));
+const migration = fileURLToPath(new URL('../../../../../packages/db/prisma/migrations/20261011100000_driver_running_balance/migration.sql', import.meta.url));
 
 describe.skipIf(!url)('running driver balance on Postgres (needs DATABASE_URL)', () => {
   const prisma = new PrismaService(url);
