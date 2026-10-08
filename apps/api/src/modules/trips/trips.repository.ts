@@ -194,13 +194,13 @@ export interface TripsRepository extends TripOrderLookup {
 
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
 
-/** Trail partitions are made this many days ahead (hourly, so a missed hour or a slow boot never leaves a day without one). */
 /** What one partition clean-up did: the partitions dropped, and those left for the next run. */
 export interface TrailPartitionDrop {
   dropped: string[];
   failed: Array<{ name: string; error: string }>;
 }
 
+/** Trail partitions are made this many days ahead (hourly, so a missed hour or a slow boot never leaves a day without one). */
 export const TRAIL_PARTITION_DAYS_AHEAD = 7;
 
 /**
