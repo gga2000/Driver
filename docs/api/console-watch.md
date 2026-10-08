@@ -43,7 +43,7 @@ The strip publishes `--watch-h` so full-height pages shrink by it.
 
 ## Tables
 
-Migration `20261010150000_console_watch`. Both tables hold ids and times only.
+Migration `20261010240000_console_watch`. Both tables hold ids and times only.
 
 - `console_presence`: one row per (city, tab) with `live`, `live_since` and `last_seen_at`. Rows
   older than 24 h are dropped hourly.
