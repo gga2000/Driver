@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
-import { AppState, Platform, Switch, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { AppState, Linking, View } from 'react-native';
 import type { NotifyPreferences } from '@driver/contracts';
-import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, DataSaverCard, Icon, ListRow, QueryBoundary, Skeleton, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
+import { batteryFamily, batterySteps, phoneMaker } from '@/features/notify/battery';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
 import { TimetablePicker } from '@/features/season/TimetablePicker';
 import { apiErrorMessage } from '@/lib/api';
@@ -51,6 +52,8 @@ export default function NotificationSettings() {
   const prefs = useNotifyPreferences();
   const save = useSetNotifyPreferences();
   const { permission, refresh, ask } = usePushPermission();
+  // CRIT3-01: the battery manager of this phone's maker, if it is one that stops apps.
+  const family = useMemo(() => batteryFamily(phoneMaker()), []);
 
   // Coming back from the phone's settings: read the permission again.
   useEffect(() => {
@@ -81,16 +84,14 @@ export default function NotificationSettings() {
       divider={divider}
       trailing={
         prefs.data ? (
-          <Switch
+          <Toggle
             accessibilityLabel={t(r.title)}
             value={prefs.data[r.key]}
             onValueChange={(v) => toggle(r.key, v)}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-            {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
           />
-        ) : (
+        ) : prefs.isPending ? (
           <Skeleton width={44} height={24} />
-        )
+        ) : null
       }
     />
   );
@@ -117,6 +118,47 @@ export default function NotificationSettings() {
         </View>
       </Card>
 
+      {family && permission !== 'denied' ? (
+        <Card padding={4} elevation={0} testID="battery-guide" style={{ gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            <Icon name="battery" size={22} color="accentText" />
+            <Text variant="label" weight={700} style={{ flex: 1 }}>
+              {t('notify.battery.title')}
+            </Text>
+          </View>
+          <Text variant="footnote" color="textMuted">
+            {t('notify.battery.body')}
+          </Text>
+          <View style={{ gap: theme.space[2] }}>
+            {batterySteps(family).map((key, i) => (
+              <View key={key} style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                <Text variant="label" weight={700} color="accentText" tabular>
+                  {i + 1}
+                </Text>
+                <Text variant="body" style={{ flex: 1 }}>
+                  {t(key)}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <Button testID="battery-open" size="md" variant="secondary" label={t('notify.battery.open')} onPress={() => void Linking.openSettings()} />
+        </Card>
+      ) : null}
+
+      {/* FLOW-29: switches that failed to load say so, with a retry, instead of skeletons forever. */}
+      {prefs.isError && prefs.data === undefined ? (
+        <QueryBoundary
+          query={prefs}
+          size="inline"
+          locale={locale}
+          testID="notify-prefs-state"
+          skeleton={null}
+          retry={{ server: { title: t('notify.settings.load_failed') }, slow: { title: t('notify.settings.load_failed') }, unreachable: { title: t('notify.settings.load_failed') } }}
+        >
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('notify.settings.section_push')} />
         <Card elevation={0} padding={0}>
@@ -141,12 +183,10 @@ export default function NotificationSettings() {
             subtitle={t('notify.settings.tracking_sounds_hint')}
             chevron={false}
             trailing={
-              <Switch
+              <Toggle
                 accessibilityLabel={t('notify.settings.tracking_sounds')}
                 value={sounds}
                 onValueChange={setSounds}
-                trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-                {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
               />
             }
           />

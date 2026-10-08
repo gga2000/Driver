@@ -1,6 +1,7 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { TRAIL_RETENTION_DAYS } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
 
@@ -15,7 +16,7 @@ const DAY_MS = 86_400_000;
 /**
  * Decision D6 (maps program): raw driver trails are deleted after 30 days; the trip row stays as the
  * summary. A trail tied to an unresolved support incident is kept until the incident is resolved.
- * Runs hourly in every API instance; the DELETE is idempotent, so overlapping runs only share the work.
+ * Runs hourly in every instance that runs jobs (DRIVER_ROLE all or worker); the DELETE is idempotent, so overlapping runs only share the work.
  */
 @Injectable()
 export class TrailRetention implements OnModuleInit, OnModuleDestroy {
@@ -27,9 +28,12 @@ export class TrailRetention implements OnModuleInit, OnModuleDestroy {
     private readonly trips: TripsService,
     private readonly support: SupportService,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
+    // Purges are background work: on DRIVER_ROLE=web machines the worker runs them.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), TRAIL_PURGE_EVERY_MS);
     this.timer.unref();
   }

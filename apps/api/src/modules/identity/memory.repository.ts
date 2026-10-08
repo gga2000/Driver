@@ -349,6 +349,12 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return out;
   }
 
+  async rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx) {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s || s.refreshTokenHash !== expectRefreshHash || s.revokedAt) return null;
+    return this.updateSession(id, patch, tx);
+  }
+
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
     let n = 0;
     for (const s of this.sessions) {
@@ -382,12 +388,27 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   /** Never journaled: an auto-committed write, like the Prisma twin. */
-  async recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }) {
+  async claimOtpAttempt(id: string, input: { maxAttempts: number }) {
     const o = this.otps.find((x) => x.id === id);
-    if (!o) throw new Error(`otp ${id} not found`);
+    if (!o || o.verifiedAt || o.lockedAt || o.attempts >= input.maxAttempts) return null;
     o.attempts += 1;
-    if (o.attempts >= input.maxAttempts && !o.lockedAt) o.lockedAt = input.now;
+    return { attempts: o.attempts };
+  }
+
+  /** Never journaled, like `claimOtpAttempt`. */
+  async lockOtp(id: string, input: { now: Date; maxAttempts: number }) {
+    const o = this.otps.find((x) => x.id === id);
+    if (!o) return null;
+    if (!o.verifiedAt && !o.lockedAt && o.attempts >= input.maxAttempts) o.lockedAt = input.now;
     return { ...o };
+  }
+
+  async consumeOtp(id: string, now: Date, tx?: Tx) {
+    const o = this.otps.find((x) => x.id === id);
+    if (!o || o.verifiedAt || o.lockedAt) return null;
+    this.keep(tx, o);
+    o.verifiedAt = now;
+    return o;
   }
 
   async createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx) {

@@ -534,6 +534,8 @@ export interface RideHabitsPort {
   nudgeOffer(actor: Actor, input: NudgeOfferInput): Promise<NudgeOfferResult>;
   /** n5: an offered or the assigned driver's profile (`tracking.driverProfile`). */
   driverProfile(actor: Actor, input: DriverProfileInput): Promise<DriverProfile>;
+  /** Partner redesign r4 «هيج يشوفك الزبون»: the same profile riders open, of the driver himself. */
+  ownProfile(actor: Actor): Promise<DriverProfile>;
   /** Review #28: a ride booked for later — confirmed driver, or when we tell him. */
   bookedRide(actor: Actor, input: BookedRideInput): Promise<BookedRideStatus>;
 }

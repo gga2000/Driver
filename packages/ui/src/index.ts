@@ -1,6 +1,7 @@
 // Theme
 export { ThemeProvider, useTheme, createTheme, fontStyle, faceStyle } from './theme/ThemeProvider';
 export type { Theme, ThemeProviderProps, HapticKind, HapticHandler, Direction, FontMode } from './theme/ThemeProvider';
+export type { TextScale } from '@driver/design-tokens';
 export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 
 // Icons
@@ -12,7 +13,9 @@ export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } fr
 export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
 // The Date & Saffron pictures Ali approved (services, empty and status screens).
 export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
-export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
+// The dish pictures (1.2 MB of photos) live behind `@driver/ui/dishes` so an app that never draws a
+// dish (the courier app) never bundles them; only their types are here.
+export type { DishKind, DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
 // Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.
@@ -29,6 +32,8 @@ export { Text, type TextProps } from './components/Text';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './components/Button';
 export { IconButton, type IconButtonProps, type IconButtonVariant } from './components/IconButton';
 export { Chip, ChipGroup, nextChipSelection, type ChipProps, type ChipGroupProps, type ChipGroupItem } from './components/Chip';
+export { LocalPhoto, PhotoImage, PhotoImageProvider, type LocalPhotoProps, type PhotoImageProps } from './components/PhotoImage';
+export { NEAR_VIEW_MARGIN, useNearView } from './components/near-view';
 export { Avatar, toneFor, identityIndex, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
 export { Card, type CardProps } from './components/Card';
 export { DataSaverCard } from './components/DataSaverCard';
@@ -37,18 +42,24 @@ export { PriceLine, PriceBreakdown, ChangeToWallet, type PriceLineProps, type Pr
 export { Rule, type RuleProps } from './components/Rule';
 export { Sheet, type SheetProps } from './components/Sheet';
 export { Stepper, clampStep, type StepperProps } from './components/Stepper';
+export { Toggle, type ToggleProps } from './components/Toggle';
+export { useAnnounce } from './a11y/announce';
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from './components/SegmentedControl';
 export { TextField, SearchField, type TextFieldProps, type SearchFieldProps } from './components/TextField';
 export { Badge, type BadgeProps } from './components/Badge';
 export { StatusPill, STATUS_TONES, type StatusPillProps, type StatusTone } from './components/StatusPill';
 export { Timeline, stepStates, type TimelineProps, type TimelineStep, type StepState } from './components/Timeline';
 export { SeatMap, SeatLegend, type SeatMapProps } from './components/SeatMap';
+export { CallSoonButton, CallSoonIcon, type CallSoonButtonProps, type CallSoonIconProps } from './components/CallSoon';
+export { CarSeatArt, type CarSeatArtProps } from './components/CarSeatArt';
+export { MeterBar, StatStrip, type MeterBarProps, type StatStripItem } from './components/StatStrip';
 export { CountdownRing, type CountdownRingProps } from './components/CountdownRing';
 export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
+export { QueryBoundary, queryPhase, type QueryBoundaryProps, type QueryLike, type QueryStateCopy } from './components/QueryBoundary';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
 export { StaleNote, type StaleNoteProps } from './components/StaleNote';
@@ -76,8 +87,10 @@ export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosS
 
 // Network awareness (offline strip, skeleton timeouts, React Query wiring)
 export {
+  bindFocusManager,
   bindOnlineManager,
   configureNetwork,
+  createNetworkFetch,
   getNetwork,
   networkFetch,
   retryKindFor,
@@ -117,3 +130,4 @@ export { RollingDigits, type RollingDigitsProps } from './components/RollingDigi
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';
+export { HoldButton, HOLD_CONFIRM_WINDOW_MS, HOLD_MS, type HoldButtonProps } from './components/HoldButton';

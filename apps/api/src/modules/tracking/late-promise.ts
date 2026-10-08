@@ -1,9 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { LATE_PROMISE_MEMO } from '@driver/contracts';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { LATE_PROMISE_MEMO, encodeDomainEvent } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, type LedgerService } from '../ledger/index.js';
 import { TrackingService, type TrackingLateApologyPort, type TrackingLateCreditPort } from './tracking.service.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /** Memo on the honest-delay credit line (shared with the wallet's reading of it, `@driver/contracts`). */
 export { LATE_PROMISE_MEMO };
@@ -11,12 +12,16 @@ export { LATE_PROMISE_MEMO };
 /** Posting group of an order's honest-delay credit: one per order, so a replay posts nothing. */
 export const latePromiseGroupId = (orderId: string): string => `${LATE_PROMISE_MEMO}:${orderId}`;
 
+/** The credit's event (NTF-22): the notify module tells the customer the money is in his wallet. */
+export const LATE_CREDIT_EVENT = 'order.late_credit';
+
 /**
  * The honest-delay credit through the ledger's public API (audit d-5): a balanced group per order —
  * `credit_issued` from the platform to the customer's wallet, the amount the tracking read decided
- * (the delivery fee). Idempotent by order.
+ * (the delivery fee). Idempotent by order. With `events`, the same transaction logs one
+ * `order.late_credit` per order (NTF-22), so the push goes out only when the money did.
  */
-export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'eventsForOrder'>): TrackingLateCreditPort {
+export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'eventsForOrder'>, events?: Pick<EventsService, 'emit'>): TrackingLateCreditPort {
   return {
     issued: async (orderId) => {
       const line = (await ledger.eventsForOrder(orderId)).find((e) => e.postingGroupId === latePromiseGroupId(orderId) && e.type === 'credit_issued');
@@ -34,12 +39,24 @@ export function ledgerLateCredit(ledger: Pick<LedgerService, 'recordAll' | 'even
         },
         tx,
       );
+      await events?.emit(
+        tx,
+        {
+          type: LATE_CREDIT_EVENT,
+          actorId: 'system',
+          occurredAt: c.at,
+          orderId: c.orderId,
+          idempotencyKey: `late_credit:${c.orderId}`,
+          payload: { customerId: c.customerId, amountIqd: c.amountIqd },
+        },
+        { name: 'late_promise', id: c.orderId },
+      );
     },
   };
 }
 
 /** The honest-delay apology's event (step one): the notify module turns it into the push and its SMS twin. */
-export const LATE_APOLOGY_EVENT = 'order.late_apology';
+export const LATE_APOLOGY_EVENT = 'order.late_apology' as const;
 
 /** Its idempotency key: one apology per order, whoever (track read, sweep, another instance) gets there first. */
 export const lateApologyKey = (orderId: string): string => `late_apology:${orderId}`;
@@ -66,7 +83,7 @@ export function eventsLateApology(events: Pick<EventsService, 'emit' | 'forOrder
           occurredAt: c.at,
           orderId: c.orderId,
           idempotencyKey: lateApologyKey(c.orderId),
-          payload: { customerId: c.customerId, promisedAt: c.promisedAt.toISOString(), etaAt: c.etaAt.toISOString() },
+          payload: encodeDomainEvent(LATE_APOLOGY_EVENT, { customerId: c.customerId, promisedAt: c.promisedAt.toISOString(), etaAt: c.etaAt.toISOString(), ...(c.cityId ? { cityId: c.cityId } : {}) }),
         },
         { name: 'late_promise', id: c.orderId },
       );
@@ -92,9 +109,14 @@ export class LateApologySweeper implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly tracking: TrackingService) {}
+  constructor(
+    private readonly tracking: TrackingService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     const every = lateApologySweepMs();
     if (every <= 0) return;
     this.timer = setInterval(() => void this.tick(), every);

@@ -1,32 +1,34 @@
-import { Pressable, ScrollView, View } from 'react-native';
-import Svg, { G } from 'react-native-svg';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
-import { DishDrawing, Text, useTheme } from '@driver/ui';
+import { Text, useTheme } from '@driver/ui';
+import { distinctPhotos, photoForMotif } from '@/features/food-landing/photos';
 import { countKey } from '@/lib/plural';
 import { useT } from '@/lib/i18n';
 import type { DoorCraving } from './cravings';
-import type { DoorSwatch } from './palette';
 
-const SIZE = 68;
+const TILE_W = 104;
+const TILE_H = 124;
 
 /**
  * «شنو بخاطرك؟» (ideas d5, k9, s6, j2): the things behind this door as pictures, each with how many open
- * shops have it now. One tap picks it (the best three for it show below), a second tap lets it go. The
- * picked picture sits on the door's own colour with a ring; the rest stay on paper.
+ * shops have it now. One tap picks it (the best three for it show below), a second tap lets it go.
+ * Real photos (Ali 2026-10-08, concept A): the name on the picture, the count under it, a saffron
+ * ring on the picked one.
  */
 export function CravingRow({
   row,
   selected,
   onSelect,
-  swatch,
 }: {
   row: readonly DoorCraving[];
   selected: string | null;
   onSelect: (key: string | null) => void;
-  swatch: DoorSwatch;
 }) {
   const theme = useTheme();
   const t = useT();
+  const photos = distinctPhotos(row.map((c) => c.kind.art));
+  const ink = theme.colors.inverse;
   if (row.length === 0) return null;
   return (
     <View style={{ gap: theme.space[2] }} testID="craving-row">
@@ -42,11 +44,16 @@ export function CravingRow({
         horizontal
         showsHorizontalScrollIndicator={false}
         style={{ marginHorizontal: -theme.space[5] }}
-        contentContainerStyle={{ paddingHorizontal: theme.space[5], gap: theme.space[3], paddingVertical: theme.space[1] }}
+        contentContainerStyle={{
+          paddingHorizontal: theme.space[5],
+          gap: theme.space[3],
+          paddingVertical: theme.space[1],
+        }}
         accessibilityRole="radiogroup"
       >
-        {row.map(({ kind, dishes }) => {
+        {row.map(({ kind, dishes }, i) => {
           const on = selected === kind.key;
+          const photo = photos[i] ?? photoForMotif(kind.art);
           const name = t(`food.craving.${kind.key}` as MessageKey);
           const count = t(countKey('food.craving_count', dishes.length), { n: dishes.length });
           return (
@@ -60,31 +67,64 @@ export function CravingRow({
                 theme.haptic('selection');
                 onSelect(on ? null : kind.key);
               }}
-              style={({ pressed }) => ({ width: SIZE + 8, alignItems: 'center', gap: 4, transform: [{ scale: pressed ? 0.95 : 1 }] })}
+              style={({ pressed }) => ({
+                width: TILE_W,
+                gap: 6,
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              })}
             >
               <View
                 style={{
-                  width: SIZE,
-                  height: SIZE,
-                  borderRadius: SIZE / 2,
+                  width: TILE_W,
+                  height: TILE_H,
+                  borderRadius: theme.radius.xl,
                   overflow: 'hidden',
-                  backgroundColor: on ? swatch.inner : theme.colors.surface,
-                  borderWidth: on ? 3 : 1,
-                  borderColor: on ? swatch.fill : theme.colors.border,
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  backgroundColor: ink,
+                  borderWidth: on ? 3 : 0,
+                  borderColor: theme.colors.accent,
                 }}
               >
-                <Svg width={SIZE - 6} height={SIZE - 6} viewBox="0 0 200 200">
-                  <G transform="translate(6 2) scale(0.94)">
-                    <DishDrawing kind={kind.art} look={0} line={5} window={false} />
-                  </G>
-                </Svg>
+                <Image
+                  source={photo}
+                  resizeMode="cover"
+                  accessible={false}
+                  style={{ position: 'absolute', top: 0, start: 0, width: '100%', height: '100%' }}
+                />
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                  <Svg width="100%" height="100%" preserveAspectRatio="none">
+                    <Defs>
+                      <LinearGradient id={`crave-${kind.key}`} x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0.4" stopColor={ink} stopOpacity={0} />
+                        <Stop offset="1" stopColor={ink} stopOpacity={0.86} />
+                      </LinearGradient>
+                    </Defs>
+                    <Rect x="0" y="0" width="100%" height="100%" fill={`url(#crave-${kind.key})`} />
+                  </Svg>
+                </View>
+                <Text
+                  weight={700}
+                  color="onInverse"
+                  numberOfLines={2}
+                  maxFontSizeMultiplier={1.2}
+                  style={{
+                    position: 'absolute',
+                    bottom: theme.space[2],
+                    start: theme.space[3],
+                    end: theme.space[3],
+                    fontSize: 15,
+                    lineHeight: 21,
+                  }}
+                >
+                  {name}
+                </Text>
               </View>
-              <Text variant="caption" weight={on ? 700 : 600} align="center" numberOfLines={1}>
-                {name}
-              </Text>
-              <Text variant="caption" color="textMuted" align="center" tabular numberOfLines={1} style={{ marginTop: -4 }}>
+              <Text
+                variant="caption"
+                color={on ? 'accentText' : 'textMuted'}
+                weight={on ? 700 : 500}
+                tabular
+                numberOfLines={1}
+              >
                 {count}
               </Text>
             </Pressable>

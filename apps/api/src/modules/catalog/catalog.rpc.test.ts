@@ -4,6 +4,7 @@ import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { DEMO_SHOPS } from '@driver/contracts/demo-shops';
 import { FakeClock } from '../../shared/clock.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
@@ -28,15 +29,21 @@ const SAT_EVENING = '2026-10-03T15:12:00Z';
 const ZAKUR = { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } };
 const CENTRE_HOME = { zoneKey: 'centre' };
 
+/** Uses up all but the last of a guest IP's reads in the window, without running 1,200 real reads. */
+async function fillGuestWindow(w: Awaited<ReturnType<typeof world>>, ip: string) {
+  for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp - 1; i++) await w.guests.hit(`catalog:guest:${ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
+}
+
 async function world(at = SAT_EVENING) {
   const clock = new FakeClock(at);
   const orgs = new OrgsService(undefined, clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository());
   const pricing = new PricingService(new ConfigService());
-  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock);
+  const guests = new InMemoryWindowCounter(clock);
+  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock, guests);
   const seeded = await seedStorefronts(orgs, catalog);
   const byKey = (key: string) => seeded.find((s) => s.seed.key === key)!;
-  return { clock, orgs, catalog, pricing, rpc, seeded, byKey };
+  return { clock, orgs, catalog, pricing, rpc, seeded, byKey, guests };
 }
 
 function caller(rpc: CatalogRpc, personId: string | null = 'c1') {
@@ -137,7 +144,8 @@ describe('catalog.restaurants (customer read, M3)', () => {
   it('limits guests per client IP (rate_limited with retryAfterSec); signed-in readers are not limited', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.7' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' }); // the last allowed read
     const err = await w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} }).then(
       () => null,
       (e: unknown) => e,
@@ -408,7 +416,8 @@ describe('catalog.today (welcome screen live proof, audit d-6)', () => {
   it('is rate-limited for guests like the rest of the public catalog', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.9' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.today(guest, { cityId: 'aziziyah' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.today(guest, { cityId: 'aziziyah' }); // the last allowed read
     const err = await w.rpc.today(guest, { cityId: 'aziziyah' }).catch((e: unknown) => e);
     expect(isDriverError(err) && err.code).toBe('rate_limited');
   });
@@ -536,6 +545,23 @@ describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)'
     expect(cake?.dishes[0]?.kiloIqd).toBeNull();
   });
 
+  it('k7: an ice-cream-only shop drops out past 3 km by road; a sweets shop that also sells ice cream stays', async () => {
+    const w = await shopsWorld();
+    const kinds = [{ key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] }];
+    const shopsAt = async (dropoff: { zoneKey: string; pin: { lat: number; lng: number } }) => ({
+      list: (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff, filters: {} })).map((c) => c.name),
+      cravings: new Set((await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds, dropoff }))[0]?.dishes.map((d) => d.restaurantName)),
+    });
+    // الفرات is in the centre: about 0.6 km away it delivers; زاكور is about 3.3 km by road.
+    const near = await shopsAt({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect(near.list).toContain('آيس كريم الفرات');
+    expect(near.cravings).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+    const far = await shopsAt(ZAKUR);
+    expect(far.list).not.toContain('آيس كريم الفرات');
+    expect(far.list).toContain('حلويات الزهراء');
+    expect(far.cravings).toEqual(new Set(['حلويات الزهراء']));
+  });
+
   it('leaves closed shops out', async () => {
     const w = await world('2026-10-03T05:00:00Z'); // 8:00 Baghdad: الفرات opens at 12
     await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
@@ -651,5 +677,31 @@ describe('merchant-uploaded dish photos reach customers as working links', () =>
     const w = await photoWorld({ signer: false });
     const dish = (await caller(w.rpc, null).menu({ merchantId: w.khalid.orgId })).categories.flatMap((x) => x.items).find((i) => i.id === w.itemId);
     expect(dish?.photoUrl).toBeNull();
+  });
+});
+
+describe('kill switches on the cards (REL-16)', () => {
+  it('a kitchen a switch stopped looks closed, with the switch words, for that door only', async () => {
+    const w = await world();
+    const kareemId = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', filters: { query: 'كريم' } }))[0]!.id;
+    const asked: unknown[] = [];
+    const switches = {
+      stopped: async (input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }) => {
+        asked.push(input);
+        return input.merchantOrgId === kareemId && input.dropoffZone === 'zakur' ? 'مشويات الحاج كريم موقفة هسه' : null;
+      },
+    };
+    const rpc = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, null, null, switches);
+    const cards = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const kareem = cards.find((c) => c.id === kareemId)!;
+    expect(kareem).toMatchObject({ open: false, closedReason: 'paused', stoppedNote: 'مشويات الحاج كريم موقفة هسه', opensInMin: null });
+    expect(asked).toContainEqual({ cityId: 'aziziyah', merchantOrgId: kareemId, kitchenZone: 'centre', dropoffZone: 'zakur' });
+    for (const c of cards.filter((x) => x.id !== kareemId && x.name !== 'مطعم المسافر')) {
+      expect(c.open, c.name).toBe(true);
+      expect(c).not.toHaveProperty('stoppedNote');
+    }
+    // Another door the switch does not cover sees it open.
+    const elsewhere = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: CENTRE_HOME, filters: {} });
+    expect(elsewhere.find((c) => c.id === kareemId)?.open).toBe(true);
   });
 });

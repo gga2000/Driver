@@ -100,14 +100,14 @@ export function CartLineRow({
           ) : null}
           {savingIqd > 0 ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2], marginTop: 2 }} testID={`cart-line-saving-${line.itemId}`}>
-              <Text variant="label" weight={700} color={tray ? 'accentText' : 'successText'} tabular>
+              <Text variant="label" weight={700} color="accentText" tabular>
                 {iqd(lineTotal(line) - savingIqd, { locale })}
               </Text>
               <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
                 {iqd(lineTotal(line), { locale })}
               </Text>
-              <View style={{ backgroundColor: tray ? theme.colors.accentTint : theme.colors.successTint, borderRadius: theme.radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
-                <Text variant="caption" weight={600} color={tray ? 'accentText' : 'successText'} tabular>
+              <View style={{ backgroundColor: theme.colors.deal, borderRadius: theme.radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text variant="caption" weight={600} color="onDeal" tabular>
                   {t('cart.line_saving', { amount: amountParam(savingIqd) })}
                 </Text>
               </View>

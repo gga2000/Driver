@@ -180,7 +180,7 @@ export function VehicleCard({
         style={({ pressed }) => ({
           borderRadius: theme.radius.xl,
           borderWidth: selected ? 2 : 1,
-          borderColor: selected ? theme.colors.accent : theme.colors.border,
+          borderColor: selected ? theme.colors.focusRing : theme.colors.border,
           backgroundColor: selected ? withAlpha(theme.colors.accentTint, 0.6) : pressed ? theme.colors.surfaceSunken : theme.colors.surface,
           paddingVertical: selected ? theme.space[2] - 1 : theme.space[2],
           paddingStart: selected ? theme.space[2] - 1 : theme.space[2],
@@ -193,13 +193,14 @@ export function VehicleCard({
             <SvgXml xml={vertical === 'taxi' ? TAXI_ART : TUKTUK_ART} width={ART_W + 6} height={ART_W + 6} style={{ marginTop: 4 }} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            {/* DEV-16: at large text the «أرخص بـ» badge drops under the name instead of running out of the card. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.space[2], rowGap: 2 }}>
               <Text variant={simple ? 'heading' : 'title'} weight={700} style={simple ? undefined : { fontSize: 18, lineHeight: 26 }}>
                 {t(v.name)}
               </Text>
               {cheaperBy && cheaperBy > 0 && !off && !simple ? (
-                <View style={{ paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.successTint }}>
-                  <Text variant="caption" weight={600} color="successText" style={{ lineHeight: 18 }}>
+                <View style={{ paddingHorizontal: 8, minHeight: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.deal }}>
+                  <Text variant="caption" weight={600} color="onDeal" style={{ lineHeight: 18 }}>
                     {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
                   </Text>
                 </View>
@@ -424,7 +425,7 @@ export function PayOption({ icon, title, subtitle, selected, disabled, onPress, 
         padding: theme.space[3],
         borderRadius: theme.radius.lg,
         borderWidth: selected ? 2 : 1,
-        borderColor: selected ? theme.colors.accent : theme.colors.border,
+        borderColor: selected ? theme.colors.focusRing : theme.colors.border,
         backgroundColor: selected ? withAlpha(theme.colors.accentTint, 0.55) : theme.colors.surface,
         opacity: disabled ? 0.55 : 1,
       }}

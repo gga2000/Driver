@@ -45,8 +45,8 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
       'mp_garage_kut',
     ]);
     expect(net.corridors.map((c) => [c.id, c.seatPriceIqd, c.placeholderPrice])).toEqual([
-      ['aziziyah_baghdad', 10_000, true],
-      ['aziziyah_kut', 5_000, true],
+      ['aziziyah_baghdad', 5_000, false],
+      ['aziziyah_kut', 5_000, false],
     ]);
 
     const dep = await driver.driver.announce({
@@ -67,7 +67,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect(board.garage?.nameAr).toBe('كراج البوابة 1');
     expect(board.departures.map((d) => d.id)).toEqual([dep.id]);
     expect(board.departures[0]!.seats.map((s) => [s.id, s.state, s.premiumIqd])).toEqual([
-      ['front', 'free', 2_000],
+      ['front', 'free', 1_000],
       ['back_left', 'free', 0],
       ['back_middle', 'free', 0],
       ['back_right', 'free', 0],
@@ -81,7 +81,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     });
     expect(held).toMatchObject({
       state: 'held',
-      totalIqd: 12_000,
+      totalIqd: 6_000,
       prepayRail: null,
       departure: { id: dep.id, garageId: BAB1.id },
     });
@@ -160,6 +160,8 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect((await rider.myDemand())[0]).toMatchObject({ state: 'claimed' });
     const bookings = await rider.myBookings();
     expect(bookings[0]).toMatchObject({ origin: 'demand_claim', state: 'held' });
+    // The ticket names its far city itself, so طلباتي never guesses the road when the network read fails.
+    expect(bookings[0]!.departure).toMatchObject({ corridorId: 'aziziyah_baghdad', cityId: 'baghdad' });
 
     const rq = await rider.requestBoard.post({
       from: { label: 'كراج البوابة ١', garageId: BAB1.id },
@@ -217,7 +219,14 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     h.riderNames.set('d1', 'حيدر كاظم جواد');
     const dep = await h.announce();
     expect(await rider.driverCards({ departureIds: [dep.id, 'dep_missing'] })).toEqual([
-      { departureId: dep.id, driverId: 'd1', firstName: 'حيدر', verifiedTodayAt: null, photoUrl: null },
+      {
+        departureId: dep.id,
+        driverId: 'd1',
+        firstName: 'حيدر',
+        verifiedTodayAt: null,
+        photoUrl: null,
+        stats: { trips: 0, ratingAvg: null, ratingCount: 0, onTimeShare: null, topTags: [], badges: [], ridesWithYou: 0 },
+      },
     ]);
     await driver.driver.selfie({ departureId: dep.id, selfieRef: 'blob/selfie' });
     const [card] = await rider.driverCards({ departureIds: [dep.id] });
@@ -229,6 +238,91 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     await h.book('r2', dep.id, ['front']);
     await h.departures.cancelByDriver('d1', dep.id, 'عطل بالسيارة');
     expect(await rider.driverCards({ departureIds: [dep.id] })).toEqual([]);
+  });
+
+  /** d1 announces, each rider books a back seat, the rest are walk-ups; he checks in on time, leaves, arrives. */
+  async function finishRun(h: RoutesHarness, riders: readonly { id: string }[], late = 0) {
+    const dep = await h.announce({ departAt: h.at(40), latestDepartureAt: h.at(70), vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 12345', modelKey: 'elantra', noSmoking: true } });
+    const seats = ['back_left', 'back_middle', 'back_right', 'front'] as const;
+    const booked = [];
+    for (const [i, r] of riders.entries()) booked.push(await h.book(r.id, dep.id, [seats[i]!]));
+    await h.departures.selfie('d1', dep.id, 'blob/selfie');
+    for (const seat of seats.slice(riders.length)) await h.departures.markWalkUp('d1', dep.id, { seatId: seat, travellingAs: 'rijal' });
+    h.advance(30 + late);
+    await h.driverAt(dep.id);
+    for (const b of booked) await h.checkIn(dep.id, b.id);
+    h.advance(Math.max(0, 10 - late));
+    await h.departures.depart('d1', dep.id);
+    h.advance(90);
+    await h.departures.arrive('d1', dep.id);
+    return { dep, booked };
+  }
+
+  it('«ملفه» (x12–x17): record, bars, one-line reviews without names, «سافرت وياه قبل», and ops hiding a line', async () => {
+    const h = routesHarness();
+    h.riderNames.set('d1', 'حيدر كاظم جواد');
+    const riders = ['r1', 'r2', 'r3'].map((id) => ({ id, api: as(h, id, ['customer']) }));
+    const { booked } = await finishRun(h, [{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }]);
+    const say = ['سايق محترم وسيارته نظيفة', 'وصلنا على الوقت', ''];
+    for (const [i, r] of riders.entries()) {
+      const out = await r.api.rateBooking({ bookingId: booked[i]!.id, stars: 5 - i, tags: i === 2 ? ['on_time'] : ['on_time', 'clean_car'], comment: `  ${say[i]}  ` });
+      expect(out.rating?.comment).toBe(say[i] || null);
+      h.advance(1);
+    }
+
+    // A line with a phone number (Arabic-Indic digits too) or a link is refused whole.
+    const late = await finishRun(h, [{ id: 'r4' }]);
+    const r4 = as(h, 'r4', ['customer']);
+    expect(await codeOf(r4.rateBooking({ bookingId: late.booked[0]!.id, stars: 5, comment: 'كلموه ٠٧٧٠ ١٢٣ ٤٥٦٧' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(r4.rateBooking({ bookingId: late.booked[0]!.id, stars: 5, comment: 'شوفوا www.example.com' }))).toBe('BAD_REQUEST');
+    expect((await r4.myBookings())[0]!.rating).toBeNull();
+
+    // A third run where he reached the garage 10 minutes late (past the meter's 5-minute grace).
+    await finishRun(h, [], 20);
+
+    // A new run on the board: every rider sees his record; r1 rode with him once.
+    const next = await h.announce({ vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 12345', modelKey: 'elantra', bigBags: true } });
+    const [card] = await riders[0]!.api.driverCards({ departureIds: [next.id] });
+    expect(card!.stats).toEqual({ trips: 3, ratingAvg: 4, ratingCount: 3, onTimeShare: 2 / 3, topTags: ['on_time', 'clean_car'], badges: ['big_bags'], ridesWithYou: 1 });
+    expect((await as(h, 'r9', ['customer']).driverCards({ departureIds: [next.id] }))[0]!.stats.ridesWithYou).toBe(0);
+
+    const profile = await riders[0]!.api.driverProfile({ departureId: next.id });
+    expect(profile.card.firstName).toBe('حيدر');
+    expect(profile.vehicle).toMatchObject({ modelKey: 'elantra', model: 'النترا', bigBags: true, noSmoking: false });
+    expect(profile.firstTripAt).toBeInstanceOf(Date);
+    expect(profile.qualities.map((q) => [q.tag, q.count])).toEqual([
+      ['on_time', 3],
+      ['calm_driving', 0],
+      ['clean_car', 2],
+      ['respectful', 0],
+    ]);
+    expect(profile.reviews.map((r) => [r.stars, r.text])).toEqual([
+      [4, 'وصلنا على الوقت'],
+      [5, 'سايق محترم وسيارته نظيفة'],
+    ]);
+    expect(profile.reviewCount).toBe(2);
+    expect(JSON.stringify(profile)).not.toMatch(/r1|r2|كاظم/);
+    // Asked by departure only, and only one the rider can see.
+    expect(await codeOf(riders[0]!.api.driverProfile({ departureId: 'dep_missing' }))).toBe('NOT_FOUND');
+
+    // Ops: support reads the lines and hides one; a rider can't; the profile drops it; unhide puts it back.
+    const support = as(h, 'staff1', ['support']);
+    expect(await codeOf(riders[0]!.api.ops.reviews({}))).toBe('FORBIDDEN');
+    const list = await support.ops.reviews({});
+    expect(list.map((r) => [r.text, r.driverFirstName, r.hiddenAt])).toEqual([
+      ['وصلنا على الوقت', 'حيدر', null],
+      ['سايق محترم وسيارته نظيفة', 'حيدر', null],
+    ]);
+    const hidden = await support.ops.hideReview({ bookingId: list[0]!.bookingId, reason: 'untrue' });
+    expect(hidden).toMatchObject({ hiddenBy: 'staff1', hiddenReason: 'untrue' });
+    expect((await riders[0]!.api.driverProfile({ departureId: next.id })).reviews.map((r) => r.text)).toEqual(['سايق محترم وسيارته نظيفة']);
+    expect((await support.ops.reviews({ hidden: true })).map((r) => r.bookingId)).toEqual([list[0]!.bookingId]);
+    expect(h.events.types()).toContain('review.hidden');
+    // The writer still sees his own line.
+    expect((await riders[1]!.api.myBookings())[0]!.rating?.comment).toBe('وصلنا على الوقت');
+    await support.ops.unhideReview({ bookingId: list[0]!.bookingId });
+    expect((await riders[0]!.api.driverProfile({ departureId: next.id })).reviewCount).toBe(2);
+    expect(await codeOf(support.ops.hideReview({ bookingId: booked[2]!.id, reason: 'rude' }))).toBe('NOT_FOUND');
   });
 
   it('requestBoard offers carry the driver card for the rider: first name, today\'s check-in, his car (R-01)', async () => {
@@ -246,11 +340,37 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     const byDriver = new Map(mine!.offers.map((o) => [o.driverId, o.driver]));
     expect(byDriver.get('d1')).toMatchObject({ firstName: 'حيدر', photoUrl: null, vehicle: { kind: 'saloon', plate: 'واسط 12345', model: 'سوناتا', color: 'بيضاء' } });
     expect(byDriver.get('d1')!.verifiedTodayAt).toBeInstanceOf(Date);
-    expect(byDriver.get('d3')).toEqual({ firstName: null, verifiedTodayAt: null, photoUrl: null, vehicle: null });
+    expect(byDriver.get('d3')).toEqual({ firstName: null, verifiedTodayAt: null, photoUrl: null, vehicle: null, stats: null, privateTrips: 0 });
+    // y5: a driver who has run a seat departure brings his record (no ratings yet → «جديد»).
+    expect(byDriver.get('d1')!.stats).toMatchObject({ trips: 0, ratingAvg: null, ridesWithYou: 0 });
     expect(JSON.stringify(mine)).not.toContain('كاظم');
     // The driver's own view of the board does not read other drivers' names.
     const [seen] = await driver.requestBoard.list({});
     expect(seen!.offers.every((o) => o.driver === null)).toBe(true);
+  });
+
+  it('requestBoard: the rider sees how many drivers opened his request; drivers never see the count (y4)', async () => {
+    const h = routesHarness();
+    const rider = as(h, 'r1', ['customer']);
+    const d1 = as(h, 'd1', ['intercity_driver']);
+    const d2 = as(h, 'd2', ['intercity_driver']);
+    const rq = await rider.requestBoard.post({
+      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      to: { label: 'مطار بغداد' },
+      when: h.at(60),
+      seats: 2,
+      travellingAs: 'aila',
+      details: { trip: 'wait_return', waitHours: 3, bigBags: 2, carKind: 'suv', ac: true },
+    });
+    expect(rq.details).toMatchObject({ trip: 'wait_return', waitHours: 3, returnAt: null, bigBags: 2, carKind: 'suv', ac: true });
+    expect(rq.seenBy).toBe(0);
+    await d1.requestBoard.seen({ postId: rq.id });
+    await d1.requestBoard.seen({ postId: rq.id });
+    const forDriver = await d2.requestBoard.seen({ postId: rq.id });
+    expect(forDriver.seenBy).toBe(0);
+    expect(forDriver.details.trip).toBe('wait_return');
+    expect((await rider.requestBoard.mine())[0]!.seenBy).toBe(2);
+    expect(await codeOf(rider.requestBoard.seen({ postId: rq.id }))).toBe('FORBIDDEN');
   });
 
   it('requestBoard.myRides: only rides that picked his offer, with price, cash to collect and the no-show time', async () => {

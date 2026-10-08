@@ -59,7 +59,7 @@ const COLD: readonly CravingKind[] = [
 ];
 
 const SWEET: readonly CravingKind[] = [
-  K('kunafa', 'sweet', 'كنافة', 'كنافه'),
+  K('kunafa', 'kunafa', 'كنافة', 'كنافه'),
   K('baklava', 'baklava', 'بقلاوة', 'بقلاوه'),
   K('zalabia', 'zalabia', 'زلابية', 'زلابيا'),
   K('kleicha', 'kleicha', 'كليچة', 'كليجة'),

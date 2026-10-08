@@ -28,18 +28,20 @@ function order(id: string, over: Partial<Order> = {}): Order {
   return { id, state: 'placed', totalIqd: 3_000, paymentMethod: 'cash', scheduledFor: null, ...over } as Order;
 }
 
-function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash' | 'wallet' | null; refuse?: DriverError } = {}) {
+function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash' | 'wallet' | null; refuse?: DriverError; heldUntil?: Date } = {}) {
   const clock = new FakeClock(NOW);
   const repo = new InMemoryGarageTaxisRepository();
   const seats = new Map<string, SeatFacts>([['bk_out', seat()]]);
   const cars = new Map<string, CarFacts>([['dep_out', car()]]);
   const orders = new Map<string, Order>();
   const arrivals = new Map<string, Date>();
+  const atDoor = new Map<string, Date>();
   const placed: Array<{ personId: string; input: RidePlacement }> = [];
   const emitted: Array<{ type: string; payload: Record<string, unknown>; idempotencyKey?: string }> = [];
   const minutesTo = new Map<string, number>();
   let places = opts.places ?? [WORK, HOME];
   let seq = 0;
+  const taxiLate: { riderId: string; bookingId: string; until: Date | null }[] = [];
   const key = (p: LatLng) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
   const sources: GarageTaxiSources = {
     seat: async (id) => seats.get(id) ?? null,
@@ -68,6 +70,9 @@ function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash'
     order: async (id) => orders.get(id) ?? null,
     usualPayment: async () => (opts.usual === undefined ? null : opts.usual),
     rideArrival: async (id) => arrivals.get(id) ?? null,
+    pickupArrivedAt: async (id) => atDoor.get(id) ?? null,
+    taxiLate: async (riderId, bookingId, until) => void taxiLate.push({ riderId, bookingId, until }),
+    seatHeldUntil: async () => opts.heldUntil ?? null,
   };
   const service = new GarageTaxiService(repo, sources, { emit: async (e) => void emitted.push(e) }, clock);
   return {
@@ -77,8 +82,10 @@ function harness(opts: { rideMin?: number; places?: PlaceFacts[]; usual?: 'cash'
     cars,
     orders,
     arrivals,
+    atDoor,
     placed,
     emitted,
+    taxiLate,
     minutesTo,
     service,
     setPlaces: (p: PlaceFacts[]) => (places = p),
@@ -186,7 +193,7 @@ describe('x3: the الرجعة driver hears when our taxi runs late', () => {
     h.arrivals.set('ord_1', at(99));
     await h.service.tick();
     expect(h.emitted.map((e) => e.payload['lateMin'])).toEqual([4, 9]);
-    expect(await h.service.forOrder(RIDER, { orderId: 'ord_1' })).toMatchObject({ lateMin: 9, driverTold: true, toldMin: 9 });
+    expect(await h.service.forOrder(RIDER, { orderId: 'ord_1' })).toMatchObject({ lateMin: 9, driverTold: true, toldMin: 9, seatHeldUntil: null });
     expect(await h.service.forOrder({ personId: 'p_other', sessionId: 's' }, { orderId: 'ord_1' })).toBeNull();
     expect(await h.service.forOrder(RIDER, { orderId: 'ord_other' })).toBeNull();
   });
@@ -203,6 +210,48 @@ describe('x3: the الرجعة driver hears when our taxi runs late', () => {
       expect(h.emitted).toEqual([]);
       expect((await h.repo.byOrder('ord_1'))?.state).toBe('closed');
     }
+  });
+
+  it('tells the seat when our late taxi is due, and clears it once the taxi is on time or gone (seat hold)', async () => {
+    const h = await booked();
+    h.orders.set('ord_1', { ...h.orders.get('ord_1')!, state: 'matched' });
+    h.clock.set(at(70));
+    h.arrivals.set('ord_1', at(91)); // 1 min late: nothing for the seat
+    await h.service.tick();
+    expect(h.taxiLate).toEqual([]);
+    h.arrivals.set('ord_1', at(96)); // 6 min late
+    await h.service.tick();
+    expect(h.taxiLate).toEqual([{ riderId: RIDER.personId, bookingId: 'bk_out', until: at(96) }]);
+    h.arrivals.set('ord_1', at(89)); // caught up
+    await h.service.tick();
+    expect(h.taxiLate.at(-1)).toEqual({ riderId: RIDER.personId, bookingId: 'bk_out', until: null });
+    h.arrivals.set('ord_1', at(98));
+    await h.service.tick();
+    h.orders.set('ord_1', { ...h.orders.get('ord_1')!, state: 'customer_cancelled' });
+    await h.service.tick();
+    expect(h.taxiLate.slice(-2).map((c) => c.until)).toEqual([at(98), null]);
+  });
+
+  it('once our taxi is at his door, his own wait is not ours: the garage time stops at arrival + the ride', async () => {
+    const h = await booked();
+    h.orders.set('ord_1', { ...h.orders.get('ord_1')!, state: 'matched' });
+    h.atDoor.set('ord_1', at(65)); // the taxi reached his door on time (9:05; 9:05 + 13 = 9:18)
+    h.clock.set(at(80));
+    h.arrivals.set('ord_1', at(93)); // he is 15 minutes late coming out: the live ETA slides to 9:33
+    await h.service.tick();
+    expect(h.emitted).toEqual([]);
+    expect(h.taxiLate).toEqual([]); // no hold, so no company-paid meter minutes
+    // A taxi that reached his door late is still ours, up to its arrival + the ride.
+    h.atDoor.set('ord_1', at(80)); // 9:20 + 13 = 9:33: 3 min late
+    h.arrivals.set('ord_1', at(110));
+    await h.service.tick();
+    expect(h.taxiLate).toEqual([{ riderId: RIDER.personId, bookingId: 'bk_out', until: at(93) }]);
+  });
+
+  it('the rider’s notice carries the seat hold the routes module reports', async () => {
+    const h = harness({ rideMin: 13, heldUntil: at(96) });
+    await h.service.bookToGarage(RIDER, { bookingId: 'bk_out', fareIqd: 3_000, clientRequestId: 'gtaxi-late-2' });
+    expect(await h.service.forOrder(RIDER, { orderId: 'ord_1' })).toMatchObject({ seatHeldUntil: at(96) });
   });
 });
 

@@ -14,7 +14,11 @@ import {
   type SeatPayment,
   type TravellingAs,
   type RajaaRatingTag,
+  type ReviewHideReason,
+  reviewTextProblem,
+  type VehicleModelKey,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
@@ -34,6 +38,8 @@ import {
   driverMeter,
   meterApplies,
   riderMeterMinutes,
+  riderMeterStart,
+  seatHoldUntil,
   type CheckpointWaiver,
 } from './late-meter.js';
 import {
@@ -85,6 +91,15 @@ const TRAIL_MAX = 300;
 export interface PinVerdict {
   result: PinAttemptResult;
   matched: BookingRecord | null;
+}
+
+/**
+ * The car's name as riders, pushes, SOS and share pages read it: a listed model by its Iraqi name
+ * («النترا»), `other` (or a pre-list client) by what the driver typed.
+ */
+export function vehicleModelText(modelKey: VehicleModelKey | undefined, typed: string | undefined): string | null {
+  if (modelKey && modelKey !== 'other') return t(`vehicle.model_${modelKey}`, undefined, 'ar-IQ');
+  return typed?.trim() || null;
 }
 
 /**
@@ -237,6 +252,11 @@ export class DeparturesService {
     };
   }
 
+  /** x3: until when this seat waits for our late taxi (null: no hold — switched off, none late, not a garage pickup). */
+  seatHeldUntil(dep: DepartureRecord, b: BookingRecord): Date | null {
+    return seatHoldUntil(dep, b, this.money.lateMeter.capMin, this.rules.seatHoldForLateTaxi === true);
+  }
+
   /** Whether the driver may leave without this rider now, and how (decisions §8, review C-32). */
   noShowVerdict(
     dep: DepartureRecord,
@@ -247,6 +267,9 @@ export class DeparturesService {
     if (b.state !== 'booked') return null;
     if (b.pickup.kind === 'garage') {
       if (b.atGarageAt) return null;
+      // x3: our taxi bringing him is late — his seat waits until it is due (capped), when switched on.
+      const held = this.seatHeldUntil(dep, b);
+      if (held && at.getTime() < held.getTime()) return null;
       if (meterApplies(b)) {
         const m = riderMeterMinutes(dep, bookings, b, at);
         if (m !== null && m >= this.money.lateMeter.capMin) return 'forfeit';
@@ -288,11 +311,16 @@ export class DeparturesService {
     return out;
   }
 
-  /** Available wallet balance: the ledger's balance minus what intercity already holds against it. */
+  /**
+   * Available wallet balance: the ledger's balance minus what intercity already holds against it and
+   * what the rest of the platform holds (open wallet orders, SEC-07). Spend paths call it under the
+   * rider's wallet lock (`writer.run(…, { walletLocks })`).
+   */
   async walletAvailable(riderId: string, tx?: Tx, excludeBookingId?: string): Promise<number> {
     return (
       (await this.wallet.balance(riderId)) -
-      (await walletHolds(this.repo, riderId, tx, excludeBookingId))
+      (await walletHolds(this.repo, riderId, tx, excludeBookingId)) -
+      (await this.wallet.heldElsewhere(riderId, tx))
     );
   }
 
@@ -343,8 +371,12 @@ export class DeparturesService {
         vehicle: {
           kind: input.vehicle.kind,
           plate: input.vehicle.plate,
-          model: input.vehicle.model ?? null,
+          modelKey: input.vehicle.modelKey ?? null,
+          model: vehicleModelText(input.vehicle.modelKey, input.vehicle.model),
           color: input.vehicle.color ?? null,
+          noSmoking: input.vehicle.noSmoking ?? false,
+          ac: input.vehicle.ac ?? false,
+          bigBags: input.vehicle.bigBags ?? false,
         },
         familyOnly: input.familyOnly,
         seatPriceIqd: corridor.seatPriceIqd,
@@ -695,32 +727,131 @@ export class DeparturesService {
   /** Arrived: checked-in seats complete and settle (seat 10 %, front premium 25 % — ledger). */
   arrive(driverId: string, departureId: string): Promise<DepartureRecord> {
     return this.driverWrite(driverId, departureId, async (tx, dep, bookings) => {
-      this.requireState(dep, ['departed']);
-      if (bookings.some((b) => b.state === 'booked')) throw new DriverError('depart_blocked');
-      const now = this.now();
-      dep.state = 'arrived';
-      dep.arrivedAt = now;
-      await this.repo.saveDeparture(dep, tx);
-      for (const b of bookings) {
-        if (b.state !== 'checked_in') continue;
-        b.state = 'completed';
-        b.completedAt = now;
-        await this.repo.saveBooking(b, tx);
-        for (const [i, seatId] of b.seatIds.entries()) {
-          await this.emit(
-            tx,
-            'seat.completed',
-            driverId,
-            dep,
-            this.seatMoney(dep, b, seatId, i === 0),
-          );
-        }
-      }
-      await this.emit(tx, 'departure.arrived', driverId, dep, {
-        completed: bookings.filter((b) => b.state === 'completed').length,
-      });
+      await this.arriveNow(tx, dep, bookings, driverId);
       return dep;
     });
+  }
+
+  private async arriveNow(tx: Tx, dep: DepartureRecord, bookings: BookingRecord[], actorId: string): Promise<void> {
+    this.requireState(dep, ['departed']);
+    if (bookings.some((b) => b.state === 'booked')) throw new DriverError('depart_blocked');
+    const now = this.now();
+    dep.state = 'arrived';
+    dep.arrivedAt = now;
+    await this.repo.saveDeparture(dep, tx);
+    for (const b of bookings) {
+      if (b.state !== 'checked_in') continue;
+      b.state = 'completed';
+      b.completedAt = now;
+      await this.repo.saveBooking(b, tx);
+      for (const [i, seatId] of b.seatIds.entries()) {
+        await this.emit(
+          tx,
+          'seat.completed',
+          actorId,
+          dep,
+          this.seatMoney(dep, b, seatId, i === 0),
+        );
+      }
+    }
+    await this.emit(tx, 'departure.arrived', actorId, dep, {
+      completed: bookings.filter((b) => b.state === 'completed').length,
+    });
+  }
+
+  // ───────────────────────── staff (W3: NTF-10, NTF-14) ─────────────────────────
+
+  /**
+   * Staff cancel of a departure whose driver never came (NTF-14). Riders are moved to the next cars
+   * exactly as on a driver cancel; unlike it, no fee is taken from the driver and no credit is paid
+   * (M-11 is open), so `departure.cancelled` carries fee 0 — nobody was charged yet (seats settle on
+   * arrival). `after` runs inside the same write (the audit row, the only place the staff's reason is
+   * kept); the departure and its events carry the fixed code `ops` (`driver_no_show` when automatic). Already cancelled: unchanged.
+   */
+  staffCancel(
+    staffId: string,
+    departureId: string,
+    after: StaffAfter,
+    opts: { auto?: boolean } = {},
+  ): Promise<StaffWrite> {
+    return this.writer.run(async (tx) => {
+      const dep = await this.departure(departureId, tx);
+      if (dep.state === 'cancelled_by_driver' || dep.state === 'cancelled_low_fill') return { dep, changed: false, auditId: null };
+      this.requireState(dep, ['scheduled', 'boarding']);
+      const bookings = await this.freshBookings(tx, dep);
+      const now = this.now();
+      const affected = bookings.filter((b) => LIVE.includes(b.state));
+      const riders = uniq(affected.filter((b) => b.state !== 'held').map((b) => b.riderId));
+      dep.state = 'cancelled_by_driver';
+      dep.cancelledAt = now;
+      // A fixed code only: the staff's free-text reason stays in the Console audit row (it may name people).
+      dep.cancelReason = opts.auto ? 'driver_no_show' : 'ops';
+      await this.repo.saveDeparture(dep, tx);
+      await this.relocate(tx, dep, affected, {
+        from: now,
+        to: new Date(Math.max(now.getTime(), dep.departAt.getTime()) + this.rules.moveWindowMin * MIN_MS),
+      });
+      await this.emit(tx, 'departure.cancelled', staffId, dep, {
+        departureId: dep.id,
+        occurredAt: now,
+        driverId: dep.driverId,
+        cancelledBy: 'driver',
+        feeIqd: 0,
+        riderIds: riders,
+      });
+      await this.emit(tx, 'departure.ops_cancelled', staffId, dep, { reason: dep.cancelReason, auto: opts.auto === true, riders: riders.length });
+      return { dep, changed: true, auditId: await after(tx, dep) };
+    });
+  }
+
+  /** «وصلت» on the driver's behalf (NTF-14): the same completion and settlement as his own tap. */
+  staffArrive(staffId: string, departureId: string, after: StaffAfter): Promise<StaffWrite> {
+    return this.writer.run(async (tx) => {
+      const dep = await this.departure(departureId, tx);
+      if (dep.state === 'arrived' || dep.state === 'closed') return { dep, changed: false, auditId: null };
+      await this.arriveNow(tx, dep, await this.repo.bookingsFor(dep.id, tx), staffId);
+      return { dep, changed: true, auditId: await after(tx, dep) };
+    });
+  }
+
+  /** Closes an arrived departure now (NTF-10); the scheduler would after `closeAfterArrivalMin`. */
+  staffClose(staffId: string, departureId: string, after: StaffAfter): Promise<StaffWrite> {
+    return this.writer.run(async (tx) => {
+      const dep = await this.departure(departureId, tx);
+      if (dep.state === 'closed') return { dep, changed: false, auditId: null };
+      this.requireState(dep, ['arrived']);
+      dep.state = 'closed';
+      dep.closedAt = this.now();
+      await this.repo.saveDeparture(dep, tx);
+      await this.emit(tx, 'departure.closed', staffId, dep, { by: 'ops' });
+      return { dep, changed: true, auditId: await after(tx, dep) };
+    });
+  }
+
+  /**
+   * Departures that need a person (NTF-14): still scheduled/boarding `noShowAfterMin` past the latest
+   * departure time (the driver never came), or departed and `overdueAfterMin` past the corridor's
+   * travel time with no «وصلت». Oldest first.
+   */
+  async overdue(limits: { noShowAfterMin: number; overdueAfterMin: number }, limit = 100): Promise<OverdueRecord[]> {
+    const now = this.now();
+    const out: OverdueRecord[] = [];
+    for (const dep of await this.repo.listDepartures({ states: ['scheduled', 'boarding', 'departed'] })) {
+      let since: Date;
+      let reason: OverdueRecord['reason'];
+      if (dep.state === 'departed') {
+        const travelMin = this.corridor(dep.corridorId).travelMin;
+        since = new Date((dep.departedAt ?? dep.departAt).getTime() + (travelMin + limits.overdueAfterMin) * MIN_MS);
+        reason = 'not_arrived';
+      } else {
+        since = new Date(dep.latestDepartureAt.getTime() + limits.noShowAfterMin * MIN_MS);
+        reason = 'driver_no_show';
+      }
+      if (since.getTime() > now.getTime()) continue;
+      const riders = (await this.repo.bookingsFor(dep.id)).filter((b) => b.state === 'booked' || b.state === 'checked_in').length;
+      out.push({ dep, reason, since, minutes: Math.floor((now.getTime() - since.getTime()) / MIN_MS), riders });
+    }
+    return out.sort((a, b) => a.since.getTime() - b.since.getTime()).slice(0, limit);
   }
 
   /**
@@ -879,7 +1010,7 @@ export class DeparturesService {
         totalIqd: total,
       });
       return b;
-    });
+    }, payment === 'wallet' ? { walletLocks: [riderId] } : undefined);
   }
 
   /**
@@ -916,17 +1047,91 @@ export class DeparturesService {
     });
   }
 
-  /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
-  /** «شلون كانت الرجعة؟» (joy r2): once, on the rider's own completed booking. */
-  rate(riderId: string, bookingId: string, rating: { stars: number; tags: readonly RajaaRatingTag[] }): Promise<BookingRecord> {
+  /**
+   * «شلون كانت الرجعة؟» (joy r2): once, on the rider's own completed booking — stars, chips and (x14)
+   * an optional line that other riders read on the driver's profile. A line carrying a phone number,
+   * link or handle is refused whole, so nothing is half-saved.
+   */
+  rate(
+    riderId: string,
+    bookingId: string,
+    rating: { stars: number; tags: readonly RajaaRatingTag[]; comment?: string | undefined },
+  ): Promise<BookingRecord> {
+    const text = rating.comment?.trim() || null;
+    if (text && reviewTextProblem(text)) throw new DriverError('review_contact_info');
     return this.writer.run(async (tx) => {
       const b = await this.ownBooking(riderId, bookingId, tx);
       if (b.state !== 'completed' || b.rating) throw new DriverError('booking_state_conflict');
-      b.rating = { stars: rating.stars, tags: [...new Set(rating.tags)], at: this.now() };
+      const now = this.now();
+      b.rating = { stars: rating.stars, tags: [...new Set(rating.tags)], at: now };
+      b.review = text ? { text, at: now, hiddenAt: null, hiddenBy: null, hiddenReason: null } : null;
       await this.repo.saveBooking(b, tx);
+      const dep = await this.departure(b.departureId, tx);
+      await this.emit(tx, 'seat.rated', riderId, dep, {
+        bookingId: b.id,
+        driverId: dep.driverId,
+        stars: b.rating.stars,
+        tags: b.rating.tags,
+        withReview: text !== null,
+      });
       return b;
     });
   }
+
+  /** Ops (Console «كلام الركاب»): take a review off the driver's profile. The text is kept; the hide is an event. */
+  hideReview(staffId: string, bookingId: string, reason: ReviewHideReason): Promise<BookingRecord> {
+    return this.writer.run(async (tx) => {
+      const b = await this.repo.getBooking(bookingId, tx);
+      if (!b?.review) throw new DriverError('review_not_found');
+      if (b.review.hiddenAt) return b;
+      b.review = { ...b.review, hiddenAt: this.now(), hiddenBy: staffId, hiddenReason: reason };
+      await this.repo.saveBooking(b, tx);
+      await this.emit(tx, 'review.hidden', staffId, await this.departure(b.departureId, tx), { bookingId: b.id, reason });
+      return b;
+    });
+  }
+
+  /** Ops: put a hidden review back. */
+  unhideReview(staffId: string, bookingId: string): Promise<BookingRecord> {
+    return this.writer.run(async (tx) => {
+      const b = await this.repo.getBooking(bookingId, tx);
+      if (!b?.review) throw new DriverError('review_not_found');
+      if (!b.review.hiddenAt) return b;
+      b.review = { ...b.review, hiddenAt: null, hiddenBy: null, hiddenReason: null };
+      await this.repo.saveBooking(b, tx);
+      await this.emit(tx, 'review.unhidden', staffId, await this.departure(b.departureId, tx), { bookingId: b.id });
+      return b;
+    });
+  }
+
+  /**
+   * Whether a finished run was on time, by the same garage meter that pays waiting riders: on time
+   * when the driver's minutes (late check-in, unless waived at a checkpoint, plus sitting past the hard
+   * latest time) stayed within the meter's grace. Null when the run has no garage check-in to judge.
+   */
+  runOnTime(dep: DepartureRecord): boolean | null {
+    if (!dep.driverCheckIn || !dep.departedAt) return null;
+    const meter = driverMeter(dep, dep.departedAt, this.waiver.waives(dep, this.corridor(dep.corridorId)));
+    return meter.minutes <= this.money.lateMeter.graceMin;
+  }
+
+  /**
+   * x3, called by the garage-taxi module only: our taxi bringing `riderId` to this seat's garage is due
+   * at `until` and late for the car (null: on time again, or the taxi is gone). Recorded on the seat
+   * whatever the switch; it holds the seat only while `seatHoldForLateTaxi` is on (`noShowVerdict`).
+   * A seat that is no longer booked (boarded, no-show, cancelled, moved) is left alone.
+   */
+  taxiLate(riderId: string, bookingId: string, until: Date | null): Promise<void> {
+    return this.writer.run(async (tx) => {
+      const b = await this.ownBooking(riderId, bookingId, tx);
+      if (b.state !== 'booked' || b.pickup.kind !== 'garage') return;
+      if ((b.taxiLateUntil?.getTime() ?? null) === (until?.getTime() ?? null)) return;
+      b.taxiLateUntil = until;
+      await this.repo.saveBooking(b, tx);
+    });
+  }
+
+  /** "أني بالكراج": inside the geofence it blocks a no-show; at a meeting point > 300 m off it warns both. */
 
   imHere(
     riderId: string,
@@ -1166,7 +1371,20 @@ export class DeparturesService {
       late: { kind: 'rider', id: b.riderId },
       driverId: dep.driverId,
       waitingRiderIds: waiting,
+      taxiLateMinutes: this.taxiLateMeterMinutes(dep, bookings, b, minutes),
     });
+  }
+
+  /**
+   * x3: how many of `b`'s meter minutes ran while our own taxi bringing him was still due (capped like
+   * the hold). The company pays those blocks (ledger `lateTaxiPaysMeter`), whether or not the seat
+   * hold is switched on: the lateness is ours either way. 0 when he had no late taxi.
+   */
+  private taxiLateMeterMinutes(dep: DepartureRecord, bookings: readonly BookingRecord[], b: BookingRecord, minutes: number): number {
+    const held = seatHoldUntil(dep, b, this.money.lateMeter.capMin, true);
+    const start = riderMeterStart(dep, bookings, b);
+    if (!held || !start) return 0;
+    return Math.min(minutes, Math.max(0, Math.floor((held.getTime() - start.getTime()) / MIN_MS)));
   }
 
   /**
@@ -1660,6 +1878,21 @@ export class DeparturesService {
       { name: 'departure', id: dep.id },
     );
   }
+}
+
+/** Runs inside a staff write, after the change (the audit row); returns the audit id. */
+export type StaffAfter = (tx: Tx, dep: DepartureRecord) => Promise<string | null>;
+export interface StaffWrite {
+  dep: DepartureRecord;
+  changed: boolean;
+  auditId: string | null;
+}
+export interface OverdueRecord {
+  dep: DepartureRecord;
+  reason: 'driver_no_show' | 'not_arrived';
+  since: Date;
+  minutes: number;
+  riders: number;
 }
 
 function uniq<T>(xs: T[]): T[] {

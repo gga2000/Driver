@@ -2,14 +2,15 @@ import { Pressable, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import type { CourierCard } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
-import { Avatar, Button, CountdownRing, Icon, PlateChip, Text, useTheme } from '@driver/ui';
+import { Avatar, Button, CallSoonButton, CountdownRing, Icon, PlateChip, Text, useTheme, useAnnounce } from '@driver/ui';
 import { LightButton, StartCode } from '@/features/ride/ArrivalParts';
 import { FREE_WAIT_SEC, WaitCounter } from '@/features/ride/LiveParts';
 import type { RideVertical } from '@/features/ride/logic';
 import { rideSwatch } from '@/features/ride/swatch';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 /**
  * "عباس وصل" over the map when the driver is at the pickup (L-02, ride idea d5): the top in the
@@ -48,8 +49,8 @@ export function DriverHereCard({
   standsM: number | null;
   /** When he pressed "وصلت" at the pickup: the free wait runs from here. */
   arrivedAt: Date | null;
-  /** What each 5 minutes of paid wait costs after the free 3 (city pricing). */
-  waitPerIqd: number;
+  /** What a paid minute of waiting costs after the free 3, or null while nothing charges for it. */
+  waitPerIqd: number | null;
   /** Server-corrected time. */
   now: number;
   clock: () => number;
@@ -70,9 +71,11 @@ export function DriverHereCard({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const name = courier.firstName ?? t('track.driver_fallback');
   const swatch = rideSwatch(vertical, theme.scheme);
   const free = arrivedAt ? now - arrivedAt.getTime() < FREE_WAIT_SEC * 1000 : false;
+  useAnnounce(t('ride.here_title', { name }), { initial: true });
   return (
     <Animated.View
       testID="driver-here"
@@ -137,14 +140,14 @@ export function DriverHereCard({
             {free ? (
               <CountdownRing mode="accept" startedAt={arrivedAt.getTime()} durationMs={FREE_WAIT_SEC * 1000} format="clock" urgentMs={30_000} size={64} strokeWidth={6} clock={clock} testID="driver-here-ring" />
             ) : (
-              <WaitCounter arrivedAt={arrivedAt} now={now} />
+              <WaitCounter arrivedAt={arrivedAt} now={now} paid={waitPerIqd !== null} />
             )}
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="label" weight={700} color={free ? 'successText' : 'warningText'}>
-                {t(free ? 'ride.wait_free_label' : 'ride.free_wait_over')}
+                {waitPerIqd === null ? t(free ? 'ride.wait_label_plain' : 'ride.wait_over_plain') : t(free ? 'ride.wait_free_label' : 'ride.free_wait_over')}
               </Text>
               <Text variant="footnote" color="textMuted">
-                {t('ride.free_wait_then', { amount: amountParam(waitPerIqd) })}
+                {waitPerIqd === null ? (free ? t('ride.wait_note_plain') : t('ride.wait_over_hint')) : t('ride.free_wait_then', { amount: amountParam(waitPerIqd) })}
               </Text>
             </View>
           </View>
@@ -160,7 +163,11 @@ export function DriverHereCard({
           ) : canReply ? (
             <Button label={t('ride.coming_out')} icon="user" loading={sending} onPress={onComingOut} style={{ flex: 1 }} testID="driver-here-coming-out" />
           ) : null}
-          <Button label={t('ride.call')} icon="phone" variant="secondary" onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          {CALLS_LIVE ? (
+            <Button label={t('ride.call')} icon="phone" variant="secondary" onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          ) : (
+            <CallSoonButton locale={locale} onPress={onCall} style={sent || canReply ? undefined : { flex: 1 }} testID="driver-here-call" />
+          )}
         </View>
         {night ? <LightButton onPress={onLight} /> : null}
       </View>

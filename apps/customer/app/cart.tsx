@@ -15,6 +15,7 @@ import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { minOrderProgress } from '@/features/food/min-order';
 import { MinOrderStrip } from '@/features/food/MinOrderStrip';
 import { priceItems } from '@/features/food/price-lines';
+import { quoteStop } from '@/features/food/stopped';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote } from '@/features/food/queries';
 import { upsellItems } from '@/features/food/upsell';
 import { useLocale, useT } from '@/lib/i18n';
@@ -83,9 +84,21 @@ function CartScreen() {
   };
 
   // Below the minimum is allowed since J-D6 (with the small-order fee in the total), so only a missing price blocks.
-  const canCheckout = guest || Boolean(totals);
+  // REL-16: a service ops paused, or a zone that is full, is a calm notice and the button waits.
+  const stopped = quoteStop(orderQuote.error ?? quote.error, t, locale);
+  const canCheckout = !stopped && (guest || Boolean(totals));
   const footer = (
     <View style={{ gap: theme.space[3] }}>
+      {stopped ? (
+        <Card elevation={0} testID="cart-stopped">
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }} accessibilityLiveRegion="polite">
+            <Icon name="clock" size={18} color="warningText" />
+            <Text variant="footnote" color="warningText" style={{ flex: 1 }}>
+              {stopped}
+            </Text>
+          </View>
+        </Card>
+      ) : null}
       {progress ? <MinOrderStrip progress={progress} minOrderIqd={merchant.minOrderIqd} feeIqd={smallOrderFee} /> : null}
       <EarnPill points={orderQuote.data?.pointsEarn} grouped={grouped} />
       <Button
@@ -217,7 +230,7 @@ function CartScreen() {
           </Text>
         ) : totals ? (
           <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} totalLabel={t('quote.total')} note={t('quote.quote_locked')} testID="cart-price" />
-        ) : quote.isError ? (
+        ) : stopped ? null : quote.isError ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="label" color="dangerText" style={{ flex: 1 }}>
               {t('cart.quote_failed')}

@@ -8,6 +8,7 @@ import { Screen } from '@/components/Screen';
 import { DriverMap } from '@/features/map/DriverMap';
 import {
   emptyDraft,
+  failedCount,
   nearestZone,
   ONBOARD_STEPS,
   onboardingInput,
@@ -22,7 +23,7 @@ import {
   type OnboardStep,
 } from '@/features/ops/logic';
 import { CameraGlyph, StepBar } from '@/features/ops/OpsParts';
-import { pickPhotos, uploadPhoto } from '@/features/ops/photos';
+import { pickPhotos, uploadPhoto, type PickedPhoto } from '@/features/ops/photos';
 import { useMerchantOnboarding } from '@/features/ops/queries';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -130,6 +131,7 @@ export default function OpsOnboard() {
       {step === 'shop' ? <ShopStep d={d} patch={patch} /> : null}
       {step === 'contact' ? <ContactStep d={d} patch={patch} /> : null}
       {step === 'location' ? <LocationStep d={d} patch={patch} /> : null}
+      {step === 'location' ? <DoorPhoto d={d} setD={setD} /> : null}
       {step === 'menu' ? <MenuStep d={d} setD={setD} /> : null}
       {step === 'settle' ? <SettleStep d={d} patch={patch} /> : null}
       {step === 'review' ? <ReviewStep d={d} goTo={(s) => setIndex(ONBOARD_STEPS.indexOf(s))} /> : null}
@@ -233,21 +235,25 @@ function MenuStep({ d, setD }: { d: OnboardDraft; setD: Dispatch<SetStateAction<
   const client = useApiClient();
   const count = d.menuPhotos.length;
 
+  const send = async (p: PickedPhoto) => {
+    setD((x) => ({ ...x, menuPhotos: x.menuPhotos.map((m) => (m.uri === p.uri ? { ...m, failed: false } : m)) }));
+    try {
+      const id = await uploadPhoto(p, (input) => client.places.photoUpload.mutate(input));
+      setD((x) => ({ ...x, menuPhotos: x.menuPhotos.map((m) => (m.uri === p.uri ? { ...m, uploadId: id, failed: false } : m)) }));
+    } catch {
+      // f8: a page that didn't send stays, marked, to send again with one tap (the street network drops).
+      setD((x) => ({ ...x, menuPhotos: x.menuPhotos.map((m) => (m.uri === p.uri ? { ...m, failed: true } : m)) }));
+    }
+  };
+
   const add = async (source: 'camera' | 'library') => {
     const res = await pickPhotos(source, true);
     if (res === 'denied') return toast.show({ tone: 'warning', message: t('error.camera_denied') });
     if (res.length === 0) return;
-    setD((x) => ({ ...x, menuPhotos: [...x.menuPhotos, ...res.map((p) => ({ uri: p.uri, uploadId: null }))].slice(0, 30) }));
-    for (const p of res) {
-      try {
-        const id = await uploadPhoto(p, (input) => client.places.photoUpload.mutate(input));
-        setD((x) => ({ ...x, menuPhotos: x.menuPhotos.map((m) => (m.uri === p.uri ? { ...m, uploadId: id } : m)) }));
-      } catch {
-        setD((x) => ({ ...x, menuPhotos: x.menuPhotos.filter((m) => m.uri !== p.uri) }));
-        toast.show({ tone: 'danger', message: t('partner.ops_photo_failed') });
-      }
-    }
+    setD((x) => ({ ...x, menuPhotos: [...x.menuPhotos, ...res.map((p) => ({ uri: p.uri, uploadId: null, file: p }))].slice(0, 30) }));
+    for (const p of res) await send(p);
   };
+  const failed = failedCount(d.menuPhotos);
 
   return (
     <>
@@ -258,7 +264,20 @@ function MenuStep({ d, setD }: { d: OnboardDraft; setD: Dispatch<SetStateAction<
         {d.menuPhotos.map((p, i) => (
           <View key={p.uri} style={{ width: '31.6%', aspectRatio: 3 / 4, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
             <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-            {p.uploadId ? null : (
+            {p.failed ? (
+              <Pressable
+                testID={`ops-onboard-photo-retry-${i}`}
+                accessibilityRole="button"
+                accessibilityLabel={t('partner.f8_photo_retry')}
+                onPress={() => p.file && void send(p.file)}
+                style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: withAlpha(theme.colors.danger, 0.78), alignItems: 'center', justifyContent: 'center', gap: 6, padding: theme.space[2] }}
+              >
+                <Icon name="refresh" size={22} color="onDanger" strokeWidth={2.4} />
+                <Text variant="caption" weight={700} color="onDanger" align="center">
+                  {t('partner.f8_photo_retry')}
+                </Text>
+              </Pressable>
+            ) : p.uploadId ? null : (
               <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: theme.colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={color.neutral[0]} />
               </View>
@@ -297,12 +316,94 @@ function MenuStep({ d, setD }: { d: OnboardDraft; setD: Dispatch<SetStateAction<
         </Text>
         <Button label={t('partner.ops_from_library')} variant="ghost" size="sm" onPress={() => void add('library')} />
       </View>
+      {failed > 0 ? (
+        <View testID="ops-onboard-photos-failed" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          <Icon name="wifi-off" size={16} color="dangerText" />
+          <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
+            {t(failed === 1 ? 'partner.f8_photos_failed_one' : 'partner.f8_photos_failed_many')}
+          </Text>
+        </View>
+      ) : null}
       {count === 0 ? (
         <Text variant="footnote" color="textMuted">
           {t('partner.ops_ob_menu_skip')}
         </Text>
       ) : null}
     </>
+  );
+}
+
+/**
+ * f8: the shop door, with a landmark beside it if there is one — couriers find the shop by it (sent
+ * as the onboarding's shop photo). Taking, sending, sent, and didn't send (kept, one tap to retry).
+ */
+function DoorPhoto({ d, setD }: { d: OnboardDraft; setD: Dispatch<SetStateAction<OnboardDraft>> }) {
+  const theme = useTheme();
+  const t = useT();
+  const toast = useToast();
+  const client = useApiClient();
+  const door = d.shopPhoto;
+
+  const send = async (p: PickedPhoto) => {
+    setD((x) => ({ ...x, shopPhoto: { uri: p.uri, uploadId: null, failed: false, file: p } }));
+    try {
+      const id = await uploadPhoto(p, (input) => client.places.photoUpload.mutate(input));
+      setD((x) => (x.shopPhoto?.uri === p.uri ? { ...x, shopPhoto: { ...x.shopPhoto, uploadId: id, failed: false } } : x));
+    } catch {
+      setD((x) => (x.shopPhoto?.uri === p.uri ? { ...x, shopPhoto: { ...x.shopPhoto, failed: true } } : x));
+    }
+  };
+  const take = async () => {
+    const res = await pickPhotos('camera');
+    if (res === 'denied') return toast.show({ tone: 'warning', message: t('error.camera_denied') });
+    if (res[0]) await send(res[0]);
+  };
+
+  const state = !door ? 'empty' : door.failed ? 'failed' : door.uploadId ? 'sent' : 'sending';
+  return (
+    <View testID="ops-onboard-door" style={{ gap: theme.space[2] }}>
+      <Text variant="label">{t('partner.f8_door_title')}</Text>
+      <Text variant="footnote" color="textMuted">
+        {t('partner.f8_door_hint')}
+      </Text>
+      {door ? (
+        <View testID={`ops-onboard-door-${state}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[2], borderRadius: theme.radius.lg, borderWidth: 1, borderColor: state === 'failed' ? theme.colors.danger : theme.colors.border, backgroundColor: theme.colors.surface }}>
+          <View style={{ width: 88, height: 66, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surfaceSunken }}>
+            <Image source={{ uri: door.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            {state === 'sending' ? (
+              <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: theme.colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color={color.neutral[0]} />
+              </View>
+            ) : null}
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {state === 'sent' ? <Icon name="check" size={16} color="successText" strokeWidth={2.6} /> : state === 'failed' ? <Icon name="wifi-off" size={16} color="dangerText" /> : null}
+              <Text variant="label" weight={600} color={state === 'sent' ? 'successText' : state === 'failed' ? 'dangerText' : 'textMuted'}>
+                {t(state === 'sent' ? 'partner.f8_door_sent' : state === 'failed' ? 'partner.f8_door_failed' : 'partner.f8_door_sending')}
+              </Text>
+            </View>
+          </View>
+          {state === 'failed' ? (
+            <Button testID="ops-onboard-door-retry" label={t('partner.f8_door_retry')} icon="refresh" size="sm" style={{ alignSelf: 'center' }} onPress={() => door.file && void send(door.file)} />
+          ) : state === 'sent' ? (
+            <Button testID="ops-onboard-door-change" label={t('partner.f8_door_change')} variant="ghost" size="sm" style={{ alignSelf: 'center' }} onPress={() => void take()} />
+          ) : null}
+        </View>
+      ) : (
+        <Pressable
+          testID="ops-onboard-door-add"
+          accessibilityRole="button"
+          onPress={() => void take()}
+          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[2], minHeight: 64, borderRadius: theme.radius.lg, borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, transform: [{ scale: pressed ? 0.985 : 1 }] })}
+        >
+          <CameraGlyph size={24} color="accentText" />
+          <Text variant="label" weight={600} color="accentText">
+            {t('partner.f8_door_add')}
+          </Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -340,7 +441,7 @@ function ReviewStep({ d, goTo }: { d: OnboardDraft; goTo: (s: OnboardStep) => vo
   const sections: Array<{ step: OnboardStep; icon: 'bag' | 'user' | 'map-pin' | 'receipt' | 'wallet'; title: string; lines: string[] }> = [
     { step: 'shop', icon: 'bag', title: d.name.trim(), lines: [d.type === 'restaurant' ? t('partner.ops_ob_restaurant') : t('partner.ops_ob_grocer')] },
     { step: 'contact', icon: 'user', title: d.contactName.trim(), lines: [phone ? `⁦${displayPhone(phone)}⁩` : ''] },
-    { step: 'location', icon: 'map-pin', title: zone?.name ?? '—', lines: [d.pin ? t('partner.ops_ob_pinned') : t('partner.ops_ob_zone_only')] },
+    { step: 'location', icon: 'map-pin', title: zone?.name ?? '—', lines: [d.pin ? t('partner.ops_ob_pinned') : t('partner.ops_ob_zone_only'), d.shopPhoto?.uploadId ? t('partner.f8_door_review') : t('partner.f8_door_none')] },
     { step: 'menu', icon: 'receipt', title: t(photosKey(d.menuPhotos.length), { n: d.menuPhotos.length }), lines: [] },
     { step: 'settle', icon: 'wallet', title: t(SETTLE_KEY[d.settlementMode].title), lines: d.notes.trim() ? [d.notes.trim()] : [] },
   ];

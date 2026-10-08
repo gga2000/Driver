@@ -227,7 +227,7 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
       title={t('console.fin_collect_title', { name: courier?.name ?? '' })}
       description={t('console.fin_collect_desc')}
       footer={
-        <Button variant="primary" size="lg" disabled={!ready} loading={record.isPending} onClick={submit} data-testid="collect-confirm">
+        <Button variant="primary" size="lg" needsNet disabled={!ready} loading={record.isPending} onClick={submit} data-testid="collect-confirm">
           {t('console.fin_collect_confirm', { amount: formatIqd(value) })}
         </Button>
       }

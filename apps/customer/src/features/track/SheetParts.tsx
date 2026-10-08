@@ -5,6 +5,7 @@ import { quickReplyText, type CourierCard as CourierCardData, type OrderTracking
 import { formatRange, type MessageKey } from '@driver/i18n';
 import {
   Avatar,
+  CallSoonIcon,
   Chip,
   DepartureTime,
   DriverChip,
@@ -15,10 +16,10 @@ import {
   StatusPill,
   Text,
   useTheme,
-  withAlpha,
   type IconName,
   type PriceItem,
   type StatusTone,
+  useAnnounce,
 } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
@@ -29,6 +30,7 @@ import type { Phase } from './timeline';
 import { color } from '@driver/design-tokens';
 import { apiPhoto } from '@/lib/photo';
 import { DriverHero } from '@/features/ride/DriverParts';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 // ───────────────────────── collapsed header ─────────────────────────
 
@@ -78,6 +80,8 @@ export function SheetHeader({
   const theme = useTheme();
   const t = useT();
   const minutes = eta ? Math.max(1, Math.round((eta.getTime() - now) / 60_000)) : null;
+  // REL-17: iOS VoiceOver hears each new status too (Android reads the live region).
+  useAnnounce(status);
   const live = phase !== 'done' && phase !== 'arrived' && phase !== 'cancelled' && phase !== 'failed' && phase !== 'disputed';
   const row = (
     <View testID="sheet-header" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
@@ -153,8 +157,8 @@ export function EtaBox({ eta, now, late }: { eta: Date; now: number; late: boole
 
 export function DegradedBanner({ icon, tone, title, body, testID }: { icon: IconName; tone: 'warning' | 'info'; title: string; body?: string; testID?: string }) {
   const theme = useTheme();
-  const bg = tone === 'warning' ? theme.colors.warningTint : theme.colors.infoTint;
-  const fg = tone === 'warning' ? 'warningText' : 'infoText';
+  // A structural warning is the inverse ink banner (VIS-10), never a pale tint; the icon carries the colour.
+  const mark = tone === 'warning' ? theme.colors.onInverseCaution : theme.colors.onInverseMuted;
   return (
     <View
       testID={testID}
@@ -166,22 +170,20 @@ export function DegradedBanner({ icon, tone, title, body, testID }: { icon: Icon
         paddingHorizontal: theme.space[3],
         paddingVertical: theme.space[2],
         borderRadius: theme.radius.lg,
-        backgroundColor: bg,
-        borderWidth: 1,
-        borderColor: withAlpha(tone === 'warning' ? theme.colors.warning : theme.colors.info, 0.35),
+        backgroundColor: theme.colors.inverse,
         shadowColor: color.neutral[1000],
         shadowOpacity: 0.08,
         shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
       }}
     >
-      <Icon name={icon} size={18} color={fg} strokeWidth={2.2} />
+      <Icon name={icon} size={18} color={mark} strokeWidth={2.2} />
       <View style={{ flex: 1 }}>
-        <Text variant="label" weight={600} color={fg}>
+        <Text variant="label" weight={600} color="onInverse">
           {title}
         </Text>
         {body ? (
-          <Text variant="caption" color="textMuted">
+          <Text variant="caption" color="onInverseMuted">
             {body}
           </Text>
         ) : null}
@@ -248,7 +250,7 @@ export function CourierCard({
           testID="chat-courier"
         />
       ) : null}
-      {canChat ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : null}
+      {canChat ? CALLS_LIVE ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="call-courier" /> : <CallSoonIcon locale={locale} onPress={onCall} testID="call-courier" /> : null}
       <IconButton icon="share" variant="outline" accessibilityLabel={t('trip.share')} onPress={onShare} testID="share-trip" />
     </>
   );
@@ -347,7 +349,8 @@ export function priceItems(view: OrderTracking, t: ReturnType<typeof useT>): Pri
   // A ride is one fare (the locked quote), not items + delivery.
   if (o.type === 'ride') items.push({ key: 'fare', label: t('ride.fare'), amount: Math.max(0, o.totalIqd - o.tipIqd) });
   if (o.itemsTotalIqd > 0) items.push({ key: 'items', label: t('quote.subtotal'), amount: o.itemsTotalIqd });
-  if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t('quote.delivery'), amount: o.deliveryFeeIqd });
+  // HUNT-02: an order placed «بالشارع» says so next to its lower delivery fee.
+  if (o.deliveryFeeIqd > 0) items.push({ key: 'delivery', label: t(o.streetHandover ? 'track.price_delivery_street' : 'quote.delivery'), amount: o.deliveryFeeIqd });
   if (o.serviceFeeIqd > 0) items.push({ key: 'service', label: t('quote.service_fee'), amount: o.serviceFeeIqd, reason: t('quote.reason.service_fee') });
   // J-D6: the small-order fee the order was placed with.
   if ((o.smallOrderFeeIqd ?? 0) > 0) items.push({ key: 'small_order', label: t('quote.small_order_fee'), amount: o.smallOrderFeeIqd ?? 0 });
@@ -472,6 +475,7 @@ export function CourierFloat({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const name = courier.firstName ?? t(ride ? 'track.driver_fallback' : 'track.courier_fallback');
   const vehicle = courier.vehicleLabel ?? (courier.vehicleClass ? t(VEHICLE_KEY[courier.vehicleClass]) : null);
   const onTrip = ride && mode === 'trip';
@@ -526,7 +530,7 @@ export function CourierFloat({
           ) : canChat ? (
             <>
               {chat}
-              <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" />
+              {CALLS_LIVE ? <IconButton icon="phone" variant="accent" accessibilityLabel={t('track.call_masked')} onPress={onCall} testID="float-call" /> : <CallSoonIcon locale={locale} onPress={onCall} testID="float-call" />}
             </>
           ) : null
         }

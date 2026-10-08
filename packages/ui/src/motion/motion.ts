@@ -40,8 +40,15 @@ export function useSelectSpring(active: boolean) {
   return useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 }
 
-/** Expanding, fading ring behind a "live" dot (timeline current step, live status pill). */
-export function usePulse(active = true) {
+/** How long a live ring pulses before it settles (motion rule: play, then rest within about 20 s). */
+export const PULSE_SETTLE_MS = 20_000;
+
+/**
+ * Expanding, fading ring behind a "live" dot (timeline current step, live status pill). It pulses for
+ * about `PULSE_SETTLE_MS`, then rests (the ring fades out), so a screen left open, or a tab kept mounted
+ * behind another, stops redrawing. A new `restartKey` (the status changed) plays it again.
+ */
+export function usePulse(active = true, restartKey?: unknown) {
   const { motion, reduceMotion } = useTheme();
   const p = useSharedValue(0);
   useEffect(() => {
@@ -50,9 +57,11 @@ export function usePulse(active = true) {
       p.value = 0;
       return;
     }
-    p.value = withRepeat(withTiming(1, { duration: motion.duration.pulse, easing: Easing.out(Easing.quad) }), -1, false);
+    p.value = 0;
+    const times = Math.max(1, Math.round(PULSE_SETTLE_MS / motion.duration.pulse));
+    p.value = withRepeat(withTiming(1, { duration: motion.duration.pulse, easing: Easing.out(Easing.quad) }), times, false);
     return () => cancelAnimation(p);
-  }, [active, reduceMotion, p, motion.duration.pulse]);
+  }, [active, reduceMotion, p, motion.duration.pulse, restartKey]);
   return useAnimatedStyle(() => ({
     opacity: 0.45 * (1 - p.value),
     transform: [{ scale: 1 + p.value * 1.4 }],

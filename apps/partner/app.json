@@ -10,14 +10,13 @@
     "userInterfaceStyle": "automatic",
     "locales": { "ar": "./locales/ar.json" },
     "extra": {
-      "apiUrl": "http://localhost:3000/trpc",
       "supportsRTL": true,
       "forcesRTL": true
     },
     "ios": {
       "bundleIdentifier": "iq.driver.partner",
       "supportsTablet": true,
-      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"], "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"] }
+      "infoPlist": { "CFBundleDevelopmentRegion": "ar", "CFBundleLocalizations": ["ar", "en"], "LSApplicationQueriesSchemes": ["comgooglemaps", "waze"], "UIBackgroundModes": ["audio"] }
     },
     "android": {
       "package": "iq.driver.partner"

@@ -51,7 +51,8 @@ export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { starte
             <Icon name="check" size={30} color="successText" strokeWidth={3} />
           </Animated.View>
         ) : (
-          <CountdownRing mode="accept" startedAt={startedAt} durationMs={acceptMs} size={MEDALLION - 10} strokeWidth={5} />
+          // «1:29» reads as time; a bare «89» didn't say what it counted (VIS-31).
+          <CountdownRing mode="accept" startedAt={startedAt} durationMs={acceptMs} format="clock" size={MEDALLION - 10} strokeWidth={5} />
         )}
       </View>
     </View>

@@ -39,7 +39,7 @@ interface ErrorDef {
   message_en?: string;
   retryHint: RetryHint;
   /** tRPC / HTTP class the transport maps the code to. */
-  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
 }
 
 /** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
@@ -123,6 +123,14 @@ export const ERROR_TABLE = {
   // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
   phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Console › المناوبة (on call): a shift that is not on the roster; a person who is not staff
+  on_call_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  on_call_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › اليوم (the Today list): a row that is gone; a row already closed; handing a row to someone off the desk
+  inbox_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  inbox_done: { retryHint: 'never', status: 'CONFLICT' },
+  inbox_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  inbox_close_at_source: { retryHint: 'never', status: 'CONFLICT' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -218,6 +226,7 @@ export const ERROR_TABLE = {
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  order_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
   // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
   ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -311,6 +320,7 @@ export const ERROR_TABLE = {
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  too_far_for_ice_cream: { retryHint: 'never', status: 'BAD_REQUEST' },
   // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
   tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -343,6 +353,9 @@ export const ERROR_TABLE = {
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلمة عن السفرة» (x14): a review line with a phone number, link or @handle; ops hide/unhide
+  review_contact_info: { retryHint: 'never', status: 'BAD_REQUEST' },
+  review_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   // Menu photo service (maps k3).
   menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -351,6 +364,13 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
+  money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
+  open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
+  cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
+  prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
+  update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

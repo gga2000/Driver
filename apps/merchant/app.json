@@ -10,7 +10,6 @@
     "userInterfaceStyle": "light",
     "locales": { "ar": "./locales/native/ar.json" },
     "extra": {
-      "apiUrl": "http://localhost:3000/trpc",
       "supportsRTL": true,
       "forcesRTL": true
     },

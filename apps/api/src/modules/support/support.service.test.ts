@@ -68,6 +68,18 @@ describe('support desk rules', () => {
     expect(old.reasons).toEqual(['أكثر من 24 ساعة', 'فات موعدها']);
   });
 
+  it('has the launch replies Ali approved (G0-11), none of which gives money, and none promises a cash agent', () => {
+    const byKey = new Map(CANNED_RESPONSES.map((c) => [c.key, c]));
+    for (const k of ['no_courier', 'kitchen_refused', 'calls_soon', 'wallet_balance', 'change_to_wallet', 'sos_followup', 'refund_refused', 'ask_order_number']) {
+      const c = byKey.get(k);
+      expect(c?.text_ar).toBeTruthy();
+      expect(c?.amountIqd).toBeNull();
+      expect(c?.action === 'none' || c?.action === 'resolve').toBe(true);
+    }
+    expect(byKey.get('sos_followup')?.text_ar).toContain('911');
+    for (const c of CANNED_RESPONSES) expect(c.text_ar).not.toContain('وكيل');
+  });
+
   it('every dispute kind has an Arabic subject; suggestions point at real canned answers', () => {
     for (const k of DisputeKind.options) expect(DISPUTE_SUBJECT_AR[k]).toBeTruthy();
     const keys = new Set(CANNED_RESPONSES.map((c) => c.key));

@@ -1,21 +1,22 @@
+import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { Card, EmptyState, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
+import { Card, EmptyState, QueryBoundary, SketchScene, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
-import { Screen } from '@/components/Screen';
+import { MAX_CONTENT_WIDTH, Screen } from '@/components/Screen';
 import { BookedRideRow } from '@/features/orders/BookedRideRow';
 import { canReorder, sectionByDay } from '@/features/orders/history';
-import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
-import { canOrderAgain, drawsAsFood } from '@/features/orders/orders-v2';
+import { flattenHistory } from '@/features/orders/history-list';
+import { canOrderAgain, drawsAsFood, liveFirst, markLive } from '@/features/orders/orders-v2';
 import { FoodOrderRow, LiveOrderCard } from '@/features/orders/OrdersV2Parts';
+import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
 import { useMyBookings, useNetwork } from '@/features/rajaa/queries';
 import { pastTrips, upcomingTrips, withTrips } from '@/features/rajaa/trips';
 import { TripRow } from '@/features/rajaa/TripRow';
 import { isBookedRide } from '@/features/ride-habits/logic';
-import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
 import { useUiSwitch } from '@/lib/ui-switches';
@@ -38,6 +39,8 @@ function Orders() {
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
+  // After-order Step 4 (`orders_v2`): kitchen rows get their dish and «اطلبه مرة ثانية», a running one a live card;
+  // rides, seats and parcels keep their own rows in the same place.
   const v2 = useUiSwitch('orders_v2');
   const tick = useNow(true, 60_000);
   const now = useMemo(() => new Date(tick), [tick]);
@@ -73,92 +76,161 @@ function Orders() {
     setRefreshing(false);
   };
 
+  const items = useMemo(() => {
+    type Row = (typeof sections)[number]['rows'][number];
+    const kitchen = (r: Row) => r.kind === 'order' && drawsAsFood(r.row);
+    const flat = flattenHistory(coming, v2 ? sections.map((s) => (s.running ? { ...s, rows: liveFirst(s.rows, kitchen) } : s)) : sections, {
+      coming: (c) => (c.kind === 'ride' ? c.row.order.id : c.booking.id),
+      row: (r) => (r.kind === 'trip' ? r.booking.id : r.row.order.id),
+    });
+    return markLive(flat, (i) => v2 && i.type === 'row' && i.tint && kitchen(i.value));
+  }, [coming, sections, v2]);
+  type Item = (typeof items)[number];
+  const column = { width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' } as const;
+  const gutter = theme.space[5];
+  // One row of a card that the fast list draws piece by piece: the first row opens the card, the last closes it.
+  const segment = (tint: boolean, first: boolean, last: boolean) => ({
+    backgroundColor: tint ? theme.colors.accentTint : theme.colors.surface,
+    borderColor: tint ? theme.colors.tintBorder : theme.colors.border,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderTopWidth: first ? 1 : 0,
+    borderBottomWidth: last ? 1 : 0,
+    borderTopLeftRadius: first ? theme.radius.xl : 0,
+    borderTopRightRadius: first ? theme.radius.xl : 0,
+    borderBottomLeftRadius: last ? theme.radius.xl : 0,
+    borderBottomRightRadius: last ? theme.radius.xl : 0,
+    overflow: 'hidden' as const,
+  });
+  const renderItem = ({ item }: { item: Item }) => {
+    if (item.type === 'label') {
+      const l = item.label;
+      return (
+        <Text
+          variant="label"
+          weight={600}
+          color={l.kind === 'day' ? 'textMuted' : 'accentText'}
+          accessibilityRole="header"
+          testID={`orders-section-${l.kind === 'day' ? item.key.slice('label:'.length) : l.kind}`}
+          style={{ marginTop: item.first ? 0 : theme.space[5], marginBottom: theme.space[2] }}
+        >
+          {l.kind === 'trips' ? t('orders.section_trips') : l.kind === 'running' ? t('orders.section_running') : l.day ? dayLabel(t, l.day) : ''}
+        </Text>
+      );
+    }
+    if (item.type === 'coming') {
+      const c = item.value;
+      return (
+        <View style={segment(true, item.first, item.last)}>
+          {c.kind === 'ride' ? (
+            <BookedRideRow row={c.row} now={now} divider={!item.last} />
+          ) : (
+            <TripRow booking={c.booking} network={network.data} now={now} divider={!item.last} />
+          )}
+        </View>
+      );
+    }
+    const r = item.value;
+    if (item.live && r.kind === 'order') {
+      return (
+        <View style={{ marginBottom: theme.space[3] }}>
+          <LiveOrderCard row={r.row} />
+        </View>
+      );
+    }
+    return (
+      <View style={segment(item.tint, item.first, item.last)}>
+        {r.kind === 'trip' ? (
+          <TripRow booking={r.booking} network={network.data} now={now} divider={!item.last} />
+        ) : v2 && drawsAsFood(r.row) ? (
+          <FoodOrderRow
+            row={r.row}
+            divider={!item.last}
+            again={canOrderAgain(r.row, me) ? { loading: reorder.busyOrderId === r.row.order.id, onPress: () => void reorder.start(r.row) } : undefined}
+          />
+        ) : (
+          <OrderRow
+            row={r.row}
+            now={now}
+            divider={!item.last}
+            action={
+              canReorder(r.row.order) && (!me || r.row.order.ordererId === me) ? (
+                <ReorderButton testID={`reorder-${r.row.order.id}`} loading={reorder.busyOrderId === r.row.order.id} onPress={() => void reorder.start(r.row)} />
+              ) : undefined
+            }
+          />
+        )}
+      </View>
+    );
+  };
+
   return (
-    <Screen testID="orders" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />} contentStyle={{ gap: theme.space[5] }}>
-      <Text variant="heading" accessibilityRole="header">
-        {t('nav.orders')}
-      </Text>
-      {history.isPending ? (
-        <Card elevation={0} padding={0}>
-          <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
-            {[0, 1, 2].map((i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
-                <Skeleton width={48} height={48} radius={theme.radius.lg} />
-                <View style={{ flex: 1, gap: theme.space[2] }}>
-                  <Skeleton height={14} width="55%" />
-                  <Skeleton height={12} width="75%" />
-                  <Skeleton height={10} width="40%" />
+    <Screen testID="orders" scroll={false} padded={false}>
+      <View style={[column, { flex: 1 }]}>
+        <View style={{ paddingHorizontal: gutter, paddingTop: theme.space[3], paddingBottom: theme.space[5], gap: theme.space[5] }}>
+          <Text variant="heading" accessibilityRole="header">
+            {t('nav.orders')}
+          </Text>
+          {/* W8: a failed seat-bookings read says so in one row above the orders (not while the whole list failed). */}
+          {bookings.isError && bookings.data === undefined && history.data !== undefined ? (
+            <QueryBoundary
+              query={bookings}
+              size="inline"
+              locale={locale}
+              testID="orders-trips-state"
+              skeleton={null}
+              retry={{ server: { title: t('orders.trips_failed') }, slow: { title: t('orders.trips_failed') }, unreachable: { title: t('orders.trips_failed') } }}
+            >
+              {() => null}
+            </QueryBoundary>
+          ) : null}
+        </View>
+        {/* W8: no network, slow or a server failure each say so with a retry; orders already on the phone stay
+            on screen (marked old) when a refresh fails, instead of being swapped for an error. */}
+        <QueryBoundary
+          query={history}
+          locale={locale}
+          testID="orders-state"
+          style={{ flex: 1 }}
+          skeleton={
+            <View style={{ paddingHorizontal: gutter }}>
+              <Card elevation={0} padding={0}>
+                <View accessibilityLabel={t('status.loading')} style={{ padding: theme.space[4], gap: theme.space[5] }}>
+                  {[0, 1, 2].map((i) => (
+                    <View key={i} style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
+                      <Skeleton width={48} height={48} radius={theme.radius.lg} />
+                      <View style={{ flex: 1, gap: theme.space[2] }}>
+                        <Skeleton height={14} width="55%" />
+                        <Skeleton height={12} width="75%" />
+                        <Skeleton height={10} width="40%" />
+                      </View>
+                    </View>
+                  ))}
                 </View>
-              </View>
-            ))}
-          </View>
-        </Card>
-      ) : history.isError ? (
-        <EmptyState icon="x" title={apiErrorMessage(history.error, t('error.network'), locale)} action={{ label: t('action.retry'), onPress: () => void history.refetch() }} />
-      ) : sections.length === 0 && coming.length === 0 ? (
-        <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
-      ) : (
-        <>
-        {coming.length > 0 ? (
-          <View style={{ gap: theme.space[2] }} testID="orders-section-trips">
-            <Text variant="label" weight={600} color="accentText" accessibilityRole="header">
-              {t('orders.section_trips')}
-            </Text>
-            <Card elevation={0} padding={0} tone="tint">
-              {coming.map((c, i) =>
-                c.kind === 'ride' ? (
-                  <BookedRideRow key={c.row.order.id} row={c.row} now={now} divider={i < coming.length - 1} />
-                ) : (
-                  <TripRow key={c.booking.id} booking={c.booking} network={network.data} now={now} divider={i < coming.length - 1} />
-                ),
-              )}
-            </Card>
-          </View>
-        ) : null}
-        {sections.map((s) => {
-          // After-order Step 4 (`orders_v2`): a running kitchen order is a live card with its road (o2);
-          // rides, seats and parcels keep their own rows in the same place.
-          const live = v2 && s.running ? s.rows.filter((r) => r.kind === 'order' && drawsAsFood(r.row)) : [];
-          const rows = live.length > 0 ? s.rows.filter((r) => !live.includes(r)) : s.rows;
-          return (
-            <View key={s.id} style={{ gap: theme.space[2] }} testID={`orders-section-${s.running ? 'running' : s.id}`}>
-              <Text variant="label" weight={600} color={s.running ? 'accentText' : 'textMuted'} accessibilityRole="header">
-                {s.running ? t('orders.section_running') : s.day ? dayLabel(t, s.day) : ''}
-              </Text>
-              {live.map((item) => (item.kind === 'order' ? <LiveOrderCard key={item.row.order.id} row={item.row} /> : null))}
-              {rows.length > 0 ? (
-                <Card elevation={0} padding={0} tone={s.running ? 'tint' : 'surface'}>
-                  {rows.map((item, i) =>
-                    item.kind === 'trip' ? (
-                      <TripRow key={item.booking.id} booking={item.booking} network={network.data} now={now} divider={i < rows.length - 1} />
-                    ) : v2 && drawsAsFood(item.row) ? (
-                      <FoodOrderRow
-                        key={item.row.order.id}
-                        row={item.row}
-                        divider={i < rows.length - 1}
-                        again={canOrderAgain(item.row, me) ? { loading: reorder.busyOrderId === item.row.order.id, onPress: () => void reorder.start(item.row) } : undefined}
-                      />
-                    ) : (
-                      <OrderRow
-                        key={item.row.order.id}
-                        row={item.row}
-                        now={now}
-                        divider={i < rows.length - 1}
-                        action={
-                          canReorder(item.row.order) && (!me || item.row.order.ordererId === me) ? (
-                            <ReorderButton testID={`reorder-${item.row.order.id}`} loading={reorder.busyOrderId === item.row.order.id} onPress={() => void reorder.start(item.row)} />
-                          ) : undefined
-                        }
-                      />
-                    ),
-                  )}
-                </Card>
-              ) : null}
+              </Card>
             </View>
-          );
-        })}
-        </>
-      )}
+          }
+        >
+          {() =>
+            items.length === 0 ? (
+              <View style={{ paddingHorizontal: gutter }}>
+                <EmptyState icon="receipt" art={<SketchScene name="empty_orders" />} title={t('empty.orders')} body={t('empty.orders_hint')} action={{ label: t('empty.orders_cta'), onPress: () => router.push('/restaurants') }} />
+              </View>
+            ) : (
+              <FlashList
+                data={items}
+                renderItem={renderItem}
+                keyExtractor={(i) => i.key}
+                getItemType={(i) => (i.type === 'label' ? 'label' : i.type === 'coming' ? (i.value.kind === 'ride' ? 'ride' : 'seat') : i.live ? 'live' : v2 && i.value.kind === 'order' && drawsAsFood(i.value.row) ? 'food' : i.value.kind)}
+                extraData={{ now, busy: reorder.busyOrderId, network: network.data }}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+                contentContainerStyle={{ paddingHorizontal: gutter, paddingBottom: theme.space[10] }}
+                testID="orders-list"
+              />
+            )
+          }
+        </QueryBoundary>
+      </View>
       {reorder.sheet}
     </Screen>
   );

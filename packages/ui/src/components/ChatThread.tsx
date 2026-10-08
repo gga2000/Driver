@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { PhotoImage } from './PhotoImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CHAT_TEXT_MAX, quickReplyText, voiceAllowedIn, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
 import type { Locale, MessageKey } from '@driver/i18n';
@@ -14,6 +15,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
 import { Chip } from './Chip';
 import { EmptyState } from './EmptyState';
+import { CallSoonIcon } from './CallSoon';
 import { IconButton } from './IconButton';
 import { PermissionPrompt } from './PermissionPrompt';
 import { Skeleton } from './Skeleton';
@@ -93,6 +95,8 @@ export interface ChatThreadProps {
   /** Masked call (see `useMaskedCall`). */
   call: () => void;
   calling: boolean;
+  /** Calls aren't live yet (G0-10): the header's call button shows greyed with «قريباً»; `call` explains. */
+  callSoon?: boolean;
   onBack: () => void;
   /** The API error's copy in this locale, or `fallback`. */
   errorMessage: (err: unknown, fallback: string) => string;
@@ -107,6 +111,11 @@ export interface ChatThreadProps {
   liveStatus?: { text: string; onPress?: () => void } | null;
   /** Joy l7: the server's quick replies reordered for the moment (at the door «طالع هسة» first). */
   orderReplies?: (keys: readonly QuickReplyKey[]) => QuickReplyKey[];
+  /**
+   * Partner redesign b11: lay the quick replies out in wrapping rows instead of one sideways scroll, so
+   * none is cut at the screen's edge (pair it with a short `orderReplies` list). Default: the scroll.
+   */
+  wrapQuickReplies?: boolean;
   /** Hold-to-record voice notes; omit to leave them out (the kitchen). Shown only where `voiceAllowedIn(kind)`. */
   voice?: ChatVoice;
 }
@@ -131,6 +140,7 @@ export function ChatThread({
   refresh,
   call,
   calling,
+  callSoon = false,
   onBack,
   errorMessage,
   errorCode,
@@ -139,11 +149,13 @@ export function ChatThread({
   currentLocation,
   liveStatus,
   orderReplies,
+  wrapQuickReplies = false,
   voice: voiceProp,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
   const v = thread.data;
+  const replies = v ? (orderReplies ? orderReplies(v.quickReplies) : v.quickReplies) : [];
   const ride = v?.ride ?? false;
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingMessage[]>([]);
@@ -420,7 +432,13 @@ export function ChatThread({
                 <Skeleton width={140} height={20} />
               )}
             </View>
-            {v?.canCall ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" /> : null}
+            {v?.canCall ? (
+              callSoon ? (
+                <CallSoonIcon locale={locale} onPress={call} testID="chat-call" />
+              ) : (
+                <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" />
+              )
+            ) : null}
           </View>
         </View>
 
@@ -481,12 +499,20 @@ export function ChatThread({
               <Banner icon="clock" text={t('chat.not_open')} testID="chat-not-open" />
             ) : (
               <>
-                {v.quickReplies.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
-                    {(orderReplies ? orderReplies(v.quickReplies) : v.quickReplies).map((k) => (
-                      <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
-                    ))}
-                  </ScrollView>
+                {replies.length > 0 ? (
+                  wrapQuickReplies ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </View>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </ScrollView>
+                  )
                 ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[2] }}>
                   {rec.phase === 'recording' ? (
@@ -719,7 +745,7 @@ function Bubble({
       {kind === 'voice' ? (
         voice
       ) : kind === 'photo' && shown.uri ? (
-        <Image source={{ uri: shown.uri }} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
+        <PhotoImage uri={shown.uri} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} />
       ) : kind === 'location' && location ? (
         <Pressable onPress={() => void Linking.openURL(pinUrl(location)).catch(() => undefined)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingVertical: 2 }}>
           <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.accent, 0.18) }}>

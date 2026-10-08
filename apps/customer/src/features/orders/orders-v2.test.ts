@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OrderHistoryRow } from '@driver/contracts';
-import { canOrderAgain, drawsAsFood, receiptStamp, rowDish, rowOpens, rowWord } from './orders-v2';
+import { canOrderAgain, drawsAsFood, liveFirst, markLive, receiptStamp, rowDish, rowOpens, rowWord } from './orders-v2';
 
 type Row = Parameters<typeof canOrderAgain>[0] & Pick<OrderHistoryRow, 'items'>;
 const row = (o: Partial<OrderHistoryRow['order']>, items: OrderHistoryRow['items'] = []): Row =>
@@ -59,5 +59,31 @@ describe('rowWord, rowOpens and receiptStamp (o1, o7)', () => {
   it('opens a running order on its live screen', () => {
     expect(rowOpens({ state: 'preparing' })).toBe('live');
     expect(rowWord({ type: 'food', state: 'picked_up' })).toBe('on_the_way');
+  });
+});
+
+describe('liveFirst and markLive (o2: live cards on top, the rest still one card)', () => {
+  it('puts the live rows first and keeps the others in order', () => {
+    expect(liveFirst(['ride', 'food1', 'seat', 'food2'], (r) => r.startsWith('food'))).toEqual(['food1', 'food2', 'ride', 'seat']);
+  });
+
+  it('re-counts the card around the rows that are not live', () => {
+    const items = [
+      { type: 'label', key: 'l', first: true, last: false },
+      { type: 'row', key: 'food', first: true, last: false },
+      { type: 'row', key: 'ride', first: false, last: false },
+      { type: 'row', key: 'seat', first: false, last: true },
+      { type: 'label', key: 'd', first: false, last: false },
+      { type: 'row', key: 'old', first: true, last: true },
+    ];
+    const out = markLive(items, (i) => i.key === 'food');
+    expect(out.map((i) => [i.key, i.live, i.first, i.last])).toEqual([
+      ['l', false, true, false],
+      ['food', true, true, false],
+      ['ride', false, true, false],
+      ['seat', false, false, true],
+      ['d', false, false, false],
+      ['old', false, true, true],
+    ]);
   });
 });

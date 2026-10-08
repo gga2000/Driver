@@ -73,6 +73,14 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Migration timestamps (scripts/ci/check-migrations.mjs)
+        # Pull requests only: a migration this PR adds must not share a timestamp or be older than the
+        # newest one on the base branch. On push to main it was already checked in its PR.
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          node scripts/ci/check-migrations.mjs --base "origin/${GITHUB_BASE_REF}"
+
       - name: Enable pnpm (corepack, version from package.json "packageManager")
         run: |
           npm install --global corepack@latest
@@ -124,28 +132,29 @@ jobs:
       - name: Build API and console
         run: pnpm turbo run build --filter=@driver/api --filter=@driver/console
 
-      - name: Smoke the built API (health.ping → db ok, redis ok)
+      - name: Smoke the built API (health.live answers, health.ready → db ok, redis ok)
         run: |
           PORT=3999 node apps/api/dist/main.js > api.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          body=''
           for _ in $(seq 1 40); do
-            if body=$(curl -fsS http://localhost:3999/trpc/health.ping 2>/dev/null); then break; fi
-            body=''
+            if curl -fsS -o /dev/null http://localhost:3999/trpc/health.live 2>/dev/null; then break; fi
             sleep 0.5
           done
-          if [ -z "$body" ]; then
-            echo "::error title=API smoke::driver-api never answered /trpc/health.ping"
+          if ! curl -fsS http://localhost:3999/trpc/health.live | jq .; then
+            echo "::error title=API smoke::driver-api never answered /trpc/health.live with 200"
             cat api.log
             exit 1
           fi
+          body=$(curl -fsS http://localhost:3999/trpc/health.ready)
           echo "$body" | jq .
-          if ! echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null; then
-            echo "::error title=API smoke::health.ping must report db: ok and redis: ok"
+          if ! echo "$body" | jq -e '.result.data.json | .ok == true and .db == "ok" and .redis == "ok"' > /dev/null; then
+            echo "::error title=API smoke::health.ready must report db: ok and redis: ok"
             cat api.log
             exit 1
           fi
+          # The installed apps still probe health.ping; it must keep answering.
+          curl -fsS -o /dev/null http://localhost:3999/trpc/health.ping
 
       - name: Simulate (pnpm sim --orders 2000 --seed 1 --ci)
         # Fails the job on a non-zero exit (any invariant violation). `--ci` is accepted but ignored until
@@ -300,4 +309,67 @@ jobs:
         with:
           name: e2e-postgres-api-log
           path: api.log
+          if-no-files-found: ignore
+
+  console-browser:
+    # The Console in a real browser (CON-13, gate C10 in the Console build plan): sign in through
+    # /login against the in-memory demo API, then every page in both themes at 1440×900 and 1366×768:
+    # no page errors, no CSP violations, RTL Arabic, axe 0 serious/critical. Screenshots are uploaded.
+    name: console · browser · axe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages and the API (the demo API runs apps/api/dist in memory)
+        run: pnpm turbo run build --filter='./packages/*' --filter=@driver/api
+
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @driver/console exec playwright install --with-deps chromium
+
+      - name: Browser checks (builds the Console, starts it and the demo API)
+        run: pnpm --filter @driver/console e2e
+
+      - name: Speed budget (JS per page, MapLibre only where a map is shown)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @driver/console budget
+
+      - name: Upload screenshots and report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-browser
+          path: |
+            apps/console/e2e/.shots
+            apps/console/e2e/.report
+            apps/console/e2e/.results
           if-no-files-found: ignore

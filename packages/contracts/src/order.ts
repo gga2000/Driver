@@ -5,6 +5,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { VehicleClass } from './trip.js';
@@ -362,6 +363,8 @@ export const Order = z.object({
   note: z.string().nullable(),
   /** The note for the courier (M-09); null/absent = none. */
   courierNote: z.string().nullable().optional(),
+  /** HUNT-02 «بالشارع · توفّر 250 دينار»: he meets the courier at the street, priced so; absent/false = at the door. */
+  streetHandover: z.boolean().optional(),
   /** The checkout attempt's idempotency key the order was placed with; null/absent = none sent. */
   clientRequestId: z.string().nullable().optional(),
   /** The customer's two-tap rating (customer app spec §4); absent/null until rated. */
@@ -471,7 +474,8 @@ export const CancellationFee = z.object({
 });
 export type CancellationFee = z.infer<typeof CancellationFee>;
 
-export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'other']);
+/** BENCH-13: rides also report the driver's behaviour or unsafe driving (a safety case); a lost item has its own chat (`chat.lostItem`). */
+export const DisputeKind = z.enum(['cold_or_late', 'missing_item', 'wrong_item', 'not_delivered', 'ride_fare', 'driver_behaviour', 'unsafe_driving', 'other']);
 export type DisputeKind = z.infer<typeof DisputeKind>;
 
 // ───────────────────────── procedure I/O ─────────────────────────
@@ -521,6 +525,25 @@ export const MerchantHeartbeatInput = z.object({ merchantOrgId: z.string().min(1
 export const MERCHANT_PREP_EXTENSION = { minutes: 5, perOrder: 1 } as const;
 export const MerchantExtendPrepInput = z.object({ orderId: z.string().min(1) });
 export type MerchantExtendPrepInput = z.infer<typeof MerchantExtendPrepInput>;
+
+/**
+ * c6 «نسوّيه من جديد» (Ali, 2026-10-08): the food was ready, no courier reached the pass within
+ * `afterReadyMin` of «جاهز», so the kitchen remakes it and Driver pays the first batch (items at menu
+ * price, once per order). A money rule: switched off until Ali turns it on (`pay: false` →
+ * `money_rule_off`); the app reads `orders.merchant.remakeRule` to show or hide the button.
+ */
+export const MerchantRemakeInput = z.object({ orderId: z.string().min(1) });
+export type MerchantRemakeInput = z.infer<typeof MerchantRemakeInput>;
+export const MerchantRemakeRule = z.object({ pay: z.boolean(), afterReadyMin: z.number().int().positive() });
+export type MerchantRemakeRule = z.infer<typeof MerchantRemakeRule>;
+export const MerchantRemakeResult = z.object({
+  orderId: z.string(),
+  /** What Driver paid the kitchen for the first batch (0 on a repeat tap). */
+  paidIqd: z.number().int().nonnegative(),
+  /** True when this order's remake was already paid (a second tap changes nothing). */
+  alreadyPaid: z.boolean(),
+});
+export type MerchantRemakeResult = z.infer<typeof MerchantRemakeResult>;
 
 /**
  * "سلّمته" (UI/UX audit S-M4): the kitchen records handing the order to the courier at the pass. Only
@@ -577,6 +600,20 @@ export interface OrdersPort {
   merchantExtendPrep(actor: Actor, input: MerchantExtendPrepInput): Promise<Order>;
   /** "سلّمته" (S-M4): records the hand-over at the pass (event + order history); idempotent. */
   merchantHandOver(actor: Actor, input: MerchantHandOverInput): Promise<Order>;
+  /** c6: Driver pays a remake when no courier came within 10 min of «جاهز» (switch, off by default). */
+  merchantRemake(actor: Actor, input: MerchantRemakeInput): Promise<MerchantRemakeResult>;
+  merchantRemakeRule(actor: Actor): Promise<MerchantRemakeRule>;
+  /** W3 (M-3/M-4): what he owes and how many cash orders he may have open; the orderer's own. */
+  cashStanding(actor: Actor): Promise<CashStanding>;
+  /** W3 staff way-out (docs/api/staff-ops.md): audited, with a reason; money outcomes behind their switches. */
+  opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult>;
+  opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult>;
+  opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult>;
+  opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult>;
+  opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;
+  opsResolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult>;
+  opsStuck(actor: Actor, input: StuckOrdersInput): Promise<StuckOrder[]>;
+  opsSwitches(actor: Actor): Promise<StaffOpsSwitches>;
 }
 
 /**

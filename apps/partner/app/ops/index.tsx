@@ -1,9 +1,10 @@
 import { router, Stack } from 'expo-router';
 import { RefreshControl, View } from 'react-native';
 import type { OpsCashHolder, OpsTask } from '@driver/contracts';
-import { Button, Card, EmptyState, Icon, IconButton, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, IconButton, RetryState, retryKindFor, Skeleton, StatusPill, Text, useLoadTimeout, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/features/fleet/FleetParts';
+import { clockTime } from '@/features/account/logic';
 import { DUE_KEY, dueOf, TASK_KIND_KEY } from '@/features/ops/logic';
 import { ActionTile, TASK_ICON } from '@/features/ops/OpsParts';
 import { useCashHolders, useCompleteTask, useMenuPhotoRequests, useOpsTasks } from '@/features/ops/queries';
@@ -24,6 +25,16 @@ export default function OpsHome() {
   const tasks = useOpsTasks();
   const holders = useCashHolders();
   const menuRequests = useMenuPhotoRequests();
+  const locale = useLocale();
+  const net = useNetwork();
+  const [slow, restartSlow] = useLoadTimeout(tasks.data === undefined && !tasks.isError);
+  const retry = () => {
+    restartSlow();
+    void tasks.refetch();
+    void holders.refetch();
+  };
+  // f5: with no network the list on screen is the last one we had; say from when.
+  const stale = !net.online && tasks.data !== undefined && tasks.dataUpdatedAt > 0;
   const inField = (holders.data ?? []).reduce((s, h) => s + h.heldIqd, 0);
   const firstName = me?.name?.split(' ')[0];
 
@@ -78,10 +89,25 @@ export default function OpsHome() {
 
       <View style={{ gap: theme.space[2] }}>
         <SectionHeader title={tasks.data ? `${t('partner.ops_tasks_title')} · ${tasks.data.length}` : t('partner.ops_tasks_title')} />
-        {!tasks.data ? (
+        {stale ? (
+          <View testID="ops-stale" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[1] }}>
+            <Icon name="wifi-off" size={16} color="warningText" />
+            <Text variant="footnote" color="warningText" tabular style={{ flex: 1 }}>
+              {t('partner.f5_ops_stale', { time: clockTime(new Date(tasks.dataUpdatedAt)) })}
+            </Text>
+          </View>
+        ) : null}
+        {!tasks.data && (tasks.isError || slow) ? (
+          <Card elevation={0}>
+            {(() => {
+              const kind = retryKindFor({ net, error: tasks.error, slow });
+              return <RetryState testID="ops-retry" kind={kind} locale={locale} title={kind === 'server' ? t('partner.f5_ops_failed') : undefined} onRetry={retry} />;
+            })()}
+          </Card>
+        ) : !tasks.data ? (
           <Skeleton lines={3} />
         ) : tasks.data.length === 0 ? (
-          <Card elevation={0}>
+          <Card elevation={0} testID="ops-tasks-empty">
             <EmptyState icon="check" title={t('partner.ops_tasks_empty')} body={t('partner.ops_tasks_empty_body')} />
           </Card>
         ) : (

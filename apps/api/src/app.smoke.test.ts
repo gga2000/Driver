@@ -33,6 +33,17 @@ describe('API smoke', () => {
     if (!process.env['REDIS_URL']) expect(res.redis).toBe('unavailable');
   });
 
+  it('health.live answers (a missing database only fails it after LIVE_DB_GRACE_MS); health.ready always answers', async () => {
+    const live = await fetch(`${url}/health.live`);
+    expect(live.status).toBe(200);
+    const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
+    const ready = await client.health.ready.query();
+    expect(ready.service).toBe('driver-api');
+    expect(ready.ok).toBe(ready.db === 'ok' && ready.redis === 'ok');
+    if (!process.env['DATABASE_URL']) expect(ready.db).toBe('unavailable');
+    if (!process.env['REDIS_URL']) expect(ready.ok).toBe(false);
+  });
+
   it('serves a quote for an Aziziyah taxi trip over the wire', async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const quote = await client.pricing.quote.query({
@@ -199,21 +210,24 @@ describe('API smoke', () => {
   });
 
   // Keep last: it uses up this client IP's OTP allowance for the hour.
-  it('M2 follow-up: identity.requestOtp is rate-limited per client IP over the wire (rate_limited + retryAfterSec)', async () => {
+  it('W5: identity.requestOtp is limited per device over the wire (rate_limited + retryAfterSec), never per client IP', async () => {
     const anon = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     type Refusal = { data: { code: string; httpStatus: number; retryAfterSec?: number } };
+    // One shared IP (carrier NAT): twelve different people from 127.0.0.1 all get their code.
+    for (let i = 0; i < 12; i += 1) await anon.identity.requestOtp.mutate({ phone: `0771250${String(i).padStart(4, '0')}`, purpose: 'login' });
+    // One device: the 6th code in the hour is refused.
+    const device = { fingerprint: 'smoke-device-1', platform: 'android' as const };
     let refused = null as Refusal | null;
     let sent = 0;
-    for (let i = 0; i < 12 && !refused; i += 1) {
+    for (let i = 0; i < 7 && !refused; i += 1) {
       try {
-        await anon.identity.requestOtp.mutate({ phone: `0771250${String(i).padStart(4, '0')}`, purpose: 'login' });
+        await anon.identity.requestOtp.mutate({ phone: `0771260${String(i).padStart(4, '0')}`, purpose: 'login', device });
         sent += 1;
       } catch (e) {
         refused = e as Refusal;
       }
     }
-    // Earlier tests in this file already used part of 127.0.0.1's 10 per hour.
-    expect(sent).toBeLessThan(10);
+    expect(sent).toBe(5);
     expect(refused?.data).toMatchObject({ code: 'rate_limited', httpStatus: 429, retryAfterSec: expect.any(Number) });
     expect(refused!.data.retryAfterSec!).toBeGreaterThan(3500);
   });

@@ -56,3 +56,27 @@ export function receiptStamp(o: Pick<Order, 'state' | 'type'>): ReceiptStamp {
   const s = shortStatus(o);
   return s === 'cancelled' || s === 'rejected' || s === 'refunded' || s === 'disputed' || s === 'failed' ? s : null;
 }
+
+/** The running section with its live kitchen cards first (o2), so the rows left under them stay one card. */
+export function liveFirst<T>(rows: readonly T[], isLive: (row: T) => boolean): T[] {
+  return [...rows.filter(isLive), ...rows.filter((r) => !isLive(r))];
+}
+
+/**
+ * Marks the flat list's live kitchen rows (drawn as their own cards) and re-counts which of the other
+ * rows opens and closes each card, so the rows around a live card still read as one card.
+ */
+export function markLive<T extends { type: string }>(items: readonly T[], isLive: (item: T) => boolean): Array<T & { live: boolean }> {
+  const out = items.map((i) => ({ ...i, live: i.type === 'row' && isLive(i) }));
+  let run: number[] = [];
+  const close = () => {
+    const rest = run.filter((k) => !out[k]!.live);
+    rest.forEach((k, j) => {
+      out[k] = { ...out[k]!, first: j === 0, last: j === rest.length - 1 };
+    });
+    run = [];
+  };
+  out.forEach((it, k) => (it.type === 'row' ? run.push(k) : close()));
+  close();
+  return out;
+}

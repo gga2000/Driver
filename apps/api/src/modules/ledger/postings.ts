@@ -3,7 +3,9 @@ import {
   guaranteeMemo,
   pointsRedemption,
   DepartureCancelledPayload,
+  DriverCancelledPayload,
   OrderCancelledPayload,
+  OrderRejectedPayload,
   ErrandMoneyPayload,
   LateMeterPayload,
   OrderMoneyPayload,
@@ -41,6 +43,14 @@ export interface PostingRefs {
   tripId?: string;
   routeId?: string;
   departureId?: string;
+}
+
+/**
+ * RDB-01/02: request-board money (`requestId`) is keyed `request:<id>:<what>` and writes no
+ * foreign-key refs (a request is not a trips/orders/departures row); everything else keeps its own.
+ */
+function keyed(requestId: string | undefined, what: string, own: string, refs: PostingRefs): { id: string; refs: PostingRefs } {
+  return requestId !== undefined ? { id: `request:${requestId}:${what}`, refs: {} } : { id: own, refs };
 }
 
 export interface PostingGroup {
@@ -292,7 +302,8 @@ export interface RidePostings {
 /** Ride/parcel completed: fare to the driver, platform take by class (tuktuk 10 % min 100, car 12 %, parcel 15 %…). */
 export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): RidePostings {
   const r = RideMoneyPayload.parse(input);
-  const b = new GroupBuilder(`trip:${r.tripId}:money`, 'money', r.occurredAt, { tripId: r.tripId, orderId: r.orderId });
+  const k = keyed(r.requestId, 'money', `trip:${r.tripId}:money`, { tripId: r.tripId, orderId: r.orderId });
+  const b = new GroupBuilder(k.id, 'money', r.occurredAt, k.refs);
   const payer = payerAccount(r);
   const driver = Accounts.driver(r.driverId);
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
@@ -350,6 +361,9 @@ export function lateMeterBlocks(minutesLate: number, rules: MoneyRules): number 
   return Math.ceil((late - m.graceMin) / m.blockMin);
 }
 
+/** Memo on late-meter lines the company pays because our own taxi to the garage ran late (x3). */
+export const LATE_TAXI_MEMO = 'late_taxi';
+
 /** Late meters pay 100 % to the wronged party; the platform takes nothing (money §3). */
 export function postLateMeter(input: LateMeterPayload, rules: MoneyRules): PostingGroup | null {
   const l = LateMeterPayload.parse(input);
@@ -358,9 +372,16 @@ export function postLateMeter(input: LateMeterPayload, rules: MoneyRules): Posti
   const b = new GroupBuilder(`late:${l.departureId}:${l.late.kind}:${l.late.id}`, 'money', l.occurredAt, { departureId: l.departureId });
   const waiting = l.waitingRiderIds.filter((id) => id !== l.late.id);
   if (l.late.kind === 'rider') {
-    const rider = Accounts.customer(l.late.id);
-    b.add('late_penalty_driver', blocks * rules.lateMeter.riderLateToDriverPerBlockIqd, rider, Accounts.driver(l.driverId));
-    for (const w of waiting) b.add('late_penalty_rider_credit', blocks * rules.lateMeter.riderLateToEachRiderPerBlockIqd, rider, Accounts.customer(w));
+    // x3: the blocks that ran while our own late taxi was still due are the company's, not his.
+    const company = rules.lateTaxiPaysMeter.enabled ? lateMeterBlocks(Math.min(l.taxiLateMinutes, l.minutesLate), rules) : 0;
+    const payers: Array<[string, number, string | undefined]> = [
+      [Accounts.customer(l.late.id), blocks - company, undefined],
+      [Accounts.platform, company, LATE_TAXI_MEMO],
+    ];
+    for (const [from, n, memo] of payers) {
+      b.add('late_penalty_driver', n * rules.lateMeter.riderLateToDriverPerBlockIqd, from, Accounts.driver(l.driverId), memo);
+      for (const w of waiting) b.add('late_penalty_rider_credit', n * rules.lateMeter.riderLateToEachRiderPerBlockIqd, from, Accounts.customer(w), memo);
+    }
   } else {
     for (const w of waiting) b.add('late_penalty_rider_credit', blocks * rules.lateMeter.driverLateToEachRiderPerBlockIqd, Accounts.driver(l.driverId), Accounts.customer(w), 'driver_late');
   }
@@ -375,16 +396,47 @@ export function postCancellation(input: z.input<typeof OrderCancelledPayload>): 
   const c = OrderCancelledPayload.parse(input);
   if (c.feeIqd === 0) return null;
   const payer = payerAccount(c);
-  const b = new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId });
+  const k = keyed(c.requestId, 'cancel', `order:${c.orderId}:cancel`, { orderId: c.orderId, tripId: c.tripId });
+  const b = new GroupBuilder(k.id, 'money', c.occurredAt, k.refs);
   for (const to of c.beneficiaries) b.add('cancellation_fee', to.amountIqd, payer, to.kind === 'merchant' ? Accounts.merchantCash(to.id) : Accounts.driver(to.id), to.kind);
   return b.control(payer, -c.feeIqd).build();
+}
+
+/**
+ * M-15: a ride's driver cancelled after reaching the pickup; the customer's credit comes from the
+ * driver (memo `driver_cancel`). One group per trip, so a redelivered event or a second driver who
+ * cancels the re-matched ride each post once. Nothing when there is no credit.
+ */
+export function postDriverCancelled(input: DriverCancelledPayload): PostingGroup | null {
+  const d = DriverCancelledPayload.parse(input);
+  if (d.customerCreditIqd === 0) return null;
+  return new GroupBuilder(`order:${d.orderId}:driver_cancel:${d.tripId ?? d.driverId}`, 'money', d.occurredAt, { orderId: d.orderId, ...(d.tripId ? { tripId: d.tripId } : {}) })
+    .add('cancellation_fee', d.customerCreditIqd, Accounts.driver(d.driverId), Accounts.customer(d.customerId), 'driver_cancel')
+    .build();
+}
+
+/**
+ * M-17: a merchant rejected the order after accepting it; the customer's credit comes from the
+ * merchant's cash account (memo `merchant_late_reject`). One group per order (an order is rejected
+ * at most once), so a redelivered event posts once. Nothing when there is no credit — always while
+ * the money rule `merchantLateRejectCredit` is off.
+ */
+export function postMerchantLateReject(input: z.input<typeof OrderRejectedPayload>): PostingGroup | null {
+  const r = OrderRejectedPayload.parse(input);
+  if (r.customerCreditIqd === 0) return null;
+  // The payload's refine guarantees these with a credit.
+  const { orderId, customerId, merchantOrgId, occurredAt } = r as Required<Pick<OrderRejectedPayload, 'orderId' | 'customerId' | 'merchantOrgId' | 'occurredAt'>>;
+  return new GroupBuilder(`order:${orderId}:merchant_late_reject`, 'money', occurredAt, { orderId })
+    .add('cancellation_fee', r.customerCreditIqd, Accounts.merchantCash(merchantOrgId), Accounts.customer(customerId), 'merchant_late_reject')
+    .build();
 }
 
 /** Driver cancels inside 2 h: his fee is shared by the booked riders as credit; low-fill cancels post nothing. */
 export function postDepartureCancelled(input: DepartureCancelledPayload): PostingGroup | null {
   const d = DepartureCancelledPayload.parse(input);
   if (d.cancelledBy !== 'driver' || d.feeIqd === 0 || d.riderIds.length === 0) return null;
-  const b = new GroupBuilder(`departure:${d.departureId}:cancel`, 'money', d.occurredAt, { departureId: d.departureId, routeId: d.routeId });
+  const k = keyed(d.requestId, 'driver_no_show', `departure:${d.departureId}:cancel`, { departureId: d.departureId, routeId: d.routeId });
+  const b = new GroupBuilder(k.id, 'money', d.occurredAt, k.refs);
   const shares = allocate(d.feeIqd, d.riderIds.map(() => 1));
   d.riderIds.forEach((r, i) => b.add('departure_cancel_fee', shares[i] ?? 0, Accounts.driver(d.driverId), Accounts.customer(r)));
   return b.control(Accounts.driver(d.driverId), -d.feeIqd).build();

@@ -3,6 +3,7 @@ import { pgPoolConfig, type DbConnectionOptions } from './connection.js';
 import { PrismaClient, Prisma } from './generated/prisma/client.js';
 
 export { dbOptionsFromEnv, pgPoolConfig, type DbConnectionOptions } from './connection.js';
+export { createDbProbe, DB_PROBE_TIMEOUT_MS, type DbProbe, type DbProbeResult } from './probe.js';
 
 export { PrismaClient, Prisma } from './generated/prisma/client.js';
 export * from './generated/prisma/enums.js';
@@ -17,5 +18,5 @@ export type Tx = Prisma.TransactionClient;
  */
 export function createPrisma(connectionString: string, opts: DbConnectionOptions = {}): PrismaClient {
   const adapter = new PrismaPg(pgPoolConfig(connectionString, opts));
-  return new PrismaClient({ adapter });
+  return new PrismaClient({ adapter, ...(opts.transactionTimeoutMs ? { transactionOptions: { timeout: opts.transactionTimeoutMs } } : {}) });
 }

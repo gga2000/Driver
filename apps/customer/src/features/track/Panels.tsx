@@ -4,13 +4,15 @@ import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DisputeKind, LatLng, OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, CallSoonButton, ChipGroup, CountdownRing, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
+import { issueKinds } from '@/features/help/issue';
 import { useCancellationPreview, useCancelOrder, useOpenDispute } from './queries';
 import { metresFromDoor, standingLine, unreachableLeftMs } from './unreachable-logic';
 import { color } from '@driver/design-tokens';
+import { CALLS_LIVE } from '@/features/chat/useMaskedCall';
 
 /** A modal card from the bottom over a dimmed screen (cancel, report, street hand-over, unreachable). */
 export function BottomPanel({ children, onClose, testID, dim = true }: { children: ReactNode; onClose?: () => void; testID?: string; dim?: boolean }) {
@@ -118,6 +120,9 @@ const DISPUTE_KINDS: ReadonlyArray<{ kind: DisputeKind; key: MessageKey }> = [
   { kind: 'other', key: 'dispute.reason_other' },
 ];
 
+/** BENCH-13: a ride's problems (fare, the driver's behaviour, unsafe driving), as in Help. */
+const RIDE_DISPUTE_KINDS: ReadonlyArray<{ kind: DisputeKind; key: MessageKey }> = issueKinds('ride').map((k) => ({ kind: k.kind, key: k.key as MessageKey }));
+
 /** "بلّغ عن مشكلة": a complaint once the order reached him; before that, the order's support chat. */
 export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking; onClose: () => void; onSupport?: (() => void) | undefined }) {
   const t = useT();
@@ -126,7 +131,7 @@ export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking
   const open = useOpenDispute(view.order.id);
   const [kind, setKind] = useState<DisputeKind | null>(null);
   const deliveredish = view.order.state === 'delivered' || view.order.state === 'completed';
-  const kinds = view.order.type === 'ride' ? [{ kind: 'ride_fare' as const, key: 'dispute.reason_fare' as MessageKey }, DISPUTE_KINDS[4]!] : DISPUTE_KINDS;
+  const kinds = view.order.type === 'ride' ? RIDE_DISPUTE_KINDS : DISPUTE_KINDS;
   return (
     <BottomPanel onClose={onClose} testID="dispute-panel">
       <Text variant="heading">{t('dispute.title')}</Text>
@@ -177,6 +182,7 @@ export function DisputePanel({ view, onClose, onSupport }: { view: OrderTracking
 /** Street hand-over saves 250 (pricing: `streetHandover` −250). */
 export const STREET_SAVING_IQD = 250;
 
+/** Not offered while `LIVE_STREET_SWITCH_ENABLED` (./street-switch) is off: it calls no server yet (HUNT-01). */
 export function StreetPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const toast = useToast();
@@ -227,6 +233,7 @@ export function UnreachablePanel({
 }) {
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const u = view.trip!.unreachable!;
   const started = u.startedAt.getTime();
   const total = u.failAllowedAt.getTime() - started;
@@ -240,7 +247,7 @@ export function UnreachablePanel({
         <View style={{ flex: 1, gap: theme.space[1] }}>
           <Text variant="title">{t('unreachable.customer_title')}</Text>
           <Text variant="label" weight={600} testID="unreachable-standing">
-            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door))}
+            {standingLine(t, view.courier?.firstName ?? null, metresFromDoor(courier, door), view.order.streetHandover === true)}
           </Text>
         </View>
         {/* The timer, small (L-10): guidance first. It counts to the server's fail time, extended or not. */}
@@ -259,7 +266,7 @@ export function UnreachablePanel({
           void onComingOut().then((ok) => setComing(ok ? 'done' : 'idle'));
         }}
       />
-      <Button label={t('unreachable.call_hidden')} icon="phone" variant="secondary" fullWidth onPress={onCall} testID="unreachable-call" />
+      {CALLS_LIVE ? <Button label={t('unreachable.call_hidden')} icon="phone" variant="secondary" fullWidth onPress={onCall} testID="unreachable-call" /> : <CallSoonButton fullWidth locale={locale} onPress={onCall} testID="unreachable-call" />}
       <Button
         label={location === 'done' ? t('unreachable.location_sent') : t('unreachable.send_location')}
         icon={location === 'done' ? 'check' : 'map-pin'}

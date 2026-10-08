@@ -1,15 +1,15 @@
 import { memo } from 'react';
-import { G, Path } from 'react-native-svg';
-import { DISH_PICTURES, type DishPictureName } from './dish-pictures';
+import { G, Image, Path } from 'react-native-svg';
 import { archPath, SKETCH as K } from './kit';
+import { DISH_PHOTOS, type DishPhotoName } from './photos/dishes';
 
 /**
  * The dish set (joy J4, food-funnel S-3, design-system S2-07): one picture per kind of dish, each with its
  * own silhouette so a menu reads at a glance at 64 px. Pictures, never photos: they must not pretend to be
  * a restaurant's real food (J-D3), and a merchant photo always replaces them.
  *
- * Since 2026-10-07 these are the Date & Saffron pictures (`dish-pictures.tsx`): 27 locked by Ali and the
- * rest drawn after them in the same style (`illustrations/STYLE.md`). They replaced the ink sketchbook.
+ * Since 2026-10-07 (late) these are the AI-painted pictures Ali chose (`photos/dishes.ts`), in place of the
+ * drawn Date & Saffron set, which stays in git history and `/mnt/project-files/illustrations/dishes/`.
  */
 export const DISH_KINDS = [
   'kebab',
@@ -56,11 +56,13 @@ export const DISH_KINDS = [
   'biryani',
   'breakfast',
   'manakish',
+  // Ali 2026-10-08: kunafa had been showing the baklava picture.
+  'kunafa',
 ] as const;
 export type DishKind = (typeof DISH_KINDS)[number];
 
 /** The picture each kind shows, where its file name differs from the kind. */
-const PICTURE: Partial<Record<DishKind, DishPictureName>> = {
+const PICTURE: Partial<Record<DishKind, DishPhotoName>> = {
   tray: 'grill-tray',
   bread: 'samoon',
   sweet: 'sweets',
@@ -90,12 +92,7 @@ export interface DishDrawingProps {
 export const DishDrawing = memo(function DishDrawing({ kind, look = 0, window = true, tilt = 0 }: DishDrawingProps) {
   const i = ((look % DISH_LOOKS) + DISH_LOOKS) % DISH_LOOKS;
   const turn = (LOOK_TURN[i] ?? 0) + tilt;
-  const Picture = DISH_PICTURES[PICTURE[kind] ?? (kind as DishPictureName)];
-  const dish = (
-    <G transform="scale(0.8333)">
-      <Picture />
-    </G>
-  );
+  const dish = <Image href={DISH_PHOTOS[PICTURE[kind] ?? (kind as DishPhotoName)]} x={0} y={0} width={200} height={200} preserveAspectRatio="xMidYMid meet" />;
   return (
     <G>
       {window ? <Path d={archPath(34, 14, 132, 176)} fill={K.wallDeep} opacity={0.32} /> : null}

@@ -31,9 +31,11 @@ export default function OtpEntry() {
   const t = useT();
   const locale = useLocale();
   const api = useApi();
-  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string }>();
+  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string }>();
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
+  // The server may send the code on WhatsApp instead of SMS; the line under the title says where it went.
+  const [viaWhatsApp, setViaWhatsApp] = useState(params.channel === 'whatsapp');
   const [resendUntil, setResendUntil] = useState(() => Date.now() + Number(params.resendAfter ?? 30) * 1000);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
@@ -67,8 +69,9 @@ export default function OtpEntry() {
 
   const onResend = async () => {
     try {
-      const res = await resend.mutateAsync({ phone, purpose: 'login', device: await getDeviceInfo() });
+      const res = await resend.mutateAsync({ phone, purpose: 'login', channel: 'sms', device: await getDeviceInfo() });
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
+      setViaWhatsApp(res.channel === 'whatsapp');
       setCode('');
       if (DEV_TOOLS) void devCode.refetch();
     } catch (err) {
@@ -89,7 +92,7 @@ export default function OtpEntry() {
 
   return (
     <Screen>
-      <AuthHeader title={t('onboarding.otp_title')} subtitle={t('onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
+      <AuthHeader step={2} title={t('onboarding.otp_title')} subtitle={t(viaWhatsApp ? 'onboarding.otp_sent_whatsapp' : 'onboarding.otp_sent_to', { phone: `⁦${shownPhone}⁩` })} />
 
       <View style={{ gap: theme.space[3] }}>
         <OtpInput

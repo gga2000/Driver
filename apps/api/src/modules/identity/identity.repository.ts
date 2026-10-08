@@ -207,6 +207,11 @@ export interface IdentityRepository {
   findSessionByRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   findSessionByPreviousRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
+  /**
+   * Compare-and-swap: applies `patch` only while the session's current refresh hash is still
+   * `expectRefreshHash` and it is not revoked; `null` when another rotation got there first.
+   */
+  rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord | null>;
   revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
   /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
   lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
@@ -217,11 +222,18 @@ export interface IdentityRepository {
   createOtp(input: { phoneHash: string; codeHash: string; purpose: OtpPurpose; expiresAt: Date; now: Date; attempts?: number }, tx?: Tx): Promise<OtpRecord>;
   updateOtp(id: string, patch: Partial<Pick<OtpRecord, 'attempts' | 'verifiedAt' | 'lockedAt'>>, tx?: Tx): Promise<OtpRecord>;
   /**
-   * Counts one wrong code (atomic increment) and stamps `lockedAt` once `attempts` reaches
-   * `maxAttempts`. Deliberately takes NO `tx`: it commits on its own connection, immediately, so the
-   * caller's transaction rolling back (it is about to throw `otp_invalid`) can never undo it.
+   * Claims one attempt before a code is compared (audit SEC-01): a single conditional increment
+   * that succeeds only while the challenge is unused, unlocked and under `maxAttempts`; `null`
+   * otherwise. Deliberately takes NO `tx`: it commits on its own connection, immediately, so the
+   * caller's transaction rolling back (it is about to throw `otp_invalid`) can never undo it, and
+   * parallel guesses each see the others' claims. `attempts`: the count this claim made it (1…max),
+   * as the UPDATE returned it, not as a later read sees it.
    */
-  recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }): Promise<OtpRecord>;
+  claimOtpAttempt(id: string, input: { maxAttempts: number }): Promise<{ attempts: number } | null>;
+  /** Stamps `lockedAt` if the attempts are used up and it is not yet locked or used (no `tx`, as above); the row as it now stands. */
+  lockOtp(id: string, input: { now: Date; maxAttempts: number }): Promise<OtpRecord | null>;
+  /** Marks the challenge used, only if it is still unused and unlocked; `null` when another request got there first. */
+  consumeOtp(id: string, now: Date, tx?: Tx): Promise<OtpRecord | null>;
 
   // guardian links
   createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx): Promise<GuardianLinkRecord>;
@@ -542,6 +554,12 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return out;
   }
 
+  async rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx) {
+    const db = this.db(tx);
+    const { count } = await db.session.updateMany({ where: { id, refreshTokenHash: expectRefreshHash, revokedAt: null }, data: patch });
+    return count === 0 ? null : db.session.findUnique({ where: { id } });
+  }
+
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
     const res = await this.db(tx).session.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: now } });
     return res.count;
@@ -564,13 +582,28 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 
-  async recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }) {
-    // Outside any transaction on purpose (see the port): the base client auto-commits.
+  async claimOtpAttempt(id: string, input: { maxAttempts: number }) {
+    // Outside any transaction on purpose (see the port): one UPDATE … RETURNING, atomic in Postgres.
+    const rows = await this.prisma.prisma.$queryRaw<Array<{ attempts: number }>>`
+      UPDATE "public"."otp_challenges"
+         SET "attempts" = "attempts" + 1, "updated_at" = now()
+       WHERE "id" = ${id} AND "verified_at" IS NULL AND "locked_at" IS NULL AND "attempts" < ${input.maxAttempts}
+   RETURNING "attempts"`;
+    return rows[0] ? { attempts: Number(rows[0].attempts) } : null;
+  }
+
+  async lockOtp(id: string, input: { now: Date; maxAttempts: number }) {
     const db = this.prisma.prisma;
-    let row = await db.otpChallenge.update({ where: { id }, data: { attempts: { increment: 1 } } });
-    if (row.attempts >= input.maxAttempts && !row.lockedAt) {
-      row = await db.otpChallenge.update({ where: { id }, data: { lockedAt: input.now } });
-    }
+    await db.otpChallenge.updateMany({ where: { id, verifiedAt: null, lockedAt: null, attempts: { gte: input.maxAttempts } }, data: { lockedAt: input.now } });
+    const row = await db.otpChallenge.findUnique({ where: { id } });
+    return row ? { ...row, purpose: fromDbPurpose(row.purpose) } : null;
+  }
+
+  async consumeOtp(id: string, now: Date, tx?: Tx) {
+    const db = this.db(tx);
+    const { count } = await db.otpChallenge.updateMany({ where: { id, verifiedAt: null, lockedAt: null }, data: { verifiedAt: now } });
+    if (count === 0) return null;
+    const row = await db.otpChallenge.findUniqueOrThrow({ where: { id } });
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 

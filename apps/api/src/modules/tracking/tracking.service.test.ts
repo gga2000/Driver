@@ -193,6 +193,8 @@ describe('TrackingService — the view', () => {
     await h.pickup(trip.id);
     await h.dropoff(trip.id, { cashCollectedIqd: 16500 });
     await h.orders.rate('c1', { orderId: o.id, delivery: 5, food: 4 });
+    // FLOW-20: the rating keeps the complaint window open; the 2-h auto-close closes it.
+    await h.advance(2 * 60 * 60_000);
     const v = await tracking.track(as('c1'), { orderId: o.id });
     expect(v.order.state).toBe('closed');
     expect(v.order.rating).toMatchObject({ delivery: 5, food: 4, tags: [] });
@@ -215,6 +217,23 @@ describe('TrackingService — order history (طلباتي, C-15)', () => {
     expect(rows[0]!.items.length).toBeGreaterThan(0);
     for (const it of rows[0]!.items) expect(['كباب', 'تكة']).toContain(it.name);
     expect(await tracking.history(as('nobody'))).toEqual([]);
+  });
+
+  it('a ride row carries its vehicle from the trip, so it wears the taxi or tuktuk colour (o8)', async () => {
+    const { h, tracking } = setup();
+    const ride = async (vertical: 'taxi' | 'tuktuk', withTrip: boolean) => {
+      const o = await h.orders.place('c1', { cityId: 'aziziyah', type: 'ride', rideVertical: vertical, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30' } });
+      if (withTrip)
+        await h.trips.createForOrders({ cityId: 'aziziyah', vertical, orders: [{ orderId: o.id, minVehicleClass: null }], stops: [{ orderId: o.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN }, { orderId: o.id, type: 'dropoff', zoneKey: 'street_30' }] });
+      h.clock.advance(60_000);
+      return o.id;
+    };
+    const taxi = await ride('taxi', true);
+    const tuktuk = await ride('tuktuk', true);
+    const noTrip = await ride('taxi', false);
+    const food = await h.orders.place('c1', h.foodInput());
+    const by = new Map((await tracking.history(as('c1'))).map((r) => [r.order.id, r.rideVertical]));
+    expect([by.get(taxi), by.get(tuktuk), by.get(noTrip), by.get(food.id)]).toEqual(['taxi', 'tuktuk', null, null]);
   });
 });
 
@@ -301,14 +320,14 @@ describe('TrackingService — one ETA (maps program SP4b)', () => {
 });
 
 describe('orders.rate — two-tap rating validation', () => {
-  it('stores delivery and food separately and closes the order; the first rating stands', async () => {
+  it('stores delivery and food separately and keeps the complaint window open (FLOW-20); the first rating stands', async () => {
     const { h } = setup();
     const o = await acceptedOrder(h);
     const trip = await h.tripFor(o.id);
     await h.pickup(trip.id);
     await h.dropoff(trip.id, { cashCollectedIqd: 16500 });
     const rated = await h.orders.rate('c1', { orderId: o.id, delivery: 2, food: 5, tags: ['late', 'late'], note: '  تأخر شوية ' });
-    expect(rated.state).toBe('closed');
+    expect(rated.state).toBe('delivered');
     expect(rated.rating).toMatchObject({ delivery: 2, food: 5, tags: ['late'], note: 'تأخر شوية' });
     const replay = await h.orders.rate('c1', { orderId: o.id, delivery: 5 });
     expect(replay.rating).toMatchObject({ delivery: 2, food: 5 });

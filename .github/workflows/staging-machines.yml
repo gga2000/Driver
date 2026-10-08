@@ -1,0 +1,94 @@
+# Driver (درايفر) — switch the staging twin's machines on or off (docs/deploy/staging.md).
+#
+# Run by hand: Actions → Staging machines → Run workflow, then pick what staging should be:
+#   off    — every API and Redis machine stopped. Fly bills only the stopped machines' disks (cents).
+#            The database, Redis's volume and every secret stay. A browser or phone calling the API
+#            wakes one web machine on its own (Fly's auto-start); jobs wait until `everyday`/`launch`.
+#   everyday — 1 web + 1 worker + Redis: enough for people trying the apps and the web version.
+#   launch — 2 web + 1 worker + Redis: exactly production's layout, for the load test and game day.
+# Sizes come from deploy/fly/api.toml (shared with production); this only changes how many run.
+# Needs a deployed API first (Actions → Deploy → staging): with no release there is nothing to start.
+name: Staging machines
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What staging should run
+        type: choice
+        options: [everyday, launch, off]
+        default: everyday
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  machines:
+    name: staging → ${{ inputs.mode }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      API_APP: ${{ vars.FLY_API_APP }}
+      REDIS_APP: ${{ vars.FLY_REDIS_APP || 'driver-redis-staging' }}
+      MODE: ${{ inputs.mode }}
+    steps:
+      - name: Staging never reaches production
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [[ "$REDIS_APP" == *-staging ]] || fail "FLY_REDIS_APP must end in -staging"
+          [ -n "$FLY_API_TOKEN" ] || fail "secret FLY_API_TOKEN is not set on the staging environment"
+
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Machines
+        run: |
+          # ids of an app's machines in a state (and, for the API, a process group)
+          ids() { flyctl machines list --app "$1" --json | jq -r --arg s "$2" --arg g "${3:-}" \
+            '.[] | select(.state == $s) | select($g == "" or .config.metadata.fly_process_group == $g) | .id'; }
+          stop_all() { local m; mapfile -t m < <(ids "$1" started); [ ${#m[@]} -eq 0 ] || flyctl machines stop "${m[@]}" --app "$1"; }
+          start_all() { local m; mapfile -t m < <(ids "$1" stopped); [ ${#m[@]} -eq 0 ] || flyctl machines start "${m[@]}" --app "$1"; }
+
+          if [ "$MODE" = off ]; then
+            stop_all "$API_APP"
+            stop_all "$REDIS_APP"
+          else
+            start_all "$REDIS_APP"
+            start_all "$API_APP"
+            if [ "$MODE" = launch ]; then web=2; else web=1; fi
+            flyctl scale count app=$web worker=1 --app "$API_APP" --config deploy/fly/api.toml --yes
+          fi
+
+      - name: Smoke (only when on)
+        if: inputs.mode != 'off'
+        run: |
+          url="https://${API_APP}.fly.dev/trpc/health.ready"
+          for _ in $(seq 1 30); do body=$(curl -fsS "$url" 2>/dev/null) && break; sleep 2; done
+          echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
+            echo "::error title=Staging smoke::$url must report db: ok and redis: ok"; exit 1; }
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Staging is now: $MODE"
+            echo '| app | process | state | size |'
+            echo '| --- | --- | --- | --- |'
+            for app in "$API_APP" "$REDIS_APP"; do
+              flyctl machines list --app "$app" --json | jq -r --arg a "$app" \
+                '.[] | "| \($a) | \(.config.metadata.fly_process_group // "-") | \(.state) | \(.config.guest.cpu_kind)-\(.config.guest.cpus)x \(.config.guest.memory_mb) MB |"'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

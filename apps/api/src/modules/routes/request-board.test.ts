@@ -89,7 +89,11 @@ describe('request board: offers, pick, 20 % deposit (customer spec §2, review C
     await h.requests.offer('d2', r.id, 40_000);
     h.wallet.set('r1', 5_000);
     expect(await code(h.requests.pick('r1', r.id, o.id))).toBe('wallet_insufficient');
+    // SEC-07: an open wallet order elsewhere on the platform leaves too little for the 6,000 deposit.
     h.wallet.set('r1', 20_000);
+    h.wallet.elsewhere.set('r1', 15_000);
+    expect(await code(h.requests.pick('r1', r.id, o.id))).toBe('wallet_insufficient');
+    h.wallet.elsewhere.delete('r1');
     const m = await h.requests.pick('r1', r.id, o.id);
     expect(m).toMatchObject({ state: 'matched', depositIqd: 6_000, pickedOfferId: o.id });
     expect(m.offers.map((x) => x.state)).toEqual(['picked', 'lost']);
@@ -115,6 +119,48 @@ describe('request board: offers, pick, 20 % deposit (customer spec §2, review C
   });
 });
 
+describe('request board: the detailed request (y1), «شافوا طلبك» (y4), private trips (y5)', () => {
+  const base = { from: { label: 'العزيزية' }, to: { label: 'النجف' }, seats: 2, travellingAs: 'aila' as const };
+
+  it('details default to one way, and must hold together: hours for a wait, a return day within the week', () => {
+    const h = routesHarness();
+    const when = h.at(120);
+    expect(PostRequestInput.parse({ ...base, when }).details).toEqual({ trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false });
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'wait_return' } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days' } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 30 * 60_000) } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 8 * 86_400_000) } }).success).toBe(false);
+    expect(PostRequestInput.safeParse({ ...base, when, details: { trip: 'two_days', returnAt: new Date(when.getTime() + 2 * 86_400_000) } }).success).toBe(true);
+  });
+
+  it('a driver is counted once when he opens it or offers; not after it is matched', async () => {
+    const h = routesHarness();
+    const r = await postRequest(h);
+    await h.requests.seen('d1', r.id);
+    await h.requests.seen('d1', r.id);
+    await h.requests.offer('d2', r.id, 30_000);
+    expect((await h.requests.get(r.id))!.seenDriverIds).toEqual(['d1', 'd2']);
+    expect(await code(h.requests.seen('r1', r.id))).toBe('forbidden');
+    const o = (await h.requests.get(r.id))!.offers[0]!;
+    h.wallet.set('r1', 20_000);
+    await h.requests.pick('r1', r.id, o.id);
+    // Once matched, a driver who never offered can't read it; one who offered still can, and isn't recounted.
+    expect(await code(h.requests.seen('d3', r.id))).toBe('request_not_found');
+    expect((await h.requests.seen('d2', r.id)).state).toBe('matched');
+    expect((await h.requests.get(r.id))!.seenDriverIds).toEqual(['d1', 'd2']);
+  });
+
+  it('private trips count only completed rides whose offer was picked', async () => {
+    const h = routesHarness();
+    const r = await matched(h);
+    expect(await h.repo.privateTripCounts(['d1', 'd2'])).toEqual({ d1: 0, d2: 0 });
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(await h.repo.privateTripCounts(['d1', 'd2', 'd9'])).toEqual({ d1: 1, d2: 0, d9: 0 });
+  });
+});
+
 describe('request board no-shows and settlement through the ledger', () => {
   it('driver no-show: 2× the deposit from the driver to the rider, after 20 minutes', async () => {
     const h = routesHarness();
@@ -124,7 +170,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     h.advance(1);
     expect((await h.requests.driverNoShow('r1', r.id)).state).toBe('driver_no_show');
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({
-      departureId: r.id,
+      requestId: r.id,
       cancelledBy: 'driver',
       driverId: 'd1',
       feeIqd: 12_000,
@@ -159,7 +205,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     await h.requests.cancel('r1', r.id);
     expect(await bal(await deliverToLedger(h.events.events), 'driver:d1')).toBe(6_000);
     expect(h.events.last('order.cancelled')?.payload).toMatchObject({
-      orderId: r.id,
+      requestId: r.id,
       feeIqd: 6_000,
       beneficiaries: [{ kind: 'driver', id: 'd1', amountIqd: 6_000 }],
     });
@@ -178,7 +224,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     expect(h.events.last('order.closed')?.payload).toMatchObject({
       kind: 'ride',
       ride: {
-        tripId: r.id,
+        requestId: r.id,
         takeClass: 'intercity_private',
         fareIqd: 28_000,
         cashCollectedIqd: 22_000,
