@@ -2,7 +2,7 @@
 /**
  * Screens budget (speed audit g3 + h4): opens the customer app's main screens and the restaurant board
  * in Chromium, like an installed app (files local, API = the in-memory demo API), and measures:
- *   - open_kb       data the screen downloads to open (uncompressed JSON; the server squeezes it later)
+ *   - open_kb       data the screen downloads to open (and while it settles: 5 s, home 25 s) (uncompressed JSON; the server squeezes it later)
  *   - idle_commits  React redraws per minute while nobody touches the screen
  *   - idle_fps      animation frames the app asks for per second while idle
  *   - idle_kb       data per minute while idle (polling, live updates)
@@ -30,6 +30,8 @@ const root = resolve(import.meta.dirname, '../..');
 const budgets = JSON.parse(readFileSync(join(import.meta.dirname, 'budgets.json'), 'utf8')).screens;
 const IDLE_SECS = Number(process.env.IDLE_SECS ?? 30);
 const SETTLE_MS = 5_000;
+/** Home plays its moving touches for 20 s after it opens or comes back (h1), then rests: count after that. */
+const HOME_SETTLE_MS = 25_000;
 /** The home tab's label (nav.home); the tab bar has no test ids. */
 const HOME_TAB = JSON.parse(
   readFileSync(join(root, 'packages', 'i18n', 'src', 'locales', 'ar-IQ.json'), 'utf8'),
@@ -61,10 +63,10 @@ async function newPage(apiBase, viewport) {
 }
 
 /** Opens a screen, lets it settle, then watches it untouched for IDLE_SECS. */
-async function measure(name, { page, net }, open) {
+async function measure(name, { page, net }, open, settleMs = SETTLE_MS) {
   net.bytes = 0;
   await open();
-  await page.waitForTimeout(SETTLE_MS);
+  await page.waitForTimeout(settleMs);
   measured[`${name}.open_kb`] = Math.round(net.bytes / 1024);
   const before = await page.evaluate(() => ({ ...window.__perf }));
   net.bytes = 0;
@@ -107,32 +109,39 @@ try {
     const { page } = ctx;
     const by = (id) => byTestId(page, id);
     await page.goto(dist.origin + '/', { waitUntil: 'load' });
-    await signIn(page, by, '0770 999 7001', 'welcome-signin', async () => {
-      const at = await Promise.race([
-        by('setup-name')
-          .waitFor({ timeout: 20_000 })
-          .then(() => 'setup'),
-        by('home')
-          .waitFor({ timeout: 20_000 })
-          .then(() => 'home'),
-      ]);
-      if (at === 'setup') {
-        await page.locator('[data-testid="setup-name"]').fill('علي');
-        await by('setup-next').click();
-        await by('chip-street_30').click();
-        await by('setup-save').click();
-        if (
-          await by('welcome-home')
-            .waitFor({ timeout: 8_000 })
-            .then(
-              () => true,
-              () => false,
-            )
-        )
-          await by('welcome-home').click();
-      }
-      await by('home').waitFor({ timeout: 20_000 });
-    });
+    await signIn(
+      page,
+      by,
+      '0770 999 7001',
+      'welcome-signin',
+      async () => {
+        const at = await Promise.race([
+          by('setup-name')
+            .waitFor({ timeout: 20_000 })
+            .then(() => 'setup'),
+          by('home')
+            .waitFor({ timeout: 20_000 })
+            .then(() => 'home'),
+        ]);
+        if (at === 'setup') {
+          await page.locator('[data-testid="setup-name"]').fill('علي');
+          await by('setup-next').click();
+          await by('chip-street_30').click();
+          await by('setup-save').click();
+          if (
+            await by('welcome-home')
+              .waitFor({ timeout: 8_000 })
+              .then(
+                () => true,
+                () => false,
+              )
+          )
+            await by('welcome-home').click();
+        }
+        await by('home').waitFor({ timeout: 20_000 });
+      },
+      HOME_SETTLE_MS,
+    );
     const personId = await page.evaluate(
       () => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null,
     );
@@ -142,7 +151,8 @@ try {
       await page.goto(dist.origin + path, { waitUntil: 'load' });
       await by(waitId).waitFor({ timeout: 20_000 });
     };
-    await measure('home', ctx, () => go('/', 'home'));
+    await measure('home', ctx, () => go('/', 'home'), HOME_SETTLE_MS);
+    await measure('food', ctx, () => go('/food', 'food-home'));
     await measure('menu', ctx, () => go(`/restaurant/${khalid}`, `dish-${khalid}_kebab_wrap`));
     await measure('orders', ctx, async () => {
       await page.goto(dist.origin + '/orders', { waitUntil: 'load' });
@@ -157,12 +167,17 @@ try {
     await measure('live_order', ctx, () => go(`/order/${orderId}`, 'status-line'));
     // Back on home after «طلباتي» was opened while an order is live: the orders tab stays mounted out of
     // sight and must not keep animating there (its live status pill pulsed forever, found 2026-10-08).
-    await measure('home_over_orders', ctx, async () => {
-      await page.goto(dist.origin + '/orders', { waitUntil: 'load' });
-      await by(`order-${orderId}`).waitFor({ timeout: 20_000 });
-      await page.getByText(HOME_TAB, { exact: true }).last().click();
-      await by('home').waitFor({ timeout: 20_000 });
-    });
+    await measure(
+      'home_over_orders',
+      ctx,
+      async () => {
+        await page.goto(dist.origin + '/orders', { waitUntil: 'load' });
+        await by(`order-${orderId}`).waitFor({ timeout: 20_000 });
+        await page.getByText(HOME_TAB, { exact: true }).last().click();
+        await by('home').waitFor({ timeout: 20_000 });
+      },
+      HOME_SETTLE_MS,
+    );
     await page.close();
   }
   // ── restaurant board (tablet) ──

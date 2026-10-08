@@ -1,56 +1,141 @@
 {
-  "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0, re-measured on abe870d with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
+  "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0, re-measured on 596e91b (after h1, h2, s1 and the food landing) with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
   "size": {
-    "customer.code_mb": { "max": 7.3, "target": 6.2, "why": "s1 per-app words" },
-    "customer.assets_mb": {
-      "max": 5.3,
-      "why": "dish photos (AI dishes) 1.5 MB, home card pictures"
+    "customer.code_mb": {
+      "max": 6.95,
+      "target": 6.2,
+      "why": "s1 landed (#45): 7.03 -> 6.73"
     },
-    "partner.code_mb": { "max": 6.5, "target": 5.5, "why": "s1 per-app words" },
+    "customer.assets_mb": {
+      "max": 6.65,
+      "why": "dish photos 1.5 MB, home card pictures, food landing photos (Ali 2026-10-08)"
+    },
+    "partner.code_mb": {
+      "max": 6.5,
+      "target": 5.5,
+      "why": "s1 per-app words"
+    },
     "partner.assets_mb": {
-      "max": 4.35,
+      "max": 4.6,
       "target": 2.75,
       "why": "1.5 MB dish photos the courier app never shows"
     },
-    "merchant.code_mb": { "max": 6.35, "target": 5.5, "why": "s1 per-app words" },
-    "merchant.assets_mb": { "max": 4.45 }
+    "merchant.code_mb": {
+      "max": 6.35,
+      "target": 5.5,
+      "why": "s1 per-app words"
+    },
+    "merchant.assets_mb": {
+      "max": 4.45
+    }
   },
   "screens": {
-    "home.open_kb": { "max": 95 },
-    "home.idle_commits": { "max": 6, "target": 0 },
-    "home.idle_fps": {
-      "max": 190,
-      "target": 0,
-      "why": "h1 home's moving touches rest; the new cards (#25) beat 3 live dots forever"
+    "home.open_kb": {
+      "max": 40
     },
-    "home.idle_kb": { "max": 4 },
-    "menu.open_kb": { "max": 28 },
-    "menu.idle_commits": { "max": 4, "target": 0 },
-    "menu.idle_fps": { "max": 4, "target": 0 },
-    "menu.idle_kb": { "max": 4 },
-    "orders.open_kb": { "max": 8 },
-    "orders.idle_commits": { "max": 4, "target": 0 },
-    "orders.idle_fps": { "max": 4, "target": 0 },
-    "orders.idle_kb": { "max": 4 },
-    "live_order.open_kb": { "max": 72 },
+    "home.idle_commits": {
+      "max": 6,
+      "target": 0
+    },
+    "home.idle_fps": {
+      "max": 4,
+      "target": 0,
+      "why": "h1 landed (#46): rests after 20 s; counted after 25 s"
+    },
+    "home.idle_kb": {
+      "max": 4
+    },
+    "food.open_kb": {
+      "max": 18
+    },
+    "food.idle_commits": {
+      "max": 4,
+      "target": 0
+    },
+    "food.idle_fps": {
+      "max": 4,
+      "target": 0,
+      "why": "food landing plays once"
+    },
+    "food.idle_kb": {
+      "max": 4
+    },
+    "menu.open_kb": {
+      "max": 28
+    },
+    "menu.idle_commits": {
+      "max": 4,
+      "target": 0
+    },
+    "menu.idle_fps": {
+      "max": 4,
+      "target": 0
+    },
+    "menu.idle_kb": {
+      "max": 4
+    },
+    "orders.open_kb": {
+      "max": 8
+    },
+    "orders.idle_commits": {
+      "max": 4,
+      "target": 0
+    },
+    "orders.idle_fps": {
+      "max": 4,
+      "target": 0
+    },
+    "orders.idle_kb": {
+      "max": 4
+    },
+    "live_order.open_kb": {
+      "max": 55
+    },
     "live_order.idle_commits": {
       "max": 90,
       "target": 12,
       "why": "h2 landed (#39): 186 -> 76; the rest is the live card and courier"
     },
-    "live_order.idle_fps": { "max": 360, "target": 70, "why": "courier glide only" },
-    "live_order.idle_kb": { "max": 40 },
-    "home_over_orders.open_kb": { "max": 76, "why": "home with a live order card" },
-    "home_over_orders.idle_commits": { "max": 32, "why": "the live order card updates" },
-    "home_over_orders.idle_fps": {
-      "max": 320,
-      "target": 0,
-      "why": "h1 home rest + the hidden orders tab's live pill must stop out of sight"
+    "live_order.idle_fps": {
+      "max": 240,
+      "target": 70,
+      "why": "courier glide only"
     },
-    "home_over_orders.idle_kb": { "max": 32, "why": "the live order card refreshes" },
-    "board.open_kb": { "max": 52 },
-    "board.idle_commits": { "max": 680, "target": 70, "why": "h3 only the countdown rings tick" },
-    "board.idle_fps": { "max": 960, "target": 240, "why": "alarm pulses only" },
-    "board.idle_kb": { "max": 4 }
+    "live_order.idle_kb": {
+      "max": 40
+    },
+    "home_over_orders.open_kb": {
+      "max": 80,
+      "why": "home with a live order card"
+    },
+    "home_over_orders.idle_commits": {
+      "max": 36,
+      "why": "the live order card updates"
+    },
+    "home_over_orders.idle_fps": {
+      "max": 8,
+      "target": 0,
+      "why": "h1 + the orders pill rests (#45)"
+    },
+    "home_over_orders.idle_kb": {
+      "max": 32,
+      "why": "the live order card refreshes"
+    },
+    "board.open_kb": {
+      "max": 52
+    },
+    "board.idle_commits": {
+      "max": 680,
+      "target": 70,
+      "why": "h3 only the countdown rings tick"
+    },
+    "board.idle_fps": {
+      "max": 960,
+      "target": 240,
+      "why": "alarm pulses only"
+    },
+    "board.idle_kb": {
+      "max": 4
+    }
   }
 }
