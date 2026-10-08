@@ -202,11 +202,14 @@ function useScreenReader(): boolean {
 export function ToastProvider({
   children,
   bottomOffset = 24,
+  topOffset,
   maxWidth,
   placement: defaultPlacement = 'bottom',
 }: {
   children: ReactNode;
   bottomOffset?: number;
+  /** Distance below the safe area for `placement: 'top'` toasts (default 8): an app with a status bar of its own keeps it uncovered. */
+  topOffset?: number;
   /** Centred column on wide screens (tablets). */
   maxWidth?: number;
   /** Where toasts go unless one asks otherwise: `top` in the Partner app, so none covers a slide or a button (h11). */
@@ -272,7 +275,7 @@ export function ToastProvider({
           pointerEvents="box-none"
           style={[
             { position: 'absolute', start: theme.space[4], end: theme.space[4], alignItems: 'center' },
-            (current.placement ?? defaultPlacement) === 'top' ? { top: insets.top + theme.space[2] } : { bottom: bottomOffset },
+            (current.placement ?? defaultPlacement) === 'top' ? { top: insets.top + (topOffset ?? theme.space[2]) } : { bottom: bottomOffset },
           ]}
         >
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>

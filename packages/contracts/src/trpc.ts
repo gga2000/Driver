@@ -16,6 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
+import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
@@ -23,6 +24,7 @@ import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
+import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
@@ -92,6 +94,8 @@ export interface AppContext {
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
   merchant: MerchantPort;
+  /** «جهّز محلك»: a new shop's first-day setup (`modules/merchant`). */
+  merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
@@ -133,6 +137,8 @@ export interface AppContext {
   authError: ErrorCode | null;
   /** The caller as the transport saw it (client IP behind the configured proxy); absent in tests. */
   client?: { ip: string | null };
+  /** Per-person and per-address request limits (SCALE-20), checked before every call; absent in tests. */
+  limits?: RequestLimitsPort;
   env: { nodeEnv: string };
   now(): Date;
   version: string;
@@ -235,10 +241,14 @@ function refusal(path: string, type: ProcedureCall['type']): DriverError | null 
  * tRPC with the new code. Each call is first asked of the API's gate (`gateProcedures`) and then
  * reported to its observer (`observeProcedures`).
  */
-export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next, getRawInput }) => {
   const started = Date.now();
   const done = (code: string, driverCode?: string) =>
     procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
+  // The gate is asked once the call's input has fully arrived (tRPC reads it lazily and remembers it):
+  // a caller who stalls a POST body never gets as far as the gate, so it never holds a place in the
+  // API's busy cap (x3). An unreadable body is left for the input parser to answer.
+  if (procedureGate) await getRawInput().catch(() => undefined);
   const refused = refusal(path, type);
   if (refused) {
     const mapped = toTrpcError(refused);
@@ -247,6 +257,7 @@ export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next })
   }
   let result;
   try {
+    if (ctx.limits && type !== 'subscription') await ctx.limits.check({ path, type, personId: ctx.auth?.sub ?? null, ip: ctx.client?.ip ?? null });
     result = await next();
   } catch (err) {
     const mapped = toTrpcError(err);
@@ -294,10 +305,17 @@ async function allowedFor(ctx: AppContext, personId: string, roles: readonly Rol
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, next }) => {
+  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
     if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
+    if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
+      try {
+        await ctx.limits.checkStaff({ path, type, personId: actor.personId, ip: ctx.client?.ip ?? null });
+      } catch (err) {
+        throw toTrpcError(err);
+      }
+    }
     return next({ ctx: { ...ctx, actor } });
   });
 }

@@ -96,6 +96,7 @@ scripts/             demo-api.mjs (+ demo/*.mjs sections), web-shots.mjs (+ shot
 - **Staff invites** (`app/staff/index.tsx`, `StaffSheets`): a waiting invite reads "دعوة مرسلة إلى 0780 ••• 3344" and when it went
   out; its sheet resends (`merchantAdmin.staff.resendInvite`, once per 10 min) or cancels it.
 - Shots: `SHOTS=followups` (`scripts/shots/followups.mjs`).
+- Print redesign «الريل» (`docs/api/merchant-print.md`): papers `node scripts/print-shots.mjs <out>`, printer screen `SHOTS=print`.
 
 ## Copy
 
@@ -144,7 +145,10 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 ```
 
 Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board), `0770 999 0000` staff at two
-stores (picker), `0770 555 0000` no store (gate). The board section seeds 3 new orders (a group order
+stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate), `0770 777 0001`
+أبو حسن, owner of a new shop that is not set up yet (see «جهّز محلك» below). مصطفى and
+علي accept, add time, reject and mark ready on the seeded orders and mark dishes sold out, so the
+owner's «مين سوّى شنو» card (يومك → اليوم) has names. The board section seeds 3 new orders (a group order
 for 3 people with notes, a cash one, a prepaid one), 2 preparing, 2 ready, 87,500 دينار cash balance
 and a disconnected printer. New orders auto-reject after 90 s as in production:
 `POST /demo/board/fresh` puts 3 fresh ones on the board; `POST /demo/board/missed?count=2` adds orders
@@ -154,6 +158,20 @@ that just timed out (the "طلبات فاتتك" strip, the "فاتك اليوم
 minute, one group order with an allergy and a courier note). Shots: `SHOTS=rush`. The board opens
 behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
 keepGate: true })` keeps it for a shot).
+
+Shop picks from the server (`docs/api/shop-load.md`, `scripts/demo/shop-load.mjs`, shots `SHOTS=shop-server`):
+`POST /demo/shop/crowd?count=12` accepts 12 more orders (15+ waiting → «زحمة تلقائية», `count=0`
+cancels them); `POST /demo/shop/remake?on=1` readies an order 12 minutes ago with its courier still on
+the way («أعدنا تسويه»; remake pay is on since Ali's 2026-10-08 yes, `on=0` switches it off in the demo
+process only). The
+h5 pause («متوقف للزباين») is the app's own count from its last answered heartbeat (kept on the device
+as `driver.merchant.beat`); the shots stop the API from answering on a fake clock.
+
+Minimum app version (CORE-05, `docs/api/app-version.md`): native builds send `x-driver-app:
+merchant/<store version>` on every call and the live stream (`src/lib/app-version.ts`); an
+`update_required` answer swaps the whole app for «حدّث التطبيق» (`features/update/UpdateRequired.tsx`)
+until a restart, with no retries and no stream. The demo API refuses merchant builds below 0.0.2, and
+a dev-tools web export opened with `?demoBuild=0.0.1` reports that build. Shots: `SHOTS=app-version`.
 
 ## Native notes
 
@@ -209,6 +227,25 @@ keepGate: true })` keeps it for a shot).
   courier حيدر, plate واسط 45671, waited `waited` minutes; returns its `number`),
   `/demo/signature/balance?kind=owed|owe` (87,500 owed or "عليك 4,250"), `/demo/signature/day-summary`
   (closes the store for the day). Shots: `SHOTS=signature`.
+
+## «جهّز محلك» — a new shop's first day (`/setup`)
+
+- A shop with no storefront yet (signed up by field ops, not opened) starts setup on its first read
+  (`merchant.setup.*`, `orgs.setup`): it stays closed — customers can't see or order — until the owner
+  raises his own shutter. Shops from before setup (every other demo shop) never see any of it.
+- `/setup` is the entry (the activation SMS links here): his own shop page as customers will see it, gaps
+  lit saffron, the ring «جاهز 40%» and minutes left, one next step and «بعدين» (never blocks work). Steps:
+  what he sells (`/setup/kind`, the 4 doors; the kind sets the words and the colour), the menu as
+  yes/fix cards from the wall photo (`/setup/menu`; nothing goes live before «صح»), a photo for every dish
+  (`/setup/photos`; Driver library photos count and show customers «صورة توضيحية»), hours in one tap with
+  Friday prayer (`/setup/hours`), the counter (`/setup/counter`: sound, screen awake, pickup spot, how the
+  money reaches him, printer optional, a practice order), then the shutter (`/setup/open`) and «مبروك».
+  The board keeps a «جهّز محلك» card (phone: in «جديد»; tablet: beside «الطلبات تجي هنا»), المحل marks
+  what is «ناقص», and the first real order wears a gold ribbon. Staff never see setup.
+- Demo (`scripts/demo/setup.mjs`): `0770 777 0001` «أبو حسن», owner of مشويات الزهراء — field ops left
+  the pickup photo and the menu photo, read into 14 cards. `POST /demo/setup/reset` (a fresh shop again),
+  `/demo/setup/stage?to=fresh|cards|ready|live` (`cards`: kind confirmed, 10 cards answered; `ready`:
+  every step done, shutter down), `/demo/setup/first-order` (a live shop's first order). Shots: `SHOTS=setup`.
 
 ## Real time (`live.merchantBoard`)
 

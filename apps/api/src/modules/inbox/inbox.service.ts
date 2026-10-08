@@ -52,12 +52,16 @@ export const INBOX_START_EVENTS = [
   'trip.unreachable_escalated',
   'khat.sweep_missed',
   'seat.pin_alert',
+  'order.stuck',
+  'courier.cash_over_cap',
+  'support.ticket_opened',
   'driver.document_submitted',
   'merchant.onboarding_drafted',
 ] as const;
 
 /** The events that end a problem (the row closes by itself, outcome `auto`), or take it. */
 export const INBOX_END_EVENTS = [
+  'support.resolved',
   'sos.acknowledged',
   'sos.resolved',
   'sos.cancelled',
@@ -74,6 +78,8 @@ export const INBOX_END_EVENTS = [
   'order.rejected',
   'khat.sweep_alert_cleared',
   'khat.sweep_alert_closed',
+  'order.unstuck',
+  'courier.cash_under_cap',
   'driver.document_reviewed',
   'merchant.activated',
   'merchant.onboarding_rejected',
@@ -81,10 +87,13 @@ export const INBOX_END_EVENTS = [
 
 const KIND_AR: Record<InboxKind, string> = {
   sos: 'طوارئ',
+  safety_report: 'بلاغ سلامة',
   no_driver: 'محد أخذ المشوار',
   store_silent: 'مطعم ما يرد',
   late: 'طلب متأخر',
   unreachable: 'الدليفري ما يوصل للزبون',
+  stuck: 'طلب معلّق',
+  cash_cap: 'دليفري عبر حد الكاش',
   sweep: 'فحص السيارة الفارغة بالخطوط',
   pin_alert: 'رمز مقعد غلط',
   approval: 'موافقة',
@@ -98,9 +107,8 @@ const fact = (v: unknown): string | number | boolean | null =>
  * The Today list (Console E1, CON-12). Hears the outbox: a problem's first event opens its row (one
  * per kind and subject), its end closes the row by itself; the desk takes, hands over, snoozes and
  * closes rows (always with an outcome), each change audited. Rows hold ids and short facts; staff
- * names come through `StaffNames` (logged vault reads, cached). Kinds with no event yet (a low
- * rating, a courier over his cash cap, a stuck order) are not here; they need events in their own
- * modules first.
+ * names come through `StaffNames` (logged vault reads, cached). A low rating (`order.rated`) opens
+ * no row: the "case only on repeat" rule (s3) waits on Ali, and low ratings stay in support until then.
  */
 @Injectable()
 export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDestroy {
@@ -158,6 +166,20 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
               subjectKind: 'incident',
               subjectId: id,
               facts: facts({ role: p['role'], subject: p['subjectKind'] }),
+            }
+          : null;
+      }
+      case 'support.ticket_opened': {
+        // Only safety cases (incident tickets: unsafe driving, a phoned-in near miss) reach Today; the
+        // rest of support keeps its own queue. Handled and closed in support, as today (y1 off).
+        const id = str(p['ticketId']);
+        return id && p['kind'] === 'incident'
+          ? {
+              ...base,
+              kind: 'safety_report',
+              subjectKind: 'ticket',
+              subjectId: id,
+              facts: facts({ channel: p['channel'] }),
             }
           : null;
       }
@@ -228,6 +250,31 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
             }
           : null;
       }
+      case 'order.stuck': {
+        const id = e.orderId ?? str(p['orderId']);
+        return id
+          ? {
+              ...base,
+              orderId: id,
+              kind: 'stuck',
+              subjectKind: 'order',
+              subjectId: id,
+              facts: facts({ reason: p['reason'] }),
+            }
+          : null;
+      }
+      case 'courier.cash_over_cap': {
+        const id = str(p['courierId']);
+        return id
+          ? {
+              ...base,
+              kind: 'cash_cap',
+              subjectKind: 'courier',
+              subjectId: id,
+              facts: facts({ cashIqd: p['cashIqd'], capIqd: p['capIqd'] }),
+            }
+          : null;
+      }
       case 'driver.document_submitted': {
         const id = str(p['documentId']);
         return id
@@ -292,6 +339,8 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
       case 'sos.resolved':
       case 'sos.cancelled':
         return closeSubject('sos', str(p['incidentId']));
+      case 'support.resolved':
+        return closeSubject('safety_report', str(p['ticketId']));
       case 'dispatch.assigned':
       case 'dispatch.cancelled':
       case 'trip.accepted':
@@ -315,6 +364,10 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
       case 'khat.sweep_alert_cleared':
       case 'khat.sweep_alert_closed':
         return closeSubject('sweep', str(p['alertId']));
+      case 'order.unstuck':
+        return closeSubject('stuck', e.orderId ?? str(p['orderId']));
+      case 'courier.cash_under_cap':
+        return closeSubject('cash_cap', str(p['courierId']));
       case 'driver.document_reviewed':
         return closeSubject('approval', str(p['documentId']));
       case 'merchant.activated':

@@ -1,10 +1,14 @@
 import { Pressable, Switch, View } from 'react-native';
-import { Button, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { EntryTile } from '@/components/EntryTile';
 import { Page } from '@/components/Page';
 import { testChime } from '@/lib/alert-sound';
 import { useT } from '@/lib/i18n';
 import { prefs, usePrefs, type AppLocale } from '@/lib/prefs';
+import { router } from 'expo-router';
+import { learn } from '@/features/board/learn';
+import { useStartPractice } from '@/features/board/LearnCards';
 import { color } from '@driver/design-tokens';
 
 function Toggle({ value, onChange, testID }: { value: boolean; onChange: (v: boolean) => void; testID: string }) {
@@ -26,7 +30,13 @@ export default function Settings() {
   const theme = useTheme();
   const t = useT();
   const p = usePrefs();
-  const toast = useToast();
+  const toast = useCounterToast();
+  const startPractice = useStartPractice();
+  /** Back to the orders, where the lesson or the practice order shows. */
+  const toBoard = (go: () => void) => {
+    go();
+    router.navigate('/');
+  };
   const test = async () => {
     const ok = await testChime();
     if (!ok) toast.show({ message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });
@@ -53,6 +63,11 @@ export default function Settings() {
         trailing={<Button testID="test-sound-play" label={t('merchant.settings.test_sound_play')} icon="bell" variant="secondary" size="sm" onPress={() => void test()} />}
       />
       <EntryTile icon="printer" title={t('merchant.settings.auto_print')} trailing={<Toggle testID="setting-autoprint" value={p.autoPrint} onChange={(v) => void prefs.setAutoPrint(v)} />} />
+      {/* s6: bigger ticket type, for a tablet read from across the kitchen. */}
+      <EntryTile icon="receipt" title={t('merchant.settings.big_text')} hint={t('merchant.settings.big_text_hint')} trailing={<Toggle testID="setting-bigtext" value={p.bigText} onChange={(v) => void prefs.setBigText(v)} />} />
+      {/* s1 / s2: the one-minute lesson and the practice order, any time. */}
+      <EntryTile icon="bulb" testID="settings-lesson" title={t('merchant.settings.lesson')} hint={t('merchant.settings.lesson_hint')} onPress={() => toBoard(() => learn.showAgain())} />
+      <EntryTile icon="bell" testID="settings-practice" title={t('merchant.settings.practice')} hint={t('merchant.settings.practice_hint')} onPress={() => toBoard(startPractice)} />
       <View style={{ gap: theme.space[2] }}>
         <Text variant="label" color="textMuted">
           {t('merchant.settings.language')}

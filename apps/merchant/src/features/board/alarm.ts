@@ -21,7 +21,10 @@ let lastChimeAt = 0;
 let finalBuzzing = false;
 const EMPTY: AlarmPlan = { ringing: [], snoozed: [], stage: null, mostUrgent: null, snoozeEndsAt: null, closed: [] };
 let plan: AlarmPlan = EMPTY;
+/** What the screens draw from (h3): changes when the set of orders or the stage changes, not every second. */
+let shown: AlarmPlan = EMPTY;
 let planKey = '';
+let secondsKey = '';
 let candidates: RingCandidate[] = [];
 /** The store is closed (by hand or out of hours): waiting orders show, nothing rings (m6a). */
 let storeClosed = false;
@@ -41,6 +44,14 @@ const subscribe = (cb: () => void) => {
     listeners.delete(cb);
   };
 };
+/** The per-second countdowns («باقي 12 ث»), for the one strip that shows them (h3). */
+const secondListeners = new Set<() => void>();
+const subscribeSeconds = (cb: () => void) => {
+  secondListeners.add(cb);
+  return () => {
+    secondListeners.delete(cb);
+  };
+};
 
 /** New orders that should ring (partial accepts wait for the customer, not the kitchen). */
 export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
@@ -48,13 +59,22 @@ export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
 }
 
 function publish(next: AlarmPlan) {
-  const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.mostUrgent?.msLeft === null || !next.mostUrgent ? '' : Math.ceil(next.mostUrgent.msLeft / 1000), next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  const seconds = next.mostUrgent?.msLeft == null ? '' : String(Math.ceil(next.mostUrgent.msLeft / 1000));
   plan = next;
   if (key !== planKey) {
     planKey = key;
+    shown = next;
     emit();
   }
+  if (seconds !== secondsKey) {
+    secondsKey = seconds;
+    for (const l of secondListeners) l();
+  }
 }
+
+/** Seconds left on the most urgent order, or null. */
+const urgentSeconds = (): number | null => (plan.mostUrgent?.msLeft == null ? null : Math.max(0, Math.ceil(plan.mostUrgent.msLeft / 1000)));
 
 function quiet() {
   setLoop(false);
@@ -120,13 +140,23 @@ export const alarm = {
     chime(STAGE_VOLUME.calm);
     vibrate(VIBRATION.calm);
   },
-  plan: () => plan,
+  /** The plan as the screens draw it; `mostUrgent.msLeft` there is not live (use `useUrgentSeconds`). */
+  plan: () => shown,
   handling: () => handling,
   subscribe,
 };
 
 export function useAlarmPlan(): AlarmPlan {
   return useSyncExternalStore(subscribe, alarm.plan, alarm.plan);
+}
+
+/**
+ * «آخر 12 ثانية»: seconds left on the most urgent order, live while `active` (null otherwise, so the
+ * caller doesn't re-render for a countdown it isn't showing).
+ */
+export function useUrgentSeconds(active = true): number | null {
+  const get = () => (active ? urgentSeconds() : null);
+  return useSyncExternalStore(subscribeSeconds, get, get);
 }
 
 /** Orders whose sheet is open (quiet while the cook decides). */

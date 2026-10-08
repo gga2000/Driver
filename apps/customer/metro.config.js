@@ -37,17 +37,36 @@ let localeSubset = null;
 const subsetLocales = () =>
   (localeSubset ??= require('./scripts/locale-subset.cjs').writeCustomerLocales({ repoRoot: workspaceRoot, outDir: path.join(projectRoot, 'node_modules/.cache/customer-locale') }));
 const LOCALE_FILE = /^\.\/locales\/(ar-IQ|en)\.json$/;
+// Speed w5: the production website ships an empty English table and loads the words as their own small
+// file (`@driver/i18n/en-words`, src/lib/english.web.ts) only when someone picks English. Phones keep it inline.
+const EN_WORDS = '@driver/i18n/en-words';
+// A checked-in file, not one written at build time: Metro only bundles files it saw when it started.
+const EMPTY_ENGLISH = path.join(projectRoot, 'src/lib/english-empty.json');
 
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  const locale = process.env.NODE_ENV === 'production' ? LOCALE_FILE.exec(moduleName) : null;
-  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  const production = process.env.NODE_ENV === 'production';
+  if (moduleName === EN_WORDS) return { type: 'sourceFile', filePath: production ? subsetLocales().en : path.join(workspaceRoot, 'packages/i18n/src/locales/en.json') };
+  const locale = production ? LOCALE_FILE.exec(moduleName) : null;
+  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) {
+    if (platform === 'web' && locale[1] === 'en') return { type: 'sourceFile', filePath: EMPTY_ENGLISH };
+    return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  }
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
   if (pkg) {
     const origin = path.join(projectRoot, 'package.json');
     return (upstream ?? context.resolveRequest)({ ...context, originModulePath: origin }, moduleName, platform);
   }
   return (upstream ?? context.resolveRequest)(context, moduleName, platform);
+};
+
+// Startup (perf k1): each module is loaded the first time it is used instead of all at launch
+// (Expo leaves this off). Code that must run at launch whatever screen opens is imported for its side
+// effects in `index.js`, which Metro never defers.
+const upstreamTransformOptions = config.transformer.getTransformOptions;
+config.transformer.getTransformOptions = async (...args) => {
+  const base = upstreamTransformOptions ? await upstreamTransformOptions(...args) : {};
+  return { ...base, transform: { ...base.transform, inlineRequires: true } };
 };
 
 module.exports = config;

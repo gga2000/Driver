@@ -11,6 +11,8 @@ import { InMemoryNotifyRepository } from '../notify/notify.repository.js';
 import { NotifyService } from '../notify/notify.service.js';
 import { DevPushProvider } from '../notify/providers/push.js';
 import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
+import { InMemoryConsoleWatchRepository } from './console-watch.repository.js';
+import { ConsoleWatchService } from './console-watch.service.js';
 import { InMemoryOnCallRepository } from './on-call.repository.js';
 import { OnCallService } from './on-call.service.js';
 
@@ -34,7 +36,8 @@ const STAFF = [
 ];
 const T0 = '2026-10-09T21:00:00Z';
 
-function harness() {
+/** `watchCities`: the cities whose Console watches itself (none by default, so the SOS tests stay quiet). */
+function harness(watchCities: readonly string[] = []) {
   const clock = new FakeClock(T0);
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -79,6 +82,16 @@ function harness() {
   const controls = new InMemoryControlsRepository();
   const audits = new AuditLogService(controls, new StaffNames(identity, clock), clock);
   const repo = new InMemoryOnCallRepository();
+  const watchRepo = new InMemoryConsoleWatchRepository();
+  const watch = new ConsoleWatchService(
+    watchRepo,
+    repo,
+    { cities: watchCities, consoleBase: 'https://console.driver.iq' },
+    identity,
+    notify,
+    ev.uow,
+    clock,
+  );
   const make = () =>
     new OnCallService(
       repo,
@@ -89,6 +102,7 @@ function harness() {
       audits,
       ev.uow,
       clock,
+      watch,
     );
   const svc = make();
   svc.onModuleInit();
@@ -135,7 +149,9 @@ function harness() {
       startsAt: new Date(new Date(T0).getTime() + fromSec * 1000),
       endsAt: new Date(new Date(T0).getTime() + toSec * 1000),
     });
-  return { svc, make, repo, clock, ev, vault, controls, emit, raise, at, sent, shift };
+  const whats = async (personId: string) =>
+    (await nrepo.log({ personId, limit: 100 })).map((d) => d.payload.params['what']);
+  return { svc, make, repo, watchRepo, clock, ev, vault, controls, emit, raise, at, sent, shift, whats };
 }
 
 describe('OnCallService — the SOS ladder (CON-02)', () => {
@@ -211,6 +227,21 @@ describe('OnCallService — the SOS ladder (CON-02)', () => {
     expect(await h.svc.ladder(HAIDER, { alertId: 'sos_a' })).toMatchObject({ unanswered: false });
     expect(await h.svc.ladder(HAIDER, { alertId: 'sos_b' })).toMatchObject({ unanswered: false });
     expect(await h.at(90)).toEqual({ rings: 0, onCall: 0 });
+  });
+
+  it("says what the SOS is about in the SOS's own label when it sends one, the ticket otherwise", async () => {
+    const h = harness();
+    await h.shift('p_noor', 1);
+    await h.emit('sos.raised', 'sos_lab', {
+      role: 'customer',
+      subjectKind: 'trip',
+      subjectLabel: 'مشوار خاص',
+    });
+    await h.raise('sos_plain');
+    await h.at(60);
+    const whats = await h.whats('p_noor');
+    expect(whats).toContain('مشوار خاص');
+    expect(whats.some((w) => /^طلب #\d+$/.test(w ?? ''))).toBe(true);
   });
 
   it('with nobody on the roster, reaches the admins on every channel instead (never an empty list)', async () => {
@@ -381,5 +412,77 @@ describe('OnCallService — the staff list', () => {
       ['p_omar', 'عمر ك.'],
     ]);
     expect(h.vault).toHaveLength(5);
+  });
+});
+
+describe('ConsoleWatchService — the Console watching itself', () => {
+  /** 06:00 city time on 10 Oct (T0 is midnight). */
+  const SIX = 6 * 3600;
+  const tab = (h: ReturnType<typeof harness>, tabId: string, live: 'live' | 'fallback' | 'connecting' | 'stopped', who = HAIDER) =>
+    h.svc.present(who, { cityId: 'aziziyah', tabId, live });
+
+  it('tells the admins once when nobody opened the Console by 06:05, and stops when a screen opens', async () => {
+    const h = harness(['aziziyah']);
+    await h.at(3 * 3600); // 03:00: outside the hours, nobody on call
+    await h.at(SIX + 299);
+    expect(await h.sent('p_ali')).toEqual([]);
+    await h.at(SIX + 300);
+    expect(await h.sent('p_ali')).toEqual([
+      'console_unwatched_alert:push',
+      'console_unwatched_alert:whatsapp',
+    ]);
+    expect(await h.sent('p_haider')).toEqual([]);
+    await h.at(SIX + 400); // still nobody: no second page
+    expect(await h.sent('p_ali')).toHaveLength(2);
+    expect((await h.watchRepo.openFor('aziziyah')).map((a) => [a.kind, a.paged])).toEqual([
+      ['unwatched', 1],
+    ]);
+
+    await tab(h, 'tab_haider_1', 'stopped');
+    await h.at(SIX + 410);
+    expect(await h.watchRepo.openFor('aziziyah')).toEqual([]);
+
+    // The screen closes (last seen at +400); five minutes after that it is a new gap and pages again.
+    await h.at(SIX + 699);
+    expect(await h.sent('p_ali')).toHaveLength(2);
+    await h.at(SIX + 700);
+    expect(await h.sent('p_ali')).toHaveLength(4);
+  });
+
+  it('at night, only while someone is on call, and it tells them, not the admins', async () => {
+    const h = harness(['aziziyah']);
+    await h.at(3 * 3600);
+    expect(await h.sent('p_ali')).toEqual([]);
+    await h.shift('p_haider', 1, 'sos', 3 * 3600, 5 * 3600);
+    await h.at(3 * 3600 + 300);
+    expect(await h.sent('p_haider')).toContain('console_unwatched_alert:whatsapp');
+    expect(await h.sent('p_ali')).toEqual([]);
+  });
+
+  it('when every screen has had live updates stopped for a minute: the red bar and one page', async () => {
+    const h = harness(['aziziyah']);
+    const beat = async (sec: number, a: 'live' | 'fallback', b: 'live' | 'fallback' = a) => {
+      h.clock.set(new Date(new Date(T0).getTime() + sec * 1000));
+      await tab(h, 'tab_haider_1', a);
+      await tab(h, 'tab_sara_1', b, { personId: 'p_sara', sessionId: 's-s' });
+      await tab(h, 'tab_ali_1', 'stopped', ALI); // a page without live updates is not counted
+      return h.at(sec);
+    };
+    await beat(SIX, 'live');
+    await beat(SIX + 30, 'fallback', 'live'); // one screen still live: fine
+    await beat(SIX + 60, 'fallback');
+    await beat(SIX + 119, 'fallback');
+    expect(await h.sent('p_ali')).toEqual([]);
+    await beat(SIX + 120, 'fallback');
+    expect(await h.sent('p_ali')).toEqual([
+      'console_live_down_alert:push',
+      'console_live_down_alert:whatsapp',
+    ]);
+    const watch = await tab(h, 'tab_haider_1', 'fallback');
+    expect(watch.open.map((a) => a.kind)).toEqual(['live_down']);
+
+    await beat(SIX + 150, 'live', 'fallback');
+    expect((await tab(h, 'tab_haider_1', 'live')).open).toEqual([]);
+    expect(await h.sent('p_ali')).toHaveLength(2);
   });
 });

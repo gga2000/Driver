@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, View } from 'react-native';
 import type { MerchantDispute } from '@driver/contracts';
-import { Button, EmptyState, ModalSheet, Skeleton, Text, TextField, useTheme, useToast, type StatusTone } from '@driver/ui';
+import { Button, EmptyState, ModalSheet, Skeleton, Text, TextField, useTheme, type StatusTone } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Panel, Tag } from '@/components/Panel';
 import { apiErrorMessage } from '@/lib/api';
@@ -10,7 +12,7 @@ import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { canSendAnswer, disputeClock, lateMinutes, ticketNumber, type DisputeClock } from './logic';
-import { absoluteUploadUrl, pickPhoto, uploadPhoto, type PickedPhoto } from './photo';
+import { absoluteUrl, pickPhotos, uploadPhoto, type PickedPhoto } from '@/features/menu/photo';
 import { usePhotoTicket, useRespondDispute } from './queries';
 
 const KIND_ICON: Record<MerchantDispute['kind'], MIconName> = {
@@ -132,7 +134,7 @@ function DisputeSheet({ merchantOrgId, dispute: d, now, onClose }: { merchantOrg
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
-  const toast = useToast();
+  const toast = useCounterToast();
   const respond = useRespondDispute();
   const ticket = usePhotoTicket();
   const clock = disputeClock(d, now);
@@ -171,7 +173,12 @@ function DisputeSheet({ merchantOrgId, dispute: d, now, onClose }: { merchantOrg
   }
 
   const addPhoto = async () => {
-    const picked = await pickPhoto();
+    const list = await pickPhotos('camera');
+    if (list === 'denied') {
+      toast.show({ message: t('merchant.item.photo_denied'), tone: 'warning' });
+      return;
+    }
+    const picked = list?.[0];
     if (!picked) return;
     setUploading(true);
     try {
@@ -299,7 +306,7 @@ function DisputeSheet({ merchantOrgId, dispute: d, now, onClose }: { merchantOrg
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {[...d.evidence.photos, ...(d.response?.photoUrls ?? [])].map((u) => (
-              <Image key={u} source={{ uri: absoluteUploadUrl(u) }} style={{ width: 96, height: 96, borderRadius: 14, backgroundColor: theme.colors.surfaceSunken }} />
+              <Image key={u} source={{ uri: absoluteUrl(u) }} style={{ width: 96, height: 96, borderRadius: 14, backgroundColor: theme.colors.surfaceSunken }} />
             ))}
           </View>
         </View>

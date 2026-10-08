@@ -1,12 +1,14 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { formatClock } from '@driver/i18n';
 import { Icon, PhotoImage, Text, useTheme, withAlpha } from '@driver/ui';
 import { measure } from '@/features/food/FlyToCart';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
+import type { FoodPhotoSource } from '@/features/food-landing/photos';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { AMBIENT_PLAY_MS, useAmbient } from './ambient';
@@ -17,7 +19,7 @@ import { potUntilAt } from './habits';
 /** A dish's picture: the kitchen's own photo when it has one, else a real photo from the dish library (null: none). */
 export interface DishPhoto {
   uri: string | null;
-  local: number | null;
+  local: FoodPhotoSource | null;
 }
 
 /** Space between slides while one slides in over the other. */
@@ -278,7 +280,7 @@ function Slide({
           {uri ? (
             <PhotoImage uri={uri} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} />
           ) : photo?.local != null ? (
-            <Image source={photo.local} resizeMode="cover" accessible={false} style={{ width: '100%', height: '100%' }} />
+            <FoodPhoto photo={photo.local} style={{ width: '100%', height: '100%' }} />
           ) : null}
         </View>
         {/* Dark at the foot for the words, a breath of it at the top for the tag; the dish clear between. */}

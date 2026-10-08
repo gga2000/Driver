@@ -5,8 +5,8 @@ import type { Actor } from './identity-io.js';
  * The Today list (Console build plan E1, CON-12): one row per problem, so nothing falls through.
  *
  * Rows are opened by the server from domain events (an SOS, a trip nobody took, a shop that went
- * quiet, a late order, a courier who can't reach the door, a document or a new shop waiting, a خطوط
- * empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
+ * quiet, a late order, a courier who can't reach the door, an order on the stuck list, a courier over
+ * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
  * is delivered, someone took the trip, the SOS is resolved); otherwise a person closes it, always with
  * an outcome. Anyone on a desk can take a row (it is then theirs), hand it to someone, snooze it for a
  * few minutes or close it. The row keeps ids and short facts only; names are read from the vault when
@@ -14,10 +14,13 @@ import type { Actor } from './identity-io.js';
  */
 export const INBOX_KINDS = [
   'sos',
+  'safety_report',
   'no_driver',
   'store_silent',
   'late',
   'unreachable',
+  'stuck',
+  'cash_cap',
   'sweep',
   'pin_alert',
   'approval',
@@ -28,13 +31,16 @@ export type InboxKind = z.infer<typeof InboxKind>;
 /** Most urgent first: the list sorts by this, then oldest first. */
 export const INBOX_PRIORITY: Record<InboxKind, number> = {
   sos: 0,
-  sweep: 1,
-  pin_alert: 2,
-  no_driver: 3,
-  unreachable: 4,
-  store_silent: 5,
-  late: 6,
-  approval: 7,
+  safety_report: 1,
+  sweep: 2,
+  pin_alert: 3,
+  no_driver: 4,
+  unreachable: 5,
+  stuck: 6,
+  store_silent: 7,
+  late: 8,
+  cash_cap: 9,
+  approval: 10,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -45,11 +51,13 @@ export const InboxSubjectKind = z.enum([
   'onboarding',
   'sweep_alert',
   'pin_attempt',
+  'courier',
+  'ticket',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 
 /** Rows a person can't close here: they close when the problem is closed where it lives (the SOS desk, the خطوط check). */
-export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'sweep'];
+export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'safety_report', 'sweep'];
 
 /** Who reads the list, and who works it (finance reads only). */
 export const INBOX_READ_ROLES = ['admin', 'dispatcher', 'support', 'field_ops', 'finance'] as const;

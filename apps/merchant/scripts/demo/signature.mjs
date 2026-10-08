@@ -57,12 +57,12 @@ export default async function register(ctx) {
     }
     const lines = [await ctx.line(khalid, 'tikka_plate', 1, { choose: ['نفرين'] }), await ctx.line(khalid, 'water', 2)];
     const o = await orders.place(`demo-pass-${Date.now().toString(36)}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, paymentMethod: 'cash', dropoff: HOME, lines });
-    await orders.merchantAccept('demo-staff', { orderId: o.id, prepMinutes: 10 });
+    await orders.merchantAccept(ctx.people.multi.id, { orderId: o.id, prepMinutes: 10 });
     const who = await courier();
     const trip = await tripOf(o.id);
     const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: who, reason: 'demo' });
     await dispatch.respond({ personId: who, sessionId: 'demo' }, { offerId, accept: true });
-    await orders.markReady('demo-staff', { orderId: o.id });
+    await orders.markReady(ctx.people.ali.id, { orderId: o.id });
     await trips.reportPosition(who, { tripId: trip.id, pin: kitchen, at: new Date(), bearing: 90, speedKmh: 0 });
     const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
     await trips.arrive(trip.id, pickup.id, who, { pin: kitchen });

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   AlertLadder,
   AlertLadderInput,
+  ConsolePresentInput,
+  ConsoleWatch,
   ON_CALL_EDIT_ROLES,
   ON_CALL_READ_ROLES,
   OnCallAddInput,
@@ -43,4 +45,9 @@ export const onCallRouter = router({
   staff: protectedProcedure(ON_CALL_EDIT_ROLES)
     .output(z.array(OnCallStaff))
     .query(({ ctx }) => ctx.onCall.staff(ctx.actor)),
+  /** Every open staff screen, every 30 s: "I'm here", and how its live updates are doing. */
+  present: protectedProcedure(ON_CALL_READ_ROLES)
+    .input(ConsolePresentInput)
+    .output(ConsoleWatch)
+    .mutation(({ ctx, input }) => ctx.onCall.present(ctx.actor, input)),
 });

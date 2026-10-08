@@ -1,5 +1,5 @@
 import { motifForDish, type Motif } from '@/features/food/food-art';
-import { distinctPhotos, photoForMotif } from '@/features/food-landing/photos';
+import { distinctPhotos, photoForMotif, type FoodPhotoSource } from '@/features/food-landing/photos';
 
 /* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles assets through require() */
 /**
@@ -55,11 +55,23 @@ export function dishKind(name: string): Motif | null {
  * home has it, else the food landing's photo of that dish. A photo of another dish never stands in, so
  * what you see is what comes; a dish with none gets null and home leaves it to its menu.
  */
-export function dishPhoto(name: string): number | null {
+export function dishPhoto(name: string): FoodPhotoSource | null {
   const own = BY_NAME.find(([re]) => re.test(name))?.[1];
   if (own !== undefined) return own;
   const kind = dishKind(name);
   return kind ? photoForMotif(kind) : null;
+}
+
+/**
+ * The photo a past order shows on home's card: its first dish that has a photo of that very dish, and
+ * that photo's kind (so the kitchens below pick another). Null when none has one: the card draws it.
+ */
+export function orderPhoto(items: readonly { name: string }[]): { photo: NonNullable<ReturnType<typeof dishPhoto>>; kind: Motif | null } | null {
+  for (const it of items) {
+    const photo = dishPhoto(it.name);
+    if (photo !== null) return { photo, kind: dishKind(it.name) };
+  }
+  return null;
 }
 
 /**
@@ -89,7 +101,7 @@ const KITCHEN_KIND: Partial<Record<Motif, Motif>> = {
  * repeats a photo already showing higher on the page (`showing`: the dishes' stand-in kinds) or the
  * row above. Null for a kind with no fair photo: that kitchen shows its warm drawing.
  */
-export function kitchenPhotos(motifs: readonly Motif[], showing: readonly Motif[] = []): (number | null)[] {
+export function kitchenPhotos(motifs: readonly Motif[], showing: readonly Motif[] = []): (FoodPhotoSource | null)[] {
   const kinds = motifs.map((m) => KITCHEN_KIND[m] ?? null);
   const photos = distinctPhotos([...showing, ...kinds.filter((k): k is Motif => k !== null)]).slice(showing.length);
   let next = 0;

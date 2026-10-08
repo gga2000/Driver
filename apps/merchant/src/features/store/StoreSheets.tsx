@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { EarlyCloseReason, type MerchantBalanceView, type StoreStatusView } from '@driver/contracts';
-import { Button, ModalSheet, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { EarlyCloseReason, MERCHANT_BUSY_RULES, type BusyExtraMinutes, type MerchantBalanceView, type StoreStatusView } from '@driver/contracts';
+import { Button, ModalSheet, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import { COUNTER } from '@/lib/counter';
 import { clock12, minutesLeft } from '@/lib/time';
+import { endOfDayClose, OTHER_LENGTHS } from '@/features/shop/pauses';
+import { AutoBusyNote } from '@/features/board/ShopLoadParts';
+import type { AutoBusy } from '@/features/board/shop-load';
 import { useRequestSettlement, useStoreSwitches } from './queries';
 
 const CLOSE_ICON: Record<EarlyCloseReason, MIconName> = {
@@ -18,18 +23,29 @@ const CLOSE_ICON: Record<EarlyCloseReason, MIconName> = {
   other: 'chat',
 };
 
-/** Close early with a reason (edge-case decisions: early-close reason). */
-export function CloseStoreSheet({ status, visible, onClose }: { status: StoreStatusView; visible: boolean; onClose: () => void }) {
+/** Says what closing did: back by itself at a time, «عاشت إيدك» at the end of the day (j4), or just closed. */
+export function closedToast(t: ReturnType<typeof useT>, reason: EarlyCloseReason, minutes: number | null, now: number): string {
+  if (minutes !== null) return t('merchant.shop.paused_toast', { time: clock12(now + minutes * 60_000) });
+  return endOfDayClose(reason, minutes, now) ? t('merchant.shop.thanks_toast') : t('merchant.status.closed_toast');
+}
+
+/**
+ * Close with a reason (edge-case decisions: early-close reason). From المحل (`lengths`) it also asks for
+ * how long («نص ساعة · ساعة · ساعتين · لحد ما أفتحه»): the server opens the shop again by itself.
+ */
+export function CloseStoreSheet({ status, visible, onClose, lengths = false }: { status: StoreStatusView; visible: boolean; onClose: () => void; lengths?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { setOpen } = useStoreSwitches();
   const [reason, setReason] = useState<EarlyCloseReason | null>(null);
+  const [length, setLength] = useState<number | null>(null);
   const [note, setNote] = useState('');
   useEffect(() => {
     if (visible) {
       setReason(null);
+      setLength(null);
       setNote('');
     }
   }, [visible]);
@@ -37,8 +53,8 @@ export function CloseStoreSheet({ status, visible, onClose }: { status: StoreSta
   const submit = async () => {
     if (!reason) return;
     try {
-      await setOpen.mutateAsync({ merchantOrgId: status.merchantOrgId, open: false, reason, ...(note.trim() ? { note: note.trim() } : {}) });
-      toast.show({ message: t('merchant.status.closed_toast'), tone: 'neutral', icon: 'clock' });
+      await setOpen.mutateAsync({ merchantOrgId: status.merchantOrgId, open: false, reason, ...(note.trim() ? { note: note.trim() } : {}), ...(length !== null ? { pauseMinutes: length } : {}) });
+      toast.show({ message: closedToast(t, reason, length, Date.now()), tone: 'neutral', icon: 'clock' });
       onClose();
     } catch (err) {
       toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
@@ -84,26 +100,55 @@ export function CloseStoreSheet({ status, visible, onClose }: { status: StoreSta
           );
         })}
       </View>
+      {lengths ? (
+        <>
+          <Text variant="title">{t('merchant.shop.length_q')}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+            {OTHER_LENGTHS.map((m) => {
+              const selected = length === m;
+              return (
+                <Pressable
+                  key={m ?? 'hand'}
+                  testID={`close-length-${m ?? 'hand'}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setLength(m)}
+                  style={{ flexBasis: '47%', flexGrow: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[3], borderRadius: theme.radius.lg, borderWidth: selected ? 2 : 1, borderColor: selected ? theme.colors.text : theme.colors.border, backgroundColor: selected ? theme.colors.surfaceSunken : theme.colors.surface }}
+                >
+                  <Text variant="bodyStrong">{m === null ? t('merchant.shop.length_hand') : m < 60 ? t('merchant.common.minutes', { minutes: m }) : m === 60 ? t('merchant.shop.length_hour') : t('merchant.shop.length_two_hours')}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
       <TextField value={note} onChangeText={setNote} placeholder={t('merchant.status.close_note')} maxLength={200} />
     </ModalSheet>
   );
 }
 
-/** Busy mode: explain +10 for an hour, switch it on or off. */
-export function BusySheet({ status, visible, onClose, now }: { status: StoreStatusView; visible: boolean; onClose: () => void; now: number }) {
+/**
+ * Busy mode: +10 or +20 for an hour (Ali 2026-10-08, r5). Switching on, the shop picks how many
+ * minutes (+10 is preselected, the old behaviour); switched on, the sheet says which and when it ends.
+ */
+export function BusySheet({ status, visible, onClose, now, auto = null }: { status: StoreStatusView; visible: boolean; onClose: () => void; now: number; /** l4: the automatic busy (15 waiting), explained under the switch. */ auto?: AutoBusy | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { setBusy } = useStoreSwitches();
+  const [extra, setExtra] = useState<BusyExtraMinutes>(10);
+  useEffect(() => {
+    if (visible) setExtra(10);
+  }, [visible]);
   if (!visible) return null;
   const on = status.busy.on;
   const toggle = async () => {
     try {
-      const s = await setBusy.mutateAsync({ merchantOrgId: status.merchantOrgId, on: !on });
+      const s = await setBusy.mutateAsync(on ? { merchantOrgId: status.merchantOrgId, on: false } : { merchantOrgId: status.merchantOrgId, on: true, extraMinutes: extra });
       toast.show(
         s.busy.on
-          ? { message: t('merchant.busy_mode_on', { minutes: s.busy.extraPrepMinutes }), tone: 'warning', icon: 'clock' }
+          ? { message: t('merchant.busy.on_toast', { minutes: s.busy.extraPrepMinutes }), tone: 'warning', icon: 'clock' }
           : { message: t('merchant.busy_mode_off'), tone: 'success' },
       );
       onClose();
@@ -120,7 +165,7 @@ export function BusySheet({ status, visible, onClose, now }: { status: StoreStat
       footer={
         <Button
           testID="busy-toggle"
-          label={on ? t('merchant.busy.turn_off') : t('merchant.busy.turn_on')}
+          label={on ? t('merchant.busy.turn_off') : t('merchant.busy.turn_on_minutes', { minutes: extra })}
           variant={on ? 'secondary' : 'primary'}
           size="lg"
           fullWidth
@@ -129,21 +174,74 @@ export function BusySheet({ status, visible, onClose, now }: { status: StoreStat
         />
       }
     >
-      <View style={{ alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2] }}>
-        <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: on ? theme.colors.warningTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
-          <MIcon name="flame" size={40} color={on ? 'warning' : 'textMuted'} />
-        </View>
-        <Text variant="numeralSm" color={on ? 'warningText' : 'text'}>
-          {'\u2066+10\u2069'}
-        </Text>
-        <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 420 }}>
-          {t('merchant.busy.sheet_body')}
-        </Text>
-        {on && status.busy.until ? (
-          <Text variant="label" weight={600} color="warningText" tabular>
-            {`${t('merchant.busy.ends_at', { time: clock12(status.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(status.busy.until, now) })}`}
+      {on ? (
+        <View style={{ alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2] }}>
+          <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: COUNTER.busy, alignItems: 'center', justifyContent: 'center' }}>
+            <MIcon name="flame" size={40} color={COUNTER.onBusy} />
+          </View>
+          <Text testID="busy-extra" variant="numeralSm" color="warningText">
+            {`\u2066+${status.busy.extraPrepMinutes}\u2069`}
           </Text>
-        ) : null}
+          <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 420 }}>
+            {t('merchant.busy.sheet_body_on', { minutes: status.busy.extraPrepMinutes })}
+          </Text>
+          {status.busy.until ? (
+            <Text variant="label" weight={600} color="warningText" tabular>
+              {`${t('merchant.busy.ends_at', { time: clock12(status.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(status.busy.until, now) })}`}
+            </Text>
+          ) : null}
+        </View>
+      ) : (
+        <View style={{ gap: theme.space[3] }}>
+          <Text variant="title">{t('merchant.busy.pick_title')}</Text>
+          <View style={{ flexDirection: 'row', gap: theme.space[3] }} accessibilityRole="radiogroup">
+            {MERCHANT_BUSY_RULES.extraChoices.map((m) => {
+              const selected = extra === m;
+              return (
+                <Pressable
+                  key={m}
+                  testID={`busy-pick-${m}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${t('merchant.common.minutes', { minutes: m })} · ${t(m === 10 ? 'merchant.busy.pick_10_hint' : 'merchant.busy.pick_20_hint')}`}
+                  onPress={() => {
+                    theme.haptic('selection');
+                    setExtra(m);
+                  }}
+                  style={{
+                    flex: 1,
+                    minHeight: 112,
+                    borderRadius: theme.radius.lg,
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? COUNTER.onBusy : theme.colors.border,
+                    backgroundColor: selected ? COUNTER.busy : COUNTER.paper,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                    paddingVertical: theme.space[3],
+                    paddingHorizontal: theme.space[2],
+                  }}
+                >
+                  <Text weight={700} tabular style={{ fontSize: 32, lineHeight: 40, color: COUNTER.onBusy }}>
+                    {`\u2066+${m}\u2069`}
+                  </Text>
+                  <Text variant="caption" style={{ color: COUNTER.onBusy }}>
+                    {t('merchant.accept.minutes_unit')}
+                  </Text>
+                  <Text variant="label" weight={600} align="center" style={{ color: selected ? COUNTER.onBusy : COUNTER.date }}>
+                    {t(m === 10 ? 'merchant.busy.pick_10_hint' : 'merchant.busy.pick_20_hint')}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text variant="body" color="textMuted">
+            {t('merchant.busy.sheet_body_pick', { minutes: extra })}
+          </Text>
+        </View>
+      )}
+      <View style={{ marginTop: theme.space[4] }}>
+        <AutoBusyNote auto={auto} />
       </View>
     </ModalSheet>
   );
@@ -161,7 +259,7 @@ export function CashSheet({ merchantOrgId, balance, visible, onClose }: { mercha
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const request = useRequestSettlement();
   if (!visible) return null;
   const amount = balance?.balanceIqd ?? 0;

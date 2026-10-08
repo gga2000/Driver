@@ -1,43 +1,34 @@
-import { View } from 'react-native';
 import type { OrderHistoryRow } from '@driver/contracts';
-import { Card, formatClock, Text, useTheme } from '@driver/ui';
+import { formatClock } from '@driver/ui';
 import { dayKey } from '@/features/orders/history';
-import { dayLabel, OrderArt } from '@/features/orders/OrderRow';
+import { dayLabel } from '@/features/orders/OrderRow';
 import { itemsSummary } from '@/features/orders/reorder';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { GoMark } from './UsualCard';
+import { SlotCard } from './SlotCard';
 
 /**
  * "اطلب نفس الطلب" on home (audit C-15): the last meal that reached the door, by restaurant and
  * dishes, one tap to put it back in the cart at today's prices (the reorder sheet explains changes).
  */
-export function ReorderCard({ row, now, busy, onReorder }: { row: OrderHistoryRow; now: Date; busy: boolean; onReorder: () => void }) {
-  const theme = useTheme();
+export function ReorderCard({ row, now, photo, busy, onReorder }: { row: OrderHistoryRow; now: Date; photo: number | string | null; busy: boolean; onReorder: () => void }) {
   const t = useT();
   const day = dayKey(row.order.placedAt, now);
   const when = day.kind === 'today' ? `${dayLabel(t, day)} ${formatClock(row.order.placedAt)}` : dayLabel(t, day);
   const summary = itemsSummary(row.items, 2);
   return (
-    <Card testID="home-reorder" padding={3} onPress={busy ? undefined : onReorder} accessibilityLabel={`${t('home.reorder')}: ${row.merchantName ?? ''}، ${summary}`}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <OrderArt row={row} size={52} />
-        <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
-          <Text variant="caption" weight={600} color="accentText">
-            {t('home.reorder')}
-          </Text>
-          <Text variant="bodyStrong" numberOfLines={1}>
-            {row.merchantName}
-          </Text>
-          <Text variant="footnote" color="textMuted" numberOfLines={1}>
-            {summary}
-          </Text>
-          <Text variant="caption" color="textMuted" tabular numberOfLines={1}>
-            {t('home.reorder_meta', { when, amount: amountParam(row.order.totalIqd) })}
-          </Text>
-        </View>
-        <GoMark busy={busy} testID="home-reorder-go" />
-      </View>
-    </Card>
+    <SlotCard
+      testID="home-reorder"
+      kicker={t('home.reorder_kicker')}
+      row={row}
+      dishes={summary}
+      meta={t('home.reorder_meta', { when, amount: amountParam(row.order.totalIqd) })}
+      photo={photo}
+      action={t('home.again')}
+      actionIcon="refresh"
+      busy={busy}
+      onPress={onReorder}
+      accessibilityLabel={`${t('home.reorder')}: ${row.merchantName ?? ''}، ${summary}`}
+    />
   );
 }

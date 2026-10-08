@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, useWindowDimensions, View } from 'react-native';
 import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
-import { agoText, Button, Card, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
+import { agoText, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
 import { secondsSince } from '@driver/contracts/net-client';
 import { SectionHeader } from '@/components/SectionHeader';
 import { Screen } from '@/components/Screen';
@@ -27,7 +27,7 @@ import { bandTitleKey, bandWords, daypart, kitchenRank } from '@/features/home/d
 import type { BandBasket } from '@/features/home/DaypartBand';
 import { HOUR_PICKS } from '@/features/home/gallery';
 import { HourFood, useHourFood } from '@/features/home/HourFood';
-import { dishKind } from '@/features/home/dish-photos';
+import { dishKind, orderPhoto } from '@/features/home/dish-photos';
 import { useHomeIntro } from '@/features/home/intro';
 import { useUsuals } from '@/features/home/habit-queries';
 import { fridayAhead, usualNow } from '@/features/home/habits';
@@ -40,7 +40,7 @@ import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
-import { KitchenRows, KitchenRowsSkeleton } from '@/features/home/KitchenRows';
+import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { lastReorderable } from '@/features/orders/history';
@@ -146,10 +146,16 @@ export default function Home() {
   const foodOff = !loading && !!list && open.length === 0;
   const cards = homeContext({ active: Boolean(active.data), rajaaTrip: Boolean(rajaaTrip.data), reorder: Boolean(last), friday: Boolean(friday), usual: Boolean(usual) });
   // The kitchen the card above already offers: the hour's food shows it last, not a fourth time.
-  const offered = cards.includes('usual') ? usual?.row.order.merchantOrgId : cards.includes('friday') ? friday?.usual.row.order.merchantOrgId : cards.includes('reorder') ? last?.order.merchantOrgId : null;
-  const hour = useHourFood({ picks: picks.data, picksPending: picks.isPending, words: bandWords(dp), later: offered ?? null, now });
-  // The stand-in photos the hour's dishes show, so the kitchens below pick others.
-  const showing = useMemo(() => [...hour.food.slides, ...hour.food.more].flatMap((h) => (h.dish.photoUrl ? [] : [dishKind(h.dish.name)].filter((k) => k !== null))), [hour.food]);
+  const slotRow = cards.includes('usual') ? usual?.row : cards.includes('friday') ? friday?.usual.row : cards.includes('reorder') ? last : null;
+  const offered = slotRow?.order.merchantOrgId ?? null;
+  // The card's dish photo, picked once here so the gallery and the kitchens below don't show it again.
+  const slotPhoto = useMemo(() => (slotRow ? orderPhoto(slotRow.items) : null), [slotRow]);
+  const hour = useHourFood({ picks: picks.data, picksPending: picks.isPending, words: bandWords(dp), later: offered, taken: slotPhoto?.photo ?? null, now });
+  // The stand-in photos the card and the hour's dishes show, so the kitchens below pick others.
+  const showing = useMemo(
+    () => [...(slotPhoto?.kind ? [slotPhoto.kind] : []), ...[...hour.food.slides, ...hour.food.more].flatMap((h) => (h.dish.photoUrl ? [] : [dishKind(h.dish.name)].filter((k) => k !== null)))],
+    [hour.food, slotPhoto],
+  );
 
   // The basket on home (Ali's Yes, "addfly"): the band's + drops a dish in and it flies to the bar.
   const cart = useCart();
@@ -246,11 +252,11 @@ export default function Home() {
         {/* «رجعني للبيت», or the way back from where the last ride went (ride ideas w3, a4): itself decides. */}
         <RideHomeCard />
         {cards.includes('rajaa_trip') ? <RajaaCard hour={dp.hour} /> : null}
-        {cards.includes('friday') && friday ? <FridayCard ahead={friday} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
-        {cards.includes('usual') && usual ? <UsualCard usual={usual} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}
+        {cards.includes('friday') && friday ? <FridayCard ahead={friday} photo={slotPhoto?.photo ?? null} busy={reorder.busyOrderId === friday.usual.row.order.id} onBook={() => void reorder.start(friday.usual.row, { scheduledFor: friday.slot.at })} /> : null}
+        {cards.includes('usual') && usual ? <UsualCard usual={usual} photo={slotPhoto?.photo ?? null} busy={reorder.busyOrderId === usual.row.order.id} onOrder={() => void reorder.start(usual.row)} /> : null}
         {cards.includes('reorder') && last ? (
           <Animated.View entering={rise(3)}>
-            <ReorderCard row={last} now={now} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} />
+            <ReorderCard row={last} now={now} photo={slotPhoto?.photo ?? null} busy={reorder.busyOrderId === last.order.id} onReorder={() => void reorder.start(last)} />
           </Animated.View>
         ) : null}
         {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
@@ -270,41 +276,18 @@ export default function Home() {
               {loading ? (
                 <KitchenRowsSkeleton />
               ) : failed && !list ? (
-                <Card lift padding={4}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                    <Icon name="x" size={20} color="dangerText" />
-                    <Text variant="label" style={{ flex: 1 }}>
-                      {t('home.load_failed')}
-                    </Text>
-                    <Button size="sm" variant="secondary" label={t('action.retry')} onPress={retry} />
-                  </View>
-                </Card>
+                <KitchenNote testID="home-food-failed" art={<NoteMark icon="x" color="dangerText" />} title={t('home.load_failed')} action={{ label: t('action.retry'), onPress: retry }} />
               ) : night.first ? (
-                <Card lift padding={4} testID="home-night">
-                  <View style={{ gap: theme.space[4] }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-                      <NightMoon />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text variant="title" face="display">
-                          {t('home.night_title')}
-                        </Text>
-                        <Text variant="footnote" color="textMuted">
-                          {t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
-                        </Text>
-                      </View>
-                    </View>
-                    <Button label={t('home.night_menu')} onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })} testID="home-night-menu" />
-                  </View>
-                </Card>
+                <KitchenNote
+                  testID="home-night"
+                  art={<NightMoon />}
+                  title={t('home.night_title')}
+                  line={t('home.night_first', { name: night.first.name, time: night.first.opensAt ?? '' })}
+                  hint={t('home.night_menu')}
+                  onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: night.first!.id } })}
+                />
               ) : (
-                <Card lift padding={4}>
-                  <View style={{ gap: theme.space[3], alignItems: 'center' }}>
-                    <Text variant="label" color="textMuted" align="center">
-                      {t('home.rail_empty')}
-                    </Text>
-                    <Button size="sm" variant="secondary" label={t('action.see_all')} onPress={() => router.push('/restaurants')} />
-                  </View>
-                </Card>
+                <KitchenNote testID="home-food-empty" art={<NoteMark icon="food" />} title={t('home.rail_empty')} action={{ label: t('action.see_all'), onPress: () => router.push('/restaurants') }} />
               )}
             </>
           )}

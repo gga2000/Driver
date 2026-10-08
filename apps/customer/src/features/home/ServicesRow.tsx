@@ -1,11 +1,11 @@
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
-import { CornerFill, Icon, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { CornerFill, Icon, LocalPhoto, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/logic';
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
@@ -305,9 +305,11 @@ function Picture({
   const at: ViewStyle = place.bottom !== undefined ? { bottom: place.bottom } : { top: 0, bottom: 0, justifyContent: 'center' };
   return (
     <Animated.View testID={testID} pointerEvents="none" style={[{ position: 'absolute', end: place.end, width: place.width, opacity: off ? 0.4 : 1 }, at, style]}>
-      {/* The box holds the shape (an image left to size itself takes the file's own pixels on the web). */}
-      <View style={{ width: '100%', aspectRatio: picture.aspect, transform: turn.length ? turn : undefined }}>
-        <Image source={picture.source} accessible={false} accessibilityIgnoresInvertColors importantForAccessibility="no" resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+      {/* The box holds the shape (an image left to size itself takes the file's own pixels on the web). Not
+          `eager`: a guest's welcome screen draws home behind it for a moment, and on the web these five
+          pictures then wait instead of downloading for nothing (speed w2); on home they still come at once. */}
+      <View accessibilityIgnoresInvertColors style={{ width: '100%', aspectRatio: picture.aspect, transform: turn.length ? turn : undefined }}>
+        <LocalPhoto source={picture.source} fit="contain" style={{ width: '100%', height: '100%' }} />
       </View>
       {children}
     </Animated.View>

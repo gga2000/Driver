@@ -51,14 +51,14 @@ export function pickStore<T extends { orgId: string }>(stores: readonly T[] | un
   return { access: 'pick', store: null };
 }
 
-/** Navigation sections; every route belongs to one (the rail/tab highlights it). */
-export type Section = 'orders' | 'menu' | 'money' | 'insights' | 'more';
+/** Navigation sections; every route belongs to one (the rail/tab highlights it). `money` is «يومك», `more` is «المحل». */
+export type Section = 'orders' | 'menu' | 'money' | 'more';
 
 const SECTION_OF: Record<string, Section> = {
   index: 'orders',
   menu: 'menu',
   money: 'money',
-  insights: 'insights',
+  insights: 'money',
   more: 'more',
   deals: 'more',
   staff: 'more',
@@ -71,6 +71,7 @@ const SECTION_OF: Record<string, Section> = {
   story: 'more',
   settings: 'more',
   chat: 'orders',
+  setup: 'more',
 };
 
 export function sectionOf(segments: readonly string[]): Section | null {
@@ -83,5 +84,5 @@ export function sectionOf(segments: readonly string[]): Section | null {
 export function isSectionRoot(segments: readonly string[]): boolean {
   const first = segments[0] ?? 'index';
   if (segments.length > 1 && segments[1] !== 'index') return false;
-  return first === 'index' || first === 'menu' || first === 'money' || first === 'insights' || first === 'more';
+  return first === 'index' || first === 'menu' || first === 'money' || first === 'more';
 }

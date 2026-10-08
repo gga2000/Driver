@@ -39,7 +39,7 @@ interface ErrorDef {
   message_en?: string;
   retryHint: RetryHint;
   /** tRPC / HTTP class the transport maps the code to. */
-  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR' | 'SERVICE_UNAVAILABLE';
 }
 
 /** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
@@ -50,6 +50,8 @@ export const ERROR_TABLE = {
   not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   invalid_input: { retryHint: 'never', status: 'BAD_REQUEST' },
   internal: { i18n: 'error.server', retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },
+  // x3: this server machine is full right now; the call was never run, so it is always safe to repeat.
+  server_busy: { retryHint: 'now', status: 'SERVICE_UNAVAILABLE' },
   dev_only: { retryHint: 'never', status: 'FORBIDDEN' },
 
   // partner & merchant wave 2 (driverAccount, khat, fleet, ops, merchantAdmin)
@@ -92,6 +94,8 @@ export const ERROR_TABLE = {
   staff_last_owner: { retryHint: 'never', status: 'CONFLICT' },
   staff_invite_not_pending: { retryHint: 'never', status: 'CONFLICT' },
   store_hours_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «جهّز محلك»: going live (or opening) with steps still open.
+  setup_not_ready: { retryHint: 'never', status: 'CONFLICT' },
 
   // launch control room (kill switches, throttle, banner, approvals, support desk)
   service_paused: { retryHint: 'later', status: 'CONFLICT' },

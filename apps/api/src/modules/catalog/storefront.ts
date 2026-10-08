@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, DISH_LABELS, servesOf, type DeliveryPoint, type DishLabel, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
+import { AZIZIYAH_ZONES, DISH_LABELS, localClock, servesOf, type DeliveryPoint, type DishLabel, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import type { AvailabilityWindow, CatalogItemRecord } from './catalog.repository.js';
 import { photoLink, type PhotoLink } from './photos.js';
 
@@ -58,6 +58,12 @@ export function twelveHour(hhmm: string): string {
   const h = Math.floor(total / 60) % 24;
   const m = total % 60;
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}`;
+}
+
+/** A moment as the shutter writes it in the store's time zone: «1:15» (a quick pause's reopening). */
+export function localTwelveHour(at: Date, timeZone: string): string {
+  const m = localClock(at, timeZone).minutes;
+  return twelveHour(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 }
 
 /** The next opening window's start after `at` (local) and the minutes until it, within a week; null when none. */
@@ -168,6 +174,8 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     modifierGroups: groups,
     serves: servesOf(item.servesMin, item.servesMax),
     labels: (item.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+    // «جهّز محلك»: a library photo is shown as «صورة توضيحية» until the kitchen's own photo replaces it.
+    ...(item.photoLibrary && item.photoUrl ? { photoIllustrative: true } : {}),
   };
 }
 

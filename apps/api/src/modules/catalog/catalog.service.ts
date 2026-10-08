@@ -255,9 +255,30 @@ export class CatalogService {
     return this.repo.priceChanges(itemId, tx);
   }
 
-  async replacePhoto(orgId: string, itemId: string, photoUrl: string, tx?: Tx): Promise<CatalogItemRecord> {
+  /**
+   * `shopUpload`: the shop took this photo itself (p4, Ali 2026-10-08) — it shows to customers at once
+   * and waits for Driver's same-day look; Driver's own photos (library, menu photo service) do not.
+   */
+  async replacePhoto(orgId: string, itemId: string, photoUrl: string, tx?: Tx, photoLibrary: string | null = null, shopUpload = false): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
-    return this.changed(this.repo.updateItem(itemId, { photoUrl }, tx));
+    // A new photo of his own ends the library's «صورة توضيحية»; setup passes the library slug.
+    const photoReviewPendingAt = shopUpload && photoLibrary === null ? this.clock.now() : null;
+    return this.changed(this.repo.updateItem(itemId, { photoUrl, photoLibrary, photoReviewPendingAt }, tx));
+  }
+
+  /**
+   * p4: dishes whose shop-uploaded photo still waits for Driver's look, oldest first — for the Console's
+   * review queue (another team wires the screen).
+   */
+  photoReviewQueue(limit = 200, tx?: Tx): Promise<CatalogItemRecord[]> {
+    return this.repo.photoReviewQueue(limit, tx);
+  }
+
+  /** p4: Driver's team looked at the photo (kept or replaced elsewhere): the dish leaves the queue. */
+  async markPhotoReviewed(itemId: string, tx?: Tx): Promise<CatalogItemRecord> {
+    const item = await this.repo.item(itemId, tx);
+    if (!item) throw new DriverError('menu_item_not_found');
+    return item.photoReviewPendingAt ? this.repo.updateItem(itemId, { photoReviewPendingAt: null }, tx) : item;
   }
 
   /** Creates (no `itemId`) or edits an item; a price edit goes through `updatePrice` for its history row. */
@@ -373,6 +394,23 @@ export class CatalogService {
     const job = await this.repo.importJob(jobId, tx);
     if (!job || job.orgId !== orgId) throw new DriverError('import_job_not_found');
     return job;
+  }
+
+  /**
+   * «جهّز محلك»: rows he typed (or the reader found) kept on the draft as yes/fix cards; nothing is
+   * created until he answers each one.
+   */
+  async saveImportDraft(orgId: string, jobId: string, items: readonly ImportedItemRecord[], tx?: Tx): Promise<MenuImportJobRecord> {
+    const job = await this.importJob(orgId, jobId, tx);
+    if (job.state !== 'draft') throw new DriverError('import_state_conflict');
+    return this.repo.updateImportJob(jobId, { items: [...items] }, tx);
+  }
+
+  /** «جهّز محلك»: every card answered; the draft closes as applied with the dishes he kept. */
+  async closeImport(orgId: string, jobId: string, appliedCount: number, tx?: Tx): Promise<MenuImportJobRecord> {
+    await this.importJob(orgId, jobId, tx);
+    if (!(await this.repo.claimImportJob(jobId, this.clock.now(), tx))) throw new DriverError('import_state_conflict');
+    return this.repo.updateImportJob(jobId, { appliedCount }, tx);
   }
 
   /** Applies the staff-corrected rows: one item each (with a first price-history row). */

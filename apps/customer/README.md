@@ -174,7 +174,8 @@ The demo API seeds the four launch restaurants (`@driver/contracts/seeds`, the s
 `pnpm db:seed` writes) and plays the kitchen: `DEMO_KITCHEN_MS` (default 20000, 0 = never)
 auto-accepts placed orders, `POST /demo/kitchen?orderId=…&action=accept|reject` decides one now,
 `GET /demo/seed` lists the restaurants' org ids. `POST /demo/quiet?on=1|0` turns a quiet day on or off
-for today (no delivered burst, success buzz or moment sounds). `web-shots.mjs` also runs the food flow
+for today (no delivered burst, success buzz or moment sounds). `POST /demo/night?on=1|0` puts the street to sleep
+(every kitchen closed now, each opening at a morning hour) so /food shows its night look. `web-shots.mjs` also runs the food flow
 (`food-*.png`: restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart);
 `SHOTS=food` (or the older `ONLY=food`) runs only that group, `DIST_DIR` points at another export.
 

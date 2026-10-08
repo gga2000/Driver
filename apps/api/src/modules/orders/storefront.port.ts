@@ -55,12 +55,12 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
     orgId: string,
     cityId: string,
     at: Date = new Date(),
-  ): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }>; busy?: boolean; closed?: boolean; holiday?: boolean }> {
+  ): Promise<{ location: DeliveryPoint | null; pauseWindows: Array<{ dow: number; start: string; end: string }>; busy?: boolean; closed?: boolean; reopensAt?: Date; holiday?: boolean }> {
     const p = await this.directory.profile(orgId);
     if (!p) return { location: null, pauseWindows: [...(CITY_PAUSE_WINDOWS[cityId] ?? [])] };
     // Busy mode and an early close from the Merchant app show on the customer's card too; so do a
     // tablet offline for 5 minutes (h5: paused, as `orders.place` refuses) and 15 orders waiting (l4: busy).
     const busy = busyExtraMinutes(p, at) > 0 || (this.load !== null && (await this.load.crowded(orgId, at)));
-    return { location: p.location, pauseWindows: p.pauseWindows, busy, closed: Boolean(p.closed) || tabletOffline(p, at), ...(p.holiday ? { holiday: true } : {}) };
+    return { location: p.location, pauseWindows: p.pauseWindows, busy, closed: Boolean(p.closed) || tabletOffline(p, at), ...(p.reopensAt ? { reopensAt: p.reopensAt } : {}), ...(p.holiday ? { holiday: true } : {}) };
   }
 }

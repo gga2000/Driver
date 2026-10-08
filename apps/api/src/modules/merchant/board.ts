@@ -1,5 +1,6 @@
 import {
   orderTicketNumber,
+  type BoardBill,
   type BoardColumn,
   type BoardCourier,
   type BoardGroup,
@@ -188,6 +189,22 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     handedOverAt: o.handedOverAt ?? null,
     // «عزيمة» (joy g1): the ticket prints no amounts when the sender hid the prices.
     gift: o.gift ?? null,
+    // Print redesign k2: the customer slip's amounts, never added up on the tablet; none for a hidden-price gift.
+    ...(o.gift?.hidePrices ? {} : { bill: billOf(o) }),
+  };
+}
+
+/** The order's money as the slip prints it (`BoardBill`): copied from the order, nothing recomputed. */
+export function billOf(o: Order): BoardBill {
+  return {
+    itemsIqd: o.itemsTotalIqd,
+    deliveryFeeIqd: o.deliveryFeeIqd,
+    serviceFeeIqd: o.serviceFeeIqd,
+    smallOrderFeeIqd: o.smallOrderFeeIqd ?? 0,
+    discountIqd: o.discountIqd,
+    pointsIqd: o.pointsIqd ?? 0,
+    changeIqd: o.changeIqd ?? 0,
+    totalIqd: o.totalIqd,
   };
 }
 

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { MerchantStaffRole, StaffMember } from '@driver/contracts';
-import { Avatar, Button, ModalSheet, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, ModalSheet, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { useDates } from '@/lib/dates';
 import { invitePhone, isLastOwner, resendWaitMinutes } from './logic';
 import { useStaffActions } from './queries';
@@ -44,8 +45,8 @@ export function RolePicker({ value, onChange, disabled }: { value: MerchantStaff
               opacity: disabled ? 0.5 : 1,
             }}
           >
-            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: r.role === 'merchant_owner' ? theme.colors.accentTint : theme.colors.infoTint, alignItems: 'center', justifyContent: 'center' }}>
-              <MIcon name={r.icon} size={20} color={r.role === 'merchant_owner' ? 'accentText' : 'infoText'} />
+            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: r.role === 'merchant_owner' ? theme.colors.accentTint : theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}>
+              <MIcon name={r.icon} size={20} color={r.role === 'merchant_owner' ? 'accentText' : 'text'} />
             </View>
             <View style={{ flex: 1 }}>
               <Text variant="bodyStrong">{t(r.title)}</Text>
@@ -68,7 +69,7 @@ export function InviteSheet({ merchantOrgId, visible, onClose }: { merchantOrgId
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { invite } = useStaffActions();
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<MerchantStaffRole>('merchant_staff');
@@ -127,10 +128,10 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { setRole, remove, resend } = useStaffActions();
   const dates = useDates();
-  const now = useServerNow(0, 15_000);
+  const now = useServerTime(15_000);
   const [role, setRoleState] = useState<MerchantStaffRole>('merchant_staff');
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {

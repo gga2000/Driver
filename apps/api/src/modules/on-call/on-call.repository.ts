@@ -9,6 +9,8 @@ export interface AlertBrief {
   role: string | null;
   subjectKind: string | null;
   orderId: string | null;
+  /** The SOS's own short label when it sends one («طلب أكل #123», «مشوار خاص»): kind and ticket, never a name. */
+  subjectLabel: string | null;
 }
 
 /** `alert_ladders` */
@@ -212,6 +214,7 @@ const ladderFrom = (r: any): LadderRecord => ({
     role: r.brief?.role ?? null,
     subjectKind: r.brief?.subjectKind ?? null,
     orderId: r.brief?.orderId ?? null,
+    subjectLabel: r.brief?.subjectLabel ?? null,
   },
   openedAt: r.openedAt,
   nextRingAt: r.nextRingAt,
