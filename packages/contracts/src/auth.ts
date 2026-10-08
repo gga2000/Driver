@@ -86,6 +86,7 @@ export const ACCESS_TOKEN_TTL_SEC = 15 * 60;
 export const REFRESH_TOKEN_TTL_SEC = 30 * 24 * 60 * 60;
 export const OTP_LENGTH = 6;
 export const OTP_MAX_ATTEMPTS = 5;
-export const OTP_TTL_SEC = 3 * 60;
+/** THIN-21: a sign-in code works for 5 minutes (the adopted rule; tries and lock-out unchanged). */
+export const OTP_TTL_SEC = 5 * 60;
 export const OTP_RESEND_SEC = 30;
 export const REVERIFY_AFTER_IDLE_DAYS = 120;

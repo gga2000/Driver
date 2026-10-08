@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNetwork } from '@driver/ui';
 import { onSoundState, soundState } from '@/lib/alert';
-import { gpsState, onForeground, pushState, watchBattery } from '@/lib/readiness-probe';
+import { batterySaverOn, gpsState, onForeground, pushState, watchBattery } from '@/lib/readiness-probe';
 import { readiness, type BatteryState, type GpsState, type PushState, type SoundState } from './readiness';
 
 /** Location and push can change outside the app; re-check this often while home is open. */
@@ -19,10 +19,12 @@ export function useReadiness(enabled: boolean) {
   const [sound, setSound] = useState<SoundState>(() => soundState());
   const [push, setPush] = useState<PushState>('n/a');
   const [battery, setBattery] = useState<BatteryState | null>(null);
+  const [saver, setSaver] = useState(false);
 
   const recheck = useCallback(() => {
     void gpsState().then(setGps);
     void pushState().then(setPush);
+    void batterySaverOn().then(setSaver);
     setSound(soundState());
   }, []);
 
@@ -47,6 +49,6 @@ export function useReadiness(enabled: boolean) {
     };
   }, [enabled, recheck]);
 
-  const r = readiness({ gps, net: net.state, sound, push, battery });
+  const r = readiness({ gps, net: net.state, sound, push, battery, saver });
   return { ...r, recheck, setGps, setSound };
 }

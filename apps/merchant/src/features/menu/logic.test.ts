@@ -22,6 +22,8 @@ import {
   setRequired,
   sortOrderForNew,
   toDraftGroups,
+  shelfRows,
+  trayColumns,
   withAvailability,
   withSoldOutToday,
   type DraftGroup,
@@ -173,5 +175,27 @@ describe('photo import', () => {
       problems: 1,
       blank: 1,
     });
+  });
+});
+
+describe('glass display columns', () => {
+  it('fits two trays on a phone and four to six on a tablet', () => {
+    expect(trayColumns(358, 10, false)).toBe(2);
+    expect(trayColumns(0, 10, false)).toBe(2);
+    expect(trayColumns(700, 14, true)).toBe(3);
+    expect(trayColumns(960, 14, true)).toBe(5);
+    expect(trayColumns(2000, 14, true)).toBe(6);
+  });
+});
+
+describe('menu shelf rows', () => {
+  it('puts each section title before its trays, cols to a row, and marks a section with none', () => {
+    const a = { key: 'grill', items: ['1', '2', '3', '4', '5'] };
+    const b = { key: 'new', items: [] as string[] };
+    const rows = shelfRows([a, b], 2);
+    expect(rows.map((r) => r.kind)).toEqual(['head', 'trays', 'trays', 'trays', 'head', 'empty']);
+    expect(rows[3]).toMatchObject({ items: ['5'], last: true });
+    expect(rows[1]).toMatchObject({ items: ['1', '2'], last: false });
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
   });
 });

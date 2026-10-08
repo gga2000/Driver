@@ -57,6 +57,7 @@ import {
   SelfieInput,
 } from '../routes-io.js';
 import { SafetyCallSession } from '../safety-io.js';
+import { OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from '../departure-staff-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Drivers who announce departures and offer on the request board. */
@@ -318,5 +319,28 @@ export const routesRouter = router({
       .input(UnhideReviewInput)
       .output(ReviewOpsView)
       .mutation(({ ctx, input }) => ctx.routes.unhideReview(ctx.actor, input)),
+    /**
+     * W3 / NTF-14: departures that need a person — the driver never came (past the latest departure
+     * time) or never pressed «وصلت» (past the expected arrival). Polled by the Console garage view.
+     */
+    overdueDepartures: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(OverdueDeparturesInput)
+      .output(z.array(OverdueDeparture))
+      .query(({ ctx, input }) => ctx.routes.overdueDepartures(ctx.actor, input)),
+    /** Cancel for a driver who never came: riders moved to the next cars, no fee (M-11 open), audit row. */
+    cancelDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsCancelDeparture(ctx.actor, input)),
+    /** «وصلت» on the driver's behalf: checked-in seats complete and settle as on his own tap; audit row. */
+    arriveDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsArriveDeparture(ctx.actor, input)),
+    /** Close an arrived departure now (the scheduler would after `closeAfterArrivalMin`); audit row. */
+    closeDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureInput)
+      .output(StaffDepartureResult)
+      .mutation(({ ctx, input }) => ctx.routes.opsCloseDeparture(ctx.actor, input)),
   }),
 });

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import type { StatementOrderLine, WeeklyStatement } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Button, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, IconButton, Skeleton, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { ModalSheet } from '@driver/ui';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
@@ -12,7 +13,7 @@ import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { statementBridge, statementDays, ticketNumber, type BridgeTerm } from './logic';
 
-const PAY_TONE = { cash: 'warning', wallet: 'info', prepaid: 'info' } as const;
+const PAY_TONE = { cash: 'warning', wallet: 'neutral', prepaid: 'neutral' } as const;
 
 /** الفلوس → كشف الأسبوع: per-order lines (Sunday-start week), totals, hand-overs and transfers, share. */
 export function StatementView({
@@ -36,7 +37,7 @@ export function StatementView({
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
-  const toast = useToast();
+  const toast = useCounterToast();
   const range = statement ? formatRange(dates.dayMonth(statement.from), dates.dayMonth(new Date(statement.to.getTime() - 1)), locale, { spaced: true }) : '';
 
   const share = async () => {
@@ -143,8 +144,8 @@ export function StatementView({
             .sort((a, b) => b.at.getTime() - a.at.getTime())
             .map((s, i) => (
               <PanelRow key={`${s.at.getTime()}-${i}`} first={i === 0}>
-                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: s.kind === 'payout' ? theme.colors.infoTint : theme.colors.successTint, alignItems: 'center', justifyContent: 'center' }}>
-                  <MIcon name={s.kind === 'payout' ? 'wallet' : 'cash'} size={20} color={s.kind === 'payout' ? 'infoText' : 'successText'} />
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: s.kind === 'payout' ? theme.colors.surfaceSunken : theme.colors.successTint, alignItems: 'center', justifyContent: 'center' }}>
+                  <MIcon name={s.kind === 'payout' ? 'wallet' : 'cash'} size={20} color={s.kind === 'payout' ? 'text' : 'successText'} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyStrong">{t(s.kind === 'payout' ? 'merchant.statement.payout' : 'merchant.statement.handover')}</Text>
@@ -294,7 +295,7 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
                     <Text variant="body" tabular color="textMuted">
                       {amountParam(-(l.dealIqd || l.discountIqd))}
                     </Text>
-                    <Text variant="caption" color="infoText">
+                    <Text variant="caption" color="textMuted">
                       {t(l.discountFunder === 'merchant' ? 'merchant.statement.discount_merchant' : 'merchant.statement.discount_platform')}
                     </Text>
                     {l.roundingIqd > 0 ? (

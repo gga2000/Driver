@@ -12,6 +12,9 @@
 //   app-*    welcome (+ -seat, -tuktuk: the map of home), phone, otp, setup, welcome-home (once after setup), home (+ -full), soon sheet, orders, profile
 //   acct-*   profile, place editor, wallet, household (+ -full)          POST /demo/account
 //   food-*   restaurant, item sheet, cart for two, checkout, waiting, rejection → carried cart
+//   battery-* CRIT3-01: the notifications screen's battery guide for a Xiaomi and a Huawei (`?maker=`, dev builds)
+//   partial-* BENCH-03: the kitchen has a dish out — the ask (opened from the push, names from the menu),
+//            the last seconds, then «أرسل الباقي» → the live order            POST /demo/active-order?accept=0, /demo/kitchen?action=partial
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
@@ -131,7 +134,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -214,8 +217,15 @@ try {
   ]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await shot('app-setup');
     await byTestId('setup-save').click();
     // The welcome-home moment (joy h7) plays once after setup: shot, then tapped away.
@@ -263,6 +273,8 @@ try {
   // Each flow starts from its own navigation, so any subset (SHOTS=…) runs in this order.
   if (wants('acct')) await acctShots(personId);
   if (wants('food')) await foodFlow(khalid);
+  if (wants('partial')) await partialShots(personId);
+  if (wants('battery')) await batteryShots();
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
   if (wants('driver')) await driverShots(personId);
@@ -435,8 +447,7 @@ async function simpleShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
-    await byTestId('setup-next').click();
-    await byTestId('setup-skip-place').click();
+    await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
       await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
@@ -527,8 +538,15 @@ async function freshSignIn(phoneNumber) {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أبو زهراء');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -811,8 +829,15 @@ async function laterShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم حيدر');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -920,8 +945,15 @@ async function habitsShots() {
   const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
   if (landed === 'setup') {
     await page.locator('[data-testid="setup-name"]').fill('أم علي');
-    await byTestId('setup-next').click();
-    await byTestId('chip-street_30').click();
+    // First place: drag the map a little so the pin settles (the zone list lives in أماكني now).
+    {
+      const box = await byTestId('place-map').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+      await page.mouse.up();
+      await settle(1000);
+    }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await byTestId('welcome-home').click();
@@ -933,14 +965,14 @@ async function habitsShots() {
   if (!personId) throw new Error('no person after sign-in');
   await demoPost(`/demo/usuals?personId=${encodeURIComponent(personId)}`);
   await page.reload(LOADED);
-  await byTestId('home-pots').waitFor({ timeout: 15_000 }).catch(() => errors.push('pots strip not shown'));
+  await byTestId('home-gallery').waitFor({ timeout: 15_000 }).catch(() => errors.push('hour gallery not shown'));
   await byTestId('home-usual').waitFor({ timeout: 15_000 }).catch(() => errors.push('usual card not shown'));
   await shot('habits-home');
   await fullShot('habits-home-full');
-  await byTestId('home-pot-follow-0').click();
+  // The hour's gallery in view: its one tour plays, then it rests on the first dish.
+  await byTestId('home-gallery').scrollIntoViewIfNeeded();
   await settle(900);
-  await byTestId('home-pots').scrollIntoViewIfNeeded();
-  await shot('habits-pot-followed');
+  await shot('habits-gallery');
 
   // Thursday 20:00 in Baghdad (the next one): «باچر الجمعة» for the Friday lunch usual.
   const local = new Date(Date.now() + 3 * 3_600_000);
@@ -1149,6 +1181,35 @@ async function foodFlow(khalid) {
   await page.locator('[data-testid^="suggest-move-"]').first().click();
   await page.locator('[data-testid="cart"]:visible').waitFor({ timeout: 15_000 });
   await shot('food-carried');
+}
+
+/** BENCH-03: a dish is out. The order is placed through the demo hook, so the ask reads names from the menu. */
+async function batteryShots() {
+  for (const maker of ['xiaomi', 'huawei']) {
+    await page.goto(`${origin}/profile/notifications?maker=${maker}`, LOADED);
+    await byTestId('battery-guide').waitFor({ timeout: 15_000 });
+    await settle();
+    await shot(`battery-${maker}`);
+  }
+}
+
+async function partialShots(personId) {
+  if (!personId) throw new Error('partial shots need a signed-in person');
+  const placed = await demoPost(`/demo/active-order?personId=${encodeURIComponent(personId)}&accept=0`);
+  if (!placed) return;
+  if (!(await demoPost(`/demo/kitchen?orderId=${placed.orderId}&action=partial`))) return;
+  await page.goto(`${origin}/kitchen/${placed.orderId}`, LOADED);
+  await byTestId('kitchen-partial').waitFor({ timeout: 15_000 });
+  await byTestId('kitchen-partial-total').waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(2500);
+  await shot('partial-ask');
+  await page.waitForTimeout(46_000); // the last 15 seconds turn the line to the warning colour
+  await shot('partial-ask-late');
+  await byTestId('kitchen-partial-send').click();
+  await page.waitForURL(/\/order\//, { timeout: 20_000 }).catch(() => errors.push('sending the rest did not open /order/[id]'));
+  await byTestId('status-line').waitFor({ timeout: 15_000 }).catch(() => errors.push('live order not shown after sending the rest'));
+  await page.waitForTimeout(2000);
+  await shot('partial-sent');
 }
 
 /**

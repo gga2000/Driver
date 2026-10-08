@@ -78,8 +78,14 @@ export const pushDevice: PushDevice = {
     return () => sub.remove();
   },
   onOpen(cb) {
-    const sub = Notifications.addNotificationResponseReceivedListener((r) => cb((r.notification.request.content.data ?? {}) as PushData));
+    const sub = Notifications.addNotificationResponseReceivedListener((r) => cb((r.notification.request.content.data ?? {}) as PushData, r.notification.request.identifier));
     return () => sub.remove();
+  },
+  async launchOpen() {
+    const r = await Notifications.getLastNotificationResponseAsync();
+    if (!r) return null;
+    await Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+    return { id: r.notification.request.identifier, data: (r.notification.request.content.data ?? {}) as PushData };
   },
   async openSettings() {
     await Linking.openSettings();

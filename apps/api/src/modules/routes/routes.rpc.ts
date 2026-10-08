@@ -3,6 +3,8 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   type Actor,
+  type OverdueDeparture,
+  type StaffDepartureResult,
   type CallSession,
   type BoardInput,
   type BoardingPass,
@@ -31,6 +33,7 @@ import {
 import { shortDisplayName } from '../identity/index.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
+import { DeparturesStaffService } from './departures.staff.js';
 import { directionFrom } from './intercity.config.js';
 import { riderMeterMinutes } from './late-meter.js';
 import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
@@ -77,6 +80,7 @@ export class RoutesRpc implements RoutesPort {
     @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
     @Optional() @Inject(ROUTES_CALLS) private readonly calls: RoutesCallPort | null = null,
     @Optional() @Inject(ROUTES_POINTS) private readonly points: RoutesPointsReader | null = null,
+    @Optional() @Inject(DeparturesStaffService) private readonly staff: DeparturesStaffService | null = null,
   ) {}
 
   /** Seats booked (held seats that were booked, any later state but cancelled) since `since` — launch wall. */
@@ -759,6 +763,29 @@ export class RoutesRpc implements RoutesPort {
   async unhideReview(actor: Actor, input: In<'unhideReview'>): Promise<ReviewOpsView> {
     const [view] = await this.reviewViews(actor, [await this.departures.unhideReview(actor.personId, input.bookingId)]);
     return view!;
+  }
+
+  // ── W3 staff way-outs (NTF-10, NTF-14) ──
+
+  async opsCancelDeparture(actor: Actor, input: In<'opsCancelDeparture'>): Promise<StaffDepartureResult> {
+    return this.staffOrThrow().cancel(actor, input);
+  }
+
+  async opsArriveDeparture(actor: Actor, input: In<'opsArriveDeparture'>): Promise<StaffDepartureResult> {
+    return this.staffOrThrow().arrive(actor, input);
+  }
+
+  async opsCloseDeparture(actor: Actor, input: In<'opsCloseDeparture'>): Promise<StaffDepartureResult> {
+    return this.staffOrThrow().close(actor, input);
+  }
+
+  async overdueDepartures(_actor: Actor, input: In<'overdueDepartures'>): Promise<OverdueDeparture[]> {
+    return this.staffOrThrow().overdue(input);
+  }
+
+  private staffOrThrow(): DeparturesStaffService {
+    if (!this.staff) throw new DriverError('internal');
+    return this.staff;
   }
 
   private async reviewViews(actor: Actor, rows: readonly BookingRecord[]): Promise<ReviewOpsView[]> {

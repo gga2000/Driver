@@ -3,7 +3,7 @@ export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, 
 export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrdersWalletPort, OrderTimerJob, OrdersReferralsPort } from './orders.service.js';
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';
-export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, vehicleRequirement } from './order.machine.js';
+export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, orderEventType, transitionsFor, vehicleRequirement } from './order.machine.js';
 export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, commissionPctOf } from './orders.config.js';
 export { InMemoryMerchantDirectory, MERCHANT_DIRECTORY } from './merchants.port.js';
 export type { MerchantDirectory, MerchantProfile } from './merchants.port.js';
@@ -37,3 +37,9 @@ export { OrderTipsService, ORDER_TIPPED_EVENT, TIP_RULES } from './tips.js';
 export { OrderComplimentsService, ORDER_COMPLIMENTED_EVENT } from './compliments.js';
 export { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, type ComplimentRecord } from './compliments.repository.js';
 export { newStartCode, startCodeForNewOrder } from './start-code.js';
+export { OrdersStaffService, ORDERS_STAFF_PORTS, PLATFORM_FAILURE_FEE } from './orders.staff.js';
+export type { OrdersStaffPorts, OrderEventLog, StaffLedgerPort, StaffAuditPort } from './orders.staff.js';
+export { OrdersStaffJob, ORDERS_STAFF_SWEEP_MS } from './orders.staff.job.js';
+export { CashLimits, CASH_LIMITS } from './cash-limits.js';
+export { ORDER_OUTCOME_RULES, DEFAULT_ORDER_OUTCOME_RULES, DISPUTE_OUTCOMES, outcomeRules, outcomeRulesFromEnv } from './outcomes.config.js';
+export type { OrderOutcomeRules, DisputeOutcome, CookedFoodPayer } from './outcomes.config.js';

@@ -197,6 +197,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   const wallets = new Map<string, number>();
   const placeOwners = new Map<string, string>();
   const placeDoors = new Map<string, { lat: number; lng: number }>();
+  /** FOOD-15: the server's pin → zone reading; unset = zones stay as sent (most tests). */
+  const placeZones: { resolve: ((cityId: string, pin: { lat: number; lng: number }) => string | null) | null } = { resolve: null };
   // Joy w4: households (payers, orderers, limits, budgets, approvals) on in-memory orgs.
   const orgs = new OrgsService(undefined, clock);
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
@@ -215,6 +217,10 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   }, {
     // Maps program SP3d: saved places by owner (`placeOwners.set(placeId, personId)`).
     deliveryPlace: async (personId, placeId) => (placeOwners.get(placeId) === personId ? { door: placeDoors.get(placeId) ?? null } : null),
+    get zones() {
+      const resolve = placeZones.resolve;
+      return resolve ? { resolve } : undefined;
+    },
   }, orgsHouseholds(orgs), eta);
   orders.onModuleInit();
   // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
@@ -296,5 +302,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     await deliver();
   }
 
-  return { clock, eta, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, eta, uow, orgs, placeOwners, placeDoors, placeZones, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }
