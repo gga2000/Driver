@@ -23,6 +23,8 @@ import { amountParam, iqd } from '@/lib/money';
 import { requireSignIn } from '@/lib/guest';
 import { useProfile } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
+import { useUiSwitch } from '@/lib/ui-switches';
+import { BasketScreen } from '@/features/food/BasketScreen';
 
 /**
  * Cart (spec §3): one kitchen, lines grouped by person once more than one person is tagged, swipe or
@@ -31,7 +33,12 @@ import { useSignedIn } from '@/lib/session';
  * deal comes from the server (`orders.quote`): its badge, what each line saves, the discount line, and
  * how much more unlocks a deal with a minimum.
  */
-export default function CartScreen() {
+export default function CartRoute() {
+  // After-order redesign step 1 (the basket as a tray) ships beside this screen behind its switch.
+  return useUiSwitch('basket_v2') ? <BasketScreen /> : <CartScreen />;
+}
+
+function CartScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();

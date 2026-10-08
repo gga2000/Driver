@@ -8,6 +8,8 @@ import { MAX_CONTENT_WIDTH, Screen } from '@/components/Screen';
 import { BookedRideRow } from '@/features/orders/BookedRideRow';
 import { canReorder, sectionByDay } from '@/features/orders/history';
 import { flattenHistory } from '@/features/orders/history-list';
+import { canOrderAgain, drawsAsFood, liveFirst, markLive } from '@/features/orders/orders-v2';
+import { FoodOrderRow, LiveOrderCard } from '@/features/orders/OrdersV2Parts';
 import { dayLabel, OrderRow } from '@/features/orders/OrderRow';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
 import { ReorderButton, useReorderFlow } from '@/features/orders/ReorderSheet';
@@ -17,6 +19,7 @@ import { TripRow } from '@/features/rajaa/TripRow';
 import { isBookedRide } from '@/features/ride-habits/logic';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
+import { useUiSwitch } from '@/lib/ui-switches';
 
 /**
  * طلباتي (audit C-15 / C-44): `orders.history` — what's running now pinned on top, then by day
@@ -36,6 +39,9 @@ function Orders() {
   const history = useOrderHistory();
   const me = useMyPersonId();
   const reorder = useReorderFlow();
+  // After-order Step 4 (`orders_v2`): kitchen rows get their dish and «اطلبه مرة ثانية», a running one a live card;
+  // rides, seats and parcels keep their own rows in the same place.
+  const v2 = useUiSwitch('orders_v2');
   const tick = useNow(true, 60_000);
   const now = useMemo(() => new Date(tick), [tick]);
   // r4: الرجعة seats live here too — coming trips pinned on top, past ones in their day.
@@ -70,14 +76,15 @@ function Orders() {
     setRefreshing(false);
   };
 
-  const items = useMemo(
-    () =>
-      flattenHistory(coming, sections, {
-        coming: (c) => (c.kind === 'ride' ? c.row.order.id : c.booking.id),
-        row: (r) => (r.kind === 'trip' ? r.booking.id : r.row.order.id),
-      }),
-    [coming, sections],
-  );
+  const items = useMemo(() => {
+    type Row = (typeof sections)[number]['rows'][number];
+    const kitchen = (r: Row) => r.kind === 'order' && drawsAsFood(r.row);
+    const flat = flattenHistory(coming, v2 ? sections.map((s) => (s.running ? { ...s, rows: liveFirst(s.rows, kitchen) } : s)) : sections, {
+      coming: (c) => (c.kind === 'ride' ? c.row.order.id : c.booking.id),
+      row: (r) => (r.kind === 'trip' ? r.booking.id : r.row.order.id),
+    });
+    return markLive(flat, (i) => v2 && i.type === 'row' && i.tint && kitchen(i.value));
+  }, [coming, sections, v2]);
   type Item = (typeof items)[number];
   const column = { width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' } as const;
   const gutter = theme.space[5];
@@ -124,10 +131,23 @@ function Orders() {
       );
     }
     const r = item.value;
+    if (item.live && r.kind === 'order') {
+      return (
+        <View style={{ marginBottom: theme.space[3] }}>
+          <LiveOrderCard row={r.row} />
+        </View>
+      );
+    }
     return (
       <View style={segment(item.tint, item.first, item.last)}>
         {r.kind === 'trip' ? (
           <TripRow booking={r.booking} network={network.data} now={now} divider={!item.last} />
+        ) : v2 && drawsAsFood(r.row) ? (
+          <FoodOrderRow
+            row={r.row}
+            divider={!item.last}
+            again={canOrderAgain(r.row, me) ? { loading: reorder.busyOrderId === r.row.order.id, onPress: () => void reorder.start(r.row) } : undefined}
+          />
         ) : (
           <OrderRow
             row={r.row}
@@ -201,7 +221,7 @@ function Orders() {
                 data={items}
                 renderItem={renderItem}
                 keyExtractor={(i) => i.key}
-                getItemType={(i) => (i.type === 'label' ? 'label' : i.type === 'coming' ? (i.value.kind === 'ride' ? 'ride' : 'seat') : i.value.kind)}
+                getItemType={(i) => (i.type === 'label' ? 'label' : i.type === 'coming' ? (i.value.kind === 'ride' ? 'ride' : 'seat') : i.live ? 'live' : v2 && i.value.kind === 'order' && drawsAsFood(i.value.row) ? 'food' : i.value.kind)}
                 extraData={{ now, busy: reorder.busyOrderId, network: network.data }}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
                 contentContainerStyle={{ paddingHorizontal: gutter, paddingBottom: theme.space[10] }}

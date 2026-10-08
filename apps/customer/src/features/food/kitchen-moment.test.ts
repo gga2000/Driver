@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_CART, ME, addLine, type CartMerchant, type CartState } from './cart';
-import { ACCEPT_HOLD_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from './kitchen-moment';
+import { ACCEPT_HOLD_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, softRingProgress, waitingSteps } from './kitchen-moment';
 
 describe('answerIsSlow', () => {
   it('says so from 45 s', () => {
@@ -57,5 +57,22 @@ describe('acceptedEta: a clock time, not a duration', () => {
   });
   it('a ready time in the past counts from now; unknown ride is 10 minutes', () => {
     expect(acceptedEta({ now, promisedReadyAt: new Date('2026-10-06T15:00:00Z'), rideMin: null }).toISOString()).toBe('2026-10-06T16:15:00.000Z');
+  });
+});
+
+describe('softRingProgress (after-order w2: no ticking seconds)', () => {
+  const t0 = 1_000_000;
+  it('starts empty, fills softly and never closes on its own', () => {
+    expect(softRingProgress(t0, 90_000, t0, false)).toBe(0);
+    const mid = softRingProgress(t0, 90_000, t0 + 45_000, false);
+    const end = softRingProgress(t0, 90_000, t0 + 90_000, false);
+    const late = softRingProgress(t0, 90_000, t0 + 600_000, false);
+    expect(mid).toBeGreaterThan(0.5);
+    expect(end).toBeGreaterThan(mid);
+    expect(late).toBeLessThan(0.96);
+  });
+  it('closes only when the kitchen says yes, and ignores a clock behind the start', () => {
+    expect(softRingProgress(t0, 90_000, t0 + 10_000, true)).toBe(1);
+    expect(softRingProgress(t0, 90_000, t0 - 5_000, false)).toBe(0);
   });
 });
