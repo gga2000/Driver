@@ -96,9 +96,11 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
   });
 
   it('SEC-09: the same phone retrying a lost refresh inside the grace keeps the session', async () => {
-    const { session, tokens } = await sessions.open(personId, null);
-    await service.refresh(tokens.refreshToken);
-    const retried = await service.refresh(tokens.refreshToken);
+    const phoneInfo = { fingerprint: `it-grace-${Date.now().toString(36)}`, platform: 'android' as const };
+    const device = await repo.createDevice({ personId, fingerprint: phoneInfo.fingerprint, platform: 'android', appVersion: null, verifiedAt: clock.now(), now: clock.now() });
+    const { session, tokens } = await sessions.open(personId, device.id);
+    await service.refresh(tokens.refreshToken, phoneInfo);
+    const retried = await service.refresh(tokens.refreshToken, phoneInfo);
     const claims = await service.verifyAccessToken(retried.accessToken);
     expect(claims.sid).toBe(session.id);
     expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).toBeNull();
