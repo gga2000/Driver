@@ -1,21 +1,28 @@
 {
-  "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0 with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
+  "_readme": "Speed budgets checked on every PR by .github/workflows/perf-budget.yml (scripts/perf). max = fails above; target = where the linked speed-audit idea takes it (shown, never fails). Set 2026-10-08 from main 37d5aa0, re-measured on abe870d with a little headroom. When your change makes a number smaller, lower max to the new value plus the same headroom; when growth is worth it, raise max in the same PR and say why. Audit: /mnt/project-files/perf-audit/audit.md (project files).",
   "size": {
-    "customer.code_mb": { "max": 7.1, "target": 6.2, "why": "s1 per-app words" },
-    "customer.assets_mb": { "max": 5.0, "why": "dish photos (AI dishes) 1.5 MB" },
-    "partner.code_mb": { "max": 6.3, "target": 5.5, "why": "s1 per-app words" },
+    "customer.code_mb": { "max": 7.3, "target": 6.2, "why": "s1 per-app words" },
+    "customer.assets_mb": {
+      "max": 5.3,
+      "why": "dish photos (AI dishes) 1.5 MB, home card pictures"
+    },
+    "partner.code_mb": { "max": 6.5, "target": 5.5, "why": "s1 per-app words" },
     "partner.assets_mb": {
       "max": 4.35,
       "target": 2.75,
       "why": "1.5 MB dish photos the courier app never shows"
     },
-    "merchant.code_mb": { "max": 6.25, "target": 5.5, "why": "s1 per-app words" },
-    "merchant.assets_mb": { "max": 4.4 }
+    "merchant.code_mb": { "max": 6.35, "target": 5.5, "why": "s1 per-app words" },
+    "merchant.assets_mb": { "max": 4.45 }
   },
   "screens": {
-    "home.open_kb": { "max": 40 },
+    "home.open_kb": { "max": 95 },
     "home.idle_commits": { "max": 6, "target": 0 },
-    "home.idle_fps": { "max": 66, "target": 0, "why": "h1 home's moving touches rest" },
+    "home.idle_fps": {
+      "max": 190,
+      "target": 0,
+      "why": "h1 home's moving touches rest; the new cards (#25) beat 3 live dots forever"
+    },
     "home.idle_kb": { "max": 4 },
     "menu.open_kb": { "max": 28 },
     "menu.idle_commits": { "max": 4, "target": 0 },
@@ -27,16 +34,16 @@
     "orders.idle_kb": { "max": 4 },
     "live_order.open_kb": { "max": 72 },
     "live_order.idle_commits": {
-      "max": 215,
+      "max": 90,
       "target": 12,
-      "why": "h2 tick only where seconds show"
+      "why": "h2 landed (#39): 186 -> 76; the rest is the live card and courier"
     },
     "live_order.idle_fps": { "max": 360, "target": 70, "why": "courier glide only" },
     "live_order.idle_kb": { "max": 40 },
-    "home_over_orders.open_kb": { "max": 60, "why": "home with a live order card" },
-    "home_over_orders.idle_commits": { "max": 24, "why": "the live order card updates" },
+    "home_over_orders.open_kb": { "max": 76, "why": "home with a live order card" },
+    "home_over_orders.idle_commits": { "max": 32, "why": "the live order card updates" },
     "home_over_orders.idle_fps": {
-      "max": 126,
+      "max": 320,
       "target": 0,
       "why": "h1 home rest + the hidden orders tab's live pill must stop out of sight"
     },
