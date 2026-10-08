@@ -159,10 +159,17 @@ rebuild the web apps and mobile apps (the URL is baked into them).
 Secrets go in with `fly secrets set` (encrypted, never shown again). Plain settings are in
 `deploy/fly/api.toml` `[env]` or also set as secrets — both end up as environment variables.
 
+**What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
+without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
+`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS, push other than Expo, and a `STAGING_TEST_OTP`.
+The log line lists every problem at once. A database or Redis that is configured but unreachable never
+stops boot: `health.ready` shows it, and `health.live` fails after 30 s without the database.
+
 | Variable | Secret? | Value / note |
 | --- | --- | --- |
 | `NODE_ENV` | no | `production` (toml). With it, the API refuses to boot without strong `JWT_SECRET` and `PHONE_HASH_PEPPER`. |
 | `PORT` | no | `3000` (toml) |
+| `DEPLOY_ENVIRONMENT` | no | `staging` on the staging app (Staging setup sets it). Unset means production rules |
 | `DATABASE_URL` | **yes** | Supabase transaction pooler, port 6543 |
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
 | `DATABASE_POOL_MAX` | no | `10` (toml), per lane per process. Each process has a request lane and a background lane (below), opened on first use: web machines mostly use the request lane, the worker the background lane, so 3 processes stay well under Small compute's 400 pooled clients |

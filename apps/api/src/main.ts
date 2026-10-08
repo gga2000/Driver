@@ -1,6 +1,7 @@
 import { createApp } from './bootstrap.js';
 import { API_VERSION } from './trpc/trpc.module.js';
 import { EventsService } from './modules/events/index.js';
+import { assertBootConfig } from './modules/config/index.js';
 import { errorReporterFromEnv } from './shared/error-reporter.js';
 import { AppLogger, logFormatFromEnv, logLevelsFromEnv } from './shared/logging.js';
 import { Metrics, metricsPortFromEnv } from './shared/metrics.js';
@@ -21,7 +22,12 @@ process.on('uncaughtException', (err) => {
   void reporter.flush(2000).finally(() => process.exit(1));
 });
 
-createApp({ logger, metrics })
+// SEC-16: missing configuration stops boot with the whole list (an unreachable dependency never does).
+Promise.resolve()
+  .then(() => {
+    assertBootConfig();
+    return createApp({ logger, metrics });
+  })
   .then(async (app) => {
     const role = processRoleFromEnv(process.env);
     const shutdown = createShutdown(
