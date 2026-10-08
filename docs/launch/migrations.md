@@ -22,3 +22,4 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
 | 20261010092000 | on_call | lane E | #14 |
 | 20261010100000 | inbox | lane E | #14 |
+| 20261010230000 | store_closed_until | merchant | #19 |
