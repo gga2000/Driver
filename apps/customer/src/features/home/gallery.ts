@@ -67,6 +67,8 @@ export function hourFood(input: {
   words?: readonly string[];
   /** The picture a dish would show (its photo's address, or a stand-in's asset), null for none. */
   pictureOf?: (d: CatalogSearchDish) => string | number | null;
+  /** Pictures already on the page (the usual card's dish): a dish that would show one is left out. */
+  taken?: readonly (string | number)[];
 }): { slides: HourDish[]; more: HourDish[] } {
   const byId = new Map((input.picks ?? []).map((d) => [d.id, d]));
   const all: HourDish[] = [];
@@ -89,7 +91,7 @@ export function hourFood(input: {
   const front = all.filter((h) => h.dish.restaurantId !== input.later);
   const back = all.filter((h) => h.dish.restaurantId === input.later);
   const names = new Set<string>();
-  const pictures = new Set<string | number>();
+  const pictures = new Set<string | number>(input.taken ?? []);
   const ordered: HourDish[] = [];
   for (const h of [...front, ...back]) {
     const name = plain(h.dish.name);
