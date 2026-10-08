@@ -8313,6 +8313,8 @@
   "update.title": "Update the app",
   "update.cta": "Update on Google Play",
   "update.hint_store": "Update it from the App Store",
+  "update.chip": "A new version is ready",
+  "update.safe": "Your account, wallet and orders stay just as they are",
   "partner.update_title": "There's a new version of the app",
   "partner.update_body": "This version is too old to keep working. Update it from the store; it takes a minute, then carry on.",
   "partner.update_offers": "Until you update, you can't take offers on this phone.",
