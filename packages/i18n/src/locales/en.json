@@ -8088,5 +8088,13 @@
   "partner.ic_code_done": "Done, everyone is on",
   "partner.ic_code_wrong": "That code isn't for a rider on this run. Check their ticket",
   "partner.ic_aboard_title": "Who's in the car",
-  "partner.ic_aboard_count": "{n} in the car"
+  "partner.ic_aboard_count": "{n} in the car",
+  "partner.look_title": "Screen look",
+  "partner.look_auto": "Auto",
+  "partner.look_day": "Day",
+  "partner.look_night": "Night",
+  "partner.look_hint_auto_day": "Turns dark by itself at sunset, {time}",
+  "partner.look_hint_auto_night": "Dark now so it doesn't dazzle you; light again at {time}",
+  "partner.look_hint_day": "Always light, easy to read in the sun",
+  "partner.look_hint_night": "Always dark, easy on the eyes at night"
 }

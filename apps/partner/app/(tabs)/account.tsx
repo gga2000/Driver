@@ -1,9 +1,10 @@
 import { router, type Href } from 'expo-router';
 import { useState } from 'react';
-import { Switch, View } from 'react-native';
+import { View } from 'react-native';
 import type { PartnerMode } from '@driver/contracts';
-import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Avatar, Button, Card, DataSaverCard, ListRow, StatusPill, Text, Toggle, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { AppearanceCard } from '@/features/account/AppearanceCard';
 import { FleetInviteCard, FleetMemberCard } from '@/features/fleet/InviteParts';
 import { splitInvites } from '@/features/fleet/logic';
 import { useFleetInvites } from '@/features/fleet/queries';
@@ -212,20 +213,14 @@ export default function Account() {
             subtitle={t('partner.speak_setting_sub')}
             chevron={false}
             trailing={
-              <Switch
-                testID="speak-offers-switch"
-                value={speak.on}
-                onValueChange={(v) => void setSpeakOffers(v)}
-                accessibilityLabel={t('partner.speak_setting')}
-                trackColor={{ false: theme.colors.borderStrong, true: theme.colors.accent }}
-                thumbColor={theme.colors.surface}
-              />
+              <Toggle testID="speak-offers-switch" value={speak.on} onValueChange={(v) => void setSpeakOffers(v)} accessibilityLabel={t('partner.speak_setting')} />
             }
             divider
           />
           <ListRow testID="nav-app" leading="map-pin" title={t('partner.nav_setting')} subtitle={nav.app ? t(navAppName(nav.app)) : t('partner.nav_setting_none')} onPress={() => setChoosingNav(true)} />
         </Card>
       </View>
+      <AppearanceCard />
       <DataSaverCard onChange={(p) => void saveDataSaverPref(p)} />
       <NavChooser
         visible={choosingNav}

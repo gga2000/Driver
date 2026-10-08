@@ -8088,5 +8088,13 @@
   "partner.ic_code_done": "تمام، كلهم صعدوا",
   "partner.ic_code_wrong": "هذا الرمز مو لراكب بهالطلعة. باوع على تذكرته",
   "partner.ic_aboard_title": "منو بالسيارة",
-  "partner.ic_aboard_count": "{n} بالسيارة"
+  "partner.ic_aboard_count": "{n} بالسيارة",
+  "partner.look_title": "شكل الشاشة",
+  "partner.look_auto": "تلقائي",
+  "partner.look_day": "نهاري",
+  "partner.look_night": "ليلي",
+  "partner.look_hint_auto_day": "تصير غامقة وحدها من المغرب، الساعة {time}",
+  "partner.look_hint_auto_night": "غامقة هسة حتى ما تزغلل عيونك، وترجع فاتحة الصبح {time}",
+  "partner.look_hint_day": "فاتحة دائماً، تنقرا زين بالشمس",
+  "partner.look_hint_night": "غامقة دائماً، تريح العين بالليل"
 }
