@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
@@ -96,6 +98,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
@@ -106,7 +109,9 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         (e, ctx) => this.onEvent(e, ctx.tx),
       ),
     );
-    if (this.config.tickMs > 0) {
+    // The ladder sweep runs on job machines only (web machines serve reads); its claims are in the
+    // database, so any number of job machines may run it.
+    if (this.config.tickMs > 0 && runsJobs(this.role)) {
       this.ticker = setInterval(
         () =>
           void this.tick().catch((err: unknown) =>
