@@ -173,9 +173,10 @@ export interface TripsRepository extends TripOrderLookup {
   ensureTrailPartitions(now: Date, days?: number): Promise<void>;
   /**
    * Detaches and drops each trail partition whose whole range is older than `cutoff`, unless it holds a
-   * point of `keepTripIds` (it waits until they are resolved). Returns the dropped partitions' names.
+   * point of `keepTripIds` (it waits until they are resolved). A partition that cannot be dropped now
+   * (its lock wait ran out) is reported in `failed` and the others still go.
    */
-  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]>;
+  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<TrailPartitionDrop>;
   /** Pickup stops of trips created in `[from, to)` in the city, per zone (maps program d5's forecast). */
   pickupsByZone(cityId: string, from: Date, to: Date): Promise<Map<string, number>>;
   /** Up to `limit` completed stops before `cutoff` that still hold a delivery photo (maps program f11). */
@@ -194,6 +195,12 @@ export interface TripsRepository extends TripOrderLookup {
 export const TRIPS_REPOSITORY = Symbol('TRIPS_REPOSITORY');
 
 /** Trail partitions are made this many days ahead (hourly, so a missed hour or a slow boot never leaves a day without one). */
+/** What one partition clean-up did: the partitions dropped, and those left for the next run. */
+export interface TrailPartitionDrop {
+  dropped: string[];
+  failed: Array<{ name: string; error: string }>;
+}
+
 export const TRAIL_PARTITION_DAYS_AHEAD = 7;
 
 /**
@@ -308,13 +315,13 @@ export class PrismaTripsRepository implements TripsRepository {
     if (first.length) throw new Error(`trail partitions not made for ${first.join('; ')}`);
   }
 
-  async dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]> {
+  async dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<TrailPartitionDrop> {
     const parts = await this.db().$queryRaw<Array<{ name: string }>>`
       SELECT c."relname" AS "name" FROM "pg_inherits" i
       JOIN "pg_class" c ON c."oid" = i."inhrelid" JOIN "pg_class" p ON p."oid" = i."inhparent"
       JOIN "pg_namespace" n ON n."oid" = p."relnamespace"
       WHERE n."nspname" = 'public' AND p."relname" = 'trail_points' ORDER BY 1`;
-    const dropped: string[] = [];
+    const out: TrailPartitionDrop = { dropped: [], failed: [] };
     for (const { name } of parts) {
       const end = trailPartitionEnd(name);
       if (!end || end.getTime() > cutoff.getTime()) continue;
@@ -322,15 +329,19 @@ export class PrismaTripsRepository implements TripsRepository {
       const table = Prisma.raw(`"public"."${name}"`);
       const held = await this.db().$queryRaw<unknown[]>`SELECT 1 FROM ${table} WHERE "trip_id" = ANY(${[...keepTripIds]}::text[]) LIMIT 1`;
       if (held.length) continue;
-      await this.prisma.prisma.$transaction(async (tx) => {
-        // A partition change locks the parent: give up quickly rather than queue the drivers' positions.
-        await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
-        await tx.$executeRaw`ALTER TABLE "public"."trail_points" DETACH PARTITION ${table}`;
-        await tx.$executeRaw`DROP TABLE ${table}`;
-      });
-      dropped.push(name);
+      try {
+        await this.prisma.prisma.$transaction(async (tx) => {
+          // A partition change locks the parent: give up quickly rather than queue the drivers' positions.
+          await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
+          await tx.$executeRaw`ALTER TABLE "public"."trail_points" DETACH PARTITION ${table}`;
+          await tx.$executeRaw`DROP TABLE ${table}`;
+        });
+        out.dropped.push(name);
+      } catch (err) {
+        out.failed.push({ name, error: (err as Error).message });
+      }
     }
-    return dropped;
+    return out;
   }
 
   async createTrip(input: NewTrip, _now: Date, tx?: Tx) {
@@ -791,8 +802,8 @@ export class InMemoryTripsRepository implements TripsRepository {
   async ensureTrailPartitions(): Promise<void> {}
 
   /** In memory there are no partitions: `purgeTrail` does the whole job. */
-  async dropExpiredTrailPartitions(): Promise<string[]> {
-    return [];
+  async dropExpiredTrailPartitions(): Promise<TrailPartitionDrop> {
+    return { dropped: [], failed: [] };
   }
 
   async purgeTrail(cutoff: Date, keepTripIds: readonly string[], batch: number): Promise<number> {

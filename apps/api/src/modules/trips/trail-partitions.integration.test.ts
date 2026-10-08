@@ -53,12 +53,37 @@ describe.skipIf(!url)('daily trail partitions on Postgres (needs DATABASE_URL)',
     await point('2001-03-02T10:00:00Z', KEPT);
     await point('2001-03-02T11:00:00Z', null);
     await point('2001-03-03T10:00:00Z', null);
-    const dropped = await repo.dropExpiredTrailPartitions(at('2001-03-03T06:00:00Z'), [KEPT]);
-    expect(dropped).toEqual(['trail_points_2001_03_01']);
+    const first = await repo.dropExpiredTrailPartitions(at('2001-03-03T06:00:00Z'), [KEPT]);
+    expect(first).toEqual({ dropped: ['trail_points_2001_03_01'], failed: [] });
     expect((await parts()).map((p) => p.name)).toEqual(['trail_points_2001_03_02', 'trail_points_2001_03_03']);
     // Once the incident is closed, its day goes too.
-    expect(await repo.dropExpiredTrailPartitions(at('2001-03-03T06:00:00Z'), [])).toEqual(['trail_points_2001_03_02']);
+    expect(await repo.dropExpiredTrailPartitions(at('2001-03-03T06:00:00Z'), [])).toEqual({ dropped: ['trail_points_2001_03_02'], failed: [] });
     const left = await prisma.prisma.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "public"."trail_points" WHERE "driver_id" = ${DRIVER}`;
     expect(left[0]!.n).toBe(1n);
   });
+
+  it('a partition someone else holds is left for the next run; the others still go', async () => {
+    await repo.ensureTrailPartitions(at('2001-03-04T00:00:00Z'), 1);
+    const other = new PrismaService(url);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const holder = other.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`LOCK TABLE "public"."trail_points_2001_03_04" IN ACCESS SHARE MODE`;
+        locked();
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    await isLocked;
+    const out = await repo.dropExpiredTrailPartitions(at('2001-03-06T00:00:00Z'), []);
+    release();
+    await holder;
+    await other.onModuleDestroy();
+    expect(out.dropped).toEqual(['trail_points_2001_03_03', 'trail_points_2001_03_05']);
+    expect(out.failed.map((f) => f.name)).toEqual(['trail_points_2001_03_04']);
+    expect((await parts()).map((p) => p.name)).toEqual(['trail_points_2001_03_04']);
+  }, 30_000);
 });

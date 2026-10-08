@@ -53,8 +53,14 @@ export class TrailRetention implements OnModuleInit, OnModuleDestroy {
     await this.trips.ensureTrailPartitions(now).catch((err: unknown) => this.logger.error(`trail partitions: ${(err as Error).message}`));
     const cutoff = new Date(now.getTime() - TRAIL_RETENTION_DAYS * DAY_MS);
     const keep = (await Promise.all(CITIES.map((c) => this.support.openIncidentTripIds(c)))).flat();
-    const dropped = await this.trips.dropExpiredTrailPartitions(cutoff, keep);
-    if (dropped.length) this.logger.log(`trail retention: dropped ${dropped.join(', ')}`);
+    // A partition that can't be dropped now (lock wait ran out) is retried next run; the row purge
+    // below still clears its expired points meanwhile.
+    const drop = await this.trips.dropExpiredTrailPartitions(cutoff, keep).catch((err: unknown) => {
+      this.logger.error(`trail partitions: ${(err as Error).message}`);
+      return { dropped: [], failed: [] };
+    });
+    if (drop.dropped.length) this.logger.log(`trail retention: dropped ${drop.dropped.join(', ')}`);
+    for (const f of drop.failed) this.logger.warn(`trail retention: ${f.name} not dropped, retrying next run: ${f.error}`);
     let total = 0;
     for (;;) {
       const n = await this.trips.purgeTrail(cutoff, keep, TRAIL_PURGE_BATCH);

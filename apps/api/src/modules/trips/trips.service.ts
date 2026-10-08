@@ -33,7 +33,7 @@ import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.
 import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
-import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TrailPointRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
+import { TRIPS_REPOSITORY, type NewStop, type StopRecord, type TrailPartitionDrop, type TrailPointRecord, type TripOrderRecord, type TripRecord, type TripsRepository } from './trips.repository.js';
 import {
   UNREACHABLE_ESCALATE_AFTER_MS,
   UNREACHABLE_FAIL_AFTER_MS,
@@ -453,7 +453,7 @@ export class TripsService implements OnModuleInit {
     return this.repo.ensureTrailPartitions(now);
   }
 
-  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<string[]> {
+  dropExpiredTrailPartitions(cutoff: Date, keepTripIds: readonly string[]): Promise<TrailPartitionDrop> {
     return this.repo.dropExpiredTrailPartitions(cutoff, keepTripIds);
   }
 
