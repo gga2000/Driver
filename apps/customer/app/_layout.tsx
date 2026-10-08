@@ -6,7 +6,7 @@ import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrashBoundary, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
 import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
@@ -17,6 +17,7 @@ import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lock
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { CachedPhoto } from '@/lib/cached-photo';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
@@ -83,6 +84,7 @@ export default function RootLayout() {
         >
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter} locale={locale} onReset={disarmDevCrash}>
+            <PhotoImageProvider component={CachedPhoto}>
             <ToastProvider bottomOffset={96}>
               <ApiProvider>
                 <StatusBar style="dark" />
@@ -96,6 +98,7 @@ export default function RootLayout() {
                 <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
               </ApiProvider>
             </ToastProvider>
+            </PhotoImageProvider>
           </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
