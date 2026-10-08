@@ -209,7 +209,7 @@ export class OfferOrchestrator {
    */
   bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
     this.timers = store;
-    sweeper?.register<TimerJob>(DISPATCH_QUEUE_NAME, (job) => this.onTimer(job.data));
+    sweeper?.register<TimerJob>(DISPATCH_QUEUE_NAME, (job) => this.onTimer(job.data, 'sweeper'));
   }
 
   /** The ride-habits module binds the rider's preferences at start-up (it imports this module). */
@@ -716,17 +716,17 @@ export class OfferOrchestrator {
           return;
         }
         r.status = 'assigned';
-        await this.store.retireRequest(r);
+        await this.retire(r);
         await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats, lowFillRefused: true });
         return;
       }
       r.status = 'cancelled';
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.low_fill_cancelled', r, { departureId: r.departureId, seats, minSeats: cfg.minSeatsByTMinus30 });
       return;
     }
     r.status = 'assigned';
-    await this.store.retireRequest(r);
+    await this.retire(r);
     await this.emit('dispatch.departure_confirmed', r, { departureId: r.departureId, seats });
   }
 
@@ -1298,7 +1298,7 @@ export class OfferOrchestrator {
       r.status = 'cancelled';
       r.epoch += 1;
       r.nextTimerAt = null;
-      await this.store.retireRequest(r);
+      await this.retire(r);
       await this.emit('dispatch.cancelled', r, { freeCancel: r.customerMayCancelFree }, actorId);
       if (holder && r.booked) await this.emit('dispatch.booked_cancelled', r, { orderId: r.booked.orderId, driverId: holder, scheduledFor: new Date(r.booked.scheduledFor).toISOString() }, actorId);
     });
@@ -1320,7 +1320,7 @@ export class OfferOrchestrator {
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
-    await this.store.retireRequest(r);
+    await this.retire(r);
   }
 
   async board(cityId: string): Promise<DispatchBoard> {
@@ -1447,12 +1447,15 @@ export class OfferOrchestrator {
 
   // ───────────────────────── timers ─────────────────────────
 
-  async onTimer(job: TimerJob): Promise<void> {
+  /** `from`: the Redis job, or its durable copy run by the timer sweeper because the job was lost. */
+  async onTimer(job: TimerJob, from: 'queue' | 'sweeper' = 'queue'): Promise<void> {
     const r = await this.store.getRequest(job.tripId);
     if (!r) {
-      // A far-ahead timer whose request is gone: Redis lost it (requests live there). Nobody would
-      // look for a driver, so a dispatcher must (review of NTF-05).
-      if (job.durable) await this.onRequestLost(job);
+      // The durable copy runs only when its Redis job was lost, and a finished or cancelled ride
+      // settles its copies (`retire`): so a copy that finds no request means Redis lost the request
+      // too. Nobody would look for a driver; a dispatcher must (review of NTF-05). A Redis job that
+      // finds none is a ride retired long ago (its record expires after a day): nothing to do.
+      if (from === 'sweeper') await this.onRequestLost(job);
       return;
     }
     if (r.epoch !== job.epoch) return;
@@ -1498,6 +1501,12 @@ export class OfferOrchestrator {
           return this.onBookedRemind(r);
       }
     });
+  }
+
+  /** Off the board (finished, cancelled, assigned for good); its far-ahead timers will never be needed. */
+  private async retire(r: DispatchRequest): Promise<void> {
+    await this.store.retireRequest(r);
+    if (this.timers) await this.timers.settlePending(DISPATCH_QUEUE_NAME, `${r.tripId}.`, this.clock.now(), this.uow.current());
   }
 
   private async onRequestLost(job: TimerJob): Promise<void> {

@@ -103,6 +103,19 @@ describe('durable dispatch timers (NTF-05)', () => {
     expect(lost[0]?.payload).toMatchObject({ reason: 'request_lost', cityId: 'aziziyah', vertical: 'taxi', orderId: 'o1', timer: 'booked_open' });
   });
 
+  it('booked 3 days ahead and cancelled: its record expires, and no timer cries "lost" for it', async () => {
+    const s = setup();
+    await fleet(s);
+    const later = new Date(T.getTime() + 2 * 86_400_000);
+    await s.h.service.request({ tripId: 't1', orderId: 'o1', cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: north(0), startAt: rideSearchStartsAt(later), scheduledFor: later });
+    expect(s.timers.rows.filter((t) => t.status === 'pending').length).toBeGreaterThan(0);
+    await s.h.service.cancel('t1', 'rider');
+    expect(s.timers.rows.filter((t) => t.status === 'pending')).toEqual([]); // settled with the request
+    (s.h.store as unknown as { requests: Map<string, unknown> }).requests.clear(); // the retired record's day is over
+    await runTo(s, later.getTime() + 60_000);
+    expect(s.h.events.ofType('dispatch.needs_dispatcher')).toEqual([]);
+  });
+
   it('a garage departure two hours ahead: its low-fill check is kept too, and runs once', async () => {
     const s = setup();
     s.h.departures.seats.set('dep1', 2);
