@@ -218,7 +218,7 @@ export function Board() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [handingId, setHandingId] = useState<string | null>(null);
-  // c6 «أعدنا تسويه»: shown only while the money rule pays (it is a switch Ali turns on).
+  // c6 «أعدنا تسويه»: shown only while the server's money rule pays (`remakeRule`; it can be switched off).
   const [remakeId, setRemakeId] = useState<string | null>(null);
   const [remade, setRemade] = useState<Record<string, RemakeOutcome>>({});
   const remakeRule = useRemakeRule(!!storeId);

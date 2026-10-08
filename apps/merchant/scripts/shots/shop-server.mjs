@@ -2,8 +2,9 @@
 //   h5  «متوقف للزباين»: offline, the count to the pause and the pause itself; back after the app was
 //       closed for 12 minutes («جان متوقف حوالي 7 دقيقة»).
 //   l4  «زحمة تلقائية · 17 طلب ينتظر»: the strip, the busy sheet's explanation, and with busy mode on too.
-//   c6  «أعدنا تسويه»: nothing while the switch is off; with it on (this demo process only) the tag on
-//       a ready order 12 minutes old, the sheet, the paid amount and «انحسبت قبل».
+//   c6  «أعدنا تسويه»: nothing with the rule switched off (demo process only); with it on (the real
+//       rule since Ali's yes) the tag on a ready order 12 minutes old, the sheet, the paid amount and
+//       «انحسبت قبل».
 // Seeded by scripts/demo/shop-load.mjs and board.mjs.
 export default {
   name: 'shop-server',
@@ -40,7 +41,7 @@ export default {
     await page.waitForTimeout(1200);
     await shot('remake-off');
 
-    // On (in this demo process only): an order ready 12 minutes, courier still on the way.
+    // On (the rule as it ships): an order ready 12 minutes, courier still on the way.
     await demoPost('/demo/shop/remake?on=1');
     await reload();
     await segment('ready');
@@ -68,7 +69,6 @@ export default {
     await byTestId('remake-already').waitFor({ timeout: 10_000 });
     await shot('remake-already', { wait: 600 });
     await byTestId('remake-done').click();
-    await demoPost('/demo/shop/remake?on=0');
     await segment('new');
 
     // ── l4: 15+ waiting → «زحمة تلقائية» ──

@@ -5,9 +5,9 @@
 //
 //   POST /demo/shop/crowd?count=12    `count` more accepted orders (with the seeded ones: 15+ waiting)
 //   POST /demo/shop/crowd?count=0     cancels the crowd again
-//   POST /demo/shop/remake?on=1       switches remake pay ON in this process only (MERCHANT_REMAKE_PAY
-//                                     stays Ali's call in production) and readies an order 12 minutes
-//                                     ago with its courier still on the way; on=0 switches it off
+//   POST /demo/shop/remake?on=1       readies an order 12 minutes ago with its courier still on the way
+//                                     (remake pay is on: Ali, 2026-10-08, lane A #81); on=0 switches the
+//                                     rule off in this demo process only, to show the app with it off
 export default async function register(ctx) {
   const { orders, ledger } = ctx.services;
   const { khalid } = ctx.stores;
@@ -46,14 +46,20 @@ export default async function register(ctx) {
     return { orderIds: [...crowd] };
   });
 
+  const remakes = [];
   ctx.route('/demo/shop/remake', async (_req, _res, url) => {
     const on = url.searchParams.get('on') !== '0';
     rules.remake.pay = on;
     if (!on) return { pay: false };
+    // One remake order at a time: the last one (already paid in an earlier shot) leaves the board.
+    for (const id of remakes.splice(0)) {
+      await repo.update(id, { state: 'cancelled', closedAt: new Date(), closedById: 'system:demo' }).catch(() => undefined);
+    }
     const o = await place([await ctx.line(khalid, 'tikka_plate', 1, { choose: ['نفرين'] }), await ctx.line(khalid, 'water', 2)]);
     await orders.merchantAccept(multi.id, { orderId: o.id, prepMinutes: 10 });
     await orders.markReady(ali.id, { orderId: o.id });
     await repo.update(o.id, { readyAt: new Date(Date.now() - 12 * 60_000) });
+    remakes.push(o.id);
     return { pay: true, orderId: o.id };
   });
 }
