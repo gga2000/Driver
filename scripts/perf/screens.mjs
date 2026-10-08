@@ -125,8 +125,13 @@ try {
         ]);
         if (at === 'setup') {
           await page.locator('[data-testid="setup-name"]').fill('علي');
-          await by('setup-next').click();
-          await by('chip-street_30').click();
+          // Name and first place share one screen: drag the map a little so the pin settles.
+          const box = await by('place-map').boundingBox();
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+          await page.mouse.up();
+          await page.waitForTimeout(1_000);
           await by('setup-save').click();
           if (
             await by('welcome-home')
