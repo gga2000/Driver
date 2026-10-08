@@ -1,9 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { LATE_PROMISE_MEMO } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, type LedgerService } from '../ledger/index.js';
 import { TrackingService, type TrackingLateApologyPort, type TrackingLateCreditPort } from './tracking.service.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /** Memo on the honest-delay credit line (shared with the wallet's reading of it, `@driver/contracts`). */
 export { LATE_PROMISE_MEMO };
@@ -92,9 +93,14 @@ export class LateApologySweeper implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly tracking: TrackingService) {}
+  constructor(
+    private readonly tracking: TrackingService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     const every = lateApologySweepMs();
     if (every <= 0) return;
     this.timer = setInterval(() => void this.tick(), every);
