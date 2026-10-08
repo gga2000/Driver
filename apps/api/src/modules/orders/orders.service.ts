@@ -1941,7 +1941,18 @@ export class OrdersService implements OnModuleInit {
               e.occurredAt,
               o.cityId,
             );
-            await this.emit(tx, 'order.driver_cancelled', e.actorId, o, { tripId: e.tripId, scoringHit: fee.scoringHit, customerCreditIqd: fee.amountIqd, creditFundedBy: fee.amountIqd > 0 ? 'driver' : null });
+            // M-15 (Ali, 2026-10-07): the credit reaches the wallet (ledger, from the driver) while the money rule is on.
+            const creditIqd = AZIZIYAH_MONEY_RULES.driverCancelCredit.enabled ? fee.amountIqd : 0;
+            await this.emit(tx, 'order.driver_cancelled', e.actorId, o, {
+              orderId: o.id,
+              tripId: e.tripId ?? null,
+              occurredAt: e.occurredAt,
+              customerId: o.ordererId,
+              driverId: e.actorId,
+              scoringHit: fee.scoringHit,
+              customerCreditIqd: creditIqd,
+              creditFundedBy: creditIqd > 0 ? 'driver' : null,
+            });
           }
           // The ride goes back to dispatch.
           return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true }, 'order.rematch_needed');
