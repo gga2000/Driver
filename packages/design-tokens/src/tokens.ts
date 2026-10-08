@@ -654,7 +654,7 @@ const decorDay: HomeDecor = {
   haloGlow: '#FFC155',
   wash: { dawn: '#FFD9B8', noon: '#DDEFF7', sunset: '#F7C3C0', late: '#DCD6F2' },
   // Apricot, blush, date cream, pomegranate blush, sage, sand: warm only, no teal or lilac (Ali's no-teal rule).
-  stages: ['#FFE5BD', '#FFD6CF', '#F2DCC2', '#F5CDD3', '#E6F0D2', '#FBEBC8'],
+  stages: ['#FFE5BD', '#FFD6CF', '#F2DCC2', '#F8D8DC', '#E6F0D2', '#FBEBC8'],
   grain: '#5A3819',
   teaGlass: { tea: '#B4471A', glass: '#2A170C', rim: '#E0A526', shine: '#FFFFFF', steam: '#B9A288' },
 };
@@ -933,6 +933,13 @@ export const minFontSize = 12;
  */
 export const fontScale = { compact: 1.3 } as const;
 
+/**
+ * The app's own text size setting («حجم الخط», courier n6), applied on top of the phone's text size:
+ * `normal` changes nothing, the other two grow every line by these factors.
+ */
+export const textScale = { normal: 1, large: 1.15, largest: 1.3 } as const;
+export type TextScale = keyof typeof textScale;
+
 export const motion = {
   duration: {
     instant: 80,
@@ -1143,6 +1150,7 @@ export const tokens = {
   hitTarget,
   minFontSize,
   fontScale,
+  textScale,
   art,
   scheme,
   identity,
