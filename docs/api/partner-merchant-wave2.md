@@ -174,9 +174,9 @@ Role: `fleet_owner` scoped to the fleet org. `fleetOrgId` may be omitted when th
 | `driverEarnings` | query | `{fleetOrgId?, driverId, period = 'week', anchor?}` | `EarningsView` (as `driverAccount.earnings`) |
 | `assignDriver` | mutation | `{fleetOrgId?, vehicleId, driverId \| null}` | `FleetVehicle` (a driver leaves his other vehicle) |
 | `addVehicle` | mutation | `{fleetOrgId?, plate, vehicleClass, seats? (0–14; default by class: bike 0, tuktuk 3, car 4, suv 6, van 7), model? (2–40), colour? (VehicleColour)}` | `FleetVehicle` (seats stored as the vehicle's seat map) |
-| `addDriver` | mutation | `{fleetOrgId?, phone}` | `FleetDriver` with `pending: true` (person found or created by phone; the driving role still comes from ops review) |
-| `myInvites` | query | — (driving roles) | `[{fleetOrgId, invitedAt, invitedByName (owner's first name), fleetName (additive), accepted}]` — the driver's own fleet links |
-| `respondInvite` | mutation | `{fleetOrgId, accept}` (driving roles) | his links after: `accept` joins, `false` declines or leaves (his vehicle there is unassigned) |
+| `addDriver` | mutation | `{fleetOrgId?, phone, vehicleId?}` | `FleetDriver` with `pending: true` (person found or created by phone; the driving role still comes from ops review). `vehicleId` (f5, additive): the car picked on the same screen waits on the invite (`plannedVehicleId` on the pending row, column `fleet_drivers.planned_vehicle_id`) and is assigned when he accepts, if it is still the fleet's, active and free; `vehicle_not_found` otherwise at invite time |
+| `myInvites` | query | — (driving roles) | `[{fleetOrgId, invitedAt, invitedByName (owner's first name), fleetName (additive), accepted, plannedVehicle (f5, additive: `{plate, vehicleClass, model, colour}` on a pending invite with a car, else null)}]` — the driver's own fleet links |
+| `respondInvite` | mutation | `{fleetOrgId, accept}` (driving roles) | his links after: `accept` joins (and takes the planned car if still free, event `fleet.vehicle_assigned`), `false` declines or leaves (his vehicle there is unassigned); either answer clears the planned car |
 | `myVehicle` | query | — (driving roles) | `FleetVehicle \| null` — the vehicle he is the active driver of (any fleet, or his own) |
 | `setMyVehicleFeatures` | mutation | `{features: VehicleFeature[]}` (driving roles) | `FleetVehicle` — «مميزات سيارتك», see `docs/api/vehicle-features.md` |
 

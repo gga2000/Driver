@@ -87,10 +87,18 @@ export function drawShareCard(ctx: Ctx, m: ShareCardModel, brand: { name: string
     rtl(ctx, s.value, x, 1066, { weight: 700, size: 46, color: C.text });
   });
 
+  // «يومك» (e7): the word customers said most, in a soft green pill.
+  if (m.quote) {
+    font(ctx, 600, 40);
+    const qW = Math.min(W - pad * 2, ctx.measureText(m.quote).width + 80);
+    roundRect(ctx, right - qW, 1096, qW, 72, 36, C.successTint);
+    rtl(ctx, m.quote, right - 40, 1145, { weight: 600, size: 40, color: C.successText });
+  }
+
   // Footer: an accent rule and the tag.
   ctx.fillStyle = C.accent;
-  ctx.fillRect(pad, 1180, W - pad * 2, 6);
-  rtl(ctx, m.tag, right, 1260, { weight: 500, size: 34, color: C.textMuted });
+  ctx.fillRect(pad, 1200, W - pad * 2, 6);
+  rtl(ctx, m.tag, right, 1275, { weight: 500, size: 34, color: C.textMuted });
 }
 
 function download(blob: Blob, fileName: string) {

@@ -30,6 +30,7 @@ export { Text, type TextProps } from './components/Text';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './components/Button';
 export { IconButton, type IconButtonProps, type IconButtonVariant } from './components/IconButton';
 export { Chip, ChipGroup, nextChipSelection, type ChipProps, type ChipGroupProps, type ChipGroupItem } from './components/Chip';
+export { PhotoImage, PhotoImageProvider, type PhotoImageProps } from './components/PhotoImage';
 export { Avatar, toneFor, identityIndex, initialOf, type AvatarProps, type AvatarTone } from './components/Avatar';
 export { Card, type CardProps } from './components/Card';
 export { DataSaverCard } from './components/DataSaverCard';
@@ -124,3 +125,4 @@ export { RollingDigits, type RollingDigitsProps } from './components/RollingDigi
 export * from './logic/departure';
 // Phase 3 (brief E): app-wide ModalSheet defaults, so apps drop their local ModalSheet wrappers.
 export { ModalSheetDefaultsProvider, type ModalSheetDefaults } from './components/ModalSheet';
+export { HoldButton, HOLD_CONFIRM_WINDOW_MS, HOLD_MS, type HoldButtonProps } from './components/HoldButton';

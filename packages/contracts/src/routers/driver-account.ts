@@ -16,6 +16,7 @@ import {
   OnlineGate,
   PayQueryInput,
   PayQueryResult,
+  MyBestView,
   ShiftSummary,
   ShiftSummaryInput,
   ReviewDocumentInput,
@@ -25,6 +26,7 @@ import {
   SubmitCheckInInput,
   UploadDocumentInput,
 } from '../driver-account-io.js';
+import { DriverProfile } from '../dispatch-io.js';
 import { CourierCompliments } from '../order-compliment.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { DRIVING_ROLES } from './trips.js';
@@ -105,6 +107,17 @@ export const driverAccountRouter = router({
   compliments: protectedProcedure(DRIVING_ROLES)
     .output(CourierCompliments)
     .query(({ ctx }) => ctx.driverAccount.compliments(ctx.actor)),
+  /** His week and his best (partner redesign e3 / e4): «أحسن وقت إلك», his best day, this week so far. */
+  myBest: protectedProcedure(DRIVING_ROLES)
+    .output(MyBestView)
+    .query(({ ctx }) => ctx.driverAccount.myBest(ctx.actor)),
+  /**
+   * «هيج يشوفك الزبون» (partner redesign r4): the profile a rider opens on his ride, of the driver
+   * himself (photo, rating, trips, on time, since, car, confirmed features, top compliments).
+   */
+  publicProfile: protectedProcedure(DRIVING_ROLES)
+    .output(DriverProfile)
+    .query(({ ctx }) => ctx.rideHabits.ownProfile(ctx.actor)),
   /** "Why was I paid this" (partner S-7): one of his jobs, every line with its reason. */
   jobReceipt: protectedProcedure(DRIVING_ROLES)
     .input(JobReceiptInput)
