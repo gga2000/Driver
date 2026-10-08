@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { TERMINAL_ORDER_STATES, type DeliveryPoint, type Order, type RestaurantsInput } from '@driver/contracts';
 import { classifyError } from '@driver/contracts/net-client';
@@ -101,7 +101,14 @@ export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, st
 
 export function usePlaceOrder() {
   const api = useApi();
-  return useMutation(api.orders.place.mutationOptions());
+  const qc = useQueryClient();
+  // The answer is the order itself: put it in the cache so the kitchen screen opens on it at once
+  // instead of asking the server again for what it just said.
+  return useMutation(
+    api.orders.place.mutationOptions({
+      onSuccess: (order) => qc.setQueryData(api.orders.get.queryKey({ orderId: order.id }), order),
+    }),
+  );
 }
 
 export function useCancelOrder() {
