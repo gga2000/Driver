@@ -182,5 +182,7 @@ export interface IdentityPort {
   registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
   /** The guardian's own children with their names (each read logged in the vault access log). */
   myChildren(actor: Actor): Promise<ChildView[]>;
+  /** BENCH-04: whether this is the app-store reviewers' account (only the food-flow writes; see `trpc.ts`). */
+  isStoreReviewer?(personId: string): Promise<boolean>;
 }
 

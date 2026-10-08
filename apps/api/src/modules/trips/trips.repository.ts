@@ -94,6 +94,8 @@ export interface TrailPointRecord {
 }
 
 export interface NewTrip {
+  /** Only a store reviewers' test-kitchen trip (`test_…`, BENCH-04) brings its own id. */
+  id?: string;
   cityId: string;
   vertical: Vertical;
   quoteId?: string | null;
@@ -278,6 +280,7 @@ export class PrismaTripsRepository implements TripsRepository {
   async createTrip(input: NewTrip, _now: Date, tx?: Tx) {
     const row = await this.db(tx).trip.create({
       data: {
+        ...(input.id ? { id: input.id } : {}),
         cityId: input.cityId,
         vertical: input.vertical,
         quoteId: input.quoteId ?? null,
@@ -515,7 +518,7 @@ export class InMemoryTripsRepository implements TripsRepository {
 
   async createTrip(input: NewTrip, now: Date) {
     const trip: TripRecord = {
-      id: this.id('trip'),
+      id: input.id ?? this.id('trip'),
       cityId: input.cityId,
       vertical: input.vertical,
       state: 'created',

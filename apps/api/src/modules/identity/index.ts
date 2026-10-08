@@ -1,5 +1,5 @@
 export { IdentityModule } from './identity.module.js';
-export { IdentityService, shortDisplayName } from './identity.service.js';
+export { IdentityService, STORE_REVIEW, shortDisplayName } from './identity.service.js';
 export type { RosterRow, RosterResult } from './identity.service.js';
 export { normalizeIraqiPhone, maskPhone, invitePhoneHint } from './phone.js';
 export { OTP_WHATSAPP_TEMPLATE } from './otp.service.js';

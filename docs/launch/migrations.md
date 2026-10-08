@@ -18,9 +18,6 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009090000 | scheduled_timers | lane B | #13 (merged) |
 | 20261009091000 | quotes_expires_at_index | lane B | #13 (merged) |
 | 20261009092000 | participants_person_id_index | lane B | #13 (merged) |
-| 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
-| 20261009102000 | abuse_limits | lane D | lane D PR (reserved) |
-| 20261009104000 | customer_waves | lane D | W5 waves PR (reserved) |
 | 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
 | 20261009120000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (reserved) |
 | 20261010092000 | on_call | lane E | #14 (merged) |
@@ -31,6 +28,12 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
 | 20261010230000 | store_closed_until | merchant | #19 |
 | 20261010240000 | console_watch | lane E | #37 |
+| 20261010410000 | recipient_contacts | lane D | gift SMS PR |
+| 20261010420000 | uploads_state_created_index | lane D | abuse limits PR |
+| 20261010430000 | household_invites | lane D | household invites PR |
+| 20261010440000 | customer_waves | lane D | waves PR |
+| 20261010450000 | account_deletion | lane D | account deletion PR |
+| 20261010460000 | test_kitchen | lane D | store-reviewer PR |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, `20261010140000`)
 and #38 (lane B, `20261010220000`). Those two re-stamp to the next free timestamp when they land, and

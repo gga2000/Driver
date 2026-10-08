@@ -23,6 +23,7 @@ import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
+import { TEST_CREW_ID, isTestId } from '../../shared/test-scope.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
@@ -79,6 +80,8 @@ export interface TripOrderInput {
 }
 
 export interface CreateTripInput {
+  /** A store reviewers' test-kitchen trip only (`newTestId()`, BENCH-04); any other id is refused. */
+  id?: string;
   cityId: string;
   vertical: Vertical;
   orders: TripOrderInput[];
@@ -160,6 +163,12 @@ export class TripsService implements OnModuleInit {
   }
 
   private async assertOpenOffer(tripId: string, driverId: string, intent: 'accept' | 'decline'): Promise<void> {
+    // BENCH-04: a store reviewers' test trip is never offered through dispatch; only the test crew
+    // (a server-side person with no phone and no sign-in) takes it, and the crew takes nothing else.
+    if (isTestId(tripId) || driverId === TEST_CREW_ID) {
+      if (!isTestId(tripId) || driverId !== TEST_CREW_ID) throw new DriverError('offer_not_yours');
+      return;
+    }
     const verdict = await this.offerCheck.check(tripId, driverId, intent);
     if (verdict !== 'ok') throw new DriverError(verdict);
   }
@@ -170,11 +179,14 @@ export class TripsService implements OnModuleInit {
     const orderIds = new Set(input.orders.map((o) => o.orderId));
     for (const s of input.stops) if (s.orderId && !orderIds.has(s.orderId)) throw new DriverError('invalid_input');
     if (input.stops.length === 0) throw new DriverError('invalid_input');
+    // BENCH-04: a test trip carries only test orders, and only a test trip carries them.
+    if (input.id !== undefined && !isTestId(input.id)) throw new DriverError('invalid_input');
+    if (input.orders.some((o) => isTestId(o.orderId) !== isTestId(input.id))) throw new DriverError('invalid_input');
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
       for (const o of input.orders) await this.assertNotOnActiveTrip(o.orderId, tx);
       const trip = await this.repo.createTrip(
-        { cityId: input.cityId, vertical: input.vertical, quoteId: input.quoteId ?? null, batchId: input.batchId ?? null, routeId: input.routeId ?? null, departureId: input.departureId ?? null },
+        { ...(input.id ? { id: input.id } : {}), cityId: input.cityId, vertical: input.vertical, quoteId: input.quoteId ?? null, batchId: input.batchId ?? null, routeId: input.routeId ?? null, departureId: input.departureId ?? null },
         now,
         tx,
       );
@@ -194,6 +206,8 @@ export class TripsService implements OnModuleInit {
       if (isTerminal(trip.state)) throw new DriverError('trip_state_conflict');
       const links = await this.repo.linksOf(tripId, tx);
       if (links.some((l) => l.orderId === order.orderId && l.detachedAt === null)) return this.view(tripId, tx);
+      // BENCH-04: test and real orders never share a trip.
+      if (isTestId(order.orderId) !== isTestId(tripId)) throw new DriverError('invalid_input');
       await this.assertNotOnActiveTrip(order.orderId, tx);
       const now = this.clock.now();
       await this.repo.attach({ tripId, orderId: order.orderId, at: now, reason, changedBy: personOrNull(actorId), minVehicleClass: order.minVehicleClass ?? null }, tx);

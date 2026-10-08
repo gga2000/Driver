@@ -298,6 +298,40 @@ async function allowedFor(ctx: AppContext, personId: string, roles: readonly Rol
 }
 
 /**
+ * BENCH-04: the only signed-in writes the app-store reviewers' account may make: the food flow with
+ * the hidden test kitchen (order, cancel, rate, chat about it, share its tracking) and its own account
+ * (profile, addresses, notifications, sign-out). Everything else (rides, الرجعة seats, خطوط, wallet
+ * top-ups and points, tips, invites, family, disputes) reaches real people or real money, so it answers
+ * «الخدمة موقّفة مؤقتاً» instead. A list of what is allowed, so a new write is closed until added here.
+ * Account deletion (W7) joins this list when it is built: the stores check it.
+ */
+export const STORE_REVIEWER_WRITES: ReadonlySet<string> = new Set([
+  'identity.logout',
+  'identity.updateProfile',
+  'orders.place',
+  'orders.cancel',
+  'orders.respondPartial',
+  'orders.rate',
+  'orders.compliment',
+  'chat.send',
+  'chat.voiceUpload',
+  'chat.markRead',
+  'tracking.createShareLink',
+  'tracking.revokeShareLink',
+  'live.token',
+  'places.save',
+  'places.update',
+  'places.remove',
+  'places.confirm',
+  'places.photoUpload',
+  'notify.registerDevice',
+  'notify.unregisterDevice',
+  'notify.setPreferences',
+  'notify.ack',
+  'catalog.followDish',
+]);
+
+/**
  * Requires a valid access token; with `roles`, requires at least one of them (live lookup, so a
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
@@ -305,6 +339,7 @@ export function protectedProcedure(roles?: readonly RoleKind[]) {
   return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
+    if (type === 'mutation' && !STORE_REVIEWER_WRITES.has(path) && (await ctx.identity.isStoreReviewer?.(actor.personId))) throw toTrpcError(new DriverError('service_paused'));
     if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
     if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
       try {

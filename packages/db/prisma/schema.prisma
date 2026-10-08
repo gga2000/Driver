@@ -200,6 +200,9 @@ model Org {
   pickupPhotoRefs String[]                               @default([]) @map("pickup_photo_refs")
   /// When the owner last saved the pickup spot; NULL = never set.
   pickupUpdatedAt DateTime?                              @map("pickup_updated_at")
+  /// The hidden store-review test kitchen (decision D-4): only the store-reviewer account sees and
+  /// orders from it; its orders never reach a real courier, merchant or the money books.
+  isTest          Boolean                                @default(false) @map("is_test")
   createdAt       DateTime                               @default(now()) @map("created_at")
   updatedAt       DateTime                               @updatedAt @map("updated_at")
 
@@ -1044,6 +1047,9 @@ model Order {
   state              OrderState    @default(placed)
   ordererId          String        @map("orderer_id")
   merchantOrgId      String?       @map("merchant_org_id")
+  /// Placed by the store-reviewer account at the test kitchen (decision D-4): no real courier,
+  /// no merchant page, no ledger postings.
+  isTest             Boolean       @default(false) @map("is_test")
   /// Household wallet paying for this order (domain §12).
   householdOrgId     String?       @map("household_org_id")
   quoteId            String?       @unique @map("quote_id")

@@ -46,10 +46,11 @@ export class OrgsService {
     this.householdLock = new DistributedKeyedLock(this.uow, 'orgs.household_create');
   }
 
-  create(input: { type: OrgType; name: string; cityId: string; ownerId: string }): Promise<Org> {
+  /** `isTest`: the store reviewers' hidden test kitchen (BENCH-04), made only by the store-review module. */
+  create(input: { type: OrgType; name: string; cityId: string; ownerId: string; isTest?: boolean }): Promise<Org> {
     const ownerRole: OrgMemberRole = input.type === 'household' ? 'payer' : 'member';
     return this.uow.run(async (tx) => {
-      const org = await this.repo.create({ type: input.type, name: input.name, cityId: input.cityId, members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }] }, tx);
+      const org = await this.repo.create({ type: input.type, name: input.name, cityId: input.cityId, members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }], ...(input.isTest ? { isTest: true } : {}) }, tx);
       await this.emit(tx, 'org.created', input.ownerId, { orgId: org.id, type: org.type, cityId: org.cityId }, org.id);
       return org;
     });
@@ -219,7 +220,8 @@ export class OrgsService {
   async merchants(cityId: string): Promise<MerchantOrg[]> {
     const rows = await this.repo.list({ cityId, types: ['restaurant', 'grocer'] });
     return rows
-      .filter((o): o is Org & { type: 'restaurant' | 'grocer' } => isMerchantType(o.type))
+      // BENCH-04: the store reviewers' test kitchen is no merchant ops pick.
+      .filter((o): o is Org & { type: 'restaurant' | 'grocer' } => isMerchantType(o.type) && !o.isTest)
       .map((o) => ({ id: o.id, name: o.name, type: o.type, cityId: o.cityId, lastHeartbeatAt: o.merchant?.lastHeartbeatAt ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
   }

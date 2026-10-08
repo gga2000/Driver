@@ -148,6 +148,11 @@ export interface IdentityRepository {
     input: { locale: string; sharedFamilyPhone: boolean; phoneE164: string; phoneHash: string; name: string | null; now: Date },
     tx?: Tx,
   ): Promise<PersonRecord>;
+  /**
+   * A server-side person with a fixed id and no vault identity (no phone, so no sign-in and no
+   * message can reach it): the test kitchen's crew (BENCH-04). Creates it once; later calls return it.
+   */
+  ensureSystemPerson(id: string, now: Date, tx?: Tx): Promise<PersonRecord>;
   updatePerson(id: string, patch: Partial<Pick<PersonRecord, 'lastVerifiedAt' | 'sharedFamilyPhone' | 'locale' | 'trustTier'>>, tx?: Tx): Promise<PersonRecord>;
 
   // vault
@@ -215,6 +220,8 @@ export interface IdentityRepository {
   revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
   /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
   lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
+  /** Sessions this person opened (signed in) at or after `since`. */
+  sessionsOpenedSince(personId: string, since: Date, tx?: Tx): Promise<number>;
 
   // otp
   latestOtp(phoneHash: string, purpose: OtpPurpose, tx?: Tx): Promise<OtpRecord | null>;
@@ -341,6 +348,10 @@ export class PrismaIdentityRepository implements IdentityRepository {
         identity: { create: { phoneE164: input.phoneE164, phoneHash: input.phoneHash, name: input.name } },
       },
     });
+  }
+
+  async ensureSystemPerson(id: string, now: Date, tx?: Tx) {
+    return this.db(tx).person.upsert({ where: { id }, create: { id, locale: 'ar-IQ', createdAt: now }, update: {} });
   }
 
   async updatePerson(id: string, patch: Partial<Pick<PersonRecord, 'lastVerifiedAt' | 'sharedFamilyPhone' | 'locale' | 'trustTier'>>, tx?: Tx) {
@@ -522,9 +533,9 @@ export class PrismaIdentityRepository implements IdentityRepository {
   }
 
   async createSession(input: { personId: string; deviceId: string | null; refreshTokenHash: string; expiresAt: Date; now: Date }, tx?: Tx) {
-    const { now: _unused, ...data } = input;
-    void _unused;
-    return this.db(tx).session.create({ data });
+    const { now, ...data } = input;
+    // Stamped with the service clock, like every other identity time (sign-in counts read it).
+    return this.db(tx).session.create({ data: { ...data, createdAt: now } });
   }
 
   async findSessionById(id: string, tx?: Tx) {
@@ -558,6 +569,10 @@ export class PrismaIdentityRepository implements IdentityRepository {
     const db = this.db(tx);
     const { count } = await db.session.updateMany({ where: { id, refreshTokenHash: expectRefreshHash, revokedAt: null }, data: patch });
     return count === 0 ? null : db.session.findUnique({ where: { id } });
+  }
+
+  async sessionsOpenedSince(personId: string, since: Date, tx?: Tx) {
+    return this.db(tx).session.count({ where: { personId, createdAt: { gte: since } } });
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {

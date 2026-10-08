@@ -3,6 +3,7 @@ import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
+import { isTestId } from '../../shared/test-scope.js';
 
 /**
  * The orders module's persistence port: `orders`, `order_lines`, `participants` — its own tables
@@ -28,6 +29,8 @@ export interface OrderRecord {
   smallOrderFeeIqd?: number;
   /** W-02 / J-D10: points the customer spends on this order (`orders.points_redeemed`), posted at close; absent = 0. */
   pointsRedeemed?: number;
+  /** BENCH-04: an order of the store reviewers' hidden test kitchen (`orders.is_test`, id `test_…`); absent = false. */
+  isTest?: boolean;
   /** The server-resolved promotion behind `discountIqd` (`orders.promotion_id`); null = no discount. */
   promotionId: string | null;
   /** The discount line (`orders.discount_meta`): funder, what it comes off, labels. Absent on old rows = platform promo. */
@@ -156,7 +159,10 @@ export type NewOrder = Omit<
   | 'handedOverAt'
   | 'refundState'
   | 'receiptTotalIqd'
->;
+> & {
+  /** Set only for a test-kitchen order (`newTestId()`, BENCH-04); otherwise the repository makes the id. */
+  id?: string;
+};
 
 export type NewParticipant = Omit<ParticipantRecord, 'id' | 'orderId'> & { ref: string };
 export type NewLine = Omit<OrderLineRecord, 'id' | 'orderId' | 'participantId' | 'substitution'> & { participantRef: string | null };
@@ -295,6 +301,7 @@ function orderFromRow(r: any): OrderRecord {
     giftHidePrices: r.giftHidePrices ?? false,
     smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,
     pointsRedeemed: r.pointsRedeemed ?? 0,
+    isTest: r.isTest ?? false,
     changeToWalletIqd: r.changeToWalletIqd ?? null,
     scheduledFor: r.scheduledFor,
     merchantOfferedAt: r.merchantOfferedAt,
@@ -370,12 +377,14 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
   async create(order: NewOrder, lines: readonly NewLine[], participants: readonly NewParticipant[], tx?: Tx): Promise<OrderAggregate> {
     const db = this.db(tx);
-    const { discountMeta, ...fields } = order;
+    // Only a test-kitchen id (BENCH-04) is kept; any other id the input carries is the database's to make.
+    const { discountMeta, id, ...fields } = order;
     let row;
     try {
       row = await db.order.create({
         data: {
           ...fields,
+          ...(id && isTestId(id) ? { id } : {}),
           dropoff: order.dropoff ? (order.dropoff as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
           discountMeta: discountMeta ? (discountMeta as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
         },
@@ -563,7 +572,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (requestKey && this.byClientRequest.has(requestKey)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId!);
     const record: OrderRecord = {
       ...order,
-      id: this.id('ord'),
+      id: order.id && isTestId(order.id) ? order.id : this.id('ord'),
       state: 'placed',
       acceptedAt: null,
       preparingAt: null,

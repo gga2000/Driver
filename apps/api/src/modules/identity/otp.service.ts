@@ -8,6 +8,8 @@ import type { SmsProvider } from './sms/provider.js';
 import { DevWhatsAppProvider, type WhatsAppPort } from '../../shared/messaging/whatsapp.js';
 import type { OtpChannel } from '@driver/contracts';
 import type { OtpGuard, OtpRequestOrigin } from './rate-limit.js';
+import type { StoreReviewConfig } from './store-review.js';
+import { isStagingTestNumber, type StagingTestConfig } from './staging-test.js';
 
 /** The approved WhatsApp authentication template for login codes (Meta: one `{{1}}` = the code). */
 export const OTP_WHATSAPP_TEMPLATE = 'otp_login';
@@ -38,6 +40,10 @@ export class OtpService {
     /** WhatsApp for "دزلي على واتساب"; without it a WhatsApp request is refused (`otp_channel_unavailable`). */
     private readonly guard: OtpGuard,
     private readonly whatsapp?: WhatsAppPort,
+    /** The store-reviewer number and its fixed code (`store-review.ts`); null = off. */
+    private readonly storeReview: StoreReviewConfig | null = null,
+    /** Staging test numbers and their fixed code (`staging-test.ts`); null = off. */
+    private readonly stagingTest: StagingTestConfig | null = null,
   ) {}
 
   /**
@@ -52,6 +58,9 @@ export class OtpService {
     asked?: OtpChannel,
     origin: OtpRequestOrigin = {},
   ): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel }> {
+    const reviewer = this.storeReview?.phoneE164 === phoneE164;
+    // Nothing is ever texted to the reviewer number: its only code is the fixed sign-in code.
+    if (reviewer && purpose !== 'login') throw new DriverError('otp_channel_unavailable');
     const whatsappAvailable = !!this.whatsapp && purpose === 'login';
     if (asked === 'whatsapp' && !whatsappAvailable) throw new DriverError('otp_channel_unavailable');
     const now = this.clock.now();
@@ -65,12 +74,24 @@ export class OtpService {
         throw new DriverError('otp_resend_too_soon', { retryAfterSec: Math.ceil(OTP_RESEND_SEC - sinceLast) });
       }
     }
+    if (reviewer) {
+      // The store reviewer: the fixed code from the host's secrets, no SMS, no budget, no guard
+      // count (its sign-ins are capped and alerted at verify instead). Same resend, expiry and
+      // 5-try lock as everyone else.
+      return this.fixed(this.storeReview!.code, phoneHash, purpose, latest, now, tx);
+    }
+    if (this.stagingTest && isStagingTestNumber(phoneE164)) {
+      // A staging test number: the fixed code from the host's secret, never sent. The guard's
+      // limits still count it, plus a cap across the whole range.
+      await this.guard.admitFixed({ phoneE164, phoneHash, origin }, this.stagingTest.dailyCodes);
+      return this.fixed(this.stagingTest.code, phoneHash, purpose, latest, now, tx);
+    }
     const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
     const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
     const channel = await this.guard.admit(send);
     // One chain: a resend inherits the misses of the unused code it replaces (until a lock-out's time
     // has passed), so asking for a fresh code every 30 seconds never resets the 5-try lock-out.
-    const carried = latest && !latest.verifiedAt && !latest.lockedAt && now.getTime() - latest.createdAt.getTime() < LOCK_MINUTES * 60_000 ? latest.attempts : 0;
+    const carried = carriedMisses(latest, now);
     const code = randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
     const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
     await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now, attempts: carried }, tx);
@@ -91,6 +112,13 @@ export class OtpService {
       else this.devChannel.delete(phoneE164);
     }
     return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel };
+  }
+
+  /** A challenge whose code is a fixed one from the host's secrets: nothing is sent. */
+  private async fixed(code: string, phoneHash: string, purpose: OtpPurpose, latest: OtpRecord | null, now: Date, tx?: Tx) {
+    const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
+    await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now, attempts: carriedMisses(latest, now) }, tx);
+    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms' as const };
   }
 
   /**
@@ -149,6 +177,11 @@ export class OtpService {
   private hash(code: string, phoneHash: string): string {
     return createHmac('sha256', this.pepper).update(`${phoneHash}:${code}`).digest('hex');
   }
+}
+
+/** Misses a fresh code inherits from the unused one it replaces (until a lock-out's time has passed). */
+function carriedMisses(latest: OtpRecord | null, now: Date): number {
+  return latest && !latest.verifiedAt && !latest.lockedAt && now.getTime() - latest.createdAt.getTime() < LOCK_MINUTES * 60_000 ? latest.attempts : 0;
 }
 
 function secondsUntil(now: Date, from: Date, plusSec: number): number {

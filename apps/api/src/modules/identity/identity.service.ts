@@ -44,6 +44,9 @@ import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, 
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { OtpGuard } from './rate-limit.js';
+import { TEST_CREW_ID } from '../../shared/test-scope.js';
+import { STORE_REVIEW_SIGNIN_EVENT, type StoreReviewConfig } from './store-review.js';
+import { isStagingTestNumber, STAFF_ROLES, type StagingTestConfig } from './staging-test.js';
 import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
@@ -54,6 +57,10 @@ import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
 export const OTP_WHATSAPP = Symbol('OTP_WHATSAPP');
 
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
+/** The store-reviewer number and fixed code (`store-review.ts`); null when the host has none set. */
+export const STORE_REVIEW = Symbol('STORE_REVIEW');
+/** Staging test numbers' fixed code (`staging-test.ts`); null = off. */
+export const STAGING_TEST = Symbol('STAGING_TEST');
 /** The one OTP guard (`rate-limit.ts`); bound by the module on the shared window counter. */
 export const OTP_REQUEST_GUARD = Symbol('OTP_REQUEST_GUARD');
 
@@ -110,9 +117,11 @@ export class IdentityService implements IdentityPort {
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
+    @Optional() @Inject(STORE_REVIEW) private readonly storeReview: StoreReviewConfig | null = null,
+    @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
-    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp);
+    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp, storeReview, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
@@ -154,20 +163,95 @@ export class IdentityService implements IdentityPort {
       let isNew = false;
       if (!person) {
         isNew = true;
-        person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone: input.sharedFamilyPhone ?? false, phoneE164: e164, phoneHash: hash, name: null, now }, tx);
-        await this.events.emit(tx, { actorId: person.id, type: 'person.registered', occurredAt: now, payload: { personId: person.id, sharedFamilyPhone: person.sharedFamilyPhone } }, { name: 'person', id: person.id });
-        await this.repo.upsertRole({ personId: person.id, kind: 'customer', orgId: null, grantedBy: SYSTEM_ACTOR, now }, tx);
-        await this.events.emit(tx, { actorId: SYSTEM_ACTOR, type: 'role.granted', occurredAt: now, payload: { personId: person.id, kind: 'customer', orgId: null } }, { name: 'person', id: person.id });
+        person = await this.createCustomer(e164, hash, input.sharedFamilyPhone ?? false, now, tx);
       } else if (person.deletedAt) {
         throw new DriverError('account_suspended');
       } else if (input.sharedFamilyPhone && !person.sharedFamilyPhone) {
         await this.repo.updatePerson(person.id, { sharedFamilyPhone: true }, tx);
       }
+      if (e164 === this.storeReview?.phoneE164) await this.storeReviewSignIn(person.id, now, tx);
+      if (!isNew && this.isStagingTest(e164) && (await this.holdsStaffRole(person.id, tx))) throw new DriverError('forbidden');
       const deviceId = input.device ? (await this.registerDevice(person.id, input.device, now, true, tx)).id : null;
       await this.markVerified(person.id, now, tx, isNew ? 'person.verified' : 'person.reverified', person.lastVerifiedAt === null);
       const { tokens } = await this.sessions.open(person.id, deviceId, tx);
       return { personId: person.id, isNew, tokens };
     });
+  }
+
+  /**
+   * The store-reviewer account signing in (BENCH-04): at most `dailySignIns` a rolling day, and
+   * every use writes `security.store_review_signin` for the on-call alert (no number in it).
+   */
+  private async storeReviewSignIn(personId: string, now: Date, tx: Tx): Promise<void> {
+    const since = new Date(now.getTime() - 24 * 3_600_000);
+    const today = await this.repo.sessionsOpenedSince(personId, since, tx);
+    if (today >= this.storeReview!.dailySignIns) throw new DriverError('rate_limited', { retryAfterSec: 3600 });
+    await this.events.emit(tx, { actorId: personId, type: STORE_REVIEW_SIGNIN_EVENT, occurredAt: now, payload: { personId, signInsToday: today + 1, limit: this.storeReview!.dailySignIns } }, { name: 'security', id: 'store_review' });
+  }
+
+  /** Whether this number signs in with the staging fixed code (the range is on and it is in it). */
+  private isStagingTest(e164: string): boolean {
+    return this.stagingTest !== null && isStagingTestNumber(e164);
+  }
+
+  private async holdsStaffRole(personId: string, tx?: Tx): Promise<boolean> {
+    return (await this.repo.rolesOf(personId, tx)).some((r) => STAFF_ROLES.includes(r.kind));
+  }
+
+  /** The store-reviewer account's person id, once it has signed in; null when off or never used. */
+  async storeReviewerId(tx?: Tx): Promise<string | null> {
+    if (!this.storeReview) return null;
+    return (await this.repo.findPersonByPhoneHash(hashPhone(this.storeReview.phoneE164, this.pepper), tx))?.id ?? null;
+  }
+
+  /** BENCH-04: whether the store-reviewer sign-in is configured (its secrets are set on this host). */
+  get storeReviewEnabled(): boolean {
+    return this.storeReview !== null;
+  }
+
+  /** The reviewer's person id once found (it never changes for a number); catalog reads and signed-in writes ask. */
+  private reviewerIdCache: string | null = null;
+
+  /**
+   * BENCH-04: whether `personId` is the store-reviewer account (sees and orders only the test kitchen,
+   * and may make only the food-flow writes). `ensureStoreReviewer` makes the account at boot, so after
+   * that this is a comparison, not a query.
+   */
+  async isStoreReviewer(personId: string): Promise<boolean> {
+    if (!this.storeReview) return false;
+    this.reviewerIdCache ??= await this.storeReviewerId();
+    return this.reviewerIdCache !== null && this.reviewerIdCache === personId;
+  }
+
+  /**
+   * BENCH-04: makes the store-reviewer account before anyone signs in with it, so every machine knows
+   * its id from the start (a machine that had not seen it yet would treat the reviewer as a customer).
+   * Idempotent; the caller runs it under a lock across machines. Null when the sign-in is off.
+   */
+  async ensureStoreReviewer(): Promise<string | null> {
+    const review = this.storeReview;
+    if (!review) return null;
+    const hash = hashPhone(review.phoneE164, this.pepper);
+    const id = await this.uow.run(async (tx) => (await this.repo.findPersonByPhoneHash(hash, tx))?.id ?? (await this.createCustomer(review.phoneE164, hash, false, this.clock.now(), tx)).id);
+    this.reviewerIdCache = id;
+    return id;
+  }
+
+  /** A new customer: the person with phone in the vault, the customer role, and their events. */
+  private async createCustomer(e164: string, hash: string, sharedFamilyPhone: boolean, now: Date, tx: Tx) {
+    const person = await this.repo.createPersonWithIdentity({ locale: 'ar-IQ', sharedFamilyPhone, phoneE164: e164, phoneHash: hash, name: null, now }, tx);
+    await this.events.emit(tx, { actorId: person.id, type: 'person.registered', occurredAt: now, payload: { personId: person.id, sharedFamilyPhone: person.sharedFamilyPhone } }, { name: 'person', id: person.id });
+    await this.repo.upsertRole({ personId: person.id, kind: 'customer', orgId: null, grantedBy: SYSTEM_ACTOR, now }, tx);
+    await this.events.emit(tx, { actorId: SYSTEM_ACTOR, type: 'role.granted', occurredAt: now, payload: { personId: person.id, kind: 'customer', orgId: null } }, { name: 'person', id: person.id });
+    return person;
+  }
+
+  /**
+   * BENCH-04: the test kitchen's crew, a server-side person with no phone and no vault identity (so no
+   * sign-in and no message can reach it): it owns the test kitchen and carries its orders.
+   */
+  async ensureTestCrew(): Promise<string> {
+    return (await this.repo.ensureSystemPerson(TEST_CREW_ID, this.clock.now())).id;
   }
 
   private async registerDevice(personId: string, device: DeviceInfo, now: Date, verified: boolean, tx: Tx) {
@@ -320,6 +404,11 @@ export class IdentityService implements IdentityPort {
       const person = await this.repo.findPersonById(input.personId, tx);
       if (!person) throw new DriverError('person_not_found');
       if (person.sharedFamilyPhone && SHARED_PHONE_FORBIDDEN_ROLES.includes(input.kind)) throw new DriverError('shared_phone_role_forbidden');
+      // A staging test number (anyone holding the fixed code can sign in with it) is never made staff.
+      if (this.stagingTest && STAFF_ROLES.includes(input.kind)) {
+        const phone = (await this.repo.readIdentity(input.personId, tx))?.phoneE164;
+        if (phone && isStagingTestNumber(phone)) throw new DriverError('forbidden');
+      }
       const now = this.clock.now();
       const orgId = input.orgId ?? null;
       const { role, created } = await this.repo.upsertRole({ personId: input.personId, kind: input.kind, orgId, grantedBy: actor.personId, now }, tx);
@@ -1112,6 +1201,7 @@ export class IdentityService implements IdentityPort {
       const next = this.phone(input.newPhone);
       if (next.hash === current.phoneHash) throw new DriverError('phone_change_same_number');
       if (await this.repo.findPersonByPhoneHash(next.hash, tx)) throw new DriverError('phone_change_taken');
+      if (this.isStagingTest(next.e164) && (await this.holdsStaffRole(actor.personId, tx))) throw new DriverError('forbidden');
       const a = await this.otp.request(current.phoneE164, current.phoneHash, 'phone_change', tx, undefined, { actorId: actor.personId });
       await this.otp.request(next.e164, next.hash, 'phone_change', tx, undefined, { actorId: actor.personId });
       this.phoneChanges.set(actor.personId, { newE164: next.e164, newHash: next.hash, startedAt: this.clock.now() });

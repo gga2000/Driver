@@ -130,6 +130,8 @@ export interface StorefrontRecord {
   ratingPlaceholder: { avg: number; count: number } | null;
   /** «مطاعمنا» (joy h5): the owner's own lines; customers see it only when `shown`. */
   story?: KitchenStoryRecord | null;
+  /** The store reviewers' hidden test kitchen (`orgs.is_test`, BENCH-04): listed only to the reviewer account. */
+  isTest?: boolean;
 }
 
 /** The kitchen's story as the owner wrote it (storefront JSON `story`). */
@@ -277,6 +279,7 @@ function toStorefront(input: NewStorefront): StorefrontRecord {
     hours: [...(input.hours ?? [])],
     ratingPlaceholder: input.ratingPlaceholder ?? null,
     story: input.story ?? null,
+    isTest: input.isTest ?? false,
   };
 }
 
@@ -598,7 +601,7 @@ function fromRow(r: ItemRow): CatalogItemRecord {
  * Reads `catalogs.storefront` defensively (JSON written by the seed or `saveStorefront`); a menu
  * without a cuisine line has no storefront and is not listed to customers.
  */
-function storefrontFromRow(orgId: string, org: { name: string; cityId: string }, raw: unknown): StorefrontRecord | null {
+function storefrontFromRow(orgId: string, org: { name: string; cityId: string; isTest: boolean }, raw: unknown): StorefrontRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const j = raw as Record<string, unknown>;
   if (typeof j['cuisineAr'] !== 'string' || !j['cuisineAr']) return null;
@@ -615,6 +618,7 @@ function storefrontFromRow(orgId: string, org: { name: string; cityId: string },
     hours: Array.isArray(j['hours']) ? (j['hours'] as AvailabilityWindow[]) : [],
     ratingPlaceholder: rating && typeof rating.avg === 'number' && typeof rating.count === 'number' ? { avg: rating.avg, count: rating.count } : null,
     story: storyFromJson(j['story']),
+    isTest: org.isTest,
   };
 }
 
@@ -709,7 +713,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
   async storefronts(cityId: string): Promise<StorefrontRecord[]> {
     const rows = await this.prisma.prisma.catalog.findMany({
       where: { active: true, branchKey: null, org: { cityId, type: { in: ['restaurant', 'grocer'] } } },
-      include: { org: { select: { name: true, cityId: true } } },
+      include: { org: { select: { name: true, cityId: true, isTest: true } } },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map((r) => storefrontFromRow(r.orgId, r.org, r.storefront)).filter((s): s is StorefrontRecord => s !== null);
@@ -718,7 +722,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
   async storefront(orgId: string): Promise<StorefrontRecord | null> {
     const r = await this.prisma.prisma.catalog.findFirst({
       where: { orgId, active: true, branchKey: null },
-      include: { org: { select: { name: true, cityId: true } } },
+      include: { org: { select: { name: true, cityId: true, isTest: true } } },
       orderBy: { createdAt: 'asc' },
     });
     return r ? storefrontFromRow(r.orgId, r.org, r.storefront) : null;

@@ -64,6 +64,7 @@ import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
+import { newTestId } from '../../shared/test-scope.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import type { CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
@@ -159,6 +160,11 @@ export interface OrdersPlacesPort {
 }
 
 export const ORDERS_PLACES = Symbol('ORDERS_PLACES');
+
+/** BENCH-04: whether a person is the store-reviewer account (identity owns the answer). */
+export interface OrdersTestAudience {
+  testOrderer(personId: string): Promise<boolean>;
+}
 
 /** Invite as a gift (joy g2): the person who invited a customer, or null (the referrals module). */
 export interface OrdersReferralsPort {
@@ -329,6 +335,26 @@ export class OrdersService implements OnModuleInit {
     };
   }
 
+  /**
+   * BENCH-04: who the store-reviewer account is (identity). Bound by the module; without it nobody is,
+   * and the test kitchen takes no orders at all.
+   */
+  private testAudience: OrdersTestAudience | null = null;
+
+  bindTestAudience(port: OrdersTestAudience): void {
+    this.testAudience = port;
+  }
+
+  /**
+   * BENCH-04: the store-reviewer account orders only from the hidden test kitchen, and only food and
+   * shop orders (a ride or an errand would page real drivers); nobody else can order from it.
+   */
+  private async assertTestPairing(ordererId: string, merchantType: boolean, profile: MerchantProfile | null): Promise<void> {
+    const reviewer = this.testAudience !== null && (await this.testAudience.testOrderer(ordererId));
+    if (reviewer && !merchantType) throw new DriverError('service_paused');
+    if (merchantType && reviewer !== Boolean(profile?.isTest)) throw new DriverError('org_not_found');
+  }
+
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
     return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
@@ -493,6 +519,8 @@ export class OrdersService implements OnModuleInit {
         const rider = carried.rider ?? (input.rider ? await this.resolveRider(ordererId, input.rider) : null);
         const agg = await this.repo.create(
           {
+            // BENCH-04: a test-kitchen order says so in its id, so every event of it stays in the test scope.
+            ...(profile?.isTest ? { id: newTestId(), isTest: true } : {}),
             cityId: input.cityId,
             type: input.type,
             ordererId,
@@ -814,6 +842,9 @@ export class OrdersService implements OnModuleInit {
     if (merchantType) {
       profile = await this.merchants.profile(input.merchantOrgId!);
       if (!profile) throw new DriverError('org_not_found');
+    }
+    await this.assertTestPairing(ordererId, merchantType, profile);
+    if (merchantType && profile) {
       storefront = (await this.catalog.storefront?.(input.merchantOrgId!)) ?? null;
       if (!opts.quote) {
         // Backend review 2026-10-04 (apps #10): the server is open exactly when the card says so —
@@ -1447,7 +1478,10 @@ export class OrdersService implements OnModuleInit {
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
     // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
     const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
-    return Promise.all(live.map((o) => this.view(o.id)));
+    // BENCH-04: the store reviewers' test orders stay out of the Console and the city's sweeps; only
+    // the test kitchen's own list (asked by its merchant id) shows them.
+    const shown = filter.merchantOrgId ? live : live.filter((o) => !o.isTest);
+    return Promise.all(shown.map((o) => this.view(o.id)));
   }
 
   async listForPerson(personId: string): Promise<Order[]> {
@@ -1598,7 +1632,7 @@ export class OrdersService implements OnModuleInit {
     const out = new Map<string, number>();
     for (const o of await this.repo.findMany({ cityId, states: ACTIVE_ORDER_STATES })) {
       const zone = o.dropoff?.zoneKey;
-      if (!zone || !THROTTLED_ORDER_TYPES.includes(o.type)) continue;
+      if (!zone || !THROTTLED_ORDER_TYPES.includes(o.type) || o.isTest) continue;
       out.set(zone, (out.get(zone) ?? 0) + 1);
     }
     return out;
@@ -1609,7 +1643,7 @@ export class OrdersService implements OnModuleInit {
     // Bounded read on (city, placed_at): anything delivered in the window was placed at most a day before it.
     const rows = await this.repo.search({ cityId, from: new Date(from.getTime() - 86_400_000), to, limit: 20_000 });
     return rows
-      .filter((o) => THROTTLED_ORDER_TYPES.includes(o.type) && o.deliveredAt && o.deliveredAt.getTime() >= from.getTime() && o.deliveredAt.getTime() < to.getTime())
+      .filter((o) => !o.isTest && THROTTLED_ORDER_TYPES.includes(o.type) && o.deliveredAt && o.deliveredAt.getTime() >= from.getTime() && o.deliveredAt.getTime() < to.getTime())
       .map((o) => (o.deliveredAt!.getTime() - o.placedAt.getTime()) / 60_000);
   }
 
@@ -1617,6 +1651,7 @@ export class OrdersService implements OnModuleInit {
   async placedPerDay(cityId: string, from: Date, to: Date, offsetMin = 180): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     for (const o of await this.repo.search({ cityId, from, to, limit: 20_000 })) {
+      if (o.isTest) continue;
       const t = o.placedAt.getTime();
       const day = new Date(t + offsetMin * 60_000).toISOString().slice(0, 10);
       out.set(day, (out.get(day) ?? 0) + 1);
@@ -1631,6 +1666,7 @@ export class OrdersService implements OnModuleInit {
   async placedPerHour(cityId: string, from: Date, to: Date, offsetMin = 180): Promise<number[]> {
     const out = new Array<number>(24).fill(0);
     for (const o of await this.repo.search({ cityId, from, to, limit: 20_000 })) {
+      if (o.isTest) continue;
       const hour = new Date(o.placedAt.getTime() + offsetMin * 60_000).getUTCHours();
       out[hour] = (out[hour] ?? 0) + 1;
     }
@@ -1644,7 +1680,8 @@ export class OrdersService implements OnModuleInit {
       this.repo.countPlacedSince(cityId, new Date(now.getTime() - 60 * 60_000)),
       this.repo.findMany({ cityId, states: ACTIVE_ORDER_STATES }),
     ]);
-    return { ordersLastHour, activeOrders: active.length, lateOrders: active.filter((o) => isLate(o, now)).length };
+    const real = active.filter((o) => !o.isTest);
+    return { ordersLastHour, activeOrders: real.length, lateOrders: real.filter((o) => isLate(o, now)).length };
   }
 
   /** Raw aggregate for authorisation checks in the transport layer. */

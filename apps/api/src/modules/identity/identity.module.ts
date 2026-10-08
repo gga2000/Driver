@@ -6,7 +6,9 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { AuthCache, InProcessDropBus, RedisDropBus, authCacheTtlMsFromEnv, cachedIdentityRepository } from './auth-cache.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
-import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
+import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER, STAGING_TEST, STORE_REVIEW } from './identity.service.js';
+import { isStagingTestNumber, stagingTestFromEnv } from './staging-test.js';
+import { storeReviewFromEnv, type StoreReviewConfig } from './store-review.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
@@ -51,6 +53,20 @@ import { SMS_PROVIDER } from './sms/provider.js';
     // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
     { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
+    // The store-reviewer number and fixed code (BENCH-04): STORE_REVIEW_PHONE / STORE_REVIEW_CODE,
+    // host secrets only; unset = off.
+    { provide: STORE_REVIEW, useFactory: () => storeReviewFromEnv() },
+    // Staging test numbers 0770 000 01xx sign in with STAGING_TEST_OTP (a host secret); only where
+    // DEPLOY_ENVIRONMENT=staging, never as staff. Unset = off. docs/api/staging-test-numbers.md.
+    {
+      provide: STAGING_TEST,
+      useFactory: (review: StoreReviewConfig | null) => {
+        const test = stagingTestFromEnv();
+        if (test && review && isStagingTestNumber(review.phoneE164)) throw new Error('STORE_REVIEW_PHONE is in the staging test range; refusing to boot');
+        return test;
+      },
+      inject: [STORE_REVIEW],
+    },
     {
       provide: SessionService,
       useFactory: (repo: IdentityRepository, clock: Clock) => new SessionService(repo, clock, sessionConfigFromEnv()),

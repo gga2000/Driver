@@ -27,6 +27,8 @@ export interface MerchantProfile {
   reopensAt?: Date;
   /** Today is one of the store's holiday closures (Merchant app hours); `closed` is also true then. */
   holiday?: boolean;
+  /** The store reviewers' hidden test kitchen (BENCH-04): only the reviewer account orders here. */
+  isTest?: boolean;
 }
 
 export interface MerchantDirectory {
@@ -63,6 +65,7 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
       closed: closed !== null || holiday,
       ...(closed?.until ? { reopensAt: closed.until } : {}),
       ...(holiday ? { holiday } : {}),
+      ...(org.isTest ? { isTest: true } : {}),
     };
   }
 

@@ -6,7 +6,7 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_AUDIENCE, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontAudience, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
@@ -135,6 +135,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       useFactory: (routes: RoutesRpc): StorefrontToday => ({ rajaa: () => routes.today(), latePromiseMin: () => AZIZIYAH_MONEY_RULES.latePromise.afterMin }),
       inject: [RoutesRpc],
     },
+    // BENCH-04: the store-reviewer account sees only the hidden test kitchen; everyone else never sees it.
+    { provide: STOREFRONT_AUDIENCE, useFactory: (identity: IdentityService): StorefrontAudience => ({ testReader: (personId) => identity.isStoreReviewer(personId) }), inject: [IdentityService] },
     // Merchant-uploaded dish photos (`upload:<id>`) reach customers as signed links from the blob store.
     { provide: STOREFRONT_PHOTOS, useExisting: BLOB_STORE },
     // REL-16: menus and lists show a kitchen the kill switches stopped, with place()'s own words.
@@ -193,6 +195,8 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.
     this.orders.bindReferrals({ referrerOf: (personId) => this.referrals.referrerOf(personId) });
     this.referrals.bindOrders({ placedCount: (personId) => this.orders.placedCount(personId) });
+    // BENCH-04: the store-reviewer account orders only from the test kitchen, and only it can.
+    this.orders.bindTestAudience({ testOrderer: (personId) => this.identity.isStoreReviewer(personId) });
     // Ride ideas c9/s3: a ride for someone else — the rider is a person, their name stays in identity's vault.
     this.orders.bindRiders(identityRiders(this.identity, orgsHouseholds(this.orgs)));
     // "الخردة علينا": a drop-off's cash is checked against its order before trips records it.
