@@ -7,8 +7,8 @@
       "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74"
     },
     "customer.assets_mb": {
-      "max": 7.0,
-      "why": "web fonts w3 (+0.19, 6.65 -> 6.84): Expo copies public/ (public/assets/fonts/*.woff2, web only) into every export, so they count here though the phone app never ships them; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
+      "max": 6.8,
+      "why": "web fonts w3 live in public/ (web only); size.mjs leaves public/ out since #110, so phones stay 6.64; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
       "max": 6.15,
