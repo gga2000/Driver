@@ -1,7 +1,8 @@
 import { Pressable, ScrollView, View } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import type { MessageKey } from '@driver/i18n';
-import { DishDrawing, Text, useTheme } from '@driver/ui';
+import { Text, useTheme } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { countKey } from '@/lib/plural';
 import { useT } from '@/lib/i18n';
 import type { DoorCraving } from './cravings';
