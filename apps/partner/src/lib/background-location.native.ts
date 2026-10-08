@@ -39,6 +39,8 @@ export interface BackgroundCopy {
 
 let state: BackgroundState | null = null;
 let lastBeatAt = 0;
+/** Perf o4: the version of the last background beat's answer, so a quiet shift gets the small ack. */
+let beatVersion = '';
 let prev: Fix | null = null;
 let sending = false;
 const buffer = new FixBuffer();
@@ -68,7 +70,9 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(BACKGROUND_LOCA
   if (plan.heartbeat && latest) {
     lastBeatAt = now;
     // Same call as the on-screen heartbeat: idempotent, keeps his zone's anti-camping clock.
-    await api.partner.goOnline.mutate({ at: { lat: latest.lat, lng: latest.lng }, ...(s.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }).catch(() => undefined);
+    // The answer is not shown from here: sending the last version keeps it to `{ changed: false }`.
+    const res = await api.partner.goOnline.mutate({ at: { lat: latest.lat, lng: latest.lng }, knownVersion: beatVersion, ...(s.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }).catch(() => undefined);
+    beatVersion = res && 'version' in res ? res.version : '';
   }
 
   if (plan.reportPositions) {

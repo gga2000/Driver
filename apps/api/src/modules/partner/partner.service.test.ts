@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import { isDriverError, PartnerGoOnlineResult, PartnerStatus, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
 import type { PartnerBookedRecord, PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
@@ -124,7 +124,6 @@ function harness(
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
-  const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
     presence: {
       get: async () => presence,
@@ -139,13 +138,16 @@ function harness(
       zones: async () => ['centre', 'zakur'],
     },
     dispatch: {
-      openOffer: async () =>
-        offerTrip
+      openOffer: async () => {
+        // Read on each call, so a test can make an offer ring between two beats (perf o4).
+        const offerTrip = opts.offerTrip ?? null;
+        return offerTrip
           ? {
               offer: { id: 'do_1', tripId: offerTrip.id, wave: 1, state: 'sent', distanceKm: 0.8, compensationIqd: 0, sentAt: NOW, seenAt: null, expiresAt: new Date(NOW.getTime() + 15_000), ...(opts.offerPolicy ? { policy: opts.offerPolicy } : {}) },
               request: { tripId: offerTrip.id, vertical: 'food', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
             }
-          : null,
+          : null;
+      },
       waitingZones: async () => ['centre', 'centre', 'centre'],
       ...(opts.booked
         ? {
@@ -158,7 +160,7 @@ function harness(
     },
     trips: {
       forDriver: async () => opts.trips ?? [],
-      get: async (id) => [...(opts.trips ?? []), ...(offerTrip ? [offerTrip] : [])].find((t) => t.id === id)!,
+      get: async (id) => [...(opts.trips ?? []), ...(opts.offerTrip ? [opts.offerTrip] : [])].find((t) => t.id === id)!,
       lastPosition: async () => (opts.lastFix ? { pin: opts.lastFix, driverId: actor.personId } : null),
     },
     ...(opts.roads
@@ -204,6 +206,9 @@ function harness(
   return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
 }
 
+/** The harness options a test changes between two beats (perf o4). */
+type Mutable = NonNullable<Parameters<typeof harness>[0]>;
+
 describe('PartnerService', () => {
   it('status offline: modes from roles, cash vs cap with the near-cap warning, today, demand', async () => {
     const s = await harness().status(actor);
@@ -242,6 +247,58 @@ describe('PartnerService', () => {
     const off = await svc.goOffline(actor);
     expect(off.online).toBe(false);
     expect(off.onlineSince).toBeNull();
+  });
+
+  it('perf o4: an old app (no knownVersion) gets the full status, as before', async () => {
+    const svc = harness();
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const res = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+    expect(res).not.toHaveProperty('changed');
+    expect(res).toEqual(await svc.status(actor));
+    // The wire shape still reads as a status for an old client.
+    expect(PartnerStatus.parse(PartnerGoOnlineResult.parse(res))).toMatchObject({ online: true, position: at, zoneId: 'street_30' });
+  });
+
+  it('perf o4: with knownVersion, an unchanged work state answers only the version, without building the status', async () => {
+    const svc = harness();
+    const lines = vi.spyOn(svc['deps'].money, 'driverLines');
+    const at = { lat: 32.9095, lng: 45.0635 };
+    // No version held yet (""): the status and its version.
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    if (!first.changed) throw new Error('expected the status');
+    expect(first.status).toEqual(await svc.status(actor));
+    expect(first.version).toMatch(/^[\w-]{16}$/);
+    expect(PartnerGoOnlineResult.parse(first)).toEqual(first);
+    lines.mockClear();
+    // Same work state: the version alone, and today's earnings were never read.
+    const same = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    expect(same).toEqual({ changed: false, version: first.version });
+    expect(PartnerGoOnlineResult.parse(same)).toEqual(same);
+    // Moving within the zone is not a change: the app knows its own position.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at: { lat: at.lat + 0.001, lng: at.lng }, knownVersion: first.version })).toEqual({ changed: false, version: first.version });
+    expect(lines).not.toHaveBeenCalled();
+    // A stale or unknown version always gets the status.
+    const stale = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: 'stale' });
+    expect(stale).toMatchObject({ changed: true, version: first.version, status: { online: true } });
+  });
+
+  it.each([
+    ['his cash moved', (o: Mutable) => (o.cap = { owedIqd: 140_000, capRemainingIqd: 10_000 })],
+    ['an offer is ringing', (o: Mutable) => (o.offerTrip = trip('t_offer', []))],
+    ['a job is his', (o: Mutable) => (o.trips = [trip('t_job', [])])],
+    ['the gate closed (check-in alone, after midnight)', (o: Mutable) => (o.gate = NO_CHECKIN)],
+  ])('perf o4: when %s, the heartbeat sends the new status with a new version', async (_name, change) => {
+    const o: Mutable = { now: new Date('2026-10-02T21:30:00Z') };
+    const svc = harness(o);
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    change(o);
+    const next = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    if (!next.changed) throw new Error('expected the status');
+    expect(next.version).not.toBe(first.version);
+    expect(next.status).toEqual(await svc.status(actor));
+    // And the beat after that is quiet again.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: next.version })).toEqual({ changed: false, version: next.version });
   });
 
   it.each([
