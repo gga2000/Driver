@@ -94,6 +94,19 @@ export default async function run(s) {
   await c.shot('tab-account');
   await c.page.locator('[data-testid="appearance"]').scrollIntoViewIfNeeded();
   await c.shot('account-appearance', { settle: 600 });
+  // n6: «حجم الخط» at its largest, then the job screen at that size; back to normal for later shots.
+  await c.byTestId('text-size-largest').click();
+  await c.page.locator('[data-testid="appearance"]').scrollIntoViewIfNeeded();
+  await c.shot('account-text-largest', { settle: 800 });
+  await s.demoPost('/demo/job?who=courier&step=to_dropoff');
+  await c.goto('/job');
+  await c.wait('job-action');
+  await c.shot('job-text-largest', { settle: 1500 });
+  await s.demoPost('/demo/clear?who=courier');
+  await c.goto('/account');
+  await c.wait('account-tab');
+  await c.page.locator('[data-testid="appearance"]').scrollIntoViewIfNeeded();
+  await c.byTestId('text-size-normal').click();
   await c.close();
 
   // Tuktuk: a ride broadcast reaches him in wave 1.
