@@ -599,8 +599,14 @@ function TipWords({ tipIqd, words }: { tipIqd: number; words: readonly Complimen
 }
 
 /** The jobs of a period in one card; one open at a time. */
-export function JobList({ jobs, withDay, testID }: { jobs: EarningsJobLine[]; withDay: boolean; testID?: string }) {
-  const [open, setOpen] = useState<string | null>(null);
+/**
+ * Pass `open`/`onOpen` when the list sits in a recycled list (FlashList): the open row then lives with the
+ * screen, not in a component another day's rows may reuse.
+ */
+export function JobList({ jobs, withDay, testID, open: openProp, onOpen }: { jobs: EarningsJobLine[]; withDay: boolean; testID?: string; open?: string | null; onOpen?: (key: string | null) => void }) {
+  const [openOwn, setOpenOwn] = useState<string | null>(null);
+  const open = onOpen ? (openProp ?? null) : openOwn;
+  const setOpen = (next: (o: string | null) => string | null) => (onOpen ? onOpen(next(open)) : setOpenOwn(next));
   const vehicle = useStatus().data?.vehicleClass ?? 'bike';
   const words = useOrderWords();
   return (

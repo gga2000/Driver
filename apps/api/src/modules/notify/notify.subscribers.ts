@@ -68,6 +68,7 @@ export const NOTIFY_EVENT_TYPES = [
   'khat.child_tapped_out',
   'khat.sweep_missed',
   'dispatch.offer_sent',
+  'dispatch.wave_sent',
   'dispatch.zone_nudged',
   // Ride step 3 (n4): the waiting rider tapped «نبّهه» on a driver his ride was sent to.
   'dispatch.offer_nudged',
@@ -592,6 +593,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!driverId || !e.tripId) return [];
       const zones = await L.tripZones(e.tripId);
       return [{ ...base, template: 'partner_new_job', to: driverId, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId: e.tripId } }];
+    }
+    case 'dispatch.wave_sent': {
+      // A ride's wave offers it to several drivers at once (no per-driver offer_sent): each gets the
+      // same «طلب جديد» push, so a driver not looking at the app still hears about it.
+      const ids = Array.isArray(p['driverIds']) ? p['driverIds'].filter((x): x is string => typeof x === 'string') : [];
+      if (ids.length === 0 || !e.tripId) return [];
+      const zones = await L.tripZones(e.tripId);
+      const tripId = e.tripId;
+      return [...new Set(ids)].map((to) => ({ ...base, template: 'partner_new_job' as const, to, params: { pickup: zones?.pickup ?? '', dropoff: zones?.dropoff ?? '' }, data: { tripId } }));
     }
     case 'dispatch.offer_nudged': {
       // «راكب ينتظرك»: one soft push to the nudged driver (the server allows one per driver per ride).

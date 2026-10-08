@@ -1,16 +1,15 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useLiteMode } from '@driver/ui';
-import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
 import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
-import { useApi } from '@/lib/api';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { LandmarkLayer } from './LandmarkLayer';
 import { ZoneLayer } from './ZoneLayer';
+import { useZoneMap } from './useZoneMap';
 
 /** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
 export function BaseMap(props: BaseMapProps) {
@@ -37,8 +36,7 @@ const STYLE = { ...LIGHT, layers: LIGHT.layers.filter((l) => !CONSOLE_ONLY.has(l
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
 function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, onFail }: BaseMapProps & { onFail: () => void }) {
-  const api = useApi();
-  const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, { refetchInterval: 30_000 }));
+  const zonesQuery = useZoneMap();
   const zonesRef = useRef(zonesQuery.data);
   zonesRef.current = zonesQuery.data;
   const container = useRef<HTMLDivElement | null>(null);
