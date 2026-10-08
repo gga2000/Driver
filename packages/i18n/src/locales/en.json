@@ -7557,5 +7557,9 @@
   "console.ev_dispatch_booked_released": "The driver dropped the booked ride",
   "console.ev_dispatch_booked_cancelled": "A booked ride was cancelled",
   "partner.booked_pay": "You earn {amount} دينار",
-  "habits.booked_cancel_free_held": "Free to cancel until the driver sets off"
+  "habits.booked_cancel_free_held": "Free to cancel until the driver sets off",
+  "restaurant.whats_left_title": "What's left today?",
+  "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
+  "restaurant.whats_left_all": "Whole menu",
+  "restaurant.whats_left_only": "What's left"
 }
