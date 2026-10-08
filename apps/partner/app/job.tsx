@@ -27,6 +27,7 @@ import { PickupSpotCard } from '@/features/work/PickupSpotCard';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
 import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
+import { useGpsWeak, type GpsWeak } from '@/features/work/gps-health';
 import {
   canTopUpOnJob,
   cargoLine,
@@ -198,6 +199,8 @@ function JobView({
   const actions = useTripActions();
   const client = useApiClient();
   const queue = useJobQueue();
+  // n7: no good GPS for 30 s, he hears that the customer's map has stopped moving.
+  const gpsWeak = useGpsWeak(true);
   const net = useNetwork();
   const [tapping, setTapping] = useState(false);
   const refresh = useRefreshWork();
@@ -497,6 +500,7 @@ function JobView({
           ) : stop && action ? (
             <>
               {queued ? <QueuedStrip sending={sending} text="partner.queued" /> : null}
+              {gpsWeak ? <GpsWeakStrip weak={gpsWeak} /> : null}
               <ProgressRail stage={stage} ride={ride} />
               <View style={{ gap: 2 }}>
                 {multi ? (
@@ -771,6 +775,25 @@ function StopList({ job, ride, saved }: { job: PartnerJob; ride: boolean; saved:
 }
 
 /** "محفوظ، يندز لما يرجع النت" (or "دنرسل الخطوات المحفوظة…" while replaying): taps this phone holds. */
+/** n7: the customer's map stands still while his GPS is weak; said plainly, with the one thing he can do. */
+function GpsWeakStrip({ weak }: { weak: GpsWeak }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID="job-gps-weak" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Icon name="location-arrow" size={18} color="warningText" strokeWidth={2} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={600} color="warningText">
+          {weak.lastSeenMin !== null ? t('partner.gps_weak_seen', { n: weak.lastSeenMin }) : t('partner.gps_weak')}
+        </Text>
+        <Text variant="caption" color="warningText">
+          {t('partner.gps_weak_tip')}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function QueuedStrip({ sending, text }: { sending: boolean; text: 'partner.queued' | 'partner.done_queued' }) {
   const theme = useTheme();
   const t = useT();
