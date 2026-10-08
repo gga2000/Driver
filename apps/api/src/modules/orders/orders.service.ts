@@ -1243,7 +1243,16 @@ export class OrdersService implements OnModuleInit {
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
       // The Console's "Today" list: the first scored rating, in its own transaction.
-      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
+      if (rating) {
+        await this.emit(tx, 'order.rated', actorId, order, {
+          orderId: order.id,
+          stars: rating.delivery ?? rating.food,
+          cityId: order.cityId,
+          ...(rating.food != null ? { food: rating.food } : {}),
+          ...(rating.delivery != null ? { delivery: rating.delivery } : {}),
+          orderType: order.type,
+        });
+      }
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
