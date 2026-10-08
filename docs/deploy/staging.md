@@ -81,6 +81,17 @@ Exact origins only: Vercel preview links are not on the list. After changing it,
 then Deploy → staging (the setting reaches the API with the deploy). Phones send no origin and are
 never affected.
 
+## Test sign-in numbers on staging
+
+Staging sends no real SMS. For trying the apps there are staging test numbers (0770 000 0100–0199, never
+staff roles; [docs/api/staging-test-numbers.md](../api/staging-test-numbers.md)) that all take one fixed
+code. That code is chosen by a person and lives only in GitHub: **Settings → Environments → staging →
+Add environment secret**, name `STAGING_TEST_OTP`, value the code. Type it there only, never in a chat,
+an issue or a commit (this repository is public). Then run Staging setup and Deploy → staging. Staging
+setup also marks the API host as staging (`DEPLOY_ENVIRONMENT=staging` on Fly): the test numbers refuse
+to work on any other host. To change the code, edit the secret and run both again; to turn the test
+numbers off, delete the secret and remove it on Fly (`flyctl secrets unset STAGING_TEST_OTP`).
+
 ## Rules
 
 - **No real people.** Staging holds generated data only: no copy of production, no real phone numbers.
