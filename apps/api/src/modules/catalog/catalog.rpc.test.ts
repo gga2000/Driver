@@ -576,7 +576,7 @@ describe('cards built side by side (perf t4)', () => {
     const orgs = new OrgsService(undefined, clock);
     const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
     const pricing = new PricingService(new ConfigService());
-    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs));
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs, () => clock.now()));
     await seedStorefronts(orgs, catalog);
     await seedStorefronts(orgs, catalog, DEMO_SHOPS);
     const fronts = await catalog.storefronts('aziziyah');
@@ -629,7 +629,7 @@ describe('one town read shared by the lists (speed x1)', () => {
     const clock = new FakeClock(SAT_EVENING);
     const orgs = new OrgsService(undefined, clock);
     const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
-    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs));
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs, () => clock.now()));
     const seeded = await seedStorefronts(orgs, catalog);
     let reads = 0;
     const merchants: StorefrontMerchants = {
@@ -675,6 +675,21 @@ describe('one town read shared by the lists (speed x1)', () => {
     const before = w.reads();
     await w.rpc.menu(ACTOR, { merchantId: kareem.orgId, dropoff: ZAKUR });
     expect(w.reads()).toBe(before + 1);
+  });
+
+  it('a quick pause ending inside the snapshot reopens the kitchen on the minute', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    const until = new Date(w.clock.now().getTime() + 20_000);
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: { reason: 'sold_out', note: null, at: w.clock.now(), until } });
+    w.clock.advance(3_000);
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: false });
+    w.clock.advance(10_000);
+    const reads = w.reads();
+    await w.list();
+    expect(w.reads()).toBe(reads);
+    w.clock.advance(8_000);
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true });
   });
 
   it('a menu edit (price, sold out today) shows at once in picks and search', async () => {

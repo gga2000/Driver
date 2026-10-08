@@ -206,7 +206,7 @@ export class CatalogRpc implements CustomerCatalogPort {
   /** Merchant uploads (`upload:<id>`) as signed links: the owner's photo edits and accepted menu-photo-service shots. */
   private readonly photo: PhotoLink;
   /** x1: per city, the kitchens of the last build (a promise, so reads arriving during a build share it). */
-  private readonly towns = new Map<string, { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]> }>();
+  private readonly towns = new Map<string, { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number }>();
 
   constructor(
     private readonly catalog: CatalogService,
@@ -652,11 +652,21 @@ export class CatalogRpc implements CustomerCatalogPort {
     const stamp = `${menus}:${merchants}`;
     const hit = this.towns.get(cityId);
     const settling = hit !== undefined && hit.builtAt - Math.max(menus, merchants) < TOWN_SETTLE_MS;
-    if (hit && hit.stamp === stamp && now - hit.builtAt < (settling ? TOWN_SETTLE_MS : TOWN_SNAPSHOT_MS)) return hit.kitchens;
+    const fresh = hit !== undefined && now - hit.builtAt < (settling ? TOWN_SETTLE_MS : TOWN_SNAPSHOT_MS) && now < (hit.until ?? Infinity);
+    if (hit && hit.stamp === stamp && fresh) return hit.kitchens;
     const at = new Date(now);
     const kitchens = this.catalog.storefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
-    const entry = { builtAt: now, stamp, kitchens };
+    const entry: { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number } = { builtAt: now, stamp, kitchens };
     this.towns.set(cityId, entry);
+    // A quick pause that ends inside the snapshot's life reopens the kitchen on the minute: the
+    // snapshot lives only until the earliest such reopening.
+    void kitchens.then((ks) => {
+      const reopen = ks.reduce((min, k) => {
+        const t = k.profile.reopensAt?.getTime();
+        return t !== undefined && t > now && t < min ? t : min;
+      }, Infinity);
+      if (reopen !== Infinity) entry.until = reopen;
+    }, () => undefined);
     // A failed build is not kept: the next read tries again.
     kitchens.catch(() => {
       if (this.towns.get(cityId) === entry) this.towns.delete(cityId);

@@ -17,6 +17,8 @@ Now the API keeps one **town snapshot** per city (`CatalogRpc.town`):
   the change within the 30 seconds.
 - A snapshot built within 2 seconds of a change lives only 2 seconds, so a change that was still being
   saved while it was read is picked up right after.
+- A snapshot lives no longer than the earliest quick-pause reopening («يرجع بعد») it holds, so that
+  kitchen opens on the minute.
 - A build that fails is not kept; the next read tries again.
 
 What is **still worked out on every read**, from the snapshot: the opening state from the hours and
