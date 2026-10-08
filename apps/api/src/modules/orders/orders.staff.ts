@@ -38,8 +38,9 @@ const HOUR = 60 * MIN;
 
 /** The ledger as the staff toolkit uses it: its own posting groups (idempotent by id) and reads. */
 export interface StaffLedgerPort {
-  recordAll(group: PostingGroup, tx?: Tx): Promise<unknown>;
-  hasGroup(groupId: string): Promise<boolean>;
+  /** `recorded`: the group ids actually written (a group already in the ledger is skipped, not in it). */
+  recordAll(group: PostingGroup, tx?: Tx): Promise<{ recorded: readonly string[] }>;
+  hasGroup(groupId: string, tx?: Tx): Promise<boolean>;
   eventsForOrder(orderId: string): Promise<LedgerEvent[]>;
 }
 
@@ -50,8 +51,8 @@ export interface StaffAuditPort {
 
 /** The order's own event log (events module), oldest first: when a dispute opened, what was already sent. */
 export interface OrderEventLog {
-  /** The order's events, oldest first (`actorId` where the log has it). */
-  eventsOf(orderId: string): Promise<Array<{ type: string; occurredAt: Date; payload: Record<string, unknown>; actorId?: string }>>;
+  /** The order's events, oldest first (`id` and `actorId` where the log has them). */
+  eventsOf(orderId: string): Promise<Array<{ id?: string; type: string; occurredAt: Date; payload: Record<string, unknown>; actorId?: string }>>;
 }
 
 /**
@@ -159,9 +160,10 @@ export class OrdersStaffService implements PlatformFailurePort {
     if (before.state === 'customer_cancelled' || before.state === 'platform_cancelled') return this.result(before, false, 0, null);
     if (!CANCELLABLE.includes(before.state)) throw new DriverError(before.state === 'picked_up' ? 'order_cancel_after_pickup' : 'order_state_conflict');
     if (input.onBehalfOfCustomer) {
-      // His own cancel (fee, trip, household hand-off): exactly what his tap would have done.
-      await this.orders.cancel(before.ordererId, { orderId: before.id, reason: 'staff_on_behalf' });
+      // His own cancel (fee, trip, household hand-off): exactly what his tap would have done. It joins
+      // this transaction, so a failed audit write rolls the cancel back with it (one unit of work).
       return this.uow.run(async (tx) => {
+        await this.orders.cancel(before.ordererId, { orderId: before.id, reason: 'staff_on_behalf' });
         const after = await this.load(before.id, tx);
         const audit = await this.audit(tx, actor, after, 'order.ops_cancel', `ألغى الطلب بطلب الزبون: ${input.reason}`, { onBehalfOfCustomer: true, feeIqd: after.cancellationFeeIqd });
         return this.result(after, true, 0, audit);
@@ -204,6 +206,12 @@ export class OrdersStaffService implements PlatformFailurePort {
       const courier = await this.trips.courierOf(order.id);
       if (!courier) throw new DriverError('order_state_conflict');
       const cash = order.paymentMethod === 'cash' ? (input.cashCollectedIqd ?? order.totalIqd) : undefined;
+      // The courier's own drop-off check: never more cash than the order's total (a typo would land on
+      // his cash account, his cap and his hand-in).
+      if (cash !== undefined) {
+        const problem = await this.orders.handoverProblem(order.id, { cashCollectedIqd: cash });
+        if (problem) throw new DriverError(problem);
+      }
       await this.bridge.delivered(order, { type: 'stop.completed', tripId: courier.tripId, actorId: courier.courierId, occurredAt: this.clock.now(), orderId: order.id, payload: { vertical: courier.vertical, staffId: actor.personId, ...(cash !== undefined ? { cashCollectedIqd: cash } : {}) } }, tx);
       const next = await this.load(order.id, tx);
       const audit = await this.audit(tx, actor, next, 'order.ops_mark_delivered', `سجّل الطلب واصل: ${input.reason}`, { courierId: courier.courierId, cashCollectedIqd: cash ?? null, reason: input.reason });
@@ -236,7 +244,7 @@ export class OrdersStaffService implements PlatformFailurePort {
       if ((order.state === 'disputed' || order.state === 'refunded') && (await this.courierLostEvent(order.id))) return this.result(order, false, 0, null);
       if (order.state !== 'picked_up') throw new DriverError('order_state_conflict');
       const courier = await this.trips.courierOf(order.id);
-      let next = await this.bridge.move(order, 'disputed', actor.personId, tx, {}, { kind: 'courier_lost', openedBy: 'staff', defaultOutcome: 'courier_pays_food_cost', tripId: courier?.tripId ?? null, courierId: courier?.courierId ?? null, note: input.reason });
+      let next = await this.bridge.move(order, 'disputed', actor.personId, tx, {}, { kind: 'courier_lost', openedBy: 'staff', defaultOutcome: 'courier_pays_food_cost', tripId: courier?.tripId ?? null, courierId: courier?.courierId ?? null });
       let posted = 0;
       if (this.rules.courierLost.refund) {
         next = await this.bridge.move(next, 'refunded', actor.personId, tx, { refundState: 'credited' }, { outcome: 'courier_lost', refundIqd: 0 });
@@ -252,13 +260,16 @@ export class OrdersStaffService implements PlatformFailurePort {
   async chargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult> {
     if (!this.rules.courierLost.chargeCourier) throw new DriverError('money_rule_off');
     const lost = await this.courierLostEvent(input.orderId);
-    const order = await this.load(input.orderId);
     const courierId = typeof lost?.payload['courierId'] === 'string' ? (lost.payload['courierId'] as string) : null;
     if (!lost || !courierId) throw new DriverError('order_state_conflict');
-    const groupId = `order:${order.id}:courier_lost:charge`;
-    if (await this.ports.ledger.hasGroup(groupId)) return this.result(order, false, 0, null);
-    const amount = order.itemsTotalIqd;
+    const groupId = `order:${input.orderId}:courier_lost:charge`;
     return this.uow.run(async (tx) => {
+      const order = await this.load(input.orderId, tx);
+      if (await this.ports.ledger.hasGroup(groupId, tx)) return this.result(order, false, 0, null);
+      // Only after the platform paid the kitchen for the lost food (`COURIER_LOST_REFUND`, order ended
+      // `refunded`): otherwise the platform never paid for it, or a dispute already settled it.
+      if (order.state !== 'refunded' || !(await this.ports.ledger.hasGroup(`order:${order.id}:courier_lost:kitchen`, tx))) throw new DriverError('order_state_conflict');
+      const amount = order.itemsTotalIqd;
       await this.ports.ledger.recordAll(
         { id: groupId, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'adjustment', amount, fromAccount: `cash:${courierId}`, toAccount: 'platform', memo: 'courier_lost:food_cost' }], controls: [{ account: `cash:${courierId}`, net: -amount }] },
         tx,
@@ -277,10 +288,12 @@ export class OrdersStaffService implements PlatformFailurePort {
    * or the platform — back to the payer's wallet; full ends in `refunded`), `redelivery` (closed;
    * support arranges the resend). On one that never reached him (unreachable at the door, courier
    * cancelled after pickup, courier lost): `void` — `refunded`, nothing charged, nobody paid.
-   * Each outcome needs its switch (`DISPUTE_OUTCOMES`); a refund above the agent limit needs admin.
+   * Each outcome needs its switch (`DISPUTE_OUTCOMES`), except `void`, which moves no money and is
+   * the only way out of a dispute that never reached the customer (courier lost with the switches
+   * off); a refund above the agent limit needs admin.
    */
   async resolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult> {
-    if (!this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
+    if (input.outcome !== 'void' && !this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
     const order = await this.load(input.orderId);
     if (order.state !== 'disputed') {
       if ((order.state === 'closed' || order.state === 'refunded') && (await this.resolvedEvent(order.id))) return this.result(order, false, 0, null);
@@ -290,14 +303,16 @@ export class OrdersStaffService implements PlatformFailurePort {
     if (amount > (await this.refundable(order))) throw new DriverError('refund_exceeds_order');
     if (amount > this.rules.disputes.agentLimitIqd && !(await this.ports.roles.hasRole(actor.personId, 'admin'))) throw new DriverError('refund_needs_escalation');
     const funder = amount > 0 ? await this.funderFor(input.faultParty, order) : null;
-    return this.uow.run((tx) => this.applyOutcome(order.id, input.outcome, amount, funder, actor.personId, input.reason, tx, false));
+    const episode = amount > 0 ? await this.disputeEpisode(order.id) : '';
+    return this.uow.run((tx) => this.applyOutcome(order.id, input.outcome, amount, funder, actor.personId, input.reason, tx, false, episode));
   }
 
-  private async applyOutcome(orderId: string, outcome: DisputeOutcome, amount: number, funder: Funder | null, actorId: string, reason: string, tx: Tx, auto: boolean): Promise<StaffActionResult> {
+  private async applyOutcome(orderId: string, outcome: DisputeOutcome, amount: number, funder: Funder | null, actorId: string, reason: string, tx: Tx, auto: boolean, episode = ''): Promise<StaffActionResult> {
     const order = await this.load(orderId, tx);
     if (order.state !== 'disputed') throw new DriverError('order_state_conflict');
     const reached = order.deliveredAt !== null;
     if (outcome === 'void' ? reached : !reached) throw new DriverError('order_state_conflict');
+    let posted = 0;
     if (outcome === 'void') {
       await this.bridge.move(order, 'refunded', actorId, tx, { refundState: 'none' }, { outcome, refundIqd: 0 });
     } else {
@@ -305,20 +320,26 @@ export class OrdersStaffService implements PlatformFailurePort {
       if (amount > 0 && funder) {
         const from = fundingAccount(funder);
         const to = payerAccount(order);
-        await this.ports.ledger.recordAll(
-          { id: `dispute:${order.id}:refund`, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'refund', amount, fromAccount: from, toAccount: to, memo: `dispute:${order.id}:${funder.kind}` }], controls: [{ account: to, net: amount }] },
+        // One refund group per dispute episode: a second dispute on the same order posts its own.
+        const groupId = `dispute:${order.id}:${episode}:refund`;
+        const written = await this.ports.ledger.recordAll(
+          { id: groupId, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'refund', amount, fromAccount: from, toAccount: to, memo: `dispute:${order.id}:${funder.kind}` }], controls: [{ account: to, net: amount }] },
           tx,
         );
-        const closed = await this.load(order.id, tx);
-        if (outcome === 'refund_full') await this.bridge.move(closed, 'refunded', actorId, tx, { refundState: 'credited' }, { outcome, refundIqd: amount });
-        else await this.repo.update(order.id, { refundState: 'credited' }, tx);
+        // Report only what was posted: a group already in the ledger wrote nothing this time.
+        posted = written.recorded.includes(groupId) ? amount : 0;
+        if (posted > 0) {
+          const closed = await this.load(order.id, tx);
+          if (outcome === 'refund_full') await this.bridge.move(closed, 'refunded', actorId, tx, { refundState: 'credited' }, { outcome, refundIqd: posted });
+          else await this.repo.update(order.id, { refundState: 'credited' }, tx);
+        }
       }
     }
     const next = await this.load(order.id, tx);
-    await this.bridge.emit(tx, 'order.dispute_resolved', actorId, next, { customerId: order.ordererId, outcome, refundIqd: amount, funder: funder?.kind ?? null, auto, ...(outcome === 'redelivery' ? { redelivery: true } : {}) });
-    const summary = { stands: 'الطلب يبقى مثل ما هو', refund_full: `رجّع ${iqd(amount)} دينار كامل`, refund_partial: `رجّع ${iqd(amount)} دينار`, redelivery: 'نرجع نوصل الطلب', void: 'الطلب ما صار، ما يندفع عليه شي' }[outcome];
-    const audit = await this.ports.audit.record({ cityId: order.cityId, actorId, action: 'order.ops_resolve_dispute', subjectKind: 'order', subjectId: order.id, summaryAr: `${auto ? 'تلقائياً: ' : ''}${summary} — ${reason}`, detail: { outcome, refundIqd: amount, funder: funder?.kind ?? null, auto, reason } }, tx);
-    return this.result(next, true, amount, audit.id);
+    await this.bridge.emit(tx, 'order.dispute_resolved', actorId, next, { customerId: order.ordererId, outcome, refundIqd: posted, funder: posted > 0 ? (funder?.kind ?? null) : null, auto, ...(outcome === 'redelivery' ? { redelivery: true } : {}) });
+    const summary = { stands: 'الطلب يبقى مثل ما هو', refund_full: posted > 0 ? `رجّع ${iqd(posted)} دينار كامل` : 'ما رجع شي (الترجيع منسجل من قبل)', refund_partial: posted > 0 ? `رجّع ${iqd(posted)} دينار` : 'ما رجع شي (الترجيع منسجل من قبل)', redelivery: 'نرجع نوصل الطلب', void: 'الطلب ما صار، ما يندفع عليه شي' }[outcome];
+    const audit = await this.ports.audit.record({ cityId: order.cityId, actorId, action: 'order.ops_resolve_dispute', subjectKind: 'order', subjectId: order.id, summaryAr: `${auto ? 'تلقائياً: ' : ''}${summary} — ${reason}`, detail: { outcome, refundIqd: posted, funder: posted > 0 ? (funder?.kind ?? null) : null, auto, reason } }, tx);
+    return this.result(next, true, posted, audit.id);
   }
 
   /** What may still go back on this order: what it cost less refunds already posted for it (support's and disputes'). */
@@ -387,7 +408,7 @@ export class OrdersStaffService implements PlatformFailurePort {
   /** The platform pays the kitchen the food it cooked (items at menu price), as one idempotent group. */
   private async payKitchen(order: OrderRecord, tx: Tx, groupId: string, memo: string): Promise<number> {
     if (!order.merchantOrgId || order.itemsTotalIqd <= 0) return 0;
-    if (await this.ports.ledger.hasGroup(groupId)) return 0;
+    if (await this.ports.ledger.hasGroup(groupId, tx)) return 0;
     const to = `merchant_cash:${order.merchantOrgId}`;
     await this.ports.ledger.recordAll({ id: groupId, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'credit_issued', amount: order.itemsTotalIqd, fromAccount: 'platform', toAccount: to, memo }], controls: [{ account: to, net: order.itemsTotalIqd }] }, tx);
     return order.itemsTotalIqd;
@@ -511,17 +532,24 @@ export class OrdersStaffService implements PlatformFailurePort {
    * `order.unstuck` when it leaves it, whatever moved it (a staff action, the customer, a timer).
    * Stuck is computed on read, so this watchdog (`OrdersStaffJob`, every 5 minutes) is the detection
    * point: it compares the list now with the board's open marks. Each mark is once per stuck episode
-   * (idempotency key on the order and the episode's `since`), so a second pod or a restart repeats
+   * (idempotency key on the order, the episode's `since` and, from the second time on, the episode's
+   * number, so an order stuck again against the same `since` is still recorded), so a second pod or a restart repeats
    * nothing. Runs whatever the money switches say: it only records, never moves an order.
    */
   async watchStuck(cityId?: string): Promise<number> {
     const board = this.ports.stuckBoard;
     if (!board) return 0;
     const now = this.clock.now();
-    const open = new Map<string, { cityId: string; since: string; at: Date }>();
+    const open = new Map<string, { cityId: string; key: string; at: Date }>();
+    /** How many times each order went on the list: the episode number in the keys, so a second episode with the same `since` is still recorded. */
+    const episodes = new Map<string, number>();
     for (const m of await board.marks()) {
       if (m.type === 'order.unstuck') open.delete(m.orderId);
-      else if (m.type === 'order.stuck') open.set(m.orderId, { cityId: String(m.payload['cityId']), since: String(m.payload['since']), at: m.occurredAt });
+      else if (m.type === 'order.stuck') {
+        const n = (episodes.get(m.orderId) ?? 0) + 1;
+        episodes.set(m.orderId, n);
+        open.set(m.orderId, { cityId: String(m.payload['cityId']), key: n === 1 ? String(m.payload['since']) : `${String(m.payload['since'])}:${n}`, at: m.occurredAt });
+      }
     }
     const live = await this.repo.findMany({ ...(cityId ? { cityId } : {}), states: STUCK_WATCH_STATES });
     const stuckNow = new Set<string>();
@@ -531,9 +559,10 @@ export class OrdersStaffService implements PlatformFailurePort {
       if (!s) continue;
       stuckNow.add(o.id);
       if (open.has(o.id)) continue;
-      const since = s.since.toISOString();
+      const n = (episodes.get(o.id) ?? 0) + 1;
+      const key = n === 1 ? s.since.toISOString() : `${s.since.toISOString()}:${n}`;
       await this.uow.run((tx) =>
-        board.emit(tx, { type: 'order.stuck', actorId: SYSTEM, occurredAt: now, orderId: o.id, idempotencyKey: `order.stuck:${o.id}:${since}`, payload: encodeDomainEvent('order.stuck', { orderId: o.id, cityId: o.cityId, reason: s.reason, since: s.since }) }),
+        board.emit(tx, { type: 'order.stuck', actorId: SYSTEM, occurredAt: now, orderId: o.id, idempotencyKey: `order.stuck:${o.id}:${key}`, payload: encodeDomainEvent('order.stuck', { orderId: o.id, cityId: o.cityId, reason: s.reason, since: s.since }) }),
       );
       done++;
     }
@@ -541,7 +570,7 @@ export class OrdersStaffService implements PlatformFailurePort {
       if (stuckNow.has(orderId) || (cityId && mark.cityId !== cityId)) continue;
       const by = await this.leftStuckBy(orderId, mark.at);
       await this.uow.run((tx) =>
-        board.emit(tx, { type: 'order.unstuck', actorId: by, occurredAt: now, orderId, idempotencyKey: `order.unstuck:${orderId}:${mark.since}`, payload: encodeDomainEvent('order.unstuck', { orderId, cityId: mark.cityId, by }) }),
+        board.emit(tx, { type: 'order.unstuck', actorId: by, occurredAt: now, orderId, idempotencyKey: `order.unstuck:${orderId}:${mark.key}`, payload: encodeDomainEvent('order.unstuck', { orderId, cityId: mark.cityId, by }) }),
       );
       done++;
     }
@@ -565,6 +594,13 @@ export class OrdersStaffService implements PlatformFailurePort {
   private async disputedAt(orderId: string): Promise<Date | null> {
     const opened = (await this.ports.eventLog.eventsOf(orderId)).filter((e) => e.type === 'order.disputed');
     return opened.length > 0 ? opened[opened.length - 1]!.occurredAt : null;
+  }
+
+  /** The open dispute's episode: its `order.disputed` event id (the ordinal of that event when the log has no ids). */
+  private async disputeEpisode(orderId: string): Promise<string> {
+    const opened = (await this.ports.eventLog.eventsOf(orderId)).filter((e) => e.type === 'order.disputed');
+    const last = opened[opened.length - 1];
+    return last?.id ?? `n${opened.length}`;
   }
 
   private async hasEvent(orderId: string, type: string): Promise<boolean> {

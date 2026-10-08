@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import { AnnounceInput, DriverError, HoldSeatInput, type Actor, type Trip } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
+import { AuditLogService } from './modules/controls/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersRpc, OrdersService, OrdersStaffService } from './modules/orders/index.js';
 import { DeparturesService, RoutesRpc } from './modules/routes/index.js';
@@ -132,6 +133,28 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     await rpc.opsCancel(as(people.ops), { orderId: again.id, reason: 'تجربة', onBehalfOfCustomer: false });
   }, 60_000);
 
+  it('NTF-10: a cancel on behalf of the customer and its audit row are one unit of work: a failed audit write rolls the cancel back', async () => {
+    const orders = app.get(OrdersService);
+    const rpc = app.get(OrdersRpc);
+    const audit = app.get(AuditLogService);
+    const o = await orders.place(people.customer, foodInput());
+    const record = audit.record.bind(audit);
+    audit.record = async () => {
+      throw new Error('audit write failed');
+    };
+    try {
+      expect(await code(rpc.opsCancel(as(people.ops), { orderId: o.id, reason: 'اتصل وطلب يلغي', onBehalfOfCustomer: true }))).toContain('audit write failed');
+    } finally {
+      audit.record = record;
+    }
+    expect((await db.order.findUnique({ where: { id: o.id } }))?.state).toBe('placed');
+    expect(await outboxTypes(o.id)).not.toContain('order.cancelled');
+    // The retry cancels and audits.
+    const r = await rpc.opsCancel(as(people.ops), { orderId: o.id, reason: 'اتصل وطلب يلغي', onBehalfOfCustomer: true });
+    expect(r).toMatchObject({ state: 'customer_cancelled', changed: true });
+    expect((await audits(o.id)).map((a) => a.action)).toEqual(['order.ops_cancel']);
+  }, 60_000);
+
   it('NTF-01 / M-1: a complaint resolved with a partial refund from the kitchen posts one refund group, once', async () => {
     const orders = app.get(OrdersService);
     const trips = app.get(TripsService);
@@ -146,8 +169,11 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     const input = { orderId: order.id, outcome: 'refund_partial' as const, amountIqd: 2_000, reason: 'نقص بالطلب', faultParty: 'merchant' as const };
     const r = await rpc.opsResolveDispute(as(people.ops), input);
     expect(r).toMatchObject({ orderId: order.id, state: 'closed', changed: true, postedIqd: 2_000 });
+    // One refund group per dispute episode: its id carries the `order.disputed` event's id.
+    const disputed = await db.event.findFirstOrThrow({ where: { aggregate: 'order', aggregateId: order.id, type: 'order.disputed' } });
+    const groupId = `dispute:${order.id}:${disputed.id}:refund`;
     const refund = await waitFor('the refund group', async () => {
-      const lines = await groupLines(`dispute:${order.id}:refund`);
+      const lines = await groupLines(groupId);
       return lines.length > 0 ? lines : null;
     });
     expect(refund).toEqual([expect.objectContaining({ type: 'refund', amountIqd: 2_000, fromAccount: `merchant_cash:${khalid.orgId}`, toAccount: `customer:${people.customer2}` })]);
@@ -155,7 +181,7 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     expect(await outboxTypes(order.id)).toEqual(expect.arrayContaining(['order.disputed', 'order.closed', 'order.dispute_resolved']));
 
     expect(await rpc.opsResolveDispute(as(people.ops), { ...input, outcome: 'refund_full', amountIqd: undefined })).toMatchObject({ changed: false });
-    expect(await groupLines(`dispute:${order.id}:refund`)).toHaveLength(1);
+    expect(await groupLines(groupId)).toHaveLength(1);
     expect(await audits(order.id)).toHaveLength(1);
   }, 60_000);
 
@@ -175,6 +201,9 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     expect((await rpc.opsChargeCourier(as(people.ops), { orderId: order.id, reason: 'مرة ثانية' })).changed).toBe(false);
     expect((await audits(order.id)).map((a) => a.action)).toEqual(['order.ops_courier_lost', 'order.ops_charge_courier']);
     expect(await outboxTypes(order.id)).toEqual(expect.arrayContaining(['order.disputed', 'order.courier_lost']));
+    // The staff's free text stays in the audit row: not in the dispute's event.
+    const opened = await db.event.findFirstOrThrow({ where: { aggregate: 'order', aggregateId: order.id, type: 'order.disputed' } });
+    expect(JSON.stringify(opened.payload)).not.toContain('الدليفري اختفى');
     // The stuck list no longer shows it.
     expect((await app.get(OrdersStaffService).stuck({ cityId: 'aziziyah', limit: 500 })).some((s) => s.orderId === order.id)).toBe(false);
   }, 60_000);
@@ -199,7 +228,11 @@ describe.skipIf(!url)('W3 staff way-outs on Postgres (needs DATABASE_URL)', () =
     expect(rows.map((x) => [x.action, x.actorId])).toEqual([['departure.ops_cancel', people.ops]]);
     const types = (await db.event.findMany({ where: { aggregate: 'departure', aggregateId: dep.id }, select: { type: true, payload: true } }));
     expect(types.find((e) => e.type === 'departure.cancelled')?.payload).toMatchObject({ cancelledBy: 'driver', feeIqd: 0 });
-    expect(types.map((e) => e.type)).toContain('departure.ops_cancelled');
+    expect(types.find((e) => e.type === 'departure.ops_cancelled')?.payload).toMatchObject({ reason: 'ops', auto: false });
+    // The free-text reason lives only in the audit row, never on the departure or its events.
+    expect((await db.departure.findUnique({ where: { id: dep.id } }))?.cancellationReason).toBe('ops');
+    expect(JSON.stringify(types)).not.toContain('السايق ما يرد');
+    expect(rows[0]!.summaryAr).toContain('السايق ما يرد');
     expect(await routes.opsCancelDeparture(as(people.ops), { departureId: dep.id, reason: 'مرة ثانية' })).toMatchObject({ changed: false });
     expect(await db.consoleAuditLog.count({ where: { subjectKind: 'departure', subjectId: dep.id } })).toBe(1);
   }, 60_000);

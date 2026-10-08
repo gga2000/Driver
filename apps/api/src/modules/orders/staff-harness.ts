@@ -19,10 +19,10 @@ export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: Ledger
   const audits: Array<{ id: string; action: string; actorId: string; subjectId: string; summaryAr: string; detail: Record<string, unknown> }> = [];
   const admins = new Set<string>(['ali']);
   const eventLog: OrderEventLog = {
-    eventsOf: async (orderId) => h.events.events.filter((e) => e.orderId === orderId).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })),
+    eventsOf: async (orderId) => h.events.events.filter((e) => e.orderId === orderId).map((e) => ({ id: `ev_${h.events.events.indexOf(e) + 1}`, type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })),
   };
   const ports: OrdersStaffPorts = {
-    ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id) => ledger.hasGroup(id), eventsForOrder: (id) => ledger.eventsForOrder(id) },
+    ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id, tx) => ledger.hasGroup(id, tx), eventsForOrder: (id) => ledger.eventsForOrder(id) },
     audit: {
       record: async (input) => {
         const row = { id: `au_${audits.length + 1}`, action: input.action, actorId: input.actorId, subjectId: input.subjectId, summaryAr: input.summaryAr, detail: input.detail ?? {} };

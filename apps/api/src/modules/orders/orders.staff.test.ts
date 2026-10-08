@@ -129,6 +129,22 @@ describe('orders.ops.markDelivered / close (NTF-10)', () => {
     expect(await code(h.staff.close(ops, { orderId: o.id, reason: 'ثالث' }))).toBe('ok');
   });
 
+  it('refuses a cash figure above the order total (the drop-off check): nothing written, the order still on the way', async () => {
+    const h = make();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    expect(await code(h.staff.markDelivered(ops, { orderId: o.id, reason: 'سلّم', cashCollectedIqd: o.totalIqd * 10 }))).toBe('change_to_wallet_mismatch');
+    expect((await h.orders.get(o.id)).state).toBe('picked_up');
+    expect(h.events.ofType('order.cash_collected')).toHaveLength(0);
+    expect(h.audits).toEqual([]);
+    // less than the total is what the courier may also report (the discrepancy is recorded)
+    const r = await h.staff.markDelivered(ops, { orderId: o.id, reason: 'سلّم ناقص', cashCollectedIqd: o.totalIqd - 1_000 });
+    expect(r.state).toBe('delivered');
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ amountIqd: o.totalIqd - 1_000 });
+  });
+
   it('close refuses a disputed order (that is resolveDispute) and a live one', async () => {
     const h = make();
     const o = await h.orders.place('c1', h.foodInput());
@@ -192,6 +208,25 @@ describe('orders.ops.resolveDispute (NTF-01, M-1)', () => {
     expect(await h.balance('customer:c1')).toBe(5_000);
     expect(await h.balance('driver:d1')).toBe(1_000 - 5_000);
     expect((await h.repo.find(order.id))!.order.refundState).toBe('credited');
+  });
+
+  it('a second dispute on the same order posts its own refund (one group per dispute episode)', async () => {
+    const h = make(all);
+    const { order } = await h.delivered();
+    await h.orders.openDispute('c1', { orderId: order.id, kind: 'missing_item' });
+    expect(await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_partial', amountIqd: 2_000, reason: 'ناقص صنف', faultParty: 'platform' })).toMatchObject({ state: 'closed', postedIqd: 2_000 });
+    // support reopens the closed order (closed → disputed)
+    const closed = (await h.repo.find(order.id))!.order;
+    await h.uow.run((tx) => h.orders.staffBridge().move(closed, 'disputed', 'ops_1', tx, {}, { kind: 'missing_item', openedBy: 'staff' }));
+    const r = await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_partial', amountIqd: 3_000, reason: 'ناقص صنف ثاني', faultParty: 'platform' });
+    expect(r).toMatchObject({ state: 'closed', postedIqd: 3_000 });
+    const refunds = (await h.ledger.eventsForOrder(order.id)).filter((e) => e.type === 'refund');
+    expect(refunds.map((e) => e.amount)).toEqual([2_000, 3_000]);
+    expect(new Set(refunds.map((e) => e.postingGroupId)).size).toBe(2);
+    expect(h.events.last('order.dispute_resolved')!.payload).toMatchObject({ refundIqd: 3_000, funder: 'platform' });
+    expect(h.audits.at(-1)!.summaryAr).toContain('3,000');
+    await h.settle();
+    expect(await h.balance('customer:c1')).toBe(5_000);
   });
 
   it('redelivery: closes with nothing posted and tells support to arrange it', async () => {
@@ -320,6 +355,34 @@ describe('courier lost (NTF-13, M-10)', () => {
     expect(h.events.ofType('order.courier_unassigned')).toHaveLength(0);
     expect(await code(h.staff.chargeCourier(ops, { orderId: o.id, reason: 'تأكدنا' }))).toBe('money_rule_off');
     expect(await h.staff.courierLost(ops, { orderId: o.id, reason: 'مرة ثانية' })).toMatchObject({ changed: false });
+    // The staff's free text stays in the audit row only.
+    expect(JSON.stringify(h.events.events)).not.toContain('الدليفري ما يرد');
+    expect(h.audits[0]!.summaryAr).toContain('الدليفري ما يرد');
+  });
+
+  it('off: void still ends the courier_lost dispute (it moves no money, so it needs no switch); other outcomes stay refused', async () => {
+    const h = make();
+    const o = await onTheWay(h, true);
+    await h.staff.courierLost(ops, { orderId: o.id, reason: 'الدليفري ما يرد' });
+    expect(await code(h.staff.resolveDispute(ops, { orderId: o.id, outcome: 'refund_full', reason: 'x x x', faultParty: 'courier' }))).toBe('money_rule_off');
+    const r = await h.staff.resolveDispute(ops, { orderId: o.id, outcome: 'void', reason: 'الطلب ما وصل', faultParty: 'courier' });
+    expect(r).toMatchObject({ state: 'refunded', changed: true, postedIqd: 0 });
+    expect(await h.orders.openWalletHoldIqd('c1')).toBe(0);
+    await h.settle();
+    expect(await h.balance('customer:c1')).toBe(0);
+    expect((await h.ledger.eventsForOrder(o.id))).toEqual([]);
+  });
+
+  it('the charge needs the platform to have paid the kitchen (refund switch on, order refunded)', async () => {
+    // charge on, refund off: the order sits in the dispute and the platform paid nothing
+    const h = make({ courierLost: { refund: false, chargeCourier: true } });
+    const o = await onTheWay(h);
+    await h.staff.courierLost(ops, { orderId: o.id, reason: 'اختفى' });
+    expect(await code(h.staff.chargeCourier(ali, { orderId: o.id, reason: 'تأكدنا' }))).toBe('order_state_conflict');
+    // ended by void afterwards: still no kitchen payment, still no charge
+    await h.staff.resolveDispute(ops, { orderId: o.id, outcome: 'void', reason: 'ما وصل', faultParty: 'courier' });
+    expect(await code(h.staff.chargeCourier(ali, { orderId: o.id, reason: 'تأكدنا' }))).toBe('order_state_conflict');
+    expect(await h.balance('cash:d1')).toBe(0);
   });
 
   it('on: ends at once with nothing charged, the kitchen paid by the platform, and (second switch) the courier charged once', async () => {
@@ -339,6 +402,23 @@ describe('courier lost (NTF-13, M-10)', () => {
 });
 
 describe('stuck list', () => {
+  it('watchdog: an order stuck again against the same since is recorded again (episode in the key)', async () => {
+    const h = make();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    await h.orders.markPreparing('m1', { orderId: o.id });
+    h.clock.advance(30 * MIN); // silent kitchen, past its promised time
+    expect(await h.staff.watchStuck()).toBe(1);
+    await h.orders.merchantHeartbeat('rest_1');
+    expect(await h.staff.watchStuck()).toBe(1); // unstuck
+    h.clock.advance(10 * MIN); // the heartbeat goes stale again: same promisedReadyAt
+    expect(await h.staff.watchStuck()).toBe(1);
+    expect(await h.staff.watchStuck()).toBe(0);
+    const marks = h.events.events.filter((e) => e.orderId === o.id && (e.type === 'order.stuck' || e.type === 'order.unstuck'));
+    expect(marks.map((e) => e.type)).toEqual(['order.stuck', 'order.unstuck', 'order.stuck']);
+    expect(marks[0]!.payload['since']).toEqual(marks[2]!.payload['since']);
+  });
+
   it('lists orders past their state deadline, oldest first; fresh ones are not stuck', async () => {
     const h = make();
     const a = await h.orders.place('c1', h.foodInput());

@@ -39,7 +39,7 @@ import { ORDER_OUTCOME_RULES, outcomeRulesFromEnv, type OrderOutcomeRules } from
 
 /** The order's own events, oldest first (the W3 toolkit's "when did this dispute open"). */
 function eventLogOf(events: EventsService): OrderEventLog {
-  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
+  return { eventsOf: async (orderId) => (await events.forOrder(orderId)).map((e) => ({ id: e.id, type: e.type, occurredAt: e.occurredAt, payload: e.payload, actorId: e.actorId })).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()) };
 }
 
 function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock): Queue<T> {
@@ -83,7 +83,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     {
       provide: ORDERS_STAFF_PORTS,
       useFactory: (ledger: LedgerService, audit: AuditLogService, identity: IdentityService, events: EventsService): OrdersStaffPorts => ({
-        ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id) => ledger.hasGroup(id), eventsForOrder: (id) => ledger.eventsForOrder(id) },
+        ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id, tx) => ledger.hasGroup(id, tx), eventsForOrder: (id) => ledger.eventsForOrder(id) },
         audit: { record: (input, tx) => audit.record(input, tx) },
         roles: { hasRole: (personId, kind) => identity.hasRole(personId, kind) },
         eventLog: eventLogOf(events),

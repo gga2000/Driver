@@ -119,8 +119,8 @@ export class LedgerService {
   }
 
   /** True when the group (by id) is already in the ledger. */
-  async hasGroup(groupId: string): Promise<boolean> {
-    return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0)));
+  async hasGroup(groupId: string, tx?: Tx): Promise<boolean> {
+    return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0), tx));
   }
 
   /** Balance is computed, never stored. */

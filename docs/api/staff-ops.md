@@ -54,11 +54,13 @@ What each procedure does:
 - **`cancel`**: works on any live order. The order moves to `platform_cancelled` and is always free
   for the customer. A wallet order's hold is released. A courier trip is detached; a ride's trip is
   cancelled. With `onBehalfOfCustomer`, the order is cancelled as the customer's own cancel instead,
-  so the normal fee rules apply. If food was already being prepared, the kitchen is paid by the
+  so the normal fee rules apply; that cancel and its audit row are one transaction, so a failed
+  audit write rolls the cancel back and a retry does both. If food was already being prepared, the kitchen is paid by the
   platform only when M-2 is on with `cookedFoodPayer = platform`. Emits `order.ops_cancelled` (push
   `order_ops_cancelled`).
 - **`markDelivered`**: from `picked_up` only. Takes the courier's normal delivery path, with cash
-  collected (by default, the order total).
+  collected (by default, the order total). The cash figure goes through the courier's own drop-off
+  check: more than the order total is refused with `change_to_wallet_mismatch` and nothing is written.
 - **`close`**: from `delivered` or `completed`. Settles at once, without waiting the 2 h. It refuses
   a disputed order; use `resolveDispute` for that.
 - **`courierLost`**: from `picked_up`. Opens a `courier_lost` dispute and never re-dispatches. With
@@ -66,14 +68,21 @@ What each procedure does:
   the platform pays the kitchen (ledger group `order:<id>:courier_lost:kitchen`). Emits
   `order.courier_lost`.
 - **`chargeCourier`**: needs `COURIER_LOST_CHARGE`. Posts one `adjustment` of the food cost,
-  `cash:<courier>` → `platform` (group `order:<id>:courier_lost:charge`).
-- **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`. It acts once per order; a
-  second call returns `changed: false`. Refunds above `agentLimitIqd` (25,000) need an admin
+  `cash:<courier>` → `platform` (group `order:<id>:courier_lost:charge`). Only after the platform
+  paid the kitchen for that food: the order must be `refunded` and the group
+  `order:<id>:courier_lost:kitchen` must exist (so `COURIER_LOST_REFUND` was on); otherwise
+  `order_state_conflict`. Both are read inside the posting's transaction.
+- **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`, except `void`, which moves
+  no money and so needs no switch (it is the only way out of a `courier_lost` dispute while
+  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. Refunds above `agentLimitIqd` (25,000) need an admin
   (`refund_needs_escalation`). A refund is never more than what was paid, less earlier refunds. The
   party at fault pays: courier `driver:<id>`, merchant `merchant_cash:<org>`, otherwise `platform`.
   - `stands` closes normally.
-  - `refund_full` and `refund_partial` close the order, then post `dispute:<id>:refund` to the
-    customer's wallet. A full refund ends the order in `refunded`.
+  - `refund_full` and `refund_partial` close the order, then post `dispute:<id>:<episode>:refund`
+    to the customer's wallet, where `<episode>` is the id of the `order.disputed` event that opened
+    this dispute, so a second dispute on the same order posts its own refund. The result, the event,
+    the audit row and `refundState` report only what was actually posted. A full refund ends the
+    order in `refunded`.
   - `redelivery` closes the order and flags it. A resend order is **not** created automatically.
   - `void` works only if the order was never delivered.
 
@@ -107,7 +116,12 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
   driver cancel (held seats are let go; anyone with no car within 2 h is stranded onto the request
   board). There is **no fee for the driver and no credit for riders**, because M-11 is open.
   - `departure.cancelled` carries `cancelledBy: 'driver', feeIqd: 0`.
-  - `departure.ops_cancelled` carries `{ reason, auto, riders }`.
+  - `departure.ops_cancelled` carries `{ reason, auto, riders }`, where `reason` is the fixed code
+    `ops` (`driver_no_show` when the watch cancelled it); the departure's `cancellation_reason` is
+    the same code.
+  - The staff's written reason is kept only in the `console_audit_log` row (it may name people;
+    personal data stays out of events and order/departure rows). The same holds for `courierLost`:
+    its `order.disputed` event carries no note.
   - Seats only settle when the car arrives, so nobody was charged.
 - **`arriveDeparture`**: from `departed`. It does the same as the driver's own «وصلت»: checked-in
   seats complete and `seat.completed` settles each seat.
@@ -178,7 +192,10 @@ How each one is detected:
   §4). `cashIqd` is what counts against the cap after the posting: the cash he holds that is not
   his, minus what the platform owes him. `capIqd` is his cap by role and tier. A replayed posting
   group writes nothing, so it emits nothing. The idempotency key is
-  `<type>:<driverId>:<first posting group id>`. `cityId` is `aziziyah`, because the money rules
+  `<type>:<driverId>:<first posting group id>`. The watch never fails the posting: its own error (the
+  cap profile, the emit) is logged and that crossing is skipped, and the emit runs inside a SAVEPOINT
+  so a failed insert does not abort the posting's transaction. Known gap: two postings for the same
+  driver committing at the same moment can each see "under" and miss the crossing. `cityId` is `aziziyah`, because the money rules
   are still Aziziyah's. The Console's and the partner app's `overCap` reads are unchanged.
 - **Stuck.** The stuck list is computed on read, so the existing W3 watchdog is the detection
   point. A change takes up to 5 minutes to show. Both events go on their own aggregate
@@ -186,7 +203,10 @@ How each one is detected:
   state. They still carry `orderId`, so the order's own log shows them. The watchdog reads the
   board's open marks, so an order that left the live states (cancelled, closed) is still seen
   leaving. Each mark is made once per stuck episode: the idempotency key is
-  `order.stuck:<orderId>:<since>` and `order.unstuck:<orderId>:<since>`. A second pod or a restart
+  `order.stuck:<orderId>:<since>` and `order.unstuck:<orderId>:<since>` for an order's first
+  episode, with `:<n>` added from its second (`n` = how many times it went on the list), so an
+  order stuck again against the same `since` is recorded again. `sweep()` and `watchStuck()` run
+  each on its own in a tick: one failing does not stop the other. A second pod or a restart
   repeats nothing. A change of reason while the order stays on the list (`dispute_open` →
   `dispute_overdue`) emits nothing new. The watchdog runs whatever the money switches say.
 
