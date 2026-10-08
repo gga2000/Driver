@@ -140,7 +140,7 @@ What exists today, from the narrowest to the widest:
 | --- | --- | --- |
 | One restaurant overwhelmed / closed | **Busy mode** (+10 min prep, 60 min) or **close early** with a reason | merchant app (owner/staff) — `merchant.setBusy`, `merchant.setOpen` |
 | A courier, driver or staff member must stop working | revoke the role (`identity.revokeRole`, admin only) | Console / API — the person keeps the account, loses the job |
-| Per-zone / per-vertical throttles and a status banner to every app | the launch playbook's kill switches (`docs/specs/2026-10-03-launch-playbook.md`) | being built with the Console ops tools — use them once merged |
+| Stop a service (food, taxi…), one kitchen, a zone or a الرجعة corridor; cap active orders in a zone | **kill switches** and the **zone throttle** (launch playbook §3), with an Arabic note for customers | Console → التحكم (`/controls`, dispatcher or admin; every change is in the audit). A stopped kitchen shows «موقوف» with the note on its card, and checkout's price check and placing both refuse with the note (REL-16) |
 | Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count app=0 worker=0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count app=2 worker=1 --config deploy/fly/api.toml` |
 | A bad mobile update | `eas update:roll-back-to-embedded --channel production` | Expo |
 

@@ -126,7 +126,18 @@ describe('launch control room (e2e)', () => {
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: true, reason: 'مطر قوي' });
       const v = await errOf(order(customer.client));
       expect(v).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
+      // REL-16: checkout's own price check says it too, before the customer presses order.
+      const quoteInput = {
+        cityId: 'aziziyah',
+        type: 'food' as const,
+        merchantOrgId: khalid.orgId,
+        lines: [{ catalogItemId: khalid.itemIds.get('liver_plate')!, qty: 1 }],
+        paymentMethod: 'cash' as const,
+        dropoff: { zoneKey: 'zakur', pin: pinIn('zakur') },
+      };
+      expect(await errOf(customer.client.orders.quote.query(quoteInput))).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: false, reason: 'خلص المطر' });
+      expect((await customer.client.orders.quote.query(quoteInput)).totalIqd).toBeGreaterThan(0);
 
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'restaurant', key: khalid.orgId, active: true, reason: 'عطل بالفرن', message_ar: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
       expect(await errOf(order(customer.client))).toMatchObject({ code: 'service_paused', message: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
