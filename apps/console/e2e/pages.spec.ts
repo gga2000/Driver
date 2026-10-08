@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
  * a page error or a CSP violation, it is Arabic and right-to-left, axe finds nothing serious or
  * critical, and a screenshot lands in e2e/.shots for review.
  */
-const PAGES = ['/', '/map', '/dispatch', '/orders', '/drivers', '/safety', '/support', '/approvals', '/stores', '/finance', '/pricing', '/controls', '/wall', '/zones', '/system'];
+const PAGES = ['/', '/map', '/dispatch', '/orders', '/drivers', '/safety', '/on-call', '/support', '/approvals', '/stores', '/finance', '/pricing', '/controls', '/wall', '/zones', '/system'];
 const SIZES = [
   { w: 1440, h: 900 },
   { w: 1366, h: 768 },

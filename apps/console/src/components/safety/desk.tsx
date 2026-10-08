@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { orderTicketNumber, type SafetyCallTarget, type SafetyIncidentCase, type SafetyIncidentSummary, type SafetyOutcome, type SafetyPerson } from '@driver/contracts';
+import { orderTicketNumber, type LadderStep, type SafetyCallTarget, type SafetyIncidentCase, type SafetyIncidentSummary, type SafetyOutcome, type SafetyPerson } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatClock, formatDayClock, safeDecode } from '@/lib/format';
@@ -319,6 +319,8 @@ function IncidentView({ data, onResolve }: { data: SafetyIncidentCase; onResolve
         <NotesCard data={data} />
       </div>
 
+      <LadderCard id={data.id} live={live} />
+
       <section className="rounded-lg border border-line bg-surface p-5 shadow-card" data-testid="sos-timeline">
         <h3 className="mb-4 text-[15px] font-semibold">{t('console.safety.timeline')}</h3>
         <Timeline
@@ -335,6 +337,55 @@ function IncidentView({ data, onResolve }: { data: SafetyIncidentCase; onResolve
     </article>
   );
 }
+
+/** Who the alert has reached so far (`onCall.ladder`, E1 CON-02): the desk again, then the people on call. */
+function LadderCard({ id, live }: { id: string; live: boolean }) {
+  const trpc = useTRPC();
+  const ladder = useQuery(trpc.onCall.ladder.queryOptions({ alertId: id }, { retry: queryRetry, refetchInterval: live ? SAFETY_POLL_MS : false }));
+  const l = ladder.data;
+  if (!l || l.steps.length === 0) return null;
+  return (
+    <section className={cx('rounded-lg border bg-surface p-5 shadow-card', l.unanswered ? 'border-bad/45' : 'border-line')} data-testid="sos-ladder">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[15px] font-semibold">{t('console.safety.ladder_title')}</h3>
+        {l.unanswered ? (
+          <Chip tone="bad" dot>
+            {t('console.safety.ladder_unanswered')}
+          </Chip>
+        ) : null}
+      </div>
+      <ol className="space-y-1.5">
+        {foldRings(l.steps).map((s, i) => (
+          <li key={i} className="flex items-baseline gap-3 text-dense">
+            <span className="num w-[132px] shrink-0 whitespace-nowrap text-muted">{s.times > 1 ? `${formatClock(s.at)} – ${formatClock(s.last)}` : formatClock(s.at)}</span>
+            <span className={s.step === 'ring' ? 'text-muted' : 'font-medium text-text'}>{t(LADDER_KEY[s.step], { n: s.count })}</span>
+            {s.times > 1 ? <span className="num text-muted">{`× ${s.times}`}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** Back-to-back rings to the same number of people read as one line (`2:45 – 2:50 … × 11`); a ladder step breaks the run. */
+function foldRings(steps: readonly LadderStep[]): Array<LadderStep & { last: Date; times: number }> {
+  const out: Array<LadderStep & { last: Date; times: number }> = [];
+  for (const s of steps) {
+    const prev = out.at(-1);
+    if (prev && s.step === 'ring' && prev.step === 'ring' && prev.count === s.count) {
+      prev.last = s.at;
+      prev.times += 1;
+    } else out.push({ ...s, last: s.at, times: 1 });
+  }
+  return out;
+}
+
+const LADDER_KEY = {
+  ring: 'console.safety.ladder_ring',
+  on_call_1: 'console.safety.ladder_on_call_1',
+  on_call_2: 'console.safety.ladder_on_call_2',
+  admins: 'console.safety.ladder_admins',
+} as const;
 
 function PositionCard({ data, now }: { data: SafetyIncidentCase; now: number }) {
   const toast = useToast();

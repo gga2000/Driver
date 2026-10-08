@@ -41,6 +41,8 @@ const AUDITED = [
   'system.clearSeason',
   'phoneBookings.book',
   'phoneBookings.cancel',
+  'onCall.add',
+  'onCall.end',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */
@@ -48,6 +50,8 @@ const GAPS: Record<string, string> = {
   'dispatch.nudgeZone': 'no trail',
   'dispatch.override': 'domain event only (dispatch override, CON-10)',
   'dispatch.setPolicy': 'policy change, no trail (CON-10)',
+  'routes.ops.hideReview': 'domain event only (review.hidden); trips thread owns routes',
+  'routes.ops.unhideReview': 'domain event only (review.unhidden); trips thread owns routes',
   'driverAccount.reviewDocument': 'review stored on the document',
   'identity.grantRole': 'role grant, no console row (CON-10)',
   'identity.revokeRole': 'role revoke, no console row (CON-10)',

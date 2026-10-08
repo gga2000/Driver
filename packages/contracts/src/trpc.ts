@@ -28,6 +28,7 @@ import type { ChatPort } from './chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
+import type { OnCallServicePort } from './on-call-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
@@ -122,6 +123,8 @@ export interface AppContext {
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */
   garageTaxi: GarageTaxiPort;
+  /** Console E1: the on-call roster and the alert ladder (`modules/on-call`). */
+  onCall: OnCallServicePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */

@@ -83,11 +83,12 @@ describe('visibleNav (K-08)', () => {
     // Pickup spots change what every courier is told: field ops and admins only (Ali 2026-10-07).
     expect(hrefs).not.toContain('/stores');
   });
-  it('field ops sees approvals, stores, the cash round and the zone outlines only; empty groups disappear', () => {
+  it('field ops sees approvals, stores, the cash round, who is on call (they may be on the cash desk) and the zone outlines only; empty groups disappear', () => {
     const groups = visibleNav(new Set(['field_ops']), true);
     expect(groups.flatMap((g) => g.items.map((i) => i.href)).sort()).toEqual([
       '/approvals',
       '/finance',
+      '/on-call',
       '/stores',
       '/zones',
     ]);

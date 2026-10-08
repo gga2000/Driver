@@ -123,6 +123,9 @@ export const ERROR_TABLE = {
   // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
   phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Console › المناوبة (on call): a shift that is not on the roster; a person who is not staff
+  on_call_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  on_call_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
