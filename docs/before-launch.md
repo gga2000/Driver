@@ -54,6 +54,7 @@ we can't open to the public without it.
 | Phones show a simple zone sketch, not a real street map (the web version has the real map) | Yes | maps spec §2 |
 | The driver app's location with the app closed: built 2026-10-07 (Android foreground service + background task), **not yet tried on a real phone**; Google Play needs the background-location declaration (disclosure screen + short video) | Yes | `apps/partner/README.md` "Known gaps" |
 | Live updates on phones tested on web only, not on a device | Probably | `docs/api/live.md` |
+| The food screens (/food street, the four door pages, the night look) checked on the web only: on a real phone, check the photo sizes and crops, the hero's settle-in, scrolling smoothness and that dish photos from the server load and stay cached (Ali 2026-10-08: "have in the to do later") | Probably | `apps/customer/src/features/food-landing/`, `apps/customer/src/features/doors/` |
 | Selfie check and face match accept any photo; menu import from a photo is a stub | Probably | `docs/api/partner-merchant-wave2.md` |
 | Receipt printer (Bluetooth) and the restaurant's camera for evidence photos | Probably | `apps/merchant/README.md` |
 | School-run (خطوط) daily runs aren't created automatically from a subscription | Probably | `docs/api/partner-merchant-wave2.md` |
