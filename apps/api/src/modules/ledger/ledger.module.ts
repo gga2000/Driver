@@ -25,6 +25,7 @@ import { SupportCreditService } from './support-credit.js';
 import { PrismaLedgerBalanceStore, PrismaLedgerRepository, type LedgerEventDelegate, type RawSqlRunner } from './prisma.repository.js';
 import { InMemoryLedgerRepository } from './repository.js';
 import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT_SETTINGS_REPOSITORY, MONEY_RULES } from './tokens.js';
+import { WalletHolds } from './wallet-holds.js';
 
 /**
  * Wiring: Prisma repositories when DATABASE_URL is set, in-memory twins otherwise; Aziziyah money
@@ -34,6 +35,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
 @Module({
   imports: [EventsModule, IdentityModule, ScoringModule, OrgsModule],
   providers: [
+    WalletHolds,
     {
       provide: LEDGER_REPOSITORY,
       useFactory: (prisma: PrismaService) =>
@@ -89,7 +91,7 @@ import { CAPS_PORT, LEDGER_EVENTS, LEDGER_INCIDENTS, LEDGER_REPOSITORY, MERCHANT
     CustomerWalletService,
     SupportCreditService,
   ],
-  exports: [LedgerService, CapsService, CAPS_PORT, MONEY_RULES, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
+  exports: [WalletHolds, LedgerService, CapsService, CAPS_PORT, MONEY_RULES, MerchantCashService, PostingService, AdjustmentService, ShiftGuaranteeService, NightlyJob, LedgerFacade, CustomerWalletService, SupportCreditService],
 })
 export class LedgerModule implements OnModuleInit {
   private readonly logger = new Logger(LedgerModule.name);

@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { partnerThemes } from '@driver/design-tokens';
 import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, useTheme } from '@driver/ui';
 import { loadAppearancePref, useAppearance } from '@/lib/appearance';
+import { loadTextSize, useTextSize } from '@/lib/text-size';
 import { CachedPhoto } from '@/lib/cached-photo';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
@@ -18,6 +19,8 @@ import { keepScreenOn } from '@/features/work/logic';
 import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
+import { useUpdateRequired } from '@/lib/app-update';
+import { UpdateRequired } from '@/features/update/UpdateRequired';
 import { SystemBanner } from '@/components/SystemBanner';
 import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
@@ -44,6 +47,7 @@ export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   // Night look (n2): the ember palette from sunset to sunrise in Aziziyah, or his fixed choice.
   const { night } = useAppearance();
+  const textScale = useTextSize();
   const palette = night ? partnerThemes.ember : partnerThemes.sun;
 
   useEffect(() => {
@@ -51,6 +55,7 @@ export default function RootLayout() {
     // Low-data mode (maps program q2): the driver's stored choice.
     void loadDataSaverPref();
     void loadAppearancePref();
+    void loadTextSize();
   }, []);
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         {/* «الدشبول» (partner redesign): the sun palette (ember after sunset, n2) on the shared components; messages at the top (h11). */}
-        <ThemeProvider theme={night ? 'dark' : 'light'} colors={palette} fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? 'rtl' : undefined}>
+        <ThemeProvider theme={night ? 'dark' : 'light'} colors={palette} textScale={textScale} fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? 'rtl' : undefined}>
           {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
           <CrashBoundary reporter={crashReporter}>
             <ToastProvider bottomOffset={96} placement="top">
@@ -72,9 +77,7 @@ export default function RootLayout() {
               <PhotoImageProvider component={CachedPhoto}>
                 <ApiProvider>
                   <StatusBar style={night ? 'light' : 'dark'} />
-                  {/* Launch status banner from the Console (system.banner), above every screen. */}
-                  <SystemBanner />
-                  <RootNavigator />
+                  <AppBody />
                 </ApiProvider>
               </PhotoImageProvider>
             </ToastProvider>
@@ -82,6 +85,21 @@ export default function RootLayout() {
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/**
+ * The app, or only «حدّث التطبيق» once the server refuses this build (CORE-05): nothing behind it stays
+ * mounted, so no offer, live channel or job screen keeps going.
+ */
+function AppBody() {
+  if (useUpdateRequired()) return <UpdateRequired />;
+  return (
+    <>
+      {/* Launch status banner from the Console (system.banner), above every screen. */}
+      <SystemBanner />
+      <RootNavigator />
+    </>
   );
 }
 
@@ -119,6 +137,7 @@ function RootNavigator() {
         <Stack.Screen name="not-partner" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="offer" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="job" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="practice" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         {/* Wave 2 replaces these routes' contents; titles are set by each screen. */}
         <Stack.Screen name="earnings/statement" options={{ title: t('partner.earnings_breakdown') }} />

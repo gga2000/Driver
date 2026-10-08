@@ -59,4 +59,14 @@ describe('HTTP surface (webhook, uploads)', () => {
     expect(((await bad.json()) as { code: string }).code).toBe('upload_invalid');
     expect((await fetch(`${base}/files/u1?exp=1&sig=bad`)).status).toBe(404);
   });
+  it('SEC-20: every answer carries the security headers and no framework banner', async () => {
+    const res = await fetch(`${base}/trpc/health.ping`);
+    expect(res.headers.get('x-powered-by')).toBeNull();
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
+    // HSTS only in production.
+    expect(res.headers.get('strict-transport-security')).toBeNull();
+  });
 });

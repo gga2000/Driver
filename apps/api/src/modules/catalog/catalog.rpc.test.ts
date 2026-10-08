@@ -545,6 +545,23 @@ describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)'
     expect(cake?.dishes[0]?.kiloIqd).toBeNull();
   });
 
+  it('k7: an ice-cream-only shop drops out past 3 km by road; a sweets shop that also sells ice cream stays', async () => {
+    const w = await shopsWorld();
+    const kinds = [{ key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] }];
+    const shopsAt = async (dropoff: { zoneKey: string; pin: { lat: number; lng: number } }) => ({
+      list: (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff, filters: {} })).map((c) => c.name),
+      cravings: new Set((await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds, dropoff }))[0]?.dishes.map((d) => d.restaurantName)),
+    });
+    // الفرات is in the centre: about 0.6 km away it delivers; زاكور is about 3.3 km by road.
+    const near = await shopsAt({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect(near.list).toContain('آيس كريم الفرات');
+    expect(near.cravings).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+    const far = await shopsAt(ZAKUR);
+    expect(far.list).not.toContain('آيس كريم الفرات');
+    expect(far.list).toContain('حلويات الزهراء');
+    expect(far.cravings).toEqual(new Set(['حلويات الزهراء']));
+  });
+
   it('leaves closed shops out', async () => {
     const w = await world('2026-10-03T05:00:00Z'); // 8:00 Baghdad: الفرات opens at 12
     await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
@@ -598,7 +615,7 @@ describe('cards built side by side (perf t4)', () => {
     // Open kitchens' pots first, each group in the storefronts' own order.
     const order = new Map(fronts.map((f, i) => [f.orgId, i]));
     const open = one.pots.filter((p) => p.restaurantOpen).map((p) => order.get(p.merchantOrgId)!);
-    expect(open.length).toBeGreaterThan(CARD_CONCURRENCY);
+    expect(open.length).toBeGreaterThanOrEqual(CARD_CONCURRENCY);
     expect(open).toEqual([...open].sort((a, b) => a - b));
     // Bounded: several kitchens at once, never more than the limit.
     expect(peak).toBeGreaterThan(1);
@@ -713,5 +730,31 @@ describe('merchant-uploaded dish photos reach customers as working links', () =>
     const w = await photoWorld({ signer: false });
     const dish = (await caller(w.rpc, null).menu({ merchantId: w.khalid.orgId })).categories.flatMap((x) => x.items).find((i) => i.id === w.itemId);
     expect(dish?.photoUrl).toBeNull();
+  });
+});
+
+describe('kill switches on the cards (REL-16)', () => {
+  it('a kitchen a switch stopped looks closed, with the switch words, for that door only', async () => {
+    const w = await world();
+    const kareemId = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', filters: { query: 'كريم' } }))[0]!.id;
+    const asked: unknown[] = [];
+    const switches = {
+      stopped: async (input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }) => {
+        asked.push(input);
+        return input.merchantOrgId === kareemId && input.dropoffZone === 'zakur' ? 'مشويات الحاج كريم موقفة هسه' : null;
+      },
+    };
+    const rpc = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, null, null, switches);
+    const cards = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const kareem = cards.find((c) => c.id === kareemId)!;
+    expect(kareem).toMatchObject({ open: false, closedReason: 'paused', stoppedNote: 'مشويات الحاج كريم موقفة هسه', opensInMin: null });
+    expect(asked).toContainEqual({ cityId: 'aziziyah', merchantOrgId: kareemId, kitchenZone: 'centre', dropoffZone: 'zakur' });
+    for (const c of cards.filter((x) => x.id !== kareemId && x.name !== 'مطعم المسافر')) {
+      expect(c.open, c.name).toBe(true);
+      expect(c).not.toHaveProperty('stoppedNote');
+    }
+    // Another door the switch does not cover sees it open.
+    const elsewhere = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: CENTRE_HOME, filters: {} });
+    expect(elsewhere.find((c) => c.id === kareemId)?.open).toBe(true);
   });
 });

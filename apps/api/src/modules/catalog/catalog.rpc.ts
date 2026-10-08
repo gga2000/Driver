@@ -4,6 +4,7 @@ import {
   CATALOG_PUBLIC_RATE,
   CATALOG_SEARCH_LIMITS,
   DriverError,
+  iceCreamTooFar,
   PriceRequest,
   POPULAR_RULES,
   SMALL_ORDER_FEE_IQD,
@@ -146,12 +147,27 @@ type RideMemo = Map<string, Promise<number | null>>;
 /** The zone a "tuktuk from" fare is priced in: a ride inside the town centre. */
 const TODAY_TUKTUK_ZONE = 'centre';
 
+/** k7: an ice cream shop is out of reach past 3 km by road from this door (it drops out of every list). */
+function outOfReach(s: StorefrontRecord, card: RestaurantCard, dropoff: DeliveryPoint | null | undefined): boolean {
+  return iceCreamTooFar(s.tags, card.pickup?.pin, dropoff?.pin);
+}
+
 /**
  * The customer catalog read (`catalog.restaurants`, `catalog.menu`, M3). Composes the catalog's
  * storefronts and menus with the merchant's settings from orgs (location, pause windows), busy mode,
  * and a fee preview from the pricing engine split exactly as `orders.place` charges it, so the
  * delivery fee on a card is the one the customer pays at checkout (door hand-over, now).
  */
+/**
+ * REL-16: the launch kill switches as menus and lists see them. Bound to the controls module by the
+ * orders module; unbound (tests, the demo) nothing is ever stopped.
+ */
+export const STOREFRONT_SWITCHES = Symbol('STOREFRONT_SWITCHES');
+export interface StorefrontSwitches {
+  /** The customer's words when a switch stops this kitchen for this door, else null. */
+  stopped(input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }): Promise<string | null>;
+}
+
 @Injectable()
 export class CatalogRpc implements CustomerCatalogPort {
   private readonly log = new Logger(CatalogRpc.name);
@@ -170,6 +186,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() eta?: EtaService,
     @Optional() @Inject(STOREFRONT_TODAY) private readonly todayFacts: StorefrontToday | null = null,
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
+    @Optional() @Inject(STOREFRONT_SWITCHES) private readonly switches: StorefrontSwitches | null = null,
   ) {
     this.photo = photoLink(photos);
     this.clock = clock ?? new SystemClock();
@@ -188,7 +205,8 @@ export class CatalogRpc implements CustomerCatalogPort {
       const items = await this.catalog.menu(s.orgId);
       if (q && !this.matches(s, items, q)) return null;
       if (f.tag && !s.tags.includes(f.tag)) return null;
-      return this.card(s, items, input.dropoff ?? null, now, rides);
+      const card = await this.card(s, items, input.dropoff ?? null, now, rides);
+      return outOfReach(s, card, input.dropoff) ? null : card;
     });
     const cards: RestaurantCard[] = [];
     for (const card of built) {
@@ -250,7 +268,8 @@ export class CatalogRpc implements CustomerCatalogPort {
       if (!item) return null;
       const view = menuItemView(item, now, this.merchants.timeZone);
       if (!view.available) return null;
-      return { s, pot, view, card: await this.card(s, items, input.dropoff ?? null, now, rides) };
+      const card = await this.card(s, items, input.dropoff ?? null, now, rides);
+      return outOfReach(s, card, input.dropoff) ? null : { s, pot, view, card };
     });
     for (const b of built) {
       if (!b) continue;
@@ -344,7 +363,8 @@ export class CatalogRpc implements CustomerCatalogPort {
         })
         .filter((h) => h.score > 0);
       if (kitchenScore === 0 && hits.length === 0) return null;
-      return { kitchenScore, hits, card: await this.card(s, items, input.dropoff ?? null, now, rides) };
+      const card = await this.card(s, items, input.dropoff ?? null, now, rides);
+      return outOfReach(s, card, input.dropoff) ? null : { kitchenScore, hits, card };
     });
     for (const m of matched) {
       if (!m) continue;
@@ -579,13 +599,16 @@ export class CatalogRpc implements CustomerCatalogPort {
   /**
    * Every storefront's menu and card for one read, built `CARD_CONCURRENCY` at a time and returned in the
    * storefronts' order, so what a caller does with them next is exactly what the one-by-one loop did.
+   * Kitchens out of reach of the drop-off (ice cream too far) are left out.
    */
-  private cardsWithMenus(fronts: readonly StorefrontRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }>> {
+  private async cardsWithMenus(fronts: readonly StorefrontRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }>> {
     const rides: RideMemo = new Map();
-    return mapBounded(fronts, CARD_CONCURRENCY, async (s) => {
+    const built = await mapBounded(fronts, CARD_CONCURRENCY, async (s) => {
       const items = await this.catalog.menu(s.orgId);
-      return { card: await this.card(s, items, dropoff, now, rides), items };
+      const card = await this.card(s, items, dropoff, now, rides);
+      return outOfReach(s, card, dropoff) ? null : { card, items };
     });
+    return built.filter((b) => b !== null);
   }
 
   /**
@@ -611,9 +634,11 @@ export class CatalogRpc implements CustomerCatalogPort {
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff, rides) : null);
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
+    // REL-16: a kitchen a kill switch stops looks closed here, with the switch's words, not only at «اطلب».
+    const stoppedNote = this.switches ? await this.switches.stopped({ cityId: s.cityId, merchantOrgId: s.orgId, kitchenZone: location?.zoneKey ?? null, dropoffZone: dropoff?.zoneKey ?? null }) : null;
     const state = holiday
       ? { open: false, closedReason: 'hours' as const, opensAt: null }
-      : closed
+      : closed || stoppedNote
         ? { open: false, closedReason: 'paused' as const, opensAt: null }
         : openState(now, s.hours, pauses, this.merchants.timeZone);
     return {
@@ -636,7 +661,8 @@ export class CatalogRpc implements CustomerCatalogPort {
       open: state.open,
       closedReason: state.closedReason,
       opensAt: state.opensAt,
-      opensInMin: holiday || closed || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      opensInMin: holiday || closed || stoppedNote || state.open ? null : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      ...(stoppedNote ? { stoppedNote } : {}),
       busy,
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),

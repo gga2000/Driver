@@ -1,6 +1,7 @@
 // Theme
 export { ThemeProvider, useTheme, createTheme, fontStyle, faceStyle } from './theme/ThemeProvider';
 export type { Theme, ThemeProviderProps, HapticKind, HapticHandler, Direction, FontMode } from './theme/ThemeProvider';
+export type { TextScale } from '@driver/design-tokens';
 export { resolveColor, withAlpha, type ColorValue } from './theme/color';
 
 // Icons
@@ -12,7 +13,9 @@ export { GlyphShapes, glyphElements, type GlyphShape, type GlyphShapesProps } fr
 export { SKETCH, Ink, Shape, Steam, circleD, ellipseD } from './art/kit';
 // The Date & Saffron pictures Ali approved (services, empty and status screens).
 export { Art, ART_NAMES, type ArtName, type ArtProps } from './art/Art';
-export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
+// The dish pictures (1.2 MB of photos) live behind `@driver/ui/dishes` so an app that never draws a
+// dish (the courier app) never bundles them; only their types are here.
+export type { DishKind, DishDrawingProps } from './art/dishes';
 export { SketchScene, SCENE_NAMES, type SceneName, type SceneVehicle, type SketchSceneProps } from './art/SketchScene';
 export { STICKERS, STICKER_PACK, type StickerArt, type StickerSpec } from './art/stickers';
 // Date & Saffron decoration (home): the dot halo, the tile gradients, the star lines, the hour's sky.

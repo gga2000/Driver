@@ -1,4 +1,5 @@
 import type { DeliveryPoint, Order, SavedPlaceView } from '@driver/contracts';
+import type { MessageKey } from '@driver/i18n';
 
 /** A saved place this close to the order's drop-off pin is the place it went to. */
 export const SAME_PLACE_M = 150;
@@ -75,4 +76,17 @@ export function cashAtDoor(
     creditedIqd,
     paidIqd: order.totalIqd + creditedIqd,
   };
+}
+
+/**
+ * The «almost there» / «at the door» card's words (HUNT-02): an order placed «بالشارع» (the server's
+ * `streetHandover`, −250) asks the customer out to the street near the pin, where the courier calls
+ * him, instead of «عند بابك». The door card's body (cash to hand over / paid) is the same either way.
+ */
+export function doorCardKeys(order: Pick<Order, 'paymentMethod'> & Partial<Pick<Order, 'streetHandover'>>, atDoor: boolean): { title: MessageKey; body: MessageKey } {
+  const cash = order.paymentMethod === 'cash';
+  const street = order.streetHandover === true;
+  if (atDoor) return { title: street ? 'track.door_title_street' : 'track.door_title', body: cash ? 'track.door_cash' : 'track.door_paid' };
+  if (street) return { title: 'track.near_title', body: cash ? 'track.near_street_cash' : 'track.near_street_paid' };
+  return { title: 'track.near_title', body: cash ? 'track.cash_ready' : 'track.near_paid' };
 }

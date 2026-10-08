@@ -76,4 +76,29 @@ describe('TripsService — almost there (maps program SP5b)', () => {
     // The customer's card reads the same moment from the trip view.
     expect((await h.trips.get(t.id)).stops.find((s) => s.id === dropoff.id)!.courierNearAt).toEqual(nearAt);
   });
+
+  it('a batched courier passing a later door on the way to an earlier one says nothing (NTF-21)', async () => {
+    const h = tripsHarness();
+    const t = await h.acceptedTrip();
+    await h.trips.attachOrder(t.id, { orderId: 'ord_b', stops: h.deliveryStops('ord_b', PINS.kitchen, PINS.home2) }, 'disp', 'batched');
+    const stops = (await h.trips.get(t.id)).stops;
+    for (const p of stops.filter((s) => s.type === 'pickup')) {
+      await h.trips.arrive(t.id, p.id, 'd1', { pin: PINS.kitchen });
+      await h.trips.completeStop(t.id, p.id, 'd1');
+    }
+    // Both bags on board; his first door is ord_1's. Passing 200 m from ord_b's door: silence.
+    h.clock.advanceSeconds(60);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home2, 200), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near')).toHaveLength(0);
+    h.clock.advanceSeconds(60);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home, 200), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near').map((e) => e.orderId)).toEqual(['ord_1']);
+    // ord_1 handed over: now ord_b's door is next, and it is told.
+    const first = stops.find((s) => s.type === 'dropoff' && s.orderId === 'ord_1')!;
+    await h.trips.arrive(t.id, first.id, 'd1', { pin: PINS.home });
+    await h.trips.completeStop(t.id, first.id, 'd1');
+    h.clock.advanceSeconds(60);
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: offsetNorth(PINS.home2, 200), at: h.clock.now() });
+    expect(h.events.ofType('stop.courier_near').map((e) => e.orderId)).toEqual(['ord_1', 'ord_b']);
+  });
 });

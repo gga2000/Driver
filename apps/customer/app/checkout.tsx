@@ -35,6 +35,7 @@ import { useTimetable } from '@/features/season/use-timetable';
 import { useSeason } from '@/lib/use-season';
 import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
+import { quoteStop } from '@/features/food/stopped';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
 import { useMyOrders } from '@/features/home/queries';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
@@ -239,7 +240,9 @@ export default function CheckoutScreen() {
           ? t('checkout.offline_blocked')
           : t('checkout.unreachable_blocked')
       : null;
-  const blocker = netBlocker ?? (!dropoff
+  // REL-16: a service ops paused, or a zone that is full, is said calmly and holds the button.
+  const stopped = quoteStop(orderQuote.error ?? quote.error, t, locale);
+  const blocker = netBlocker ?? stopped ?? (!dropoff
     ? t('cart.pick_place')
     : closedNow && restaurant
         ? restaurant.closedReason === 'paused'

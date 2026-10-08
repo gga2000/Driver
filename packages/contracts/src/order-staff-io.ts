@@ -84,6 +84,23 @@ export const StuckReason = z.enum([
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 
+/**
+ * Which W3 money outcomes are switched on (read-only, for the Console to say "waits on Ali's decision"
+ * before staff click, instead of only `money_rule_off` after). Booleans, the allowed dispute outcomes
+ * (`void` is always allowed: it moves no money) and the support agent's refund limit.
+ */
+export const StaffOpsSwitches = z.object({
+  disputeOutcomes: z.array(DisputeOutcomeKind),
+  agentLimitIqd: Iqd.nonnegative(),
+  courierLostRefund: z.boolean(),
+  courierLostCharge: z.boolean(),
+  freeCancel: z.boolean(),
+  cookedFoodPayer: z.enum(['platform', 'merchant']),
+  /** c6: Driver pays a kitchen's remake when no courier came within 10 min of «جاهز» (`MERCHANT_REMAKE_PAY`). */
+  remakePay: z.boolean(),
+});
+export type StaffOpsSwitches = z.infer<typeof StaffOpsSwitches>;
+
 export const StuckOrdersInput = z.object({ cityId: z.string().min(1), limit: z.number().int().min(1).max(500).default(200) });
 export type StuckOrdersInput = z.infer<typeof StuckOrdersInput>;
 

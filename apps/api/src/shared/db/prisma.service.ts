@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
-import { createPrisma, dbOptionsFromEnv, type PrismaClient } from '@driver/db';
+import { createDbProbe, createPrisma, dbOptionsFromEnv, type DbProbe, type PrismaClient } from '@driver/db';
 import { workKind } from '../request-context.js';
 import { PRISMA_LOG_CONTEXT, prismaErrorLogger } from './prisma-error-log.js';
 
@@ -60,6 +60,8 @@ export class PrismaService implements OnModuleDestroy {
 
   private readonly clients = new Map<DbLane, PrismaClient>();
 
+  private probe: DbProbe | undefined;
+
   readonly timeouts: DbTimeouts;
 
   constructor(
@@ -102,16 +104,18 @@ export class PrismaService implements OnModuleDestroy {
     return client;
   }
 
-  /** Cheap liveness probe used by `health.ping`; never throws. */
+  /**
+   * Cheap liveness probe used by `health.live`, `health.ready` and `health.ping`; never throws. It
+   * runs on its own connection (`createDbProbe`), so a full request pool never makes a busy machine
+   * look dead.
+   */
   async status(): Promise<DbStatus> {
     if (!this.databaseUrl) return 'unavailable';
-    try {
-      await this.prisma.$queryRawUnsafe('SELECT 1');
-      return 'ok';
-    } catch (err) {
-      this.logger.warn(`database unavailable: ${(err as Error).message}`);
-      return 'unavailable';
-    }
+    this.probe ??= createDbProbe(this.databaseUrl, dbOptionsFromEnv());
+    const res = await this.probe.check();
+    if (res.ok) return 'ok';
+    this.logger.warn(`database unavailable: ${res.reason}`);
+    return 'unavailable';
   }
 
   /** The `statement_timeout` the server applies to a lane's queries outside a transaction, in ms (0 = none). */
@@ -136,6 +140,6 @@ export class PrismaService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await Promise.all([...this.clients.values()].map((c) => c.$disconnect()));
+    await Promise.all([...[...this.clients.values()].map((c) => c.$disconnect()), this.probe?.close()]);
   }
 }

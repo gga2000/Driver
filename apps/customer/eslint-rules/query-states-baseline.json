@@ -6,7 +6,7 @@
   "app/(tabs)/orders.tsx": 1,
   "app/(tabs)/wallet.tsx": 1,
   "app/cart.tsx": 1,
-  "app/checkout.tsx": 7,
+  "app/checkout.tsx": 6,
   "app/drivers.tsx": 3,
   "app/help/[orderId].tsx": 1,
   "app/help/index.tsx": 2,
