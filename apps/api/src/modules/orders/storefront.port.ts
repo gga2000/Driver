@@ -20,7 +20,7 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
   readonly timeZone = DEFAULT_TIMEZONE;
 
   constructor(
-    private readonly directory: Pick<MerchantDirectory, 'profile'>,
+    private readonly directory: Pick<MerchantDirectory, 'profile' | 'changeStamp'>,
     private readonly promotions?: Pick<PromotionsPort, 'badges'>,
     private readonly orders?: Pick<OrdersRepository, 'merchantOrdersBetween' | 'findMany'>,
   ) {
@@ -39,6 +39,11 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
       for (const id of dishes) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return counts;
+  }
+
+  /** x1: when a merchant's settings last changed on this instance (the lists' snapshot rebuilds). */
+  changeStamp(): number {
+    return this.directory.changeStamp?.() ?? 0;
   }
 
   /** Live merchant deals for the card badge (the same deals `orders.quote` / `place` apply). */

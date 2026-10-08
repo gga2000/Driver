@@ -18,7 +18,7 @@ import { OrgsService } from '../orgs/index.js';
 import { PricingService } from '../pricing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { InMemoryCatalogRepository } from './catalog.repository.js';
-import { CARD_CONCURRENCY, CatalogRpc, type StorefrontMerchants } from './catalog.rpc.js';
+import { CARD_CONCURRENCY, CatalogRpc, TOWN_SNAPSHOT_MS, type StorefrontMerchants } from './catalog.rpc.js';
 import { CatalogService } from './catalog.service.js';
 import { seedStorefronts } from './seed.js';
 import { DevBlobStore, type BlobStore } from '../places/index.js';
@@ -620,6 +620,89 @@ describe('cards built side by side (perf t4)', () => {
     // Bounded: several kitchens at once, never more than the limit.
     expect(peak).toBeGreaterThan(1);
     expect(peak).toBeLessThanOrEqual(CARD_CONCURRENCY);
+  });
+});
+
+describe('one town read shared by the lists (speed x1)', () => {
+  /** The seeded town, with every merchant profile read counted. */
+  async function counted() {
+    const clock = new FakeClock(SAT_EVENING);
+    const orgs = new OrgsService(undefined, clock);
+    const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs));
+    const seeded = await seedStorefronts(orgs, catalog);
+    let reads = 0;
+    const merchants: StorefrontMerchants = {
+      timeZone: plain.timeZone,
+      changeStamp: () => plain.changeStamp(),
+      profile: (orgId, cityId, at) => {
+        reads += 1;
+        return plain.profile(orgId, cityId, at);
+      },
+    };
+    const rpc = new CatalogRpc(catalog, merchants, new PricingService(new ConfigService()), clock);
+    const list = () => rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const byKey = (key: string) => seeded.find((x) => x.seed.key === key)!;
+    return { clock, orgs, catalog, rpc, list, byKey, reads: () => reads };
+  }
+
+  it('reads each kitchen once for the home list, picks, cravings, search, pots and today together', async () => {
+    const w = await counted();
+    const first = await w.list();
+    const kitchens = w.reads();
+    expect(kitchens).toBe(first.length);
+    await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب'], limit: 6, dropoff: ZAKUR });
+    await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds: [{ key: 'grill', words: ['كباب'] }], dropoff: ZAKUR });
+    await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب', dropoff: ZAKUR });
+    await w.rpc.pots(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR });
+    await w.rpc.today(ACTOR, { cityId: 'aziziyah' });
+    expect(await w.list()).toEqual(first);
+    expect(w.reads()).toBe(kitchens);
+    // Lists asked for at the same moment share one build.
+    w.clock.advance(TOWN_SNAPSHOT_MS);
+    await Promise.all([w.list(), w.list(), w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب'], limit: 6, dropoff: ZAKUR })]);
+    expect(w.reads()).toBe(2 * kitchens);
+  });
+
+  it('a kitchen closed by hand, or busy, shows at once; the menu page always reads live', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true, busy: false });
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: { reason: 'sold_out', note: null, at: w.clock.now() } });
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: false, closedReason: 'paused' });
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: null, busyUntil: new Date(w.clock.now().getTime() + 20 * 60_000) });
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true, busy: true });
+    const before = w.reads();
+    await w.rpc.menu(ACTOR, { merchantId: kareem.orgId, dropoff: ZAKUR });
+    expect(w.reads()).toBe(before + 1);
+  });
+
+  it('a menu edit (price, sold out today) shows at once in picks and search', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    const dish = (await w.catalog.menu(kareem.orgId)).find((i) => i.available && i.nameAr.includes('كباب'))!;
+    const find = async () => (await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: dish.nameAr, dropoff: ZAKUR })).dishes.find((d) => d.id === dish.id);
+    expect(await find()).toMatchObject({ priceIqd: dish.priceIqd, available: true });
+    await w.catalog.updatePrice(kareem.orgId, dish.id, dish.priceIqd + 250, 'owner');
+    expect(await find()).toMatchObject({ priceIqd: dish.priceIqd + 250 });
+    await w.catalog.soldOutToday(kareem.orgId, dish.id);
+    expect(await find()).toMatchObject({ available: false });
+  });
+
+  it('hours, ride times and fees are still worked out on every read', async () => {
+    const w = await counted();
+    const musafir = w.byKey('musafir');
+    // Sunday 04:59:50 Baghdad: المسافر opens at 5:00.
+    w.clock.set('2026-10-04T01:59:50Z');
+    expect((await w.list()).find((c) => c.id === musafir.orgId)?.open).toBe(false);
+    const reads = w.reads();
+    w.clock.advance(20_000);
+    expect((await w.list()).find((c) => c.id === musafir.orgId)?.open).toBe(true);
+    const far = { zoneKey: 'zakur', pin: { lat: 32.86, lng: 45.1 } };
+    const farther = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: far, filters: {} })).find((c) => c.id === musafir.orgId)!;
+    const zakur = (await w.list()).find((c) => c.id === musafir.orgId)!;
+    expect(farther.etaMinMinutes!).toBeGreaterThan(zakur.etaMinMinutes!);
+    expect(w.reads()).toBe(reads);
   });
 });
 

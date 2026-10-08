@@ -38,6 +38,8 @@ export function itemOnSale(item: CatalogItemRecord, now: Date): boolean {
 export class CatalogService {
   private readonly busy = new Set<string>();
   private readonly clock: Clock;
+  /** x1: when (epoch ms) a menu or storefront last changed through this instance; 0 when never. */
+  private changedAt = 0;
 
   constructor(
     @Inject(CATALOG_REPOSITORY) private readonly repo: CatalogRepository,
@@ -47,11 +49,32 @@ export class CatalogService {
   }
 
   addItem(input: NewCatalogItem): Promise<CatalogItemRecord> {
-    return this.repo.createItem(input);
+    return this.changed(this.repo.createItem(input));
   }
 
   setAvailable(id: string, available: boolean): Promise<void> {
-    return this.repo.setAvailable(id, available);
+    return this.changed(this.repo.setAvailable(id, available));
+  }
+
+  /**
+   * x1: when a menu or storefront last changed through this instance (epoch ms, 0 = never). The
+   * customer lists reuse a town's kitchens until this moves (or their snapshot ages out).
+   */
+  changeStamp(): number {
+    return this.changedAt;
+  }
+
+  /** Marks a change once `write` is done (later than any read the old snapshot made). */
+  private async changed<T>(write: Promise<T>): Promise<T> {
+    try {
+      return await write;
+    } finally {
+      this.touch();
+    }
+  }
+
+  private touch(): void {
+    this.changedAt = Math.max(this.changedAt + 1, this.clock.now().getTime());
   }
 
   /** Customer-facing menu: an item sold out today reads as unavailable until the next local midnight. */
@@ -61,7 +84,7 @@ export class CatalogService {
 
   /** M3 customer storefront of a merchant's main menu (cuisine line, minimum, hours…). */
   saveStorefront(input: NewStorefront): Promise<StorefrontRecord> {
-    return this.repo.saveStorefront(input);
+    return this.changed(this.repo.saveStorefront(input));
   }
 
   /** Joy h4: one anonymous «nobody serves this yet» search. */
@@ -161,7 +184,7 @@ export class CatalogService {
     const front = await this.repo.storefront(orgId);
     if (!front) throw new DriverError('org_not_found');
     const saved: KitchenStoryRecord = { ...story, updatedAt: this.clock.now() };
-    await this.repo.saveStorefront({ ...front, story: saved });
+    await this.changed(this.repo.saveStorefront({ ...front, story: saved }));
     return saved;
   }
 
@@ -209,20 +232,20 @@ export class CatalogService {
   /** The merchant's toggle; turning an item back on also ends "sold out today". */
   async setAvailability(orgId: string, itemId: string, available: boolean, tx?: Tx): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
-    return this.repo.updateItem(itemId, { available, ...(available ? { soldOutUntil: null } : {}) }, tx);
+    return this.changed(this.repo.updateItem(itemId, { available, ...(available ? { soldOutUntil: null } : {}) }, tx));
   }
 
   /** "خلص اليوم": off sale until the next Baghdad midnight, then back by itself. */
   async soldOutToday(orgId: string, itemId: string, tx?: Tx): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
-    return this.repo.updateItem(itemId, { soldOutUntil: nextLocalMidnight(this.clock.now()) }, tx);
+    return this.changed(this.repo.updateItem(itemId, { soldOutUntil: nextLocalMidnight(this.clock.now()) }, tx));
   }
 
   /** New price plus a history row (no row when the price did not change). */
   async updatePrice(orgId: string, itemId: string, priceIqd: number, actorId: string, tx?: Tx): Promise<{ item: CatalogItemRecord; changed: boolean }> {
     const before = await this.adminItem(orgId, itemId, tx);
     if (before.priceIqd === priceIqd) return { item: before, changed: false };
-    const item = await this.repo.updateItem(itemId, { priceIqd }, tx);
+    const item = await this.changed(this.repo.updateItem(itemId, { priceIqd }, tx));
     await this.repo.addPriceChange({ itemId, orgId, oldPriceIqd: before.priceIqd, newPriceIqd: priceIqd, changedById: actorId, at: this.clock.now() }, tx);
     return { item, changed: true };
   }
@@ -234,11 +257,20 @@ export class CatalogService {
 
   async replacePhoto(orgId: string, itemId: string, photoUrl: string, tx?: Tx): Promise<CatalogItemRecord> {
     await this.adminItem(orgId, itemId, tx);
-    return this.repo.updateItem(itemId, { photoUrl }, tx);
+    return this.changed(this.repo.updateItem(itemId, { photoUrl }, tx));
   }
 
   /** Creates (no `itemId`) or edits an item; a price edit goes through `updatePrice` for its history row. */
   async upsertItem(
+    orgId: string,
+    input: { itemId?: string | undefined; patch: CatalogItemPatch },
+    actorId: string,
+    tx?: Tx,
+  ): Promise<{ item: CatalogItemRecord; created: boolean; priceChanged: boolean }> {
+    return this.changed(this.writeItem(orgId, input, actorId, tx));
+  }
+
+  private async writeItem(
     orgId: string,
     input: { itemId?: string | undefined; patch: CatalogItemPatch },
     actorId: string,
@@ -292,6 +324,7 @@ export class CatalogService {
       await this.repo.updateItem(itemId, { categoryAr: input.nameAr, sortOrder: n * 10 }, tx);
       touched += 1;
     }
+    this.touch();
     return touched;
   }
 
@@ -316,6 +349,7 @@ export class CatalogService {
         touched += 1;
       }
     }
+    this.touch();
     return touched;
   }
 
@@ -324,7 +358,7 @@ export class CatalogService {
     for (const g of groups) if ((g.minSelect ?? 0) > (g.maxSelect ?? 1)) throw new DriverError('invalid_input');
     // «يشبّع» (joy o3): a range the kitchen typed must read low to high.
     for (const g of groups) for (const m of g.modifiers) if (m.servesMin != null && m.servesMax != null && m.servesMin > m.servesMax) throw new DriverError('invalid_input');
-    return this.repo.replaceModifierGroups(itemId, groups, tx);
+    return this.changed(this.repo.replaceModifierGroups(itemId, groups, tx));
   }
 
   /** Photo import: OCR is stubbed, so the draft starts with no rows and staff type them in. */
