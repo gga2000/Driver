@@ -832,6 +832,54 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
   if (hideId) await departures.hideReview(admin, hideId, 'not_about_trip');
 }
 
+// الرجعة garage board (Console › /garage, W3 / NTF-14): at كراج البوابة 1 one driver never came
+// (three riders waiting, 25 minutes past his latest time), one left for Baghdad and never pressed
+// «وصلت» (12 minutes past travel time + 30), and two cars still to go. Announced and booked through
+// the real service, then the two late ones are moved back in time in the routes table, the way a
+// real morning would leave them.
+{
+  const now = Date.now();
+  const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+  const routesRepo = get(ROUTES_REPOSITORY);
+  const garage = departures.garage('mp_garage_bab1');
+  const travel = departures.corridor('aziziyah_baghdad').travelMin;
+  const riders = ['أم حسين', 'باقر جواد', 'حوراء سعد', 'كاظم ياسر', 'منتظر علي', 'رسل حيدر', 'ضياء كريم', 'تبارك عباس', 'سيف نزار', 'إسراء هادي'];
+  let r = 0;
+  const run = async ({ phone, name, at, seats, vehicle }) => {
+    const driverId = await person(phone, name, ['intercity_driver']);
+    const dep = await departures.announce(
+      driverId,
+      AnnounceInput.parse({ garageId: garage.id, corridorId: 'aziziyah_baghdad', departAt: new Date(now + at * 60_000), latestDepartureAt: new Date(now + (at + 30) * 60_000), vehicle }),
+    );
+    const booked = [];
+    for (const seatId of seats) {
+      const rider = await person(`07715550${String(700 + r).padStart(3, '0')}`, riders[r % riders.length]);
+      r += 1;
+      const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal' }));
+      booked.push(await departures.book(rider, held.id, 'cash'));
+    }
+    return { driverId, dep, booked };
+  };
+  const back = async (id, patch) => {
+    const rec = await routesRepo.getDeparture(id);
+    if (rec) await routesRepo.saveDeparture({ ...rec, ...patch });
+  };
+  // Never came: announced for 55 minutes ago, latest 45 minutes ago → 25 minutes on the list.
+  const noShow = await run({ phone: '07814440701', name: 'عباس فاضل', at: 60, seats: ['front', 'back_left', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 30417', modelKey: 'elantra', color: 'بيضة' } });
+  await back(noShow.dep.id, { departAt: new Date(now - 55 * 60_000), latestDepartureAt: new Date(now - 45 * 60_000) });
+  // On the road and never pressed «وصلت».
+  const road = await run({ phone: '07814440702', name: 'مصطفى ناجي', at: 30, seats: ['front', 'back_left', 'back_middle', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 77120', modelKey: 'corolla', color: 'فضية' } });
+  await departures.selfie(road.driverId, road.dep.id, 'demo/selfie.jpg');
+  await departures.driverPosition(road.driverId, road.dep.id, { lat: garage.lat, lng: garage.lng });
+  for (const b of road.booked) await departures.checkIn(road.driverId, road.dep.id, b.pin);
+  await departures.depart(road.driverId, road.dep.id);
+  const left = now - (travel + 42) * 60_000;
+  await back(road.dep.id, { departAt: new Date(left - 5 * 60_000), latestDepartureAt: new Date(left + 25 * 60_000), departedAt: new Date(left) });
+  // Still to go.
+  await run({ phone: '07814440703', name: 'حسن جبار', at: 25, seats: ['front', 'back_left'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 41966', modelKey: 'sonata', color: 'سودة' } });
+  await run({ phone: '07814440704', name: 'ليث عدنان', at: 95, seats: ['front'], vehicle: { kind: 'van', layout: 7, plate: 'واسط 58302', modelKey: 'starex', color: 'بيضة' } });
+}
+
 // The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
 await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
 

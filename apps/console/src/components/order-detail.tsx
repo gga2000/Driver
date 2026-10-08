@@ -34,6 +34,7 @@ import { useTRPC } from '@/lib/trpc';
 import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
+import { StuckStrip } from './stuck/strip';
 import { ChatVoiceNote } from './support/voice-note';
 import {
   Avatar,
@@ -133,6 +134,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   return (
     <Frame>
       <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} now={now} />
+      <StuckStrip orderId={o.id} />
       <section aria-labelledby="order-story" className="rounded-lg border border-line bg-surface shadow-card">
         <Facts o={o} courierId={courierId} zoneKey={row?.zoneKey ?? null} />
         <Story o={o} events={events} now={now} logError={log.error} />

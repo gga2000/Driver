@@ -316,6 +316,16 @@ export const IconZoom = make(
 export const IconDot = ({ className = '' }: { className?: string }) => (
   <span aria-hidden className={`inline-block h-2 w-2 shrink-0 rounded-pill ${className}`} />
 );
+/** الرجعة: a saloon car seen from the side, nose to the left (RTL: it drives forward). */
+export const IconGarage = make(
+  <>
+    <path d="M2.5 13.5v-2.2c0-.6.4-1.1 1-1.3l1.8-.5 2-2.7c.4-.5.9-.8 1.6-.8h4.3c.6 0 1.2.3 1.5.8l1.8 2.7c.6.2 1 .7 1 1.3v2.7h-1.5" />
+    <path d="M7.5 13.5h4.5M2.5 13.5H4" />
+    <path d="M7.5 9h9" />
+    <circle cx="5.8" cy="13.8" r="1.7" />
+    <circle cx="13.8" cy="13.8" r="1.7" />
+  </>,
+);
 /** SOS: a siren (the red banner, the emergencies page). */
 export const IconSiren = make(
   <>

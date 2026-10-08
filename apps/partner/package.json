@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Driver Partner app (Expo) — couriers, drivers, fleet owners, field ops",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -38,6 +38,7 @@
     "expo-audio": "57.0.5",
     "expo-battery": "57.0.3",
     "expo-brightness": "57.0.2",
+    "expo-build-properties": "57.0.22",
     "expo-constants": "57.0.21",
     "expo-font": "57.0.4",
     "expo-haptics": "57.0.3",
