@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDriverError } from '@driver/contracts';
+import { RequestOtpInput, isDriverError } from '@driver/contracts';
 import { OTP_WHATSAPP_TEMPLATE } from './otp.service.js';
 import { harness } from './test-harness.js';
 
@@ -45,14 +45,14 @@ describe('identity.requestOtp over WhatsApp', () => {
     expect((await h.service.devLastOtp(PHONE)).code).toBe(h.sms.lastCodeFor(E164));
   });
 
-  it('is refused plainly without a WhatsApp port, and for purposes other than login', async () => {
+  it('is refused plainly without a WhatsApp port; the public endpoint sends sign-in codes only (SEC-17)', async () => {
     const off = harness(undefined, { noWhatsApp: true });
     const err = await off.service.requestOtp({ phone: PHONE, purpose: 'login', channel: 'whatsapp' }).catch((e: unknown) => e);
     expect(isDriverError(err) && err.code).toBe('otp_channel_unavailable');
     expect(off.sms.sentTo(E164)).toHaveLength(0);
 
-    const h = harness();
-    const consent = await h.service.requestOtp({ phone: PHONE, purpose: 'guardian_consent', channel: 'whatsapp' }).catch((e: unknown) => e);
-    expect(isDriverError(consent) && consent.code).toBe('otp_channel_unavailable');
+    expect(RequestOtpInput.safeParse({ phone: PHONE, purpose: 'guardian_consent' }).success).toBe(false);
+    expect(RequestOtpInput.safeParse({ phone: PHONE, purpose: 'phone_change' }).success).toBe(false);
+    expect(RequestOtpInput.parse({ phone: PHONE }).purpose).toBe('login');
   });
 });
