@@ -8397,5 +8397,6 @@
   "orders2.receipt_hint": "Opens the receipt",
   "orders2.live_title": "{merchant} · {status}",
   "orders2.problem_hint": "Something missing or wrong? Tell us and we'll fix it",
-  "orders2.arrived_at": "Arrived {time}"
+  "orders2.arrived_at": "Arrived {time}",
+  "error.server_busy": "We’re very busy right now. Try again in a moment"
 }

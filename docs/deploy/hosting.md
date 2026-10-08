@@ -188,6 +188,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `SAFETY_LINK_SECRET` | **yes** | 64 hex chars; signs SOS links. Same rule: required in production, its own value |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | no | Supabase Storage, [supabase.md](supabase.md) step 5 |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
+| `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
 | `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |

@@ -8397,5 +8397,6 @@
   "orders2.receipt_hint": "يفتح الوصل",
   "orders2.live_title": "{merchant} · {status}",
   "orders2.problem_hint": "شي ناقص أو غلط؟ گلّنا ونحلّها",
-  "orders2.arrived_at": "وصل {time}"
+  "orders2.arrived_at": "وصل {time}",
+  "error.server_busy": "الضغط عالي هسة. جرّب بعد لحظات"
 }
