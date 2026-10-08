@@ -1800,6 +1800,10 @@ model SeatBooking {
   seatPriceIqd       Int              @map("seat_price_iqd")
   frontPremiumIqd    Int              @default(0) @map("front_premium_iqd")
   pickupFeeIqd       Int              @default(0) @map("pickup_fee_iqd")
+  /// Step 4: the agreed door drop's price (0 without one); part of the total.
+  dropoffFeeIqd      Int              @default(0) @map("dropoff_fee_iqd")
+  /// Step 4: the agreed door drop {agreementId, lat, lng, note?}; null = the destination garage.
+  dropoff            Json?
   /// wallet | cash (null while held)
   payment            String?
   prepaid            Boolean          @default(false)
@@ -1966,6 +1970,38 @@ model RideRequestOffer {
   @@index([requestId])
   @@index([driverId])
   @@map("ride_request_offers")
+  @@schema("public")
+}
+
+/// Step 4 agreed trip prices (docs/specs/2026-10-08-agreed-trip-prices.md): a rider asks a departure's
+/// driver to price a pickup from his pin on the way or a drop at a door; the driver names the price
+/// (whole 1,000s, 0 = free); the rider accepts; booking locks it (state used, booking_id set).
+model TripAgreement {
+  id          String    @id
+  departureId String    @map("departure_id")
+  riderId     String    @map("rider_id")
+  driverId    String    @map("driver_id")
+  /// pin_pickup | door_drop
+  kind        String
+  lat         Float
+  lng         Float
+  note        String?
+  /// asked | proposed | accepted | declined | expired | withdrawn | used
+  state       String
+  /// The driver's price; null while only asked.
+  amountIqd   Int?      @map("amount_iqd")
+  askedAt     DateTime  @map("asked_at")
+  proposedAt  DateTime? @map("proposed_at")
+  expiresAt   DateTime? @map("expires_at")
+  decidedAt   DateTime? @map("decided_at")
+  bookingId   String?   @map("booking_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([departureId])
+  @@index([riderId])
+  @@index([state, expiresAt])
+  @@map("trip_agreements")
   @@schema("public")
 }
 

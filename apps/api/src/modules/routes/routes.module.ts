@@ -7,6 +7,7 @@ import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { LedgerModule, LedgerService } from '../ledger/index.js';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
 import { DeparturesService } from './departures.service.js';
@@ -91,6 +92,7 @@ import { RoutesWriter } from './writer.js';
     RequestBoardService,
     DeparturesService,
     DemandService,
+    AgreementsService,
     RoutesRpc,
     RoutesDeparturesPort,
     RoutesScheduler,

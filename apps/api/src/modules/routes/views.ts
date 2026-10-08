@@ -95,6 +95,7 @@ export function pickupView(
     feeIqd: p.feeIqd,
     status: p.status,
     detourMin: p.detourMin,
+    agreementId: p.agreementId ?? null,
   };
 }
 
@@ -193,6 +194,7 @@ export function bookingView(
     seatPriceIqd: b.seatPriceIqd,
     frontPremiumIqd: b.frontPremiumIqd,
     pickupFeeIqd: b.pickupFeeIqd,
+    dropoffFeeIqd: b.dropoffFeeIqd ?? 0,
     totalIqd: bookingTotal(b),
     payment: b.payment,
     prepaid: b.prepaid,
@@ -200,6 +202,7 @@ export function bookingView(
     heldUntil: b.heldUntil,
     pin: owner && LIVE.includes(b.state) ? b.pin : null,
     pickup: pickupView(b.pickup, s, dep),
+    dropoff: b.dropoff ? { ...b.dropoff, feeIqd: b.dropoffFeeIqd ?? 0 } : null,
     largeBags: b.largeBags,
     movedToBookingId: b.movedToBookingId,
     movedFromBookingId: b.movedFromBookingId,
@@ -234,6 +237,7 @@ export function driverDepartureView(
       prepayRail: prepayRail(b),
       totalIqd: bookingTotal(b),
       pickup: pickupView(b.pickup, s, dep),
+      dropoff: b.dropoff ? { ...b.dropoff, feeIqd: b.dropoffFeeIqd ?? 0 } : null,
       largeBags: b.largeBags,
       atGarage: b.atGarageAt !== null,
       checkedInAt: b.checkedInAt,

@@ -177,6 +177,8 @@ export const PickupChoice = z.discriminatedUnion('kind', [
     lng: LatLng.shape.lng,
     note: z.string().max(200).optional(),
   }),
+  /** Step 4: the rider's pin on the way, at the price the driver and rider agreed (`agreements.*`). */
+  z.object({ kind: z.literal('pin'), agreementId: z.string().min(1) }),
 ]);
 export type PickupChoice = z.infer<typeof PickupChoice>;
 
@@ -184,7 +186,7 @@ export const PickupStatus = z.enum(['accepted', 'pending', 'declined']);
 export type PickupStatus = z.infer<typeof PickupStatus>;
 
 export const PickupView = z.object({
-  kind: z.enum(['garage', 'meeting_point', 'door']),
+  kind: z.enum(['garage', 'meeting_point', 'door', 'pin']),
   meetingPointId: z.string().nullable(),
   nameAr: z.string().nullable(),
   lat: z.number(),
@@ -195,8 +197,89 @@ export const PickupView = z.object({
   status: PickupStatus,
   /** Door pickups: the driver's detour (both ways) the driver sees before accepting. */
   detourMin: z.number().int().nullable(),
+  /** Step 4: a pin pickup's agreement (its price is `feeIqd`, locked on the booking). */
+  agreementId: z.string().nullable().default(null),
 });
 export type PickupView = z.infer<typeof PickupView>;
+
+// ───────────────────────── agreed prices (step 4) ─────────────────────────
+
+/**
+ * Agreed trip prices (Ali 2026-10-07, design votes 2026-10-08; docs/specs/2026-10-08-agreed-trip-prices.md):
+ * the rider asks for a pickup from his pin on the way or a drop at a door, the departure's driver
+ * names the price (whole 1,000s, 0 = «ببلاش»), the rider accepts, and booking locks it.
+ */
+export const AGREEMENT_STEP_IQD = 1_000;
+export const AGREEMENT_MAX_IQD = 25_000;
+/** An unanswered proposal expires after this long (a7). */
+export const AGREEMENT_PROPOSAL_TTL_MIN = 30;
+/** Asks one rider may make on one departure (spam guard). */
+export const AGREEMENT_ASKS_PER_DEPARTURE = 6;
+
+export const AgreementKind = z.enum(['pin_pickup', 'door_drop']);
+export type AgreementKind = z.infer<typeof AgreementKind>;
+
+export const AgreementState = z.enum(['asked', 'proposed', 'accepted', 'declined', 'expired', 'withdrawn', 'used']);
+export type AgreementState = z.infer<typeof AgreementState>;
+
+/** An agreed amount: whole 1,000s from 0 («ببلاش») to 25,000. */
+export function agreementAmountOk(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= AGREEMENT_MAX_IQD && n % AGREEMENT_STEP_IQD === 0;
+}
+
+export const AskAgreementInput = z.object({
+  departureId: z.string().min(1),
+  kind: AgreementKind,
+  lat: LatLng.shape.lat,
+  lng: LatLng.shape.lng,
+  note: z.string().trim().max(200).optional(),
+});
+export type AskAgreementInput = z.input<typeof AskAgreementInput>;
+
+export const AgreementIdInput = z.object({ agreementId: z.string().min(1) });
+export type AgreementIdInput = z.infer<typeof AgreementIdInput>;
+
+export const ProposeAgreementInput = z.object({
+  agreementId: z.string().min(1),
+  amountIqd: z.number().int(),
+});
+export type ProposeAgreementInput = z.infer<typeof ProposeAgreementInput>;
+
+export const RespondAgreementInput = z.object({ agreementId: z.string().min(1), accept: z.boolean() });
+export type RespondAgreementInput = z.infer<typeof RespondAgreementInput>;
+
+export const AgreementView = z.object({
+  id: z.string(),
+  departureId: z.string(),
+  riderId: z.string(),
+  kind: AgreementKind,
+  state: AgreementState,
+  lat: z.number(),
+  lng: z.number(),
+  note: z.string().nullable(),
+  /** The driver's price; null while only asked. */
+  amountIqd: Iqd.nullable(),
+  askedAt: z.coerce.date(),
+  proposedAt: z.coerce.date().nullable(),
+  /** When an unanswered proposal lapses. */
+  expiresAt: z.coerce.date().nullable(),
+  decidedAt: z.coerce.date().nullable(),
+  /** The booking that locked it. */
+  bookingId: z.string().nullable(),
+  /** Driver's view only: the rider's first name (vault read, logged); null for the rider. */
+  riderFirstName: z.string().nullable().default(null),
+});
+export type AgreementView = z.infer<typeof AgreementView>;
+
+/** A booking's agreed door drop (step 4), locked like the pin pickup. */
+export const DropoffView = z.object({
+  agreementId: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  note: z.string().nullable(),
+  feeIqd: Iqd,
+});
+export type DropoffView = z.infer<typeof DropoffView>;
 
 // ───────────────────────── the board ─────────────────────────
 
@@ -321,6 +404,8 @@ export const HoldSeatInput = z.object({
   pickup: PickupChoice.default({ kind: 'garage' }),
   /** Large bags declared at booking (review C-43). */
   largeBags: z.boolean().default(false),
+  /** Step 4: a door drop at the agreed price. */
+  dropoff: AgreementIdInput.optional(),
 });
 export type HoldSeatInput = z.input<typeof HoldSeatInput>;
 
@@ -416,6 +501,8 @@ export const BookingView = z.object({
   seatPriceIqd: Iqd,
   frontPremiumIqd: Iqd,
   pickupFeeIqd: Iqd,
+  /** Step 4: the agreed door drop's price (0 without one); in `totalIqd`. */
+  dropoffFeeIqd: Iqd.default(0),
   totalIqd: Iqd,
   payment: SeatPayment.nullable(),
   prepaid: z.boolean(),
@@ -424,6 +511,8 @@ export const BookingView = z.object({
   /** The rider's boarding PIN; shown to the rider only. */
   pin: z.string().nullable(),
   pickup: PickupView,
+  /** Step 4: the agreed door drop, or null (the destination garage). */
+  dropoff: DropoffView.nullable().default(null),
   largeBags: z.boolean(),
   movedToBookingId: z.string().nullable(),
   movedFromBookingId: z.string().nullable(),
@@ -529,7 +618,7 @@ export const DemandPostView = z.object({
   corridorId: z.string(),
   direction: IntercityDirection,
   garageId: z.string().nullable(),
-  pickupKind: z.enum(['garage', 'meeting_point', 'door']),
+  pickupKind: z.enum(['garage', 'meeting_point', 'door', 'pin']),
   windowStart: z.coerce.date(),
   windowEnd: z.coerce.date(),
   seats: z.number().int(),
@@ -1039,6 +1128,8 @@ export const DriverBookingRow = z.object({
   totalIqd: Iqd,
   /** Driver sees each stop (door address included); riders never see each other's. */
   pickup: PickupView,
+  /** Step 4: the agreed door drop, or null (the destination garage). */
+  dropoff: DropoffView.nullable().default(null),
   largeBags: z.boolean(),
   atGarage: z.boolean(),
   checkedInAt: z.coerce.date().nullable(),
@@ -1317,6 +1408,13 @@ export interface RoutesPort {
   arrive(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;
   cancelDeparture(actor: Actor, input: CancelDepartureInput): Promise<DriverDepartureView>;
   driverRiders(actor: Actor, input: DepartureIdInput): Promise<DepartureRiderName[]>;
+  // agreed prices (step 4)
+  askAgreement(actor: Actor, input: AskAgreementInput): Promise<AgreementView>;
+  withdrawAgreement(actor: Actor, input: AgreementIdInput): Promise<AgreementView>;
+  respondAgreement(actor: Actor, input: RespondAgreementInput): Promise<AgreementView>;
+  myAgreements(actor: Actor, input: DepartureIdInput): Promise<AgreementView[]>;
+  proposeAgreement(actor: Actor, input: ProposeAgreementInput): Promise<AgreementView>;
+  departureAgreements(actor: Actor, input: DepartureIdInput): Promise<AgreementView[]>;
   /** Riders: the driver of each departure that is on the board or that they hold a seat on (others are left out). */
   driverCards(actor: Actor, input: DriverCardsInput): Promise<RajaaDriverCard[]>;
   /** Riders: the full profile of a departure's driver (same visibility as `driverCards`). */

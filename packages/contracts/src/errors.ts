@@ -345,6 +345,12 @@ export const ERROR_TABLE = {
   no_show_not_allowed: { retryHint: 'later', status: 'CONFLICT' },
   depart_blocked: { retryHint: 'never', status: 'CONFLICT' },
   pickup_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Step 4 agreed prices (pin pickup / door drop): docs/specs/2026-10-08-agreed-trip-prices.md
+  agreement_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  agreement_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  agreement_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_place_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_limit: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
   door_pickup_limit: { retryHint: 'never', status: 'CONFLICT' },
   demand_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   demand_state_conflict: { retryHint: 'never', status: 'CONFLICT' },

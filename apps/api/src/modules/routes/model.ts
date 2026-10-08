@@ -1,4 +1,6 @@
 import type {
+  AgreementKind,
+  AgreementState,
   BookingOrigin,
   BookingState,
   DemandPostState,
@@ -86,7 +88,7 @@ export interface DepartureRecord {
 }
 
 export interface PickupRecord {
-  kind: 'garage' | 'meeting_point' | 'door';
+  kind: 'garage' | 'meeting_point' | 'door' | 'pin';
   meetingPointId: string | null;
   lat: number;
   lng: number;
@@ -94,6 +96,35 @@ export interface PickupRecord {
   feeIqd: number;
   status: PickupStatus;
   detourMin: number | null;
+  /** Step 4: the agreement a pin pickup's price comes from; absent/null otherwise. */
+  agreementId?: string | null;
+}
+
+/** Step 4: a booking's agreed door drop (its price is the booking's `dropoffFeeIqd`). */
+export interface DropoffRecord {
+  agreementId: string;
+  lat: number;
+  lng: number;
+  note: string | null;
+}
+
+/** Step 4: one agreed-price ask on a departure (docs/specs/2026-10-08-agreed-trip-prices.md). */
+export interface AgreementRecord {
+  id: string;
+  departureId: string;
+  riderId: string;
+  driverId: string;
+  kind: AgreementKind;
+  lat: number;
+  lng: number;
+  note: string | null;
+  state: AgreementState;
+  amountIqd: number | null;
+  askedAt: Date;
+  proposedAt: Date | null;
+  expiresAt: Date | null;
+  decidedAt: Date | null;
+  bookingId: string | null;
 }
 
 export interface BookingRecord {
@@ -109,6 +140,10 @@ export interface BookingRecord {
   seatPriceIqd: number;
   frontPremiumIqd: number;
   pickupFeeIqd: number;
+  /** Step 4: the agreed door drop's price; absent = 0. */
+  dropoffFeeIqd?: number;
+  /** Step 4: the agreed door drop; absent/null = the destination garage. */
+  dropoff?: DropoffRecord | null;
   payment: SeatPayment | null;
   prepaid: boolean;
   trusted: boolean;
@@ -257,11 +292,12 @@ export const OPEN_DEPARTURE: readonly IntercityDepartureState[] = ['scheduled', 
 export const FINISHED_RUN: readonly IntercityDepartureState[] = ['arrived', 'closed'];
 
 export function bookingTotal(
-  b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd'>,
+  b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd' | 'dropoffFeeIqd'>,
 ): number {
   return (
     b.seatIds.length * b.seatPriceIqd +
     (b.seatIds.includes('front') ? b.frontPremiumIqd : 0) +
-    b.pickupFeeIqd
+    b.pickupFeeIqd +
+    (b.dropoffFeeIqd ?? 0)
   );
 }

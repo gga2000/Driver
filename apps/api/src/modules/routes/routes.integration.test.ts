@@ -9,6 +9,7 @@ import {
 import { FakeClock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { RecordingRoutesEvents } from './events.adapter.js';
@@ -70,7 +71,8 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     INTERCITY_NETWORK,
     randomIds,
   );
-  const scheduler = new RoutesScheduler(writer, departures, demand, requests);
+  const agreements = new AgreementsService(repo, events, clock, writer, departures, INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
+  const scheduler = new RoutesScheduler(writer, departures, demand, requests, agreements);
   const ids = { driver: '', d2: '', r1: '', r2: '' };
   const at = (min: number) => new Date(clock.now().getTime() + min * 60_000);
 
@@ -88,6 +90,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
       where: { driverId: { in: [ids.driver, ids.d2] } },
       select: { id: true },
     });
+    await db.tripAgreement.deleteMany({ where: { departureId: { in: deps.map((d) => d.id) } } });
     await db.seatBooking.deleteMany({ where: { departureId: { in: deps.map((d) => d.id) } } });
     await db.departure.deleteMany({ where: { driverId: { in: [ids.driver, ids.d2] } } });
     await db.demandPost.deleteMany({ where: { riderId: { in: [ids.r1, ids.r2] } } });
@@ -362,6 +365,48 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     const back = await repo.getRequest(r.id);
     expect(back?.fetchPersonId).toBe('p_fetch_07701234567');
     expect(back?.details.trip).toBe('fetch');
+  });
+
+  it('step 4: an agreed pin pickup and door drop round-trip, lock on the booking, and expire on the tick', async () => {
+    const dep = await departures.announce(
+      ids.d2,
+      AnnounceInput.parse({
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(600),
+        latestDepartureAt: at(630),
+        vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 4' },
+      }),
+    );
+    const pin = await agreements.ask(ids.r1, { departureId: dep.id, kind: 'pin_pickup', lat: 33.1667, lng: 44.5517, note: 'جنب السيطرة' });
+    const door = await agreements.ask(ids.r1, { departureId: dep.id, kind: 'door_drop', lat: 33.3, lng: 44.4 });
+    await agreements.propose(ids.d2, { agreementId: pin.id, amountIqd: 3_000 });
+    await agreements.propose(ids.d2, { agreementId: door.id, amountIqd: 0 });
+    await agreements.respond(ids.r1, { agreementId: pin.id, accept: true });
+    await agreements.respond(ids.r1, { agreementId: door.id, accept: true });
+    const held = await departures.hold(
+      ids.r1,
+      HoldSeatInput.parse({
+        departureId: dep.id,
+        selection: { kind: 'seats', seatIds: ['back_right'] },
+        travellingAs: 'rijal',
+        pickup: { kind: 'pin', agreementId: pin.id },
+        dropoff: { agreementId: door.id },
+      }),
+    );
+    const booked = await departures.book(ids.r1, held.id, 'cash');
+    const back = await repo.getBooking(booked.id);
+    expect(back?.pickup).toMatchObject({ kind: 'pin', feeIqd: 3_000, agreementId: pin.id, status: 'accepted' });
+    expect(back).toMatchObject({ pickupFeeIqd: 3_000, dropoffFeeIqd: 0, dropoff: { agreementId: door.id, lat: 33.3, lng: 44.4, note: null } });
+    expect(await repo.getAgreement(pin.id)).toMatchObject({ state: 'used', bookingId: booked.id, amountIqd: 3_000, note: 'جنب السيطرة' });
+    expect((await repo.agreementsFor(dep.id, ids.r1)).map((a) => a.state)).toEqual(['used', 'used']);
+
+    const late = await agreements.ask(ids.r2, { departureId: dep.id, kind: 'door_drop', lat: 33.3, lng: 44.4 });
+    await agreements.propose(ids.d2, { agreementId: late.id, amountIqd: 2_000 });
+    expect((await repo.openAgreements()).some((a) => a.id === late.id)).toBe(true);
+    clock.advanceMinutes(31);
+    expect((await scheduler.tick()).agreementsExpired).toBeGreaterThanOrEqual(1);
+    expect((await repo.getAgreement(late.id))?.state).toBe('expired');
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {

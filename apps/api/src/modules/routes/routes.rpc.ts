@@ -6,6 +6,7 @@ import {
   type CallSession,
   type BoardInput,
   type BoardingPass,
+  type AgreementView,
   type BookingView,
   type DemandBucket,
   type DemandPostView,
@@ -29,6 +30,8 @@ import {
   type RoutesPort,
 } from '@driver/contracts';
 import { shortDisplayName } from '../identity/index.js';
+import { agreementView } from './agreements.js';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { directionFrom } from './intercity.config.js';
@@ -72,6 +75,7 @@ export class RoutesRpc implements RoutesPort {
     private readonly departures: DeparturesService,
     private readonly demand: DemandService,
     private readonly requests: RequestBoardService,
+    private readonly agreements: AgreementsService,
     @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
     @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
     @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
@@ -456,6 +460,41 @@ export class RoutesRpc implements RoutesPort {
     return this.driverView(
       await this.departures.cancelByDriver(actor.personId, input.departureId, input.reason),
     );
+  }
+
+  // ───────────────────────── step 4: agreed trip prices ─────────────────────────
+
+  async askAgreement(actor: Actor, input: In<'askAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.ask(actor.personId, input));
+  }
+
+  async withdrawAgreement(actor: Actor, input: In<'withdrawAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.withdraw(actor.personId, input.agreementId));
+  }
+
+  async respondAgreement(actor: Actor, input: In<'respondAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.respond(actor.personId, input));
+  }
+
+  async myAgreements(actor: Actor, input: In<'myAgreements'>): Promise<AgreementView[]> {
+    return (await this.agreements.mine(actor.personId, input.departureId)).map((a) => agreementView(a));
+  }
+
+  async proposeAgreement(actor: Actor, input: In<'proposeAgreement'>): Promise<AgreementView> {
+    const a = await this.agreements.propose(actor.personId, input);
+    return agreementView(a, (await this.riderFirstNames([a.riderId], actor.personId))[a.riderId] ?? null);
+  }
+
+  /** The driver's view of every ask on his departure, each with the rider's first name (vault read logged). */
+  async departureAgreements(actor: Actor, input: In<'departureAgreements'>): Promise<AgreementView[]> {
+    const rows = await this.agreements.onDeparture(actor.personId, input.departureId);
+    const names = await this.riderFirstNames(rows.map((a) => a.riderId), actor.personId);
+    return rows.map((a) => agreementView(a, names[a.riderId] ?? null));
+  }
+
+  private async riderFirstNames(ids: readonly string[], accessorId: string): Promise<Record<string, string | null>> {
+    if (!this.names || ids.length === 0) return {};
+    return this.names.firstNamesFor([...new Set(ids)], accessorId, 'intercity_manifest');
   }
 
   /**

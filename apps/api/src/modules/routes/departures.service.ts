@@ -47,6 +47,7 @@ import {
   LIVE,
   OCCUPYING,
   OPEN_DEPARTURE,
+  type AgreementRecord,
   type BookingRecord,
   type DepartureRecord,
   type Fix,
@@ -76,6 +77,14 @@ export interface Fill {
 }
 
 export type NoShowVerdict = 'forfeit' | 'no_show' | null;
+
+/** Step 4: a checked change to a booked seat's agreed price (`planAgreement` → `applyAgreement`). */
+export interface AgreementPlan {
+  dep: DepartureRecord;
+  next: BookingRecord;
+  /** The agreement the booking used before, withdrawn when this one takes its place. */
+  replacedId: string | null;
+}
 
 export type DepartBlocker = {
   bookingId: string | null;
@@ -817,6 +826,7 @@ export class DeparturesService {
         selection: input.selection.kind,
         travellingAs: input.travellingAs,
         pickup: input.pickup,
+        dropoff: input.dropoff ?? null,
         largeBags: input.largeBags,
         origin: 'rider',
         state: 'held',
@@ -892,6 +902,7 @@ export class DeparturesService {
         b.prepaid = false;
         b.trusted = stats.completedBookings >= this.rules.trustedAfterSeats;
       }
+      await this.lockAgreements(tx, b);
       b.payment = payment;
       b.state = 'booked';
       b.bookedAt = this.now();
@@ -1340,6 +1351,9 @@ export class DeparturesService {
               ? Math.min(b.frontPremiumIqd, target.dep.frontPremiumIqd)
               : 0,
           pickupFeeIqd: keepMp ? Math.min(b.pickupFeeIqd, pickup.feeIqd) : 0,
+          // Step 4: a pin pickup or door drop was agreed with the other driver; the new car starts at the garage.
+          dropoffFeeIqd: 0,
+          dropoff: null,
           pin: this.uniquePin(target.bookings),
           pickup,
           heldUntil: null,
@@ -1507,6 +1521,8 @@ export class DeparturesService {
       selection: BookingRecord['selection'];
       travellingAs: TravellingAs;
       pickup: PickupChoice;
+      /** Step 4: an accepted door-drop agreement. */
+      dropoff?: { agreementId: string } | null;
       largeBags: boolean;
       origin: BookingRecord['origin'];
       demandPostId?: string;
@@ -1530,7 +1546,14 @@ export class DeparturesService {
       ])
     )
       throw new DriverError('seat_adjacency_blocked');
-    const pickup = this.resolvePickup(dep, bookings, spec.pickup);
+    const pinDeal =
+      spec.pickup.kind === 'pin'
+        ? await this.acceptedAgreement(tx, dep, spec.riderId, spec.pickup.agreementId, 'pin_pickup')
+        : null;
+    const dropDeal = spec.dropoff
+      ? await this.acceptedAgreement(tx, dep, spec.riderId, spec.dropoff.agreementId, 'door_drop')
+      : null;
+    const pickup = this.resolvePickup(dep, bookings, spec.pickup, pinDeal);
     const b: BookingRecord = {
       id,
       departureId: dep.id,
@@ -1543,6 +1566,10 @@ export class DeparturesService {
       seatPriceIqd: dep.seatPriceIqd,
       frontPremiumIqd: spec.seatIds.includes('front') ? dep.frontPremiumIqd : 0,
       pickupFeeIqd: pickup.feeIqd,
+      dropoffFeeIqd: dropDeal?.amountIqd ?? 0,
+      dropoff: dropDeal
+        ? { agreementId: dropDeal.id, lat: dropDeal.lat, lng: dropDeal.lng, note: dropDeal.note }
+        : null,
       payment: null,
       prepaid: false,
       trusted: false,
@@ -1574,13 +1601,105 @@ export class DeparturesService {
     return b;
   }
 
+  /** Step 4: the rider's accepted, not yet booked agreement of this kind on this departure. */
+  private async acceptedAgreement(
+    tx: Tx,
+    dep: DepartureRecord,
+    riderId: string,
+    agreementId: string,
+    kind: AgreementRecord['kind'],
+  ): Promise<AgreementRecord> {
+    const a = await this.repo.getAgreement(agreementId, tx);
+    if (!a || a.riderId !== riderId || a.departureId !== dep.id || a.kind !== kind)
+      throw new DriverError('agreement_not_found');
+    if (a.state !== 'accepted') throw new DriverError('agreement_state_conflict');
+    return a;
+  }
+
+  /** Step 4: booking locks its agreements (used, with the booking id); one agreement, one booking. */
+  private async lockAgreements(tx: Tx, b: BookingRecord): Promise<void> {
+    const ids = [b.pickup.agreementId, b.dropoff?.agreementId].filter((x): x is string => !!x);
+    for (const id of ids) {
+      const a = await this.repo.getAgreement(id, tx);
+      if (!a) throw new DriverError('agreement_not_found');
+      if (a.state === 'used' && a.bookingId === b.id) continue;
+      if (a.state !== 'accepted') throw new DriverError('agreement_state_conflict');
+      a.state = 'used';
+      a.bookingId = b.id;
+      await this.repo.saveAgreement(a, tx);
+    }
+  }
+
+  /**
+   * Step 4 (a5): what a price the rider is accepting changes on his booked seat, checked before
+   * anything is written: the car has not left, and a prepaid seat (paid from the wallet at the end)
+   * is still covered by the wallet at the new total. Null when he has no booked seat on this run
+   * (the agreement then waits, accepted, for the booking that names it).
+   */
+  async planAgreement(tx: Tx, a: AgreementRecord): Promise<AgreementPlan | null> {
+    const dep = await this.departure(a.departureId, tx);
+    const bookings = await this.repo.bookingsFor(dep.id, tx);
+    const b = bookings.find((x) => x.riderId === a.riderId && x.state === 'booked');
+    if (!b) return null;
+    this.requireState(dep, ['scheduled', 'boarding']);
+    const next: BookingRecord = { ...b };
+    if (a.kind === 'pin_pickup') {
+      next.pickup = this.resolvePickup(dep, bookings, { kind: 'pin', agreementId: a.id }, a);
+      next.pickupFeeIqd = next.pickup.feeIqd;
+    } else {
+      next.dropoff = { agreementId: a.id, lat: a.lat, lng: a.lng, note: a.note };
+      next.dropoffFeeIqd = a.amountIqd ?? 0;
+    }
+    if (b.prepaid && (await this.walletAvailable(b.riderId, tx, b.id)) < bookingTotal(next))
+      throw new DriverError('wallet_insufficient');
+    const replacedId = a.kind === 'pin_pickup' ? b.pickup.agreementId : b.dropoff?.agreementId;
+    return { dep, next, replacedId: replacedId && replacedId !== a.id ? replacedId : null };
+  }
+
+  /** Step 4 (a5): writes a planned change: the new price on the booking, the old agreement withdrawn. */
+  async applyAgreement(tx: Tx, a: AgreementRecord, plan: AgreementPlan): Promise<void> {
+    const old = plan.replacedId ? await this.repo.getAgreement(plan.replacedId, tx) : null;
+    if (old) {
+      old.state = 'withdrawn';
+      old.decidedAt = this.now();
+      await this.repo.saveAgreement(old, tx);
+    }
+    a.state = 'used';
+    a.bookingId = plan.next.id;
+    await this.repo.saveAgreement(a, tx);
+    await this.repo.saveBooking(plan.next, tx);
+    await this.emit(tx, 'seat.agreement_applied', a.riderId, plan.dep, {
+      bookingId: plan.next.id,
+      agreementId: a.id,
+      kind: a.kind,
+      amountIqd: a.amountIqd,
+      totalIqd: bookingTotal(plan.next),
+    });
+  }
+
   /** Garage (free), an on-the-way meeting point of this corridor (+fee), or the door (+fee by distance, driver accepts). */
   private resolvePickup(
     dep: DepartureRecord,
     bookings: readonly BookingRecord[],
     choice: PickupChoice,
+    pinDeal: AgreementRecord | null = null,
   ): PickupRecord {
     const g = this.garage(dep.garageId);
+    if (choice.kind === 'pin') {
+      if (!pinDeal || pinDeal.id !== choice.agreementId) throw new DriverError('pickup_invalid');
+      // Step 4: the driver priced this pin himself, so it is accepted (no second «يقبل؟»).
+      return {
+        kind: 'pin',
+        meetingPointId: null,
+        lat: pinDeal.lat,
+        lng: pinDeal.lng,
+        note: pinDeal.note,
+        feeIqd: pinDeal.amountIqd ?? 0,
+        status: 'accepted',
+        detourMin: null,
+        agreementId: pinDeal.id,
+      };
+    }
     if (choice.kind === 'garage')
       return {
         kind: 'garage',
@@ -1645,7 +1764,7 @@ export class DeparturesService {
       customerId: b.riderId,
       payment: b.payment === 'wallet' ? 'wallet' : 'cash',
       driverId: dep.driverId,
-      fareIqd: b.seatPriceIqd + (first ? b.pickupFeeIqd : 0),
+      fareIqd: b.seatPriceIqd + (first ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) : 0),
       frontPremiumIqd: seatId === 'front' ? b.frontPremiumIqd : 0,
       walkUp: false,
     };

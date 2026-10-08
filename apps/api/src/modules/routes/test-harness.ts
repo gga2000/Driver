@@ -20,6 +20,7 @@ import {
   type IntercityRules,
 } from './intercity.config.js';
 import { TrailCheckpointWaiver, type CheckpointWaiver } from './late-meter.js';
+import { AgreementsService } from './agreements.service.js';
 import { RequestBoardService } from './request-board.service.js';
 import { InMemoryRequestRiders } from './request-riders.js';
 import { InMemoryRoutesRepository } from './routes.repository.js';
@@ -75,10 +76,11 @@ export function routesHarness(
     ids,
   );
   const demand = new DemandService(repo, events, clock, writer, departures, INTERCITY_NETWORK, ids);
+  const agreements = new AgreementsService(repo, events, clock, writer, departures, INTERCITY_NETWORK, rules, ids);
   /** Riders' names as identity would hold them; every read recorded like the vault log. */
   const riderNames = new Map<string, string>();
   const nameReads: Array<{ personId: string; accessorId: string; purpose: string }> = [];
-  const rpc = new RoutesRpc(departures, demand, requests, repo, {
+  const rpc = new RoutesRpc(departures, demand, requests, agreements, repo, {
     firstNamesFor: async (ids, accessorId, purpose) => {
       const out: Record<string, string | null> = {};
       for (const id of new Set(ids)) {
@@ -96,7 +98,7 @@ export function routesHarness(
       return out;
     },
   });
-  const scheduler = new RoutesScheduler(writer, departures, demand, requests);
+  const scheduler = new RoutesScheduler(writer, departures, demand, requests, agreements);
 
   const at = (minutesFromNow: number) => new Date(clock.now().getTime() + minutesFromNow * 60_000);
 
@@ -186,6 +188,7 @@ export function routesHarness(
     requests,
     departures,
     demand,
+    agreements,
     rpc,
     riders,
     riderNames,

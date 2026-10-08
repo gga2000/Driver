@@ -5,9 +5,11 @@ import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import {
   FINISHED_RUN,
+  type AgreementRecord,
   type BookingRecord,
   type DemandPostRecord,
   type DepartureRecord,
+  type DropoffRecord,
   type Fix,
   type PickupRecord,
   type PinAttemptRecord,
@@ -143,6 +145,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
       seatPriceIqd: b.seatPriceIqd,
       frontPremiumIqd: b.frontPremiumIqd,
       pickupFeeIqd: b.pickupFeeIqd,
+      dropoffFeeIqd: b.dropoffFeeIqd ?? 0,
+      dropoff: b.dropoff ? ({ ...b.dropoff } as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
       payment: b.payment,
       prepaid: b.prepaid,
       trusted: b.trusted,
@@ -440,11 +444,72 @@ export class PrismaRoutesRepository implements RoutesRepository {
     const row = await this.db(tx).intercityPinAttempt.findUnique({ where: { id } });
     return row ? toPinAttempt(row) : null;
   }
+
+  // ───────────────────────── agreed prices (step 4) ─────────────────────────
+
+  async saveAgreement(a: AgreementRecord, tx?: Tx): Promise<void> {
+    const data = {
+      departureId: a.departureId,
+      riderId: a.riderId,
+      driverId: a.driverId,
+      kind: a.kind,
+      lat: a.lat,
+      lng: a.lng,
+      note: a.note,
+      state: a.state,
+      amountIqd: a.amountIqd,
+      askedAt: a.askedAt,
+      proposedAt: a.proposedAt,
+      expiresAt: a.expiresAt,
+      decidedAt: a.decidedAt,
+      bookingId: a.bookingId,
+    };
+    await this.db(tx).tripAgreement.upsert({ where: { id: a.id }, create: { id: a.id, ...data }, update: data });
+  }
+
+  async getAgreement(id: string, tx?: Tx): Promise<AgreementRecord | null> {
+    const row = await this.db(tx).tripAgreement.findUnique({ where: { id } });
+    return row ? toAgreement(row) : null;
+  }
+
+  async agreementsFor(departureId: string, riderId?: string, tx?: Tx): Promise<AgreementRecord[]> {
+    const rows = await this.db(tx).tripAgreement.findMany({
+      where: { departureId, ...(riderId ? { riderId } : {}) },
+      orderBy: [{ askedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map(toAgreement);
+  }
+
+  async openAgreements(tx?: Tx): Promise<AgreementRecord[]> {
+    const rows = await this.db(tx).tripAgreement.findMany({ where: { state: { in: ['asked', 'proposed'] } } });
+    return rows.map(toAgreement);
+  }
 }
 
 // ───────────────────────── row mapping ─────────────────────────
 
 type PinAttemptRow = Awaited<ReturnType<Tx['intercityPinAttempt']['findUniqueOrThrow']>>;
+type AgreementRow = Awaited<ReturnType<Tx['tripAgreement']['findUniqueOrThrow']>>;
+
+function toAgreement(r: AgreementRow): AgreementRecord {
+  return {
+    id: r.id,
+    departureId: r.departureId,
+    riderId: r.riderId,
+    driverId: r.driverId,
+    kind: r.kind as AgreementRecord['kind'],
+    lat: r.lat,
+    lng: r.lng,
+    note: r.note,
+    state: r.state as AgreementRecord['state'],
+    amountIqd: r.amountIqd,
+    askedAt: r.askedAt,
+    proposedAt: r.proposedAt,
+    expiresAt: r.expiresAt,
+    decidedAt: r.decidedAt,
+    bookingId: r.bookingId,
+  };
+}
 
 function toPinAttempt(r: PinAttemptRow): PinAttemptRecord {
   return {
@@ -563,6 +628,8 @@ function toBooking(r: BookingRow): BookingRecord {
     seatPriceIqd: r.seatPriceIqd,
     frontPremiumIqd: r.frontPremiumIqd,
     pickupFeeIqd: r.pickupFeeIqd,
+    dropoffFeeIqd: r.dropoffFeeIqd,
+    dropoff: (r.dropoff as unknown as DropoffRecord | null) ?? null,
     payment: r.payment as BookingRecord['payment'],
     prepaid: r.prepaid,
     trusted: r.trusted,
