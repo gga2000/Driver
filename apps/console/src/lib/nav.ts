@@ -13,6 +13,8 @@ const DISPATCH: readonly RoleKind[] = ['dispatcher', 'admin'];
 const SUPPORT: readonly RoleKind[] = ['support', 'dispatcher', 'finance', 'admin'];
 const APPROVALS: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
 const FINANCE: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
+/** Mirrors `INTERCITY_OPS_ROLES` in the routes router (the router itself is server-only). */
+const GARAGE: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 export type IconName =
   | 'today'
@@ -32,6 +34,7 @@ export type IconName =
   | 'safety'
   | 'phone'
   | 'oncall'
+  | 'garage'
   | 'system';
 
 export interface NavItem {
@@ -64,6 +67,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       { href: '/orders', key: 'console.nav_orders', icon: 'orders', roles: READ, jump: 'o' },
       { href: '/drivers', key: 'console.nav_drivers', icon: 'drivers', roles: READ, jump: 'r' },
+      // الرجعة garage board (W3 / NTF-14, Ali 2026-10-08): today's cars from one garage, the late ones on top.
+      { href: '/garage', key: 'console.nav_garage', icon: 'garage', roles: GARAGE, jump: 'j' },
     ],
   },
   {
