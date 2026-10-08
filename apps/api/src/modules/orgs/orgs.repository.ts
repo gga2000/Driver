@@ -133,6 +133,7 @@ interface OrgRow {
   closedAt: Date | null;
   closedReason: string | null;
   closedNote: string | null;
+  closedUntil?: Date | null;
   printerState: string | null;
   printerName: string | null;
   printerAt: Date | null;
@@ -193,7 +194,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
       commissionTier: (r.commissionTier as CommissionTier | null) ?? null,
       location: r.locationZoneKey ? { zoneKey: r.locationZoneKey, ...(pin ? { pin } : {}) } : null,
       busyUntil: r.busyUntil,
-      closed: r.closedAt ? { reason: r.closedReason ?? '', note: r.closedNote, at: r.closedAt } : null,
+      closed: r.closedAt ? { reason: r.closedReason ?? '', note: r.closedNote, at: r.closedAt, until: r.closedUntil ?? null } : null,
       printer: r.printerState && r.printerAt ? { state: r.printerState === 'connected' ? 'connected' : 'disconnected', name: r.printerName, at: r.printerAt } : null,
       openingHours: openingHoursFrom(r.openingHours),
       holidays: holidaysFrom(r.holidayClosures),
@@ -286,7 +287,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
     if (patch.defaultPrepMin !== undefined) data.defaultPrepMin = patch.defaultPrepMin;
     if (patch.commissionTier !== undefined) data.commissionTier = patch.commissionTier;
     if (patch.busyUntil !== undefined) data.busyUntil = patch.busyUntil;
-    if (patch.closed !== undefined) Object.assign(data, { closedAt: patch.closed?.at ?? null, closedReason: patch.closed?.reason ?? null, closedNote: patch.closed?.note ?? null });
+    if (patch.closed !== undefined) Object.assign(data, { closedAt: patch.closed?.at ?? null, closedReason: patch.closed?.reason ?? null, closedNote: patch.closed?.note ?? null, closedUntil: patch.closed?.until ?? null });
     if (patch.printer !== undefined) Object.assign(data, { printerState: patch.printer?.state ?? null, printerName: patch.printer?.name ?? null, printerAt: patch.printer?.at ?? null });
     if (patch.location !== undefined) data.locationZoneKey = patch.location?.zoneKey ?? null;
     if (patch.openingHours !== undefined)

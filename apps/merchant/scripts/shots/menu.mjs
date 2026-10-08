@@ -42,7 +42,7 @@ export default {
     // The menu: first section (تكة) on a tablet, every section stacked on a phone.
     await byTestId(phone ? 'tab-menu' : 'nav-menu').click();
     await byTestId('menu').waitFor();
-    await page.locator('[data-testid^="menu-item-"]').first().waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid^="tray-tap-"]').first().waitFor({ timeout: 15_000 });
     await shot('menu', { wait: 1200 });
     if (phone) await shot('menu-full', { full: true });
 
@@ -57,9 +57,11 @@ export default {
     await shot('filter-off');
     await byTestId('filter-all').click();
 
-    // "خلص اليوم" on a dish: instant, with undo.
+    // "خلص اليوم" on a dish: one tap on its tray, with undo.
     await byTestId(phone ? 'menu-cat-1' : 'menu-cat-1').click();
-    await page.locator('[data-testid^="menu-soldout-"]').first().click();
+    const tray = page.locator('[data-testid^="tray-tap-"]:visible').first();
+    const box = await tray.boundingBox();
+    await tray.click({ position: { x: box.width / 2, y: box.height - 24 } });
     await page.waitForTimeout(500);
     await shot('sold-out-toast', { wait: 300 });
     await page.waitForTimeout(4500);
@@ -79,7 +81,7 @@ export default {
 
     // The dish editor: لفة تكة (photo, price with history, bread / sauce options).
     await byTestId(phone ? 'menu-cat-0' : 'menu-cat-0').click();
-    await page.locator('[data-testid^="menu-item-"]:visible', { hasText: 'لفة تكة' }).first().getByRole('button').first().click();
+    await page.locator('[data-testid^="dish-"]:visible', { hasText: 'لفة تكة' }).first().locator('[data-testid^="tray-edit-"]').click();
     await byTestId('item-editor').waitFor();
     await byTestId('price-panel').waitFor();
     await shot('item', { wait: 1000 });
@@ -105,7 +107,7 @@ export default {
     await page.goBack();
     await byTestId('menu').waitFor();
     await byTestId('menu-cat-1').click();
-    await page.locator('[data-testid^="menu-item-"]:visible', { hasText: 'كص لحم بالكيلو' }).first().getByRole('button').first().click();
+    await page.locator('[data-testid^="dish-"]:visible', { hasText: 'كص لحم بالكيلو' }).first().locator('[data-testid^="tray-edit-"]').click();
     await byTestId('item-editor').waitFor();
     await shot('item-no-photo', { wait: 900 });
     await choose(page, byTestId('photo-library'), { name: 'gus.png', mimeType: 'image/png', buffer: await render(page, plate, { width: 640, height: 480 }) });

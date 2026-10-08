@@ -4,3 +4,4 @@
  * the 1.2 MB of dish photos it never shows.
  */
 export { DishDrawing, DISH_KINDS, DISH_LOOKS, type DishKind, type DishDrawingProps } from './art/dishes';
+export { dishLook, motifForDish, temperatureOf, type Temperature } from './art/dish-motif';
