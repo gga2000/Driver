@@ -16,5 +16,6 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261008130000 | vault_accessor_kind | lane A | #20 (merged) |
 | 20261008130100 | quote_expiry | lane A | #20 (merged) |
 | 20261009090000 | scheduled_timers | lane B | #13 |
-| 20261009091000 | quote retention index | lane B | #13 |
+| 20261009091000 | quotes_expires_at_index | lane B | #13 |
+| 20261009092000 | participants_person_id_index | lane B | #13 |
 | 20261009100000 | test_kitchen | lane D | BENCH-04 PR |

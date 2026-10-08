@@ -4,8 +4,9 @@ The Console (`apps/console`) is a Next.js app whose pages all run in the browser
 actions all go from the staff member's browser straight to the API. The Next server only serves the
 pages. So it needs no secrets, no database access and almost no server.
 
-**Host: Fly, app `driver-console`, Frankfurt, machine sleeps when unused** (`deploy/fly/console.toml`):
-about $0–1/month, wakes in ~2 s. Same account and same deploy workflow as the API.
+**Host: Fly, app `driver-console`, Frankfurt, one machine always on** (`deploy/fly/console.toml`):
+about $2/month, so a dispatcher at night never waits for a ~2 s cold start. Same account and same
+deploy workflow as the API.
 
 Why not Vercel: it is the most convenient host for Next.js, but its free Hobby plan is for
 non-commercial use only and Pro is $20/month per member — a lot for a staff tool with five users. If

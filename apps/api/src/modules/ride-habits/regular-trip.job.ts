@@ -1,5 +1,6 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { RideHabitsService } from './ride-habits.service.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /** How often the reminder job looks (each occurrence is asked about once: the event is keyed per trip and date). */
 export const REGULAR_TRIP_EVERY_MS = 5 * 60_000;
@@ -15,9 +16,14 @@ export class RegularTripJob implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly habits: RideHabitsService) {}
+  constructor(
+    private readonly habits: RideHabitsService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), REGULAR_TRIP_EVERY_MS);
     this.timer.unref();
   }
