@@ -8293,5 +8293,8 @@
   "unreachable.standing_street": "{name} ينطرك بالشارع قريب من الدبوس",
   "partner.job_street_title": "تسليم بالشارع · الزبون يطلعلك",
   "partner.job_street_body": "لا تروح للباب. لمن تقرب اتصل بيه، ويطلع يلاگيك بالشارع يم الدبوس.",
-  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق"
+  "error.too_far_for_ice_cream": "هالمحل أبعد من 3 كم عنك، والآيس كريم يذوب بالطريق",
+  "update.title": "حدّث التطبيق",
+  "update.cta": "حدّث من Google Play",
+  "update.hint_store": "حدّثه من App Store"
 }
