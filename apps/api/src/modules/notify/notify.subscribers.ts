@@ -70,6 +70,7 @@ export const NOTIFY_EVENT_TYPES = [
   'dispatch.free_cancel_available',
   'stop.arrived',
   'merchant.paid_by_courier',
+  'merchant.activated',
   'menu_photos.shot',
   'ops.cash_received',
   'wallet.topped_up',
@@ -115,6 +116,8 @@ export interface NotifySubscriberDeps {
   lookups: NotifyLookups;
   /** Public base of the receipt links in WhatsApp receipts (`https://driver.iq/r/`). */
   receiptBaseUrl: string;
+  /** The merchant app's web address (`MERCHANT_APP_URL`); the activation SMS links to its `/setup`. Unset = no link. */
+  merchantAppUrl?: string | null;
 }
 
 const MERCHANT_STAFF = ['merchant_staff', 'merchant_owner'] as const;
@@ -476,6 +479,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         const credited = creditIqd > 0 && to === order.customerId;
         return { ...base, template: credited ? ('ride_driver_cancelled_credit' as const) : template, to, orderId: order.id, params: { driver, orderId: order.id, ...(credited ? { amount: iqd(creditIqd) } : {}) }, data: { orderId: order.id } };
       });
+    }
+    case 'merchant.activated': {
+      // «جهّز محلك»: ops approved the shop — each current owner (not the onboarding contact, who may
+      // not be one) hears it is live, with the link to finish setting it up.
+      const orgId = str(p['merchantOrgId']);
+      if (!orgId) return [];
+      const [owners, shop] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId)]);
+      const base_ = deps.merchantAppUrl?.trim().replace(/\/+$/, '');
+      const next = base_ ? t('sms.merchant_activated_link', { link: `${base_}/setup` }, 'ar-IQ') : t('sms.merchant_activated_app', {}, 'ar-IQ');
+      return owners.map((to) => ({ ...base, template: 'merchant_activated' as const, to, params: { shop: shop ?? '', next } }));
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

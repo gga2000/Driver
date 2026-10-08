@@ -8158,5 +8158,10 @@
   "notify.battery.huawei_3": "إذا تلفونك ما بيه خدمات گوگل، خلّي «رسالة SMS» شغّالة هنا جوّة",
   "notify.battery.samsung_1": "الإعدادات ← التطبيقات ← درايفر ← البطارية",
   "notify.battery.samsung_2": "اختار «بلا قيود»",
-  "notify.battery.samsung_3": "وتأكد درايفر مو بـ«التطبيقات النايمة»"
+  "notify.battery.samsung_3": "وتأكد درايفر مو بـ«التطبيقات النايمة»",
+  "push.merchant_activated.title": "مبروك، «{shop}» تفعّل على درايفر",
+  "push.merchant_activated.body": "كمّل تجهيز محلك حتى توصلك الطلبات",
+  "sms.merchant_activated": "درايفر: مبروك، «{shop}» تفعّل. {next}",
+  "sms.merchant_activated_link": "كمّل تجهيز محلك من هنا: {link}",
+  "sms.merchant_activated_app": "افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك."
 }

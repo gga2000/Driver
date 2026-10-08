@@ -139,6 +139,7 @@ export const NotifyTemplateId = z.enum([
   'partner_zone_nudge',
   'ride_nudge',
   'merchant_cash_handover',
+  'merchant_activated',
   'menu_photos_ready',
   'courier_cash_receipt',
   'driver_pay_reply',
@@ -616,6 +617,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.menu_photos_ready.title', body: 'push.menu_photos_ready.body', androidChannel: 'orders', deepLink: 'driver-merchant://menu-photos' },
     primary: ['push'],
     quietHours: 'send',
+  },
+  // «جهّز محلك»: ops approved the shop — its owners hear it is live and where to finish setting it up.
+  merchant_activated: {
+    id: 'merchant_activated',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_activated.title', body: 'push.merchant_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://setup' },
+    sms: { key: 'sms.merchant_activated' },
+    primary: ['push', 'sms'],
+    quietHours: 'defer',
   },
   merchant_cash_handover: {
     id: 'merchant_cash_handover',

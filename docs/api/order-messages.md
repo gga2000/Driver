@@ -43,6 +43,13 @@ A second test checks that every notify template has a sender in the API (or a wr
 - Points per order: no push. They show on the delivered order's screen and in the wallet, and a push
   for every order would be noise.
 
+## Shop activated («جهّز محلك»)
+When ops approve a shop's onboarding (`merchant.activated`), each current owner of the shop gets
+`merchant_activated`: a push «مبروك، «{shop}» تفعّل على درايفر» opening the merchant app's setup, and an
+SMS with the link `MERCHANT_APP_URL` + `/setup` (without that setting, it says to open the merchant app).
+Work category, so it can't be switched off; held through quiet hours. The onboarding contact is not
+used as the recipient, because that person may not be an owner.
+
 ## On the phone (customer app)
 - The notification ask (CRIT2-05): food on the kitchen-waiting screen, rides in the sheet while
   searching, and now a Baghdad/Kut seat on its boarding pass («نخبرك إذا تغيّر شي بسيارتك؟»), so a

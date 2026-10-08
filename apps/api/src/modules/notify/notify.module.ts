@@ -268,6 +268,7 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       repo: this.repo,
       lookups: this.lookups,
       receiptBaseUrl: process.env['NOTIFY_RECEIPT_BASE_URL'] ?? 'https://driver.iq/r/',
+      merchantAppUrl: process.env['MERCHANT_APP_URL'] ?? null,
     });
     const q = this.queue;
     if (q instanceof InMemoryQueue) {

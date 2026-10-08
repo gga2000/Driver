@@ -70,6 +70,11 @@ describe('notify subscribers: events → notifications', () => {
     // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
+    // «جهّز محلك»: ops approved the shop — its owners (never the onboarding contact as such) hear it is live.
+    const activated = event('merchant.activated', { onboardingId: 'onb_1', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'someone', reason: null });
+    expect(await one(activated)).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.' } }]);
+    expect((await requestsFor(activated, { ...d, merchantAppUrl: 'https://merchant.driver.iq/' })).map((r) => r.params)).toEqual([{ shop: 'مطعم خالد', next: 'كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup' }]);
+    expect(await one(event('merchant.activated', {}))).toEqual([]);
     expect(await one(event('ops.cash_received', { courierId: 'courier', amountIqd: 60_000, courierCashAfterIqd: -15_000 }))).toEqual([{ template: 'courier_cash_receipt', to: 'courier', params: { amount: '60,000', date: '2026-10-04', balance: '-15,000' } }]);
     expect(await one(event('wallet.topped_up', { customerId: 'cust', amountIqd: 25_000, reference: 'TU-7' }))).toEqual([{ template: 'wallet_topup_receipt', to: 'cust', params: { amount: '25,000', date: '2026-10-04', reference: 'TU-7' } }]);
     // "الخردة علينا": "+7,250 دينار رصيد (الباقي)" when the courier had no change.

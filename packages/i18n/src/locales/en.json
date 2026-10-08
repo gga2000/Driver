@@ -8158,5 +8158,10 @@
   "notify.battery.huawei_3": "If your phone has no Google services, keep “SMS” on below",
   "notify.battery.samsung_1": "Settings → Apps → Driver → Battery",
   "notify.battery.samsung_2": "Choose “Unrestricted”",
-  "notify.battery.samsung_3": "And make sure Driver is not in “Sleeping apps”"
+  "notify.battery.samsung_3": "And make sure Driver is not in “Sleeping apps”",
+  "push.merchant_activated.title": "Congratulations, “{shop}” is live on Driver",
+  "push.merchant_activated.body": "Finish setting up your shop so orders can reach you",
+  "sms.merchant_activated": "Driver: congratulations, “{shop}” is live. {next}",
+  "sms.merchant_activated_link": "Finish setting up your shop here: {link}",
+  "sms.merchant_activated_app": "Open the Driver Merchant app and finish setting up your shop."
 }
