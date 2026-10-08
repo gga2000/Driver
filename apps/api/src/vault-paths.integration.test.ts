@@ -183,7 +183,8 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
     });
     const participant = (await db.participant.findFirst({ where: { orderId: gift.id, role: 'recipient' } }))!;
     const e = await app.get(EventsService).emit(undefined, { type: 'stop.courier_near', actorId: people.driver, occurredAt: clock.now(), orderId: gift.id, payload: { stopId: `stop_g_${run}`, distanceM: 280 } }, { name: 'order', id: gift.id });
-    const row = await waitFor('the gift SMS sent', async () => (await deliveries('gift_courier_near', `gr:${participant.id}`)).find((d) => d.eventId === e.id && d.status === 'sent'));
+    // Paid in cash at the door, so the receiver's SMS names the amount (NTF-25).
+    const row = await waitFor('the gift SMS sent', async () => (await deliveries('gift_courier_near_cash', `gr:${participant.id}`)).find((d) => d.eventId === e.id && d.status === 'sent'));
     // The vault read is logged against the sender (the last test checks no log row was lost).
     expect(row.channel).toBe('sms');
   }, 60_000);
