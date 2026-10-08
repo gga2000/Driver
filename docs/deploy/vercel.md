@@ -34,6 +34,11 @@ The customer site is an installable web app: `apps/customer/public/index.html` (
 re-run it when the brand symbol is chosen. Colours are the theme's cream `bg`;
 `src/lib/web-shell.test.ts` keeps app.json, the manifest and the tokens in step.
 
+First paint: `index.html` itself carries a cream background, the wordmark (a small inline picture, also
+drawn by `web-icons.mjs`) and «لحظة…» inside `#root`, so a first visit shows the brand at once instead
+of a white page while the 1 MB app downloads (4 s on Iraqi 4G, up to 24 s on weak 3G). The app
+replaces it when it draws.
+
 ## Live check
 
 `.github/workflows/web-smoke.yml` opens the live site in a real browser after every production deploy
