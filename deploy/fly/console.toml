@@ -1,8 +1,9 @@
 # Driver Console (Next.js standalone) on Fly.io, Frankfurt (docs/deploy/console.md).
 #   flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
 #     --build-arg NEXT_PUBLIC_API_URL=https://<api host>/trpc --remote-only
-# Staff-only and fully client-side (every call goes from the browser to the API), so the machine may
-# sleep when nobody uses it: it wakes in ~2 s on the next visit and costs almost nothing idle.
+# Staff-only and fully client-side (every call goes from the browser to the API). One machine is always
+# on (about $2/month) so a dispatcher opening it at night never waits for a cold start (~2 s); extra
+# machines, if ever added, still sleep when idle.
 
 app = "driver-console"
 primary_region = "fra"
@@ -18,7 +19,7 @@ kill_timeout = 10
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     grace_period = "15s"
