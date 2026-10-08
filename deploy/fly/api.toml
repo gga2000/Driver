@@ -56,8 +56,9 @@ kill_timeout = 30
     hard_limit = 400
 
   # `health.live`: the process and its database (probed on its own connection, so a busy pool never
-  # fails it). Redis, SMS and push are not part of it: losing one must not pull machines from
-  # rotation. Database down blocks a bluegreen deploy; the override is in docs/deploy/runbook.md.
+  # fails it). It fails only after 30 s of database loss, so a short blip does not pull every machine
+  # at once. Redis, SMS and push are not part of it: losing one must not pull machines from rotation.
+  # Database down blocks a bluegreen deploy; the override is in docs/deploy/runbook.md.
   [[http_service.checks]]
     grace_period = "20s"
     interval = "15s"

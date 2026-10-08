@@ -1,7 +1,7 @@
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
 import { TRPCError } from '@trpc/server';
-import { CityConfigInput, HealthLive, HealthPing, HealthReady } from './router-io.js';
+import { CityConfigInput, HealthLive, HealthPing, HealthReady, liveDbGate } from './router-io.js';
 import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
 import { driverAccountRouter } from './routers/driver-account.js';
@@ -36,6 +36,9 @@ import { publicProcedure, router, t } from './trpc.js';
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
 export { protectedProcedure, publicProcedure, router, t, toTrpcError } from './trpc.js';
 
+/** One per process: `health.live` rides out short database blips (`LIVE_DB_GRACE_MS`). */
+const liveGate = liveDbGate();
+
 /**
  * The router lives here so every client shares one `AppRouter` type without
  * importing API internals. The API supplies the implementation through `AppContext`.
@@ -47,8 +50,9 @@ export const appRouter = router({
       return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
     }),
     live: publicProcedure.output(HealthLive).query(async ({ ctx }) => {
-      if ((await ctx.health.db()) !== 'ok') throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'database unavailable' });
-      return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now() };
+      const now = ctx.now();
+      if (!liveGate.alive(await ctx.health.db(), now)) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'database unavailable' });
+      return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now };
     }),
     ready: publicProcedure.output(HealthReady).query(async ({ ctx }) => {
       const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);

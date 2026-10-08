@@ -144,8 +144,9 @@ timers resume when it is back (late timers fire on start). Tell restaurants and 
 
 ## Deploying while the database is down
 
-Fly and the bluegreen swap watch `/trpc/health.live`, which answers 503 while the database is
-unreachable. A bluegreen deploy then never finishes: the new machines never pass their check and the
+Fly and the bluegreen swap watch `/trpc/health.live`, which answers 503 once the database has been
+unreachable for 30 seconds without a break (shorter blips are ridden out, so one failover does not pull
+every machine from rotation at once). A bluegreen deploy then never finishes: the new machines never pass their check and the
 old ones keep serving. When a fix must ship anyway (for example a wrong `DATABASE_URL`), the on-call
 person deploys without waiting for the check, and tells Ali:
 
@@ -159,7 +160,7 @@ only for this case. The game day rehearses it.
 ## Incident checklist
 
 1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ready` → `db` and `redis` must be `ok`.
-   `health.live` answering 503 means the machines cannot reach the database (see "Deploying while the
+   `health.live` answering 503 means the machines have not reached the database for 30 seconds (see "Deploying while the
    database is down" below).
    Fly dashboard → driver-api → Monitoring. Supabase → status / Reports. <https://status.flyio.net>,
    <https://status.supabase.com>.

@@ -33,9 +33,9 @@ describe('API smoke', () => {
     if (!process.env['REDIS_URL']) expect(res.redis).toBe('unavailable');
   });
 
-  it('health.live answers 200 with a database and 503 without one; health.ready always answers', async () => {
+  it('health.live answers (a missing database only fails it after LIVE_DB_GRACE_MS); health.ready always answers', async () => {
     const live = await fetch(`${url}/health.live`);
-    expect(live.status).toBe(process.env['DATABASE_URL'] ? 200 : 503);
+    expect(live.status).toBe(200);
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer })] });
     const ready = await client.health.ready.query();
     expect(ready.service).toBe('driver-api');
