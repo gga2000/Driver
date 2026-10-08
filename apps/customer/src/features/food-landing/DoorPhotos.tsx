@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { FoodDoor } from '@driver/contracts';
-import { Text, useMotionPresets, useTheme, withAlpha } from '@driver/ui';
+import { LocalPhoto, Text, useMotionPresets, useTheme, withAlpha } from '@driver/ui';
 import { useDoorFactText } from '@/features/doors/DoorTile';
 import type { DoorFact } from '@/features/doors/doors';
 import { useT } from '@/lib/i18n';
@@ -116,10 +116,8 @@ function DoorPhoto({
         transform: [{ scale: pressed ? 0.98 : 1 }],
       })}
     >
-      <Image
+      <LocalPhoto
         source={PHOTOS[door]}
-        resizeMode="cover"
-        accessible={false}
         style={{ position: 'absolute', top: 0, start: 0, width, height, opacity: open ? 1 : 0.42 }}
       />
       <View pointerEvents="none" style={StyleSheet.absoluteFill} aria-hidden accessible={false}>

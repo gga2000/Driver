@@ -15,6 +15,8 @@ import {
   type Actor,
   type AlertLadder,
   type AlertLadderInput,
+  type ConsolePresentInput,
+  type ConsoleWatch,
   type IncidentForPaging,
   type LadderStep,
   type OnCallAddInput,
@@ -38,6 +40,7 @@ import { AuditLogService } from '../controls/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { NotifyService } from '../notify/index.js';
+import { ConsoleWatchService } from './console-watch.service.js';
 import {
   ON_CALL_REPOSITORY,
   type AlertBrief,
@@ -98,6 +101,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly watch: ConsoleWatchService,
     @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
@@ -262,6 +266,11 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
     }));
   }
 
+  /** A staff screen's heartbeat (the Console watching itself, E1 step 3). */
+  present(actor: Actor, input: ConsolePresentInput): Promise<ConsoleWatch> {
+    return this.watch.present(actor, input);
+  }
+
   private async rows(
     actor: Actor,
     shifts: readonly OnCallShift[],
@@ -321,6 +330,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         role: str('role'),
         subjectKind: str('subjectKind'),
         orderId: str('orderId'),
+        subjectLabel: str('subjectLabel')?.slice(0, 60) ?? null,
       };
       await this.repo.openLadder(
         {
@@ -342,7 +352,10 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
     }
   }
 
-  /** One pass of the sweep: every ringing ladder that is due moves on by one step. */
+  /**
+   * One pass of the sweep: every ringing ladder that is due moves on by one step, then the Console's
+   * watch on itself (nobody watching, live updates down).
+   */
   async tick(): Promise<{ rings: number; onCall: number }> {
     if (this.ticking) return { rings: 0, onCall: 0 };
     this.ticking = true;
@@ -354,6 +367,9 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
         if (did === 'ring') rings += 1;
         else if (did) onCall += 1;
       }
+      await this.watch
+        .sweep()
+        .catch((err: unknown) => this.logger.error(`watch: ${(err as Error).message}`));
       return { rings, onCall };
     } finally {
       this.ticking = false;
@@ -460,6 +476,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
   }
 
   private what(b: AlertBrief): string {
+    if (b.subjectLabel) return b.subjectLabel;
     if (b.orderId) return `${SUBJECT_AR['order']} #${orderTicketNumber(b.orderId)}`;
     return SUBJECT_AR[b.subjectKind ?? ''] ?? 'طوارئ';
   }

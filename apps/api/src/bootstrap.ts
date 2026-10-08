@@ -6,7 +6,20 @@ import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
-import { TrpcService } from './trpc/trpc.module.js';
+import { TRPC_PATH, TrpcService } from './trpc/trpc.module.js';
+import { createAppGate } from './shared/app-gate.js';
+import { createBusyCap } from './shared/busy-cap.js';
+import { AppLogger } from './shared/logging.js';
+import { Metrics } from './shared/metrics.js';
+import { createRequestLog, type RequestLogLine } from './shared/request-log.js';
+
+/** `REQUEST_LOG=on|off`: one line per /trpc request (plan 7.4). On by default in production only; metrics are always kept. */
+export function requestLogFromEnv(env: Record<string, string | undefined> = process.env): boolean {
+  const v = env['REQUEST_LOG']?.trim().toLowerCase();
+  if (v === 'on' || v === 'true' || v === '1') return true;
+  if (v === 'off' || v === 'false' || v === '0') return false;
+  return env['NODE_ENV'] === 'production';
+}
 
 /**
  * `CORS_ORIGINS` (comma-separated, e.g. `https://app.driver.iq,https://console.driver.iq`) limits which
@@ -65,7 +78,7 @@ function isEventStream(req: Request, res: Response): boolean {
   return String(type ?? '').startsWith('text/event-stream') || String(req.headers.accept ?? '').includes('text/event-stream');
 }
 
-export async function createApp(opts: { logger?: LoggerService } = {}): Promise<NestExpressApplication> {
+export async function createApp(opts: { logger?: LoggerService; metrics?: Metrics } = {}): Promise<NestExpressApplication> {
   // rawBody: webhook signatures (WhatsApp `X-Hub-Signature-256`) are computed over the exact bytes.
   // Express 5 parses query strings with the "simple" parser (flat keys, no `a[b]=` nesting); tRPC reads
   // its `input` from the URL itself and the plain routes (webhook, uploads) only use flat keys.
@@ -81,6 +94,19 @@ export async function createApp(opts: { logger?: LoggerService } = {}): Promise<
   // e.g. "1", or an Express trust-proxy value) so req.ip comes from X-Forwarded-For.
   const trustProxy = process.env['TRUST_PROXY'];
   if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'true' ? true : trustProxy);
+  // Request log + RED metrics (CRIT1-03): mounted before tRPC so it sees every answer, including refusals.
+  const logRequests = requestLogFromEnv();
+  const requestLogger = new Logger('Request');
+  const write = (line: RequestLogLine) => {
+    if (!logRequests) return;
+    if (opts.logger instanceof AppLogger) opts.logger.fields('Request', 'request', { ...line });
+    else requestLogger.log(`request ${JSON.stringify(line)}`);
+  };
+  app.use(TRPC_PATH, createRequestLog(opts.metrics ?? new Metrics(), write));
+  // x3: past MAX_INFLIGHT_REQUESTS calls at once this machine answers «busy, try again» (503) at once.
+  app.use(TRPC_PATH, createBusyCap());
+  // CORE-05: builds older than MIN_APP_VERSIONS are told to update (health.* still answers).
+  app.use(TRPC_PATH, createAppGate());
   app.get(TrpcService).mount(app);
   return app;
 }

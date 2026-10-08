@@ -31,6 +31,12 @@ kill_timeout = 30
   # The worker fires far-ahead timers (booked rides' T−30 search, offers, reminders) from the durable
   # table when their Redis job was lost (NTF-05). Web machines never sweep (DRIVER_ROLE=web).
   TIMERS_SWEEPER = "on"
+  # RED metrics per procedure on a private port, scraped by Fly ([metrics] below); never public.
+  METRICS_PORT = "9091"
+  # x3: at most this many calls at once per machine; beyond it «busy, try again» (503 server_busy,
+  # Retry-After 1) at once, which the apps retry by themselves. Live streams and health are not
+  # counted. Local runs at 2× an evening went past the 1.5 GB heap cap without it.
+  MAX_INFLIGHT_REQUESTS = "50"
 
 # DRIVER_ROLE differs per group, and [env] is app-wide, so each command sets it. The heap cap is 75 % of
 # the machine (LOAD-10): past it Node fails fast and Fly restarts the machine instead of it swapping.
@@ -49,7 +55,8 @@ kill_timeout = 30
 
   # SSE / WebSocket streams hold a connection each: count connections, not requests. About 125 streams
   # per machine at 2× load; these starting limits are calibrated by the D-28 load test (plan 7.1).
-  # Overload is answered inside the process (503 + Retry-After), never by refusing a stream here.
+  # Overload is answered inside the process (MAX_INFLIGHT_REQUESTS above: 503 + Retry-After), never by
+  # refusing a stream here.
   [http_service.concurrency]
     type = "connections"
     soft_limit = 300
@@ -76,6 +83,12 @@ kill_timeout = 30
   grace_period = "20s"
   interval = "15s"
   timeout = "5s"
+
+# Fly scrapes every machine's /metrics into its managed Prometheus (Grafana at fly-metrics.net):
+# calls, errors and latency per procedure, heap and event-loop delay (docs/deploy/observability.md).
+[metrics]
+  port = 9091
+  path = "/metrics"
 
 [deploy]
   # New machines boot and pass their check before the old ones get SIGTERM: no downtime. For those

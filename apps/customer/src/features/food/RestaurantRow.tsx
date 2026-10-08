@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { longRideForHotFood, type CatalogSearchDish } from '@driver/contracts';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
 import { Card, Icon, Skeleton, StatusPill, stageOf, Text, useTheme } from '@driver/ui';
 import { formatRange } from '@driver/i18n';
 import { DealSticker } from '@/features/food/DealBadge';
@@ -10,6 +10,8 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { Shutter } from '@/features/doors/Shutter';
+import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
+import type { FoodPhotoSource } from '@/features/food-landing/photos';
 
 const ART = 84;
 
@@ -40,7 +42,7 @@ export function RestaurantRow({
   reason?: string;
   dish?: CatalogSearchDish;
   cold?: boolean;
-  photo?: number;
+  photo?: FoodPhotoSource;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -68,7 +70,7 @@ export function RestaurantRow({
         {/* The kitchen's dish, the same drawing as its menu hero (joy S2-13): food, not a letter. */}
         <View testID={`${testID ?? `restaurant-row-${r.id}`}-art`} style={{ width: ART, height: ART, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
           {photo !== undefined ? (
-            <Image source={photo} resizeMode="cover" accessible={false} style={{ width: ART, height: ART }} />
+            <FoodPhoto photo={photo} style={{ width: ART, height: ART }} />
           ) : (
             <FoodArt motif={dish ? motifForDish(dish.name) : motifForKitchen(r.tags, r.cuisine)} look={kitchenLook(r.id)} stage={stageOf(r.id, theme.decor.stages)} photoUrl={dish?.photoUrl ?? null} />
           )}

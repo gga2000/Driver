@@ -12,6 +12,7 @@ import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
 import { LADDER } from './ladder';
 import { courierLine, hasAllergy } from './logic';
+import { isPractice } from './practice';
 import { AllergyPill, KitchenNote, OrderItems } from './OrderCard';
 
 export interface OrderDetailSheetProps {
@@ -24,6 +25,11 @@ export interface OrderDetailSheetProps {
   onReject: (o: BoardOrder) => void;
   onReady: (o: BoardOrder) => void;
   onPrint: (o: BoardOrder) => void;
+  /**
+   * «قبله منتظر 9:32 م · جهّزه علي 9:51 م»: who pressed what on this order. The owner's only: the
+   * board passes it for the owner and never for staff (the server refuses staff as well).
+   */
+  who?: string | null;
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -41,7 +47,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /** The whole ticket: every line by person, times, money, courier; print and the column's actions. */
-export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint }: OrderDetailSheetProps) {
+export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint, who }: OrderDetailSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -57,7 +63,7 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
       // M-11: reading a long ticket is exactly when the 90 s run out — the same ring as the card.
       aside={
         order.column === 'new' && order.acceptBy && !order.partial ? (
-          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.urgentAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
+          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
         ) : null
       }
       subtitle={[t('merchant.detail.placed_at', { time: clock12(order.placedAt) }), order.promisedReadyAt ? t('merchant.detail.ready_by', { time: clock12(order.promisedReadyAt) }) : null].filter(Boolean).join(' · ')}
@@ -78,6 +84,12 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
         </View>
       }
     >
+      {who ? (
+        <Text testID="detail-who" variant="footnote" color="textMuted">
+          {who}
+        </Text>
+      ) : null}
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
         {hasAllergy(order) ? <AllergyPill testID="detail-allergy" /> : null}
         {courier ? <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} /> : <StatusPill tone="neutral" icon="bike" label={t('merchant.courier.none')} />}
@@ -94,7 +106,8 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
         </View>
       ) : null}
 
-      <Contact order={order} onLeave={onClose} />
+      {/* s2: a practice order has nobody behind it to chat with or call. */}
+      {isPractice(order.id) ? <StatusPill tone="accent" icon="bulb" label={t('merchant.practice.tag')} /> : <Contact order={order} onLeave={onClose} />}
 
       <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4] }}>
         <OrderItems order={order} />

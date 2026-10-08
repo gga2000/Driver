@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { HoursShift } from '@driver/contracts';
-import { Button, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { EntryTile } from '@/components/EntryTile';
+import { both, LoadPending } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { HolidaySheet, HolidaysPanel, ShiftSheet, WeekPanel } from '@/features/hours/HoursParts';
 import {
   addHoliday,
@@ -43,14 +45,14 @@ export default function Hours() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const dates = useDates();
   const { store } = useCurrentStore();
   const status = useStoreStatus(store?.orgId ?? null);
   const hours = useStoreHours(store?.orgId ?? null);
   const save = useSaveHours();
   const { setOpen } = useStoreSwitches();
-  const now = useServerNow(0, 15_000);
+  const now = useServerTime(15_000);
   const [sheet, setSheet] = useState<'close' | 'busy' | 'holiday' | null>(null);
   const [editing, setEditing] = useState<{ dow: number; index: number } | null>(null);
   const [draft, setDraft] = useState<HoursDraft | null>(null);
@@ -148,7 +150,7 @@ export default function Hours() {
       aside={dirty && editable ? saveButton : undefined}
     >
       {!s || !h || !current ? (
-        <Skeleton height={140} radius={20} />
+        <LoadPending query={both(status, hours)} skeleton={<Skeleton height={140} radius={20} />} failed={t('merchant.hours.load_failed')} testID="hours" />
       ) : (
         <>
           <View

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { CashHandover, MerchantCashAccount, MoneyToday, SettlementRequestView } from '@driver/contracts';
-import { Avatar, Button, ModalSheet, Skeleton, Text, usePulse, useTheme, useToast } from '@driver/ui';
+import { Avatar, Button, ModalSheet, Skeleton, Text, usePulse, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { Meter, Panel, PanelRow, Tag } from '@/components/Panel';
 import { apiErrorMessage } from '@/lib/api';
@@ -79,7 +80,7 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const request = useRequestMoney();
   const ex = exposure(account.balanceIqd, account.exposureCapIqd);
   const state = balanceState(account.balanceIqd);

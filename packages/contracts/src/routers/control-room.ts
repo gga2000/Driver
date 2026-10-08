@@ -19,8 +19,11 @@ import {
   LaunchMetricsView,
   MetricsInput,
   PublicBanner,
+  PublicScreens,
   PublicSeason,
   QuietDaysView,
+  ScreenSwitchView,
+  ScreensInput,
   SeasonInput,
   SeasonView,
   SetIftarTimeInput,
@@ -28,12 +31,14 @@ import {
   SetBannerInput,
   SetKillSwitchInput,
   SetQuietDaysInput,
+  SetScreenSwitchInput,
   SetZoneCapacityInput,
   SettlementExport,
   SettlementExportInput,
   SystemBannerView,
   ZoneCapacityView,
 } from '../control-room-io.js';
+import { DriverError } from '../errors.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 
@@ -45,6 +50,10 @@ export const BANNER_ROLES: readonly RoleKind[] = ['admin'];
 export const APPROVAL_ROLES: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
 /** The nightly cash desk: finance, plus the dispatcher and field ops who run the 23:00 round. */
 export const FINANCE_DESK_ROLES: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
+/** Who shows a new customer screen to staff or to everyone (a product call). Any CONTROL_ROLES may switch one off. */
+export const SCREEN_ON_ROLES: readonly RoleKind[] = ['admin'];
+/** Staff for screen switches: anyone who can open the Console. */
+const SCREEN_STAFF_ROLES: readonly RoleKind[] = CONSOLE_READ_ROLES;
 /** Settlement exports leave the system: finance and admin only. */
 export const FINANCE_EXPORT_ROLES: readonly RoleKind[] = ['finance', 'admin'];
 
@@ -66,6 +75,23 @@ export const opsControlsRouter = router({
     .input(AuditInput)
     .output(z.array(AuditEntry))
     .query(({ ctx, input }) => ctx.controls.audit(input)),
+  /** W6: the redesigned customer screens and who sees each (off, staff, everyone). */
+  screens: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ControlsInput)
+    .output(z.array(ScreenSwitchView))
+    .query(({ ctx, input }) => ctx.controls.screenSwitches(input.cityId)),
+  /** A dispatcher on shift can always switch a new screen off; showing it to anyone is an admin's call. */
+  setScreen: protectedProcedure(CONTROL_ROLES)
+    .input(SetScreenSwitchInput)
+    .output(ScreenSwitchView)
+    .mutation(async ({ ctx, input }) => {
+      if (input.audience !== 'off') {
+        let allowed = false;
+        for (const kind of SCREEN_ON_ROLES) if (await ctx.identity.hasRole(ctx.actor.personId, kind)) allowed = true;
+        if (!allowed) throw new DriverError('forbidden');
+      }
+      return ctx.controls.setScreen(ctx.actor, input);
+    }),
 });
 
 /** `system.banner` (public, every open app polls it) and the admin side. Spread into `system`. */
@@ -85,6 +111,29 @@ export const bannerProcedures = {
     .input(ClearBannerInput)
     .output(SystemBannerView)
     .mutation(({ ctx, input }) => ctx.controls.clearBanner(ctx.actor, input)),
+};
+
+/**
+ * `system.screens` (public, read once when an app starts): which redesigned screens this caller
+ * sees. Signed out = only screens on for everyone. Spread into `system`.
+ */
+export const screenProcedures = {
+  screens: publicProcedure
+    .input(ScreensInput)
+    .output(PublicScreens)
+    .query(({ ctx, input }) => {
+      const auth = ctx.auth;
+      const isStaff = async (): Promise<boolean> => {
+        if (!auth) return false;
+        if (ctx.identity.activeRoles) {
+          const held = await ctx.identity.activeRoles(auth.sub);
+          return SCREEN_STAFF_ROLES.some((k) => held.includes(k));
+        }
+        for (const kind of SCREEN_STAFF_ROLES) if (await ctx.identity.hasRole(auth.sub, kind)) return true;
+        return false;
+      };
+      return ctx.controls.screens(input, isStaff);
+    }),
 };
 
 /** `system.season` (public: what an open app may do today) and the quiet days ops set. Spread into `system`. */

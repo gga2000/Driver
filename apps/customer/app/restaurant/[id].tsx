@@ -303,9 +303,11 @@ export default function RestaurantScreen() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text variant="label" weight={600}>
-                    {restaurant.closedReason === 'paused'
-                      ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
-                      : t('error.merchant_closed', { time: restaurant.opensAt ?? '' })}
+                    {/* REL-16: a kitchen stopped from the Console says what ops wrote. */}
+                    {restaurant.stoppedNote ??
+                      (restaurant.closedReason === 'paused'
+                        ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
+                        : t('error.merchant_closed', { time: restaurant.opensAt ?? '' }))}
                   </Text>
                   <Text variant="footnote" color="textMuted" testID="restaurant-preorder">
                     {restaurant.opensAt ? t('restaurant.preorder_note', { time: restaurant.opensAt }) : t('restaurant.closed_browse')}

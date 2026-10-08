@@ -120,13 +120,42 @@ describe('launch control room (e2e)', () => {
       expect(audit[1]!.summary_ar).toContain('الطرود');
     });
 
+    it('screen switches (W6): staff first, then everyone; a dispatcher can only switch one off', async () => {
+      const admin = await person(['admin']);
+      const dispatcher = await person(['dispatcher']);
+      const customer = await person();
+      const none = { basket_v2: false, checkout_v2: false, track_v2: false, orders_v2: false };
+      expect(await anon().system.screens.query({})).toEqual(none);
+      expect(await codeOf(dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'نجرّب' }))).toBe('forbidden');
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'staff', reason: 'نجرّبها بموبايلاتنا' });
+      expect(await dispatcher.client.system.screens.query({})).toEqual({ ...none, track_v2: true });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'زينة' });
+      expect(await anon().system.screens.query({})).toEqual({ ...none, track_v2: true });
+      const off = await dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'off', reason: 'مشكلة بالمتابعة' });
+      expect(off).toMatchObject({ key: 'track_v2', audience: 'off', setByName: expect.any(String) });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      expect((await dispatcher.client.ops.controls.view.query({})).switches.some((s) => s.key.includes('track_v2'))).toBe(false);
+    });
+
     it('a vertical, restaurant or zone switch refuses orders.place with a friendly Arabic message (the switch’s own when set)', async () => {
       const admin = await person(['admin']);
       const customer = await person();
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: true, reason: 'مطر قوي' });
       const v = await errOf(order(customer.client));
       expect(v).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
+      // REL-16: checkout's own price check says it too, before the customer presses order.
+      const quoteInput = {
+        cityId: 'aziziyah',
+        type: 'food' as const,
+        merchantOrgId: khalid.orgId,
+        lines: [{ catalogItemId: khalid.itemIds.get('liver_plate')!, qty: 1 }],
+        paymentMethod: 'cash' as const,
+        dropoff: { zoneKey: 'zakur', pin: pinIn('zakur') },
+      };
+      expect(await errOf(customer.client.orders.quote.query(quoteInput))).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: false, reason: 'خلص المطر' });
+      expect((await customer.client.orders.quote.query(quoteInput)).totalIqd).toBeGreaterThan(0);
 
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'restaurant', key: khalid.orgId, active: true, reason: 'عطل بالفرن', message_ar: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
       expect(await errOf(order(customer.client))).toMatchObject({ code: 'service_paused', message: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });

@@ -36,7 +36,7 @@ git tag v1.0.3 && git push origin v1.0.3
 GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
 and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
-and stops) → smoke test (`db: ok`, `redis: ok`) → **Console** and **web apps**. A red step stops the
+and stops) → smoke test (`health.live` answers, `health.ready` shows `db: ok`; Redis down is only a warning) → **Console** and **web apps**. A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
 
@@ -65,7 +65,10 @@ new migration that fixes it and deploy that.
 **Web apps**: Cloudflare → the Pages project → Deployments → the previous one → **Rollback**.
 **Console**: like the API (`fly releases --config deploy/fly/console.toml`).
 **OTA update**: `cd apps/<app> && eas update:roll-back-to-embedded --channel production` (or republish the
-previous update group from expo.dev).
+previous update group from expo.dev). Publish a new OTA update only with
+`node scripts/deploy/eas-update.mjs <customer|partner|merchant> <preview|production> "what changed"`, never a bare
+`eas update`: the script takes the server address from the expo.dev environment and refuses an update
+without it (CORE-04); a bare `eas update` is not checked and can point every phone at localhost.
 
 ### A migration failed
 
@@ -102,9 +105,14 @@ tokens, and remove them from Supabase, Fly, Cloudflare, Expo and GitHub.
 - **Supabase daily backups** (Pro): Database → Backups, 7 days. One-click restore of the whole project
   to that day (everything after it is lost — use it for disasters only).
 - **Nightly logical dump** (`.github/workflows/backup.yml`, 01:17 UTC): `pg_dump` of `public` and
-  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), 14 days in GitHub and, with the
-  `BACKUP_S3_*` secrets, copied to a bucket you own (Cloudflare R2: free egress, $0.015/GB). Set
-  secrets `DIRECT_URL` (already there), `BACKUP_PASSPHRASE`; run it once by hand to see it work.
+  `identity_vault`, encrypted (AES-256, your `BACKUP_PASSPHRASE`), copied to a bucket you own
+  (Cloudflare R2: free egress, $0.015/GB; secrets `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
+  `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`). The repository is public, so no copy is
+  kept as a GitHub artifact (anyone signed in could download it); on a private repository the variable
+  `BACKUP_KEEP_ARTIFACT=true` adds a 14-day one. Set secrets `DIRECT_URL` (already there),
+  `BACKUP_PASSPHRASE` and the bucket ones; run it once by hand to see it work. Once production exists
+  (the variable `API_PUBLIC_URL` is set), a missing secret turns the nightly run **red** instead of
+  skipping, so a night without a backup is never silent (SEC-13).
 - **PITR**: off at launch (≈$100/month). Turn it on once a lost hour of orders would cost more.
 - **Redis** holds only queues and caches; it is rebuilt from the database. Its AOF survives restarts.
 
@@ -135,8 +143,9 @@ What exists today, from the narrowest to the widest:
 | --- | --- | --- |
 | One restaurant overwhelmed / closed | **Busy mode** (+10 min prep, 60 min) or **close early** with a reason | merchant app (owner/staff) — `merchant.setBusy`, `merchant.setOpen` |
 | A courier, driver or staff member must stop working | revoke the role (`identity.revokeRole`, admin only) | Console / API — the person keeps the account, loses the job |
-| Per-zone / per-vertical throttles and a status banner to every app | the launch playbook's kill switches (`docs/specs/2026-10-03-launch-playbook.md`) | being built with the Console ops tools — use them once merged |
+| Stop a service (food, taxi…), one kitchen, a zone or a الرجعة corridor; cap active orders in a zone | **kill switches** and the **zone throttle** (launch playbook §3), with an Arabic note for customers | Console → التحكم (`/controls`, dispatcher or admin; every change is in the audit). A stopped kitchen shows «موقوف» with the note on its card, and checkout's price check and placing both refuse with the note (REL-16) |
 | Everything must stop now (data leak, money bug) | **stop the API**: `fly scale count app=0 worker=0 --config deploy/fly/api.toml --yes` | apps show "no connection"; nothing is written. Bring back: `fly scale count app=2 worker=1 --config deploy/fly/api.toml` |
+| A signed-out phone or a removed role still works for up to 30 seconds (the sign-in memory, x4) and that matters now | `fly secrets set --config deploy/fly/api.toml AUTH_CACHE_TTL_SEC=0` (the API restarts); every call reads sessions and roles from the database again. Remove it to go back to the 30-second memory | Fly secrets |
 | A bad mobile update | `eas update:roll-back-to-embedded --channel production` | Expo |
 
 Stopping the API is safe for data: orders already placed stay in the database, outbox rows wait, and

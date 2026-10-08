@@ -159,10 +159,19 @@ rebuild the web apps and mobile apps (the URL is baked into them).
 Secrets go in with `fly secrets set` (encrypted, never shown again). Plain settings are in
 `deploy/fly/api.toml` `[env]` or also set as secrets — both end up as environment variables.
 
+**What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
+without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
+`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS and a `STAGING_TEST_OTP`; push other than Expo is
+refused where push is built (see `PUSH_PROVIDER` below).
+The log line lists every problem at once. A database or Redis that is configured but unreachable never
+stops boot: `health.ready` shows it, and `health.live` fails after 30 s without the database.
+
 | Variable | Secret? | Value / note |
 | --- | --- | --- |
 | `NODE_ENV` | no | `production` (toml). With it, the API refuses to boot without strong `JWT_SECRET` and `PHONE_HASH_PEPPER`. |
 | `PORT` | no | `3000` (toml) |
+| `DEPLOY_ENVIRONMENT` | no | `staging` on the staging app (Staging setup sets it). Unset means production rules |
+| `MIN_APP_VERSIONS` | no | e.g. `customer:1.0.3,partner:1.0.0`: builds older than this get «أكو نسخة جديدة لازم تحدّثها» on every call (CORE-05, `docs/api/app-version.md`). Unset = nobody is turned away. A typo stops boot |
 | `DATABASE_URL` | **yes** | Supabase transaction pooler, port 6543 |
 | `DATABASE_CA_CERT` | yes | Supabase CA certificate (PEM). Optional but recommended. |
 | `DATABASE_POOL_MAX` | no | `10` (toml), per lane per process. Each process has a request lane and a background lane (below), opened on first use: web machines mostly use the request lane, the worker the background lane, so 3 processes stay well under Small compute's 400 pooled clients |
@@ -179,12 +188,17 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 | `SAFETY_LINK_SECRET` | **yes** | 64 hex chars; signs SOS links. Same rule: required in production, its own value |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | no | Supabase Storage, [supabase.md](supabase.md) step 5 |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
+| `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
-| `CORS_ORIGINS` | no | once the web domains exist: `https://app.<domain>,https://console.<domain>` |
+| `REQUEST_LIMIT_IP_MODE` | no | `alert` (default) until carrier traffic is understood; `enforce` limits guests per address ([request-limits.md](../api/request-limits.md)) |
+| `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
+| `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |
 | `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |
 | `CALL_PROXY_NUMBER` | no | the platform number for masked calls (unset: calling is off) |
 | `LOG_FORMAT`, `LOG_LEVEL` | no | `json` (toml); `LOG_LEVEL=debug` temporarily for more |
+| `REQUEST_LOG` | no | `on` by default in production: one JSON line per `/trpc` request (observability.md); `off` silences it, metrics stay |
+| `METRICS_PORT` | no | `9091` (toml): private `/metrics` port Fly scrapes; unset = no metrics server |
 | `SENTRY_DSN` | yes-ish | optional error reporting (below) |
 | `OSRM_URL` | no | road routing (below): `http://driver-osrm.internal:5000`. Unset: arrival times use the straight-line estimate |
 | `OSRM_TIMEOUT_MS` | no | default 1500; slower answers fall back to the straight-line estimate |

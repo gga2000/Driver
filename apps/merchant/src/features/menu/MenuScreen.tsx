@@ -1,8 +1,11 @@
-import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { router, useIsFocused } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { FlashList } from '@shopify/flash-list';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, SearchField, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, SearchField, Skeleton, StaleNote, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
+import { LoadPending } from '@/components/Loadable';
 import { Page } from '@/components/Page';
 import { useCurrentStore } from '@/features/store/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -10,13 +13,13 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { CategoryNameSheet, ReorderSheet } from './CategorySheets';
 import { Glyph } from './Glyph';
-import { categoryNames, filterMenu, itemStatus, sectionCounts, type MenuCategoryLike } from './logic';
-import { MenuItemRow } from './MenuItemRow';
+import { categoryNames, filterMenu, itemStatus, sectionCounts, shelfRows, trayColumns, type MenuCategoryLike, type ShelfRow } from './logic';
+import { Tray } from './Tray';
 import { GlyphButton, Panel, Pill } from './parts';
 import { PotEntry } from '@/features/pot/PotEntry';
 import { useMenu, useMenuActions } from './queries';
 
-type StatusFilter = 'all' | 'sold_out_today' | 'off';
+type StatusFilter = 'all' | 'sold_out_today' | 'off' | 'no_photo';
 type Section = MenuCategoryLike<AdminMenuItem> & { key: string; pending?: boolean };
 
 /** Minute ticker: "خلص اليوم" flips back by itself at midnight. */
@@ -30,14 +33,16 @@ function useMinuteNow(): number {
 }
 
 /**
- * المنيو. Tablet: sections on the start side, the chosen section's dishes beside them. Phone: one
- * column with section chips. Both: search, "what's off right now" filters, instant switches.
+ * المنيو as a glass display (counter step 4). Tablet: sections on the start side, the chosen section's
+ * trays beside them. Phone: two trays a row under section chips. Both: search and "what's off right now"
+ * filters; one tap on a tray marks it «خلص اليوم» and a second tap brings it back (m1–m3). Hiding a dish
+ * for good lives in its editor (m2), so each tray has one control.
  */
 export function MenuScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;
@@ -56,6 +61,7 @@ export function MenuScreen() {
   const named = useMemo(() => categoryNames(categories), [categories]);
   const allItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
   const counts = useMemo(() => sectionCounts(allItems, now), [allItems, now]);
+  const noPhoto = useMemo(() => allItems.filter((i) => !i.photoUrl).length, [allItems]);
 
   // Sections on screen: the menu's, plus new empty ones the owner just named.
   const sections: Section[] = useMemo(() => {
@@ -69,7 +75,8 @@ export function MenuScreen() {
   const visible: Section[] = useMemo(() => {
     let list: Section[] = sections;
     if (query.trim()) list = filterMenu(list, query).map((c) => ({ ...c, key: c.nameAr ?? '__none' }));
-    if (status !== 'all') list = list.map((c) => ({ ...c, items: c.items.filter((i) => itemStatus(i, now) === status) })).filter((c) => c.items.length > 0);
+    if (status === 'no_photo') list = list.map((c) => ({ ...c, items: c.items.filter((i) => !i.photoUrl) })).filter((c) => c.items.length > 0);
+    else if (status !== 'all') list = list.map((c) => ({ ...c, items: c.items.filter((i) => itemStatus(i, now) === status) })).filter((c) => c.items.length > 0);
     return list;
   }, [sections, query, status, now]);
 
@@ -77,24 +84,19 @@ export function MenuScreen() {
   const paneSections = wide && !searching ? sections.filter((s) => s.key === selectedKey) : !wide && !searching && selected ? sections.filter((s) => s.key === selected) : visible;
 
   const openItem = useCallback((item: AdminMenuItem) => router.push({ pathname: '/menu/item', params: { id: item.id } }), []);
+  // p1: «ماكو صورة · دوس وصوّر» opens the dish with its photo tips on top.
+  const openPhoto = useCallback((item: AdminMenuItem) => router.push({ pathname: '/menu/item', params: { id: item.id, photo: '1' } }), []);
   const addItem = (category: string | null) => router.push({ pathname: '/menu/item', params: category ? { category } : {} });
 
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
 
-  const onToggle = useCallback(
-    (item: AdminMenuItem, on: boolean) => {
+  // A second tap on a «خلص اليوم» tray: back on the menu now (the undo on the toast does the same).
+  const onBack = useCallback(
+    (item: AdminMenuItem) => {
       if (!storeId) return;
       actions.setAvailability.mutate(
-        { merchantOrgId: storeId, itemId: item.id, available: on },
-        {
-          onSuccess: () =>
-            toast.show(
-              on
-                ? { message: t('merchant.menu.toast_on', { name: item.nameAr }), tone: 'success' }
-                : { message: t('merchant.menu.toast_off', { name: item.nameAr }), tone: 'neutral', action: { label: t('merchant.menu.undo'), onPress: () => actions.setAvailability.mutate({ merchantOrgId: storeId, itemId: item.id, available: true }) } },
-            ),
-          onError: fail,
-        },
+        { merchantOrgId: storeId, itemId: item.id, available: true },
+        { onSuccess: () => toast.show({ message: t('merchant.menu.toast_on', { name: item.nameAr }), tone: 'success' }), onError: fail },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +185,7 @@ export function MenuScreen() {
       <FilterChip testID="filter-all" label={t('merchant.menu.filter_all', { count: counts.total })} selected={status === 'all'} onPress={() => setStatus('all')} />
       <FilterChip testID="filter-sold-out" label={t('merchant.menu.filter_sold_out', { count: counts.soldOutToday })} selected={status === 'sold_out_today'} onPress={() => setStatus('sold_out_today')} tone="warning" />
       <FilterChip testID="filter-off" label={t('merchant.menu.filter_off', { count: counts.off })} selected={status === 'off'} onPress={() => setStatus('off')} tone="neutral" />
+      {noPhoto > 0 || status === 'no_photo' ? <FilterChip testID="filter-no-photo" label={t('merchant.display.filter_no_photo', { count: noPhoto })} selected={status === 'no_photo'} onPress={() => setStatus('no_photo')} tone="neutral" /> : null}
     </ScrollView>
   );
 
@@ -190,14 +193,19 @@ export function MenuScreen() {
 
   const body = (() => {
     if (menu.isLoading || !menu.data) {
-      return menu.isError ? (
-        <EmptyState icon="x" title={t('merchant.menu.load_failed')} action={{ label: t('merchant.menu.retry'), onPress: () => void menu.refetch() }} />
-      ) : (
-        <View style={{ gap: theme.space[3] }}>
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} height={84} radius={theme.radius.xl} />
-          ))}
-        </View>
+      return (
+        <LoadPending
+          query={menu}
+          failed={t('merchant.menu.load_failed')}
+          testID="menu"
+          skeleton={
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
+              {Array.from({ length: wide ? 8 : 4 }, (_, i) => (
+                <Skeleton key={i} width={wide ? 196 : '47%'} height={wide ? 220 : 200} radius={theme.radius.xl} />
+              ))}
+            </View>
+          }
+        />
       );
     }
     if (allItems.length === 0 && pending.length === 0) {
@@ -223,31 +231,31 @@ export function MenuScreen() {
       return (
         <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8] }}>
           <Text variant="bodyStrong" align="center">
-            {status !== 'all' && !query.trim() ? (status === 'off' ? t('merchant.menu.none_off') : t('merchant.menu.none_sold_out')) : t('merchant.menu.no_results', { query: query.trim() })}
+            {status !== 'all' && !query.trim() ? (status === 'off' ? t('merchant.menu.none_off') : status === 'no_photo' ? t('merchant.display.none_no_photo') : t('merchant.menu.none_sold_out')) : t('merchant.menu.no_results', { query: query.trim() })}
           </Text>
         </Panel>
       );
     }
-    return (
-      <View style={{ gap: theme.space[5] }}>
-        {paneSections.map((s) => (
-          <SectionBlock
-            key={s.key}
-            section={s}
-            now={now}
-            wide={wide}
-            showHeader
-            big={wide && !searching}
-            onRename={s.nameAr ? () => setNameSheet({ renameFrom: s.nameAr }) : undefined}
-            onAdd={() => addItem(s.nameAr)}
-            onOpen={openItem}
-            onToggle={onToggle}
-            onSoldOut={onSoldOut}
-          />
-        ))}
-      </View>
-    );
+    // The shelf itself: a list that draws only the rows on screen (below).
+    return null;
   })();
+
+  const stale = <StaleNote updatedAt={menu.dataUpdatedAt} testID="menu-stale" />;
+  const shelf = (header: ReactElement) => (
+    <Shelf
+      sections={paneSections}
+      header={header}
+      now={now}
+      wide={wide}
+      big={wide && !searching}
+      onRename={(s) => setNameSheet({ renameFrom: s })}
+      onAdd={addItem}
+      onOpen={openItem}
+      onBack={onBack}
+      onSoldOut={onSoldOut}
+      onPhoto={openPhoto}
+    />
+  );
 
   const sheets = (
     <>
@@ -259,10 +267,11 @@ export function MenuScreen() {
   if (wide) {
     return (
       <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} scroll={false} maxWidth={1320} testID="menu">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4], paddingBottom: theme.space[4] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4], paddingBottom: theme.space[2] }}>
           {search}
           {filters}
         </View>
+        <DisplayHint text={t('merchant.display.hint')} />
         <View style={{ flex: 1, flexDirection: 'row', gap: theme.space[5] }}>
           <View style={{ width: 296 }}>
             <ScrollView contentContainerStyle={{ gap: theme.space[3], paddingBottom: theme.space[8] }}>
@@ -296,20 +305,29 @@ export function MenuScreen() {
               <CustomerHint />
             </ScrollView>
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: theme.space[10] }}>
-            {body}
-          </ScrollView>
+          <View style={{ flex: 1 }}>
+            {body ? (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: theme.space[10] }}>
+                {stale}
+                {body}
+              </ScrollView>
+            ) : (
+              shelf(stale)
+            )}
+          </View>
         </View>
         {sheets}
       </Page>
     );
   }
 
-  return (
-    <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} testID="menu">
+  // The phone's top (the pot, search, filters, section chips) scrolls away with the shelf.
+  const top = (
+    <>
       <PotEntry merchantOrgId={storeId} />
       {search}
       {filters}
+      <DisplayHint text={t('merchant.display.hint_short')} />
       {menu.data && sections.length > 0 && !searching ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2], paddingEnd: theme.space[2] }} style={{ flexGrow: 0, marginTop: -theme.space[2] }}>
           <SectionChip testID="menu-cat-all" label={t('merchant.menu.all_sections')} selected={selected === null} onPress={() => setSelected(null)} />
@@ -320,7 +338,21 @@ export function MenuScreen() {
           {named.length > 1 ? <SectionChip testID="menu-reorder" label={t('merchant.menu.reorder_short')} glyph="sort" selected={false} onPress={() => setReorderOpen(true)} /> : null}
         </ScrollView>
       ) : null}
-      {body}
+      {stale}
+    </>
+  );
+  if (body) {
+    return (
+      <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} testID="menu">
+        {top}
+        {body}
+        {sheets}
+      </Page>
+    );
+  }
+  return (
+    <Page title={t('merchant.nav.menu')} subtitle={subtitle} aside={headerActions} scroll={false} testID="menu">
+      {shelf(<View style={{ gap: theme.space[5], paddingTop: theme.space[4], paddingBottom: theme.space[5] }}>{top}</View>)}
       {sheets}
     </Page>
   );
@@ -423,64 +455,109 @@ function SectionNavRow({ section, now, selected, onPress, index }: { section: Se
   );
 }
 
-function SectionBlock({
-  section,
-  now,
-  wide,
-  big,
-  onRename,
-  onAdd,
-  onOpen,
-  onToggle,
-  onSoldOut,
-}: {
-  section: Section;
+interface ShelfProps {
+  sections: readonly Section[];
+  /** Everything above the trays (the phone's search and chips, the tablet's stale note). */
+  header: ReactElement;
   now: number;
   wide: boolean;
-  showHeader: boolean;
   big: boolean;
-  onRename?: (() => void) | undefined;
-  onAdd: () => void;
+  onRename: (section: string) => void;
+  onAdd: (section: string | null) => void;
   onOpen: (item: AdminMenuItem) => void;
-  onToggle: (item: AdminMenuItem, on: boolean) => void;
+  onBack: (item: AdminMenuItem) => void;
   onSoldOut: (item: AdminMenuItem) => void;
-}) {
+  onPhoto: (item: AdminMenuItem) => void;
+}
+
+/**
+ * The trays, section by section, in a list that draws only the rows on screen (perf m1): a big menu of
+ * 150 dishes keeps a cheap tablet smooth. Trays sit as many to a row as fit the shelf's width.
+ */
+function Shelf({ sections, header, now, wide, big, onRename, onAdd, onOpen, onBack, onSoldOut, onPhoto }: ShelfProps) {
   const theme = useTheme();
   const t = useT();
-  const c = sectionCounts(section.items, now);
-  const title = section.nameAr ?? t('merchant.menu.no_section');
-  const summary = [t('merchant.menu.items_count', { count: c.total }), c.soldOutToday ? t('merchant.menu.count_sold_out', { count: c.soldOutToday }) : null, c.off ? t('merchant.menu.count_off', { count: c.off }) : null].filter(Boolean).join(' · ');
-  return (
-    <View style={{ gap: theme.space[3] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <View style={{ flex: 1 }}>
-          <Text variant={big ? 'heading' : 'title'} accessibilityRole="header" numberOfLines={1}>
-            {title}
-          </Text>
-          <Text variant="footnote" color="textMuted" tabular>
-            {section.pending ? t('merchant.menu.section_empty_short') : summary}
-          </Text>
+  const [width, setWidth] = useState(0);
+  const focused = useIsFocused();
+  const gap = wide ? 14 : 10;
+  const cols = trayColumns(width, gap, wide);
+  // On the web a screen under another stays in the page, hidden, and the dish drawings' gradients are
+  // looked up page-wide: hidden copies would blank the same drawing in the dish editor on top. Off screen
+  // there is nothing to see, so the shelf steps aside until the menu is back.
+  const hidden = Platform.OS === 'web' && !focused;
+  const rows = useMemo(() => (hidden ? [] : shelfRows(sections, cols)), [hidden, sections, cols]);
+
+  const renderItem = ({ item: row }: { item: ShelfRow<Section> }) => {
+    const section = row.section;
+    if (row.kind === 'head') {
+      const c = sectionCounts(section.items, now);
+      const title = section.nameAr ?? t('merchant.menu.no_section');
+      const summary = [t('merchant.menu.items_count', { count: c.total }), c.soldOutToday ? t('merchant.menu.count_sold_out', { count: c.soldOutToday }) : null, c.off ? t('merchant.menu.count_off', { count: c.off }) : null].filter(Boolean).join(' · ');
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingBottom: theme.space[3] }}>
+          <View style={{ flex: 1 }}>
+            <Text variant={big ? 'heading' : 'title'} accessibilityRole="header" numberOfLines={1}>
+              {title}
+            </Text>
+            <Text variant="footnote" color="textMuted" tabular>
+              {section.pending ? t('merchant.menu.section_empty_short') : summary}
+            </Text>
+          </View>
+          {section.nameAr ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={() => onRename(section.nameAr ?? '')} /> : null}
+          {wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} />}
         </View>
-        {onRename ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={onRename} /> : null}
-        {wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={onAdd} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={onAdd} />}
-      </View>
-      {section.items.length === 0 ? (
-        <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8], gap: theme.space[3] }}>
+      );
+    }
+    if (row.kind === 'empty') {
+      return (
+        <Panel style={{ alignItems: 'center', paddingVertical: theme.space[8], gap: theme.space[3], marginBottom: theme.space[5] }}>
           <Text variant="bodyStrong" align="center">
             {t('merchant.menu.section_empty_title')}
           </Text>
           <Text variant="footnote" color="textMuted" align="center" style={{ maxWidth: 360 }}>
             {t('merchant.menu.section_empty_body')}
           </Text>
-          <Button label={t('merchant.menu.add_first')} icon="plus" onPress={onAdd} />
+          <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => onAdd(section.nameAr)} />
         </Panel>
-      ) : (
-        <Panel padded={false} style={{ overflow: 'hidden' }}>
-          {section.items.map((item, i) => (
-            <MenuItemRow key={item.id} item={item} now={now} wide={wide} last={i === section.items.length - 1} onOpen={onOpen} onToggle={onToggle} onSoldOut={onSoldOut} />
-          ))}
-        </Panel>
-      )}
+      );
+    }
+    return (
+      <View style={{ flexDirection: 'row', gap, paddingBottom: row.last ? theme.space[5] : gap }}>
+        {row.items.map((item) => (
+          <Tray key={item.id} item={item} now={now} wide={wide} onOpen={onOpen} onBack={onBack} onSoldOut={onSoldOut} onPhoto={onPhoto} />
+        ))}
+        {Array.from({ length: cols - row.items.length }, (_, i) => (
+          <View key={`gap-${i}`} style={{ flex: 1 }} />
+        ))}
+      </View>
+    );
+  };
+
+  return (
+    <View testID="tray-grid" style={{ flex: 1 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      <FlashList
+        data={rows}
+        renderItem={renderItem}
+        keyExtractor={(r) => r.key}
+        getItemType={(r) => r.kind}
+        extraData={now}
+        ListHeaderComponent={header}
+        contentContainerStyle={{ paddingBottom: theme.space[10] }}
+        keyboardShouldPersistTaps="handled"
+      />
+    </View>
+  );
+}
+
+/** How the display reads at a glance: one line under the search, muted. */
+function DisplayHint({ text }: { text: string }) {
+  const theme = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingBottom: theme.space[2] }}>
+      <Glyph name="hourglass" size={16} color="textMuted" strokeWidth={2} />
+      <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+        {text}
+      </Text>
     </View>
   );
 }

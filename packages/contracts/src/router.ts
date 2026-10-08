@@ -22,7 +22,7 @@ import { chatRouter } from './routers/chat.js';
 import { trackingRouter } from './routers/tracking.js';
 import { liveRouter } from './routers/live.js';
 import { notifyRouter } from './routers/notify.js';
-import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, seasonProcedures } from './routers/control-room.js';
+import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, screenProcedures, seasonProcedures } from './routers/control-room.js';
 import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
@@ -34,7 +34,7 @@ import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
-export { protectedProcedure, publicProcedure, router, t, toTrpcError } from './trpc.js';
+export { gateProcedures, observeProcedures, protectedProcedure, publicProcedure, router, t, toTrpcError, type ProcedureCall } from './trpc.js';
 
 /** One per process: `health.live` rides out short database blips (`LIVE_DB_GRACE_MS`). */
 const liveGate = liveDbGate();
@@ -88,7 +88,7 @@ export const appRouter = router({
   drivers: driversRouter,
   merchants: merchantsRouter,
   // Launch control room: `system.banner` (public) and its admin side join the system router.
-  system: t.mergeRouters(systemRouter, router({ ...bannerProcedures, ...seasonProcedures })),
+  system: t.mergeRouters(systemRouter, router({ ...bannerProcedures, ...seasonProcedures, ...screenProcedures })),
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,

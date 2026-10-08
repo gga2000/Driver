@@ -6,7 +6,7 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_TODAY, type StorefrontToday } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
@@ -137,6 +137,14 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     },
     // Merchant-uploaded dish photos (`upload:<id>`) reach customers as signed links from the blob store.
     { provide: STOREFRONT_PHOTOS, useExisting: BLOB_STORE },
+    // REL-16: menus and lists show a kitchen the kill switches stopped, with place()'s own words.
+    {
+      provide: STOREFRONT_SWITCHES,
+      useFactory: (controls: ControlsService): StorefrontSwitches => ({
+        stopped: ({ cityId, merchantOrgId, kitchenZone, dropoffZone }) => controls.stoppedNotice({ cityId, vertical: 'food', zones: [kitchenZone, dropoffZone], merchantOrgId }),
+      }),
+      inject: [ControlsService],
+    },
     CatalogRpc,
     OrdersService,
     // «تحب تكرم عباس؟»: the tip after a 4–5 rating, wallet → driver (docs/api/tips.md).

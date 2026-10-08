@@ -51,8 +51,11 @@ export interface MerchantSettings {
   location: DeliveryPoint | null;
   /** Busy mode (Driver Merchant): prep times +10 min until this time; null = off. */
   busyUntil?: Date | null;
-  /** Closed by hand from the Merchant app (early-close reason); null = open. */
-  closed?: { reason: string; note: string | null; at: Date } | null;
+  /**
+   * Closed by hand from the Merchant app (early-close reason); null = open. `until`: a quick pause
+   * that reopens by itself (counter step 5, h2) — read it through `closedNow`, never directly.
+   */
+  closed?: MerchantClosed | null;
   /** The store's receipt printer as its tablet last reported it (printer-offline marker). */
   printer?: { state: 'connected' | 'disconnected'; name: string | null; at: Date } | null;
   /** Weekly opening shifts set from the Merchant app; null = the catalog's seeded hours. */
@@ -72,6 +75,23 @@ export interface MerchantPickupSpot {
   note: string | null;
   photoRefs: string[];
   updatedAt: Date;
+}
+
+export interface MerchantClosed {
+  reason: string;
+  note: string | null;
+  at: Date;
+  /** Reopens by itself at this time; null/absent = until someone reopens it. */
+  until?: Date | null;
+}
+
+/**
+ * The hand close in force at `now`: a quick pause past its `until` reads as open, the way busy mode
+ * ends by itself (no job clears it). Every reader of `closed` goes through this.
+ */
+export function closedNow(closed: MerchantClosed | null | undefined, now: Date): MerchantClosed | null {
+  if (!closed) return null;
+  return closed.until && closed.until.getTime() <= now.getTime() ? null : closed;
 }
 
 export const DEFAULT_MERCHANT_SETTINGS: MerchantSettings = {
