@@ -58,12 +58,14 @@ export interface Consequence {
  * `money_rule_off` when a switch is off, and the dialog shows that).
  */
 export interface OpsSwitches {
-  disputeOutcomes: readonly string[];
+  /** Always includes 'void'. */
+  disputeOutcomes: readonly DisputeOutcomeChoice[];
   agentLimitIqd: number;
   courierLostRefund: boolean;
   courierLostCharge: boolean;
   freeCancel: boolean;
-  cookedFoodPayer: string | null;
+  /** Who pays a kitchen for cooked food on a cancel; only applies while `freeCancel` is on. */
+  cookedFoodPayer: 'platform' | 'merchant';
 }
 
 export function consequences(action: StaffAction, o: { paymentMethod: string }, sw: OpsSwitches | null = null): Consequence[] {
@@ -73,7 +75,7 @@ export function consequences(action: StaffAction, o: { paymentMethod: string }, 
         { key: 'console.stuck.cancel_free' },
         ...(o.paymentMethod !== 'cash' ? [{ key: 'console.stuck.cancel_wallet' as const }] : []),
         { key: 'console.stuck.cancel_courier' },
-        sw?.cookedFoodPayer ? { key: 'console.stuck.cancel_kitchen_rule' } : { key: 'console.stuck.cancel_kitchen', waits: true },
+        sw?.freeCancel ? { key: 'console.stuck.cancel_kitchen_rule' } : { key: 'console.stuck.cancel_kitchen', waits: true },
       ];
     case 'markDelivered':
       return [{ key: 'console.stuck.md_path' }];
@@ -109,9 +111,9 @@ export const OUTCOME_HINT_KEY: Record<DisputeOutcomeChoice, MessageKey> = {
   void: 'console.stuck.out_hint_void',
 };
 
-/** The outcomes offered: all of them until the switches read is wired, then only those switched on ("void" always is). */
+/** The outcomes offered: all of them until the switches read is wired, then only those the server lists ("void" always is). */
 export function outcomesFor(sw: OpsSwitches | null): DisputeOutcomeChoice[] {
-  return DISPUTE_OUTCOMES.filter((o) => !sw || o === 'void' || o === 'stands' || sw.disputeOutcomes.includes(o));
+  return DISPUTE_OUTCOMES.filter((o) => !sw || o === 'void' || sw.disputeOutcomes.includes(o));
 }
 
 export const REASON_MIN = 3;

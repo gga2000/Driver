@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RoleKind } from '@driver/contracts';
-import { actionsFor, consequences, outcomesFor } from './staff-actions';
+import { actionsFor, consequences, outcomesFor, type OpsSwitches } from './staff-actions';
 
 const roles = (...r: RoleKind[]) => new Set<RoleKind>(r);
 
@@ -23,7 +23,7 @@ describe('stuck-order way-outs', () => {
 });
 
 describe('with the money switches read', () => {
-  const sw = { disputeOutcomes: ['refund_full', 'void'], agentLimitIqd: 25_000, courierLostRefund: true, courierLostCharge: true, freeCancel: false, cookedFoodPayer: 'platform' };
+  const sw: OpsSwitches = { disputeOutcomes: ['stands', 'refund_full', 'void'], agentLimitIqd: 25_000, courierLostRefund: true, courierLostCharge: true, freeCancel: true, cookedFoodPayer: 'platform' };
 
   it('says what a switched-on rule does instead of "waits on Ali"', () => {
     const lost = consequences('courierLost', { paymentMethod: 'cash' }, sw);
@@ -32,7 +32,7 @@ describe('with the money switches read', () => {
     expect(consequences('cancel', { paymentMethod: 'cash' }, sw).some((c) => c.waits)).toBe(false);
   });
 
-  it('offers only switched-on dispute outcomes, keeping "stands" and "void"', () => {
+  it('offers only the dispute outcomes the server lists', () => {
     expect(outcomesFor(null)).toHaveLength(5);
     expect(outcomesFor(sw)).toEqual(['stands', 'refund_full', 'void']);
   });
