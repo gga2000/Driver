@@ -43,6 +43,8 @@ export interface CatalogStorefrontView {
   hours: PauseWindow[];
   /** On the items at menu prices, before any deal (a deal's own minimum is separate). */
   minOrderIqd: number;
+  /** What the shop sells (`doorOf`, `iceCreamTooFar`); absent = unknown. */
+  tags?: readonly string[];
 }
 
 export interface CatalogPort {

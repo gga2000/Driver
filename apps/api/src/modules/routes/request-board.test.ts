@@ -170,7 +170,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     h.advance(1);
     expect((await h.requests.driverNoShow('r1', r.id)).state).toBe('driver_no_show');
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({
-      departureId: r.id,
+      requestId: r.id,
       cancelledBy: 'driver',
       driverId: 'd1',
       feeIqd: 12_000,
@@ -205,7 +205,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     await h.requests.cancel('r1', r.id);
     expect(await bal(await deliverToLedger(h.events.events), 'driver:d1')).toBe(6_000);
     expect(h.events.last('order.cancelled')?.payload).toMatchObject({
-      orderId: r.id,
+      requestId: r.id,
       feeIqd: 6_000,
       beneficiaries: [{ kind: 'driver', id: 'd1', amountIqd: 6_000 }],
     });
@@ -224,7 +224,7 @@ describe('request board no-shows and settlement through the ledger', () => {
     expect(h.events.last('order.closed')?.payload).toMatchObject({
       kind: 'ride',
       ride: {
-        tripId: r.id,
+        requestId: r.id,
         takeClass: 'intercity_private',
         fareIqd: 28_000,
         cashCollectedIqd: 22_000,

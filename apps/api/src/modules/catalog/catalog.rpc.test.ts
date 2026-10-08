@@ -545,6 +545,23 @@ describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)'
     expect(cake?.dishes[0]?.kiloIqd).toBeNull();
   });
 
+  it('k7: an ice-cream-only shop drops out past 3 km by road; a sweets shop that also sells ice cream stays', async () => {
+    const w = await shopsWorld();
+    const kinds = [{ key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] }];
+    const shopsAt = async (dropoff: { zoneKey: string; pin: { lat: number; lng: number } }) => ({
+      list: (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff, filters: {} })).map((c) => c.name),
+      cravings: new Set((await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds, dropoff }))[0]?.dishes.map((d) => d.restaurantName)),
+    });
+    // الفرات is in the centre: about 0.6 km away it delivers; زاكور is about 3.3 km by road.
+    const near = await shopsAt({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect(near.list).toContain('آيس كريم الفرات');
+    expect(near.cravings).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+    const far = await shopsAt(ZAKUR);
+    expect(far.list).not.toContain('آيس كريم الفرات');
+    expect(far.list).toContain('حلويات الزهراء');
+    expect(far.cravings).toEqual(new Set(['حلويات الزهراء']));
+  });
+
   it('leaves closed shops out', async () => {
     const w = await world('2026-10-03T05:00:00Z'); // 8:00 Baghdad: الفرات opens at 12
     await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
