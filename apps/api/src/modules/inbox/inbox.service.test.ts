@@ -433,6 +433,28 @@ describe('InboxService — the Today list (CON-12)', () => {
     });
   });
 
+  it('a late الرجعة car opens one row right after the safety rows, and closes when it leaves the late list', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
+    const late = { garageId: 'g_bawaba1', corridorId: 'aziziyah_baghdad', cityId: 'aziziyah', since: new Date(T0).toISOString() };
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, departureId: 'dep_1', reason: 'driver_no_show', riders: 4 });
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, departureId: 'dep_2', reason: 'not_arrived', riders: 3 });
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, reason: 'not_arrived' });
+
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId])).toEqual([
+      ['late_departure', 'dep_1'],
+      ['late_departure', 'dep_2'],
+      ['late', 'ord_l'],
+    ]);
+    expect(rows[0]).toMatchObject({ subjectKind: 'departure', orderId: null, facts: { reason: 'driver_no_show', riders: 4, garageId: 'g_bawaba1', corridorId: 'aziziyah_baghdad' } });
+
+    h.later(60);
+    await h.emit('departure.overdue_cleared', { aggregateId: 'departures' }, { departureId: 'dep_1', cityId: 'aziziyah', by: 'p_haider' });
+    expect((await h.list()).map((r) => r.subjectId)).toEqual(['dep_2', 'ord_l']);
+    expect((await h.list('done')).map((r) => [r.subjectId, r.outcome])).toEqual([['dep_1', 'auto']]);
+  });
+
   it('keeps the event lists apart and in step with the handlers', () => {
     expect(
       INBOX_START_EVENTS.filter((t) => (INBOX_END_EVENTS as readonly string[]).includes(t)),
