@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import type { SupportCustomer, TicketCase } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
@@ -25,8 +26,10 @@ import {
   Skeleton,
   Timeline,
 } from '../ui';
-import { PendingRefundStrip } from '../refund-approvals';
 import { statusTone } from './sla';
+
+// Loads only on a case with a refund waiting for a second OK (Console speed budget).
+const PendingRefundStrip = dynamic(() => import('../refund-approvals').then((m) => m.PendingRefundStrip));
 
 export type SupportAction = 'refund' | 'fault' | 'escalate' | 'resolve';
 
