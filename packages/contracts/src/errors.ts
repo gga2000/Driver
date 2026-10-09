@@ -58,6 +58,8 @@ export const ERROR_TABLE = {
   document_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   checkin_challenge_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   checkin_locked: { retryHint: 'support', status: 'FORBIDDEN' },
+  /** Staff paused him while they look into a report (r6); ops lifts it. */
+  driver_paused: { retryHint: 'support', status: 'FORBIDDEN' },
   // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
   online_checkin_required: { retryHint: 'never', status: 'FORBIDDEN' },
   online_document_expired: { retryHint: 'never', status: 'FORBIDDEN' },

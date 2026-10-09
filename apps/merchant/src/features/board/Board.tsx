@@ -27,6 +27,9 @@ import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, use
 import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
 import { dayCardKey, dayCardMode, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
+import { unseenPhotoDowns } from '@/features/menu/photo-down';
+import { photoDownNotice, usePhotoDownSeen } from '@/features/menu/PhotoDown';
+import { useMenu } from '@/features/menu/queries';
 import { beforeFirstOrder } from '@/features/money/logic';
 import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
@@ -318,6 +321,10 @@ export function Board() {
   // d01: while orders wait the day's card is one line (the full card a tap away, in a sheet).
   const dayMode = dayCardMode({ show: showDay && !!daySummary.data, waiting: cols.new.length, closed: Boolean(s?.closed) || s?.schedule?.inHours === false });
   const [dayOpen, setDayOpen] = useState(false);
+  // p4: a dish photo Driver's team took down — the board says it once, in a quiet moment; the menu keeps saying why.
+  const menu = useMenu(inSetup ? null : storeId, { refetchMs: 5 * 60_000 });
+  const { seen: photoSeen, markSeen: markPhotoSeen } = usePhotoDownSeen();
+  const photoDowns = useMemo(() => unseenPhotoDowns(menu.data?.categories, photoSeen), [menu.data, photoSeen]);
   // d07: offline long enough that customers see the shop closed — the board says it once, nothing else shouts.
   const pause = usePauseView(online);
   const pausedNow = pause.kind === 'paused';
@@ -708,6 +715,26 @@ export function Board() {
           text={t('merchant.push.strip')}
           action={{ label: t('merchant.push.enable'), onPress: push.allow, testID: 'push-strip-allow' }}
           secondary={{ label: t('merchant.push.later'), onPress: push.later, testID: 'push-strip-later' }}
+        />
+      ) : null}
+
+      {photoDowns[0] && cols.new.length === 0 && !pausedNow ? (
+        <InfoStrip
+          tone="warning"
+          icon="camera"
+          testID="photo-down-strip"
+          text={photoDowns.length === 1 ? photoDownNotice(t, photoDowns[0].dishName, photoDowns[0].reason) : t('merchant.photo_down.notice_many', { count: photoDowns.length })}
+          action={{
+            label: photoDowns.length === 1 ? t('merchant.photo_down.take') : t('merchant.photo_down.see'),
+            testID: 'photo-down-take',
+            onPress: () => {
+              const [first] = photoDowns;
+              markPhotoSeen(photoDowns.map((n) => n.key));
+              if (photoDowns.length === 1 && first) router.push({ pathname: '/menu/item', params: { id: first.itemId, photo: '1' } });
+              else router.push('/menu');
+            },
+          }}
+          secondary={{ label: t('merchant.photo_down.ok'), testID: 'photo-down-ok', onPress: () => markPhotoSeen(photoDowns.map((n) => n.key)) }}
         />
       ) : null}
 
