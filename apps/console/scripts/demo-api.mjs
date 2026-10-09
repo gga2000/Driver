@@ -498,7 +498,12 @@ const late = queue.find((r) => r.orderId === placed[0].id);
 if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتصلت بالمطعم: الطلب طلع بوقته، التأخير من الدليفري بالطريق. نعوّضه رصيد ونحسبها على الدليفري.', internal: true });
 const missing = queue.find((r) => r.orderId === placed[7].id);
 if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
-await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
+// The safety report names a delivered order, so its courier shows (and can be paused, r6).
+const incidentOrder = await (async () => {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  return [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].find((o) => o.state === 'delivered' && o.type === 'food' && !o.id.endsWith('_y')) ?? placed[5];
+})();
+await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: incidentOrder.ordererId, orderId: incidentOrder.id });
 // «كلّم الدعم»: a customer wrote in his order's support chat (it opens a chat case by itself); زينب
 // answered into the chat, and he wrote again. The case reads as one conversation on /support.
 try {

@@ -30,6 +30,20 @@ export interface CheckInRecord {
   failureReason: string | null;
 }
 
+/** `driver_pauses`: staff paused him while a report is looked into (r6); open while `liftedAt` is null. */
+export interface PauseRecord {
+  id: string;
+  personId: string;
+  reason: 'safety_report' | 'other';
+  ticketId: string | null;
+  note: string;
+  pausedAt: Date;
+  pausedById: string;
+  liftedAt: Date | null;
+  liftedById: string | null;
+  liftNote: string | null;
+}
+
 export interface DriverAccountRepository {
   createDocument(input: Omit<DocumentRecord, 'id'>, tx?: Tx): Promise<DocumentRecord>;
   updateDocument(id: string, patch: Partial<Omit<DocumentRecord, 'id' | 'personId' | 'kind'>>, tx?: Tx): Promise<DocumentRecord>;
@@ -42,6 +56,10 @@ export interface DriverAccountRepository {
   updateCheckIn(id: string, patch: Partial<Pick<CheckInRecord, 'result' | 'submittedAt' | 'livenessScore' | 'failureReason'>>, tx?: Tx): Promise<CheckInRecord>;
   checkIn(id: string, tx?: Tx): Promise<CheckInRecord | null>;
   checkInsOn(personId: string, localDate: string, tx?: Tx): Promise<CheckInRecord[]>;
+  /** His open pause (the latest when, against the rules, two are open), or null. */
+  activePause(personId: string, tx?: Tx): Promise<PauseRecord | null>;
+  createPause(input: Omit<PauseRecord, 'id' | 'liftedAt' | 'liftedById' | 'liftNote'>, tx?: Tx): Promise<PauseRecord>;
+  liftPause(id: string, patch: { liftedAt: Date; liftedById: string; liftNote: string }, tx?: Tx): Promise<PauseRecord>;
 }
 
 export const DRIVER_ACCOUNT_REPOSITORY = Symbol('DRIVER_ACCOUNT_REPOSITORY');
@@ -49,6 +67,7 @@ export const DRIVER_ACCOUNT_REPOSITORY = Symbol('DRIVER_ACCOUNT_REPOSITORY');
 export class InMemoryDriverAccountRepository implements DriverAccountRepository {
   readonly documents = new Map<string, DocumentRecord>();
   readonly checkIns = new Map<string, CheckInRecord>();
+  readonly pauses = new Map<string, PauseRecord>();
   private seq = 0;
 
   private id(prefix: string): string {
@@ -107,6 +126,24 @@ export class InMemoryDriverAccountRepository implements DriverAccountRepository 
   async checkInsOn(personId: string, localDate: string): Promise<CheckInRecord[]> {
     return [...this.checkIns.values()].filter((c) => c.personId === personId && c.localDate === localDate).map((c) => ({ ...c }));
   }
+
+  async activePause(personId: string): Promise<PauseRecord | null> {
+    const open = [...this.pauses.values()].filter((p) => p.personId === personId && p.liftedAt === null).sort((a, b) => b.pausedAt.getTime() - a.pausedAt.getTime());
+    return open[0] ? { ...open[0] } : null;
+  }
+
+  async createPause(input: Omit<PauseRecord, 'id' | 'liftedAt' | 'liftedById' | 'liftNote'>): Promise<PauseRecord> {
+    const row: PauseRecord = { id: this.id('dpause'), ...input, liftedAt: null, liftedById: null, liftNote: null };
+    this.pauses.set(row.id, row);
+    return { ...row };
+  }
+
+  async liftPause(id: string, patch: { liftedAt: Date; liftedById: string; liftNote: string }): Promise<PauseRecord> {
+    const row = this.pauses.get(id);
+    if (!row) throw new Error(`pause ${id} not found`);
+    Object.assign(row, patch);
+    return { ...row };
+  }
 }
 
 export class PrismaDriverAccountRepository implements DriverAccountRepository {
@@ -151,5 +188,17 @@ export class PrismaDriverAccountRepository implements DriverAccountRepository {
 
   async checkInsOn(personId: string, localDate: string, tx?: Tx): Promise<CheckInRecord[]> {
     return (await this.db(tx).driverCheckIn.findMany({ where: { personId, localDate }, orderBy: [{ issuedAt: 'asc' }, { id: 'asc' }] })) as CheckInRecord[];
+  }
+
+  async activePause(personId: string, tx?: Tx): Promise<PauseRecord | null> {
+    return (await this.db(tx).driverPause.findFirst({ where: { personId, liftedAt: null }, orderBy: [{ pausedAt: 'desc' }, { id: 'desc' }] })) as PauseRecord | null;
+  }
+
+  async createPause(input: Omit<PauseRecord, 'id' | 'liftedAt' | 'liftedById' | 'liftNote'>, tx?: Tx): Promise<PauseRecord> {
+    return (await this.db(tx).driverPause.create({ data: input })) as PauseRecord;
+  }
+
+  async liftPause(id: string, patch: { liftedAt: Date; liftedById: string; liftNote: string }, tx?: Tx): Promise<PauseRecord> {
+    return (await this.db(tx).driverPause.update({ where: { id }, data: patch })) as PauseRecord;
   }
 }

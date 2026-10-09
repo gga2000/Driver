@@ -70,7 +70,7 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   const auditsFake = { record: async (a: { action: string; subjectId: string }) => void audits.push(a) } as unknown as AuditLogService;
   const none = {} as never;
   const support = new SupportService(supportRepo, ordersFake, tripsFake, none, none, none, none, id.service, ev.events, auditsFake, { of: async () => ({}) } as unknown as StaffNames, ev.uow, clock);
-  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService());
+  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService(), undefined, auditsFake, { of: async () => ({}) } as unknown as StaffNames);
   async function person(phone: string, roles: RoleKind[] = []): Promise<Actor> {
     const { actor } = await id.login(phone);
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
@@ -292,6 +292,34 @@ describe('driverAccount.documents', () => {
     await expect(h.service.uploadDocument(d, { kind: 'photo', uploadId: await h.upload(other.personId) })).rejects.toMatchObject({ code: 'upload_invalid' });
     await expect(h.service.uploadDocument(d, { kind: 'photo', uploadId: 'up_missing' })).rejects.toMatchObject({ code: 'upload_invalid' });
     await expect(h.service.documents(d, { driverId: other.personId })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
+  it('closes the online gate until staff lift it, audited both ways, and nobody pauses himself', async () => {
+    const h = setup();
+    const d = await h.person('07700000021', ['courier']);
+    const ops = await h.person('07700000022', ['support']);
+    const customer = await h.person('07700000023');
+    await expect(h.service.pause(ops, { personId: customer.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'forbidden' });
+
+    const paused = await h.service.pause(ops, { personId: d.personId, reason: 'safety_report', ticketId: 'tk_1', note: 'بلاغ سياقة خطرة، ننتظر نسمع منه' });
+    expect(paused.active).toMatchObject({ reason: 'safety_report', ticketId: 'tk_1', pausedById: ops.personId });
+    const gate = await h.service.onlineGate(d);
+    expect(gate.canGoOnline).toBe(false);
+    expect(gate.reasons[0]).toMatchObject({ code: 'staff_paused' });
+    // Pausing again keeps the first pause.
+    const again = await h.service.pause(ops, { personId: d.personId, reason: 'other', note: 'مرة ثانية' });
+    expect(again.active!.id).toBe(paused.active!.id);
+    expect((await h.service.pauseStatus(ops, { personId: d.personId })).active!.id).toBe(paused.active!.id);
+
+    const lifted = await h.service.liftPause(ops, { personId: d.personId, note: 'سمعنا منه والزبون، ما بيه شي' });
+    expect(lifted.active).toBeNull();
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).not.toContain('staff_paused');
+    await expect(h.service.liftPause(ops, { personId: d.personId, note: 'مرة ثانية' })).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(h.audits.map((a) => a.action)).toEqual(['driver.pause', 'driver.lift_pause']);
+    expect((await h.ev.events.forAggregate('person', d.personId)).map((e) => e.type).filter((t) => t.includes('paused'))).toEqual(['driver.paused', 'driver.unpaused']);
   });
 });
 

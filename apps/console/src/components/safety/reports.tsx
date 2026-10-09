@@ -13,7 +13,8 @@ import { ageText } from '@/lib/safety';
 import { SAFETY_POLL_MS } from '@/lib/safety-live';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
-import { Button, buttonCls, Chip, cx, IconAlert, QueryError, Skeleton, useNow, useToast } from '../ui';
+import { Button, buttonCls, Chip, cx, QueryError, Skeleton, useNow, useToast } from '../ui';
+import { DriverPause } from '../driver-pause';
 import { withBdi } from './bdi';
 
 /**
@@ -203,10 +204,7 @@ export function SafetyReportView({ ticketId }: { ticketId: string }) {
         </section>
       </div>
 
-      <p className="flex items-start gap-2 rounded-md border border-warn-solid/40 bg-warn-tint px-3 py-2 text-sm text-text" data-testid="waits-ali">
-        <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
-        <span>{t('console.safety.report_pause_waits')}</span>
-      </p>
+      {order?.courierId && !resolved ? <DriverPause personId={order.courierId} ticketId={ticket.id} /> : null}
       <p className="text-dense text-muted">{t('console.safety.report_close_hint')}</p>
     </article>
   );

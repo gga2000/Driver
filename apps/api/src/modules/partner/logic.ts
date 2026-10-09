@@ -191,10 +191,11 @@ export const NEAR_CAP_SHARE = CAP_WARN_SHARE;
 
 /**
  * The typed error `partner.goOnline` answers with when the online gate is closed, worst reason
- * first: a lock-out (ops must call him) over an expired document over a missing check-in.
+ * first: a staff pause (r6), then a lock-out (ops must call him) over an expired document over a missing check-in.
  */
 export function gateErrorCode(reasons: PartnerOnlineGate['reasons']): ErrorCode {
   const codes = new Set(reasons.map((r) => r.code));
+  if (codes.has('staff_paused')) return 'driver_paused';
   if (codes.has('checkin_locked')) return 'checkin_locked';
   if (codes.has('document_expired')) return 'online_document_expired';
   return 'online_checkin_required';

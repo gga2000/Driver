@@ -97,7 +97,7 @@ export function capState(owedIqd: number, capIqd: number, overCap = false): { sh
 }
 
 /** Why he may not go online now (same codes as `driverAccount.onlineGate`): scoring §2. */
-export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired']);
+export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'staff_paused']);
 export type PartnerGateCode = z.infer<typeof PartnerGateCode>;
 
 /** The online gate as `partner.status` carries it: `partner.goOnline` refuses while `canGoOnline` is false. */
