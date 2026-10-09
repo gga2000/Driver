@@ -167,6 +167,15 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    // river bridges stand on piers, the deck a storey above the water with a dark rail each side
+    L.push({
+      id: 'golden-bridge-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('deck', 'rail', 'pier'),
+      paint: {
+        'fill-extrusion-color': ['match', ['get', 'kind'], 'rail', p.deckCase, 'pier', p.wall, p.deck] as never,
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6, ['get', 'hm']] as never,
+        'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6, ['get', 'base']] as never,
+      },
+    });
     // the stair hut (بيت الدرج) on two- and three-storey roofs: big enough to read as soon as the houses stand up
     L.push({
       id: 'golden-roof-huts', type: 'fill-extrusion', ...bld, minzoom: rise + 0.6, filter: kindIn('hut'),

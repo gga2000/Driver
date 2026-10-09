@@ -114,6 +114,24 @@ lat0 = 32.9; mx = 111320 * math.cos(math.radians(lat0)); my = 110540
 pois = L(TOWN, 'place')
 mosq = [sg.shape(f['geometry']) for f in pois if 'worship' in (f['properties'].get('basic_category') or '')
         or any(k in (nm(f['properties']) or '') for k in ('جامع', 'مسجد', 'حسينية'))]
+# bridges in 3D: the deck raised on piers with a rail each side, for the river crossings (long bridges only, so
+# a culvert over a canal stays a flat road). Drawn by the style only where the town stands up in 3D.
+seen = []
+for ly, g, p, *_ in list(F):
+    if ly != 'roads' or p.get('cls') != 'bridge': continue
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+    if gm.length < 80: continue
+    c = gm.interpolate(0.5, normalized=True)
+    if any(c.distance(o) < 20 for o in seen): continue
+    seen.append(c)
+    back = lambda q: shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0))
+    add('buildings', back(gm.buffer(6.5, cap_style='flat')), {'hm': 7.8, 'base': 6.6, 'kind': 'deck'}, 15)
+    for side in ('left', 'right'):
+        add('buildings', back(gm.parallel_offset(6.2, side).buffer(0.25, cap_style='flat')), {'hm': 8.7, 'base': 7.8, 'kind': 'rail'}, 15)
+    for i in range(1, int(gm.length // 28)):
+        add('buildings', back(gm.interpolate(i * 28).buffer(2.2, quad_segs=3)), {'hm': 6.6, 'base': 0, 'kind': 'pier'}, 15)
+print('bridge decks', len(seen), file=sys.stderr)
+
 # what a building is for, so heights follow use: school yards, clinics/hospitals, shop rows on main streets
 schools = [sg.shape(f['geometry']) for f in L(TOWN, 'land_use') if f['properties'].get('subtype') == 'education']
 civic = [sg.shape(f['geometry']) for f in pois if (f['properties'].get('basic_category') or '') in
