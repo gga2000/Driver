@@ -60,3 +60,23 @@ export function palmPattern(p: GoldenPalette): PatternImage {
   }
   return { width: SIZE, height: SIZE, data };
 }
+
+/** Id of the field-furrow pattern (farmland drawn in rows near town); registered by `goldenImages()`. */
+export const FURROW_PATTERN = 'golden-furrows';
+
+/** Ploughed rows: a soft diagonal stripe in the crown colour on transparent pixels, tiling seamlessly. */
+export function furrowPattern(p: GoldenPalette): PatternImage {
+  const n = 16;
+  const [r, g, b] = hex(p.palmCrown);
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4;
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = (x + y) % 8 < 2 ? 70 : 0;
+    }
+  }
+  return { width: n, height: n, data };
+}
