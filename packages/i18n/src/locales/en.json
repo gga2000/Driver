@@ -8853,5 +8853,6 @@
   "partner.update_safe": "Your account, cash and earnings stay as they are",
   "partner.cash_owed_split": "{order} for the order + {fees} owed from before",
   "partner.job_owed_fees": "Collect {fees} IQD on top of the order",
-  "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings."
+  "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings.",
+  "track.map_at_door": "At your door"
 }

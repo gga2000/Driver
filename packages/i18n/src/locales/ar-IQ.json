@@ -8853,5 +8853,6 @@
   "partner.update_safe": "حسابك وفلوسك وأرباحك تبقى مثل ما هي",
   "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
   "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
-  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك."
+  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك.",
+  "track.map_at_door": "عند بابك"
 }
