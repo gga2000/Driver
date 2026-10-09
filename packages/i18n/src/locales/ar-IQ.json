@@ -507,6 +507,8 @@
   "checkout.note_courier_placeholder": "مثلاً: دگ الجرس مرتين، الباب الأخضر",
   "checkout.earn": "تكسب {n} نقطة",
   "checkout.earn_shared": "هذا الطلب يجيب {n} نقطة، تتقسم عليكم",
+  "checkout.owed_line": "مبلغ سابق عليك",
+  "checkout.owed_hint": "من طلب سابق، تدفعه كاش ويا هالطلب. الكل للدليفري {amount} دينار",
   "checkout.pay_line_cash": "تدفع {amount} دينار كاش للدليفري",
   "checkout.pay_line_cash_them": "{name} يدفع {amount} دينار كاش للدليفري",
   "checkout.pay_line_wallet": "تدفع {amount} دينار من محفظتك",

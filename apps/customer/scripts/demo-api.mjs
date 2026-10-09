@@ -1415,6 +1415,21 @@ const rajaa = await (async () => {
   // just ended, «وفّرت» lines and points; last month three meals and its own savings and points, for
   // the month stepper and the month-start card.
   const familySeeded = new Set();
+  // POST /demo/owe?personId=…&amount=500 — an earlier unpaid amount on his wallet (a cancellation fee
+  // he never paid), so the next cash checkout shows «مبلغ سابق عليك» (M-3, `CASH_DEBT_COLLECT`).
+  app.use('/demo/owe', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const amount = Number(url.searchParams.get('amount') ?? 500);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/owe?personId=…&amount=…' });
+      await ledger.record({ type: 'adjustment', amount, fromAccount: `customer:${personId}`, toAccount: 'bank', occurredAt: new Date(), memo: 'demo unpaid fee' });
+      json(res, 200, { personId, amount });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   app.use('/demo/family', async (req, res) => {
     try {
       const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');

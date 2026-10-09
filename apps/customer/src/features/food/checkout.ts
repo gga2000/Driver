@@ -144,6 +144,11 @@ export interface CheckoutChoices {
   /** «استخدم نقاطك» (W-02) and the points value `orders.quote` showed (the server refuses another: `price_changed`). */
   usePoints?: boolean;
   pointsIqd?: number;
+  /**
+   * M-3: the earlier unpaid amount `orders.quote` showed (`debtCollectIqd`, 0 when none), sent back so a
+   * different figure is `price_changed`. Sent on a cash order only; omit without a quote.
+   */
+  debtCollectIqd?: number;
   /** Joy w4: pay from the household wallet (a wallet order); over a limit it waits for the payer. */
   householdOrgId?: string | null;
   /** «عزيمة» (joy g1): the order is a gift for its recipient (ignored when I receive it myself). */
@@ -165,6 +170,15 @@ const OTHER_RECIPIENT_REF = 'recipient';
 export function validTender(tenderIqd: number | null, totalIqd: number | null, paymentMethod: 'cash' | 'wallet'): number | null {
   if (tenderIqd === null || totalIqd === null || paymentMethod !== 'cash') return null;
   return tenderProblem(tenderIqd, totalIqd) === null ? tenderIqd : null;
+}
+
+/**
+ * M-3 «ينضاف لطلبك الجاي»: what he still owes from an earlier order (a cancellation fee, or cash that
+ * came up short), handed over with this cash order on top of its total. The quote prices it for a cash
+ * order on his own account, so a wallet or household order carries nothing.
+ */
+export function owedOnOrder(debtCollectIqd: number | undefined, paymentMethod: 'cash' | 'wallet', household: boolean): number {
+  return paymentMethod === 'cash' && !household ? (debtCollectIqd ?? 0) : 0;
 }
 
 export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
@@ -209,6 +223,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.courierNote?.trim() ? { courierNote: c.courierNote.trim().slice(0, 300) } : {}),
     ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
     ...(c.paymentMethod === 'cash' && c.statedTenderIqd ? { statedTenderIqd: c.statedTenderIqd } : {}),
+    ...(c.paymentMethod === 'cash' && c.debtCollectIqd !== undefined ? { debtCollectIqd: c.debtCollectIqd } : {}),
     ...(c.usePoints ? { usePoints: true, ...(c.pointsIqd !== undefined ? { pointsIqd: c.pointsIqd } : {}) } : {}),
     ...(c.householdOrgId && c.paymentMethod === 'wallet' ? { householdOrgId: c.householdOrgId } : {}),
     // J5a «للسفرة»: the household hub lists the order on the family table (joy w4).
