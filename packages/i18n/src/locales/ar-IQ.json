@@ -8568,5 +8568,6 @@
   "console.garage.fee_doubled": "دبل لأن الطلعة من 6 المسا وطالع.",
   "console.garage.fee_settle": "تنحسب على حسابه ويسدّدها بأول تسليم كاش.",
   "console.garage.fee_line": "على السايق {amount} دينار إذا انلغت",
-  "console.garage.fee_done": "كل راكب ({n}) أخذ {per} دينار رصيد، والسايق عليه {amount} دينار."
+  "console.garage.fee_done": "كل راكب ({n}) أخذ {per} دينار رصيد، والسايق عليه {amount} دينار.",
+  "partner.update_safe": "حسابك وفلوسك وأرباحك تبقى مثل ما هي"
 }

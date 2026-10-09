@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { Linking, Platform, View } from 'react-native';
-import { Button, Icon, Text, useTheme } from '@driver/ui';
+import Animated from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Art, Button, Icon, MeshFill, StarPattern, Text, useAnnounce, useMotionPresets, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { Wordmark } from '@/components/Wordmark';
 import { syncBackgroundLocation } from '@/lib/background-location';
@@ -14,10 +16,18 @@ const PLAY_WEB = 'https://play.google.com/store/apps/details?id=iq.driver.partne
  * page until he restarts on a new one. It needs no network. Offers, the live channel and the job
  * screens are unmounted with the app behind it and the background location service is stopped; the
  * page tells him he can't take offers on this phone until he updates.
+ *
+ * Saffron dawn, the customer app's look (lane C #104, Ali's concept A): saffron with the khatam star
+ * lines and the phone getting its update, then a cream sheet with why, that nothing of his is lost,
+ * and the store button. The drawing and the sheet rise in once and settle (still under reduced motion).
  */
 export function UpdateRequired() {
   const theme = useTheme();
   const t = useT();
+  const presets = useMotionPresets();
+  const insets = useSafeAreaInsets();
+  const food = theme.services.food;
+  useAnnounce(`${t('partner.update_title')}. ${t('partner.update_body')}`, { initial: true });
 
   useEffect(() => {
     void syncBackgroundLocation({ online: false, onJob: false, vehicleClass: null });
@@ -38,58 +48,60 @@ export function UpdateRequired() {
 
   return (
     <Screen
+      scroll={false}
+      padded={false}
+      edges={[]}
       testID="update-required"
-      contentStyle={{ flexGrow: 1, justifyContent: 'center', gap: theme.space[8] }}
       footer={
-        <Button
-          testID="update-store"
-          label={t('partner.update_button')}
-          size="lg"
-          fullWidth
-          onPress={() => void openStore()}
-        />
+        <View style={{ paddingHorizontal: theme.space[6] }}>
+          <Button testID="update-store" label={t('partner.update_button')} icon="refresh" size="lg" fullWidth onPress={() => void openStore()} />
+        </View>
       }
     >
-      <Wordmark size="md" />
-      <View style={{ alignItems: 'center', gap: theme.space[5] }}>
-        <View
+      <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minHeight: 260, paddingTop: insets.top + theme.space[4], overflow: 'hidden' }}>
+          <MeshFill base={food.fill} mesh={food.mesh} />
+          <StarPattern color={theme.services.trips.pattern} opacity={0.2} />
+          <View style={{ paddingHorizontal: theme.space[6], alignItems: 'flex-start' }}>
+            <Wordmark size="md" onSaffron />
+          </View>
+          <Animated.View entering={presets.panelIn(80)} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: theme.space[8] }}>
+            <Art name="update" size={264} />
+          </Animated.View>
+        </View>
+        <Animated.View
+          entering={presets.sheetIn(0)}
           style={{
-            width: 96,
-            height: 96,
-            borderRadius: 48,
-            backgroundColor: theme.colors.accentTint,
-            alignItems: 'center',
-            justifyContent: 'center',
+            marginTop: -theme.space[8],
+            backgroundColor: theme.colors.bg,
+            borderTopLeftRadius: theme.radius['2xl'],
+            borderTopRightRadius: theme.radius['2xl'],
+            paddingHorizontal: theme.space[6],
+            paddingTop: theme.space[6],
+            paddingBottom: theme.space[2],
+            gap: theme.space[2],
+            alignItems: 'flex-start',
           }}
         >
-          <Icon name="refresh" size={44} color="accentText" strokeWidth={1.8} />
-        </View>
-        <View style={{ gap: theme.space[2], alignItems: 'center' }}>
-          <Text variant="heading" align="center" accessibilityRole="header">
+          <Text variant="display" face="display" accessibilityRole="header">
             {t('partner.update_title')}
           </Text>
-          <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 320 }}>
+          <Text variant="body" color="textMuted">
             {t('partner.update_body')}
           </Text>
-        </View>
-        <View
-          testID="update-offers"
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space[2],
-            paddingVertical: theme.space[3],
-            paddingHorizontal: theme.space[4],
-            borderRadius: theme.radius.md,
-            backgroundColor: theme.colors.surfaceSunken,
-            maxWidth: 340,
-          }}
-        >
-          <Icon name="bell" size={18} color="textMuted" strokeWidth={2} />
-          <Text variant="label" color="textMuted" style={{ flexShrink: 1 }}>
-            {t('partner.update_offers')}
-          </Text>
-        </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: theme.space[2] }}>
+            <Icon name="shield" size={20} color="successText" strokeWidth={2.2} />
+            <Text variant="body" weight={600} color="successText" style={{ flexShrink: 1 }}>
+              {t('partner.update_safe')}
+            </Text>
+          </View>
+          <View testID="update-offers" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+            <Icon name="bell" size={20} color="textMuted" strokeWidth={2} />
+            <Text variant="body" color="textMuted" style={{ flexShrink: 1 }}>
+              {t('partner.update_offers')}
+            </Text>
+          </View>
+        </Animated.View>
       </View>
     </Screen>
   );

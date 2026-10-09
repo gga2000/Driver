@@ -8568,5 +8568,6 @@
   "console.garage.fee_doubled": "Doubled because the run is at or after 6 pm.",
   "console.garage.fee_settle": "It goes on his balance and he settles it at his next cash hand-in.",
   "console.garage.fee_line": "driver pays {amount} IQD if cancelled",
-  "console.garage.fee_done": "Each rider ({n}) got {per} IQD credit; the driver owes {amount} IQD."
+  "console.garage.fee_done": "Each rider ({n}) got {per} IQD credit; the driver owes {amount} IQD.",
+  "partner.update_safe": "Your account, cash and earnings stay as they are"
 }
