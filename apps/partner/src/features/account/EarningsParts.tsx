@@ -591,7 +591,7 @@ function TipWords({ tipIqd, words }: { tipIqd: number; words: readonly Complimen
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, minHeight: 22, borderRadius: 11, backgroundColor: theme.colors.successTint }}>
           <Icon name="heart" size={11} color="successText" filled fillColor="successText" />
           <Text variant="caption" weight={700} color="successText" tabular style={{ lineHeight: 18 }}>
-            {t('partner.e5_tip', { amount: amountParam(tipIqd) })}
+            {t('partner.e5_tip_v2', { amount: amountParam(tipIqd) })}
           </Text>
         </View>
       ) : null}

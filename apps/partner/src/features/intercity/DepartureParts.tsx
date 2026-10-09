@@ -2,6 +2,7 @@ import { Linking, Pressable, View } from 'react-native';
 import { openNav, useNavApp } from '@/features/work/nav';
 import type { DriverBookingRow } from '@driver/contracts';
 import { Avatar, Button, Icon, IconButton, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
+import { DigitPad } from '@/components/DigitPad';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { dropLabel, paymentLabel, pickupLabel, riderName, seatsList, statusLabel } from './labels';
@@ -30,7 +31,6 @@ export function statusTone(s: RiderStatus): StatusTone {
 export function PinPad({ pin, onKey, busy, error }: { pin: string; onKey: (key: string) => void; busy: boolean; error: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', ''];
   return (
     <View style={{ gap: theme.space[4] }}>
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: theme.space[3], direction: 'ltr' }} testID="pin-boxes">
@@ -58,37 +58,8 @@ export function PinPad({ pin, onKey, busy, error }: { pin: string; onKey: (key: 
           );
         })}
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: theme.space[2], direction: 'ltr', maxWidth: 3 * 96 + 2 * 8, alignSelf: 'center' }}>
-        {keys.map((k, i) =>
-          k === '' ? (
-            <View key={i} style={{ width: 96, height: 64 }} />
-          ) : (
-            <Pressable
-              key={i}
-              testID={`pin-key-${k}`}
-              accessibilityRole="button"
-              accessibilityLabel={k === 'back' ? t('partner.ic_pin_clear') : k}
-              disabled={busy}
-              onPress={() => {
-                theme.haptic('light');
-                onKey(k);
-              }}
-              style={({ pressed }) => ({
-                width: 96,
-                height: 64,
-                borderRadius: theme.radius.lg,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: pressed ? theme.colors.accentTint : k === 'back' ? 'transparent' : theme.colors.surface,
-                borderWidth: k === 'back' ? 0 : 1,
-                borderColor: theme.colors.border,
-              })}
-            >
-              {k === 'back' ? <Icon name="arrow-forward" size={22} color="textMuted" /> : <Text variant="heading" tabular>{k}</Text>}
-            </Pressable>
-          ),
-        )}
-      </View>
+      {/* Check-up item 8: the app's one keypad. */}
+      <DigitPad keyTestID={(k) => `pin-key-${k}`} deleteLabel={t('partner.ic_pin_clear')} disabled={busy} onKey={onKey} />
     </View>
   );
 }

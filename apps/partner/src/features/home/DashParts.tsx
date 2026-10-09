@@ -16,7 +16,7 @@ import { cashLoudness, type DashState, type WorkHint } from './logic';
 export const DASH_MAX_WIDTH = 520;
 
 /** «14,000» huge, «دينار» beside it: the number is the point (h1). */
-function BigMoney({ iqd, color, testID }: { iqd: number; color: 'text' | 'onAccent' | 'onInverse'; testID?: string }) {
+function BigMoney({ iqd, color, unit = color, testID }: { iqd: number; color: string; unit?: string; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   return (
@@ -24,7 +24,7 @@ function BigMoney({ iqd, color, testID }: { iqd: number; color: 'text' | 'onAcce
       <Text variant="numeralLg" color={color} tabular style={{ fontSize: 58, lineHeight: 70, letterSpacing: -1 }}>
         {amountParam(iqd)}
       </Text>
-      <Text variant="title" weight={700} color={color}>
+      <Text variant="title" weight={700} color={unit}>
         {t('partner.dash_iqd')}
       </Text>
     </View>
@@ -65,7 +65,9 @@ export function DashTop({
   const pulse = usePulse(state === 'working');
   const working = state === 'working';
   const cut = state === 'cut';
-  const ink = working ? 'onAccent' : 'text';
+  // The top's ink: dash colours on the working and no-internet tops (deep ember at night), theme text when waiting.
+  const ink = cut ? dash.onOffline : working ? dash.onWorking : theme.colors.text;
+  const muted = cut ? dash.onOfflineMuted : working ? dash.onWorkingMuted : theme.colors.textMuted;
   const [w, setW] = useState(0);
   const [h, setH] = useState(0);
 
@@ -73,13 +75,13 @@ export function DashTop({
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
       <Avatar name={name ?? undefined} {...(name ? {} : { icon: 'user' as const })} size={44} tone="accent" />
       <View style={{ flex: 1 }}>
-        <Text variant="label" weight={700} color={cut ? 'onInverse' : ink} testID="dash-hello">
+        <Text variant="label" weight={700} color={ink} testID="dash-hello">
           {name ? t('partner.dash_hello', { name }) : t('partner.dash_hello_noname')}
         </Text>
         {canDrive ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} testID="vehicle-chip">
-            <Icon name={VEHICLE_ICON[vehicle]} size={15} color={cut ? 'onInverseMuted' : working ? 'onAccent' : 'textMuted'} strokeWidth={2} />
-            <Text variant="caption" weight={600} color={cut ? 'onInverseMuted' : working ? 'onAccent' : 'textMuted'}>
+            <Icon name={VEHICLE_ICON[vehicle]} size={15} color={muted} strokeWidth={2} />
+            <Text variant="caption" weight={600} color={muted}>
               {t(VEHICLE_KEY[vehicle])}
             </Text>
           </View>
@@ -122,14 +124,14 @@ export function DashTop({
         {canDrive && (working || cut) ? (
           <View testID="home-status" accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             <View style={{ width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
-              {working ? <Animated.View style={[{ position: 'absolute', width: 18, height: 18, borderRadius: 9, backgroundColor: dash.onWorking }, pulse]} /> : null}
-              <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: cut ? theme.colors.danger : dash.onWorking }} />
+              {working ? <Animated.View style={[{ position: 'absolute', width: 18, height: 18, borderRadius: 9, backgroundColor: dash.workingMark }, pulse]} /> : null}
+              <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: cut ? theme.colors.danger : dash.workingMark }} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text variant="title" weight={700} color={cut ? 'onInverse' : 'onAccent'} accessibilityLabel={working && sinceClock ? t('partner.dash_working_a11y', { time: sinceClock }) : undefined}>
+              <Text variant="title" weight={700} color={ink} accessibilityLabel={working && sinceClock ? t('partner.dash_working_a11y', { time: sinceClock }) : undefined}>
                 {cut ? cutTitle : t('partner.dash_working')}
               </Text>
-              <Text variant="footnote" weight={600} color={cut ? 'onInverseMuted' : 'onAccent'} tabular>
+              <Text variant="footnote" weight={600} color={muted} tabular>
                 {cut ? cutBody : sinceClock ? t('partner.dash_working_since', { time: sinceClock }) : t('partner.online_body')}
               </Text>
             </View>
@@ -142,10 +144,10 @@ export function DashTop({
                 {t('partner.dash_today')}
               </Text>
             ) : null}
-            <BigMoney iqd={earningsIqd} color={cut ? 'onInverse' : working ? 'onAccent' : 'text'} testID="today-pill" />
+            <BigMoney iqd={earningsIqd} color={working ? dash.workingMark : ink} unit={ink} testID="today-pill" />
             {/* «ما اشتغلت اليوم بعد» only with nothing earned: الرجعة seats and خطوط runs earn without job counts. */}
             {jobs > 0 || earningsIqd === 0 ? (
-              <Text variant="footnote" weight={600} color={cut ? 'onInverseMuted' : working ? 'onAccent' : 'textMuted'} tabular>
+              <Text variant="footnote" weight={600} color={muted} tabular>
                 {jobs > 0 ? t(jobsKey(jobs), { n: jobs }) : t('partner.today_zero')}
               </Text>
             ) : null}

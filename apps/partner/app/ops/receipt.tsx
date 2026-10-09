@@ -44,7 +44,7 @@ export default function OpsReceipt() {
         </View>
       }
     >
-      <Stack.Screen options={{ title: t('partner.ops_rcpt_title'), headerBackVisible: false, gestureEnabled: false }} />
+      <Stack.Screen options={{ title: t('partner.ops_rcpt_title'), headerBackVisible: false, headerLeft: () => null, gestureEnabled: false }} />
 
       <View style={{ alignItems: 'center', gap: theme.space[2], paddingTop: theme.space[2] }}>
         <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: theme.colors.successTint, alignItems: 'center', justifyContent: 'center' }}>

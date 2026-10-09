@@ -31,7 +31,10 @@ describe.each(names)('partner %s: service slips and dashboard tops', (name) => {
   it('working, no-internet and cash-near tops are readable', () => {
     const d = partnerDash[name];
     for (const stop of d.working) expect(contrastRatio(d.onWorking, stop)).toBeGreaterThanOrEqual(4.5);
+    for (const stop of d.working) expect(contrastRatio(d.onWorkingMuted, stop)).toBeGreaterThanOrEqual(4.5);
+    for (const stop of d.working) expect(contrastRatio(d.workingMark, stop)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(d.onOffline, d.offline)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(d.onOfflineMuted, d.offline)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(d.onCashNear, d.cashNear)).toBeGreaterThanOrEqual(4.5);
   });
 });

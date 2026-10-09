@@ -39,7 +39,7 @@ describe('why was I paid this (S-7)', () => {
       'الجو مطر، الدليفري يستاهل',
       `المنصة تاخذ ${ratePct(0.12)} من الأجرة، الباقي كله إلك`,
     ]);
-    expect(rows[3]).toMatchObject({ take: true, label: `عمولة المنصة ${ratePct(0.12)}`, amountIqd: -600 });
+    expect(rows[3]).toMatchObject({ take: true, label: `حصة درايفر ${ratePct(0.12)}`, amountIqd: -600 });
     // Memo-named pay keeps its partner name (night → إضافة الليل).
     expect(rows[1]!.label).toBe(t('partner.pay_night'));
   });

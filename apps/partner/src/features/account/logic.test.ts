@@ -57,8 +57,8 @@ describe('Baghdad calendar', () => {
   it('reads local parts at UTC+3 and cuts days at local midnight', () => {
     expect(local(NOW)).toMatchObject({ year: 2026, month: 10, day: 3, hour: 14, minute: 20, weekday: 6 });
     expect(startOfLocalDay(new Date('2026-10-02T22:30:00Z')).toISOString()).toBe('2026-10-02T21:00:00.000Z');
-    expect(clockTime(NOW)).toBe('2:20');
-    expect(clockTime(new Date('2026-10-02T21:05:00Z'))).toBe('12:05');
+    expect(clockTime(NOW)).toBe('2:20 م');
+    expect(clockTime(new Date('2026-10-02T21:05:00Z'))).toBe('12:05 ص');
   });
 
   it('names periods the way he says them', () => {

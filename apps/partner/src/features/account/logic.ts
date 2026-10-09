@@ -11,7 +11,7 @@ import type {
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
-import { formatRange, type Locale, type MessageKey } from '@driver/i18n';
+import { formatClock, formatRange, type Locale, type MessageKey } from '@driver/i18n';
 import { pluralForm } from '@/features/work/logic';
 
 /**
@@ -53,11 +53,12 @@ export function sameLocalDay(a: Date, b: Date): boolean {
   return startOfLocalDay(a).getTime() === startOfLocalDay(b).getTime();
 }
 
-/** 12-hour clock, Western digits, no am/pm (voice guide §5): `7:30`, `12:05`. */
-export function clockTime(at: Date): string {
-  const { hour, minute } = local(at);
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h}:${String(minute).padStart(2, '0')}`;
+/**
+ * 12-hour Baghdad clock with ص/م, Western digits: `7:30 م`, `12:05 ص` — the same as every other time in
+ * the app (check-up item 8, Ali 2026-10-09: one way to say a time).
+ */
+export function clockTime(at: Date, locale: Locale = 'ar-IQ'): string {
+  return formatClock(at, { locale });
 }
 
 /** 12-hour label of an hour of the day for chart ticks: 0 → 12, 13 → 1. */

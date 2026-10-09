@@ -54,7 +54,7 @@ export function receiptRows(r: Pick<JobReceipt, 'lines' | 'takeRate'>, t: T): Re
     const take = l.type === 'commission_accrued';
     return {
       key: `${i}-${l.type}-${l.memo ?? ''}`,
-      label: take && r.takeRate !== null ? t('partner.receipt_take_label', { rate: ratePct(r.takeRate) }) : componentLabel(l, t),
+      label: take && r.takeRate !== null ? t('partner.receipt_take_label_v2', { rate: ratePct(r.takeRate) }) : componentLabel(l, t),
       amountIqd: l.amountIqd,
       reason: l.reason ? t(REASON_KEY[l.reason.code], reasonParams(l.reason.code, l.reason.params)) : null,
       take,

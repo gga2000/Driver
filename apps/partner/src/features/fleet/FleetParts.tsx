@@ -41,12 +41,14 @@ export function EarningsHero({ todayIqd, weekIqd, days, today }: { todayIqd: num
   const bars = weekBars(days, today);
   const [picked, setPicked] = useState<string | null>(null);
   const focus = bars.find((b) => b.date === picked) ?? null;
-  const ink = theme.colors.text;
-  const cream = theme.colors.bg;
+  // Check-up item 4: ink by day; at night a raised ember panel with cream text, never a cream block.
+  const night = theme.scheme === 'dark';
+  const ink = night ? theme.colors.surfaceRaised : theme.colors.text;
+  const cream = night ? theme.colors.text : theme.colors.bg;
   const CHART_H = 104;
 
   return (
-    <View testID="fleet-hero" style={{ backgroundColor: ink, borderRadius: theme.radius['2xl'], padding: theme.space[5], gap: theme.space[4], overflow: 'hidden' }}>
+    <View testID="fleet-hero" style={{ backgroundColor: ink, borderWidth: night ? 1.5 : 0, borderColor: theme.colors.border, borderRadius: theme.radius['2xl'], padding: theme.space[5], gap: theme.space[4], overflow: 'hidden' }}>
       <View style={{ gap: 2 }}>
         <Text variant="label" style={{ color: withAlpha(cream, 0.72) }}>
           {t('partner.fleet_today_title')}

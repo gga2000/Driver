@@ -1,8 +1,26 @@
 import { router, Stack, type Href } from 'expo-router';
 import { View } from 'react-native';
-import { LOUD_FEATURES, sortFeatures, type DriverProfile, type VehicleFeature } from '@driver/contracts';
+import {
+  LOUD_FEATURES,
+  sortFeatures,
+  type DriverProfile,
+  type VehicleFeature,
+} from '@driver/contracts';
 import { pluralKey } from '@driver/i18n';
-import { Avatar, Card, Icon, ListRow, RetryState, retryKindFor, Skeleton, Text, useLoadTimeout, useNetwork, useTheme, type IconName } from '@driver/ui';
+import {
+  Avatar,
+  Card,
+  Icon,
+  ListRow,
+  RetryState,
+  retryKindFor,
+  Skeleton,
+  Text,
+  useLoadTimeout,
+  useNetwork,
+  useTheme,
+  type IconName,
+} from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { memberSpan } from '@/features/account/logic';
 import { CLASS_KEY } from '@/features/fleet/logic';
@@ -38,13 +56,37 @@ export default function Seen() {
     tips.push(
       photo.state === 'pending'
         ? { key: 'photo', icon: 'clock', title: t('partner.seen_photo_waiting'), href: '/photo' }
-        : { key: 'photo', icon: 'user', title: t('partner.seen_photo_missing'), subtitle: t('partner.seen_photo_missing_sub'), href: '/photo' },
+        : {
+            key: 'photo',
+            icon: 'user',
+            title: t('partner.seen_photo_missing'),
+            subtitle: t('partner.seen_photo_missing_sub'),
+            href: '/photo',
+          },
     );
   }
   if (vehicle && hasFeatures(vehicle.vehicleClass)) {
     const f = featuresSummary(vehicle);
-    if (f.pending.length > 0) tips.push({ key: 'features', icon: 'clock', title: t(vehicle.vehicleClass === 'tuktuk' ? 'partner.seen_features_waiting_tuktuk' : 'partner.seen_features_waiting'), subtitle: f.pending.map((x) => t(featureKey(x))).join('، '), href: '/vehicle' });
-    else if (f.confirmed.length === 0) tips.push({ key: 'features', icon: 'car', title: t('partner.seen_features_add'), subtitle: t('partner.seen_features_add_sub'), href: '/vehicle' });
+    if (f.pending.length > 0)
+      tips.push({
+        key: 'features',
+        icon: 'clock',
+        title: t(
+          vehicle.vehicleClass === 'tuktuk'
+            ? 'partner.seen_features_waiting_tuktuk'
+            : 'partner.seen_features_waiting',
+        ),
+        subtitle: f.pending.map((x) => t(featureKey(x))).join('، '),
+        href: '/vehicle',
+      });
+    else if (f.confirmed.length === 0)
+      tips.push({
+        key: 'features',
+        icon: 'car',
+        title: t('partner.seen_features_add'),
+        subtitle: t('partner.seen_features_add_sub'),
+        href: '/vehicle',
+      });
   }
   tips.push({ key: 'words', icon: 'heart', title: t('partner.seen_words'), href: '/compliments' });
 
@@ -81,7 +123,15 @@ export default function Seen() {
           </Text>
           <Card elevation={0} padding={0}>
             {tips.map((r, i) => (
-              <ListRow key={r.key} testID={`seen-tip-${r.key}`} leading={r.icon} title={r.title} subtitle={r.subtitle} onPress={() => router.push(r.href)} divider={i < tips.length - 1} />
+              <ListRow
+                key={r.key}
+                testID={`seen-tip-${r.key}`}
+                leading={r.icon}
+                title={r.title}
+                subtitle={r.subtitle}
+                onPress={() => router.push(r.href)}
+                divider={i < tips.length - 1}
+              />
             ))}
           </Card>
         </View>
@@ -95,6 +145,7 @@ function RiderSheet({ p }: { p: DriverProfile }) {
   const theme = useTheme();
   const t = useT();
   const name = p.firstName ?? t('track.driver_fallback');
+  const fresh = p.rating === null;
   const span = memberSpan(p.memberSince, Date.now());
   return (
     <View
@@ -116,37 +167,98 @@ function RiderSheet({ p }: { p: DriverProfile }) {
       }}
     >
       <View style={{ alignItems: 'center', gap: theme.space[3] }}>
-        <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: theme.colors.borderStrong }} />
+        <View
+          style={{
+            width: 40,
+            height: 5,
+            borderRadius: 3,
+            backgroundColor: theme.colors.borderStrong,
+          }}
+        />
         <Text variant="title" weight={700} align="center">
           {name}
         </Text>
         <Avatar name={name} uri={p.photoUrl ? absoluteUrl(p.photoUrl) : undefined} size={96} />
-        {span ? (
+        {span && !fresh ? (
           <Text testID="seen-since" variant="footnote" color="textMuted" tabular>
-            {span.unit === 'new' ? t('ride.member_new') : t(pluralKey(span.unit === 'months' ? 'ride.member_months' : 'ride.member_years', span.n), { n: span.n })}
+            {span.unit === 'new'
+              ? t('ride.member_new')
+              : t(
+                  pluralKey(
+                    span.unit === 'months' ? 'ride.member_months' : 'ride.member_years',
+                    span.n,
+                  ),
+                  { n: span.n },
+                )}
           </Text>
         ) : null}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-        <Stat testID="seen-rating" star value={p.rating !== null ? p.rating.toFixed(1) : t('track.rating_new')} label={p.ratingCount > 0 ? t(pluralKey('ride.profile_ratings', p.ratingCount), { n: p.ratingCount }) : t('ride.profile_rating')} />
-        <Stat testID="seen-trips" value={p.tripCount.toLocaleString('en-US')} label={t('ride.profile_trips')} />
-        <Stat testID="seen-ontime" value={p.onTimePct !== null ? `${p.onTimePct}٪` : '—'} label={p.onTimePct !== null ? t('ride.profile_on_time') : t('ride.profile_on_time_new')} />
-      </View>
+      {/* Check-up item 7 (Ali, 2026-10-09): a driver nobody has rated yet gets one honest line, not three "new" tiles. */}
+      {fresh ? (
+        <View
+          testID="seen-new"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: theme.space[2],
+            minHeight: 52,
+            borderRadius: theme.radius.lg,
+            backgroundColor: theme.colors.surfaceSunken,
+          }}
+        >
+          <Icon name="star" size={18} color="star" filled fillColor="star" />
+          <Text variant="bodyStrong">{t('ride.new_driver_line')}</Text>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          <Stat
+            testID="seen-rating"
+            star
+            value={p.rating !== null ? p.rating.toFixed(1) : t('track.rating_new')}
+            label={
+              p.ratingCount > 0
+                ? t(pluralKey('ride.profile_ratings', p.ratingCount), { n: p.ratingCount })
+                : t('ride.profile_rating')
+            }
+          />
+          <Stat
+            testID="seen-trips"
+            value={p.tripCount.toLocaleString('en-US')}
+            label={t('ride.profile_trips')}
+          />
+          <Stat
+            testID="seen-ontime"
+            value={p.onTimePct !== null ? `${p.onTimePct}٪` : '—'}
+            label={p.onTimePct !== null ? t('ride.profile_on_time') : t('ride.profile_on_time_new')}
+          />
+        </View>
+      )}
 
       <View style={{ gap: theme.space[2] }}>
         <Text variant="label" color="textMuted">
           {t('ride.profile_car')}
         </Text>
-        <View testID="seen-car" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <View
+          testID="seen-car"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}
+        >
           {p.vehicleColour ? <ColourDot colour={p.vehicleColour} size={16} /> : null}
           <Text variant="bodyStrong" style={{ flexShrink: 1 }}>
-            {[p.vehicleModel ?? t(CLASS_KEY[p.vehicleClass]), p.vehicleColour ? t(colourKey(p.vehicleColour)) : null].filter(Boolean).join(' · ')}
+            {[
+              p.vehicleModel ?? t(CLASS_KEY[p.vehicleClass]),
+              p.vehicleColour ? t(colourKey(p.vehicleColour)) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
         </View>
         <Tags features={p.features} />
         <Text variant="caption" color="textMuted">
-          {p.vehicleClass === 'tuktuk' ? `${t('partner.seen_plate_note_tuktuk')} ${t('partner.seen_features_note_tuktuk')}` : `${t('partner.seen_plate_note')} ${t('partner.seen_features_note')}`}
+          {p.vehicleClass === 'tuktuk'
+            ? `${t('partner.seen_plate_note_tuktuk')} ${t('partner.seen_features_note_tuktuk')}`
+            : `${t('partner.seen_plate_note')} ${t('partner.seen_features_note')}`}
         </Text>
       </View>
 
@@ -157,7 +269,18 @@ function RiderSheet({ p }: { p: DriverProfile }) {
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {p.compliments.map((c) => (
-              <View key={c.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: theme.space[3], borderRadius: 18, backgroundColor: theme.colors.successTint }}>
+              <View
+                key={c.key}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  minHeight: 36,
+                  paddingHorizontal: theme.space[3],
+                  borderRadius: 18,
+                  backgroundColor: theme.colors.successTint,
+                }}
+              >
                 <Icon name="heart" size={14} color="successText" />
                 <Text variant="label" color="successText">
                   {t(`compliment.${c.key}`)}
@@ -174,10 +297,30 @@ function RiderSheet({ p }: { p: DriverProfile }) {
   );
 }
 
-function Stat({ value, label, star = false, testID }: { value: string; label: string; star?: boolean; testID: string }) {
+function Stat({
+  value,
+  label,
+  star = false,
+  testID,
+}: {
+  value: string;
+  label: string;
+  star?: boolean;
+  testID: string;
+}) {
   const theme = useTheme();
   return (
-    <View testID={testID} style={{ flex: 1, alignItems: 'center', gap: 2, paddingVertical: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+    <View
+      testID={testID}
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        gap: 2,
+        paddingVertical: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: theme.colors.surfaceSunken,
+      }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         {star ? <Icon name="star" size={16} color="star" filled fillColor="star" /> : null}
         <Text variant="title" tabular>
@@ -202,8 +345,21 @@ function Tags({ features }: { features: readonly VehicleFeature[] }) {
       {shown.map((f) => {
         const loud = LOUD_FEATURES.includes(f);
         return (
-          <View key={f} style={{ minHeight: 26, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 13, backgroundColor: loud ? theme.colors.accentTint : theme.colors.surfaceSunken }}>
-            <Text variant="caption" weight={loud ? 700 : 500} color={loud ? 'accentText' : 'textMuted'}>
+          <View
+            key={f}
+            style={{
+              minHeight: 26,
+              justifyContent: 'center',
+              paddingHorizontal: 10,
+              borderRadius: 13,
+              backgroundColor: loud ? theme.colors.accentTint : theme.colors.surfaceSunken,
+            }}
+          >
+            <Text
+              variant="caption"
+              weight={loud ? 700 : 500}
+              color={loud ? 'accentText' : 'textMuted'}
+            >
               {t(featureKey(f))}
             </Text>
           </View>

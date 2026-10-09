@@ -156,22 +156,25 @@ export function ModeCard({ icon, title, body, cta, href, testID }: { icon: IconN
 export function ActiveJobBanner({ khat = false }: { khat?: boolean }) {
   const theme = useTheme();
   const t = useT();
+  // Check-up item 4: an ink bar by day; at night a raised ember bar, never a cream block.
+  const night = theme.scheme === 'dark';
+  const on = night ? 'text' : 'surface';
   return (
     <Pressable
       testID="active-job-banner"
       accessibilityRole="button"
       onPress={() => router.push(khat ? '/khat' : '/job')}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.text }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: night ? theme.colors.surfaceRaised : theme.colors.text, borderWidth: night ? 1.5 : 0, borderColor: theme.colors.accentBorder }}
     >
       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.success, marginStart: theme.space[1] }} />
-      <Text variant="label" weight={600} color="surface" style={{ flex: 1 }}>
+      <Text variant="label" weight={600} color={on} style={{ flex: 1 }}>
         {t(khat ? 'partner.active_khat_run' : 'partner.active_job')}
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: withAlpha(color.neutral[0], 0.14), borderRadius: theme.radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
-        <Text variant="label" weight={600} color="surface">
+        <Text variant="label" weight={600} color={on}>
           {t('partner.active_job_open')}
         </Text>
-        <Icon name="chevron-forward" size={16} color="surface" strokeWidth={2.4} />
+        <Icon name="chevron-forward" size={16} color={on} strokeWidth={2.4} />
       </View>
     </Pressable>
   );

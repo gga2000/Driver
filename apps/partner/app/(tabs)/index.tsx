@@ -26,12 +26,12 @@ import { useBookedJobs, useDemandMap, useMe, useStatus } from '@/features/work/q
 import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
 import { useLocale, useT } from '@/lib/i18n';
-import { formatWhen } from '@driver/i18n';
+import { formatClock, formatWhen, type Locale } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
-/** «7:42» in Baghdad time, Western digits. */
-function clockOf(d: Date, locale: string): string {
-  return new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : 'ar-IQ-u-nu-latn', { hour: 'numeric', minute: '2-digit', hour12: false, timeZone: 'Asia/Baghdad' }).format(d);
+/** «7:42 م» in Baghdad time, Western digits, 12-hour with ص/م like every time in the app (check-up item 8). */
+function clockOf(d: Date, locale: Locale): string {
+  return formatClock(d, { locale });
 }
 
 /**
