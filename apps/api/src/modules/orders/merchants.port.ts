@@ -34,6 +34,8 @@ export interface MerchantProfile {
 export interface MerchantDirectory {
   profile(orgId: string): Promise<MerchantProfile | null>;
   heartbeat(orgId: string, at: Date): Promise<void>;
+  /** x1: when a merchant's settings last changed on this instance (epoch ms, 0 = never). */
+  changeStamp?(): number;
 }
 
 export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
@@ -41,7 +43,7 @@ export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
 /** Production binding over `OrgsService`. */
 export class OrgsMerchantDirectory implements MerchantDirectory {
   constructor(
-    private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'>,
+    private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'> & Partial<Pick<OrgsService, 'merchantChangeStamp'>>,
     /** The clock a holiday closure (local date) and a quick pause's reopening are judged by. */
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -71,6 +73,10 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
 
   async heartbeat(orgId: string, at: Date): Promise<void> {
     await this.orgs.heartbeat(orgId, at);
+  }
+
+  changeStamp(): number {
+    return this.orgs.merchantChangeStamp?.() ?? 0;
   }
 }
 

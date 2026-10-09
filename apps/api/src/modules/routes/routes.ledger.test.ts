@@ -3,6 +3,7 @@ import { decodeDomainEvent, isDomainEventType } from '@driver/contracts';
 import { LEDGER_SUBSCRIBED_EVENTS } from '../ledger/index.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import type { RecordedRoutesEvent } from './events.adapter.js';
+import { DEFAULT_GARAGE_WATCH_RULES, DeparturesStaffService } from './departures.staff.js';
 import { BAB2, routesHarness } from './test-harness.js';
 
 /** What the ledger's bus delivers: the envelope merged under the payload, JSON round-tripped. */
@@ -109,5 +110,23 @@ describe('ledger: a full departure settles through the existing posting groups (
     expect(await bal('driver:d2')).toBe(4_500);
     expect(await bal('customer:r3')).toBe(-5_000);
     expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('M-11 no-show cancel (switch on): each rider gets 2,000 from the driver, a rider with two seats once; switch off: nothing moves', async () => {
+    const audit = { record: async () => ({ id: 'a' }) };
+    const ops = { personId: 'ops1', sessionId: 's' };
+    for (const noShowFee of [true, false]) {
+      const h = routesHarness();
+      const staff = new DeparturesStaffService(h.departures, audit, { ...DEFAULT_GARAGE_WATCH_RULES, noShowFee });
+      const dep = await h.announce();
+      await h.book('r1', dep.id, ['front']);
+      await h.book('r2', dep.id, ['back_left', 'back_middle'], { payment: 'cash' });
+      h.advance(171);
+      await staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما إجه' });
+      const l = await deliver(h.events.events);
+      const bal = async (a: string) => (await l.ledger.balance(a)).amount;
+      expect([await bal('customer:r1'), await bal('customer:r2'), await bal('driver:d1')]).toEqual(noShowFee ? [2_000, 2_000, -4_000] : [0, 0, 0]);
+      expect((await l.ledger.checkInvariant()).ok).toBe(true);
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
 } from '@/features/food/checkout';
 import { useHousehold, useWalletBalance } from '@/features/account/queries';
 import { payerOf as householdPayerOf } from '@/features/account/family';
+import { householdToPayFrom } from '@/features/account/household-pay';
 import { etaClockAt, payCopy, paymentOf, payerOf, receiverHint, type Payer } from '@/features/food/checkout-lines';
 import { DeliverToRow } from '@/features/food/DeliverToRow';
 import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
@@ -157,8 +158,9 @@ export default function CheckoutScreen() {
   const balance = wallet.data ? wallet.data.moneyIqd : null;
   const walletRow = walletChoice(balance, priced?.priceIqd ?? 0);
   // Joy w4: the household wallet, for its payers and orderers; the server decides whether the payer
-  // is asked first — the hint here reads the same rule on the hub's own numbers.
-  const home = household.data && household.data.myRole !== 'member' ? household.data : null;
+  // is asked first — the hint here reads the same rule on the hub's own numbers. Hidden while
+  // HOUSEHOLD_PAY_ENABLED is off (RDB-03: nothing funds the household account yet).
+  const home = householdToPayFrom(household.data);
   const homeBalance = home && wallet.data?.household?.id === home.id ? wallet.data.household.balanceIqd : null;
   const homeRow = walletChoice(homeBalance, priced?.priceIqd ?? 0);
   const meInHome = home?.members.find((m) => m.isMe) ?? null;

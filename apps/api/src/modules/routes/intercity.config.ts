@@ -239,7 +239,7 @@ export interface IntercityRules {
   moveWindowMin: number;
   /** Driver cancel inside this many minutes before departure costs a fee (domain §2: 2 h). */
   driverCancelFeeWindowMin: number;
-  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider). */
+  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider; also the M-11 no-show fee). */
   driverCancelFeePerRiderIqd: number;
   /** Fee doubles for departures at or after this local hour (review C-46: 18:00). */
   cancelFeeDoublesFromHour: number;
@@ -289,7 +289,7 @@ export const INTERCITY_RULES: IntercityRules = {
   trustedAfterSeats: 3,
   moveWindowMin: 120,
   driverCancelFeeWindowMin: 120,
-  driverCancelFeePerRiderIqd: 2_000, // PLACEHOLDER (review C-46 figure)
+  driverCancelFeePerRiderIqd: 2_000, // review C-46; Ali confirmed it for garage no-shows (M-11, 2026-10-09)
   cancelFeeDoublesFromHour: 18,
   utcOffsetMin: 180,
   door: {

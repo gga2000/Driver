@@ -4,13 +4,32 @@ import { IntercityDepartureState } from './routes-io.js';
 /**
  * W3 (NTF-10 routes part, NTF-14): the Console's way out of a الرجعة departure whose driver never
  * came or never pressed «وصلت». Every action takes a written reason and leaves a `console_audit_log`
- * row. No fee is charged to the driver and no extra credit is paid to riders (M-11 is open): riders
- * are moved to the next cars exactly as on a driver cancel, and seats only settle on arrival.
+ * row. Riders are moved to the next cars exactly as on a driver cancel, and seats only settle on
+ * arrival. M-11 (Ali, 2026-10-09): cancelling a run whose driver never came credits each booked rider
+ * 2,000 دينار (4,000 for a departure from 18:00) and charges the driver the total, behind the switch
+ * `GARAGE_NO_SHOW_FEE` (off): while it is off, `noShowFee` is null and nobody is charged.
  */
 const Reason = z.string().trim().min(3).max(500);
 
 export const StaffDepartureInput = z.object({ departureId: z.string().min(1), reason: Reason });
 export type StaffDepartureInput = z.infer<typeof StaffDepartureInput>;
+
+/**
+ * M-11: what a staff cancel of a no-show run costs the driver. Computed by the server only; the
+ * Console shows it in the cancel step before staff confirm, and the cancel result echoes what was
+ * actually charged.
+ */
+export const DepartureNoShowFee = z.object({
+  /** Distinct booked riders (a rider with two seats counts once), each credited `perRiderIqd`. */
+  riders: z.number().int().nonnegative(),
+  /** 2,000, or 4,000 when the departure is at or after 18:00 Baghdad time. */
+  perRiderIqd: z.number().int().nonnegative(),
+  /** True when the 18:00 doubling applies. */
+  doubled: z.boolean(),
+  /** riders × perRiderIqd: taken from the driver's balance (he settles it at his next cash hand-in). */
+  driverChargeIqd: z.number().int().nonnegative(),
+});
+export type DepartureNoShowFee = z.infer<typeof DepartureNoShowFee>;
 
 export const StaffDepartureResult = z.object({
   departureId: z.string(),
@@ -18,6 +37,8 @@ export const StaffDepartureResult = z.object({
   /** False when the departure was already where the action leads (a replay): nothing written. */
   changed: z.boolean(),
   auditId: z.string().nullable(),
+  /** Cancel only: the M-11 fee this cancel charged; null when the switch is off, on a replay, or for arrive/close. */
+  noShowFee: DepartureNoShowFee.nullable().optional(),
 });
 export type StaffDepartureResult = z.infer<typeof StaffDepartureResult>;
 
@@ -45,6 +66,8 @@ export const OverdueDeparture = z.object({
   /** Riders still on it (booked or checked in). */
   riders: z.number().int().nonnegative(),
   actions: z.array(z.enum(['cancel', 'arrive'])),
+  /** `driver_no_show` rows with the M-11 switch on: what «ألغِ» would credit and charge. Null otherwise. */
+  noShowFee: DepartureNoShowFee.nullable().optional(),
 });
 export type OverdueDeparture = z.infer<typeof OverdueDeparture>;
 

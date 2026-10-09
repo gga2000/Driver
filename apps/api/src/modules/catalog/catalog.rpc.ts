@@ -47,6 +47,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
+import { mapBounded } from '../../shared/map-bounded.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
@@ -120,7 +121,34 @@ export interface StorefrontMerchants {
   deals?(orgId: string, at: Date): Promise<DealBadge[]>;
   /** Joy o8: per dish id, how many of the kitchen's orders since `since` had it (refused and cancelled orders left out). */
   dishOrderCounts?(orgId: string, since: Date, until: Date): Promise<Map<string, number>>;
+  /**
+   * x1: when (epoch ms) a merchant's settings last changed on this instance (opened, closed, busy,
+   * moved, a tablet back online); 0 when never. A change rebuilds the town snapshot at once.
+   */
+  changeStamp?(): number;
 }
+
+type MerchantFacts = Awaited<ReturnType<StorefrontMerchants['profile']>>;
+
+/** One kitchen as every list reads it: storefront, menu, merchant settings and deals. */
+interface Kitchen {
+  s: StorefrontRecord;
+  items: readonly CatalogItemRecord[];
+  profile: MerchantFacts;
+  deals: DealBadge[];
+}
+
+/**
+ * x1: how long one town's kitchens are reused by the lists (home, picks, cravings, search, pots,
+ * today, carry-over). A menu edit or a kitchen opening/closing on this instance rebuilds them at once;
+ * other instances see it within this time. Ride minutes, fees, kill switches and opening hours are
+ * still worked out per read, `catalog.menu` reads live, and `orders.place` checks every price and the
+ * open state itself.
+ */
+export const TOWN_SNAPSHOT_MS = 30_000;
+
+/** A snapshot built this soon after a change only lives this long (that change may still have been committing). */
+const TOWN_SETTLE_MS = 2_000;
 
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
 
@@ -134,6 +162,16 @@ export interface StorefrontToday {
   latePromiseMin(cityId: string): number;
 }
 export const STOREFRONT_TODAY = Symbol('STOREFRONT_TODAY');
+
+/**
+ * Storefront cards one catalog read builds at once (perf t4): each card reads the merchant profile, its
+ * deals and a ride time, so a city's kitchens are built side by side instead of one after another, but
+ * bounded so one read never takes the whole database pool.
+ */
+export const CARD_CONCURRENCY = 6;
+
+/** Kitchen → door ride minutes already asked for in this one read, by pin pair (shared between cards). */
+type RideMemo = Map<string, Promise<number | null>>;
 
 /** The zone a "tuktuk from" fare is priced in: a ride inside the town centre. */
 const TODAY_TUKTUK_ZONE = 'centre';
@@ -167,6 +205,8 @@ export class CatalogRpc implements CustomerCatalogPort {
   private readonly eta: EtaService;
   /** Merchant uploads (`upload:<id>`) as signed links: the owner's photo edits and accepted menu-photo-service shots. */
   private readonly photo: PhotoLink;
+  /** x1: per city, the kitchens of the last build (a promise, so reads arriving during a build share it). */
+  private readonly towns = new Map<string, { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number }>();
 
   constructor(
     private readonly catalog: CatalogService,
@@ -188,16 +228,18 @@ export class CatalogRpc implements CustomerCatalogPort {
   async restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]> {
     await this.admit(reader);
     const now = this.clock.now();
-    const fronts = await this.catalog.storefronts(input.cityId);
     const f = input.filters;
     const q = f.query ? foldArabic(f.query) : '';
+    const rides: RideMemo = new Map();
+    const built = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+      if (q && !this.matches(k.s, k.items, q)) return null;
+      if (f.tag && !k.s.tags.includes(f.tag)) return null;
+      const card = await this.card(k, input.dropoff ?? null, now, rides);
+      return outOfReach(k.s, card, input.dropoff) ? null : card;
+    });
     const cards: RestaurantCard[] = [];
-    for (const s of fronts) {
-      const items = await this.catalog.menu(s.orgId);
-      if (q && !this.matches(s, items, q)) continue;
-      if (f.tag && !s.tags.includes(f.tag)) continue;
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
+    for (const card of built) {
+      if (!card) continue;
       if (f.openNow && !card.open) continue;
       if (f.freeDelivery && card.deliveryFeeIqd !== 0) continue;
       cards.push(card);
@@ -216,8 +258,9 @@ export class CatalogRpc implements CustomerCatalogPort {
     const s = await this.catalog.storefront(input.merchantId);
     if (!s) throw new DriverError('org_not_found');
     const now = this.clock.now();
-    const items = await this.catalog.menu(s.orgId);
-    const restaurant = await this.card(s, items, input.dropoff ?? null, now);
+    const kitchen = await this.kitchen(s, now);
+    const items = kitchen.items;
+    const restaurant = await this.card(kitchen, input.dropoff ?? null, now);
     // f10: each dish's price under a live percent deal with no minimum (the rule orders.quote applies).
     const deals = restaurant.deals ?? [];
     const categories = menuSections(items, now, this.merchants.timeZone, this.photo).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
@@ -246,16 +289,21 @@ export class CatalogRpc implements CustomerCatalogPort {
     const personId = readerPerson(reader);
     const followed = new Set(personId ? (await this.catalog.dishFollows(personId)).map((f) => f.itemId) : []);
     const out: Array<{ pot: TodayPot; postedAt: number }> = [];
-    for (const s of await this.catalog.storefronts(input.cityId)) {
+    const rides: RideMemo = new Map();
+    const built = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+      const { s } = k;
       const pot = showing.get(s.orgId);
-      if (!pot) continue;
-      const items = await this.catalog.menu(s.orgId);
-      const item = items.find((i) => i.id === pot.itemId);
-      if (!item) continue;
+      if (!pot) return null;
+      const item = k.items.find((i) => i.id === pot.itemId);
+      if (!item) return null;
       const view = menuItemView(item, now, this.merchants.timeZone);
-      if (!view.available) continue;
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
+      if (!view.available) return null;
+      const card = await this.card(k, input.dropoff ?? null, now, rides);
+      return outOfReach(s, card, input.dropoff) ? null : { s, pot, view, card };
+    });
+    for (const b of built) {
+      if (!b) continue;
+      const { s, pot, view, card } = b;
       out.push({
         postedAt: pot.createdAt.getTime(),
         pot: {
@@ -293,13 +341,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     await this.admit(reader);
     const now = this.clock.now();
     const rejected = await this.catalog.storefront(input.merchantId);
-    const cards: Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }> = [];
-    for (const s of await this.catalog.storefronts(input.cityId)) {
-      const items = await this.catalog.menu(s.orgId);
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
-      cards.push({ card, items });
-    }
+    const cards = await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now);
     const picked = similarKitchens({ id: input.merchantId, tags: rejected?.tags ?? [] }, cards.map((c) => c.card));
     const options = picked.map((card) => {
       const items = cards.find((c) => c.card.id === card.id)!.items;
@@ -336,8 +378,9 @@ export class CatalogRpc implements CustomerCatalogPort {
     const now = this.clock.now();
     const restaurants: Array<{ card: RestaurantCard; score: number }> = [];
     const dishes: Array<{ dish: CatalogSearchDish; score: number }> = [];
-    for (const s of await this.catalog.storefronts(input.cityId)) {
-      const items = await this.catalog.menu(s.orgId);
+    const rides: RideMemo = new Map();
+    const matched = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+      const { s, items } = k;
       // A name match outranks a cuisine or tag match ("خالد" → مطعم خالد before a kebab place).
       const byName = searchScore(folded, s.nameAr);
       const byKind = Math.max(searchScore(folded, s.cuisineAr), ...s.tags.map((tag) => searchScore(folded, tag)), 0);
@@ -349,9 +392,13 @@ export class CatalogRpc implements CustomerCatalogPort {
           return { item, score: byDish > 0 ? byDish : item.categoryAr && searchScore(folded, item.categoryAr) > 0 ? 0.5 : 0 };
         })
         .filter((h) => h.score > 0);
-      if (kitchenScore === 0 && hits.length === 0) continue;
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
+      if (kitchenScore === 0 && hits.length === 0) return null;
+      const card = await this.card(k, input.dropoff ?? null, now, rides);
+      return outOfReach(s, card, input.dropoff) ? null : { kitchenScore, hits, card };
+    });
+    for (const m of matched) {
+      if (!m) continue;
+      const { kitchenScore, hits, card } = m;
       // A kitchen that only matches by its dishes still shows in the kitchen list, after the rest.
       restaurants.push({ card, score: kitchenScore > 0 ? kitchenScore : 0.5 });
       for (const { item, score } of hits) {
@@ -417,10 +464,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const now = this.clock.now();
     const words = input.words.map((w) => foldArabic(w)).filter(Boolean);
     const found: Array<{ rank: number; score: number; dish: CatalogSearchDish }> = [];
-    for (const s of await this.catalog.storefronts(input.cityId)) {
-      const items = await this.catalog.menu(s.orgId);
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
+    for (const { card, items } of await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now)) {
       if (!card.open) continue;
       for (const item of items) {
         const rank = words.findIndex((w) => searchScore(w, item.nameAr) >= 2);
@@ -474,10 +518,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const now = this.clock.now();
     const kinds = input.kinds.map((k) => ({ key: k.key, words: k.words.map((w) => foldArabic(w)).filter(Boolean) }));
     const found = new Map<string, Array<{ score: number; dish: CatalogSearchDish }>>(kinds.map((k) => [k.key, []]));
-    for (const s of await this.catalog.storefronts(input.cityId)) {
-      const items = await this.catalog.menu(s.orgId);
-      const card = await this.card(s, items, input.dropoff ?? null, now);
-      if (outOfReach(s, card, input.dropoff)) continue;
+    for (const { card, items } of await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now)) {
       if (!card.open) continue;
       const views = items.map((item) => menuItemView(item, now, this.merchants.timeZone, this.photo)).filter((v) => v.available);
       for (const kind of kinds) {
@@ -540,10 +581,7 @@ export class CatalogRpc implements CustomerCatalogPort {
   async today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday> {
     await this.admit(reader);
     const now = this.clock.now();
-    let openRestaurants = 0;
-    for (const s of await this.catalog.storefronts(input.cityId)) {
-      if ((await this.card(s, await this.catalog.menu(s.orgId), null, now)).open) openRestaurants += 1;
-    }
+    const openRestaurants = (await this.cardsWithMenus(input.cityId, null, now)).filter((c) => c.card.open).length;
     let tuktukFromIqd: number | null = null;
     try {
       tuktukFromIqd = this.pricing.quote(
@@ -588,19 +626,85 @@ export class CatalogRpc implements CustomerCatalogPort {
     });
   }
 
-  /** Kitchen → door courier minutes from the one ETA service, plus pickup and hand-over; null without pins. */
-  private async rideMinutes(from: DeliveryPoint, to: DeliveryPoint): Promise<number | null> {
-    const a = pinOf(from);
-    const b = pinOf(to);
-    if (!a || !b) return null;
-    return (await this.eta.minutes(a, b, 'bike')).minutes + STOREFRONT_RULES.handoverMin;
+  /**
+   * Every kitchen's menu and card for one read, in the storefronts' order, so what a caller does with
+   * them next is exactly what the one-by-one loop did. Kitchens out of reach of the drop-off (ice
+   * cream too far) are left out.
+   */
+  private async cardsWithMenus(cityId: string, dropoff: DeliveryPoint | null, now: Date): Promise<Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }>> {
+    const rides: RideMemo = new Map();
+    const built = await mapBounded(await this.town(cityId), CARD_CONCURRENCY, async (k) => {
+      const card = await this.card(k, dropoff, now, rides);
+      return outOfReach(k.s, card, dropoff) ? null : { card, items: k.items };
+    });
+    return built.filter((b) => b !== null);
   }
 
-  private async card(s: StorefrontRecord, items: readonly CatalogItemRecord[], dropoff: DeliveryPoint | null, now: Date): Promise<RestaurantCard> {
-    const { location, pauseWindows: pauses, busy: merchantBusy, closed, reopensAt, holiday } = await this.merchants.profile(s.orgId, s.cityId, now);
+  /**
+   * x1: the town's kitchens, reused for `TOWN_SNAPSHOT_MS` (one read of every storefront, menu,
+   * merchant profile and deal list instead of one per kitchen per list), rebuilt at once when the
+   * catalog or a merchant's settings changed on this instance.
+   */
+  private town(cityId: string): Promise<Kitchen[]> {
+    const now = this.clock.now().getTime();
+    const menus = this.catalog.changeStamp();
+    const merchants = this.merchants.changeStamp?.() ?? 0;
+    const stamp = `${menus}:${merchants}`;
+    const hit = this.towns.get(cityId);
+    const settling = hit !== undefined && hit.builtAt - Math.max(menus, merchants) < TOWN_SETTLE_MS;
+    const fresh = hit !== undefined && now - hit.builtAt < (settling ? TOWN_SETTLE_MS : TOWN_SNAPSHOT_MS) && now < (hit.until ?? Infinity);
+    if (hit && hit.stamp === stamp && fresh) return hit.kitchens;
+    const at = new Date(now);
+    const kitchens = this.catalog.storefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
+    const entry: { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number } = { builtAt: now, stamp, kitchens };
+    this.towns.set(cityId, entry);
+    // A quick pause that ends inside the snapshot's life reopens the kitchen on the minute: the
+    // snapshot lives only until the earliest such reopening.
+    void kitchens.then((ks) => {
+      const reopen = ks.reduce((min, k) => {
+        const t = k.profile.reopensAt?.getTime();
+        return t !== undefined && t > now && t < min ? t : min;
+      }, Infinity);
+      if (reopen !== Infinity) entry.until = reopen;
+    }, () => undefined);
+    // A failed build is not kept: the next read tries again.
+    kitchens.catch(() => {
+      if (this.towns.get(cityId) === entry) this.towns.delete(cityId);
+    });
+    return kitchens;
+  }
+
+  /** One kitchen's facts, read now (one after another, so a build holds one connection per kitchen). */
+  private async kitchen(s: StorefrontRecord, at: Date): Promise<Kitchen> {
+    const items = await this.catalog.menu(s.orgId);
+    const profile = await this.merchants.profile(s.orgId, s.cityId, at);
+    const deals = (await this.merchants.deals?.(s.orgId, at)) ?? [];
+    return { s, items, profile, deals };
+  }
+
+  /**
+   * Kitchen → door courier minutes from the one ETA service, plus pickup and hand-over; null without pins.
+   * Within one read the same pin pair (branches at one spot) is asked for once.
+   */
+  private rideMinutes(from: DeliveryPoint, to: DeliveryPoint, rides: RideMemo): Promise<number | null> {
+    const a = pinOf(from);
+    const b = pinOf(to);
+    if (!a || !b) return Promise.resolve(null);
+    const key = `${a.lat},${a.lng}>${b.lat},${b.lng}`;
+    let minutes = rides.get(key);
+    if (!minutes) {
+      minutes = this.eta.minutes(a, b, 'bike').then((m) => m.minutes + STOREFRONT_RULES.handoverMin);
+      rides.set(key, minutes);
+    }
+    return minutes;
+  }
+
+  private async card(k: Kitchen, dropoff: DeliveryPoint | null, now: Date, rides: RideMemo = new Map()): Promise<RestaurantCard> {
+    const { s, items } = k;
+    const { location, pauseWindows: pauses, busy: merchantBusy, closed, reopensAt, holiday } = k.profile;
     const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
-    const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff) : null);
+    const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff, rides) : null);
     const fees = location && dropoff ? this.feePreview(s.cityId, location, dropoff, now) : null;
     // REL-16: a kitchen a kill switch stops looks closed here, with the switch's words, not only at «اطلب».
     const stoppedNote = this.switches ? await this.switches.stopped({ cityId: s.cityId, merchantOrgId: s.orgId, kitchenZone: location?.zoneKey ?? null, dropoffZone: dropoff?.zoneKey ?? null }) : null;
@@ -636,7 +740,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       busy,
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
-      deals: (await this.merchants.deals?.(s.orgId, now)) ?? [],
+      deals: k.deals,
     };
   }
 
