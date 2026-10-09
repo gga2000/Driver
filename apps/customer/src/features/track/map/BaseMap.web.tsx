@@ -1,4 +1,3 @@
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
@@ -10,6 +9,7 @@ import { useApi } from '@/lib/api';
 import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
+import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
@@ -77,6 +77,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         if (golden) await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
+        ensureMaplibreCss();
         // Golden hour when its files are set up; the original map otherwise and as the fallback.
         let light = golden?.resolveLight().light;
         const goldenStyle = () =>
