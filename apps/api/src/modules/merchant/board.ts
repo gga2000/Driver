@@ -79,6 +79,7 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
       unitPriceIqd: unit,
       totalIqd: unit * l.qty,
       availability: l.availability,
+      menuItemId: l.catalogItemId ?? null,
     };
   };
   const count = (lines: BoardLine[]) => lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);

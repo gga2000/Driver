@@ -1889,5 +1889,12 @@
   "merchant.photo_down.tile": "Photo taken down",
   "merchant.photo_down.take": "Take one",
   "merchant.photo_down.see": "See them",
-  "merchant.photo_down.ok": "OK"
+  "merchant.photo_down.ok": "OK",
+  "merchant.stop_today.one": "Take {dish} off the menu for the rest of today",
+  "merchant.stop_today.many": "Take them off the menu for the rest of today",
+  "merchant.stop_today.hint_one": "So no other customer orders it. It comes back by itself tomorrow.",
+  "merchant.stop_today.hint_many": "{names}. So no other customer orders them; they come back by themselves tomorrow.",
+  "merchant.stop_today.done": "Sent to the customer, and {names} is off the menu for the rest of today",
+  "merchant.stop_today.failed": "Sent to the customer, but it didn't come off the menu. Take it off from the menu page",
+  "merchant.stop_today.join": ", "
 }

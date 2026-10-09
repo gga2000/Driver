@@ -48,6 +48,14 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
   «نزّلنا صورتها» on its tile, and once on the board (per device, in a quiet moment) with «صوّرها».
   An unknown reason reads as «ما تناسب المنيو».
 
+## m5 — a dish that ran out comes off the menu from the ticket
+
+- `BoardLine.menuItemId` (additive, null for a free-text line).
+- In the accept sheet's «شنو اللي خلص؟», the dishes ticked as out also come off the menu for the rest of
+  the day («شيل {dish} من المنيو لباقي اليوم», on by default, the kitchen can untick it): after the
+  partial accept goes to the customer, the app calls `merchantAdmin.menu.soldOutToday` for each, so it
+  comes back by itself tomorrow. A practice order changes nothing on the menu.
+
 ## Left for other teams
 
 - **Orders**: auto-accept uses `MerchantProfile.defaultPrepMin` (`ORDERS_RULES.defaultPrepMin` = 20 when
