@@ -5,6 +5,7 @@ import { LIVE_RULES, SHARE_LIVE_RULES, type SharedTrip } from '@driver/contracts
 import { Text, useTheme } from '@driver/ui';
 import { distanceM, type LngLat, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import { MAP_CREDIT } from '@/features/track/map/credit';
 import { useLabelAvoid } from '@/features/track/map/useLabelAvoid';
 import { CourierMarker, PlacePin, placePinSide, RouteLine } from '@/features/track/map/Overlay';
 import { RecentreChip } from '@/features/track/map/RecentreChip';
@@ -87,7 +88,7 @@ export function ShareMap({ token, trip, stale, live, minutes }: { token: string;
       ) : null}
       {!camera.follow && fix ? <RecentreChip bottom={SHEET_OVERLAP + theme.space[3]} onPress={camera.recentre} /> : null}
       <Text variant="caption" color="textMuted" style={{ position: 'absolute', right: theme.space[3], bottom: SHEET_OVERLAP + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}>
-        © OpenStreetMap
+        {MAP_CREDIT}
       </Text>
       {!pos ? (
         <View pointerEvents="none" style={{ position: 'absolute', top: '42%', alignSelf: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface }}>

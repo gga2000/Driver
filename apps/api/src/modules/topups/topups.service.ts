@@ -200,7 +200,8 @@ export class TopUpService implements TopUpPort {
       reference: done.reference ?? topUpReference(done.id),
       channel: done.channel ?? channel,
       confirmedAt: done.confirmedAt ?? now,
-      walletBalanceIqd: (await this.ledger.balance(Accounts.customer(done.customerId))).amount,
+      // A customer's balance is his own: only field ops see it, never the courier at his door.
+      ...(channel === 'courier' ? {} : { walletBalanceIqd: (await this.ledger.balance(Accounts.customer(done.customerId))).amount }),
       customerName: firstName(card?.name ?? null),
       customerPhoneMasked: card?.phoneMasked ?? null,
     };

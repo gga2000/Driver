@@ -11,7 +11,7 @@ import { useDates } from '@/lib/dates';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { statementBridge, statementDays, ticketNumber, type BridgeTerm } from './logic';
+import { statementDays, ticketNumber, weekLines, type WeekLine } from './logic';
 
 const PAY_TONE = { cash: 'warning', wallet: 'neutral', prepaid: 'neutral' } as const;
 
@@ -172,7 +172,7 @@ function Cell({ label, value, strong }: { label: string; value: string; strong?:
       <Text variant="caption" color="textMuted">
         {label}
       </Text>
-      <Text variant="bodyStrong" weight={700} tabular numberOfLines={1}>
+      <Text variant="bodyStrong" weight={700} tabular>
         {value}
       </Text>
     </View>
@@ -343,48 +343,50 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
 }
 
 /**
- * M-17 · the bridge: "رصيد أول الأسبوع + الصافي − اللي استلمته (+ تعديلات) = رصيد آخر الأسبوع", the
- * four numbers that never added up on screen now reconcile in one row. "اللي استلمته" opens its lines.
+ * M-17 · how the balance got here, d19: in plain sentences, one per line — «بدينا الأسبوع بـ… · ربحت… ·
+ * استلمت… · باقي إلك…» — instead of a row of «+ − =» he had to work out. The same numbers as before
+ * (`weekLines` reads `statementBridge`); «استلمت» opens its lines.
  */
-function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: boolean; now: number }) {
+function Bridge({ statement, now }: { statement: WeeklyStatement; wide: boolean; now: number }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
   const [open, setOpen] = useState(false);
-  const { terms } = statementBridge(statement);
-  const byKey = Object.fromEntries(terms.map((x) => [x.key, iqd(x.amountIqd, { locale })]));
-  const cell = (term: BridgeTerm) => {
-    const last = term.key === 'closing';
-    const body = (
-      <View style={{ gap: 2, alignItems: 'flex-start' }}>
-        <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {t(term.label)}
-        </Text>
-        <Text variant={last ? 'bodyStrong' : 'label'} weight={last ? 700 : 600} tabular color={term.key === 'settled' ? 'accentText' : 'text'} numberOfLines={1}>
-          {iqd(term.amountIqd, { locale })}
-        </Text>
-      </View>
-    );
-    // On a phone the terms wrap, so every term (the opening too, blank) keeps a fixed operator gutter:
-    // the rows share one start edge and «−» / «=» sit inside the box, not out past «رصيد أول الأسبوع».
-    const gutter = wide ? undefined : { width: theme.space[4], alignItems: 'center' as const };
-    return (
-      <View key={term.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
-        {term.op ? (
-          <Text variant="title" weight={700} color="textMuted" align="center" accessibilityElementsHidden importantForAccessibility="no" style={gutter}>
-            {term.op}
-          </Text>
-        ) : gutter ? (
-          <View style={gutter} />
-        ) : null}
-        {term.key === 'settled' ? (
-          <Pressable testID="bridge-settled" accessibilityRole="button" accessibilityLabel={`${t(term.label)} ${iqd(term.amountIqd, { locale })}`} onPress={() => setOpen(true)} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint })}>
-            {body}
-          </Pressable>
+  const { lines } = weekLines(statement);
+  const sentence = (text: TKey, amountIqd: number) => t(text, { amount: amountParam(amountIqd) });
+  const row = (line: WeekLine) => {
+    const last = line.key === 'closing';
+    const full = sentence(line.text, line.amountIqd);
+    const amount = amountParam(line.amountIqd);
+    const at = line.amountIqd > 0 ? full.indexOf(amount) : -1;
+    const words = (
+      <Text variant={last ? 'bodyStrong' : 'body'} weight={last ? 700 : 400} color={last && line.text === 'merchant.week.closing_owe' ? 'warningText' : 'text'} style={{ flex: 1 }}>
+        {at >= 0 ? (
+          <>
+            {full.slice(0, at)}
+            <Text variant={last ? 'bodyStrong' : 'body'} weight={700} tabular>
+              {amount}
+            </Text>
+            {full.slice(at + amount.length)}
+          </>
         ) : (
-          <View style={{ minHeight: 44, justifyContent: 'center' }}>{body}</View>
+          full
         )}
+      </Text>
+    );
+    const box = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: theme.space[2], minHeight: 44, paddingVertical: theme.space[1], borderTopWidth: last ? 1 : 0, borderTopColor: theme.colors.border, marginTop: last ? theme.space[1] : 0 };
+    if (line.key === 'settled' && line.amountIqd > 0) {
+      return (
+        <Pressable key={line.key} testID="bridge-settled" accessibilityRole="button" accessibilityLabel={full} accessibilityHint={t('merchant.week.settled_open')} onPress={() => setOpen(true)} style={({ pressed }) => [box, { paddingHorizontal: theme.space[2], marginHorizontal: -theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint }]}>
+          {words}
+          <MIcon name="chevron-forward" size={18} color="accentText" />
+        </Pressable>
+      );
+    }
+    return (
+      <View key={line.key} testID={`week-line-${line.key}`} style={box}>
+        {words}
       </View>
     );
   };
@@ -392,13 +394,13 @@ function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: bo
     <View
       testID="statement-bridge"
       accessible={false}
-      accessibilityLabel={t('merchant.bridge.a11y', { opening: byKey['opening'] ?? '', net: byKey['net'] ?? '', settled: byKey['settled'] ?? '', closing: byKey['closing'] ?? '' })}
-      style={{ gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}
+      accessibilityLabel={lines.map((l) => sentence(l.text, l.amountIqd)).join('. ')}
+      style={{ gap: theme.space[1], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}
     >
       <Text variant="label" weight={700}>
         {t('merchant.bridge.title')}
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: wide ? theme.space[4] : theme.space[3], rowGap: theme.space[2] }}>{terms.map(cell)}</View>
+      <View style={{ maxWidth: 560 }}>{lines.map(row)}</View>
       <ModalSheet visible={open} onClose={() => setOpen(false)} title={t('merchant.bridge.settled_sheet')} testID="bridge-settled-sheet">
         {statement.settlements.length === 0 ? (
           <Text variant="body" color="textMuted">

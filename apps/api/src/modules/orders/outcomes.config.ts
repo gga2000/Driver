@@ -6,7 +6,7 @@
  *
  * Each switch reads an environment variable (`on` / `true` / `1` switches it on), so a deployment
  * turns one on without a code change. Tests pass their own `OrderOutcomeRules`. A rule Ali has decided
- * (c6 remake pay) is on by default and its variable switches it off.
+ * (c6 remake pay, M-3 owed fees on the next order) is on by default and its variable switches it off.
  */
 export const DISPUTE_OUTCOMES = ['stands', 'refund_full', 'refund_partial', 'redelivery', 'void'] as const;
 export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
@@ -46,6 +46,13 @@ export interface OrderOutcomeRules {
     block: boolean;
     maxUnpaidFees: number;
     maxOwedIqd: number;
+    /**
+     * env `CASH_DEBT_COLLECT` («ينضاف لطلبك الجاي»): what he owes (in whole 250s) is added to the cash he
+     * hands over on his next food or shop order, locked on the order when it is placed and settled
+     * back onto his wallet (`debt_settled`) when the courier takes the cash. Off: it stays owed.
+     * Ali switched it ON on 2026-10-08 ("yes", 16:39Z); `CASH_DEBT_COLLECT=off` stops it.
+     */
+    collectOnNext: boolean;
   };
   /** M-4 (SEC-10): how many cash orders one account may have open at once. */
   openCash: {
@@ -80,7 +87,7 @@ export interface OrderOutcomeRules {
 export const DEFAULT_ORDER_OUTCOME_RULES: OrderOutcomeRules = {
   disputes: { outcomes: [], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } },
   platformFailure: { freeCancel: false, cookedFoodPayer: 'platform', noCourierAfterMin: 15, kitchenSilentAfterMin: 10, driverNoShowAfterMin: 15 },
-  cashDebt: { block: false, maxUnpaidFees: 2, maxOwedIqd: 5_000 },
+  cashDebt: { block: false, maxUnpaidFees: 2, maxOwedIqd: 5_000, collectOnNext: true },
   openCash: { enabled: false, newAccountBelowCompleted: 3, newAccountMax: 1, regularMax: 2, prepayAfterNoAnswer: false },
   courierLost: { refund: false, chargeCourier: false },
   remake: { pay: true, afterReadyMin: 10 },
@@ -106,7 +113,7 @@ export function outcomeRulesFromEnv(env: Readonly<Record<string, string | undefi
   return {
     disputes: { ...d.disputes, outcomes, auto: { ...d.disputes.auto, enabled: on(env['DISPUTE_AUTO_OUTCOME']) } },
     platformFailure: { ...d.platformFailure, freeCancel: on(env['PLATFORM_FAILURE_FREE_CANCEL']), cookedFoodPayer: payer === 'merchant' ? 'merchant' : 'platform' },
-    cashDebt: { ...d.cashDebt, block: on(env['CASH_DEBT_BLOCK']) },
+    cashDebt: { ...d.cashDebt, block: on(env['CASH_DEBT_BLOCK']), collectOnNext: !off(env['CASH_DEBT_COLLECT']) },
     openCash: { ...d.openCash, enabled: on(env['OPEN_CASH_CAP']), prepayAfterNoAnswer: on(env['PREPAY_AFTER_NO_ANSWER']) },
     courierLost: { refund: on(env['COURIER_LOST_REFUND']), chargeCourier: on(env['COURIER_LOST_CHARGE']) },
     remake: { ...d.remake, pay: !off(env['MERCHANT_REMAKE_PAY']) },

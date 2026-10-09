@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BoardColumn, BoardOrder } from '@driver/contracts';
 import { agoText, Button, ModalSheet, SegmentedControl, Skeleton, Text, useConnectionBanner, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
+import { useClaimOfflineBanner } from '@/lib/banner-room';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { COUNTER } from '@/lib/counter';
 import { testChime } from '@/lib/alert-sound';
@@ -23,12 +24,16 @@ import { scheduleBanner } from '@/features/hours/logic';
 import { usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
 import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, usePrintOrder, type StorePrint } from '@/features/print/runtime';
-import { DaySummaryCard } from '@/features/day/DaySummaryCard';
-import { dayCardKey, orderWhoLine, showDayCard } from '@/features/day/logic';
+import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
+import { dayCardKey, dayCardMode, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
+import { unseenPhotoDowns } from '@/features/menu/photo-down';
+import { photoDownNotice, usePhotoDownSeen } from '@/features/menu/PhotoDown';
+import { useMenu } from '@/features/menu/queries';
+import { beforeFirstOrder } from '@/features/money/logic';
 import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
-import { HeaderChip, StoreHeader } from '@/features/store/StoreHeader';
+import { StoreHeader, type HeaderAlert } from '@/features/store/StoreHeader';
 import { FirstOrderRibbon, SetupBoardCard, SetupBoardWaiting } from '@/features/setup/BoardSetup';
 import { shouldLand } from '@/features/setup/logic';
 import { setupSession, useSetupActions } from '@/features/setup/queries';
@@ -39,7 +44,7 @@ import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
 import { acceptAllTargets, busyExtra, byDueFirst, byTimeLeft, COLUMN_LABEL, COLUMNS, cookingTotals, isRush, newOrderSummary, oneTapPrep, phoneNow, rushRows, splitColumns, suggestBusy, type CookingTotal } from './logic';
 import { DragToReady } from './DragToReady';
-import { learn, useLessonDue } from './learn';
+import { learn, lessonNow, useLessonDue } from './learn';
 import { LearnCards, useStartPractice } from './LearnCards';
 import { missNudge, unseenMissed } from './missed';
 import { OrderCard } from './OrderCard';
@@ -50,7 +55,7 @@ import { isPractice, practice, usePractice } from './practice';
 import { useServerTime } from './clock';
 import { useBoard, useOnline, useOrderActions, useRemake, useRemakeRule } from './queries';
 import { autoBusy, busyMinutesNow, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders, type RemakeOutcome } from './shop-load';
-import { AutoBusyStrip, PauseStrip, RemakeSheet } from './ShopLoadParts';
+import { AutoBusyStrip, PauseStrip, RemakeSheet, usePauseView } from './ShopLoadParts';
 import { readyQueue, useReadyQueue } from './ready-queue';
 import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
@@ -219,7 +224,7 @@ export function Board() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [handingId, setHandingId] = useState<string | null>(null);
-  // c6 «أعدنا تسويه»: shown only while the server's money rule pays (`remakeRule`; it can be switched off).
+  // c6 «سوّيناه من جديد»: shown only while the server's money rule pays (`remakeRule`; it can be switched off).
   const [remakeId, setRemakeId] = useState<string | null>(null);
   const [remade, setRemade] = useState<Record<string, RemakeOutcome>>({});
   const remakeRule = useRemakeRule(!!storeId);
@@ -229,7 +234,7 @@ export function Board() {
   // Print redesign: accepted orders print when they are ready to cook (after a partial answer, at a
   // scheduled start), and a printed order that changed prints a short «تعديل» ticket.
   useAutoPrint(orders, printStore, prefs.autoPrint, now);
-  // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
+  // «منو سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
   const whoDetailId = canSeeMoney && detailId && !isPractice(detailId) ? detailId : null;
   const orderWho = useOrderWho(storeId, whoDetailId, whoDetailId !== null);
   const whoLine = whoDetailId && orderWho.data?.orderId === whoDetailId ? orderWhoLine(orderWho.data.entries, canSeeMoney, t) : null;
@@ -313,6 +318,17 @@ export function Board() {
   const daySummary = useDaySummary(storeId, `${s?.open ?? ''}:${s?.closed?.at?.toString() ?? ''}:${s?.schedule?.inHours ?? ''}`);
   const { dismissed: dayDismissed, dismiss: dismissDay } = useDayDismissed();
   const showDay = showDayCard(daySummary.data, dayDismissed);
+  // d01: while orders wait the day's card is one line (the full card a tap away, in a sheet).
+  const dayMode = dayCardMode({ show: showDay && !!daySummary.data, waiting: cols.new.length, closed: Boolean(s?.closed) || s?.schedule?.inHours === false });
+  const [dayOpen, setDayOpen] = useState(false);
+  // p4: a dish photo Driver's team took down — the board says it once, in a quiet moment; the menu keeps saying why.
+  const menu = useMenu(inSetup ? null : storeId, { refetchMs: 5 * 60_000 });
+  const { seen: photoSeen, markSeen: markPhotoSeen } = usePhotoDownSeen();
+  const photoDowns = useMemo(() => unseenPhotoDowns(menu.data?.categories, photoSeen), [menu.data, photoSeen]);
+  // d07: offline long enough that customers see the shop closed — the board says it once, nothing else shouts.
+  const pause = usePauseView(online);
+  const pausedNow = pause.kind === 'paused';
+  useClaimOfflineBanner(pausedNow);
   const busyOn = s?.busy.on ?? false;
   // l4: from 15 waiting orders the server adds the busy +10 itself (never on top of busy mode), so the
   // one-tap and the accept sheet show what the customer will be promised.
@@ -345,6 +361,7 @@ export function Board() {
     if (!fresh) return;
     setNewRings((n) => n + 1);
     setSheet((x) => (x === 'missed' || x === 'cash' ? null : x));
+    setDayOpen(false);
     setDetailId((d) => (d && !plan.ringing.includes(d) && !plan.snoozed.includes(d) ? null : d));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the set of ringing orders changes
   }, [ringKey]);
@@ -563,7 +580,8 @@ export function Board() {
         ticks={ticks}
         onExpand={() => (wide ? pick(o) : setPickedId(o.id))}
         clock={clock}
-        ringing={ringing}
+        ringing={ringing && !pausedNow}
+        noRing={pausedNow}
         oneTapMinutes={oneTap.shown}
         onAcceptNow={() => void onAcceptNow(o)}
         onAccept={() => onAccept(o)}
@@ -598,28 +616,34 @@ export function Board() {
         )
       : null;
 
-  const alerts = [
-    inSetup && setupLine ? <HeaderChip key="setup" testID="setup-chip" icon="store" tone="warning" label={t('merchant.setup.header_chip', { percent: setupLine.percent })} onPress={() => router.push(canSeeMoney ? '/setup' : '/more')} /> : null,
-    !gateOpen && soundOff ? <HeaderChip key="sound" testID="sound-off-chip" icon="volume-off" tone="danger" dot label={t('merchant.sound.off_chip')} onPress={() => void soundOn()} /> : null,
-    !gateOpen && Platform.OS === 'web' && wake !== 'on' ? <HeaderChip key="wake" testID="wake-chip" icon="screen" tone="warning" label={t('merchant.wake.chip')} onPress={() => void requestWakeLock()} /> : null,
-    missed && missed.today > 0 ? <HeaderChip key="missed" testID="missed-chip" icon="bell" tone="danger" dot={missedNew.length > 0} label={t('merchant.missed.chip', { count: missed.today })} onPress={() => setSheet('missed')} /> : null,
+  // d04: the header's one alarm slot takes the first of these (most urgent first); the rest, the missed
+  // orders and the printer wait in «…» with a dot.
+  const alertList: (HeaderAlert | null)[] = [
+    !gateOpen && soundOff ? { key: 'sound', testID: 'sound-off-chip', icon: 'volume-off', tone: 'danger', dot: true, label: t('merchant.sound.off_chip'), onPress: () => void soundOn() } : null,
+    inSetup && setupLine ? { key: 'setup', testID: 'setup-chip', icon: 'store', tone: 'warning', label: t('merchant.setup.header_chip', { percent: setupLine.percent }), onPress: () => router.push(canSeeMoney ? '/setup' : '/more') } : null,
     // S-M4 on a phone: a courier at the pass is seen from any tab of the board, in the bar (o3).
-    !wide && segment !== 'ready' && atPass[0] ? (
-      <HeaderChip
-        key="pass"
-        testID="pass-chip"
-        icon="bike"
-        tone={firstPass?.kind === 'at_pass' && firstPass.tone === 'warning' ? 'warning' : 'success'}
-        label={t('merchant.pass.headline', { who: atPass[0].courier.firstName?.trim() || t('merchant.pass.courier'), number: atPass[0].number })}
-        onPress={() => setSegment('ready')}
-      />
-    ) : null,
-  ].filter((x) => x !== null);
+    !wide && segment !== 'ready' && atPass[0]
+      ? {
+          key: 'pass',
+          testID: 'pass-chip',
+          icon: 'bike',
+          tone: firstPass?.kind === 'at_pass' && firstPass.tone === 'warning' ? 'warning' : 'success',
+          label: t('merchant.pass.headline', { who: atPass[0].courier.firstName?.trim() || t('merchant.pass.courier'), number: atPass[0].number }),
+          onPress: () => setSegment('ready'),
+        }
+      : null,
+    !gateOpen && Platform.OS === 'web' && wake !== 'on' ? { key: 'wake', testID: 'wake-chip', icon: 'screen', tone: 'warning', label: t('merchant.wake.chip'), onPress: () => void requestWakeLock() } : null,
+  ];
+  const alerts = alertList.filter((x): x is HeaderAlert => x !== null);
+  const menuItems: HeaderAlert[] = missed && missed.today > 0 ? [{ key: 'missed', testID: 'missed-chip', icon: 'bell', tone: missedNew.length > 0 ? 'danger' : 'neutral', dot: missedNew.length > 0, label: t('merchant.missed.chip', { count: missed.today }), onPress: () => setSheet('missed') }] : [];
 
-  const dayCard =
-    showDay && daySummary.data ? (
-      <DaySummaryCard summary={daySummary.data} todayKey={localDayKey(now)} wide={wide} onDismiss={() => dismissDay(dayCardKey(daySummary.data!.merchantOrgId, daySummary.data!.localDate))} />
-    ) : null;
+  const todayKey = localDayKey(now);
+  const dismissToday = () => {
+    setDayOpen(false);
+    if (daySummary.data) dismissDay(dayCardKey(daySummary.data.merchantOrgId, daySummary.data.localDate));
+  };
+  const dayCard = dayMode === 'full' && daySummary.data ? <DaySummaryCard summary={daySummary.data} todayKey={todayKey} wide={wide} onDismiss={dismissToday} /> : null;
+  const dayLine = dayMode === 'line' && daySummary.data ? <DayLine summary={daySummary.data} todayKey={todayKey} wide={wide} onOpen={() => setDayOpen(true)} /> : null;
   const urgent = plan.mostUrgent;
   const summary = newOrderSummary(orders, plan.snoozed);
   const sticky = !wide && segment === 'new' ? now1.sticky : null;
@@ -633,6 +657,7 @@ export function Board() {
         status={s}
         balance={balance.data}
         headline={cash.data?.headline}
+        firstOrder={beforeFirstOrder(cash.data)}
         canSeeMoney={canSeeMoney}
         now={now}
         wide={wide}
@@ -640,12 +665,13 @@ export function Board() {
         onBusy={() => setSheet('busy')}
         onCash={() => setSheet('cash')}
         alerts={alerts}
+        menuItems={menuItems}
         suggestBusy={suggestBusy(cols.new.length, busyOn) && Boolean(s?.open)}
         closeMenu={newRings}
       />
       {/* r1: busy mode you can't forget — a gold frame round the whole board while it is on. */}
       <View testID={busyOn ? 'busy-frame' : undefined} style={{ flex: 1, borderWidth: busyOn ? 5 : 0, borderTopWidth: 0, borderColor: COUNTER.busy }}>
-      {waiting > 0 ? (
+      {waiting > 0 && !pausedNow ? (
         <NewOrderBanner
           count={plan.ringing.length}
           snoozedCount={plan.snoozed.length}
@@ -664,7 +690,7 @@ export function Board() {
         />
       ) : null}
       {/* h5: offline it counts down to «متوقف للزباين»; back after a pause it says how long customers saw it closed. */}
-      <PauseStrip online={online} />
+      <PauseStrip online={online} view={pause} />
       {online ? <StaleStrip updatedAt={board.dataUpdatedAt || null} /> : null}
       {auto.on && !inSetup ? <AutoBusyStrip auto={auto} manualOn={busyOn} onMore={() => setSheet('busy')} /> : null}
       {inSetup ? null : s?.closed ? (
@@ -692,7 +718,27 @@ export function Board() {
         />
       ) : null}
 
-      {wide ? dayCard : null}
+      {photoDowns[0] && cols.new.length === 0 && !pausedNow ? (
+        <InfoStrip
+          tone="warning"
+          icon="camera"
+          testID="photo-down-strip"
+          text={photoDowns.length === 1 ? photoDownNotice(t, photoDowns[0].dishName, photoDowns[0].reason) : t('merchant.photo_down.notice_many', { count: photoDowns.length })}
+          action={{
+            label: photoDowns.length === 1 ? t('merchant.photo_down.take') : t('merchant.photo_down.see'),
+            testID: 'photo-down-take',
+            onPress: () => {
+              const [first] = photoDowns;
+              markPhotoSeen(photoDowns.map((n) => n.key));
+              if (photoDowns.length === 1 && first) router.push({ pathname: '/menu/item', params: { id: first.itemId, photo: '1' } });
+              else router.push('/menu');
+            },
+          }}
+          secondary={{ label: t('merchant.photo_down.ok'), testID: 'photo-down-ok', onPress: () => markPhotoSeen(photoDowns.map((n) => n.key)) }}
+        />
+      ) : null}
+
+      {wide ? (dayCard ?? dayLine) : null}
 
       {wide && inSetup && setupLine && storeId && orders.length === 0 && !failed ? (
         <View testID="board-setup-tablet" style={{ flex: 1, flexDirection: 'row', gap: theme.space[4], padding: theme.space[5] }}>
@@ -741,7 +787,7 @@ export function Board() {
             />
           </View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], padding: theme.space[4], paddingBottom: theme.space[10] }}>
-            {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : null}
+            {dayCard ? <View style={{ marginHorizontal: -theme.space[4], marginTop: -theme.space[4] }}>{dayCard}</View> : dayLine}
             {segment === 'preparing' && !loading && !failed ? <CookingTotals totals={totals} /> : null}
             {failed
               ? null
@@ -761,6 +807,7 @@ export function Board() {
               clock={clock}
               oneTapMinutes={oneTap.shown}
               busy={acceptingId === sticky.id}
+              noRing={pausedNow}
               onAccept={() => void onAcceptNow(sticky)}
               onReject={() => onReject(sticky)}
               onOpen={() => setDetailId(sticky.id)}
@@ -834,7 +881,7 @@ export function Board() {
         ) : (
           (missed?.orders ?? []).map((m) => (
             <View key={m.orderId} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: m.reason === 'merchant_timeout' ? theme.colors.dangerTint : theme.colors.surfaceSunken }}>
-              <Text weight={700} tabular style={{ fontSize: 20, lineHeight: 28 }}>{`#${m.number}`}</Text>
+              <Text weight={700} tabular style={{ fontSize: 20, lineHeight: 28 }}>{t('merchant.card.number', { number: m.number })}</Text>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text variant="label" weight={600} color={m.reason === 'merchant_timeout' ? 'dangerText' : 'text'}>
                   {m.reason === 'merchant_timeout' ? t('merchant.missed.row_timeout') : t('merchant.missed.row_partial')}
@@ -848,8 +895,14 @@ export function Board() {
           ))
         )}
       </ModalSheet>
-      {/* While the shop is being set up, setup's own counter list does the lesson and the sound. */}
-      {inSetup ? null : storeId && lessonDue ? (
+      {daySummary.data ? (
+        <ModalSheet visible={dayOpen && dayMode !== 'none'} onClose={() => setDayOpen(false)} title={t('merchant.day.sheet_title')} testID="day-sheet">
+          <DaySummaryCard summary={daySummary.data} todayKey={todayKey} wide={false} bare onDismiss={dismissToday} />
+        </ModalSheet>
+      ) : null}
+      {/* While the shop is being set up, setup's own counter list does the lesson and the sound. d09: the
+          lesson waits for the first quiet moment; meanwhile the shift gate (one tap, the sound) shows. */}
+      {inSetup ? null : storeId && lessonNow({ due: lessonDue, waiting: cols.new.length, boardLoaded: board.data !== undefined }) ? (
         <LearnCards onPractice={() => void finishLesson(true)} onDone={() => void finishLesson(false)} />
       ) : gateOpen && storeId ? (
         <ShiftGate waiting={waiting} soundOn={prefs.soundOn} printer={printerChipState(printerSnap, s?.printer.state)} onStart={beginShift} back={shift.back} online={online} />

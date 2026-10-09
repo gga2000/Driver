@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { ConfigModule } from '../config/index.js';
+import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
 import { LedgerModule } from '../ledger/index.js';
@@ -18,7 +19,7 @@ import { HANDOVER_SECRET, handoverSecretFromEnv } from './handover-code.js';
  * `driver_check_ins` (Prisma with DATABASE_URL, in-memory otherwise); photo refs go to the vault.
  */
 @Module({
-  imports: [ConfigModule, EventsModule, IdentityModule, LedgerModule, OrdersModule, PlacesModule, SupportModule, TripsModule],
+  imports: [ConfigModule, ControlsModule, EventsModule, IdentityModule, LedgerModule, OrdersModule, PlacesModule, SupportModule, TripsModule],
   providers: [
     {
       provide: DRIVER_ACCOUNT_REPOSITORY,

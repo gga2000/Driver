@@ -144,6 +144,7 @@ interface PayerSide {
   payment: 'cash' | 'wallet';
   cashCollectedIqd?: number | undefined;
   changeToWalletIqd?: number | undefined;
+  debtCollectIqd?: number | undefined;
 }
 
 function payerAccount(p: { customerId: string; householdId?: string | undefined }): string {
@@ -167,16 +168,22 @@ function payerAccount(p: { customerId: string; householdId?: string | undefined 
 function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd: number, collector: string, rules: MoneyRules): number {
   if (chargedIqd < 0) throw new RangeError(`customer total is negative (${chargedIqd})`);
   const extra = p.changeToWalletIqd ?? 0;
+  const debt = p.debtCollectIqd ?? 0;
   if (p.payment === 'wallet') {
     if (extra > 0) throw new RangeError('change to the wallet on a wallet payment');
+    if (debt > 0) throw new RangeError('owed fees collected on a wallet payment');
     b.control(payer, -chargedIqd);
     return chargedIqd;
   }
   const due = roundCustomerTotal(chargedIqd, rules);
-  const collected = p.cashCollectedIqd ?? due + extra;
-  // What paid for the price (and its rounding change) once the no-change credit is set apart.
-  const kept = collected - extra;
+  const collected = p.cashCollectedIqd ?? due + debt + extra;
+  // What paid for the price (and its rounding change) once the no-change credit and the owed fees
+  // (M-3) are set apart. The price comes first: cash short of price + fees settles only what is left
+  // over (none of it if he paid just the price), and the rest stays owed on his wallet as before.
+  const settled = Math.min(debt, Math.max(0, collected - extra - due));
+  const kept = collected - extra - settled;
   if (extra < 0 || (extra > 0 && kept < chargedIqd)) throw new RangeError(`change to the wallet ${extra} leaves ${kept} for a price of ${chargedIqd}`);
+  b.add('debt_settled', settled, collector, payer, 'owed_fees');
   b.add('cash_collected', Math.min(kept, chargedIqd), collector, payer);
   if (kept > chargedIqd) b.add('cash_rounding_credit', kept - chargedIqd, collector, payer, 'change_as_credit');
   b.add('cash_change_to_wallet', extra, collector, payer, 'no_change');
@@ -309,17 +316,26 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
   const fareType: LedgerEventType = r.takeClass === 'parcel' || r.takeClass === 'parcel_intercity' ? 'parcel_fee' : 'fare';
 
-  b.add(fareType, r.fareIqd, payer, driver, r.takeClass);
+  // Step 6: friends who joined a shared private car pay their places from their own wallets.
+  const sharedIqd = r.sharedBy.reduce((sum, f) => sum + f.amountIqd, 0);
+  if (sharedIqd > r.fareIqd) throw new RangeError(`shared places ${sharedIqd} are more than the fare ${r.fareIqd}`);
+  for (const f of r.sharedBy) {
+    const friend = Accounts.customer(f.customerId);
+    if (friend === payer) throw new RangeError('the payer cannot share with himself');
+    b.add(fareType, f.amountIqd, friend, driver, 'request_share');
+    b.control(friend, -f.amountIqd);
+  }
+  b.add(fareType, r.fareIqd - sharedIqd, payer, driver, r.takeClass);
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, r, r.fareIqd - sharedIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 
 // ───────────────────────── intercity seats ─────────────────────────
 
-/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch. */
+/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch; a company-paid return discount is `promo_funded`. */
 export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostings {
   const s = SeatMoneyPayload.parse(input);
   const b = new GroupBuilder(`seat:${s.seatId}:money`, 'money', s.occurredAt, { departureId: s.departureId, routeId: s.routeId });
@@ -332,7 +348,10 @@ export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostin
   b.add('commission_accrued', seatTake, driver, Accounts.platform, 'take:intercity_seat');
   b.add('seat_premium', s.frontPremiumIqd, payer, driver, 'front');
   b.add('commission_accrued', premiumTake, driver, Accounts.platform, 'take:front_seat_premium');
-  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd, Accounts.cash(s.driverId), rules);
+  // Step 5: the return-trip discount the company pays comes off what the rider owes, not the driver's fare.
+  if (s.platformDiscountIqd > s.fareIqd) throw new RangeError(`return discount ${s.platformDiscountIqd} is more than the seat fare ${s.fareIqd}`);
+  b.add('promo_funded', s.platformDiscountIqd, Accounts.platform, payer, 'return_bundle');
+  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd - s.platformDiscountIqd, Accounts.cash(s.driverId), rules);
   return { money: b.build(), takeIqd: seatTake + premiumTake, totalIqd: total };
 }
 

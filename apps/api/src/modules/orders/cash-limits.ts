@@ -1,4 +1,4 @@
-import { DriverError, TERMINAL_ORDER_STATES, type CashStanding, type LedgerEvent, type OrderState } from '@driver/contracts';
+import { CASH_STEP_IQD, DriverError, TERMINAL_ORDER_STATES, type CashStanding, type LedgerEvent, type OrderState } from '@driver/contracts';
 import type { OrdersRepository, OrderRecord } from './orders.repository.js';
 import type { OrdersCashRiskPort } from './orders.service.js';
 import type { OrderEventLog } from './orders.staff.js';
@@ -14,6 +14,8 @@ export const CASH_LIMITS = Symbol('CASH_LIMITS');
 
 const FINISHED: readonly OrderState[] = ['delivered', 'completed', 'closed'];
 const NOT_OPEN: readonly OrderState[] = ['delivered', 'completed', 'disputed'];
+/** Past the hand-over: the cash (and any owed fees with it) is already on the ledger. */
+const COLLECTED: readonly OrderState[] = ['delivered', 'completed', 'closed', 'disputed'];
 
 /**
  * W3 cash limits (SEC-10 / M-4, THIN-01 / M-3), wrapped around the ledger's new-customer cash rule
@@ -38,6 +40,24 @@ export class CashLimits implements OrdersCashRiskPort {
     const s = await this.standing(customerId);
     if (s.blockedBy) throw new DriverError(s.blockedBy);
     return this.base.newCustomerCash(customerId, orderTotalIqd);
+  }
+
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (`CASH_DEBT_COLLECT`): what he owes, in whole 250s, less what his orders
+   * not yet at his door already carry (each fee is asked for once). The cash he hands over settles
+   * it on the ledger the moment the courier takes it, so a delivered order no longer counts here.
+   */
+  async debtToCollect(customerId: string): Promise<number> {
+    if (!this.rules.cashDebt.collectOnNext) return 0;
+    const { owedIqd } = await this.debt(customerId);
+    if (owedIqd <= 0) return 0;
+    const mine = await this.repo.forPerson(customerId);
+    const carried = mine
+      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'cash' && !TERMINAL_ORDER_STATES.includes(o.state) && !COLLECTED.includes(o.state))
+      .reduce((s, o) => s + (o.debtCollectIqd ?? 0), 0);
+    const left = Math.max(0, owedIqd - carried);
+    // Whole 250s, like every cash amount; the odd rest stays owed.
+    return Math.floor(left / CASH_STEP_IQD) * CASH_STEP_IQD;
   }
 
   async standing(customerId: string): Promise<CashStanding> {

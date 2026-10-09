@@ -75,6 +75,12 @@ export const AdminMenuItem = z.object({
    * it the same day; true while it waits for that look («ينتظر المراجعة»). Absent = false.
    */
   photoReviewPending: z.boolean().optional(),
+  /**
+   * p4: Driver's team took the shop's photo down (`catalog.photo_taken_down`, last 14 days) and the dish
+   * has no photo since. `reason` is `blurry` | `wrong_dish` | `people` | `other` (an unknown one reads
+   * as `other`). Absent or null = nothing to tell.
+   */
+  photoTakenDown: z.object({ reason: z.string(), at: z.coerce.date() }).nullable().optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 
@@ -549,6 +555,7 @@ export type MerchantDaySummary = z.infer<typeof MerchantDaySummary>;
 export const StaffMember = z.object({
   personId: z.string(),
   name: z.string().nullable(),
+  /** The 4+4 form the owner saw on the invite («0770 ••• 4567»): 8 of 11 digits, shown only to the store's owner (who added the number). */
   phoneMasked: z.string().nullable(),
   role: MerchantStaffRole,
   you: z.boolean(),

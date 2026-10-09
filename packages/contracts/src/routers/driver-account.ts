@@ -3,6 +3,10 @@ import {
   CheckInChallenge,
   CheckInResult,
   CheckInStatus,
+  DriverPauseStatusInput,
+  DriverPauseView,
+  LiftDriverPauseInput,
+  PauseDriverInput,
   DocumentsInput,
   DocumentsView,
   DriverDocumentView,
@@ -35,6 +39,8 @@ import { DRIVING_ROLES } from './trips.js';
 export const DRIVER_ACCOUNT_READERS: readonly RoleKind[] = [...DRIVING_ROLES, 'finance', 'admin', 'dispatcher', 'support', 'field_ops'];
 /** Console document review (scoring §2: "ops review in Console — ID vs selfie, plate vs photo"). */
 export const DOCUMENT_REVIEWERS: readonly RoleKind[] = ['field_ops', 'support', 'admin'];
+/** Who may pause a courier or driver while a report is looked into, and lift it (r6, Ali 2026-10-08). */
+export const DRIVER_PAUSERS: readonly RoleKind[] = ['admin', 'dispatcher', 'support', 'field_ops'];
 
 /**
  * `driverAccount.*` (partner spec "Also": earnings and ledger with cap bar, scorecard with nudges,
@@ -59,6 +65,20 @@ export const driverAccountRouter = router({
     .input(UploadDocumentInput)
     .output(DriverDocumentView)
     .mutation(({ ctx, input }) => ctx.driverAccount.uploadDocument(ctx.actor, input)),
+  /** Is he paused by staff, since when, by whom and why (Console safety report and driver page). */
+  pauseStatus: protectedProcedure(DRIVER_ACCOUNT_READERS.filter((r) => DRIVER_PAUSERS.includes(r) || r === 'finance'))
+    .input(DriverPauseStatusInput)
+    .output(DriverPauseView)
+    .query(({ ctx, input }) => ctx.driverAccount.pauseStatus(ctx.actor, input)),
+  /** Pause him (r6): no going online until lifted; audited, a note is required. */
+  pause: protectedProcedure(DRIVER_PAUSERS)
+    .input(PauseDriverInput)
+    .output(DriverPauseView)
+    .mutation(({ ctx, input }) => ctx.driverAccount.pause(ctx.actor, input)),
+  liftPause: protectedProcedure(DRIVER_PAUSERS)
+    .input(LiftDriverPauseInput)
+    .output(DriverPauseView)
+    .mutation(({ ctx, input }) => ctx.driverAccount.liftPause(ctx.actor, input)),
   reviewDocument: protectedProcedure(DOCUMENT_REVIEWERS)
     .input(ReviewDocumentInput)
     .output(DriverDocumentView)

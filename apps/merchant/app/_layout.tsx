@@ -7,6 +7,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CrashBoundary, getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
+import { BoardSkeleton, SPLASH_SLOW_MS, useSlowSplash } from '@/components/BoardSkeleton';
+import { ScreenTrouble } from '@/components/ScreenTrouble';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { ReceiptPreview } from '@/features/print/ReceiptPreview';
@@ -27,6 +29,7 @@ import { haptics } from '@/lib/haptics';
 import { useToastTop } from '@/lib/toast';
 import { WIDE_MIN_WIDTH } from '@/lib/layout';
 import { prefs, usePrefs } from '@/lib/prefs';
+import { usePreloadScreens } from '@/lib/preload';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
@@ -144,6 +147,8 @@ function RootNavigator() {
   const board = useBoard(showNav && store ? store.orgId : null);
   // M-10: the same number as the جديد column and the banner.
   const newCount = countNew(board.data?.orders ?? []);
+  // d02 (web): once the board is up, every screen's code is fetched ahead, so a tab opens with no net.
+  usePreloadScreens(signedIn && access === 'ready');
   const navigate = (item: NavItem) => {
     if (section === item.section && isSectionRoot(segments)) return;
     router.navigate(item.href as Href);
@@ -153,7 +158,8 @@ function RootNavigator() {
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: chrome.colors.bg }}>
       {showNav && wide ? <NavRail items={items} active={section} newCount={newCount} onNavigate={navigate} /> : null}
       <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: chrome.colors.bg } }}>
+        {/* d02: a screen that fails shows its own small card in its place; the tabs, the rail and the board stay. */}
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: chrome.colors.bg } }} unstable_screenErrorBoundary={ScreenTrouble}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="not-activated" options={{ gestureEnabled: false }} />
           <Stack.Screen name="stores" />
@@ -207,11 +213,15 @@ function StartupGate({ loading }: { loading: boolean }) {
   );
 }
 
-/** While the session, prefs and stores load (a moment; avoids a flash of the wrong screen). */
+/**
+ * While the session, prefs and stores load (a moment; avoids a flash of the wrong screen). Day-one d10:
+ * past 2 s a bare logo looks frozen, so it says «دا نجيب طلباتك…» over the shape of the board.
+ */
 function Splash() {
+  const slow = useSlowSplash(SPLASH_SLOW_MS);
   return (
-    <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
-      <Wordmark />
+    <View testID="splash" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
+      {slow ? <BoardSkeleton /> : <Wordmark />}
     </View>
   );
 }

@@ -118,6 +118,16 @@ export interface ChatThreadProps {
   wrapQuickReplies?: boolean;
   /** Hold-to-record voice notes; omit to leave them out (the kitchen). Shown only where `voiceAllowedIn(kind)`. */
   voice?: ChatVoice;
+  /** The header's second line in place of «الزبون · طلب …» (a Baghdad/Kut trip: «الطلعة باچر 7:00 · ما حجزت بعد»). */
+  subtitle?: string;
+  /** Pinned under the header (step 4c: the «اللي اتفقنا عليه» strip). */
+  pinned?: ReactNode;
+  /** A `card` message (step 4c: an agreed-price card); without it, cards are left out. */
+  renderCard?: (m: ChatMessage) => ReactNode;
+  /** Before the camera in the composer (step 4c: the driver's «اقترح سعر»). */
+  composerStart?: ReactNode;
+  /** The empty thread's words, in place of the order chat's. */
+  empty?: { title: string; body: string };
 }
 
 type RecordPhase = 'idle' | 'starting' | 'recording';
@@ -151,6 +161,11 @@ export function ChatThread({
   orderReplies,
   wrapQuickReplies = false,
   voice: voiceProp,
+  subtitle,
+  pinned,
+  renderCard,
+  composerStart,
+  empty,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
@@ -423,8 +438,8 @@ export function ChatThread({
                       </Text>
                     </Pressable>
                   ) : (
-                    <Text variant="caption" color="textMuted" numberOfLines={1}>
-                      {supportChat ? orderLabel : t('chat.subtitle', { role: counterpartLabel, order: orderLabel })}
+                    <Text variant="caption" color="textMuted" numberOfLines={1} testID="chat-subtitle">
+                      {subtitle ?? (supportChat ? orderLabel : t('chat.subtitle', { role: counterpartLabel, order: orderLabel }))}
                     </Text>
                   )}
                 </>
@@ -441,6 +456,11 @@ export function ChatThread({
             ) : null}
           </View>
         </View>
+        {pinned ? (
+          <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface }}>
+            <View style={{ width: '100%', maxWidth: COLUMN, alignSelf: 'center', paddingHorizontal: theme.space[4], paddingVertical: theme.space[2] }}>{pinned}</View>
+          </View>
+        ) : null}
 
         {/* Messages */}
         <ScrollView
@@ -463,8 +483,8 @@ export function ChatThread({
             <View style={{ flex: 1, justifyContent: 'center' }} testID={supportChat ? 'chat-support-empty' : undefined}>
               <EmptyState
                 icon="chat"
-                title={t(supportChat ? 'chat.support_empty_title' : 'chat.empty_title')}
-                body={open ? t(supportChat ? 'chat.support_empty_body' : 'chat.empty_body') : undefined}
+                title={empty?.title ?? t(supportChat ? 'chat.support_empty_title' : 'chat.empty_title')}
+                body={open ? (empty?.body ?? t(supportChat ? 'chat.support_empty_body' : 'chat.empty_body')) : undefined}
               />
             </View>
           ) : (
@@ -476,6 +496,7 @@ export function ChatThread({
                 photoUri={photoUri}
                 audioUri={(url) => (voiceProp ? voiceProp.audioUri(url) : url)}
                 voiceNote={voiceNote}
+                renderCard={renderCard}
                 onRetry={(p) => {
                   if (p.voice && !p.body) void sendVoice(p.voice.clip, p.clientId);
                   else if (p.body) void send(p.body, { text: p.text, localPhotoUri: p.localPhotoUri, voice: p.voice }, p.clientId);
@@ -526,6 +547,7 @@ export function ChatThread({
                     />
                   ) : (
                     <>
+                      {composerStart}
                       <IconButton icon="camera" variant="plain" accessibilityLabel={t('chat.attach_photo')} onPress={() => void sendPhoto()} disabled={attaching} testID="chat-photo" />
                       {currentLocation ? (
                         <IconButton icon="map-pin" variant="plain" accessibilityLabel={t('chat.attach_location')} onPress={() => void sendLocation()} disabled={attaching} testID="chat-location" />
@@ -614,6 +636,7 @@ function Row({
   photoUri,
   audioUri,
   voiceNote,
+  renderCard,
   onRetry,
 }: {
   row: ChatRow;
@@ -622,6 +645,7 @@ function Row({
   audioUri: (url: string) => string;
   /** The player of a voice note (`uri` null: the file went with the closed chat). */
   voiceNote: (id: string, uri: string | null, durationSec: number) => ReactNode;
+  renderCard?: ((m: ChatMessage) => ReactNode) | undefined;
   onRetry: (p: PendingMessage) => void;
 }) {
   const theme = useTheme();
@@ -664,6 +688,16 @@ function Row({
         </Text>
       </View>
     );
+  }
+  // An agreed-price card (step 4c): the app draws it on the side of whoever sent it.
+  if (m.kind === 'card') {
+    const card = renderCard?.(m);
+    return card ? (
+      <View testID={`chat-msg-${m.seq}`} style={{ alignSelf: m.mine ? 'flex-end' : 'flex-start', width: '86%', maxWidth: 380 }}>
+        {card}
+        <Meta mine={m.mine} time={m.createdAt} state={null} t={t} />
+      </View>
+    ) : null;
   }
   const senderLabel = !m.mine && m.senderRole === 'support' ? t('chat.role.support') : null;
   return (

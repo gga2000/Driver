@@ -12,7 +12,7 @@ export function useMoneyToday(merchantOrgId: string | null, enabled: boolean) {
   return useQuery({ ...api.merchantAdmin.money.today.queryOptions({ merchantOrgId: merchantOrgId ?? '' }), enabled: signedIn && enabled && !!merchantOrgId, refetchInterval: 60_000 });
 }
 
-/** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; `enabled` carries `canSeeMoney`). */
+/** «منو سوّى شنو»: the day's kitchen actions with who did each (owner only; `enabled` carries `canSeeMoney`). */
 export function useActivityToday(merchantOrgId: string | null, enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();

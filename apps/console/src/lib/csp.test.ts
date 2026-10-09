@@ -8,8 +8,11 @@ describe('Console CSP (CON-06)', () => {
   it('runs only its own scripts and the nonce, in production', () => {
     const p = parse(buildCsp({ nonce: 'abc', apiUrl: 'https://api.driver.iq/trpc', dev: false }));
     expect(p['script-src']).toEqual(["'self'", "'nonce-abc'", RTL_TEXT_PLUGIN_URL]);
-    // The map's one script is pinned to its file; no host-wide source may sneak back in.
-    expect(RTL_TEXT_PLUGIN_URL).toMatch(/^https:\/\/unpkg\.com\/@mapbox\/mapbox-gl-rtl-text@[\d.]+\/dist\/[\w.-]+\.js$/);
+    // The map's one script is pinned to its file; no host-wide source may sneak back in. It is moving
+    // from unpkg to our own map bucket (self-hosted by platform); either exact file is fine meanwhile.
+    expect(RTL_TEXT_PLUGIN_URL).toMatch(
+      /^https:\/\/(unpkg\.com\/@mapbox\/mapbox-gl-rtl-text@[\d.]+\/dist\/[\w.-]+|lapigvjdsuapfexzdcvl\.supabase\.co\/storage\/v1\/object\/public\/map\/plugins\/mapbox-gl-rtl-text-[\d.]+)\.js$/,
+    );
     for (const src of p['script-src']!.slice(2)) expect(src).not.toMatch(/^https:\/\/[^/]+\/?$/);
     expect(p['script-src']).not.toContain("'unsafe-inline'");
     expect(p['script-src']).not.toContain("'unsafe-eval'");

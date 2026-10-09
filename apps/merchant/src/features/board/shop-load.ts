@@ -174,7 +174,7 @@ export function useBeatLog(): { lastOkAt: number | null; back: number | null } {
 // ───────────────────────── c6: remake paid ─────────────────────────
 
 /**
- * «أعدنا تسويه» shows on a ready order only while the rule pays, from `afterReadyMin` after «جاهز»,
+ * «سوّيناه من جديد» shows on a ready order only while the rule pays, from `afterReadyMin` after «جاهز»,
  * with no courier at the pass (nor gone with it). Returns the minutes since «جاهز», or null.
  */
 export function remakeOffer(o: Pick<BoardOrder, 'id' | 'column' | 'state' | 'readyAt' | 'courier' | 'handedOverAt'>, rule: MerchantRemakeRule | null | undefined, now: number): number | null {

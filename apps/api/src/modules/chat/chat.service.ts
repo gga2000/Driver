@@ -5,7 +5,6 @@ import {
   CHAT_CLOSE_AFTER_MIN,
   CHAT_LOST_ITEM_H,
   CHAT_SUPPORT_CLOSE_AFTER_H,
-  CHAT_SUPPORT_OPENS_PER_DAY,
   CHAT_THREAD_PARTIES,
   ChatMessageSentPayload,
   DriverError,
@@ -48,6 +47,10 @@ import { CHAT_REPOSITORY, type ChatMessageRecord, type ChatRepository, type Chat
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { maskIraqiPhones } from './mask.js';
 import { SharedSlidingWindowLimiter } from './rate-limit.js';
+import { CHAT_IDENTITY, CHAT_RULES, messageViewOf, readerKey, type ChatIdentityPort } from './chat.common.js';
+import { TripChatService } from './trip-chat.service.js';
+
+export { CHAT_IDENTITY, CHAT_RULES, messageViewOf, readerKey, type ChatIdentityPort };
 
 // ───────────────────────── ports ─────────────────────────
 
@@ -62,12 +65,6 @@ export interface ChatTripsPort {
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string } | null>;
   get(tripId: string): Promise<Trip>;
 }
-export interface ChatIdentityPort {
-  hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
-  /** First names only; every read of another person is a logged vault access. */
-  firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
-  orgRoleHolders(orgId: string, kinds: readonly RoleKind[]): Promise<Array<{ personId: string; kind: RoleKind; frozen: boolean }>>;
-}
 export interface ChatStoresPort {
   /** The kitchen's display name; null when unknown. */
   storeName(orgId: string): Promise<string | null>;
@@ -75,11 +72,8 @@ export interface ChatStoresPort {
 
 export const CHAT_ORDERS = Symbol('CHAT_ORDERS');
 export const CHAT_TRIPS = Symbol('CHAT_TRIPS');
-export const CHAT_IDENTITY = Symbol('CHAT_IDENTITY');
 export const CHAT_STORES = Symbol('CHAT_STORES');
 
-/** Limits: sends per person per minute; masked calls per person per 10 minutes. */
-export const CHAT_RULES = { sendsPerMinute: 20, callsPer10Min: 5, pageSize: 200, supportOpensPerDay: CHAT_SUPPORT_OPENS_PER_DAY } as const;
 
 const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
 const SUPPORT_ROLES: readonly RoleKind[] = ['support', 'dispatcher', 'admin'];
@@ -138,6 +132,8 @@ export class ChatService implements ChatPort {
     @Inject(CLOCK) private readonly clock: Clock,
     // Shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); in process otherwise.
     @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
+    // Step 4c: the Baghdad/Kut threads in the same tables (the voice retention asks it when they close).
+    @Optional() private readonly trip?: TripChatService,
   ) {
     const shared = counter ?? new InMemoryWindowCounter(clock);
     this.sendLimiter = new SharedSlidingWindowLimiter(shared, 'send', CHAT_RULES.sendsPerMinute, 60_000);
@@ -401,6 +397,11 @@ export class ChatService implements ChatPort {
   }
 
   private async purgeVoiceIfClosed(t: ChatVoiceThread, now: Date): Promise<number> {
+    if (t.kind === 'rider_driver') {
+      // A run's or request's thread: closed by its trip, not an order (an unreadable one waits a round).
+      if (!this.trip || (await this.trip.statusOf(t)) !== 'closed') return 0;
+      return this.purgeVoices(t);
+    }
     let ctx: OrderContext;
     try {
       ctx = await this.context(t.orderId);
@@ -410,6 +411,10 @@ export class ChatService implements ChatPort {
       return 0;
     }
     if (this.status(ctx, t.kind, now) !== 'closed') return 0;
+    return this.purgeVoices(t);
+  }
+
+  private async purgeVoices(t: ChatVoiceThread): Promise<number> {
     for (const v of t.voices) {
       await this.blobs.remove(v.voiceRef);
       await this.repo.clearVoice(v.messageId);
@@ -595,23 +600,7 @@ export class ChatService implements ChatPort {
   }
 
   private messageView(m: ChatMessageRecord, readerRole: ChatRole, otherReadSeq: number): ChatMessage {
-    const mine = m.senderRole === readerRole;
-    return {
-      id: m.id,
-      seq: m.seq,
-      senderRole: m.senderRole,
-      mine,
-      kind: m.kind,
-      text: m.body,
-      quickReplyKey: (m.quickReplyKey as ChatMessage['quickReplyKey']) ?? null,
-      photoUrl: m.photoRef ? this.blobs.readUrl(m.photoRef) : null,
-      audioUrl: m.voiceRef ? this.blobs.readUrl(m.voiceRef) : null,
-      durationSec: m.kind === 'voice' ? m.durationSec : null,
-      location: m.lat !== null && m.lng !== null ? { lat: m.lat, lng: m.lng } : null,
-      masked: m.masked,
-      createdAt: m.createdAt,
-      read: mine && otherReadSeq >= m.seq,
-    };
+    return messageViewOf(m, readerRole, otherReadSeq, (ref) => this.blobs.readUrl(ref), null);
   }
 
   /** The two parties by role and first name (people) or store name (the kitchen). */
@@ -679,6 +668,7 @@ export class ChatService implements ChatPort {
 
 // ───────────────────────── helpers ─────────────────────────
 
+
 /** The client id of the one «نسيت غرض» line per asker (a repeated ask writes nothing new). */
 const LOST_ITEM_CLIENT_ID = 'system:lost_item';
 
@@ -700,9 +690,3 @@ export function counterpartOf(kind: ChatThreadKind, role: ChatRole): ChatRole {
   return a;
 }
 
-/** Read receipts belong to the party: the customer side, the kitchen and (on a support chat) the desk are one reader each. */
-export function readerKey(role: ChatRole, personId: string, kind?: ChatThreadKind): string {
-  if (role === 'customer' || role === 'merchant') return role;
-  if (role === 'support' && kind === 'customer_support') return 'support';
-  return `${role}:${personId}`;
-}

@@ -20,7 +20,7 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
   readonly timeZone = DEFAULT_TIMEZONE;
 
   constructor(
-    private readonly directory: Pick<MerchantDirectory, 'profile'>,
+    private readonly directory: Pick<MerchantDirectory, 'profile' | 'changeStamp'>,
     private readonly promotions?: Pick<PromotionsPort, 'badges'>,
     private readonly orders?: Pick<OrdersRepository, 'merchantOrdersBetween' | 'findMany'>,
   ) {
@@ -41,6 +41,11 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
     return counts;
   }
 
+  /** x1: when a merchant's settings last changed on this instance (the lists' snapshot rebuilds). */
+  changeStamp(): number {
+    return this.directory.changeStamp?.() ?? 0;
+  }
+
   /** Live merchant deals for the card badge (the same deals `orders.quote` / `place` apply). */
   async deals(orgId: string, at: Date = new Date()): Promise<DealBadge[]> {
     return this.promotions ? this.promotions.badges(orgId, at) : [];
@@ -55,7 +60,10 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
     if (!p) return { location: null, pauseWindows: [...(CITY_PAUSE_WINDOWS[cityId] ?? [])] };
     // Busy mode and an early close from the Merchant app show on the customer's card too; so do a
     // tablet offline for 5 minutes (h5: paused, as `orders.place` refuses) and 15 orders waiting (l4: busy).
+    // A quick pause's return time shows only while the tablet is online: offline, the shop stays closed
+    // past that time until the tablet is back, so the card shows paused with no time.
     const busy = busyExtraMinutes(p, at) > 0 || (this.load !== null && (await this.load.crowded(orgId, at)));
-    return { location: p.location, pauseWindows: p.pauseWindows, busy, closed: Boolean(p.closed) || tabletOffline(p, at), ...(p.reopensAt ? { reopensAt: p.reopensAt } : {}), ...(p.holiday ? { holiday: true } : {}) };
+    const offline = tabletOffline(p, at);
+    return { location: p.location, pauseWindows: p.pauseWindows, busy, closed: Boolean(p.closed) || offline, ...(p.reopensAt && !offline ? { reopensAt: p.reopensAt } : {}), ...(p.holiday ? { holiday: true } : {}) };
   }
 }

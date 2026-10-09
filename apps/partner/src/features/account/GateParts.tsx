@@ -8,7 +8,21 @@ import { useT } from '@/lib/i18n';
 import { Glyph } from './Glyph';
 import type { GateKind } from './logic';
 
-const ROUTE: Record<GateKind, '/checkin' | '/documents'> = { checkin: '/checkin', locked: '/checkin', document: '/documents' };
+const ROUTE: Record<GateKind, '/checkin' | '/documents' | '/paused'> = { paused: '/paused', checkin: '/checkin', locked: '/checkin', document: '/documents' };
+
+const BANNER: Record<GateKind, [MessageKey, MessageKey]> = {
+  paused: ['partner.gate_paused_banner', 'partner.gate_paused_banner_sub'],
+  checkin: ['partner.gate_checkin_banner', 'partner.gate_checkin_banner_sub'],
+  locked: ['partner.gate_locked_banner', 'partner.gate_locked_banner_sub'],
+  document: ['partner.gate_doc_banner', 'partner.gate_doc_banner_sub'],
+};
+const SWITCH: Record<GateKind, MessageKey> = {
+  paused: 'partner.switch_blocked_paused',
+  checkin: 'partner.switch_blocked_checkin',
+  locked: 'partner.switch_blocked_locked',
+  document: 'partner.switch_blocked_doc',
+};
+const GLYPH = { paused: 'alert', checkin: 'face', locked: 'lock', document: 'id-card' } as const;
 
 /**
  * Home banner while the online gate is closed: "سوّي التسجيل اليومي" (accent), the day's lock-out or an
@@ -17,9 +31,10 @@ const ROUTE: Record<GateKind, '/checkin' | '/documents'> = { checkin: '/checkin'
 export function GateBanner({ kind }: { kind: GateKind }) {
   const theme = useTheme();
   const t = useT();
-  const danger = kind !== 'checkin';
-  const title = kind === 'checkin' ? t('partner.gate_checkin_banner') : kind === 'locked' ? t('partner.gate_locked_banner') : t('partner.gate_doc_banner');
-  const sub = kind === 'checkin' ? t('partner.gate_checkin_banner_sub') : kind === 'locked' ? t('partner.gate_locked_banner_sub') : t('partner.gate_doc_banner_sub');
+  // A pause after a report is not a fault of his: calm, never red.
+  const danger = kind === 'locked' || kind === 'document';
+  const title = t(BANNER[kind][0]);
+  const sub = t(BANNER[kind][1]);
   return (
     <Pressable
       testID={`gate-banner-${kind}`}
@@ -41,7 +56,7 @@ export function GateBanner({ kind }: { kind: GateKind }) {
       })}
     >
       <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: danger ? theme.colors.danger : theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-        <Glyph name={kind === 'checkin' ? 'face' : kind === 'locked' ? 'lock' : 'id-card'} size={22} color={danger ? theme.colors.onDanger : theme.colors.onAccent} strokeWidth={2.2} />
+        <Glyph name={GLYPH[kind]} size={22} color={danger ? theme.colors.onDanger : theme.colors.onAccent} strokeWidth={2.2} />
       </View>
       <View style={{ flex: 1 }}>
         <Text variant="label" weight={700} color={danger ? 'dangerText' : 'accentText'}>
@@ -65,7 +80,8 @@ export function BlockedSwitch({ kind }: { kind: GateKind }) {
   const t = useT();
   const shake = useSharedValue(0);
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
-  const label = kind === 'checkin' ? t('partner.switch_blocked_checkin') : kind === 'locked' ? t('partner.switch_blocked_locked') : t('partner.switch_blocked_doc');
+  const label = t(SWITCH[kind]);
+  const hint = t(kind === 'paused' ? 'partner.switch_blocked_hint_paused' : 'partner.switch_blocked_hint');
   return (
     <View style={{ gap: theme.space[2] }}>
       <Pressable
@@ -73,7 +89,7 @@ export function BlockedSwitch({ kind }: { kind: GateKind }) {
         accessibilityRole="button"
         accessibilityState={{ disabled: true }}
         accessibilityLabel={label}
-        accessibilityHint={t('partner.switch_blocked_hint')}
+        accessibilityHint={hint}
         onPress={() => {
           theme.haptic('warning');
           if (!theme.reduceMotion) shake.value = withSequence(withTiming(-8, { duration: 50 }), withTiming(8, { duration: 70 }), withTiming(-5, { duration: 60 }), withTiming(0, { duration: 60 }));
@@ -96,7 +112,7 @@ export function BlockedSwitch({ kind }: { kind: GateKind }) {
       </Pressable>
       {kind !== 'locked' ? (
         <Text variant="caption" color="textMuted" align="center">
-          {t('partner.switch_blocked_hint')}
+          {hint}
         </Text>
       ) : null}
     </View>

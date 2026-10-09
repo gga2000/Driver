@@ -8,16 +8,19 @@ import { OrgsModule } from '../orgs/index.js';
 import { PlacesModule } from '../places/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { MerchantModule } from '../merchant/index.js';
+import { CatalogModule } from '../catalog/index.js';
 import { InMemoryOpsRepository, OPS_REPOSITORY, PrismaOpsRepository, type OpsRepository } from './ops.repository.js';
 import { OpsService } from './ops.service.js';
 import { OpsPickupSpotsService } from './pickup-spots.service.js';
+import { OpsDishPhotosService } from './dish-photos.service.js';
 
 /**
  * Field ops mode: landmark photos, courier cash receipts (ledger), merchant onboarding, tasks; and
- * stores' pickup spots set from the Console (over the merchant module, audited in controls).
+ * stores' pickup spots set from the Console (over the merchant module, audited in controls); the
+ * same-day look at shop dish photos (p4, over the catalog module).
  */
 @Module({
-  imports: [DriverAccountModule, EventsModule, IdentityModule, LedgerModule, OrgsModule, PlacesModule, MerchantModule, ControlsModule],
+  imports: [DriverAccountModule, EventsModule, IdentityModule, LedgerModule, OrgsModule, PlacesModule, MerchantModule, ControlsModule, CatalogModule],
   providers: [
     {
       provide: OPS_REPOSITORY,
@@ -26,7 +29,8 @@ import { OpsPickupSpotsService } from './pickup-spots.service.js';
     },
     OpsService,
     OpsPickupSpotsService,
+    OpsDishPhotosService,
   ],
-  exports: [OpsService, OpsPickupSpotsService],
+  exports: [OpsService, OpsPickupSpotsService, OpsDishPhotosService],
 })
 export class OpsModule {}

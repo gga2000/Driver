@@ -23,6 +23,9 @@
 //                               customer card follow. Main photos: every driver above has an approved
 //                               drawn portrait; courier has a new one «تنتظر الموافقة», tuktuk's new one
 //                               is «مرفوضة» with a reason; rookie has none (his initial).
+//   POST /demo/account/pause?who=…[&lift=1]  staff pause him after a safety report (Console «وقّفه», lane E
+//                               #144): the online gate answers `staff_paused`, home shows the calm banner
+//                               and «حسابك موقّف مؤقتاً»; lift=1 is «رجّعه للشغل»
 //
 // The in-memory API has no past, so the scorecard's history (offer answers, completed trips and their
 // ratings over the last weeks) is fed to `DriverAccountService` alone through demo-only wrappers of
@@ -381,5 +384,14 @@ export default async function register(demo) {
     const reject = query.decision === 'reject';
     await account.reviewDocument(reviewer, { documentId: view.latest.documentId, decision: reject ? 'reject' : 'approve', ...(reject ? { reason: 'الوجه مو واضح. صوّر وجهك كامل بضوء زين وبدون نظارة شمسية' } : {}) });
     demo.json(res, 200, await account.mainPhoto(actor(p.personId)));
+  });
+
+  // Staff pause after a safety report (the Console's «وقّفه» / «رجّعه للشغل» do this in the real flow).
+  demo.route('/demo/account/pause', async ({ res, query }) => {
+    const p = demo.who(query);
+    const view = query.lift
+      ? await account.liftPause(reviewer, { personId: p.personId, note: 'انراجع البلاغ وما بيه شي' })
+      : await account.pause(reviewer, { personId: p.personId, reason: 'safety_report', note: 'بلاغ سلامة من زبون، ينراجع' });
+    demo.json(res, 200, view);
   });
 }

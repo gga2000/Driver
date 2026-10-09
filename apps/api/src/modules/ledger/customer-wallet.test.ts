@@ -86,6 +86,21 @@ describe('customer wallet: readable lines', () => {
     expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(3_400);
   });
 
+  it('M-3: owed fees paid with an order\'s cash are their own «سددت الرسوم» line, never part of what the order cost', async () => {
+    const h = walletHarness();
+    // He owed 1,000 from a cancelled order and handed over 17,750: 16,500 order + 1,000 fees + 250 change.
+    await h.ledger.recordAll(group('cancel:1', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 1_000, fromAccount: Accounts.customer('c1'), toAccount: Accounts.merchantCash('m1') }]));
+    const p = postOrderClosed(workedExample({ debtCollectIqd: 1_000, cashCollectedIqd: 17_750 }), h.rules);
+    await h.ledger.recordAll(p.money);
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]).filter((l) => l.orderId === 'o1');
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar])).toEqual([
+      ['food', -16_500, 'طلب أكل', 'كاش عند الاستلام'],
+      ['cash_change', 250, 'الباقي رصيد', 'صار رصيد إلك'],
+      ['debt', 1_000, 'سددت الرسوم', 'رسوم إلغاء كانت عليك، دفعتها كاش ويا هالطلب'],
+    ]);
+    expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(250);
+  });
+
   it('the honest-delay credit says it was for the late order («تعويض التأخير · طلب #…»), fee back or free-delivery 1,000; other credits stay «رصيد مضاف»', async () => {
     const h = walletHarness();
     const late = (orderId: string, amount: number, at: string): PostingGroup => ({
@@ -102,8 +117,8 @@ describe('customer wallet: readable lines', () => {
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar, l.title_en, l.detail_en, l.orderId ?? null])).toEqual([
       ['credit', 2_000, 'رصيد مضاف', null, 'Credit issued', null, null],
-      ['late_credit', 500, 'تعويض التأخير', `طلب #${orderTicketNumber('o7')}`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
-      ['late_credit', 1_000, 'تعويض التأخير', `طلب #${orderTicketNumber('o8')}`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
+      ['late_credit', 500, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o7')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
+      ['late_credit', 1_000, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o8')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
     ]);
   });
 
@@ -123,6 +138,13 @@ describe('customer wallet: readable lines', () => {
     await h.ledger.recordAll(group('order:o3:merchant_late_reject', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.merchantCash('m1'), toAccount: Accounts.customer('c1'), memo: 'merchant_late_reject' }]));
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount])).toEqual([['credit', 500]]);
+  });
+
+  it('M-11: a الرجعة driver who never came (or cancelled late) pays the rider a credit that says why', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('departure:dep1:cancel', 'money', '2026-10-02T10:00:00Z', [{ type: 'departure_cancel_fee', amount: 2_000, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.title_en])).toEqual([['credit', 2_000, 'تعويض: السايق ما طلع بالرحلة', "Credit: your driver didn't make the trip"]]);
   });
 
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {

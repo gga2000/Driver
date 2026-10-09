@@ -12,6 +12,7 @@ import { PrismaLedgerRepository, type LedgerEventDelegate } from '../ledger/pris
 import { ledgerHarness } from '../ledger/test-harness.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { RecordingRoutesEvents } from './events.adapter.js';
@@ -19,8 +20,9 @@ import { INTERCITY_NETWORK, INTERCITY_RULES } from './intercity.config.js';
 import { TrailCheckpointWaiver } from './late-meter.js';
 import { PrismaRoutesRepository } from './prisma.repository.js';
 import { RequestBoardService } from './request-board.service.js';
+import { InMemoryRequestRiders } from './request-riders.js';
 import { RoutesScheduler } from './scheduler.js';
-import { randomIds } from './support.js';
+import { randomIds, walletHolds } from './support.js';
 import { FakeWallet } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
@@ -48,6 +50,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     INTERCITY_NETWORK,
     INTERCITY_RULES,
     randomIds,
+    new InMemoryRequestRiders(),
   );
   const departures = new DeparturesService(
     repo,
@@ -71,7 +74,8 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     INTERCITY_NETWORK,
     randomIds,
   );
-  const scheduler = new RoutesScheduler(writer, departures, demand, requests);
+  const agreements = new AgreementsService(repo, events, clock, writer, departures, INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
+  const scheduler = new RoutesScheduler(writer, departures, demand, requests, agreements);
   const ids = { driver: '', d2: '', r1: '', r2: '' };
   const at = (min: number) => new Date(clock.now().getTime() + min * 60_000);
 
@@ -89,6 +93,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
       where: { driverId: { in: [ids.driver, ids.d2] } },
       select: { id: true },
     });
+    await db.tripAgreement.deleteMany({ where: { departureId: { in: deps.map((d) => d.id) } } });
     await db.seatBooking.deleteMany({ where: { departureId: { in: deps.map((d) => d.id) } } });
     await db.departure.deleteMany({ where: { driverId: { in: [ids.driver, ids.d2] } } });
     await db.demandPost.deleteMany({ where: { riderId: { in: [ids.r1, ids.r2] } } });
@@ -96,6 +101,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
       where: { riderId: { in: [ids.r1, ids.r2] } },
       select: { id: true },
     });
+    await db.rideRequestShare.deleteMany({ where: { requestId: { in: rqs.map((r) => r.id) } } });
     await db.rideRequestOffer.deleteMany({ where: { requestId: { in: rqs.map((r) => r.id) } } });
     await db.rideRequest.deleteMany({ where: { id: { in: rqs.map((r) => r.id) } } });
     await db.person.deleteMany({ where: { id: { in: [ids.driver, ids.d2, ids.r1, ids.r2] } } });
@@ -309,6 +315,173 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 0 });
     await requests.complete(ids.driver, r.id);
     expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 1 });
+  });
+
+  it('waiting terms survive the round-trip, and finished trips feed the usual range by place and kind (w1, p1)', async () => {
+    const since = new Date(clock.now().getTime() - 60_000);
+    const pricesBefore = await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since });
+    const r = await requests.post(
+      ids.r1,
+      PostRequestInput.parse({
+        from: { label: 'العزيزية' },
+        to: { label: 'مدينة الطب', placeId: 'medical_city' },
+        when: at(120),
+        seats: 1,
+        travellingAs: 'rijal',
+        details: { trip: 'wait_return', waitHours: 5 },
+      }),
+    );
+    const offered = await requests.offer(ids.driver, r.id, 47_000, { includedHours: 4, extraHourIqd: 6_000 });
+    expect((await repo.getRequest(r.id))?.offers[0]?.wait).toEqual({ includedHours: 4, extraHourIqd: 6_000 });
+    expect((await repo.getRequest(r.id))?.to).toEqual({ label: 'مدينة الطب', placeId: 'medical_city' });
+    wallet.set(ids.r1, 100_000);
+    await requests.pick(ids.r1, r.id, offered.offers[0]!.id);
+    // w2: the waiting clock's two times survive the round-trip; completion keeps the stop time.
+    await requests.waitStart(ids.driver, r.id);
+    const started = (await repo.getRequest(r.id))?.waitStartedAt;
+    expect(started).toBeInstanceOf(Date);
+    await requests.waitEnd(ids.driver, r.id);
+    const ended = (await repo.getRequest(r.id))?.waitEndedAt;
+    expect(ended!.getTime()).toBeGreaterThanOrEqual(started!.getTime());
+    await requests.complete(ids.driver, r.id);
+    expect((await repo.getRequest(r.id))?.waitEndedAt?.getTime()).toBe(ended!.getTime());
+    const after = await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since });
+    expect(after.length).toBe(pricesBefore.length + 1);
+    expect(after).toContain(47_000);
+    // Another kind of trip, or a later window, does not see it.
+    expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'one_way', since })).not.toContain(47_000);
+    expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since: new Date(clock.now().getTime() + 60_000) })).toEqual([]);
+  });
+
+  it('«جيب واحد» (k2): the fetched person id round-trips; a plain trip keeps none', async () => {
+    const r = await requests.post(
+      ids.r1,
+      PostRequestInput.parse({
+        from: { label: 'باب المعظم' },
+        to: { label: 'مستشفى الكوت', placeId: 'kut' },
+        when: new Date(clock.now().getTime() + 3 * 3600_000),
+        seats: 1,
+        travellingAs: 'aila',
+        details: { trip: 'fetch' },
+        rider: { from: 'typed', name: 'ماما', phone: '07701234567' },
+      }),
+    );
+    const back = await repo.getRequest(r.id);
+    expect(back?.fetchPersonId).toBe('p_fetch_07701234567');
+    expect(back?.details.trip).toBe('fetch');
+  });
+
+  it('step 4: an agreed pin pickup and door drop round-trip, lock on the booking, and expire on the tick', async () => {
+    const dep = await departures.announce(
+      ids.d2,
+      AnnounceInput.parse({
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(600),
+        latestDepartureAt: at(630),
+        vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 4' },
+      }),
+    );
+    const pin = await agreements.ask(ids.r1, { departureId: dep.id, kind: 'pin_pickup', lat: 33.1667, lng: 44.5517, note: 'جنب السيطرة' });
+    const door = await agreements.ask(ids.r1, { departureId: dep.id, kind: 'door_drop', lat: 33.3, lng: 44.4 });
+    await agreements.propose(ids.d2, { agreementId: pin.id, amountIqd: 3_000 });
+    await agreements.propose(ids.d2, { agreementId: door.id, amountIqd: 0 });
+    await agreements.respond(ids.r1, { agreementId: pin.id, accept: true });
+    await agreements.respond(ids.r1, { agreementId: door.id, accept: true });
+    const held = await departures.hold(
+      ids.r1,
+      HoldSeatInput.parse({
+        departureId: dep.id,
+        selection: { kind: 'seats', seatIds: ['back_right'] },
+        travellingAs: 'rijal',
+        pickup: { kind: 'pin', agreementId: pin.id },
+        dropoff: { agreementId: door.id },
+      }),
+    );
+    const booked = await departures.book(ids.r1, held.id, 'cash');
+    const back = await repo.getBooking(booked.id);
+    expect(back?.pickup).toMatchObject({ kind: 'pin', feeIqd: 3_000, agreementId: pin.id, status: 'accepted' });
+    expect(back).toMatchObject({ pickupFeeIqd: 3_000, dropoffFeeIqd: 0, dropoff: { agreementId: door.id, lat: 33.3, lng: 44.4, note: null } });
+    expect(await repo.getAgreement(pin.id)).toMatchObject({ state: 'used', bookingId: booked.id, amountIqd: 3_000, note: 'جنب السيطرة' });
+    expect((await repo.agreementsFor(dep.id, ids.r1)).map((a) => a.state)).toEqual(['used', 'used']);
+
+    const late = await agreements.ask(ids.r2, { departureId: dep.id, kind: 'door_drop', lat: 33.3, lng: 44.4 });
+    await agreements.propose(ids.d2, { agreementId: late.id, amountIqd: 2_000 });
+    expect((await repo.openAgreements()).some((a) => a.id === late.id)).toBe(true);
+    clock.advanceMinutes(31);
+    expect((await scheduler.tick()).agreementsExpired).toBeGreaterThanOrEqual(1);
+    expect((await repo.getAgreement(late.id))?.state).toBe('expired');
+  });
+
+  it('step 4b: the «احجز وادفع كاش» ask, the answer and a cash pick survive the round-trip', async () => {
+    requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
+    try {
+      const r = await requests.post(ids.r2, PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(500), seats: 1, travellingAs: 'aila' }));
+      const o = (await requests.offer(ids.driver, r.id, 20_000)).offers.at(-1)!;
+      wallet.set(ids.r2, 0);
+      await requests.askCash(ids.r2, r.id, o.id);
+      expect((await repo.getRequest(r.id))?.offers.map((x) => x.cash)).toEqual(['asked']);
+      await requests.answerCash(ids.driver, r.id, o.id, true);
+      await requests.pick(ids.r2, r.id, o.id, true);
+      const back = await repo.getRequest(r.id);
+      expect(back).toMatchObject({ state: 'matched', cashReserved: true, depositIqd: 5_000 });
+      expect(back?.offers.map((x) => [x.state, x.cash])).toEqual([['picked', 'accepted']]);
+    } finally {
+      requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: false } };
+    }
+  });
+
+  it('step 5: a return pair with its discount and a lap child round-trip; cancelling the first seat drops the pair', async () => {
+    const paired = new DeparturesService(repo, events, wallet, clock, writer, requests, INTERCITY_NETWORK, INTERCITY_RULES, { ...AZIZIYAH_MONEY_RULES, intercityReturnBundle: { enabled: true, percent: 10, fundedBy: 'platform' } }, new TrailCheckpointWaiver(), randomIds);
+    const vehicle = { kind: 'saloon' as const, layout: 4 as const, plate: 'واسط 5' };
+    const out = await paired.announce(ids.driver, AnnounceInput.parse({ garageId: 'mp_garage_bab1', corridorId: 'aziziyah_baghdad', departAt: at(2400), latestDepartureAt: at(2430), vehicle }));
+    const back = await paired.announce(ids.d2, AnnounceInput.parse({ garageId: 'mp_garage_nahdha', corridorId: 'aziziyah_baghdad', departAt: at(2700), latestDepartureAt: at(2730), vehicle }));
+    const seat = (departureId: string, lapChildren = 0) =>
+      HoldSeatInput.parse({ departureId, selection: { kind: 'seats', seatIds: ['back_left', 'back_right'] }, travellingAs: 'aila', lapChildren });
+    const there = await paired.book(ids.r1, (await paired.hold(ids.r1, seat(out.id, 1))).id, 'cash');
+    const home = await paired.book(ids.r1, (await paired.hold(ids.r1, seat(back.id))).id, 'cash');
+    expect(await repo.getBooking(there.id)).toMatchObject({ lapChildren: 1, returnDiscountIqd: 0, returnPairId: home.id });
+    expect(await repo.getBooking(home.id)).toMatchObject({ lapChildren: 0, returnDiscountIqd: 2_000, returnPairId: there.id });
+    await paired.cancel(ids.r1, there.id);
+    expect(await repo.getBooking(home.id)).toMatchObject({ returnDiscountIqd: 0, returnPairId: null });
+  });
+
+  it('step 6: a shared car, its link and the friends who joined round-trip; the link finds it and holds count', async () => {
+    const sharing = new RequestBoardService(repo, events, wallet, clock, writer, INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
+    sharing.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+    const r = await sharing.post(
+      ids.r1,
+      PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'بغداد' }, when: at(600), seats: 4, travellingAs: 'aila' }),
+    );
+    const offered = await sharing.offer(ids.driver, r.id, 110_000);
+    wallet.set(ids.r1, 100_000);
+    await sharing.pick(ids.r1, r.id, offered.offers[0]!.id);
+    const code = (await sharing.openShare(ids.r1, r.id, 1)).share!.code;
+    wallet.set(ids.r2, 200_000);
+    // r2 may hold seats or deposits from the tests above; the share adds to them.
+    const before = await walletHolds(repo, ids.r2);
+    await sharing.joinShare(ids.r2, code, 2);
+    const back = await repo.getRequestByShareCode(code);
+    expect(back?.id).toBe(r.id);
+    expect(back?.share).toMatchObject({ code, bookerPlaces: 1, placeIqd: 27_500, members: [{ personId: ids.r2, places: 2, amountIqd: 55_000, state: 'joined', closedAt: null }] });
+    expect((await repo.listRequests({ memberId: ids.r2, states: ['matched'] })).map((x) => x.id)).toEqual([r.id]);
+    expect(await walletHolds(repo, ids.r2)).toBe(before + 55_000);
+    await sharing.leaveShare(ids.r2, code);
+    expect((await repo.getRequest(r.id))?.share?.members[0]).toMatchObject({ state: 'left' });
+    expect(await walletHolds(repo, ids.r2)).toBe(before);
+    // Way C: who got in, and who said so, round-trip (and clear on «ما صعدت»).
+    await sharing.joinShare(ids.r2, code, 1);
+    await sharing.arrived(ids.driver, r.id, { lat: 32.9032, lng: 45.0578 });
+    await sharing.boardShare(ids.r2, code, { lat: 32.9033, lng: 45.0578 });
+    const boarded = (await repo.getRequest(r.id))?.share?.members.find((m) => m.state === 'joined');
+    expect(boarded).toMatchObject({ boardedBy: 'self' });
+    expect(boarded?.boardedAt).toBeInstanceOf(Date);
+    // As if the driver had confirmed him: «ما صعدت» clears it.
+    const rec = (await repo.getRequest(r.id))!;
+    rec.share!.members.find((m) => m.id === boarded!.id)!.boardedBy = 'driver';
+    await repo.saveRequest(rec);
+    await sharing.denyShareBoard(ids.r2, code);
+    expect((await repo.getRequest(r.id))?.share?.members.find((m) => m.id === boarded!.id)).toMatchObject({ boardedAt: null, boardedBy: null });
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
