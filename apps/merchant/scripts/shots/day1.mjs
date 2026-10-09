@@ -4,11 +4,19 @@
 //   moment · d01/d04/d05/d06 the board in a rush (day card, header, «#7477», «اقبل · 20 دقيقة») ·
 //   d03 cooking tickets, the order sheet, the cash sheet · d01 quiet and closed · d10 not-found and a
 //   slow start · d02 no internet while changing tab, and the net coming back · d07 paused for customers.
+// The second batch (d11–d23) is `later()` below. `DAY1=first|later` runs one batch (default both).
 // Seeded by scripts/demo/board.mjs. `SHOTS=day1 node scripts/web-shots.mjs <out>`.
 export default {
   name: 'day1',
   viewports: ['tablet', 'phone'],
   async run(h) {
+    const only = process.env.DAY1 ?? 'all';
+    if (only === 'all' || only === 'first') await first(h);
+    if (only === 'all' || only === 'later') await later(h);
+  },
+};
+
+async function first(h) {
     const { page, byTestId, shot, demoPost, signIn, startShift, goto, viewport, apiBase, origin } = h;
     const phone = viewport === 'phone';
     const visible = async (id) => byTestId(id).isVisible().catch(() => false);
@@ -175,5 +183,178 @@ export default {
     await byTestId('paused-strip').waitFor({ timeout: 20_000 }).catch(() => undefined);
     await shot('paused-now', { wait: 800 });
     await page.unroute(`${apiBase}/trpc/**`);
-  },
-};
+}
+
+/**
+ * d11–d23 (the rest of the day-one walk-through), on either build:
+ *   d14 the setup preview's gaps · d13 the setup words and prices · d12 a new shop's money · d20 a new
+ *   shop's «يومك» · d15 one switch (printer, settings) · d16 staff phones · d17 «منو سوّى شنو» and the
+ *   remake sheet · d18 «وقتك مضبوط» · d19 the week in sentences · d21 a dish without a photo · d22 the
+ *   cooking ticket · d23 the chat on a tablet · d11 «حدّث التطبيق» (last: it changes the build header).
+ * The new shop is scripts/demo/setup.mjs (owner 0770 777 0001); the rest is مطعم خالد.
+ */
+async function later(h) {
+  const { page, shot, demoPost, signIn, startShift, goto, viewport, origin } = h;
+  const phone = viewport === 'phone';
+  const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
+  const appear = (id, timeout = 6000) => visible(id).waitFor({ timeout }).then(() => true, () => false);
+  /** One step; a step the other build lacks is skipped, never the whole list. */
+  const step = async (name, fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      console.log(`[day1 ${viewport}] ${name} skipped: ${String(err?.message ?? err).split('\n')[0]}`);
+      if (process.env.DAY1_DEBUG) await shot(`zz-${name.replace(/\W+/g, '-')}-skipped`, { wait: 100 }).catch(() => undefined);
+      await page.keyboard.press('Escape').catch(() => undefined);
+    }
+  };
+  /** The board, fresh: the shift gate and the lesson (it comes back at the first quiet moment) out of the way. */
+  const board = async () => {
+    await page.goto(`${origin}/`, { waitUntil: 'load' });
+    await visible('board').waitFor({ timeout: 20_000 });
+    await startShift();
+    if (await appear('learn-cards', 3000)) await visible('learn-done').click();
+    await page.waitForTimeout(500);
+  };
+  const open = async (path, id) => {
+    await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+    await visible(id).waitFor({ timeout: 20_000 });
+  };
+
+  // ── the new shop (setup) ──
+  await demoPost('/demo/setup/stage?to=fresh');
+  await signIn('0770 777 0001');
+  await step('d14 preview', async () => {
+    if (await appear('setup-welcome', 15_000)) await visible('setup-welcome-go').click();
+    await visible('setup-preview').waitFor({ timeout: 15_000 });
+    await shot('d14-preview', { wait: 1500 });
+  });
+  await step('d13 steps', async () => {
+    await visible('setup-steps').scrollIntoViewIfNeeded();
+    await shot('d13-steps', { element: visible('setup-steps'), wait: 600 });
+  });
+  await step('d13 cards', async () => {
+    await goto('/setup/menu');
+    await visible('setup-card-ok').waitFor({ timeout: 15_000 });
+    await shot('d13-cards', { wait: 1200 });
+    await visible('setup-card-fix').click();
+    await visible('setup-fix').waitFor();
+    await shot('d13-fix', { wait: 900 });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+  });
+  await step('d12 money', async () => {
+    await open('/money', 'money');
+    await page.waitForTimeout(2500);
+    await shot('d12-money', { wait: 800 });
+    if (await appear('cash-hero', 4000)) await shot('d12-cash', { element: visible('cash-hero'), wait: 400 });
+  });
+  await step('d20 numbers', async () => {
+    await open('/money?tab=insights', 'money');
+    await page.waitForTimeout(2500);
+    await shot('d20-numbers', { wait: 800, full: true });
+  });
+  await demoPost('/demo/setup/stage?to=fresh');
+
+  // ── مطعم خالد ──
+  await demoPost('/demo/board/store?open=1&busy=0');
+  await demoPost('/demo/shop/remake?on=0');
+  await signIn('0770 123 4567');
+  await step('d15 printer', async () => {
+    await goto('/printer');
+    await visible('printer-slip').waitFor({ timeout: 10_000 });
+    await visible('printer-slip').scrollIntoViewIfNeeded();
+    await shot('d15-printer', { wait: 800 });
+  });
+  await step('d15 settings', async () => {
+    await goto('/settings');
+    await visible('setting-sound').waitFor({ timeout: 10_000 });
+    await shot('d15-settings', { wait: 800 });
+  });
+  await step('d16 staff', async () => {
+    await goto('/staff');
+    await visible('staff-team').waitFor({ timeout: 10_000 });
+    await shot('d16-staff', { wait: 800 });
+  });
+  await step('d18 day', async () => {
+    await open('/money', 'money');
+    await visible('day-strip').waitFor({ timeout: 15_000 });
+    await shot('d18-day', { wait: 1200 });
+  });
+  await step('d17 activity', async () => {
+    await visible('activity').waitFor({ timeout: 15_000 });
+    await visible('activity').scrollIntoViewIfNeeded();
+    await shot('d17-activity', { element: visible('activity'), wait: 600 });
+  });
+  await step('d19 week', async () => {
+    await open('/money?tab=statement', 'money');
+    await visible('statement-bridge').waitFor({ timeout: 15_000 });
+    await visible('statement-bridge').scrollIntoViewIfNeeded();
+    await shot('d19-week', { wait: 800 });
+    await shot('d19-week-crop', { element: visible('statement-bridge'), wait: 300 });
+  });
+  await step('d21 menu', async () => {
+    await open('/menu', 'menu');
+    await page.waitForTimeout(2000);
+    // The first dish without a photo, in view.
+    const bare = page.locator('[data-testid^="tray-nophoto-"]:visible, [data-testid^="dish-"]:visible').first();
+    await bare.scrollIntoViewIfNeeded().catch(() => undefined);
+    await shot('d21-menu', { wait: 1200 });
+  });
+  await step('d17 remake', async () => {
+    await demoPost('/demo/shop/remake?on=1');
+    await board();
+    if (phone) await visible('segment-ready').click();
+    const tag = page.locator('[data-testid^="remake-"][data-testid$="-action"]:visible').first();
+    await tag.waitFor({ timeout: 20_000 });
+    await tag.click();
+    await visible('remake-sheet').waitFor();
+    await shot('d17-remake', { wait: 700 });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    await demoPost('/demo/shop/remake?on=0');
+  });
+  await step('d22 cooking', async () => {
+    await demoPost('/demo/board/rush?count=2');
+    await board();
+    for (let i = 0; i < 6; i++) {
+      const btn = page.locator('[data-testid="sticky-accept-now"]:visible, [data-testid="ribbon-accept"]:visible, [data-testid^="accept-"]:not([data-testid^="accept-more"]):not([data-testid^="accept-all"]):visible').first();
+      if (!(await btn.count())) break;
+      await btn.click().catch(() => undefined);
+      await page.waitForTimeout(900);
+    }
+    if (await appear('learn-cards', 2500)) await visible('learn-done').click();
+    if (await appear('day-ok', 1500)) await visible('day-ok').click().catch(() => undefined);
+    if (phone) await visible('segment-preparing').click();
+    const tick = page.locator('[data-testid^="tick-"]:visible').first();
+    await tick.waitFor({ timeout: 10_000 });
+    await tick.click();
+    await page.waitForTimeout(600);
+    const card = page.locator('[data-testid^="order-"]:visible', { has: page.locator('[data-testid^="tick-"]') }).first();
+    await card.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await shot('d22-cooking', { wait: 800 });
+    await shot('d22-ticket', { element: card, wait: 300 });
+  });
+  await step('d23 chat', async () => {
+    const fresh = await demoPost('/demo/chat/fresh');
+    if (!fresh) return;
+    await board();
+    if (phone) await visible('segment-preparing').click();
+    const card = visible(`order-${fresh.number}`);
+    await card.waitFor({ timeout: 15_000 });
+    const details = visible(`details-${fresh.number}`);
+    if (await details.count()) await details.click();
+    else await card.locator('[role="button"]').first().click();
+    await visible('detail-contact').waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(5500);
+    await visible('detail-chat-courier').click();
+    await visible('chat-msg-2').waitFor({ timeout: 15_000 });
+    await shot('d23-chat', { wait: 1000 });
+    await page.keyboard.press('Escape');
+  });
+  await step('d11 update', async () => {
+    await page.goto(`${origin}/?demoBuild=0.0.1`, { waitUntil: 'load' });
+    await visible('update-required').waitFor({ timeout: 20_000 });
+    await shot('d11-update', { wait: 900 });
+  });
+}
