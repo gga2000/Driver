@@ -1,10 +1,10 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DriverDepartureView, GarageOpsView, IntercityNetwork, OverdueDeparture, RajaaDriverCard } from '@driver/contracts';
+import type { DepartureNoShowFee, DriverDepartureView, GarageOpsView, IntercityNetwork, OverdueDeparture, StaffDepartureDriver } from '@driver/contracts';
 import { formatRange, t } from '@driver/i18n';
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
-import { formatClock } from '@/lib/format';
+import { formatClock, formatIqd } from '@/lib/format';
 import { actionFor, isOver, routeLabel, seatDots, sortBoard, stateChip, vehicleLabel, type GarageAction } from '@/lib/garage';
 import { queryRetry } from '@/lib/live';
 import { errorText } from '@/lib/network';
@@ -88,9 +88,10 @@ function GarageLive({ garageId, network, onGarage }: { garageId: string; network
     const s = new Set<string>();
     for (const o of overdue.data ?? []) s.add(o.departureId);
     for (const d of view.data?.departures ?? []) s.add(d.id);
-    return [...s].slice(0, 30);
+    return [...s].slice(0, 100);
   }, [overdue.data, view.data]);
-  const cards = useQuery(trpc.routes.driverCards.queryOptions({ departureIds: ids }, { enabled: ids.length > 0, retry: queryRetry, staleTime: 60_000 }));
+  // Staff names for every run, departed and overdue ones too (one logged vault read per page).
+  const cards = useQuery(trpc.routes.ops.departureDrivers.queryOptions({ departureIds: ids }, { enabled: ids.length > 0, retry: queryRetry, staleTime: 60_000 }));
   const [acting, setActing] = useState<Acting | null>(null);
 
   if (view.error && !view.data) return <QueryError error={view.error} onRetry={() => void view.refetch()} />;
@@ -129,7 +130,7 @@ export function GarageBoard({
   overdue: OverdueDeparture[];
   overdueError?: Parameters<typeof QueryError>[0]['error'] | null;
   network: IntercityNetwork;
-  cards: RajaaDriverCard[];
+  cards: StaffDepartureDriver[];
   updatedAt?: number;
   fetching?: boolean;
   onAct: (a: Acting) => void;
@@ -137,7 +138,7 @@ export function GarageBoard({
 }) {
   const corridors = useMemo(() => new Map(network.corridors.map((c) => [c.id, c])), [network.corridors]);
   const garageName = useMemo(() => new Map(network.garages.map((g) => [g.id, g.nameAr])), [network.garages]);
-  const names = useMemo(() => new Map(cards.map((c) => [c.departureId, c.firstName])), [cards]);
+  const names = useMemo(() => new Map(cards.flatMap((c) => (c.displayName ? [[c.departureId, c.displayName] as const] : []))), [cards]);
   const byId = useMemo(() => new Map(view.departures.map((d) => [d.id, d])), [view.departures]);
   const lateById = useMemo(() => new Map(overdue.map((o) => [o.departureId, o])), [overdue]);
   const board = useMemo(() => sortBoard(view.departures), [view.departures]);
@@ -189,6 +190,7 @@ export function GarageBoard({
                         {o.reason === 'driver_no_show'
                           ? t('console.garage.no_show_line', { n: o.riders, latest: dep ? formatClock(dep.latestDepartureAt) : '—' })
                           : t('console.garage.not_arrived_line', { n: o.riders, left: dep?.departedAt ? formatClock(dep.departedAt) : '—' })}
+                        {o.noShowFee && o.noShowFee.driverChargeIqd > 0 ? ` · ${t('console.garage.fee_line', { amount: formatIqd(o.noShowFee.driverChargeIqd) })}` : ''}
                         {elsewhere ? (
                           <>
                             {' · '}
@@ -327,10 +329,6 @@ export function GarageBoard({
             </ul>
           )}
         </Card>
-        <p className="flex items-start gap-2 rounded-md border border-warn-solid/40 bg-warn-tint px-3 py-2 text-dense" data-testid="waits-ali">
-          <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
-          <span>{t('console.garage.m11_waits')}</span>
-        </p>
       </aside>
     </div>
   );
@@ -373,10 +371,16 @@ function ActionDialog({ acting, onClose }: { acting: Acting | null; onClose: () 
   const reasonId = useId();
   const [reason, setReason] = useState('');
   const done = {
-    onSuccess: (r: { changed: boolean }) => {
+    onSuccess: (r: { changed: boolean; noShowFee?: DepartureNoShowFee | null }) => {
       void qc.invalidateQueries({ queryKey: trpc.routes.ops.garage.queryKey() });
       void qc.invalidateQueries({ queryKey: trpc.routes.ops.overdueDepartures.queryKey() });
-      toast({ title: t(r.changed ? 'console.garage.done' : 'console.garage.already'), tone: 'ok' });
+      // M-11: say what the cancel actually charged (null with the switch off or on a replay).
+      const fee = r.noShowFee;
+      toast({
+        title: t(r.changed ? 'console.garage.done' : 'console.garage.already'),
+        body: fee && fee.driverChargeIqd > 0 ? t('console.garage.fee_done', { n: fee.riders, per: formatIqd(fee.perRiderIqd), amount: formatIqd(fee.driverChargeIqd) }) : undefined,
+        tone: 'ok',
+      });
       onClose();
     },
   };
@@ -426,12 +430,7 @@ function ActionDialog({ acting, onClose }: { acting: Acting | null; onClose: () 
               <li key={k}>{t(k)}</li>
             ))}
           </ul>
-          {acting.action === 'cancel' && (
-            <p className="flex items-start gap-2 rounded-md border border-warn-solid/40 bg-warn-tint px-3 py-2 text-dense">
-              <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
-              <span>{t('console.garage.m11_waits')}</span>
-            </p>
-          )}
+          {acting.action === 'cancel' && acting.late?.reason === 'driver_no_show' ? <NoShowFeeNote fee={acting.late.noShowFee ?? null} /> : null}
           <Field label={t('console.ctl_reason')} htmlFor={reasonId} hint={t('console.garage.reason_hint')}>
             <Input
               id={reasonId}
@@ -450,5 +449,33 @@ function ActionDialog({ acting, onClose }: { acting: Acting | null; onClose: () 
         </form>
       )}
     </Dialog>
+  );
+}
+
+/**
+ * M-11 (Ali, 2026-10-09): cancelling a run whose driver never came credits each booked rider and
+ * charges the driver the total, behind GARAGE_NO_SHOW_FEE. Amounts come from the server only.
+ */
+function NoShowFeeNote({ fee }: { fee: DepartureNoShowFee | null }) {
+  if (!fee || fee.riders === 0) {
+    return (
+      <p className="flex items-start gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-dense text-muted" data-testid="garage-fee">
+        <IconAlert size={16} className="mt-0.5 shrink-0" />
+        <span>{t(fee ? 'console.garage.fee_no_riders' : 'console.garage.fee_off')}</span>
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-md border border-warn-solid/40 bg-warn-tint px-3 py-2.5 text-dense" data-testid="garage-fee">
+      <p className="flex items-start gap-2 font-semibold text-text">
+        <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
+        <span className="num">{t('console.garage.fee_charge', { amount: formatIqd(fee.driverChargeIqd) })}</span>
+      </p>
+      <p className="num mt-1 ps-6 text-text">
+        {t('console.garage.fee_riders', { n: fee.riders, per: formatIqd(fee.perRiderIqd) })}
+        {fee.doubled ? ` ${t('console.garage.fee_doubled')}` : ''}
+      </p>
+      <p className="mt-1 ps-6 text-xs text-muted">{t('console.garage.fee_settle')}</p>
+    </div>
   );
 }
