@@ -29,6 +29,8 @@ export interface OrderCardProps {
   stage?: AlarmStage | null;
   /** Cap on item lines shown (the detail sheet shows all). */
   maxLines?: number;
+  /** Day-one d07: no countdown ring (the shop is paused offline: a ring stuck at 0 only alarms). */
+  noRing?: boolean;
   /** One-tap accept (M-12): the store's usual prep time, busy minutes included, shown on the button. */
   oneTapMinutes?: number;
   /** One tap: accept with the usual time. Without it the button opens the time sheet (`onAccept`). */
@@ -301,14 +303,12 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, clock, ringing = false, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
+  const { order, clock, ringing = false, maxLines = 8, noRing = false, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
   /** Three board columns under 1000 px leave a card ~190 px inside: the ticket number steps down. */
   const tight = wide && width < 1000;
-  /** Under 1200 px the board's columns are too narrow for a row of three buttons. */
-  const narrowBoard = wide && width < 1200;
   const numberLabel = t('merchant.card.number', { number: order.number });
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   // h3: a ticket re-draws on its own when its numbers change: every 10 s («من 4 د», the prep bar),
@@ -343,7 +343,7 @@ export function OrderCard(props: OrderCardProps) {
       <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} style={{ flex: 1 }} />
       {onAcceptNow && oneTapMinutes !== undefined ? (
         <>
-          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
           <Pressable
             testID={`accept-more-${order.number}`}
             accessibilityRole="button"
@@ -406,7 +406,7 @@ export function OrderCard(props: OrderCardProps) {
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          {order.acceptBy && !order.partial ? (
+          {order.acceptBy && !order.partial && !noRing ? (
             <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
           ) : (
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
@@ -428,7 +428,7 @@ export function OrderCard(props: OrderCardProps) {
             needsReading(order) ? (
               <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} />
             ) : onAcceptNow && oneTapMinutes !== undefined ? (
-              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
             ) : null
           ) : (
             <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
@@ -459,7 +459,7 @@ export function OrderCard(props: OrderCardProps) {
           })}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-            {order.acceptBy && !order.partial ? (
+            {order.acceptBy && !order.partial && !noRing ? (
               <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
@@ -534,7 +534,7 @@ export function OrderCard(props: OrderCardProps) {
                 .join(' · ')}
             </Text>
           </View>
-          {isNew && order.acceptBy && !order.partial ? (
+          {isNew && order.acceptBy && !order.partial && !noRing ? (
             <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
@@ -569,25 +569,18 @@ export function OrderCard(props: OrderCardProps) {
 
         {isNew && !order.partial ? (
           acceptButtons('lg')
-        ) : order.column === 'preparing' && narrowBoard ? (
-          // A narrow board column has no room for three buttons in a row: «صار جاهز» takes the full
-          // width on top, «+5 د» and «التفاصيل» share the line under it.
+        ) : order.column === 'preparing' ? (
+          // A ticket is never wider than a board column (about 370 px on a 1280 tablet), which has no room
+          // for three buttons in a row (day-one d03: «التفاصيل» broke into «التفا / صيل»): «صار جاهز» takes
+          // the full width on top, «+5 دقايق» and «التفاصيل» share the line under it.
           <View style={{ gap: theme.space[2] }}>
             <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} fullWidth />
             <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
               {onExtend && canExtendPrep(order) ? (
-                <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
+                <Button testID={`extend-${order.number}`} label={t('merchant.extend.button_full')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
               ) : null}
-              <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
+              <Button testID={`details-${order.number}`} label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
             </View>
-          </View>
-        ) : order.column === 'preparing' ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-            {onExtend && canExtendPrep(order) ? (
-              <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
-            ) : null}
-            <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
-            <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} style={{ flex: 2 }} />
           </View>
         ) : null}
         {order.column === 'preparing' && order.prepExtended ? (

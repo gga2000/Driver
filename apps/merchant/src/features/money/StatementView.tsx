@@ -172,7 +172,7 @@ function Cell({ label, value, strong }: { label: string; value: string; strong?:
       <Text variant="caption" color="textMuted">
         {label}
       </Text>
-      <Text variant="bodyStrong" weight={700} tabular numberOfLines={1}>
+      <Text variant="bodyStrong" weight={700} tabular>
         {value}
       </Text>
     </View>
@@ -361,7 +361,7 @@ function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: bo
         <Text variant="caption" color="textMuted" numberOfLines={1}>
           {t(term.label)}
         </Text>
-        <Text variant={last ? 'bodyStrong' : 'label'} weight={last ? 700 : 600} tabular color={term.key === 'settled' ? 'accentText' : 'text'} numberOfLines={1}>
+        <Text variant={last ? 'bodyStrong' : 'label'} weight={last ? 700 : 600} tabular color={term.key === 'settled' ? 'accentText' : 'text'}>
           {iqd(term.amountIqd, { locale })}
         </Text>
       </View>

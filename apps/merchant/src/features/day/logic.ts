@@ -78,9 +78,32 @@ export function adviceLine(a: MerchantDaySummary['advice']): { key: TKey; params
   return { key: ADVICE[a.kind], params };
 }
 
-/** "اليوم" at close; "البارحة" when the card shows after midnight for the day that ended. */
-export function dayTitleKey(s: Pick<MerchantDaySummary, 'reason' | 'localDate'>, todayKey: string): TKey {
-  return s.localDate === todayKey ? 'merchant.day.title_today' : 'merchant.day.title_yesterday';
+/** The calendar day before `YYYY-MM-DD` (pure date arithmetic, no time zone). */
+export function dayBefore(localDate: string): string {
+  const d = new Date(`${localDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * "اليوم" at close; "البارحة" when the card shows after midnight for the day that ended — and only
+ * when it really is the day before the shop's own today (day-one d01: `todayKey` is the Baghdad day of
+ * the server clock). Any other day gets no word, just its date (null), never a wrong «البارحة».
+ */
+export function dayTitleKey(s: Pick<MerchantDaySummary, 'reason' | 'localDate'>, todayKey: string): TKey | null {
+  if (s.localDate === todayKey) return 'merchant.day.title_today';
+  if (s.localDate === dayBefore(todayKey)) return 'merchant.day.title_yesterday';
+  return null;
+}
+
+/**
+ * Day-one d01: where the day's card goes on the board. While orders wait it is one line
+ * («البارحة: 35 طلب ›», the full card a tap away), never on top of the orders; the full card only when
+ * the shop is closed (or outside its hours) or nothing is waiting.
+ */
+export function dayCardMode(p: { show: boolean; waiting: number; closed: boolean }): 'none' | 'line' | 'full' {
+  if (!p.show) return 'none';
+  return p.closed || p.waiting === 0 ? 'full' : 'line';
 }
 
 // ───────────────────────── «مين سوّى شنو» (owner only) ─────────────────────────

@@ -417,7 +417,7 @@ function Figure({ label, value, muted }: { label: string; value: string; muted?:
       <Text variant="caption" color="textMuted">
         {label}
       </Text>
-      <Text variant="title" weight={700} color={muted ? 'textMuted' : 'text'} tabular numberOfLines={1} adjustsFontSizeToFit>
+      <Text variant="title" weight={700} color={muted ? 'textMuted' : 'text'} tabular>
         {value}
       </Text>
     </View>

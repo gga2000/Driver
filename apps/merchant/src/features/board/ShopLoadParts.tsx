@@ -7,7 +7,7 @@ import { COUNTER } from '@/lib/counter';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { InfoStrip } from './Banners';
-import { beatLog, pauseView, useBeatLog, type AutoBusy, type RemakeOutcome } from './shop-load';
+import { beatLog, pauseView, useBeatLog, type AutoBusy, type PauseView, type RemakeOutcome } from './shop-load';
 
 /** Device time, re-read every `ms` while `on` (the pause counts from the last beat the server answered). */
 function useNow(on: boolean, ms = 15_000): number {
@@ -27,13 +27,18 @@ function useNow(on: boolean, ms = 15_000): number {
  * (the app was closed or offline for more than 5 minutes) it says how long customers saw it closed and
  * how to keep it open, until «تمام».
  */
-export function PauseStrip({ online }: { online: boolean }) {
-  const t = useT();
+export function usePauseView(online: boolean): PauseView {
   const log = useBeatLog();
   const now = useNow(!online);
-  const view = pauseView({ now, online, lastOkAt: log.lastOkAt, back: log.back });
+  return pauseView({ now, online, lastOkAt: log.lastOkAt, back: log.back });
+}
+
+export function PauseStrip({ online, view }: { online: boolean; view: PauseView }) {
+  const t = useT();
   if (view.kind === 'paused') {
-    return <InfoStrip tone="warning" icon="wifi-off" testID="paused-strip" text={t('merchant.paused.now', { minutes: view.offMinutes })} sub={t('merchant.paused.now_how')} />;
+    // Day-one d07: paused is the one banner on the board (the alarm band, the rings and the app's
+    // connection strip step aside), in one sentence: what customers see, since when, what happens next.
+    return <InfoStrip tone="warning" icon="wifi-off" testID="paused-strip" text={t('merchant.paused.one', { minutes: view.offMinutes })} />;
   }
   if (!online) {
     return <InfoStrip tone="neutral" icon="wifi-off" testID="offline-strip" text={t('merchant.offline.strip')} {...(view.kind === 'soon' ? { sub: t('merchant.paused.soon', { minutes: view.minutesLeft }) } : {})} />;
