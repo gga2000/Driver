@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { joinPhase, joinPlacesMax, shareFriends, shareSlots } from './share-car';
 
-const m = (places: number, state: 'joined' | 'left' | 'released' | 'paid') => ({ firstName: null, places, amountIqd: places * 27_500, state });
+let n = 0;
+const m = (places: number, state: 'joined' | 'left' | 'released' | 'paid') => ({ id: `rqs_${++n}`, firstName: null, places, amountIqd: places * 27_500, state, boardedBy: null });
 
 describe('step 6: sharing the car', () => {
   it('lays the people out: the booker first, friends holding places, then empty places', () => {

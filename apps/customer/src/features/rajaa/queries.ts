@@ -311,6 +311,16 @@ export function useLeaveShare() {
   return useMutation(api.routes.requestBoard.leaveShare.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/** Way C: his «صعدت» next to the car, and his «ما صعدت» on the driver's tap for him. */
+export function useShareBoarding() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return {
+    board: useMutation(api.routes.requestBoard.shareBoard.mutationOptions({ onSettled: () => void invalidate() })),
+    notBoarded: useMutation(api.routes.requestBoard.shareNotBoarded.mutationOptions({ onSettled: () => void invalidate() })),
+  };
+}
+
 /** Shared cars he joined, still ahead or on the road (the board shows them at the top). */
 export function useSharedWithMe() {
   const api = useApi();

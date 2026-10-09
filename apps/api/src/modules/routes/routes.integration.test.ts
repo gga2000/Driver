@@ -469,7 +469,19 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     await sharing.leaveShare(ids.r2, code);
     expect((await repo.getRequest(r.id))?.share?.members[0]).toMatchObject({ state: 'left' });
     expect(await walletHolds(repo, ids.r2)).toBe(before);
-    await sharing.cancel(ids.r1, r.id);
+    // Way C: who got in, and who said so, round-trip (and clear on «ما صعدت»).
+    await sharing.joinShare(ids.r2, code, 1);
+    await sharing.arrived(ids.driver, r.id, { lat: 32.9032, lng: 45.0578 });
+    await sharing.boardShare(ids.r2, code, { lat: 32.9033, lng: 45.0578 });
+    const boarded = (await repo.getRequest(r.id))?.share?.members.find((m) => m.state === 'joined');
+    expect(boarded).toMatchObject({ boardedBy: 'self' });
+    expect(boarded?.boardedAt).toBeInstanceOf(Date);
+    // As if the driver had confirmed him: «ما صعدت» clears it.
+    const rec = (await repo.getRequest(r.id))!;
+    rec.share!.members.find((m) => m.id === boarded!.id)!.boardedBy = 'driver';
+    await repo.saveRequest(rec);
+    await sharing.denyShareBoard(ids.r2, code);
+    expect((await repo.getRequest(r.id))?.share?.members.find((m) => m.id === boarded!.id)).toMatchObject({ boardedAt: null, boardedBy: null });
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {

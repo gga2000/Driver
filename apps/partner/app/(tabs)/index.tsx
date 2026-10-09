@@ -77,8 +77,9 @@ export default function Home() {
 
   const state = dashState(online, !cut);
   // «الشغل هسة بـ…» is about town jobs (food and city rides); a الرجعة or خطوط driver has his garage or run card.
+  // Paused after a report: no "go where the work is" while he can't take any.
   const townWork = Boolean(s?.modes.some((m) => m === 'courier' || m === 'city'));
-  const hint = s?.canDrive && townWork ? workHint(s.demand, s.position) : null;
+  const hint = s?.canDrive && townWork && gate !== 'paused' ? workHint(s.demand, s.position) : null;
   // A خطوط driver's open trip is his run: the banner goes back to the run screen, and he starts the
   // run there, not with the town «اسحب وابدأ الشغل».
   const khatRun = Boolean(s?.activeTripId) && Boolean(s?.modes.includes('khat')) && !townWork;

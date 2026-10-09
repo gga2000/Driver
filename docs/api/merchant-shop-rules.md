@@ -41,6 +41,12 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
 - `item.photo_replaced` events from the shop carry `review: 'pending'`.
 - For the Console: `CatalogService.photoReviewQueue(limit)` (oldest first) and
   `CatalogService.markPhotoReviewed(itemId)`.
+- When the team takes a photo down (`catalog.photo_taken_down` on the store, see
+  `docs/api/dish-photo-review.md`), `merchantAdmin.menu.get` adds `AdminMenuItem.photoTakenDown:
+  { reason, at }` (additive; the latest take-down of the last 14 days, null once the dish has a photo
+  again). The Merchant app says «نزّلنا صورة {dish} لأنها {reason}، صوّرها من جديد» on the dish screen,
+  «نزّلنا صورتها» on its tile, and once on the board (per device, in a quiet moment) with «صوّرها».
+  An unknown reason reads as «ما تناسب المنيو».
 
 ## Left for other teams
 

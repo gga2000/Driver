@@ -7,6 +7,7 @@ import {
 import { t, type MessageKey } from '@driver/i18n';
 import type { ChipTone } from '@/components/ui';
 import { formatIqd } from './format';
+import { countText } from './plural';
 
 /**
  * Console › اليوم (E1, CON-12): how each row of the Today list reads, how urgent it looks, and where
@@ -25,6 +26,7 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
   sweep: 'console.today.kind_sweep',
   pin_alert: 'console.today.kind_pin_alert',
   approval: 'console.today.kind_approval',
+  late_departure: 'console.today.kind_late_departure',
 };
 
 export const KIND_TONE: Record<InboxKind, ChipTone> = {
@@ -40,11 +42,17 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   cash_cap: 'warn',
   low_rating: 'warn',
   approval: 'neutral',
+  late_departure: 'warn',
 };
 
-/** A row's chip colour: a booked ride the system lost track of is red, not amber (nobody is looking for a driver). */
+/**
+ * A row's chip colour: a booked ride the system lost track of is red, not amber (nobody is looking for
+ * a driver), and so is a الرجعة driver who never came while riders wait at the garage.
+ */
 export function rowTone(row: { kind: InboxKind; facts: Record<string, unknown> }): ChipTone {
-  return row.kind === 'no_driver' && row.facts['reason'] === 'request_lost' ? 'bad' : KIND_TONE[row.kind];
+  if (row.kind === 'no_driver' && row.facts['reason'] === 'request_lost') return 'bad';
+  if (row.kind === 'late_departure' && row.facts['reason'] === 'driver_no_show' && Number(row.facts['riders']) > 0) return 'bad';
+  return KIND_TONE[row.kind];
 }
 
 const REASON_KEY: Record<string, MessageKey> = {
@@ -179,6 +187,10 @@ export function detailText(
         );
       break;
     }
+    case 'late_departure':
+      parts.push(t(f['reason'] === 'not_arrived' ? 'console.garage.late_not_arrived' : 'console.garage.late_no_show'));
+      if (typeof f['riders'] === 'number') parts.push(countText('console.today.late_departure_riders', f['riders']));
+      break;
     case 'pin_alert':
       parts.push(
         t(f['alert'] === 'cross_use' ? 'console.today.pin_cross_use' : 'console.today.pin_wrong'),
@@ -203,6 +215,8 @@ export function rowHref(row: Pick<InboxRow, 'kind' | 'subjectId' | 'orderId'>): 
       return '/safety';
     case 'approval':
       return '/approvals';
+    case 'late_departure':
+      return '/garage';
     case 'no_driver':
       return '/dispatch';
     case 'cash_cap':

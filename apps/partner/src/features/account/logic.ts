@@ -473,12 +473,16 @@ export function expiryFromMonth(year: number, month: number): Date {
 
 // ───────────────────────── online gate ─────────────────────────
 
-export type GateKind = 'checkin' | 'locked' | 'document';
+export type GateKind = 'paused' | 'checkin' | 'locked' | 'document';
 
-/** The one thing blocking him, worst first: a lock-out, then an expired document, then the check-in. */
+/**
+ * The one thing blocking him, worst first: staff paused him after a safety report (`staff_paused`),
+ * then a lock-out, an expired document, the check-in.
+ */
 export function gateKind(gate: PartnerOnlineGate | null | undefined): GateKind | null {
   if (!gate || gate.canGoOnline) return null;
-  const codes = new Set(gate.reasons.map((r) => r.code));
+  const codes = new Set<string>(gate.reasons.map((r) => r.code));
+  if (codes.has('staff_paused')) return 'paused';
   if (codes.has('checkin_locked')) return 'locked';
   if (codes.has('document_expired')) return 'document';
   if (codes.has('checkin_required')) return 'checkin';
