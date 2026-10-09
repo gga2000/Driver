@@ -4,6 +4,7 @@
 # monthly releases. Output: a public bucket `map` on the environment's Supabase project:
 #   wasit.pmtiles                            the vector map (HTTP Range requests, CORS *, Supabase CDN)
 #   fonts/<fontstack>/<start>-<end>.pbf      Arabic label glyphs (IBM Plex Sans Arabic Regular/Medium/Bold)
+#   plugins/mapbox-gl-rtl-text-0.3.0.js      the right-to-left text plugin (RTL_TEXT_PLUGIN_URL in packages/map)
 # The apps read them at build time (docs/deploy/map.md):
 #   EXPO_PUBLIC_MAP_TILES_URL / NEXT_PUBLIC_MAP_TILES_URL   = <project>/storage/v1/object/public/map/wasit.pmtiles
 #   EXPO_PUBLIC_MAP_GLYPHS_URL / NEXT_PUBLIC_MAP_GLYPHS_URL = <project>/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf
@@ -80,6 +81,18 @@ jobs:
           [ "$n" -gt 0 ] || { echo "::error title=Map tiles::the build made no glyphs"; exit 1; }
           echo "wasit.pmtiles: $(du -h "$out/wasit.pmtiles" | cut -f1); glyph files: $n"
 
+      # The Arabic shaping plugin MapLibre loads at run time; served next to the map so the apps and the
+      # Console CSP depend on no outside CDN. Pinned version and checksum.
+      - name: Fetch the right-to-left text plugin
+        run: |
+          plugin=mapbox-gl-rtl-text-0.3.0.js
+          tmp=$(mktemp -d)
+          (cd "$tmp" && npm pack --silent @mapbox/mapbox-gl-rtl-text@0.3.0 >/dev/null && tar -xzf mapbox-mapbox-gl-rtl-text-0.3.0.tgz package/dist/mapbox-gl-rtl-text.js)
+          echo "d1c69035295613baaf83fe23fd9266b0eaed7e5e472e9632b0b5438afc3f589e  $tmp/package/dist/mapbox-gl-rtl-text.js" | sha256sum -c --quiet \
+            || { echo "::error title=Map tiles::the rtl-text plugin does not match its pinned checksum"; exit 1; }
+          mkdir -p tools/map-tiles/out/plugins
+          cp "$tmp/package/dist/mapbox-gl-rtl-text.js" "tools/map-tiles/out/plugins/$plugin"
+
       - name: Publish to Supabase Storage (bucket `map`, public)
         run: |
           python3 - <<'PY'
@@ -107,6 +120,8 @@ jobs:
           out = pathlib.Path('tools/map-tiles/out')
           files = [(out / 'wasit.pmtiles', 'application/octet-stream', 'max-age=3600')]
           files += [(p, 'application/x-protobuf', 'max-age=86400') for p in sorted((out / 'fonts').rglob('*.pbf'))]
+          # Versioned file name, so it never changes in place.
+          files += [(p, 'application/javascript', 'max-age=31536000') for p in sorted((out / 'plugins').glob('*.js'))]
           for path, ctype, cache in files:
               rel = path.relative_to(out).as_posix()
               status, _ = call('POST', '/object/map/' + urllib.parse.quote(rel), path.read_bytes(),
@@ -125,8 +140,12 @@ jobs:
           grep -qi '^access-control-allow-origin:' <<< "$head" || { echo "::error title=Map tiles::wasit.pmtiles sends no CORS header"; exit 1; }
           glyph="$pub/fonts/IBM%20Plex%20Sans%20Arabic%20Regular/0-255.pbf"
           curl -fsS -o /dev/null -H "Origin: $origin" "$glyph" || { echo "::error title=Map tiles::$glyph is not reachable"; exit 1; }
+          plugin="$pub/plugins/mapbox-gl-rtl-text-0.3.0.js"
+          ptype=$(curl -fsS -o /dev/null -w '%{content_type}' -H "Origin: $origin" "$plugin") || { echo "::error title=Map tiles::$plugin is not reachable"; exit 1; }
+          [[ "$ptype" == *javascript* ]] || { echo "::error title=Map tiles::$plugin is served as $ptype, not JavaScript"; exit 1; }
           {
             echo "### Map published"
+            echo "- RTL_TEXT_PLUGIN_URL (packages/map) = \`$plugin\`"
             echo "- EXPO_PUBLIC_MAP_TILES_URL / NEXT_PUBLIC_MAP_TILES_URL = \`$pub/wasit.pmtiles\`"
             echo "- EXPO_PUBLIC_MAP_GLYPHS_URL / NEXT_PUBLIC_MAP_GLYPHS_URL = \`$pub/fonts/{fontstack}/{range}.pbf\`"
           } >> "$GITHUB_STEP_SUMMARY"

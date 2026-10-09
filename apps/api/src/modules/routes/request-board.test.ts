@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PostRequestInput, type DriverError } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, PostRequestInput, type DriverError } from '@driver/contracts';
 import { LEDGER_SUBSCRIBED_EVENTS } from '../ledger/index.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import type { RecordedRoutesEvent } from './events.adapter.js';
@@ -327,5 +327,293 @@ describe('request board no-shows and settlement through the ledger', () => {
     expect(await bal(l, 'customer:r1')).toBe(-6_000);
     expect((await l.ledger.checkInvariant()).ok).toBe(true);
     expect(await h.departures.walletAvailable('r1')).toBe(20_000);
+  });
+});
+
+describe('step 4b a6: «احجز وادفع كاش» on a private car (switch requestCashReservation)', () => {
+  const on = (h: RoutesHarness) => {
+    h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestCashReservation: { enabled: true } };
+  };
+  /** r1 (no wallet money) posts; d1 offers 28,000; r1 asks for cash, d1 says yes, r1 picks with cash. */
+  async function cashMatched(h: RoutesHarness) {
+    on(h);
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    await h.requests.askCash('r1', r.id, o.id);
+    await h.requests.answerCash('d1', r.id, o.id, true);
+    await h.requests.pick('r1', r.id, o.id, true);
+    return r;
+  }
+
+  it('off (the default): no ask is taken, no answer, and a cash pick is refused', async () => {
+    const h = routesHarness();
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    expect(await code(h.requests.askCash('r1', r.id, o.id))).toBe('forbidden');
+    expect(await code(h.requests.answerCash('d1', r.id, o.id, true))).toBe('forbidden');
+    expect(await code(h.requests.pick('r1', r.id, o.id, true))).toBe('request_state_conflict');
+    const [view] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(view).toMatchObject({ cashReservationOn: false, cashReserved: false });
+  });
+
+  it('the rider asks, only that driver answers, once; the ask follows his new price; the pick holds nothing', async () => {
+    const h = routesHarness();
+    on(h);
+    const r = await postRequest(h);
+    const o1 = (await h.requests.offer('d1', r.id, 30_000)).offers.at(-1)!;
+    const o2 = (await h.requests.offer('d2', r.id, 26_000)).offers.at(-1)!;
+    // Not before the driver says yes.
+    expect(await code(h.requests.pick('r1', r.id, o1.id, true))).toBe('request_state_conflict');
+    await h.requests.askCash('r1', r.id, o1.id);
+    await h.requests.askCash('r1', r.id, o2.id);
+    expect(h.events.last('request.cash_asked')?.payload).toMatchObject({ offerId: o2.id, driverId: 'd2', noShowIqd: 5_500 });
+    expect(await code(h.requests.answerCash('d2', r.id, o1.id, true))).toBe('request_not_found');
+    await h.requests.answerCash('d2', r.id, o2.id, false);
+    expect(await code(h.requests.answerCash('d2', r.id, o2.id, true))).toBe('request_state_conflict');
+    // A no stands: asking again is refused.
+    expect(await code(h.requests.askCash('r1', r.id, o2.id))).toBe('request_state_conflict');
+    // d1 lowers his price: the ask is still on his new offer, and he says yes there.
+    const o1b = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    expect(o1b.cash).toBe('asked');
+    await h.requests.answerCash('d1', r.id, o1b.id, true);
+    // Each driver sees only his own offer's answer.
+    const forD1 = await h.rpc.openRequests({ personId: 'd1', sessionId: 's' }, {});
+    expect(forD1[0]!.offers.map((o) => [o.priceIqd, o.cash])).toEqual([[30_000, 'asked'], [28_000, 'accepted']]);
+    // No wallet money at all, and the pick goes through with nothing held.
+    const m = await h.requests.pick('r1', r.id, o1b.id, true);
+    expect(m).toMatchObject({ state: 'matched', cashReserved: true, depositIqd: 6_000 });
+    expect(h.events.last('request.matched')?.payload).toMatchObject({ cashReserved: true, depositIqd: 6_000 });
+    expect(await h.departures.walletAvailable('r1')).toBe(0);
+    const [view] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(view).toMatchObject({ cashReservationOn: true, cashReserved: true });
+  });
+
+  it('a rider who still owes (wallet below 0) or whose cash seats were revoked cannot ask or pick with cash', async () => {
+    const h = routesHarness();
+    on(h);
+    const r = await postRequest(h);
+    const o = (await h.requests.offer('d1', r.id, 28_000)).offers.at(-1)!;
+    await h.requests.askCash('r1', r.id, o.id);
+    await h.requests.answerCash('d1', r.id, o.id, true);
+    h.wallet.set('r1', -5_000);
+    expect(await code(h.requests.askCash('r1', r.id, o.id))).toBe('cash_reservation_owed');
+    expect(await code(h.requests.pick('r1', r.id, o.id, true))).toBe('cash_reservation_owed');
+    h.wallet.set('r1', 0);
+    expect((await h.requests.pick('r1', r.id, o.id, true)).cashReserved).toBe(true);
+  });
+
+  it('rider no-show on a cash reservation: the driver is paid the amount and it stays on the rider as wallet debt', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    h.advance(12);
+    await h.requests.riderNoShow('d1', r.id);
+    expect(h.events.last('request.rider_no_show')?.payload).toMatchObject({ depositIqd: 6_000, cashReserved: true });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'driver:d1')).toBe(6_000);
+    expect(await bal(l, 'customer:r1')).toBe(-6_000);
+    expect(await bal(l, 'platform')).toBe(0);
+    expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('a late cancel on a cash reservation owes the same; an early one is free', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(61);
+    await h.requests.cancel('r1', r.id);
+    expect(await bal(await deliverToLedger(h.events.events), 'customer:r1')).toBe(-6_000);
+    const h2 = routesHarness();
+    const r2 = await cashMatched(h2);
+    await h2.requests.cancel('r1', r2.id);
+    expect(h2.events.ofType('order.cancelled')).toHaveLength(0);
+  });
+
+  it('driver no-show on a cash reservation: the rider gets the amount once, from the driver', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(140);
+    await h.requests.driverNoShow('r1', r.id);
+    expect(h.events.last('request.driver_no_show')?.payload).toMatchObject({ creditIqd: 6_000 });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'customer:r1')).toBe(6_000);
+    expect(await bal(l, 'driver:d1')).toBe(-6_000);
+  });
+
+  it('completed: the whole fare is cash (nothing came from the wallet)', async () => {
+    const h = routesHarness();
+    const r = await cashMatched(h);
+    h.advance(118);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ ride: { fareIqd: 28_000, cashCollectedIqd: 28_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'customer:r1')).toBe(0);
+    expect(await bal(l, 'cash:d1')).toBe(-28_000);
+    expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+});
+
+describe('private car round 2: the waiting clock (w2) and the fair extra-hour count (w4)', () => {
+  async function waitTrip(h: RoutesHarness) {
+    const r = await h.requests.post(
+      'r1',
+      PostRequestInput.parse({ from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: h.at(60), seats: 1, travellingAs: 'rijal', details: { trip: 'wait_return', waitHours: 4 } }),
+    );
+    const o = (await h.requests.offer('d1', r.id, 60_000, { includedHours: 4, extraHourIqd: 5_000 })).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    h.advance(60);
+    await h.requests.arrived('d1', r.id, BAB1);
+    h.advance(150);
+    await h.requests.waitStart('d1', r.id);
+    return r;
+  }
+
+  it('only the picked driver starts it, once, on a «يستناك وترجع» trip; both see the same clock', async () => {
+    const h = routesHarness();
+    const oneWay = await matched(h);
+    expect(await code(h.requests.waitStart('d1', oneWay.id))).toBe('request_state_conflict');
+    const r = await waitTrip(h);
+    expect(await code(h.requests.waitStart('d1', r.id))).toBe('request_state_conflict');
+    expect(await code(h.requests.waitStart('d2', r.id))).not.toBe('no error');
+    const [mine] = (await h.rpc.myRequests({ personId: 'r1', sessionId: 's' })).filter((x) => x.id === r.id);
+    expect(mine!.waitClock).toMatchObject({ endedAt: null, includedHours: 4, extraHourIqd: 5_000, freeMin: 15, charged: false });
+    h.advance(250);
+    await h.requests.waitEnd('d1', r.id);
+    expect(await code(h.requests.waitEnd('d1', r.id))).toBe('request_state_conflict');
+  });
+
+  it('switched off: the clock runs past the included hours and nothing is added', async () => {
+    const h = routesHarness();
+    const r = await waitTrip(h);
+    h.advance(5 * 60 + 40);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ totalIqd: 60_000, ride: { fareIqd: 60_000, cashCollectedIqd: 48_000 } });
+  });
+
+  it('switched on: 15 minutes past the included hours are free, then each started hour is the driver’s own price', async () => {
+    const cases: Array<[number, number]> = [
+      [4 * 60, 0],
+      [4 * 60 + 15, 0],
+      [5 * 60 + 10, 5_000],
+      [5 * 60 + 15, 5_000],
+      [5 * 60 + 20, 10_000],
+    ];
+    for (const [waited, extra] of cases) {
+      const h = routesHarness();
+      h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestWaitExtra: { enabled: true, freeMin: 15 } };
+      const r = await waitTrip(h);
+      h.advance(waited);
+      await h.requests.waitEnd('d1', r.id);
+      // Time after the rider is back in the car never counts.
+      h.advance(90);
+      await h.requests.complete('d1', r.id);
+      expect(h.events.last('order.closed')?.payload, `${waited} min`).toMatchObject({
+        totalIqd: 60_000 + extra,
+        ride: { fareIqd: 60_000 + extra, cashCollectedIqd: 48_000 + extra },
+      });
+    }
+  });
+
+  it('a clock still running stops at completion; the extra is cash and the 8 % private take covers it', async () => {
+    const h = routesHarness();
+    h.requests.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestWaitExtra: { enabled: true, freeMin: 15 } };
+    const r = await waitTrip(h);
+    h.advance(6 * 60);
+    // Both apps read the same switch the money uses.
+    const [mine] = (await h.rpc.myRequests({ personId: 'r1', sessionId: 's' })).filter((x) => x.id === r.id);
+    expect(mine!.waitClock).toMatchObject({ charged: true, endedAt: null });
+    await h.requests.complete('d1', r.id);
+    expect((await h.requests.get(r.id))!.waitEndedAt).not.toBeNull();
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ ride: { fareIqd: 70_000, cashCollectedIqd: 58_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'platform')).toBe(5_600);
+  });
+});
+
+describe('private car round 2: «جيب واحد» (k1–k4), the car fetches someone else', () => {
+  const fetchInput = (h: RoutesHarness, rider: unknown = { from: 'typed', name: 'ماما', phone: '07701234567' }) =>
+    PostRequestInput.parse({
+      from: { label: 'مطار بغداد', placeId: 'baghdad_airport' },
+      // k4: brought to another place, not home.
+      to: { label: 'مستشفى الكوت' },
+      when: h.at(120),
+      seats: 1,
+      travellingAs: 'aila',
+      details: { trip: 'fetch' },
+      rider,
+    });
+
+  it('a «جيب واحد» request needs who to fetch, and only that kind takes one', () => {
+    const base = { from: { label: 'بغداد' }, to: { label: 'العزيزية' }, when: new Date('2026-10-04T08:00:00Z'), seats: 1, travellingAs: 'aila' };
+    expect(PostRequestInput.safeParse({ ...base, details: { trip: 'fetch' } }).error?.issues[0]?.message).toBe('rider_needed');
+    expect(PostRequestInput.safeParse({ ...base, rider: { from: 'typed', name: 'ماما', phone: '07701234567' } }).error?.issues[0]?.message).toBe('rider_only_on_fetch');
+    expect(PostRequestInput.safeParse({ ...base, details: { trip: 'fetch' }, rider: { from: 'typed', name: ' ', phone: '07701234567' } }).success).toBe(false);
+  });
+
+  it('keeps only the person id on the request; the poster and the picked driver see the name, nobody else', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    expect(r.fetchPersonId).toBe('p_fetch_07701234567');
+    expect(r.to).toEqual({ label: 'مستشفى الكوت' });
+    const [mine] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(mine!.rider).toEqual({ name: 'ماما' });
+    // Drivers on the board see the trip kind, never the name.
+    const [board] = (await h.rpc.openRequests({ personId: 'd1', sessionId: 's' }, {})).filter((x) => x.id === r.id);
+    expect(board!.details.trip).toBe('fetch');
+    expect(board!.rider).toBeNull();
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    await h.requests.offer('d2', r.id, 95_000);
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    // lane D's `request_for_rider` message starts from this event: the person id, never a phone or name.
+    const matched = h.events.last('request.matched')?.payload;
+    expect(matched).toMatchObject({ requestId: r.id, driverId: 'd1', fetchPersonId: 'p_fetch_07701234567' });
+    expect(JSON.stringify({ ...matched, fetchPersonId: null })).not.toMatch(/0770|ماما/);
+    const [ride] = await h.rpc.myRequestRides({ personId: 'd1', sessionId: 's' });
+    expect(ride!.rider).toEqual({ name: 'ماما' });
+    expect(await h.rpc.myRequestRides({ personId: 'd2', sessionId: 's' })).toEqual([]);
+    expect(h.riders.reads.map((x) => [x.accessorId, x.purpose])).toEqual([
+      ['r1', 'request_rider_name'],
+      ['d1', 'partner_request_rider'],
+    ]);
+  });
+
+  it('refuses the poster’s own number and a rider on another kind', async () => {
+    const h = routesHarness();
+    expect(await code(h.requests.post('p_rider', fetchInput(h, { from: 'typed', name: 'أني', phone: '07701000001' })))).toBe('ride_rider_is_you');
+    const oneWay = { ...fetchInput(h), details: { ...fetchInput(h).details, trip: 'one_way' as const } };
+    expect(await code(h.requests.post('r1', oneWay))).toBe('invalid_input');
+  });
+
+  it('the picked driver’s call rings the person fetched, only while the trip is live', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    expect(await code(h.requests.callee('d1', r.id, 'call_1'))).toBe('request_state_conflict');
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    expect(await code(h.requests.callee('d2', r.id, 'call_2'))).toBe('request_state_conflict');
+    expect((await h.requests.callee('d1', r.id, 'call_3')).calleeId).toBe('p_fetch_07701234567');
+    expect(h.events.last('request.call_requested')?.payload).toMatchObject({ requestId: r.id, calleeId: 'p_fetch_07701234567', callId: 'call_3' });
+    // Any other kind: the call rings the poster.
+    const h2 = routesHarness();
+    const plain = await matched(h2);
+    expect((await h2.requests.callee('d1', plain.id, 'call_4')).calleeId).toBe('r1');
+  });
+
+  it('settles like any private trip: the poster pays, the deposit counts, the 8 % take applies', async () => {
+    const h = routesHarness();
+    const r = await h.requests.post('r1', fetchInput(h));
+    const o = (await h.requests.offer('d1', r.id, 90_000)).offers.at(-1)!;
+    h.wallet.set('r1', 100_000);
+    await h.requests.pick('r1', r.id, o.id);
+    h.advance(120);
+    await h.requests.arrived('d1', r.id, BAB1);
+    await h.requests.complete('d1', r.id);
+    expect(h.events.last('order.closed')?.payload).toMatchObject({ totalIqd: 90_000, ride: { fareIqd: 90_000, cashCollectedIqd: 72_000 } });
+    const l = await deliverToLedger(h.events.events);
+    expect(await bal(l, 'platform')).toBe(7_200);
   });
 });

@@ -27,6 +27,7 @@ import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
 import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
+import type { TripChatPort } from './trip-chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
@@ -101,6 +102,8 @@ export interface AppContext {
   merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
+  /** Baghdad/Kut chat between a rider and a run's or private car's driver, with the price cards (`modules/chat`, step 4c). */
+  tripChat: TripChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
   /** Real-time channel (`modules/live`): stream tokens and the SSE event streams of `live.*`. */

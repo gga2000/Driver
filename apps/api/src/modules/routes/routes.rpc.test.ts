@@ -445,7 +445,7 @@ describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider
         return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     };
-    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.agreements, h.repo, null, null, calls);
     const ctx = (personId: string, roles: readonly RoleKind[]) =>
       t.createCallerFactory(appRouter)({
         auth: { sub: personId, sid: `s_${personId}`, iss: 'driver-api', iat: 0, exp: 0 },
@@ -598,7 +598,7 @@ describe('seat PIN safeguards (Ali 2026-10-06): every PIN typed is logged, cross
         return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     };
-    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.agreements, h.repo, null, null, calls);
     const ops = t.createCallerFactory(appRouter)({
       auth: { sub: 'ops1', sid: 's_ops1', iss: 'driver-api', iat: 0, exp: 0 },
       authError: null,
