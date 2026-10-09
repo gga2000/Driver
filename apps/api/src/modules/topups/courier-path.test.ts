@@ -61,7 +61,10 @@ describe('courier top-up is limited to the courier carrying the customer’s liv
     expect(await code(svc.lookup(other, { code: r.code }, 'courier'))).toBe('topup_courier_not_assigned');
     expect(await svc.lookup(carrier, { code: r.code }, 'courier')).toMatchObject({ amountIqd: 20_000, state: 'pending' });
     const before = await lh.caps.status('d1');
-    expect(await svc.confirm(carrier, { code: r.code, amountIqd: 20_000 }, 'courier')).toMatchObject({ channel: 'courier', walletBalanceIqd: 20_000 });
+    const done = await svc.confirm(carrier, { code: r.code, amountIqd: 20_000 }, 'courier');
+    expect(done).toMatchObject({ channel: 'courier', amountIqd: 20_000 });
+    // The customer's balance is never sent to the courier.
+    expect(done).not.toHaveProperty('walletBalanceIqd');
     const after = await lh.caps.status('d1');
     expect(after.cashIqd).toBe(before.cashIqd - 20_000);
     expect(after.owedIqd).toBe(before.owedIqd + 20_000);

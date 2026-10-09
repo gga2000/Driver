@@ -148,5 +148,7 @@ export function useRequestActions() {
     waitEnd: useMutation({ ...api.routes.requestBoard.waitEnd.mutationOptions(), ...opts }),
     complete: useMutation({ ...api.routes.requestBoard.complete.mutationOptions(), ...opts }),
     riderNoShow: useMutation({ ...api.routes.requestBoard.riderNoShow.mutationOptions(), ...opts }),
+    /** Way C: his «أكّد الصعود» for a shared car's friend whose phone can't. */
+    boardFor: useMutation({ ...api.routes.requestBoard.shareBoardFor.mutationOptions(), ...opts }),
   };
 }
