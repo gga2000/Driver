@@ -8,24 +8,27 @@ import type { DepartureRecord } from './model.js';
 /**
  * W3 / NTF-14 (M-11): the garage watchdog's rules. The overdue list is always on (it only reads);
  * cancelling a no-show departure on its own is Ali's decision, so it is off by default
- * (`GARAGE_NO_SHOW_AUTO_CANCEL=on`). Neither charges the driver nor credits riders: those amounts are
- * still open in M-11.
+ * (`GARAGE_NO_SHOW_AUTO_CANCEL=on`). M-11 (Ali, 2026-10-09): a no-show cancel credits each booked
+ * rider 2,000 (4,000 from 18:00) and charges the driver the total, behind `GARAGE_NO_SHOW_FEE=on`
+ * (off by default: nobody is charged).
  */
 export interface GarageWatchRules {
   /** A scheduled/boarding departure this long past its latest departure time: the driver never came. */
   noShowAfterMin: number;
   /** A departed one this long past the corridor's travel time with no «وصلت». */
   overdueAfterMin: number;
-  /** Off by default: cancel a no-show departure by itself (riders moved, no fee). */
+  /** Off by default: cancel a no-show departure by itself (riders moved; fee per `noShowFee`). */
   autoCancelNoShow: boolean;
+  /** M-11, off by default: a no-show cancel (staff or automatic) credits riders and charges the driver. */
+  noShowFee: boolean;
 }
 
-export const DEFAULT_GARAGE_WATCH_RULES: GarageWatchRules = { noShowAfterMin: 20, overdueAfterMin: 30, autoCancelNoShow: false };
+export const DEFAULT_GARAGE_WATCH_RULES: GarageWatchRules = { noShowAfterMin: 20, overdueAfterMin: 30, autoCancelNoShow: false, noShowFee: false };
 export const GARAGE_WATCH_RULES = Symbol('GARAGE_WATCH_RULES');
 
 export function garageWatchRulesFromEnv(env: Readonly<Record<string, string | undefined>> = process.env): GarageWatchRules {
   const on = (v: string | undefined) => v !== undefined && ['on', 'true', '1', 'yes'].includes(v.trim().toLowerCase());
-  return { ...DEFAULT_GARAGE_WATCH_RULES, autoCancelNoShow: on(env['GARAGE_NO_SHOW_AUTO_CANCEL']) };
+  return { ...DEFAULT_GARAGE_WATCH_RULES, autoCancelNoShow: on(env['GARAGE_NO_SHOW_AUTO_CANCEL']), noShowFee: on(env['GARAGE_NO_SHOW_FEE']) };
 }
 
 /** The audit trail (`modules/controls` AuditLogService), written in the same transaction. */
@@ -69,7 +72,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancel(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult> {
-    const w = await this.departures.staffCancel(actor.personId, input.departureId, this.after(actor.personId, 'departure.ops_cancel', `ألغى الرحلة لأن السايق ما إجه: ${input.reason}`, { reason: input.reason }));
+    const w = await this.departures.staffCancel(actor.personId, input.departureId, this.after(actor.personId, 'departure.ops_cancel', `ألغى الرحلة لأن السايق ما إجه: ${input.reason}`, { reason: input.reason }), { fee: this.rules.noShowFee });
     return result(w);
   }
 
@@ -96,6 +99,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
       minutes: r.minutes,
       riders: r.riders,
       actions: r.reason === 'driver_no_show' ? ['cancel'] : ['arrive'],
+      noShowFee: this.rules.noShowFee ? r.fee : null,
     }));
   }
 
@@ -109,7 +113,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     for (const r of await this.departures.overdue(this.rules, 200)) {
       if (r.reason !== 'driver_no_show') continue;
       const reason = `السايق ما إجه خلال ${this.rules.noShowAfterMin} دقيقة بعد آخر وقت للطلعة`;
-      const w = await this.departures.staffCancel(SYSTEM, r.dep.id, this.after(SYSTEM, 'departure.ops_cancel', `تلقائياً: ${reason}`, { auto: true }), { auto: true });
+      const w = await this.departures.staffCancel(SYSTEM, r.dep.id, this.after(SYSTEM, 'departure.ops_cancel', `تلقائياً: ${reason}`, { auto: true }), { auto: true, fee: this.rules.noShowFee });
       if (w.changed) n += 1;
     }
     return n;
@@ -134,5 +138,5 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
 }
 
 function result(w: StaffWrite): StaffDepartureResult {
-  return { departureId: w.dep.id, state: w.dep.state, changed: w.changed, auditId: w.auditId };
+  return { departureId: w.dep.id, state: w.dep.state, changed: w.changed, auditId: w.auditId, noShowFee: w.fee };
 }

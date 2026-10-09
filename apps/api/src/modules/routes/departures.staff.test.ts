@@ -21,10 +21,16 @@ function make(rules: Partial<GarageWatchRules> = {}) {
 
 describe('garage watch rules (M-11)', () => {
   it('auto-cancel is off by default and only GARAGE_NO_SHOW_AUTO_CANCEL turns it on', () => {
-    expect(DEFAULT_GARAGE_WATCH_RULES).toEqual({ noShowAfterMin: 20, overdueAfterMin: 30, autoCancelNoShow: false });
+    expect(DEFAULT_GARAGE_WATCH_RULES).toEqual({ noShowAfterMin: 20, overdueAfterMin: 30, autoCancelNoShow: false, noShowFee: false });
     expect(garageWatchRulesFromEnv({}).autoCancelNoShow).toBe(false);
     expect(garageWatchRulesFromEnv({ GARAGE_NO_SHOW_AUTO_CANCEL: 'on' }).autoCancelNoShow).toBe(true);
     expect(garageWatchRulesFromEnv({ GARAGE_NO_SHOW_AUTO_CANCEL: 'off' }).autoCancelNoShow).toBe(false);
+  });
+
+  it('the no-show fee is off by default and only GARAGE_NO_SHOW_FEE turns it on', () => {
+    expect(garageWatchRulesFromEnv({}).noShowFee).toBe(false);
+    expect(garageWatchRulesFromEnv({ GARAGE_NO_SHOW_AUTO_CANCEL: 'on' }).noShowFee).toBe(false);
+    expect(garageWatchRulesFromEnv({ GARAGE_NO_SHOW_FEE: 'on' })).toMatchObject({ noShowFee: true, autoCancelNoShow: false });
   });
 });
 
@@ -37,7 +43,7 @@ describe('a driver who never came (NTF-14)', () => {
     expect(await h.staff.overdue({ limit: 10 })).toEqual([]);
     h.advance(2);
     expect(await h.staff.overdue({ limit: 10 })).toEqual([
-      expect.objectContaining({ departureId: dep.id, reason: 'driver_no_show', minutes: 1, riders: 1, actions: ['cancel'], driverId: 'd1' }),
+      expect.objectContaining({ departureId: dep.id, reason: 'driver_no_show', minutes: 1, riders: 1, actions: ['cancel'], driverId: 'd1', noShowFee: null }),
     ]);
     expect(await h.staff.sweep()).toBe(0);
     expect((await h.departures.departure(dep.id)).state).toBe('scheduled');
@@ -51,7 +57,7 @@ describe('a driver who never came (NTF-14)', () => {
     await h.book('r1', dep.id, ['back_left']);
     h.advance(171);
     const r = await h.staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما يرد' });
-    expect(r).toEqual({ departureId: dep.id, state: 'cancelled_by_driver', changed: true, auditId: 'audit_1' });
+    expect(r).toEqual({ departureId: dep.id, state: 'cancelled_by_driver', changed: true, auditId: 'audit_1', noShowFee: null });
     expect((await h.departures.bookings(next.id)).map((b) => [b.riderId, b.state, b.origin])).toEqual([['r1', 'booked', 'moved']]);
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ cancelledBy: 'driver', feeIqd: 0, riderIds: ['r1'], driverId: 'd1' });
     // The free-text reason stays in the audit row only: the departure and its events carry the code 'ops'.
@@ -79,6 +85,60 @@ describe('a driver who never came (NTF-14)', () => {
     expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ feeIqd: 0 });
     expect(h.audits).toEqual([expect.objectContaining({ actorId: 'system', action: 'departure.ops_cancel', detail: expect.objectContaining({ auto: true }) })]);
     expect(await h.staff.sweep()).toBe(0);
+  });
+});
+
+describe('M-11: the driver pays each rider he left (switch GARAGE_NO_SHOW_FEE)', () => {
+  it('the cancel step shows 2,000 per distinct rider and the cancel charges exactly that, once', async () => {
+    const h = make({ noShowFee: true });
+    const dep = await h.announce(); // 17:00 Baghdad: not doubled
+    await h.book('r1', dep.id, ['front']);
+    await h.book('r2', dep.id, ['back_left', 'back_middle'], { payment: 'cash' }); // two seats, one rider
+    await h.book('r3', dep.id, ['back_right']);
+    h.advance(171);
+    const fee = { riders: 3, perRiderIqd: 2_000, doubled: false, driverChargeIqd: 6_000 };
+    expect(await h.staff.overdue({ limit: 10 })).toEqual([expect.objectContaining({ departureId: dep.id, noShowFee: fee })]);
+    const r = await h.staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما إجه' });
+    expect(r).toMatchObject({ changed: true, noShowFee: fee });
+    const cancelled = h.events.last('departure.cancelled')?.payload;
+    expect(cancelled).toMatchObject({ cancelledBy: 'driver', feeIqd: 6_000, driverId: 'd1' });
+    expect([...(cancelled as { riderIds: string[] }).riderIds].sort()).toEqual(['r1', 'r2', 'r3']);
+    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ feeIqd: 6_000, riders: 3 });
+    // A replay charges nothing more.
+    expect(await h.staff.cancel(ops, { departureId: dep.id, reason: 'مرة ثانية' })).toMatchObject({ changed: false, noShowFee: null });
+    expect(h.events.ofType('departure.cancelled')).toHaveLength(1);
+  });
+
+  it('doubles for a departure from 18:00 Baghdad time (4 riders = 16,000), and the automatic cancel charges the same', async () => {
+    const h = make({ noShowFee: true, autoCancelNoShow: true });
+    const dep = await h.announce({ departAt: h.at(180), latestDepartureAt: h.at(210) }); // 18:00 Baghdad
+    await h.book('r1', dep.id, ['front']);
+    await h.book('r2', dep.id, ['back_left']);
+    await h.book('r3', dep.id, ['back_middle']);
+    await h.book('r4', dep.id, ['back_right']);
+    h.advance(231);
+    expect(await h.staff.sweep()).toBe(1);
+    expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ feeIqd: 16_000 });
+    expect(h.events.last('departure.ops_cancelled')?.payload).toMatchObject({ auto: true, feeIqd: 16_000 });
+  });
+
+  it('switch off: the same cancel charges nobody and the cancel step shows no fee', async () => {
+    const h = make();
+    const dep = await h.announce({ departAt: h.at(180), latestDepartureAt: h.at(210) });
+    await h.book('r1', dep.id, ['front']);
+    h.advance(231);
+    expect(await h.staff.overdue({ limit: 10 })).toEqual([expect.objectContaining({ noShowFee: null })]);
+    expect(await h.staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما إجه' })).toMatchObject({ changed: true, noShowFee: null });
+    expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ feeIqd: 0 });
+  });
+
+  it('an empty run costs the driver nothing even with the switch on', async () => {
+    const h = make({ noShowFee: true });
+    const dep = await h.announce();
+    h.advance(171);
+    expect(await h.staff.overdue({ limit: 10 })).toEqual([expect.objectContaining({ noShowFee: { riders: 0, perRiderIqd: 2_000, doubled: false, driverChargeIqd: 0 } })]);
+    expect(await h.staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما إجه' })).toMatchObject({ noShowFee: expect.objectContaining({ driverChargeIqd: 0 }) });
+    expect(h.events.last('departure.cancelled')?.payload).toMatchObject({ feeIqd: 0 });
   });
 });
 
