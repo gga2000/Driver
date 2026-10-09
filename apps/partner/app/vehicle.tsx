@@ -60,7 +60,7 @@ export default function VehicleFeatures() {
         ) : undefined
       }
     >
-      <Stack.Screen options={{ title: t('partner.features_title') }} />
+      <Stack.Screen options={{ title: t(v?.vehicleClass === 'tuktuk' ? 'partner.features_title_tuktuk' : 'partner.features_title') }} />
       {q.data === undefined ? (
         q.isError || slow ? (
           <RetryState

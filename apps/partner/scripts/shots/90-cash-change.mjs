@@ -48,7 +48,7 @@ export default async function run(s) {
   await c.shot('door-ready', { settle: 500 });
   await c.slide('handover-confirm');
   await c.wait('job-done');
-  await c.shot('done', { settle: 500 });
+  await c.shot('done', { settle: 1600 }); // the earned line counts up over 1.1 s
   await c.shot('done-settled', { settle: 1600 });
 
   await s.demoPost('/demo/clear?who=courier');

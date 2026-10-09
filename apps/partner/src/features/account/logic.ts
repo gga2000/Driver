@@ -11,7 +11,7 @@ import type {
   PartnerOnlineGate,
   ScoreMetric,
 } from '@driver/contracts';
-import { formatRange, type Locale, type MessageKey } from '@driver/i18n';
+import { formatClock, formatRange, type Locale, type MessageKey } from '@driver/i18n';
 import { pluralForm } from '@/features/work/logic';
 
 /**
@@ -53,11 +53,12 @@ export function sameLocalDay(a: Date, b: Date): boolean {
   return startOfLocalDay(a).getTime() === startOfLocalDay(b).getTime();
 }
 
-/** 12-hour clock, Western digits, no am/pm (voice guide §5): `7:30`, `12:05`. */
-export function clockTime(at: Date): string {
-  const { hour, minute } = local(at);
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h}:${String(minute).padStart(2, '0')}`;
+/**
+ * 12-hour Baghdad clock with ص/م, Western digits: `7:30 م`, `12:05 ص` — the same as every other time in
+ * the app (check-up item 8, Ali 2026-10-09: one way to say a time).
+ */
+export function clockTime(at: Date, locale: Locale = 'ar-IQ'): string {
+  return formatClock(at, { locale });
 }
 
 /** 12-hour label of an hour of the day for chart ticks: 0 → 12, 13 → 1. */
@@ -211,7 +212,9 @@ const MEMO_PAY_KEY: Record<string, MessageKey> = {
  * The name a component shows: the ledger's own label (`ledger.line.<type>`), refined by its memo
  * where the memo names the pay ("guarantee:…" → تكملة ضمان الشفت, "night" → إضافة الليل).
  */
-export function componentLabel(c: { label_ar: string; memo: string | null }, t: T): string {
+export function componentLabel(c: { label_ar: string; memo: string | null; type?: string }, t: T): string {
+  // Check-up item 8: one word for the take everywhere — «حصة درايفر», not the ledger's «عمولة المنصة».
+  if (c.type === 'commission_accrued') return t('partner.fleet_take');
   const memo = (c.memo ?? '').split(':')[0] ?? '';
   if (memo === 'guarantee') return t('partner.earn_guarantee_memo');
   const key = MEMO_PAY_KEY[memo];
@@ -268,6 +271,14 @@ export interface CashTruth {
    * commission on top of the cash (`more`). Null when the two are equal.
    */
   heldNote: { kind: 'own' | 'more'; amountIqd: number } | null;
+}
+
+/**
+ * What he already held before the period: the period's rows (collected, paid to restaurants, handed to
+ * us) plus this add up to what he holds now, so the card's sum always closes.
+ */
+export function cashCarriedIqd(c: { heldIqd: number; collectedIqd: number; toMerchantsIqd: number; settledIqd: number }): number {
+  return c.heldIqd - c.collectedIqd + c.toMerchantsIqd + c.settledIqd;
 }
 
 /**
