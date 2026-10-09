@@ -47,7 +47,7 @@ describe('end of day card (S-M6)', () => {
   });
 });
 
-describe('«مين سوّى شنو» (owner only)', () => {
+describe('«منو سوّى شنو» (owner only)', () => {
   const ar = (key: Parameters<typeof translate>[0], params?: Record<string, string | number>) => translate(key, params, 'ar-IQ');
   // 9:41 Baghdad = 06:41Z
   const at = (hhmm: string) => new Date(`2026-10-05T${hhmm}:00+03:00`);

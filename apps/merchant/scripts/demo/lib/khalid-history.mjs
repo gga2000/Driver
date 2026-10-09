@@ -106,7 +106,7 @@ async function build(ctx) {
   const rand = rng(20261003);
   const pick = (arr) => arr[Math.floor(rand() * arr.length)];
   const between = (a, b) => a + Math.floor(rand() * (b - a + 1));
-  // Customers' areas («منين زبائنك», maps r6) from their own seed, so adding them left every other
+  // Customers' areas («منين زباينك», maps r6) from their own seed, so adding them left every other
   // number of the story (money, insights) exactly as it was.
   const zoneRand = rng(20261007);
   const zoneWeight = DROPOFF_ZONES.reduce((s, z) => s + z[1], 0);

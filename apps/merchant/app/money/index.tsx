@@ -51,7 +51,7 @@ export default function DayScreen() {
 
   const today = useMoneyToday(orgId, canSeeMoney && tab === 'today');
   const cash = useCashAccount(orgId, canSeeMoney && tab === 'today');
-  // «مين سوّى شنو»: owner only (the server refuses staff too).
+  // «منو سوّى شنو»: owner only (the server refuses staff too).
   const activity = useActivityToday(orgId, canSeeMoney && tab === 'today');
   const statement = useStatement(orgId, weekOf, canSeeMoney && tab === 'statement');
   const disputes = useDisputes(orgId, canSeeMoney);

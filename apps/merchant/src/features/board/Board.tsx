@@ -221,7 +221,7 @@ export function Board() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [handingId, setHandingId] = useState<string | null>(null);
-  // c6 «أعدنا تسويه»: shown only while the server's money rule pays (`remakeRule`; it can be switched off).
+  // c6 «سوّيناه من جديد»: shown only while the server's money rule pays (`remakeRule`; it can be switched off).
   const [remakeId, setRemakeId] = useState<string | null>(null);
   const [remade, setRemade] = useState<Record<string, RemakeOutcome>>({});
   const remakeRule = useRemakeRule(!!storeId);
@@ -231,7 +231,7 @@ export function Board() {
   // Print redesign: accepted orders print when they are ready to cook (after a partial answer, at a
   // scheduled start), and a printed order that changed prints a short «تعديل» ticket.
   useAutoPrint(orders, printStore, prefs.autoPrint, now);
-  // «مين سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
+  // «منو سوّى شنو» on the order sheet: the owner's only, read when a sheet opens (never on the board payload).
   const whoDetailId = canSeeMoney && detailId && !isPractice(detailId) ? detailId : null;
   const orderWho = useOrderWho(storeId, whoDetailId, whoDetailId !== null);
   const whoLine = whoDetailId && orderWho.data?.orderId === whoDetailId ? orderWhoLine(orderWho.data.entries, canSeeMoney, t) : null;

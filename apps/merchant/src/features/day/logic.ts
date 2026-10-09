@@ -106,7 +106,7 @@ export function dayCardMode(p: { show: boolean; waiting: number; closed: boolean
   return p.closed || p.waiting === 0 ? 'full' : 'line';
 }
 
-// ───────────────────────── «مين سوّى شنو» (owner only) ─────────────────────────
+// ───────────────────────── «منو سوّى شنو» (owner only) ─────────────────────────
 
 type Translate = (key: TKey, params?: Record<string, string | number>) => string;
 

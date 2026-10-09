@@ -114,7 +114,7 @@ export function AutoBusyNote({ auto }: { auto: AutoBusy | null }) {
 }
 
 /**
- * c6 «أعدنا تسويه»: what Driver pays and when, then the answer — the amount paid, or «انحسبت قبل».
+ * c6 «سوّيناه من جديد»: what Driver pays and when, then the answer — the amount paid, or «انحسبت قبل».
  */
 export function RemakeSheet({ order, minutes, outcome, busy, onConfirm, onClose }: { order: BoardOrder | null; minutes: number; outcome: RemakeOutcome | null; busy: boolean; onConfirm: () => void; onClose: () => void }) {
   const theme = useTheme();
