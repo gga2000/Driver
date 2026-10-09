@@ -1,15 +1,16 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, RefreshControl, View } from 'react-native';
-import type { HouseholdInviteView, HouseholdMemberView, HouseholdRole, HouseholdTableOrder } from '@driver/contracts';
+import type { HouseholdMemberView, HouseholdRole, HouseholdTableOrder } from '@driver/contracts';
 import { Avatar, Button, Card, EmptyState, ListRow, ModalSheet, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, TextField, useNetwork, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { ApprovalCard } from '@/features/account/ApprovalCard';
 import { BudgetBar } from '@/features/account/BudgetBar';
 import { HouseholdInviteCard } from '@/features/account/HouseholdInviteCard';
+import { HouseholdInviteRow } from '@/features/account/HouseholdInviteRow';
 import { baghdadDayMonth, monthRows } from '@/features/account/family';
-import { useCancelHouseholdInvite, useCreateHousehold, useGuardianChildren, useHousehold, useLeaveHousehold, useMe, useMyHouseholdInvites, useMyPlaces } from '@/features/account/queries';
+import { useCreateHousehold, useGuardianChildren, useHousehold, useLeaveHousehold, useMe, useMyHouseholdInvites, useMyPlaces } from '@/features/account/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
@@ -84,6 +85,7 @@ export default function Household() {
     const waiting = invites.data ?? [];
     return (
       <Screen edges={['bottom']} testID="household-create" footer={<Button testID="household-create-submit" label={t('household.create')} size="lg" fullWidth variant={waiting.length > 0 ? 'secondary' : 'primary'} loading={create.isPending} onPress={() => void submit()} />}>
+        {invites.isError ? <RetryState size="inline" kind={retryKindFor({ net, error: invites.error })} locale={locale} onRetry={() => void invites.refetch()} /> : null}
         {waiting.length > 0 ? (
           <View style={{ gap: theme.space[3] }} testID="household-my-invites">
             {waiting.map((i) => (
@@ -111,8 +113,8 @@ export default function Household() {
       await leave.mutateAsync({ householdId: home.id });
       setLeaving(false);
       toast.show({ message: t('household.left'), tone: 'success' });
-    } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    } catch {
+      // Shown in the sheet, which stays open (a toast would sit under it).
     }
   };
 
@@ -213,7 +215,7 @@ export default function Household() {
           <SectionHeader title={t('household.invites_title')} />
           <Card elevation={0} padding={0}>
             {home.invites.map((i, n) => (
-              <InviteRow key={i.id} householdId={home.id} invite={i} divider={n < home.invites.length - 1} />
+              <HouseholdInviteRow key={i.id} householdId={home.id} invite={i} divider={n < home.invites.length - 1} />
             ))}
           </Card>
         </View>
@@ -276,7 +278,7 @@ export default function Household() {
       </View>
 
       {!payer ? (
-        <Button testID="household-leave" variant="ghost" label={t('household.leave')} fullWidth onPress={() => setLeaving(true)} />
+        <Button testID="household-leave" variant="ghost" label={t('household.leave')} fullWidth onPress={() => (leave.reset(), setLeaving(true))} />
       ) : null}
 
       <ModalSheet
@@ -295,35 +297,13 @@ export default function Household() {
         <Text variant="body" color="textMuted">
           {t('household.leave_body')}
         </Text>
+        {leave.isError ? (
+          <Text variant="footnote" color="dangerText" testID="household-leave-error">
+            {apiErrorMessage(leave.error, t('error.network'), locale)}
+          </Text>
+        ) : null}
       </ModalSheet>
     </Screen>
-  );
-}
-
-/** SEC-06: someone the payer invited who has not said yes yet: the number's hint, what they'd do, «اسحب الدعوة». */
-function InviteRow({ householdId, invite, divider }: { householdId: string; invite: HouseholdInviteView; divider: boolean }) {
-  const t = useT();
-  const locale = useLocale();
-  const toast = useToast();
-  const cancel = useCancelHouseholdInvite();
-  const role = invite.role === 'member' ? t('household.role_member_line') : invite.spendingLimitIqd !== null ? [t('household.role_orderer_line'), t('household.limit_per_order', { amount: amountParam(invite.spendingLimitIqd) })].join(' · ') : t('household.role_orderer_line');
-  const takeBack = async () => {
-    try {
-      await cancel.mutateAsync({ householdId, inviteId: invite.id });
-      toast.show({ message: t('household.invite_cancelled'), tone: 'neutral' });
-    } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
-    }
-  };
-  return (
-    <ListRow
-      testID={`invite-${invite.id}`}
-      leading={<Avatar icon="user" size={40} />}
-      title={`⁦${invite.phoneHint}⁩`}
-      subtitle={[t('household.state_pending'), role].join(' · ')}
-      trailing={<Button testID={`invite-cancel-${invite.id}`} size="sm" variant="ghost" label={t('household.invite_cancel')} loading={cancel.isPending} onPress={() => void takeBack()} />}
-      divider={divider}
-    />
   );
 }
 

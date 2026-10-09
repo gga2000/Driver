@@ -77,8 +77,8 @@ export default function MemberLimits() {
       if (monthValue !== member.monthlyBudgetIqd) await setBudget.mutateAsync({ householdId: homeId, personId: member.personId, monthlyBudgetIqd: monthValue });
       toast.show({ message: t('household.limits_saved'), tone: 'success' });
       router.back();
-    } catch (err) {
-      toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
+    } catch {
+      // Shown in the sheet, which stays open (a toast would sit under it).
     }
   };
 
@@ -131,7 +131,7 @@ export default function MemberLimits() {
         onChange={setMonth}
       />
 
-      <Button testID="member-remove" variant="ghost" label={t('household.remove')} fullWidth onPress={() => setRemoving(true)} />
+      <Button testID="member-remove" variant="ghost" label={t('household.remove')} fullWidth onPress={() => (remove.reset(), setRemoving(true))} />
       <ModalSheet
         visible={removing}
         onClose={() => (remove.isPending ? undefined : setRemoving(false))}
@@ -148,6 +148,11 @@ export default function MemberLimits() {
         <Text variant="body" color="textMuted">
           {t('household.remove_body')}
         </Text>
+        {remove.isError ? (
+          <Text variant="footnote" color="dangerText" testID="member-remove-error">
+            {apiErrorMessage(remove.error, t('error.network'), locale)}
+          </Text>
+        ) : null}
       </ModalSheet>
     </Screen>
   );

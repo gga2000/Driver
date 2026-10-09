@@ -218,7 +218,7 @@ function Account() {
             testID="account-household"
             leading="family"
             title={t('household.title')}
-            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : (householdInvites.data ?? []).length > 0 ? t('account.household_invite_pending') : t('account.household_hint')) : undefined}
+            subtitle={household.isSuccess ? (household.data ? t('account.household_members', { n: household.data.members.length }) : householdInvites.isSuccess && householdInvites.data.length > 0 ? t('account.household_invite_pending') : t('account.household_hint')) : undefined}
             onPress={() => router.push('/household')}
             divider
           />
