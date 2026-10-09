@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { invitePhone } from '@/features/staff/logic';
 import { maskedPhone } from './phone';
 
-const shown = (s: string | null) => s?.replace(/ /g, ' ') ?? null;
+const shown = (s: string | null) => s?.replace(/\u00A0/g, ' ') ?? null;
 
 describe('d16 · one way to show a staff phone', () => {
   it('an invite hint and a whole number read «0780 ••• 4455»', () => {

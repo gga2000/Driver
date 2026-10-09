@@ -64,7 +64,7 @@ const DOT = '•';
  */
 export function maskedPhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = toWesternDigits(raw).replace(/[\s ⁦-⁩-]/g, '').replace(/[*•xX·]/g, '?');
+  const s = toWesternDigits(raw).replace(/[\s\u00A0⁦-⁩-]/g, '').replace(/[*•xX·]/g, '?');
   let rest = s;
   if (rest.startsWith('+964')) rest = rest.slice(4);
   else if (rest.startsWith('00964')) rest = rest.slice(5);
