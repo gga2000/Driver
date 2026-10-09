@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",
+    "@driver/design-tokens": "workspace:*",
     "@maplibre/maplibre-gl-style-spec": "24.10.0",
     "@types/geojson": "7946.0.16"
   },
