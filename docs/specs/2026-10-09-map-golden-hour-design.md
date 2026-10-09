@@ -49,21 +49,33 @@ app inserts its layers before `GOLDEN_FIRST_LABEL`.
   `…/storage/v1/object/public/map/wasit.pmtiles` and `…/map/fonts/{fontstack}/{range}.pbf`.
 
 ## How a screen switches over (drop-in for each owner)
-Read the two URLs from the app's public build env and keep the current raster style when they are missing:
+Read the two URLs from the app's public build env:
 - Expo apps: `EXPO_PUBLIC_MAP_TILES_URL`, `EXPO_PUBLIC_MAP_GLYPHS_URL`. Console: `NEXT_PUBLIC_MAP_TILES_URL`,
   `NEXT_PUBLIC_MAP_GLYPHS_URL`. The API does not need them.
+
+The original map (today's street picture, `buildMapStyle`) stays as the fallback, in two places (Ali,
+2026-10-09: "use the original map as fallback"):
+- `chooseMapStyle()` gives the Golden hour map only when both URLs are set, otherwise the original map.
+- `fallBackToOriginalMap(map)` swaps to the original map once if our map file fails or does not answer
+  within 10 s before it first loads. After it has loaded, a single failed tile is left to MapLibre's retry.
+  A new style drops the screen's own layers, so re-add routes and pins in `onFallback` (or on `style.load`).
 ```ts
 import { Protocol } from 'pmtiles';                       // add `pmtiles` to the app
 import maplibregl from 'maplibre-gl';
-import { buildGoldenStyle, goldenImages, resolveLight, GOLDEN_FIRST_LABEL } from '@driver/map/golden';
+import { RTL_TEXT_PLUGIN_URL } from '@driver/map';
+import { chooseMapStyle, fallBackToOriginalMap, goldenImages, resolveLight, GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);  // once per app
-maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true);  // already exported by @driver/map
+maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true);
 const { light } = resolveLight();
-const map = new maplibregl.Map({ container, style: buildGoldenStyle({
-  pmtilesUrl: `pmtiles://${TILES_URL}`, glyphs: GLYPHS_URL, mode: 'customer' }) });
-for (const [id, img] of Object.entries(goldenImages(light))) map.addImage(id, img);
-map.on('load', () => map.addLayer(routeLayer, GOLDEN_FIRST_LABEL));
+const { style, golden } = chooseMapStyle({ tilesUrl: TILES_URL, glyphsUrl: GLYPHS_URL, mode: 'customer', light,
+  fallback: { theme: 'light' } });                        // how the original map looks on this screen
+const map = new maplibregl.Map({ container, style });
+if (golden) {
+  for (const [id, img] of Object.entries(goldenImages(light))) map.addImage(id, img);
+  const stop = fallBackToOriginalMap(map, { fallback: { theme: 'light' } });  // call stop() on unmount
+}
+map.on('load', () => map.addLayer(routeLayer, golden ? GOLDEN_FIRST_LABEL : undefined));
 ```
 Rebuild the style when the light changes (check every 10 minutes; the change is a quiet cross-fade, no
 animation loop). On phones the native map needs a development build (`@maplibre/maplibre-react-native`);
