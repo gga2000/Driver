@@ -1858,5 +1858,19 @@
   "merchant.startup.loading": "Getting your orders…",
   "merchant.money.first_title": "Your money shows here from your first order",
   "merchant.money.first_why": "Once your first order reaches a customer, you will see here what is yours, who holds it and how it reaches you",
-  "merchant.money.pill_first": "Your money shows here from your first order"
+  "merchant.money.pill_first": "Your money shows here from your first order",
+  "merchant.week.opening": "We started the week with {amount} IQD yours",
+  "merchant.week.opening_owe": "We started the week with {amount} IQD on you",
+  "merchant.week.opening_zero": "We started the week from zero",
+  "merchant.week.net": "You earned {amount} IQD after commission",
+  "merchant.week.net_owe": "{amount} IQD of commission came to you",
+  "merchant.week.net_zero": "You earned nothing this week",
+  "merchant.week.settled": "You received {amount} IQD",
+  "merchant.week.settled_zero": "You received nothing this week",
+  "merchant.week.adjust_plus": "And {amount} IQD of adjustments were added",
+  "merchant.week.adjust_minus": "And {amount} IQD of adjustments were taken off",
+  "merchant.week.closing": "{amount} IQD is still yours",
+  "merchant.week.closing_owe": "{amount} IQD is still on you, taken off your next money",
+  "merchant.week.closing_zero": "Nothing left, the account is square",
+  "merchant.week.settled_open": "See what you received"
 }

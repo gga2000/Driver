@@ -233,3 +233,34 @@ export function statementBridge(s: Pick<WeeklyStatement, 'openingIqd' | 'closing
   terms.push({ key: 'closing', label: 'merchant.bridge.closing', amountIqd: s.closingIqd, op: '=' });
   return { terms, adds: s.openingIqd + s.totals.netIqd - s.totals.settledIqd + adj === s.closingIqd };
 }
+
+/**
+ * d19 · the week in plain sentences instead of the «+ − =» row: «بدينا الأسبوع بـ… · ربحت… · استلمت… ·
+ * باقي إلك…». The same terms as `statementBridge` (the server's numbers, nothing recomputed); each line
+ * picks its words from the sign and shows the amount without a sign, because the words already say
+ * which way it goes («وعليك», «انخصم»).
+ */
+export interface WeekLine {
+  key: BridgeTerm['key'];
+  text: TKey;
+  /** Shown as «{amount} دينار»; always ≥ 0 (the sign is in the words). */
+  amountIqd: number;
+}
+
+const WEEK_WORDS: Record<BridgeTerm['key'], { plus: TKey; minus: TKey; zero: TKey }> = {
+  opening: { plus: 'merchant.week.opening', minus: 'merchant.week.opening_owe', zero: 'merchant.week.opening_zero' },
+  net: { plus: 'merchant.week.net', minus: 'merchant.week.net_owe', zero: 'merchant.week.net_zero' },
+  settled: { plus: 'merchant.week.settled', minus: 'merchant.week.settled', zero: 'merchant.week.settled_zero' },
+  adjustments: { plus: 'merchant.week.adjust_plus', minus: 'merchant.week.adjust_minus', zero: 'merchant.week.adjust_plus' },
+  closing: { plus: 'merchant.week.closing', minus: 'merchant.week.closing_owe', zero: 'merchant.week.closing_zero' },
+};
+
+export function weekLines(s: Pick<WeeklyStatement, 'openingIqd' | 'closingIqd' | 'totals'>): { lines: WeekLine[]; adds: boolean } {
+  const { terms, adds } = statementBridge(s);
+  const lines = terms.map((term) => {
+    const words = WEEK_WORDS[term.key];
+    const text = term.amountIqd > 0 ? words.plus : term.amountIqd < 0 ? words.minus : words.zero;
+    return { key: term.key, text, amountIqd: Math.abs(term.amountIqd) };
+  });
+  return { lines, adds };
+}

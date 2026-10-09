@@ -1858,5 +1858,19 @@
   "merchant.startup.loading": "دا نجيب طلباتك…",
   "merchant.money.first_title": "فلوسك تبين هنا من أول طلب",
   "merchant.money.first_why": "من يوصل أول طلب للزبون، تشوف هنا شگد إلك ومنو عنده فلوسك وشلون توصلك",
-  "merchant.money.pill_first": "فلوسك تبين هنا من أول طلب"
+  "merchant.money.pill_first": "فلوسك تبين هنا من أول طلب",
+  "merchant.week.opening": "بدينا الأسبوع بـ {amount} دينار إلك",
+  "merchant.week.opening_owe": "بدينا الأسبوع وعليك {amount} دينار",
+  "merchant.week.opening_zero": "بدينا الأسبوع من الصفر",
+  "merchant.week.net": "ربحت {amount} دينار بعد العمولة",
+  "merchant.week.net_owe": "طلعت عليك {amount} دينار عمولة",
+  "merchant.week.net_zero": "ما ربحت شي هالأسبوع",
+  "merchant.week.settled": "استلمت {amount} دينار",
+  "merchant.week.settled_zero": "ما استلمت شي هالأسبوع",
+  "merchant.week.adjust_plus": "وانضافلك {amount} دينار تعديلات",
+  "merchant.week.adjust_minus": "وانخصم منك {amount} دينار تعديلات",
+  "merchant.week.closing": "باقي إلك {amount} دينار",
+  "merchant.week.closing_owe": "باقي عليك {amount} دينار، تنخصم من فلوسك الجاية",
+  "merchant.week.closing_zero": "ما باقي شي، الحساب صافي",
+  "merchant.week.settled_open": "شوف شنو استلمت"
 }
