@@ -473,6 +473,25 @@ describe('merchantAdmin.insights', () => {
   });
 });
 
+describe('merchantAdmin.insights sold-out habits (m4)', () => {
+  it('names a dish that ran out on 3+ days with its usual time; one-offs and hand turn-offs do not count', async () => {
+    const h = await setup('2026-10-03T13:00:00Z');
+    const kubba = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'كبة', priceIqd: 1000 });
+    const tea = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'چاي', priceIqd: 500 });
+    const out = (itemId: string, at: string, until: string | null) =>
+      h.ev.events.emit(undefined, { type: 'item.sold_out', actorId: 'p_owner', occurredAt: new Date(at), payload: { merchantOrgId: h.orgId, itemId, until } }, { name: 'org', id: h.orgId });
+    await out(kubba.id, '2026-10-01T16:00:00Z', '2026-10-01T21:00:00Z'); // 19:00 Baghdad
+    await out(kubba.id, '2026-10-01T18:00:00Z', '2026-10-01T21:00:00Z'); // same day again: the first one counts
+    await out(kubba.id, '2026-10-02T17:00:00Z', '2026-10-02T21:00:00Z'); // 20:00
+    await out(kubba.id, '2026-10-03T09:00:00Z', '2026-10-03T21:00:00Z'); // 12:00
+    await out(tea.id, '2026-10-01T16:00:00Z', '2026-10-01T21:00:00Z');
+    await out(tea.id, '2026-10-02T16:00:00Z', '2026-10-02T21:00:00Z');
+    await out(tea.id, '2026-10-03T08:00:00Z', null); // turned off by hand, not run out
+    const i = await h.svc.insights(h.staff, { merchantOrgId: h.orgId, days: 7 });
+    expect(i.soldOutHabits).toEqual([{ itemId: kubba.id, nameAr: 'كبة', days: 3, usualMinute: 19 * 60 }]);
+  });
+});
+
 describe('merchantAdmin.insights rating attribution', () => {
   it('gives the food score to the main dish, not the drink that came with it', async () => {
     const h = await setup('2026-10-03T13:00:00Z');

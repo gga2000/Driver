@@ -1896,5 +1896,19 @@
   "merchant.stop_today.hint_many": "{names}. حتى ما يطلبها زبون ثاني، وترجع باچر بروحها.",
   "merchant.stop_today.done": "دزينا للزبون، وشلنا {names} من المنيو لباقي اليوم",
   "merchant.stop_today.failed": "دزينا للزبون، بس ما انشالت من المنيو. شيلها من صفحة المنيو",
-  "merchant.stop_today.join": "، "
+  "merchant.stop_today.join": "، ",
+  "merchant.board.kind_sweet": "حلو",
+  "merchant.board.pack_apart": "البارد ({cold}) بكيس وحده، بعيد عن الساخن",
+  "merchant.sugar.add": "أضف اختيار السكر",
+  "merchant.sugar.group": "السكر",
+  "merchant.sugar.none": "بدون سكر",
+  "merchant.sugar.light": "سكر خفيف",
+  "merchant.sugar.normal": "سكر عادي",
+  "merchant.sugar.extra": "سكر زيادة",
+  "merchant.insights.sold_out_title": "يخلص قبل وقته",
+  "merchant.insights.sold_out_hint": "هذني خلصوا بأكثر من يوم بآخر فترة. جهّز منهم أكثر حتى ما تخسر طلبات.",
+  "merchant.insights.sold_out_days": "خلص بـ{count} يوم",
+  "merchant.insights.sold_out_days_few": "خلص بـ{count} أيام",
+  "merchant.insights.sold_out_at": "عادةً حوالي {time}",
+  "merchant.insights.sold_out_days_one": "خلص بيوم واحد"
 }

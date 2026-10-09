@@ -1896,5 +1896,19 @@
   "merchant.stop_today.hint_many": "{names}. So no other customer orders them; they come back by themselves tomorrow.",
   "merchant.stop_today.done": "Sent to the customer, and {names} is off the menu for the rest of today",
   "merchant.stop_today.failed": "Sent to the customer, but it didn't come off the menu. Take it off from the menu page",
-  "merchant.stop_today.join": ", "
+  "merchant.stop_today.join": ", ",
+  "merchant.board.kind_sweet": "Sweet",
+  "merchant.board.pack_apart": "Cold ({cold}) in its own bag, away from the hot",
+  "merchant.sugar.add": "Add sugar choice",
+  "merchant.sugar.group": "Sugar",
+  "merchant.sugar.none": "No sugar",
+  "merchant.sugar.light": "Light sugar",
+  "merchant.sugar.normal": "Normal sugar",
+  "merchant.sugar.extra": "Extra sugar",
+  "merchant.insights.sold_out_title": "Runs out early",
+  "merchant.insights.sold_out_hint": "These ran out on several days lately. Prepare more so you don't lose orders.",
+  "merchant.insights.sold_out_days": "Ran out on {count} days",
+  "merchant.insights.sold_out_days_few": "Ran out on {count} days",
+  "merchant.insights.sold_out_at": "Usually around {time}",
+  "merchant.insights.sold_out_days_one": "Ran out on 1 day"
 }
