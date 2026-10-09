@@ -3,14 +3,15 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { CourierPosition, NearbyVehicles as NearbyVehiclesData, OrderTracking } from '@driver/contracts';
 import { NearbyVehicles } from '@/features/ride/NearbyVehicles';
-import { Text, useTheme } from '@driver/ui';
+import { Text, useLiteMode, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
-import { MAP_CREDIT } from './map/credit';
+import { GOLDEN_MAP, MAP_CREDIT } from './map/credit';
 import { useLabelAvoid } from './map/useLabelAvoid';
 import { CourierMarker, HeadingArrow, PlacePin, placePinSide, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
+import { TRACK_3D, TrackMap3D } from './map/TrackMap3D';
 import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
 import { vehicleKind, type VehicleKind } from './map/Vehicle';
@@ -66,7 +67,20 @@ const WAVE_REACH = { 1: 0.45, 2: 0.72, 3: 1 } as const;
 /** The search shot with the nearest cars in it: wide enough for them, never closer than the plain search shot. */
 const SEARCH_WITH_CARS: readonly [number, number] = [13.5, 15.5];
 
-export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination', wave = null }: TrackMapProps) {
+/**
+ * Food orders on the web with our Golden hour map: the 3D order map (Ali, 2026-10-09: "use it as much
+ * as possible"). Rides, low-data mode, the phones and a failed map file keep the flat map.
+ */
+export function TrackMap(props: TrackMapProps) {
+  const lite = useLiteMode();
+  const [failed, setFailed] = useState(false);
+  if (TRACK_3D && GOLDEN_MAP && !lite && !failed && props.view.order.type !== 'ride') {
+    return <TrackMap3D view={props.view} fix={props.fix} stale={props.stale} topInset={props.topInset} bottomInset={props.bottomInset} onFail={() => setFailed(true)} />;
+  }
+  return <FlatTrackMap {...props} />;
+}
+
+function FlatTrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination', wave = null }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
