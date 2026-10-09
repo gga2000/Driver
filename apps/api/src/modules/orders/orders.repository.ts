@@ -221,8 +221,11 @@ export interface OrdersRepository {
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
   countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
-  /** Rate the courier: stores the order's one courier rating (unique per order; a second insert throws). */
-  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord>;
+  /**
+   * Rate the courier: stores the order's one courier rating. Unique per order: when the order already
+   * has one (a concurrent second rating, waiting on the first) nothing is written and it returns null.
+   */
+  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null>;
   courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null>;
   /** A driver's newest courier ratings (ratedAt descending), at most `limit`. */
   courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]>;
@@ -548,8 +551,12 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return this.db(tx).order.count({ where: { cityId, placedAt: { gte: since } } });
   }
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord> {
-    return courierRatingFrom(await this.db(tx).courierRating.create({ data: { ...row, reasons: [...row.reasons] } }));
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null> {
+    // ON CONFLICT DO NOTHING: the loser of a double tap is told, not left with a failed query (RDB-04).
+    const { count } = await this.db(tx).courierRating.createMany({ data: [{ ...row, reasons: [...row.reasons] }], skipDuplicates: true });
+    if (count === 0) return null;
+    const r = await this.db(tx).courierRating.findUnique({ where: { orderId: row.orderId } });
+    return r ? courierRatingFrom(r) : null;
   }
 
   async courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null> {
@@ -745,8 +752,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   readonly courierRatings = new Map<string, CourierRatingRecord>();
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord> {
-    if (this.courierRatings.has(row.orderId)) throw new Error('unique violation: courier_ratings.order_id');
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord | null> {
+    if (this.courierRatings.has(row.orderId)) return null;
     const rec = { ...row, reasons: [...row.reasons], id: `cr_${this.courierRatings.size + 1}` };
     this.courierRatings.set(row.orderId, rec);
     return { ...rec, reasons: [...rec.reasons] };
