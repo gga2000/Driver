@@ -2,10 +2,12 @@ import 'reflect-metadata';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Test } from '@nestjs/testing';
-import type { INestApplicationContext } from '@nestjs/common';
+import { ConsoleLogger, type INestApplicationContext } from '@nestjs/common';
 import { AppModule } from './app.module.js';
 import { DEFAULT_DAY_START, INVARIANTS, SimulatorService, summaryTable, type RunOptions, type SimulationReport } from './modules/simulator/index.js';
 import { CLOCK, FakeClock } from './shared/clock.js';
+import { PrismaService } from './shared/db/prisma.service.js';
+import { PRISMA_LOG_CONTEXT } from './shared/db/prisma-error-log.js';
 
 /**
  * `pnpm sim --orders 2000 --drivers 60 --restaurants 10 --seed 1 [--ci] [--report path]`
@@ -29,6 +31,8 @@ export interface CliArgs {
   report: string | undefined;
   faults: string[];
   quiet: boolean;
+  /** `postgres`: the real Prisma repositories on DATABASE_URL (sim.ts keeps it); `memory` by default. */
+  db: 'memory' | 'postgres';
 }
 
 export interface CliIo {
@@ -61,6 +65,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   });
   for (const f of faults) if (!INVARIANTS.some((x) => x.name === f)) throw new Error(`--inject-fault: unknown invariant ${f}`);
   const customers = value('customers');
+  const db = value('db') ?? 'memory';
+  if (db !== 'memory' && db !== 'postgres') throw new Error(`--db must be memory or postgres (got ${db})`);
   return {
     orders: num('orders', 2000),
     drivers: num('drivers', 60),
@@ -73,6 +79,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     report: value('report'),
     faults,
     quiet: argv.includes('--quiet'),
+    db,
   };
 }
 
@@ -87,15 +94,59 @@ async function withoutIntervals<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The API on in-memory repositories and queues, on a fake clock, with its pollers off. */
-export async function bootSimApp(): Promise<{ app: INestApplicationContext; clock: FakeClock }> {
+/** Prints errors and warnings as before, and keeps every failed Prisma query (`prisma-error-log.ts`). */
+class SimLogger extends ConsoleLogger {
+  readonly prismaFailures: string[] = [];
+
+  constructor() {
+    super();
+    this.setLogLevels(['error', 'warn']);
+  }
+
+  override warn(message: unknown, ...rest: unknown[]): void {
+    if (rest.at(-1) === PRISMA_LOG_CONTEXT) this.prismaFailures.push(String(message));
+    super.warn(message, ...(rest as [string]));
+  }
+}
+
+/**
+ * The API on a fake clock with its pollers off: in-memory repositories and queues, or (with
+ * DATABASE_URL set, `--db postgres`) the Prisma repositories with in-memory queues.
+ */
+export async function bootSimApp(): Promise<{ app: INestApplicationContext; clock: FakeClock; prismaFailures: readonly string[] }> {
   const clock = new FakeClock(DEFAULT_DAY_START);
+  const logger = new SimLogger();
   const app = await withoutIntervals(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock).compile();
-    moduleRef.useLogger(['error', 'warn']);
+    moduleRef.useLogger(logger);
     return moduleRef.init();
   });
-  return { app, clock };
+  return { app, clock, prismaFailures: logger.prismaFailures };
+}
+
+/**
+ * `--db postgres` only: what the in-memory run cannot see. A failed Prisma query (a foreign key, an
+ * aborted transaction: the bug class the real-database sweep found, CRIT3-05) or an outbox delivery
+ * that needed a retry since `since` fails the run even when every invariant holds.
+ */
+async function postgresChecks(app: INestApplicationContext, prismaFailures: readonly string[], since: Date): Promise<{ lines: string[]; bad: string[] }> {
+  const prisma = app.get(PrismaService);
+  if (!prisma.configured) return { lines: [], bad: ['--db postgres: the app booted without DATABASE_URL'] };
+  const retried = await prisma.prisma.subscriberDelivery.findMany({
+    where: { createdAt: { gte: since }, attempts: { gt: 1 } },
+    select: { subscriber: true, attempts: true, lastError: true },
+    take: 20,
+  });
+  const failures = new Map<string, number>();
+  for (const f of prismaFailures) failures.set(f, (failures.get(f) ?? 0) + 1);
+  const bad = [
+    ...[...failures].map(([line, n]) => `${line}${n > 1 ? ` (×${n})` : ''}`),
+    ...retried.map((r) => `outbox retry: ${r.subscriber} ×${r.attempts}${r.lastError ? ` (${r.lastError.slice(0, 200)})` : ''}`),
+  ];
+  return {
+    lines: [`Postgres: failed queries ${prismaFailures.length}, outbox deliveries retried ${retried.length}`],
+    bad,
+  };
 }
 
 export async function runCli(argv: readonly string[], io: CliIo = defaultIo, extra: Partial<RunOptions> = {}): Promise<{ code: number; report: SimulationReport | null }> {
@@ -107,8 +158,15 @@ export async function runCli(argv: readonly string[], io: CliIo = defaultIo, ext
     return { code: 2, report: null };
   }
   if (args.speed !== undefined && !args.quiet) io.log(`--speed ${args.speed} applies to the live Console mode; this in-process run goes as fast as it can.`);
-  const { app } = await bootSimApp();
+  const since = new Date();
+  const { app, prismaFailures } = await bootSimApp();
   try {
+    // The invariants read the whole ledger: a database an earlier run (or anything else) wrote orders
+    // to would mix its money in. Postgres runs start from a freshly migrated and seeded database.
+    if (args.db === 'postgres' && (await app.get(PrismaService).prisma.order.count()) > 0) {
+      io.error('--db postgres needs a freshly migrated and seeded database (this one already has orders)');
+      return { code: 2, report: null };
+    }
     const sim = app.get(SimulatorService);
     const { report } = await sim.run({
       orders: args.orders,
@@ -128,7 +186,14 @@ export async function runCli(argv: readonly string[], io: CliIo = defaultIo, ext
       io.log(`report: ${resolve(path)}`);
     }
     for (const v of report.violations) io.error(`violation: ${v.invariant}`);
-    return { code: report.ok ? 0 : 1, report };
+    let ok = report.ok;
+    if (args.db === 'postgres') {
+      const pg = await postgresChecks(app, prismaFailures, since);
+      for (const l of pg.lines) io.log(l);
+      for (const b of pg.bad) io.error(`postgres: ${b}`);
+      if (pg.bad.length > 0) ok = false;
+    }
+    return { code: ok ? 0 : 1, report };
   } finally {
     await app.close();
   }
