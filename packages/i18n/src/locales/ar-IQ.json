@@ -8597,6 +8597,7 @@
   "console.garage.fee_settle": "تنحسب على حسابه ويسدّدها بأول تسليم كاش.",
   "console.garage.fee_line": "على السايق {amount} دينار إذا انلغت",
   "console.garage.fee_done": "كل راكب ({n}) أخذ {per} دينار رصيد، والسايق عليه {amount} دينار.",
+  "partner.update_safe": "حسابك وفلوسك وأرباحك تبقى مثل ما هي",
   "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
   "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
   "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك."

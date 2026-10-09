@@ -71,6 +71,24 @@ violation exits 1 and prints `violation: <name>`. The same `--seed` reproduces t
 `pnpm sim --orders 30 --inject-fault ledger_money_balanced` shows the gate failing on purpose (any
 invariant name works).
 
+**On Postgres (CRIT3-05).** `pnpm sim --orders 200 --seed 1 --db postgres` keeps `DATABASE_URL`, so the
+same day runs through the real Prisma repositories (Redis is still dropped: the timer queues stay in
+memory on the fake clock). It needs a freshly migrated and seeded database and refuses one that already
+has orders, since the invariants read the whole ledger. Besides the invariants, it fails on any Prisma
+query that failed (a foreign key or an aborted transaction that only Postgres raises: the bug class
+behind four of the audit's P0s) and on any outbox delivery that needed a retry. It is a manual and
+pre-release check, not a per-PR job: on Postgres the day is slow (100 orders took about 13 minutes on
+a laptop, 2,000 did not finish in 50), while the in-memory gate above stays the per-PR one. On
+2026-10-09, 60- and 100-order days passed with no failed query and no retry.
+
+The timed paths the simulator does not walk are in `apps/api/src/timed-paths.integration.test.ts`, on
+Postgres through the whole app on a fake clock: a scheduled food order reaching the kitchen, a customer
+unreachable at the door (desk at 3:00, fail at 5:00, order disputed), a household order waiting for its
+payer (30-minute free cancel, and a yes), a full خطوط run with the car-check alert 5 minutes after the
+last drop, and the nightly ledger close. It fails the same way on any failed Prisma query or retried
+outbox delivery. The request-board driver no-show money is covered in `routes.integration.test.ts`;
+points have no expiry job (pending points older than 90 days are hidden when the wallet is read).
+
 The Console's System page (`system.simulator.start/status/stop`, admin and dispatcher) runs the same
 actors live against the running API at 60× (or `speed`), with real presence, so the map shows the
 drivers moving.
