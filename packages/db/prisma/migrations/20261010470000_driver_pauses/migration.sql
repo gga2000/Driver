@@ -23,5 +23,9 @@ CREATE TABLE "public"."driver_pauses" (
 -- CreateIndex
 CREATE INDEX "driver_pauses_person_id_lifted_at_idx" ON "public"."driver_pauses"("person_id", "lifted_at");
 
+-- At most one open pause per person: two staff pausing at once can't leave a second row that one lift
+-- would miss (the service treats the losing insert as "already paused").
+CREATE UNIQUE INDEX "driver_pauses_one_open_per_person" ON "public"."driver_pauses"("person_id") WHERE "lifted_at" IS NULL;
+
 -- Supabase lock-down for the new table (row level security on, nothing granted to anon / authenticated).
 SELECT * FROM "public"."driver_harden"(ARRAY['public', 'identity_vault'], 'identity_vault');

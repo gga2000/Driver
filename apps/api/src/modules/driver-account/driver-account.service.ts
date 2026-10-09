@@ -55,7 +55,7 @@ import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { deliveryRatings, nudgesFor, OBSERVATION_DAYS, reliabilityCard, RELIABILITY_WINDOW_DAYS } from '../scoring/index.js';
 import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
-import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, type DriverAccountRepository, type PauseRecord } from './driver-account.repository.js';
+import { DRIVER_ACCOUNT_REPOSITORY, isUniqueViolation, type CheckInRecord, type DocumentRecord, type DriverAccountRepository, type PauseRecord } from './driver-account.repository.js';
 import { composeEarnings } from './earnings.js';
 import { HANDOVER_SECRET, HandoverCodes } from './handover-code.js';
 import { composeReceipt, receiptNote, type ReceiptContext } from './receipt.js';
@@ -566,7 +566,8 @@ export class DriverAccountService implements DriverAccountPort {
     if (input.personId === actor.personId) throw new DriverError('forbidden');
     if (!(await this.identity.rosterEntry(input.personId, PARTNER_DRIVING_ROLES))) throw new DriverError('invalid_input');
     const now = this.clock.now();
-    const pause = await this.uow.run(async (tx) => {
+    const pause = await this.uow
+      .run(async (tx) => {
       const open = await this.repo.activePause(input.personId, tx);
       if (open) return open;
       const row = await this.repo.createPause({ personId: input.personId, reason: input.reason, ticketId: input.ticketId ?? null, note: input.note, pausedAt: now, pausedById: actor.personId }, tx);
@@ -580,7 +581,13 @@ export class DriverAccountService implements DriverAccountPort {
         tx,
       );
       return row;
-    });
+      })
+      .catch(async (err: unknown) => {
+        // Two staff pausing at the same moment: the index lets one row in, the other is "already paused".
+        const open = isUniqueViolation(err) ? await this.repo.activePause(input.personId) : null;
+        if (!open) throw err;
+        return open;
+      });
     return this.pauseView(input.personId, pause);
   }
 

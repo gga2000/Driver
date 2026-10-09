@@ -323,6 +323,25 @@ describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
   });
 });
 
+describe('driverAccount staff pause race', () => {
+  it('two staff pausing at the same moment leave one open pause, so one lift clears it', async () => {
+    const h = setup();
+    const d = await h.person('07700000024', ['courier']);
+    const a = await h.person('07700000025', ['support']);
+    const b = await h.person('07700000026', ['dispatcher']);
+    // Both read "not paused" before either writes: the second insert hits the one-open-pause index.
+    const read = h.repo.activePause.bind(h.repo);
+    let blind = 2;
+    h.repo.activePause = async (personId: string) => (blind-- > 0 ? null : read(personId));
+    const first = await h.service.pause(a, { personId: d.personId, reason: 'safety_report', note: 'بلاغ أول' });
+    const second = await h.service.pause(b, { personId: d.personId, reason: 'other', note: 'بلاغ ثاني' });
+    expect(second.active!.id).toBe(first.active!.id);
+    expect([...h.repo.pauses.values()].filter((p) => p.liftedAt === null)).toHaveLength(1);
+    expect((await h.service.liftPause(a, { personId: d.personId, note: 'راجعنا البلاغ' })).active).toBeNull();
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).not.toContain('staff_paused');
+  });
+});
+
 describe('driverAccount daily check-in', () => {
   it('passes with a stored selfie inside the 2-minute challenge and unlocks going online', async () => {
     const h = setup();

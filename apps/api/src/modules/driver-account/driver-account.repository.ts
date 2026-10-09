@@ -62,6 +62,11 @@ export interface DriverAccountRepository {
   liftPause(id: string, patch: { liftedAt: Date; liftedById: string; liftNote: string }, tx?: Tx): Promise<PauseRecord>;
 }
 
+/** Prisma's unique-constraint failure (P2002): here, a second open pause for the same person. */
+export function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
+}
+
 export const DRIVER_ACCOUNT_REPOSITORY = Symbol('DRIVER_ACCOUNT_REPOSITORY');
 
 export class InMemoryDriverAccountRepository implements DriverAccountRepository {
@@ -133,6 +138,8 @@ export class InMemoryDriverAccountRepository implements DriverAccountRepository 
   }
 
   async createPause(input: Omit<PauseRecord, 'id' | 'liftedAt' | 'liftedById' | 'liftNote'>): Promise<PauseRecord> {
+    // Mirrors the partial unique index driver_pauses_one_open_per_person.
+    if (await this.activePause(input.personId)) throw Object.assign(new Error('one open pause per person'), { code: 'P2002' });
     const row: PauseRecord = { id: this.id('dpause'), ...input, liftedAt: null, liftedById: null, liftNote: null };
     this.pauses.set(row.id, row);
     return { ...row };

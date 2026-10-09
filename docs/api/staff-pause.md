@@ -5,7 +5,7 @@ into it.
 
 - `driverAccount.pause({ personId, reason: 'safety_report' | 'other', ticketId?, note })` — admin,
   dispatcher, support, field ops. The person must hold a driving role; nobody pauses himself. A note
-  (3–300 characters) is required. Pausing someone already paused returns the open pause unchanged.
+  (3–300 characters) is required. Pausing someone already paused returns the open pause unchanged. A partial unique index keeps at most one open pause per person, so two staff pausing at the same moment end with one pause (the second gets the first's), and one lift clears it.
 - `driverAccount.liftPause({ personId, note })` — same roles; `invalid_input` when he isn't paused.
 - `driverAccount.pauseStatus({ personId })` — the open pause (when, by whom, why) or `active: null`.
 
