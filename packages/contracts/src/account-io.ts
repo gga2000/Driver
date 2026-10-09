@@ -298,8 +298,13 @@ export function walletOrderDetail(orderId: string, locale: Locale = 'ar-IQ'): st
 }
 
 /** Wallet line details (`wallet.detail.<key>`). */
-export function walletLineDetail(key: 'cash' | 'wallet' | 'cash_change' | 'change_to_wallet' | 'short_cash', locale: Locale = 'ar-IQ'): string {
+export function walletLineDetail(key: 'cash' | 'wallet' | 'cash_change' | 'change_to_wallet' | 'short_cash' | 'debt_paid', locale: Locale = 'ar-IQ'): string {
   return t(`wallet.detail.${key}` as MessageKey, undefined, locale);
+}
+
+/** M-3: the owed fees he paid in cash with an order, a `debt` line of its own («سددت الرسوم»). */
+export function walletDebtPaidTitle(locale: Locale = 'ar-IQ'): string {
+  return t('wallet.line.debt_paid', undefined, locale);
 }
 
 export const ClaimPointsOutput = z.object({ claimed: z.number().int().nonnegative(), points: z.number().int() });
