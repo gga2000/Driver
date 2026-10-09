@@ -1715,11 +1715,10 @@
   "console.garage.demand_hint": "Seats riders asked for and seats drivers took, per hour.",
   "console.garage.demand_none": "No open requests.",
   "console.garage.demand_row": "{range}: asked {asked} · taken {taken}",
-  "console.garage.m11_waits": "Cancelling has no fee for the driver and no credit for riders for now. That rule waits for a management decision (M-11).",
   "console.garage.seats_of": "{n} of {total}",
   "console.garage.cancel_1": "Riders move to the next cars, as when the driver cancels himself.",
   "console.garage.cancel_2": "Anyone with no car within 2 hours goes onto the request board.",
-  "console.garage.cancel_3": "Nobody has paid: seats are only settled when the car arrives.",
+  "console.garage.cancel_3": "Seats aren't settled: they only settle when the car arrives.",
   "console.garage.arrive_1": "Same as the driver pressing «Arrived»: checked-in seats complete and settle.",
   "console.garage.arrive_2": "Do it only once you're sure the car arrived (you spoke to the driver or the garage).",
   "console.garage.close_1": "Closes the run now instead of waiting for the automatic close.",
@@ -8540,5 +8539,13 @@
   "partner.update_body": "This version is too old to keep working. Update it from the store; it takes a minute, then carry on.",
   "partner.update_offers": "Until you update, you can't take offers on this phone.",
   "partner.update_button": "Update from the store",
-  "error.server_busy": "We’re very busy right now. Try again in a moment"
+  "error.server_busy": "We’re very busy right now. Try again in a moment",
+  "console.garage.fee_off": "The driver fee is switched off for now: no rider is credited and the driver is charged nothing for this cancel.",
+  "console.garage.fee_no_riders": "No riders are booked, so the driver is charged nothing.",
+  "console.garage.fee_charge": "The driver pays {amount} IQD for not showing up",
+  "console.garage.fee_riders": "Each rider ({n}) gets {per} IQD credit in their wallet.",
+  "console.garage.fee_doubled": "Doubled because the run is at or after 6 pm.",
+  "console.garage.fee_settle": "It goes on his balance and he settles it at his next cash hand-in.",
+  "console.garage.fee_line": "driver pays {amount} IQD if cancelled",
+  "console.garage.fee_done": "Each rider ({n}) got {per} IQD credit; the driver owes {amount} IQD."
 }
