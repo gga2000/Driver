@@ -8,3 +8,4 @@ export * from './project.js';
 export * from './labels.js';
 export * from './landmarks.js';
 export * from './landmark-icons.js';
+export * from './golden/index.js';

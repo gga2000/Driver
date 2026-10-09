@@ -1,0 +1,75 @@
+# Golden hour (عصرية) map — design and build
+
+Status: style and tile tools built (this PR). Screens switch over through their owners once platform hosts
+the files. Decisions: Ali picked Golden hour on 2026-10-09 00:32Z, then "start now, not before launch"
+at 01:27Z. Design book with every screen: https://claude.ai/artifact/LqaSx7ZkrGtwDwdvUrv55S. This
+replaces the "soft blue river" line in `2026-10-05-maps-world-class.md` (no-blue brand rule).
+
+## The idea
+Aziziyah at four in the afternoon: warm earth, date-palm olive, an olive Tigris (never blue), cream streets
+with caramel edges, flat roofs with water tanks. The light follows the real sun over the town, so the map
+on a phone matches the street outside. Service colours (food saffron, taxi yellow, tuktuk orchid, الرجعة,
+خطوط) are never in the base map; they belong to the route and pins each screen draws on top, so they pop.
+
+## The five lights
+| light | when (sun over Aziziyah) | feel |
+|---|---|---|
+| `day` | altitude ≥ 20° | the same town under a high sun, short soft shadows |
+| `morning` | 4–20°, sun in the east | cooler cream, long grey shadows |
+| `golden` | 4–20°, sun in the west | the picked look: amber roofs, long warm shadows, the river glints |
+| `sunset` | −5 to 4° (maghrib) | rose-amber land, longest shadows |
+| `night` | below −5° | warm brown (never navy), main streets glow like sodium lamps, no shadows |
+`resolveLight({ light: 'auto' })` picks from the clock; a screen may pin one (the Console pins `day`).
+
+## Where it is shown (`mode`)
+| mode | used by | draws |
+|---|---|---|
+| `customer` | order tracking, ride booking, pin picker, الرجعة/خطوط maps | palm crowns z14.2+, sun shadows z15.6+, houses rise to 3D z16.4+, roof tanks z17.5+ |
+| `courier` | partner app heading-up drive view (pitch ~58°) | as customer, 3D from z15.4, warm sky at the horizon |
+| `console` | dispatch, control room, zones | flat colours only: no patterns, shadows, glints or 3D |
+| `lite` | cheap phones (low memory / saver) | as console |
+
+## Zoom ladder
+- z7–10: the region. Tigris as a ribbon, Kut–Baghdad road, towns and villages in bold.
+- z11–13: the town. Main streets cased, farms and palm groves, «العزيزية» in bold, «نهر دجلة» along the water.
+- z14–15.5: streets. Every street, roofs appear, named streets labelled along the line, the town name fades out.
+- z15.5–17: the door. Small streets get edges, shadows fall from the sun, important places named.
+- z17+: houses in soft 3D with water tanks on about a third of the roofs.
+
+## Labels
+IBM Plex Sans Arabic (Regular / Medium / Bold) as our own SDF glyphs, Arabic shaped by MapLibre's RTL text
+plugin, Western digits only (the tile build converts ٠–٩). Labels sit above everything an app adds when the
+app inserts its layers before `GOLDEN_FIRST_LABEL`.
+
+## Files
+- `packages/map/src/golden/` — `buildGoldenStyle({ pmtilesUrl, glyphs, light, now, mode })`, the palettes,
+  `sunAt` / `lightFor`, sun-direction shadows (`shadowOffset`), and the palm-crown pattern (`goldenImages`).
+- `tools/map-tiles/` — fetch (Overture, public), tile build (`wasit.pmtiles`), glyph build. See its README.
+- Hosted by platform (Supabase Storage bucket `map`, public, Range + CORS):
+  `…/storage/v1/object/public/map/wasit.pmtiles` and `…/map/fonts/{fontstack}/{range}.pbf`.
+
+## How a screen switches over (drop-in for each owner)
+Read the two URLs from the app's public build env and keep the current raster style when they are missing:
+- Expo apps: `EXPO_PUBLIC_MAP_TILES_URL`, `EXPO_PUBLIC_MAP_GLYPHS_URL`. Console: `NEXT_PUBLIC_MAP_TILES_URL`,
+  `NEXT_PUBLIC_MAP_GLYPHS_URL`. The API does not need them.
+```ts
+import { Protocol } from 'pmtiles';                       // add `pmtiles` to the app
+import maplibregl from 'maplibre-gl';
+import { buildGoldenStyle, goldenImages, resolveLight, GOLDEN_FIRST_LABEL } from '@driver/map';
+
+maplibregl.addProtocol('pmtiles', new Protocol().tile);  // once per app
+maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true);  // already exported by @driver/map
+const { light } = resolveLight();
+const map = new maplibregl.Map({ container, style: buildGoldenStyle({
+  pmtilesUrl: `pmtiles://${TILES_URL}`, glyphs: GLYPHS_URL, mode: 'customer' }) });
+for (const [id, img] of Object.entries(goldenImages(light))) map.addImage(id, img);
+map.on('load', () => map.addLayer(routeLayer, GOLDEN_FIRST_LABEL));
+```
+Rebuild the style when the light changes (check every 10 minutes; the change is a quiet cross-fade, no
+animation loop). On phones the native map needs a development build (`@maplibre/maplibre-react-native`);
+until then the web studio shows the real map and the phones keep the zone sketch.
+
+## Not in this PR
+Per-service route and pin styling from the book (route glow in the service colour, the white-ring courier,
+matte chips), curated landmark stamps, and each screen's switch-over: they land with the screen owners.
+Data gaps (heights, street names, neighbourhoods, mosques, garages) need the field walk, not code.
