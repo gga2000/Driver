@@ -106,6 +106,7 @@ export function PinPicker({
           cam={cam}
           size={size}
           labelAvoid={CENTRE_PIN_AVOID}
+          alwaysDay
           onUserGestureStart={() => {
             lift.value = withSpring(1, { damping: 16, stiffness: 260 });
             setRingM(null);
