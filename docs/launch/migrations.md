@@ -32,6 +32,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010240000 | console_watch | lane E | #37 |
 | 20261010260000 | merchant_setup (+ shop rules columns) | merchant | setup PR |
 | 20261010270000 | driver_running_balance | lane A | speed PR |
+| 20261010310000 | order_debt_collect | lane A | M-3 owed cancel fee |
 | 20261010480000 | refund_approvals | lane A | second OK on big refunds |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, `20261010140000`)

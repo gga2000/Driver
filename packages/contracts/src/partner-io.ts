@@ -364,6 +364,8 @@ export const PartnerJobStop = z.object({
    * street near the pin; the courier calls when close instead of going to the door. Absent = the door.
    */
   streetHandover: z.boolean().optional(),
+  /** M-3 «ينضاف لطلبك الجاي»: of `collectIqd`, the cancellation fees the customer owed and pays with this order; absent = none. */
+  owedFeesIqd: Iqd.positive().optional(),
   /** "الخردة علينا": the note the customer said he will pay with ("الزبون يدفع بـ 25,000"); null/absent = none. */
   tenderIqd: Iqd.nullable().optional(),
   arrivedAt: z.coerce.date().nullable(),

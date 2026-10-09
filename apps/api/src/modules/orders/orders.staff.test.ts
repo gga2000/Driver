@@ -43,7 +43,7 @@ describe('W3 switches', () => {
     expect(r.disputes.outcomes).toEqual(['stands', 'refund_partial']);
     expect(r.disputes.auto.enabled).toBe(true);
     expect(r.platformFailure).toMatchObject({ freeCancel: true, cookedFoodPayer: 'merchant' });
-    expect(r.cashDebt.block).toBe(true);
+    expect(r.cashDebt).toMatchObject({ block: true, collectOnNext: true });
     expect(r.openCash).toMatchObject({ enabled: true, prepayAfterNoAnswer: true });
     expect(r.courierLost).toEqual({ refund: true, chargeCourier: true });
     expect(r.agentCashAccounts).toBe(true);
