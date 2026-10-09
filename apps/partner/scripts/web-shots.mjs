@@ -54,7 +54,7 @@ const written = [];
 let lastPage = null;
 
 /** Error noise from the sandbox, not from the app. */
-const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL/;
+const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL|mapbox-gl-rtl-text/;
 
 async function demoPost(path) {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
@@ -81,7 +81,10 @@ async function openPage(group, { prePrompt = false } = {}) {
   page.on('console', (m) => {
     if (m.type() === 'error' && !IGNORED.test(m.text()) && !(refusalExpected && /status of 400/.test(m.text()))) errors.push(`[${group}] ${m.text()}`);
   });
-  page.on('pageerror', (e) => errors.push(`[${group}] ${e.stack ?? e.message}`));
+  // The Golden hour map's Arabic shaping plugin comes from unpkg, which this container cannot reach.
+  page.on('pageerror', (e) => {
+    if (!IGNORED.test(e.message)) errors.push(`[${group}] ${e.stack ?? e.message}`);
+  });
   page.on('response', (r) => {
     if (r.status() >= 400 && !r.url().includes('tile')) console.log(`[http ${r.status()}] ${r.request().method()} ${r.url()}`);
   });

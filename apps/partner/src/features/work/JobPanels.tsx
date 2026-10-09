@@ -23,12 +23,15 @@ import { clock, unreachablePhase } from './logic';
  */
 export function HandoverPanel({
   collectIqd,
+  owedFeesIqd,
   tenderIqd,
   busy,
   onConfirm,
   onClose,
 }: {
   collectIqd: number;
+  /** M-3: of `collectIqd`, what the customer owed from before (cancel fees or short cash) and pays with this order; absent/0 = none. */
+  owedFeesIqd?: number;
   /** The note the customer said he will pay with; null/absent = none. */
   tenderIqd?: number | null;
   busy: boolean;
@@ -87,6 +90,11 @@ export function HandoverPanel({
               {t('quote.currency')}
             </Text>
           </Text>
+          {owedFeesIqd && owedFeesIqd > 0 ? (
+            <Text testID="cash-owed-split" variant="label" weight={600} color="text" tabular align="center" style={{ paddingHorizontal: theme.space[4] }}>
+              {t('partner.cash_owed_split', { order: amountParam(collectIqd - owedFeesIqd), fees: amountParam(owedFeesIqd) })}
+            </Text>
+          ) : null}
           <Text variant="caption" color="warningText" align="center" style={{ paddingHorizontal: theme.space[4] }}>
             {t('partner.cash_hint')}
           </Text>
