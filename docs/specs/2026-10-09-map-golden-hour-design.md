@@ -42,7 +42,7 @@ plugin, Western digits only (the tile build converts ٠–٩). Labels sit above 
 app inserts its layers before `GOLDEN_FIRST_LABEL`.
 
 ## Files
-- `packages/map/src/golden/` — `buildGoldenStyle({ pmtilesUrl, glyphs, light, now, mode })`, the palettes,
+- `packages/map/src/golden/` (its own entry, `@driver/map/golden`, so apps that do not draw it carry none of it) — `buildGoldenStyle({ pmtilesUrl, glyphs, light, now, mode })`, the palettes,
   `sunAt` / `lightFor`, sun-direction shadows (`shadowOffset`), and the palm-crown pattern (`goldenImages`).
 - `tools/map-tiles/` — fetch (Overture, public), tile build (`wasit.pmtiles`), glyph build. See its README.
 - Hosted by platform (Supabase Storage bucket `map`, public, Range + CORS):
@@ -55,7 +55,7 @@ Read the two URLs from the app's public build env and keep the current raster st
 ```ts
 import { Protocol } from 'pmtiles';                       // add `pmtiles` to the app
 import maplibregl from 'maplibre-gl';
-import { buildGoldenStyle, goldenImages, resolveLight, GOLDEN_FIRST_LABEL } from '@driver/map';
+import { buildGoldenStyle, goldenImages, resolveLight, GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);  // once per app
 maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true);  // already exported by @driver/map
