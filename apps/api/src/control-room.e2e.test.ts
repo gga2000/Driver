@@ -411,14 +411,48 @@ describe('launch control room (e2e)', () => {
       expect(credit.map((e) => [e.amount, e.fromAccount])).toEqual([[5000, 'platform']]);
       expect(await codeOf(agent.client.support.refund.mutate({ ticketId: ticket.id, amountIqd: placed.totalIqd - 5000 + 250, method: 'wallet', idempotencyKey: `${key}-b` }))).toBe('refund_exceeds_order');
 
-      // A second, bigger case for the same customer: agent cap, finance's 25,000 single limit, the customer cap.
+      // A second, bigger case for the same customer. Over a limit nothing posts: it waits for a second OK
+      // (agent's daily cap, the 25,000 single limit — admins too — and the customer's monthly cap).
       const t2 = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'whatsapp', subject: 'المندوب ما رجّع الباقي', customerId: customer.personId });
-      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` }))).toBe('refund_over_agent_limit');
-      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 25_250, method: 'wallet', idempotencyKey: `${key}-d` }))).toBe('refund_needs_escalation');
+      const asked = await agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` });
+      expect(asked.ticket.refundedIqd).toBe(0);
+      expect(asked.pendingApproval).toMatchObject({ amountIqd: 6000 });
+      await agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` });
+      await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 25_250, method: 'wallet', idempotencyKey: `${key}-d` });
       await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 20_000, method: 'points', idempotencyKey: `${key}-e` });
-      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 500, method: 'wallet', idempotencyKey: `${key}-f` }))).toBe('refund_customer_cap');
+      await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 500, method: 'wallet', idempotencyKey: `${key}-f` });
+      await admin.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 30_000, method: 'wallet', idempotencyKey: `${key}-g` });
+      const queue = (await agent.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === t2.id);
+      expect(queue.map((r) => [r.amountIqd, r.limit, r.requestedBy.id])).toEqual([
+        [6000, 'agent_daily', agent.personId],
+        [25_250, 'per_refund', finance.personId],
+        [500, 'customer_month', finance.personId],
+        [30_000, 'per_refund', admin.personId],
+      ]);
+      const [small, big, capped, adminBig] = queue as [(typeof queue)[number], (typeof queue)[number], (typeof queue)[number], (typeof queue)[number]];
+      // Only finance or admin decide, never on their own request; the asker may take it back.
+      expect(await codeOf(agent.client.support.refundApprovals.approve.mutate({ id: small.id }))).toBe('forbidden');
+      expect(await codeOf(finance.client.support.refundApprovals.approve.mutate({ id: big.id }))).toBe('approval_own_item');
+      expect(await codeOf(admin.client.support.refundApprovals.cancel.mutate({ id: small.id }))).toBe('forbidden');
+      expect(await agent.client.support.refundApprovals.cancel.mutate({ id: small.id })).toMatchObject({ state: 'cancelled', decidedBy: { id: agent.personId } });
+      expect(await admin.client.support.refundApprovals.decline.mutate({ id: big.id, note: 'كثير، نعطي نقاط' })).toMatchObject({ state: 'declined', declineNote: 'كثير، نعطي نقاط' });
+      expect(await admin.client.support.refundApprovals.approve.mutate({ id: capped.id })).toMatchObject({ state: 'approved', decidedBy: { id: admin.personId } });
+      expect(await finance.client.support.refundApprovals.approve.mutate({ id: adminBig.id })).toMatchObject({ state: 'approved' });
+      expect(await codeOf(finance.client.support.refundApprovals.approve.mutate({ id: adminBig.id }))).toBe('approval_state_conflict');
+      expect((await agent.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === t2.id)).toEqual([]);
+      const credits = (await app.get(LedgerService).eventsFor(`customer:${customer.personId}`)).filter((e) => e.type === 'credit_issued');
+      expect(credits.map((e) => e.amount)).toEqual([5000, 500, 30_000]);
       const points = (await app.get(LedgerService).eventsFor(`points:${customer.personId}`)).filter((e) => e.memo?.startsWith('support:'));
       expect(points.map((e) => e.amount)).toEqual([2000]);
+      const approvedCase = await agent.client.support.get.query({ ticketId: t2.id });
+      expect(approvedCase.ticket.refundedIqd).toBe(50_500);
+      expect(approvedCase.pendingApproval).toBeNull();
+      // The approved refund is the asker's line on the case, with the approver kept on it.
+      expect(approvedCase.entries.filter((e) => e.kind === 'refund').map((e) => [e.amountIqd, e.actorId, e.meta['approvedBy'] ?? null])).toEqual([
+        [20_000, finance.personId, null],
+        [500, finance.personId, admin.personId],
+        [30_000, admin.personId, finance.personId],
+      ]);
 
       await agent.client.support.attributeFault.mutate({ ticketId: t2.id, faultParty: 'courier', note: 'ما رجّع الباقي' });
       const esc = await agent.client.support.escalate.mutate({ ticketId: t2.id, reason: 'يحتاج قرار علي' });
@@ -426,11 +460,11 @@ describe('launch control room (e2e)', () => {
       const done = await admin.client.support.resolve.mutate({ ticketId: t2.id, resolution: 'تعوّض بالنقاط وانحسبت على المندوب' });
       expect(done.ticket).toMatchObject({ status: 'resolved', slaState: 'met' });
       expect(await codeOf(agent.client.support.reply.mutate({ ticketId: t2.id, text: 'شي ثاني؟' }))).toBe('ticket_closed');
-      expect(done.entries.map((e) => e.kind)).toEqual(['opened', 'refund', 'fault', 'escalate', 'resolve']);
+      expect(done.entries.filter((e) => e.kind !== 'note').map((e) => e.kind)).toEqual(['opened', 'refund', 'refund', 'refund', 'fault', 'escalate', 'resolve']);
 
       // The context panel's customer card: their orders, the credits so far and the other ticket.
       const card = await agent.client.support.customer.query({ ticketId: ticket.id });
-      expect(card).toMatchObject({ customerId: customer.personId, orders: 1, refunded30dIqd: 25_000, disputes30d: 1 });
+      expect(card).toMatchObject({ customerId: customer.personId, orders: 1, refunded30dIqd: 55_500, disputes30d: 1 });
       expect(card!.recentTickets.map((r) => r.id)).toEqual([t2.id]);
       expect(await codeOf(courierP.client.support.customer.query({ ticketId: ticket.id }))).toBe('forbidden');
 

@@ -11,9 +11,9 @@ export function rowEnterTarget(el: EventTarget | null): boolean {
 }
 
 /**
- * j/k move a highlight through a table's rows and Enter opens the highlighted one (the lists on
- * /orders and /drivers); Escape drops the highlight. The highlighted row is the DataTable's
- * `activeKey` and is scrolled into view as it moves. Letters never fire while the person types in
+ * j/k move a highlight through a list's rows and Enter opens the highlighted one (the lists on
+ * /orders, /drivers and Today); Escape drops the highlight. The highlighted row (a DataTable's
+ * `activeKey`, or an `li` marked `data-active`) is scrolled into view as it moves. Letters never fire while the person types in
  * a field, and Enter and Escape keep their usual meaning on buttons, links and dialogs.
  */
 export function useRowKeys<T>(rows: readonly T[], keyOf: (row: T) => string, onOpen: (row: T) => void, enabled = true) {
@@ -46,7 +46,7 @@ export function useRowKeys<T>(rows: readonly T[], keyOf: (row: T) => string, onO
   }, [enabled]);
   useEffect(() => {
     if (active === null) return;
-    document.querySelector('tr[data-active]')?.scrollIntoView({ block: 'nearest' });
+    document.querySelector('tr[data-active], li[data-active]')?.scrollIntoView({ block: 'nearest' });
   }, [active]);
   return [active, setActive] as const;
 }

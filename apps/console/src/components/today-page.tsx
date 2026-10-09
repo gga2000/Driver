@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   INBOX_CLOSE_AT_SOURCE,
@@ -14,13 +15,16 @@ import {
   type InboxView,
 } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { formatClock } from '@/lib/format';
-import { detailText, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
+import { useHotkeys } from '@/lib/hotkeys';
+import { detailText, holdRows, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
 import { CITY_ID, queryRetry, useRightNow } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
+import { countText } from '@/lib/plural';
 import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
+import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { StuckRowActions } from './stuck/row-actions';
@@ -35,6 +39,7 @@ import {
   IconAlert,
   IconCheckCircle,
   IconClock,
+  LiveBadge,
   NeedLogin,
   PageHeader,
   Popover,
@@ -119,7 +124,15 @@ function Today() {
               ...(viewCount[v] !== undefined ? { count: viewCount[v] } : {}),
             }))}
           />
-          {c?.oldestOpenAt && view === 'open' ? <OldestLine at={c.oldestOpenAt} /> : null}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {c?.oldestOpenAt && view === 'open' ? <OldestLine at={c.oldestOpenAt} /> : null}
+            <LiveBadge
+              seconds={TODAY_POLL_MS / 1000}
+              updatedAt={list.dataUpdatedAt || undefined}
+              fetching={list.isFetching}
+              error={list.isError}
+            />
+          </div>
         </div>
         {view === 'open' && c ? <KindFilter counts={c} value={kind} onChange={setKind} /> : null}
         {list.isError ? (
@@ -148,11 +161,7 @@ function Today() {
             className="py-12"
           />
         ) : (
-          <ul className="divide-y divide-line/70">
-            {list.data.map((row) => (
-              <InboxLine key={row.id} row={row} canWork={canWork} />
-            ))}
-          </ul>
+          <Rows rows={list.data} listKey={`${view}:${kind ?? ''}`} canWork={canWork} />
         )}
       </section>
       {loaded && !canWork ? (
@@ -289,9 +298,79 @@ function KindFilter({
   );
 }
 
+// ───────────────────────── the rows ─────────────────────────
+
+/**
+ * The list with its keys (J/K move, Enter opens, A takes, S snoozes, E closes) and, while someone
+ * works it, new rows held behind «N جديد · اعرضها» so nothing jumps under their hand.
+ */
+function Rows({ rows, listKey, canWork }: { rows: InboxRow[]; listKey: string; canWork: boolean }) {
+  const router = useRouter();
+  const [hovering, setHovering] = useState(false);
+  const [onScreen, setOnScreen] = useState<{ key: string; ids: ReadonlySet<string> } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const known = onScreen?.key === listKey ? onScreen.ids : null;
+  const [active, setActive] = useRowKeys(rows, (r) => r.id, (r) => router.push(rowHref(r)), !busy);
+  const holding = hovering || active !== null || busy;
+  const { shown, held } = useMemo(() => holdRows(rows, known, holding), [rows, known, holding]);
+  // What is on screen while nobody holds the list becomes the list to hold.
+  useEffect(() => {
+    if (!holding || known === null) setOnScreen({ key: listKey, ids: new Set(rows.map((r) => r.id)) });
+  }, [holding, known, listKey, rows]);
+  // The highlight follows the visible rows only.
+  useEffect(() => {
+    if (active !== null && !shown.some((r) => r.id === active)) setActive(null);
+  }, [active, shown, setActive]);
+  const showAll = () => setOnScreen({ key: listKey, ids: new Set(rows.map((r) => r.id)) });
+  return (
+    <div
+      className="relative"
+      onPointerEnter={() => setHovering(true)}
+      onPointerLeave={() => setHovering(false)}
+    >
+      {held > 0 ? (
+        // Floats over the list so showing it doesn't push the rows down either.
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center px-5">
+          <button
+            type="button"
+            onClick={showAll}
+            className="num pointer-events-auto inline-flex min-h-11 animate-pop-in items-center gap-2 rounded-pill border border-accent/50 bg-raised px-4 text-sm font-semibold text-text shadow-pop hover:bg-accent-wash"
+            data-testid="today-held"
+          >
+            {countText('console.today.new_rows', held)}
+            <span className="text-muted">·</span>
+            <span className="underline underline-offset-4">{t('console.today.show_new')}</span>
+          </button>
+        </div>
+      ) : null}
+      <ul className="divide-y divide-line/70">
+        {shown.map((row) => (
+          <InboxLine
+            key={row.id}
+            row={row}
+            canWork={canWork}
+            active={row.id === active}
+            onBusy={setBusy}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ───────────────────────── one row ─────────────────────────
 
-function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
+function InboxLine({
+  row,
+  canWork,
+  active,
+  onBusy,
+}: {
+  row: InboxRow;
+  canWork: boolean;
+  active: boolean;
+  onBusy: (busy: boolean) => void;
+}) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const toast = useToast();
@@ -319,14 +398,45 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
   );
   const done = row.state === 'done';
   const closeHere = !INBOX_CLOSE_AT_SOURCE.includes(row.kind);
+  const workable = canWork && !done && closeHere;
+  // While the snooze menu or the close dialog is open, the list's own keys rest.
+  useEffect(() => {
+    if (!snoozing && !closing) return;
+    onBusy(true);
+    return () => onBusy(false);
+  }, [snoozing, closing, onBusy]);
+  useHotkeys(
+    {
+      a: () => {
+        if (!row.mine && !take.isPending) take.mutate({ id: row.id });
+      },
+      s: () => setSnoozing(true),
+      e: () => setClosing(true),
+    },
+    { enabled: active && workable && !snoozing && !closing },
+  );
+  useHotkeys(
+    Object.fromEntries(
+      INBOX_RULES.snoozeMinutes.map((m, i) => [
+        String(i + 1),
+        () => {
+          if (!snooze.isPending) snooze.mutate({ id: row.id, minutes: m });
+        },
+      ]),
+    ),
+    { enabled: snoozing },
+  );
   return (
     <li
       className={cx(
-        'flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-3.5',
+        'relative flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-3.5',
         row.kind === 'sos' && !done ? 'bg-bad-tint/40' : '',
+        active ? 'bg-accent-wash/50 before:absolute before:inset-y-0 before:start-0 before:w-1 before:bg-accent' : '',
       )}
       data-testid="today-row"
       data-kind={row.kind}
+      data-active={active || undefined}
+      aria-current={active || undefined}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -375,7 +485,7 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
         >
           {t(closeHere || done ? 'console.today.open' : 'console.today.open_at_source')}
         </Link>
-        {canWork && !done && closeHere ? (
+        {workable ? (
           <>
             {!row.mine ? (
               <Button
@@ -400,13 +510,14 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
               </Button>
               <Popover open={snoozing} onClose={() => setSnoozing(false)} align="end">
                 <div className="flex gap-1.5 p-2">
-                  {INBOX_RULES.snoozeMinutes.map((m) => (
+                  {INBOX_RULES.snoozeMinutes.map((m, i) => (
                     <Button
                       key={m}
                       size="sm"
                       variant="ghost"
                       loading={snooze.isPending && snooze.variables?.minutes === m}
                       onClick={() => snooze.mutate({ id: row.id, minutes: m })}
+                      aria-keyshortcuts={String(i + 1)}
                     >
                       <span className="num">{t('console.today.snooze_min', { minutes: m })}</span>
                     </Button>

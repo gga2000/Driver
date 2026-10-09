@@ -14,6 +14,7 @@ import { errorText, useConsoleNetwork } from '@/lib/network';
 import { DishPhotoQueue } from './dish-photo-queue';
 import { MenuPhotoQueue } from './menu-photo-queue';
 import { PhotoZoom } from './photo-zoom';
+import { RefundApprovalsQueue } from './refund-approvals';
 import {
   Avatar,
   Button,
@@ -82,6 +83,9 @@ export function ApprovalsPage() {
         </span>
         <LiveBadge seconds={POLL_MS / 1000} updatedAt={list.dataUpdatedAt} fetching={list.isFetching} error={Boolean(list.error)} />
       </PageHeader>
+      <div className="mb-5">
+        <RefundApprovalsQueue />
+      </div>
       {list.error && <QueryError error={list.error} onRetry={() => void list.refetch()} />}
       {!list.data && list.isPending && (
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]" aria-busy>

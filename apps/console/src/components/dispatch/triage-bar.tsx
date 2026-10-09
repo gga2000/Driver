@@ -5,7 +5,7 @@ import type { RightNow as ServerRightNow } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useState } from 'react';
 import { outboxHealth, rightNow, serverNowTiles, type NowTile } from '@/lib/board';
-import { formatCountdown } from '@/lib/format';
+import { ageText } from '@/lib/safety';
 import type { Triage } from '@/lib/dispatch';
 import { cx, IconAlert, IconCheckCircle, IconChevronDown, IconControls, Kbd, Popover } from '../ui';
 import { setMuted, useMuted } from './sound';
@@ -75,7 +75,7 @@ export function TriageBar({
               <span className="num text-[22px] font-bold leading-7">{tri.needs}</span>
               <span className="text-sm font-semibold">{tri.needs === 1 ? t('console.triage_needs_one') : t('console.triage_needs')}</span>
             </span>
-            <span className="num block text-xs text-text">{t('console.triage_oldest', { time: formatCountdown(oldestSec) })}</span>
+            <span className="num block text-xs text-text">{t('console.triage_oldest', { time: oldestSec === null ? '—' : ageText(oldestSec * 1000) })}</span>
           </span>
         ) : (
           <span className="text-sm font-medium text-text">{known ? t('console.triage_clear') : t('console.triage_unknown')}</span>
@@ -134,7 +134,7 @@ export function TriageBar({
                     ['console.now_offered', v(local.offered)],
                     ['console.now_assigned', v(local.assigned)],
                     ['console.now_red', v(local.red)],
-                    ['console.now_avg_wait', v(formatCountdown(local.avgWaitSec))],
+                    ['console.now_avg_wait', v(local.avgWaitSec === null ? '—' : ageText(local.avgWaitSec * 1000))],
                     ['console.now_compensated', v(local.compensated)],
                     ['console.now_outbox', tile('outbox').value],
                   ] as Array<[MessageKey, string | number]>

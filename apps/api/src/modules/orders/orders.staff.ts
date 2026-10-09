@@ -34,6 +34,7 @@ import { ORDERS_RULES } from './orders.config.js';
 import { ORDERS_REPOSITORY, type OrderRecord, type OrdersRepository } from './orders.repository.js';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { ORDER_OUTCOME_RULES, type DisputeOutcome, type OrderOutcomeRules } from './outcomes.config.js';
+import type { RefundApprovalRecord, RefundApprovalsService } from './refund-approvals.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 const SYSTEM = 'system';
@@ -79,6 +80,8 @@ export interface OrdersStaffPorts {
   eventLog: OrderEventLog;
   /** Without it the watchdog emits no stuck/unstuck events. */
   stuckBoard?: StuckBoardPort;
+  /** Complaint refunds over the limit wait here for a second OK; without it they need an admin, as before. */
+  approvals?: Pick<RefundApprovalsService, 'request' | 'pendingFor' | 'register'>;
 }
 
 export const ORDERS_STAFF_PORTS = Symbol('ORDERS_STAFF_PORTS');
@@ -145,7 +148,10 @@ export class OrdersStaffService implements PlatformFailurePort {
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
     @Inject(ORDER_OUTCOME_RULES) readonly rules: OrderOutcomeRules,
     @Inject(ORDERS_STAFF_PORTS) private readonly ports: OrdersStaffPorts,
-  ) {}
+  ) {
+    // An approved complaint refund over the limit posts here, in the approval's transaction.
+    ports.approvals?.register('dispute', (row, approverId, tx) => this.postApproved(row, approverId, tx));
+  }
 
   private get bridge(): OrdersStaffBridge {
     return this.orders.staffBridge();
@@ -349,10 +355,46 @@ export class OrdersStaffService implements PlatformFailurePort {
     }
     const amount = input.outcome === 'refund_full' ? await this.refundable(order) : input.outcome === 'refund_partial' ? (input.amountIqd ?? 0) : 0;
     if (amount > (await this.refundable(order))) throw new DriverError('refund_exceeds_order');
-    if (amount > this.rules.disputes.agentLimitIqd && !(await this.ports.roles.hasRole(actor.personId, 'admin'))) throw new DriverError('refund_needs_escalation');
+    if (amount > this.rules.disputes.agentLimitIqd) {
+      // Over the limit: a second staff member (finance or admin, admins too) approves before it posts.
+      if (this.ports.approvals) return this.askSecondOk(actor.personId, order, input, amount);
+      if (!(await this.ports.roles.hasRole(actor.personId, 'admin'))) throw new DriverError('refund_needs_escalation');
+    }
     const funder = amount > 0 ? await this.funderFor(input.faultParty, order) : null;
     const episode = amount > 0 ? await this.disputeEpisode(order.id) : '';
     return this.uow.run((tx) => this.applyOutcome(order.id, input.outcome, amount, funder, actor.personId, input.reason, tx, false, episode));
+  }
+
+  /** A complaint refund over the limit: one pending request per complaint; the order stays disputed. */
+  private async askSecondOk(actorId: string, order: OrderRecord, input: ResolveDisputeInput, amount: number): Promise<StaffActionResult> {
+    const approvals = this.ports.approvals!;
+    return this.uow.run(async (tx) => {
+      const open = (await approvals.pendingFor({ orderId: order.id }, tx)).find((r) => r.kind === 'dispute');
+      if (open) return { ...this.result(order, false, 0, null), pendingApprovalId: open.id };
+      const episode = await this.disputeEpisode(order.id);
+      const base = { kind: 'dispute' as const, cityId: order.cityId, ticketId: null, orderId: order.id, amountIqd: amount, limitKind: 'dispute' as const, payload: { outcome: input.outcome, faultParty: input.faultParty, reason: input.reason, episode }, requestedBy: actorId };
+      // A double click is one request; asking again after a decline is a new one.
+      let row = await approvals.request({ ...base, idempotencyKey: `dispute:${order.id}:${episode}:${input.outcome}:${amount}` }, tx);
+      if (row.state !== 'pending') row = await approvals.request({ ...base, idempotencyKey: `dispute:${order.id}:${episode}:${input.outcome}:${amount}:${this.clock.now().getTime()}` }, tx);
+      const audit = await this.ports.audit.record(
+        { cityId: order.cityId, actorId, action: 'order.refund_requested', subjectKind: 'order', subjectId: order.id, summaryAr: `ترجيع ${iqd(amount)} دينار ينتظر موافقة ثانية — ${input.reason}`, detail: { refundApprovalId: row.id, outcome: input.outcome, amountIqd: amount, faultParty: input.faultParty } },
+        tx,
+      );
+      return { ...this.result(order, false, 0, audit.id), pendingApprovalId: row.id };
+    });
+  }
+
+  /** An approved complaint refund: the outcome the agent picked, posted now with the approver as actor. */
+  private async postApproved(row: RefundApprovalRecord, approverId: string, tx: Tx): Promise<void> {
+    const p = row.payload as { outcome: DisputeOutcome; faultParty: FaultParty; reason: string; episode?: string };
+    const order = await this.load(row.orderId!, tx);
+    if (order.state !== 'disputed') throw new DriverError('order_state_conflict');
+    const refundable = await this.refundable(order);
+    const amount = p.outcome === 'refund_full' ? refundable : row.amountIqd;
+    if (amount > refundable) throw new DriverError('refund_exceeds_order');
+    const funder = await this.funderFor(p.faultParty, order);
+    const episode = p.episode ?? (await this.disputeEpisode(order.id));
+    await this.applyOutcome(order.id, p.outcome, amount, funder, approverId, `${p.reason} (موافقة ثانية)`, tx, false, episode);
   }
 
   private async applyOutcome(orderId: string, outcome: DisputeOutcome, amount: number, funder: Funder | null, actorId: string, reason: string, tx: Tx, auto: boolean, episode = ''): Promise<StaffActionResult> {
