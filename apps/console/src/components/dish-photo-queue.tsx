@@ -1,25 +1,26 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DISH_PHOTO_RULES, type DishPhotoRow } from '@driver/contracts';
+import { DISH_PHOTO_RULES, DISH_PHOTO_TAKEDOWN_REASONS, type DishPhotoRow, type DishPhotoTakedownReason } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useState } from 'react';
 import { ageLabel, fileUrl } from '@/lib/control-room';
-import { isLate, KEEP_TOAST } from '@/lib/dish-photos';
+import { isLate, KEEP_TOAST, TAKEDOWN_REASON_KEY, TAKEDOWN_TOAST } from '@/lib/dish-photos';
 import { formatMoney } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { errorText } from '@/lib/network';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC } from '@/lib/trpc';
 import { PhotoZoom } from './photo-zoom';
-import { Button, Card, Chip, cx, IconCheck, IconZoom, QueryError, Skeleton, useToast } from './ui';
+import { Button, Card, Chip, cx, Dialog, IconCheck, IconZoom, QueryError, Skeleton, useToast } from './ui';
 
 const POLL_MS = 60_000;
 
 /**
  * صور المحلات اليوم (p4, Ali 2026-10-08) on the approvals page: a dish photo the shop put up itself is
  * already on the menu, and the team looks at each one the same day. Oldest first; past 8 hours a tile
- * turns warm. «تمام» keeps the photo and the tile leaves (audited on the server).
+ * turns warm. «تمام» keeps the photo; «انزّلها» takes a bad one off the menu with a reason the shop
+ * gets. Either way the tile leaves (both audited on the server).
  */
 export function DishPhotoQueue() {
   const trpc = useTRPC();
@@ -56,16 +57,24 @@ export function DishPhotoTile({ row, now, onZoom }: { row: DishPhotoRow; now: Da
   const qc = useQueryClient();
   const toast = useToast();
   const late = isLate(row, now);
-  const keep = useMutation(
-    trpc.ops.dishPhotos.keep.mutationOptions({
+  const [asking, setAsking] = useState(false);
+  const done = (line: { key: Parameters<typeof t>[0]; tone: 'ok' | 'default' }) => {
+    toast({ title: t(line.key, { dish: row.dishName }), tone: line.tone });
+    void qc.invalidateQueries({ queryKey: trpc.ops.dishPhotos.queue.pathKey() });
+  };
+  const onError = (err: Parameters<typeof errorText>[0]) => toast({ title: errorText(err), tone: 'bad' });
+  const keep = useMutation(trpc.ops.dishPhotos.keep.mutationOptions({ onSuccess: (res) => done(KEEP_TOAST[res.outcome]), onError }));
+  const takeDown = useMutation(
+    trpc.ops.dishPhotos.takeDown.mutationOptions({
       onSuccess: (res) => {
-        const line = KEEP_TOAST[res.outcome];
-        toast({ title: t(line.key, { dish: row.dishName }), tone: line.tone });
-        void qc.invalidateQueries({ queryKey: trpc.ops.dishPhotos.queue.pathKey() });
+        setAsking(false);
+        done(TAKEDOWN_TOAST[res.outcome]);
       },
-      onError: (err) => toast({ title: errorText(err), tone: 'bad' }),
+      onError,
     }),
   );
+  const busy = keep.isPending || takeDown.isPending;
+  const version = { merchantOrgId: row.merchantOrgId, itemId: row.itemId, pendingSince: row.pendingSince };
   return (
     <li className={cx('flex min-w-0 flex-col overflow-hidden rounded-md border bg-surface', late ? 'border-warn-solid/60' : 'border-line')}>
       {row.photoUrl ? (
@@ -95,18 +104,61 @@ export function DishPhotoTile({ row, now, onZoom }: { row: DishPhotoRow; now: Da
             {t('console.dp_late', { h: DISH_PHOTO_RULES.lateAfterHours })}
           </Chip>
         ) : null}
-        <Button
-          variant="primary"
-          size="lg"
-          className="mt-auto w-full"
-          disabled={keep.isPending}
-          aria-label={t('console.dp_keep_label', { dish: row.dishName })}
-          onClick={() => keep.mutate({ merchantOrgId: row.merchantOrgId, itemId: row.itemId, pendingSince: row.pendingSince })}
-        >
-          <IconCheck size={18} />
-          {t('console.dp_keep')}
-        </Button>
+        <div className="mt-auto flex gap-2">
+          <Button variant="primary" size="lg" className="flex-1" disabled={busy} aria-label={t('console.dp_keep_label', { dish: row.dishName })} onClick={() => keep.mutate(version)}>
+            <IconCheck size={18} />
+            {t('console.dp_keep')}
+          </Button>
+          <Button variant="danger-soft" size="lg" disabled={busy} aria-label={t('console.dp_takedown_label', { dish: row.dishName })} onClick={() => setAsking(true)}>
+            {t('console.dp_takedown')}
+          </Button>
+        </div>
       </div>
+      {asking ? <TakeDownDialog dish={row.dishName} busy={takeDown.isPending} onClose={() => setAsking(false)} onConfirm={(reason) => takeDown.mutate({ ...version, reason })} /> : null}
     </li>
+  );
+}
+
+/** «انزّلها»: one reason (the shop is told it), then confirm. */
+function TakeDownDialog({ dish, busy, onClose, onConfirm }: { dish: string; busy: boolean; onClose: () => void; onConfirm: (reason: DishPhotoTakedownReason) => void }) {
+  const [reason, setReason] = useState<DishPhotoTakedownReason | null>(null);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      width="sm"
+      title={t('console.dp_takedown_title', { dish })}
+      description={t('console.dp_takedown_body')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('console.cancel')}
+          </Button>
+          <Button variant="danger" disabled={!reason || busy} onClick={() => reason && onConfirm(reason)}>
+            {t('console.dp_takedown')}
+          </Button>
+        </>
+      }
+    >
+      <div role="radiogroup" aria-label={t('console.dp_reason_title')} className="grid gap-2">
+        <p className="text-sm font-semibold">{t('console.dp_reason_title')}</p>
+        {DISH_PHOTO_TAKEDOWN_REASONS.map((r) => (
+          <button
+            key={r}
+            type="button"
+            role="radio"
+            aria-checked={reason === r}
+            onClick={() => setReason(r)}
+            className={cx(
+              'flex min-h-11 items-center gap-3 rounded-md border px-3 text-start text-sm transition-colors duration-fast',
+              reason === r ? 'border-accent bg-accent-tint font-semibold' : 'border-line bg-surface hover:bg-surface-2',
+            )}
+          >
+            <span aria-hidden className={cx('h-4 w-4 shrink-0 rounded-pill border-2', reason === r ? 'border-accent bg-accent' : 'border-line-strong')} />
+            {t(TAKEDOWN_REASON_KEY[r])}
+          </button>
+        ))}
+      </div>
+    </Dialog>
   );
 }

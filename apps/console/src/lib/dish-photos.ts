@@ -1,4 +1,4 @@
-import { DISH_PHOTO_RULES, type DishPhotoRow, type KeepDishPhotoResult } from '@driver/contracts';
+import { DISH_PHOTO_RULES, type DishPhotoRow, type DishPhotoTakedownReason, type KeepDishPhotoResult, type TakeDownDishPhotoResult } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 /**
@@ -18,4 +18,19 @@ export const KEEP_TOAST: Record<KeepDishPhotoResult['outcome'], { key: MessageKe
   kept: { key: 'console.dp_kept', tone: 'ok' },
   changed: { key: 'console.dp_changed', tone: 'default' },
   gone: { key: 'console.dp_gone', tone: 'default' },
+};
+
+/** «انزّلها»'s answer → the toast line (a newer photo since or someone else's look is not an error). */
+export const TAKEDOWN_TOAST: Record<TakeDownDishPhotoResult['outcome'], { key: MessageKey; tone: 'ok' | 'default' }> = {
+  taken_down: { key: 'console.dp_taken_down', tone: 'ok' },
+  changed: { key: 'console.dp_changed', tone: 'default' },
+  gone: { key: 'console.dp_gone', tone: 'default' },
+};
+
+/** The reason choices, in the order the dialog shows them. */
+export const TAKEDOWN_REASON_KEY: Record<DishPhotoTakedownReason, MessageKey> = {
+  blurry: 'console.dp_reason_blurry',
+  wrong_dish: 'console.dp_reason_wrong_dish',
+  people: 'console.dp_reason_people',
+  other: 'console.dp_reason_other',
 };

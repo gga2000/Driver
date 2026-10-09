@@ -24,7 +24,7 @@ import {
   OpsMenuPhotoRef,
   ScheduleMenuPhotosInput,
 } from '../menu-photos-io.js';
-import { DISH_PHOTO_REVIEW_ROLES, DishPhotoQueueInput, DishPhotoRow, KeepDishPhotoInput, KeepDishPhotoResult } from '../dish-photos-io.js';
+import { DISH_PHOTO_REVIEW_ROLES, DishPhotoQueueInput, DishPhotoRow, KeepDishPhotoInput, KeepDishPhotoResult, TakeDownDishPhotoInput, TakeDownDishPhotoResult } from '../dish-photos-io.js';
 import { ConsolePickupSpotView, MerchantOrgInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -87,7 +87,7 @@ export const opsPickupSpotsRouter = router({
 
 /**
  * `ops.dishPhotos.*` — p4 same-day look (Console › الموافقات): dish photos shops put up themselves,
- * oldest first, and «تمام» to keep one (audited).
+ * oldest first; «تمام» keeps one, «انزّلها» takes a bad one down with a reason (both audited).
  */
 export const opsDishPhotosRouter = router({
   queue: protectedProcedure(DISH_PHOTO_REVIEW_ROLES)
@@ -98,6 +98,10 @@ export const opsDishPhotosRouter = router({
     .input(KeepDishPhotoInput)
     .output(KeepDishPhotoResult)
     .mutation(({ ctx, input }) => ctx.dishPhotos.keep(ctx.actor, input)),
+  takeDown: protectedProcedure(DISH_PHOTO_REVIEW_ROLES)
+    .input(TakeDownDishPhotoInput)
+    .output(TakeDownDishPhotoResult)
+    .mutation(({ ctx, input }) => ctx.dishPhotos.takeDown(ctx.actor, input)),
 });
 
 /** `ops.*` — Ops mode in the Partner app for field staff. */

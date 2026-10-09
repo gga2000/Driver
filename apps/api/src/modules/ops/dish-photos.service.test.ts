@@ -7,7 +7,8 @@ import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../cont
 import type { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
 import type { BlobStore } from '../places/index.js';
-import { DISH_PHOTO_AUDIT, OpsDishPhotosService } from './dish-photos.service.js';
+import type { EventsService } from '../events/index.js';
+import { DISH_PHOTO_AUDIT, DISH_PHOTO_TAKEN_DOWN_EVENT, OpsDishPhotosService } from './dish-photos.service.js';
 
 const ZAINAB: Actor = { personId: 'p_zainab', sessionId: 's1' };
 
@@ -22,9 +23,11 @@ async function setup() {
   const auditRepo = new InMemoryControlsRepository();
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === ZAINAB.personId ? 'زينب' : null])) } as unknown as IdentityService;
   const audits = new AuditLogService(auditRepo, new StaffNames(identity, clock), clock);
-  const svc = new OpsDishPhotosService(catalog, orgs, audits, new UnitOfWork(new NoDatabaseRunner()), blobs);
+  const emitted: Array<{ type: string; actorId: string; payload: Record<string, unknown> | undefined; aggregate: { name: string; id: string } }> = [];
+  const events = { emit: async (_tx: unknown, e: { type: string; actorId: string; payload?: Record<string, unknown> }, aggregate: { name: string; id: string }) => void emitted.push({ type: e.type, actorId: e.actorId, payload: e.payload, aggregate }) } as unknown as EventsService;
+  const svc = new OpsDishPhotosService(catalog, orgs, audits, new UnitOfWork(new NoDatabaseRunner()), events, clock, blobs);
   const dish = async (orgId: string, nameAr: string) => catalog.addItem({ orgId, nameAr, priceIqd: 6000 });
-  return { clock, catalog, khalid, kut, svc, audits, dish };
+  return { clock, catalog, khalid, kut, svc, audits, dish, emitted };
 }
 
 describe('OpsDishPhotosService — p4 same-day look (Ali 2026-10-08)', () => {
@@ -83,5 +86,29 @@ describe('OpsDishPhotosService — p4 same-day look (Ali 2026-10-08)', () => {
     await h.catalog.replacePhoto(h.kut.id, masgouf.id, 'upload:up_m', undefined, null, true);
     const [row] = await h.svc.queue(ZAINAB, { cityId: 'kut' });
     expect(await h.svc.keep(ZAINAB, { merchantOrgId: h.khalid.id, itemId: masgouf.id, pendingSince: row!.pendingSince })).toEqual({ itemId: masgouf.id, outcome: 'gone' });
+  });
+
+  it('«انزّلها» takes the photo off the menu, tells the store why and logs who; a newer photo is not taken down unseen', async () => {
+    const h = await setup();
+    const tikka = await h.dish(h.khalid.id, 'تكة');
+    await h.catalog.replacePhoto(h.khalid.id, tikka.id, 'upload:up_old', undefined, null, true);
+    const [seen] = await h.svc.queue(ZAINAB, { cityId: 'aziziyah' });
+    h.clock.advance(60_000);
+    await h.catalog.replacePhoto(h.khalid.id, tikka.id, 'upload:up_new', undefined, null, true);
+    expect(await h.svc.takeDown(ZAINAB, { merchantOrgId: h.khalid.id, itemId: tikka.id, pendingSince: seen!.pendingSince, reason: 'blurry' })).toEqual({ itemId: tikka.id, outcome: 'changed' });
+    expect(h.emitted).toEqual([]);
+
+    const [fresh] = await h.svc.queue(ZAINAB, { cityId: 'aziziyah' });
+    expect(await h.svc.takeDown(ZAINAB, { merchantOrgId: h.khalid.id, itemId: tikka.id, pendingSince: fresh!.pendingSince, reason: 'wrong_dish' })).toEqual({ itemId: tikka.id, outcome: 'taken_down' });
+    expect((await h.catalog.itemsOf(h.khalid.id, [tikka.id]))[0]!.photoUrl).toBeNull();
+    expect(await h.svc.queue(ZAINAB, { cityId: 'aziziyah' })).toEqual([]);
+    expect(h.emitted).toEqual([
+      { type: DISH_PHOTO_TAKEN_DOWN_EVENT, actorId: ZAINAB.personId, payload: { merchantOrgId: h.khalid.id, itemId: tikka.id, reason: 'wrong_dish', at: '2026-10-09T07:01:00.000Z' }, aggregate: { name: 'org', id: h.khalid.id } },
+    ]);
+    const [audit] = await h.audits.list({ subjectKind: DISH_PHOTO_AUDIT.subjectKind, subjectId: h.khalid.id, limit: 5 });
+    expect(audit).toMatchObject({ action: DISH_PHOTO_AUDIT.takenDown, actorName: 'زينب', summary_ar: 'نزّل صورة «تكة» من مطعم خالد: مو هاي الأكلة', detail: { itemId: tikka.id, reason: 'wrong_dish' } });
+
+    expect(await h.svc.takeDown(ZAINAB, { merchantOrgId: h.khalid.id, itemId: tikka.id, pendingSince: fresh!.pendingSince, reason: 'other' })).toEqual({ itemId: tikka.id, outcome: 'gone' });
+    expect(h.emitted).toHaveLength(1);
   });
 });
