@@ -3493,7 +3493,7 @@
   "rajaa.review_note": "الركاب يقرونها بملفه بدون اسمك",
   "rajaa.review_contact": "لا تكتب رقم تلفون أو رابط، كل الركاب يقرونها",
   "rajaa.review_yours": "كلمتك: {text}",
-  "order.number": "طلب #{id}",
+  "order.number": "طلب ⁦#{id}⁩",
   "track.reassigning": "نبدّل الدليفري، لحظات",
   "track.reassigning_note": "الدليفري الأول ما گدر يكمّل. دنلگيلك واحد ثاني وطلبك محفوظ",
   "track.courier_to_kitchen_short": "الدليفري رايح للمطعم",
@@ -8596,5 +8596,8 @@
   "console.garage.fee_doubled": "دبل لأن الطلعة من 6 المسا وطالع.",
   "console.garage.fee_settle": "تنحسب على حسابه ويسدّدها بأول تسليم كاش.",
   "console.garage.fee_line": "على السايق {amount} دينار إذا انلغت",
-  "console.garage.fee_done": "كل راكب ({n}) أخذ {per} دينار رصيد، والسايق عليه {amount} دينار."
+  "console.garage.fee_done": "كل راكب ({n}) أخذ {per} دينار رصيد، والسايق عليه {amount} دينار.",
+  "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
+  "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
+  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك."
 }

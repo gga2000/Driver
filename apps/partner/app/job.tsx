@@ -503,7 +503,7 @@ function JobView({
           {panel === 'start_code' && stop ? (
             <StartCodePanel busy={tapping} wrongCount={codeWrong} onSubmit={(code) => void startWithCode(code)} onClose={() => setPanel('none')} />
           ) : panel === 'handover' && stop ? (
-            <HandoverPanel collectIqd={stop.collectIqd} tenderIqd={stop.tenderIqd ?? null} busy={tapping} onConfirm={(uri, cash) => void handover(uri, cash)} onClose={() => setPanel('none')} />
+            <HandoverPanel collectIqd={stop.collectIqd} owedFeesIqd={stop.owedFeesIqd} tenderIqd={stop.tenderIqd ?? null} busy={tapping} onConfirm={(uri, cash) => void handover(uri, cash)} onClose={() => setPanel('none')} />
           ) : showUnreachable && job.unreachable ? (
             <UnreachablePanel status={job.unreachable} busy={actions.fail.isPending} onFail={() => void endUnreachable()} onResponded={() => setDismissedUnreachable(true)} />
           ) : stop && action ? (
@@ -646,6 +646,17 @@ function JobNotes({ job, stop, ride }: { job: PartnerJob; stop: PartnerJobStop; 
           icon="cash"
           title={tender.changeIqd > 0 ? t('cashchange.job_tender', { tender: amountParam(tender.tenderIqd), change: amountParam(tender.changeIqd) }) : t('cashchange.job_tender_exact')}
           {...accent}
+        />
+      ) : null}
+      {/* M-3: the amount is more than the order because the customer pays what he owed from before with it. */}
+      {stop.type === 'dropoff' && stop.collectIqd > 0 && stop.owedFeesIqd ? (
+        <SlipNote
+          testID="job-owed-fees"
+          icon="cash"
+          title={t('partner.job_owed_fees', { fees: amountParam(stop.owedFeesIqd) })}
+          body={t('partner.job_owed_fees_body')}
+          bg={theme.colors.warningTint}
+          ink={theme.colors.warningText}
         />
       ) : null}
       {/* SEC-14: whom he hands it to when someone else receives the order (a logged vault read). */}

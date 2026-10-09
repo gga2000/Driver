@@ -117,8 +117,8 @@ describe('customer wallet: readable lines', () => {
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar, l.title_en, l.detail_en, l.orderId ?? null])).toEqual([
       ['credit', 2_000, 'رصيد مضاف', null, 'Credit issued', null, null],
-      ['late_credit', 500, 'تعويض التأخير', `طلب #${orderTicketNumber('o7')}`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
-      ['late_credit', 1_000, 'تعويض التأخير', `طلب #${orderTicketNumber('o8')}`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
+      ['late_credit', 500, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o7')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
+      ['late_credit', 1_000, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o8')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
     ]);
   });
 
