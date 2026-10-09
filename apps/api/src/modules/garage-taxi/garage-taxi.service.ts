@@ -46,7 +46,7 @@ export interface SeatFacts {
   departureId: string;
   state: BookingState;
   seatIds: string[];
-  pickupKind: 'garage' | 'meeting_point' | 'door';
+  pickupKind: 'garage' | 'meeting_point' | 'door' | 'pin';
   /** The seat's new booking when the rider was moved to another car. */
   movedToBookingId: string | null;
 }

@@ -345,17 +345,31 @@ export const ERROR_TABLE = {
   hold_expired: { i18n: 'intercity.hold_expired', retryHint: 'never', status: 'CONFLICT' },
   wallet_insufficient: { retryHint: 'never', status: 'CONFLICT' },
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
+  // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
+  cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  /** Step 5: more children on laps than the booking's seats allow (one per seat, none on the front seat). */
+  lap_children_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   seat_cancel_too_late: { retryHint: 'never', status: 'CONFLICT' },
   pin_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   walkup_seat_taken: { retryHint: 'never', status: 'CONFLICT' },
   no_show_not_allowed: { retryHint: 'later', status: 'CONFLICT' },
   depart_blocked: { retryHint: 'never', status: 'CONFLICT' },
   pickup_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Step 4 agreed prices (pin pickup / door drop): docs/specs/2026-10-08-agreed-trip-prices.md
+  agreement_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  agreement_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  agreement_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_place_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_limit: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
   door_pickup_limit: { retryHint: 'never', status: 'CONFLICT' },
   demand_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   demand_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  // Step 6: a shared private car's link (unknown code, joining closed, no places left).
+  share_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  share_closed: { retryHint: 'never', status: 'CONFLICT' },
+  share_full: { retryHint: 'never', status: 'CONFLICT' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // w1: a «يستناك وترجع» offer must say the waiting hours included and the extra-hour price.
   offer_wait_terms_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },

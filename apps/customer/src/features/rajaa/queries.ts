@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestTripKind, TravellingAs } from '@driver/contracts';
+import type { AgreementView, BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestShareInvite, RequestTripKind, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
@@ -160,6 +160,38 @@ export function useCancelSeat() {
   return useMutation(api.routes.cancelSeat.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/**
+ * Step 4: the rider's agreed-price asks on one departure. Polls every 5 s while one waits on the
+ * driver (asked) or on him (priced), so the driver's price shows up without a refresh.
+ */
+export function useMyAgreements(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.agreements.mine.queryOptions({ departureId: departureId ?? '' }),
+    enabled: signedIn && !!departureId,
+    refetchInterval: (q) => (q.state.data?.some((a: AgreementView) => a.state === 'asked' || a.state === 'proposed') ? RAJAA_RULES.pollMs : false),
+  });
+}
+
+export function useAskAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.ask.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useRespondAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.respond.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useWithdrawAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.withdraw.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
 /** «شلون كانت الرجعة؟» (r2): stars and chips once; the bookings list picks up the rating. */
 export function useRateBooking() {
   const api = useApi();
@@ -232,10 +264,58 @@ export function usePickOffer() {
   return useMutation(api.routes.requestBoard.pick.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/** Step 4b a6: ask the driver behind an offer for «احجز وادفع كاش». */
+export function useAskCash() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.askCash.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
 export function useCancelRequest() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
   return useMutation(api.routes.requestBoard.cancel.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+// ── step 6: sharing a private car by link ──
+
+export function useOpenShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.openShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/** A friend's view of a shared car from its link; kept fresh while the trip is ahead or on the road. */
+export function useShareInvite(code: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.requestBoard.shareInvite.queryOptions({ code }),
+    enabled: signedIn && /^[A-Z2-9]{8}$/.test(code),
+    refetchInterval: (q) => {
+      const v = q.state.data as RequestShareInvite | undefined;
+      return v && (v.state === 'matched' || v.state === 'driver_arrived') ? RAJAA_RULES.pollMs : false;
+    },
+  });
+}
+
+export function useJoinShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.joinShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useLeaveShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.leaveShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/** Shared cars he joined, still ahead or on the road (the board shows them at the top). */
+export function useSharedWithMe() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.routes.requestBoard.sharedWithMe.queryOptions(), enabled: signedIn });
 }
 
 // ── home card ──
