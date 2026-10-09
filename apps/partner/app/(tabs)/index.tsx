@@ -76,7 +76,8 @@ export default function Home() {
   const practice = s?.canDrive && !online && !s.activeTripId && !gate && practiceDone === null && practiceKindFor(s.vehicleClass) !== null;
 
   const state = dashState(online, !cut);
-  const hint = s?.canDrive ? workHint(s.demand, s.position) : null;
+  // Paused after a report: no "go where the work is" while he can't take any.
+  const hint = s?.canDrive && gate !== 'paused' ? workHint(s.demand, s.position) : null;
   const goOnline = () => {
     if (cut) {
       toast.show({ message: t('partner.go_online_offline'), tone: 'warning', icon: 'wifi-off' });
