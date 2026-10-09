@@ -6,3 +6,6 @@ export type { CallBridgePort, CallBridgeRequest, CallBridgeSession } from './cal
 export { maskIraqiPhones, IRAQI_MOBILE_RE, MASKED_PHONE } from './mask.js';
 export { CHAT_REPOSITORY, InMemoryChatRepository, PrismaChatRepository } from './chat.repository.js';
 export type { ChatRepository } from './chat.repository.js';
+export { TripChatService, TRIP_CHAT_OPENS_PER_DAY } from './trip-chat.service.js';
+export type { NewTripCard } from './trip-chat.service.js';
+export { registerTripCards, TRIP_CARDS_SUBSCRIBER, TRIP_CARD_EVENTS } from './trip-chat.cards.js';

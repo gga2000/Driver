@@ -540,7 +540,7 @@ describe('merchantAdmin.staff', () => {
 
     const cashier = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000077', role: 'merchant_staff' });
     // Never signed in: the invite is pending until the first OTP.
-    expect(cashier).toMatchObject({ role: 'merchant_staff', phoneMasked: '+96477*****77', pending: true });
+    expect(cashier).toMatchObject({ role: 'merchant_staff', phoneMasked: '0770 ••• 0077', pending: true });
     await h.id.login('07700000077');
     expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === cashier.personId)?.pending).toBe(false);
     expect(await h.id.service.hasRole(cashier.personId, 'merchant_staff', h.orgId)).toBe(true);

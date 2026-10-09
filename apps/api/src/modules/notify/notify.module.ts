@@ -110,7 +110,9 @@ function envInt(name: string, fallback: number): number {
                   ? (corridor?.meetingPoints.find((m) => m.id === b.pickup.meetingPointId)?.nameAr ?? garage?.nameAr ?? '')
                   : b.pickup.kind === 'door'
                     ? 'باب البيت'
-                    : (garage?.nameAr ?? ''),
+                    : b.pickup.kind === 'pin'
+                      ? (b.pickup.note ?? t('rajaa.pickup_pin_fallback', {}, 'ar-IQ'))
+                      : (garage?.nameAr ?? ''),
               vehicle,
               pin: b.pin,
               ...(b.seatIds[0] ? { firstSeat: b.seatIds[0] } : {}),
@@ -132,8 +134,11 @@ function envInt(name: string, fallback: number): number {
                   ? (corridor?.meetingPoints.find((m) => m.id === b.pickup.meetingPointId)?.nameAr ?? garage?.nameAr ?? '')
                   : b.pickup.kind === 'door'
                     ? 'باب البيت'
-                    : (garage?.nameAr ?? ''),
-              pickupKind: b.pickup.kind,
+                    : b.pickup.kind === 'pin'
+                      ? (b.pickup.note ?? t('rajaa.pickup_pin_fallback', {}, 'ar-IQ'))
+                      : (garage?.nameAr ?? ''),
+              // Step 4: an agreed pin on the way boards like a road stop («أني بنقطة الصعود»).
+              pickupKind: b.pickup.kind === 'pin' ? 'meeting_point' : b.pickup.kind,
               toCity: cityNameAr(dep.toCityId),
               seatIds: [...b.seatIds],
               pin: b.pin,

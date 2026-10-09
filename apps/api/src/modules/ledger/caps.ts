@@ -156,8 +156,17 @@ export interface CashRiskPort {
   newCustomerCash(customerId: string, orderTotalIqd: number): Promise<{ allowed: boolean; requiresArrivingCall: boolean; priorCashOrders: number }>;
 }
 
+/**
+ * Speed x2: how long the partner app's own reads (heartbeat, status) keep a driver's cap role and tier,
+ * so his cash limit is worked out once (the tier reads his whole event history) instead of on every
+ * beat. His cash and earnings are still read every time. Dispatch's over-cap check never uses it.
+ */
+export const KEPT_LIMIT_MS = 5 * 60_000;
+
 @Injectable()
 export class CapsService implements CapsPort, CashRiskPort {
+  private readonly keptProfiles = new Map<string, { at: number; profile: Promise<{ role: CapRole; tier: CapTier }> }>();
+
   constructor(
     private readonly ledger: LedgerService,
     @Inject(MONEY_RULES) private readonly rules: MoneyRules,
@@ -169,8 +178,12 @@ export class CapsService implements CapsPort, CashRiskPort {
     return { earningsIqd: earnings.amount, cashIqd: cash.amount };
   }
 
-  async status(driverId: string, opts: { weekly?: boolean } = {}): Promise<CapStatus> {
-    const [{ role, tier }, pos] = await Promise.all([this.profiles.profile(driverId), this.position(driverId)]);
+  /**
+   * `keptLimit`: the role and tier from the last `KEPT_LIMIT_MS` (speed x2; the partner app's own
+   * reads only). Without it both are read now, as dispatch and the money desk need.
+   */
+  async status(driverId: string, opts: { weekly?: boolean; keptLimit?: boolean } = {}): Promise<CapStatus> {
+    const [{ role, tier }, pos] = await Promise.all([opts.keptLimit ? this.keptProfile(driverId) : this.profiles.profile(driverId), this.position(driverId)]);
     const capIqd = capFor(role, tier, this.rules);
     const owedIqd = owedOf(pos);
     return {
@@ -185,6 +198,20 @@ export class CapsService implements CapsPort, CashRiskPort {
       earningsIqd: pos.earningsIqd,
       cashIqd: pos.cashIqd,
     };
+  }
+
+  private keptProfile(driverId: string): Promise<{ role: CapRole; tier: CapTier }> {
+    const now = Date.now();
+    const kept = this.keptProfiles.get(driverId);
+    if (kept && now - kept.at < KEPT_LIMIT_MS) return kept.profile;
+    if (this.keptProfiles.size > 5_000) for (const [id, k] of this.keptProfiles) if (now - k.at >= KEPT_LIMIT_MS) this.keptProfiles.delete(id);
+    const profile = this.profiles.profile(driverId);
+    const entry = { at: now, profile };
+    this.keptProfiles.set(driverId, entry);
+    profile.catch(() => {
+      if (this.keptProfiles.get(driverId) === entry) this.keptProfiles.delete(driverId);
+    });
+    return profile;
   }
 
   async isOverCap(driverId: string): Promise<boolean> {

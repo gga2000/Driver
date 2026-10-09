@@ -1,6 +1,7 @@
-import { Image, Platform, Pressable, Switch, View } from 'react-native';
+import { useState } from 'react';
+import { Platform, Pressable, Switch, View } from 'react-native';
 import type { BoardSeat, MeetingPointView } from '@driver/contracts';
-import { Icon, Text, useTheme, type IconName } from '@driver/ui';
+import { Icon, PhotoImage, Text, useTheme, type IconName } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { publicPlaceName } from './logic';
@@ -93,6 +94,8 @@ export function WayPointRow({ point, selected, onPress, draftLabel }: { point: M
   const locale = useLocale();
   const name = publicPlaceName(point.nameAr);
   const fee = iqd(point.feeIqd, { locale, sign: true });
+  // A photo that fails to load leaves the row as it is, without an empty box.
+  const [photoFailed, setPhotoFailed] = useState(false);
   return (
     <Pressable
       testID={`pickup-${point.id}`}
@@ -111,8 +114,8 @@ export function WayPointRow({ point, selected, onPress, draftLabel }: { point: M
         overflow: 'hidden',
       })}
     >
-      {selected && point.photoUrl ? (
-        <Image source={{ uri: point.photoUrl }} accessibilityLabel={t('rajaa.mp_photo_a11y', { place: name })} style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
+      {selected && point.photoUrl && !photoFailed ? (
+        <PhotoImage uri={point.photoUrl} onError={() => setPhotoFailed(true)} fit="cover" accessibilityLabel={t('rajaa.mp_photo_a11y', { place: name })} style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: theme.colors.surfaceSunken }} />
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 52, paddingHorizontal: theme.space[4], paddingVertical: theme.space[2] }}>
         <View

@@ -18,9 +18,9 @@ import { apiErrorMessage } from '@/lib/api';
 import { COUNTER } from '@/lib/counter';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { useCounterToast } from '@/lib/toast';
-import { bestLibraryDish, doorsOf, voiceOf, type SetupVoice } from './logic';
+import { bestLibraryDish, doorsOf, priceTyping, voiceOf, type SetupVoice } from './logic';
 import { useMenuCards, useSetup, useSetupActions } from './queries';
 import { SetupBar } from './SetupRing';
 
@@ -35,7 +35,7 @@ function libraryChoice(dish: LibraryDish | null): CardPhoto {
 /**
  * The menu, done for him (m1, m2, m3, m6): he photographs the menu on the wall (or field ops did on the
  * visit), Driver writes the dishes, and each comes back as a card — the closest library photo, the
- * name, the price. «صح» puts it on the menu, «عدّل» fixes it in place, «مو هذا» leaves it out. Nothing
+ * name, the price. «صح» puts it on the menu, «عدّل» fixes it in place, «هاي مو عندي» leaves it out. Nothing
  * reaches customers before «صح».
  */
 export function MenuCardsScreen() {
@@ -359,14 +359,14 @@ function FixSheet({ visible, card, photo, busy, onClose, onSave }: { visible: bo
   const t = useT();
   const toast = useCounterToast();
   const [name, setName] = useState(card.nameAr);
-  const [price, setPrice] = useState(String(card.priceIqd));
+  const [price, setPrice] = useState(amountParam(card.priceIqd));
   const [section, setSection] = useState(card.categoryAr ?? '');
   const [pick, setPick] = useState<CardPhoto>(photo);
   const [library, setLibrary] = useState(false);
   useEffect(() => {
     if (!visible) return;
     setName(card.nameAr);
-    setPrice(String(card.priceIqd));
+    setPrice(amountParam(card.priceIqd));
     setSection(card.categoryAr ?? '');
     setPick(photo);
   }, [visible, card, photo]);
@@ -392,7 +392,20 @@ function FixSheet({ visible, card, photo, busy, onClose, onSave }: { visible: bo
         <View style={{ gap: theme.space[3] }}>
           <TextField testID="setup-fix-name" label={t('merchant.setup.fix_name')} value={name} onChangeText={setName} maxLength={80} />
           <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-            <TextField testID="setup-fix-price" label={t('merchant.setup.fix_price')} value={price} onChangeText={setPrice} keyboardType="number-pad" style={{ flex: 1 }} error={parsed === null ? t('merchant.import.err_price') : undefined} />
+            <TextField
+              testID="setup-fix-price"
+              label={t('merchant.setup.fix_price')}
+              value={price}
+              onChangeText={(v) => setPrice(priceTyping(v))}
+              keyboardType="number-pad"
+              style={{ flex: 1 }}
+              trailing={
+                <Text variant="label" color="textMuted" style={{ paddingHorizontal: theme.space[3] }}>
+                  {t('merchant.item.currency')}
+                </Text>
+              }
+              error={parsed === null ? t('merchant.import.err_price') : undefined}
+            />
             <TextField testID="setup-fix-section" label={t('merchant.setup.fix_section')} value={section} onChangeText={setSection} maxLength={40} style={{ flex: 1 }} />
           </View>
           <Text variant="label" weight={700}>

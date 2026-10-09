@@ -8,6 +8,7 @@ import type { SmsProvider } from './sms/provider.js';
 import { DevWhatsAppProvider, type WhatsAppPort } from '../../shared/messaging/whatsapp.js';
 import type { OtpChannel } from '@driver/contracts';
 import type { OtpGuard, OtpRequestOrigin } from './rate-limit.js';
+import { isStagingTestNumber, type StagingTestConfig } from './staging-test.js';
 
 /** The approved WhatsApp authentication template for login codes (Meta: one `{{1}}` = the code). */
 export const OTP_WHATSAPP_TEMPLATE = 'otp_login';
@@ -38,6 +39,8 @@ export class OtpService {
     /** WhatsApp for "دزلي على واتساب"; without it a WhatsApp request is refused (`otp_channel_unavailable`). */
     private readonly guard: OtpGuard,
     private readonly whatsapp?: WhatsAppPort,
+    /** Staging test numbers and their fixed code (`staging-test.ts`); null = off. */
+    private readonly stagingTest: StagingTestConfig | null = null,
   ) {}
 
   /**
@@ -65,12 +68,20 @@ export class OtpService {
         throw new DriverError('otp_resend_too_soon', { retryAfterSec: Math.ceil(OTP_RESEND_SEC - sinceLast) });
       }
     }
-    const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
-    const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
-    const channel = await this.guard.admit(send);
     // One chain: a resend inherits the misses of the unused code it replaces (until a lock-out's time
     // has passed), so asking for a fresh code every 30 seconds never resets the 5-try lock-out.
     const carried = latest && !latest.verifiedAt && !latest.lockedAt && now.getTime() - latest.createdAt.getTime() < LOCK_MINUTES * 60_000 ? latest.attempts : 0;
+    if (this.stagingTest && isStagingTestNumber(phoneE164)) {
+      // A staging test number: the fixed code from the host's secret, never sent. The guard's
+      // limits still count it, plus a cap across the whole range.
+      await this.guard.admitFixed({ phoneE164, phoneHash, origin }, this.stagingTest.dailyCodes);
+      const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
+      await this.repo.createOtp({ phoneHash, codeHash: this.hash(this.stagingTest.code, phoneHash), purpose, expiresAt, now, attempts: carried }, tx);
+      return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms' };
+    }
+    const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
+    const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
+    const channel = await this.guard.admit(send);
     const code = randomInt(0, 10 ** OTP_LENGTH).toString().padStart(OTP_LENGTH, '0');
     const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
     await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now, attempts: carried }, tx);

@@ -549,6 +549,7 @@ export type MerchantDaySummary = z.infer<typeof MerchantDaySummary>;
 export const StaffMember = z.object({
   personId: z.string(),
   name: z.string().nullable(),
+  /** The 4+4 form the owner saw on the invite («0770 ••• 4567»): 8 of 11 digits, shown only to the store's owner (who added the number). */
   phoneMasked: z.string().nullable(),
   role: MerchantStaffRole,
   you: z.boolean(),

@@ -3,6 +3,7 @@ import Animated from 'react-native-reanimated';
 import type { MerchantSetupView, SetupStep } from '@driver/contracts';
 import { Text, usePulse, useTheme } from '@driver/ui';
 import { MIcon, type MIconName } from '@/components/MIcon';
+import { Tag } from '@/components/Panel';
 import { COUNTER } from '@/lib/counter';
 import { useT, type TFn, type TKey } from '@/lib/i18n';
 import { doorsOf, stepMinutes, voiceOf, type SetupVoice } from './logic';
@@ -45,6 +46,19 @@ export function stepHint(t: TFn, view: MerchantSetupView, step: SetupStep, payou
 }
 
 /** A saffron dot that breathes: «this is missing, tap it». Still when the phone asks for less motion. */
+/**
+ * d14 · a gap on his shop preview: a small still «ناقص» label (the pulsing dot read as a loading spinner).
+ */
+export function MissingTag({ testID }: { testID?: string }) {
+  const t = useT();
+  // The same «ناقص» tag as المحل's list; wrapped so it sits centred or in a row alike.
+  return (
+    <View>
+      <Tag testID={testID} label={t('merchant.setup.missing')} tone="accent" icon="plus" />
+    </View>
+  );
+}
+
 export function GapDot({ n, size = 26 }: { n?: number; size?: number }) {
   const pulse = usePulse(true);
   return (

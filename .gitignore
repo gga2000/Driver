@@ -39,3 +39,4 @@ graphify-out/
 
 # Vercel CLI link folder
 .vercel/
+dump.rdb

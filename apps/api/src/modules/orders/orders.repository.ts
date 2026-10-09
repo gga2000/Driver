@@ -5,6 +5,15 @@ import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
 /**
+ * How an order leaves without the kitchen's answer (M-01): nobody accepted in time, or the customer let
+ * a partial accept lapse. The merchant board's «طلبات فاتتك» reads these, and only these (perf z5).
+ */
+export const MISSED_STATES = [
+  { state: 'merchant_rejected', reason: 'merchant_timeout' },
+  { state: 'platform_cancelled', reason: 'partial_timeout' },
+] as const satisfies ReadonlyArray<{ state: OrderState; reason: string }>;
+
+/**
  * The orders module's persistence port: `orders`, `order_lines`, `participants` — its own tables
  * only. `PrismaOrdersRepository` is bound when DATABASE_URL is set; `InMemoryOrdersRepository`
  * (same contract) serves tests, the simulator and a database-less dev API.
@@ -44,6 +53,8 @@ export interface OrderRecord {
   clientRequestId?: string | null;
   /** "الخردة علينا": the note the customer said he will pay with (`orders.stated_tender_iqd`); absent/null = none. */
   statedTenderIqd?: number | null;
+  /** M-3: the owed cancellation fees collected in cash with this order (`orders.debt_collect_iqd`); absent = 0. */
+  debtCollectIqd?: number;
   /** «عزيمة» (joy g1): a gift for the recipient participant (`orders.gift`); absent = false. */
   gift?: boolean;
   /** «عزيمة»: prices kept off the ticket and out of the courier's mouth (`orders.gift_hide_prices`); absent = false. */
@@ -185,6 +196,12 @@ export interface OrdersRepository {
    */
   merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
   /**
+   * Perf z5: only the merchant's orders placed in `[from, to)` that left without the kitchen's answer
+   * (`MISSED_STATES`), same order and shape as `merchantOrdersBetween`. On `(merchant_org_id,
+   * placed_at)`, and only the few missed rows (with their lines) leave the database.
+   */
+  merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
    * One merchant's delivered orders placed in `[from, to)`, counted per drop-off zone (`dropoff.zoneKey`,
    * null when none): one grouped read on `(merchant_org_id, placed_at)` that returns counts only, never
    * an order, a customer or a pin (maps program r6).
@@ -291,6 +308,7 @@ function orderFromRow(r: any): OrderRecord {
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
     statedTenderIqd: r.statedTenderIqd ?? null,
+    debtCollectIqd: r.debtCollectIqd ?? 0,
     gift: r.gift ?? false,
     giftHidePrices: r.giftHidePrices ?? false,
     smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,
@@ -451,6 +469,15 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
     const rows = await this.db(tx).order.findMany({
       where: { merchantOrgId, placedAt: { gte: from, lt: to } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, placedAt: { gte: from, lt: to }, OR: MISSED_STATES.map((m) => ({ state: m.state, cancellationReason: m.reason })) },
       include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
       orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
     });
@@ -655,6 +682,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       });
     }
     return out.sort((a, b) => a.order.placedAt.getTime() - b.order.placedAt.getTime() || a.order.id.localeCompare(b.order.id));
+  }
+
+  async merchantMissedBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
+    const missed = (o: OrderRecord) => MISSED_STATES.some((m) => m.state === o.state && m.reason === o.cancellationReason);
+    return (await this.merchantOrdersBetween(merchantOrgId, from, to)).filter((a) => missed(a.order));
   }
 
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date): Promise<DropoffZoneCount[]> {

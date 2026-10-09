@@ -888,4 +888,19 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
 // The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
 await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
 
+// Two bad ratings (Ali, 2026-10-08: every one is a case on Today): cold food under a fine courier, and a
+// courier who didn't answer. Rated by their own customers on two of the evening's delivered orders.
+{
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const delivered = [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].filter((o) => o.state === 'delivered' && o.type === 'food' && !o.rating && !o.id.endsWith('_y'));
+  const bad = [
+    { food: 2, delivery: 2, tags: ['cold'], note: 'الأكل وصل بارد والتمن معجّن' },
+    { food: 4, delivery: 1, courierReasons: ['hard_to_reach', 'late'], tags: ['late'], note: 'اتصلت بيه ثلاث مرات ما رد، ووصل بعد ساعة' },
+  ];
+  for (const [i, r] of bad.entries()) {
+    const o = delivered[i];
+    if (o) await orders.rate(o.ordererId, { orderId: o.id, ...r }).catch((err) => console.warn('demo rating skipped:', err?.message ?? err));
+  }
+}
+
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

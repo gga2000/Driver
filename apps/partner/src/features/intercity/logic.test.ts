@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { windowText } from './labels';
-import type { DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
+import type { AgreementView, DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
 import {
   boardedSeats,
   clampDepart,
@@ -20,12 +20,14 @@ import {
   minutesUntil,
   nextSlot,
   pickupRoute,
+  asksInOrder,
   pinPress,
   privateRideNet,
   riderStatus,
   seatOccupants,
   splitDepartures,
   suggestedDepart,
+  stepExtraHour,
   suggestedOffer,
   windowLabel,
 } from './logic';
@@ -45,8 +47,10 @@ function row(over: Partial<DriverBookingRow> & { bookingId: string }): DriverBoo
     prepaid: true,
     prepayRail: 'wallet',
     totalIqd: 10_000,
-    pickup: { kind: 'garage', meetingPointId: null, nameAr: 'كراج البوابة ١', lat: GARAGE.lat, lng: GARAGE.lng, note: null, feeIqd: 0, status: 'accepted', detourMin: null },
+    pickup: { kind: 'garage', meetingPointId: null, nameAr: 'كراج البوابة ١', lat: GARAGE.lat, lng: GARAGE.lng, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
+    dropoff: null,
     largeBags: false,
+    lapChildren: 0,
     atGarage: false,
     checkedInAt: null,
     meterMinutes: null,
@@ -100,6 +104,8 @@ describe('money', () => {
     expect(clampOffer(15_000, 10_000)).toBe(10_000);
     expect(suggestedOffer({ priceCapIqd: 10_000, seats: 1, privateCar: true })).toBe(10_000);
     expect(suggestedOffer({ priceCapIqd: null, seats: 2, privateCar: false })).toBe(20_000);
+    // p2: the middle of the usual range from real trips, rounded to 1,000.
+    expect(suggestedOffer({ priceCapIqd: null, seats: 2, privateCar: true, usualRange: { lowIqd: 30_000, highIqd: 37_000 } })).toBe(34_000);
     expect(depositFor(25_000)).toBe(5_000);
     expect(depositFor(45_000)).toBe(9_000);
     expect(depositFor(36_000)).toBe(7_500);
@@ -197,6 +203,24 @@ describe('the departure', () => {
     expect(route[1]!.legKm).toBeGreaterThan(0);
   });
 
+  it('step 4: an agreed spot on the road is its own stop, in road order with the meeting points', () => {
+    const base = row({ bookingId: 'g' }).pickup;
+    const mp = row({ bookingId: 'mp', pickup: { ...base, kind: 'meeting_point', meetingPointId: 'mp_x', nameAr: 'مفرق المدائن', lat: 33.0985, lng: 44.5802 } });
+    const pin = row({ bookingId: 'pin', pickup: { ...base, kind: 'pin', nameAr: null, note: 'جنب السيطرة', lat: 32.95, lng: 45.0, feeIqd: 2_000, agreementId: 'ag_1' } });
+    const route = pickupRoute(GARAGE, [mp, pin]);
+    expect(route.map((s) => [s.key, s.kind, s.note])).toEqual([
+      ['garage', 'garage', null],
+      ['pin:pin', 'pin', 'جنب السيطرة'],
+      ['mp:mp_x', 'meeting_point', null],
+    ]);
+  });
+
+  it('step 4: price asks waiting for his price first, then waiting for the rider, then agreed; booked and closed ones drop', () => {
+    const ask = (id: string, state: AgreementView['state'], min: number) => ({ id, state, askedAt: at(min) }) as unknown as AgreementView;
+    const out = asksInOrder([ask('agreed', 'accepted', 0), ask('late', 'asked', 5), ask('priced', 'proposed', 1), ask('early', 'asked', 2), ask('gone', 'declined', 0), ask('used', 'used', 3)]);
+    expect(out.map((a) => a.id)).toEqual(['early', 'late', 'priced', 'agreed']);
+  });
+
   it('my departures: live by time; past only when they ran or were cancelled', () => {
     const d = (id: string, state: DriverDepartureView['state'], min: number, departed = false) => ({ id, state, departAt: at(min), departedAt: departed ? at(min) : null }) as unknown as DriverDepartureView;
     const { live, past } = splitDepartures([d('b', 'scheduled', 200), d('a', 'boarding', -10), d('c', 'arrived', -300, true), d('closed', 'closed', -100), d('x', 'cancelled_low_fill', -50)], NOW);
@@ -210,5 +234,15 @@ describe('PIN pad', () => {
     expect(['1', '2', '3', '4', '5'].reduce(pinPress, '')).toBe('1234');
     expect(pinPress('12', 'back')).toBe('1');
     expect(pinPress('12', 'x')).toBe('12');
+  });
+});
+
+describe('extra waiting hour price (w1)', () => {
+  it('starts unset; plus sets 1,000, minus sets free; steps by 1,000 between 0 and 50,000', () => {
+    expect(stepExtraHour(null, 1)).toBe(1_000);
+    expect(stepExtraHour(null, -1)).toBe(0);
+    expect(stepExtraHour(5_000, 1)).toBe(6_000);
+    expect(stepExtraHour(0, -1)).toBe(0);
+    expect(stepExtraHour(50_000, 1)).toBe(50_000);
   });
 });

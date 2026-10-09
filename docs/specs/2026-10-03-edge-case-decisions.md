@@ -80,3 +80,7 @@ Ali, later on 2026-10-06: "hold it, switch it off" until he decides. The G-91 gu
 - **c6 remake:** when no courier reaches the pass within 10 minutes of «جاهز», the kitchen remakes and Driver pays the first batch at menu price, once per order. Ali switched it **on** the same day (14:18Z); `MERCHANT_REMAKE_PAY=off` stops it.
 - **f3 instant cash-out fee:** an instant ZainCash cash-out would carry a fee paid by the shop; the nightly payout stays free. Not built: there is no instant cash-out yet.
 - Details: `docs/api/shop-load.md`.
+
+## Owed fees on the next cash order (Ali, 2026-10-08, "yes", M-3)
+- **«ينضاف لطلبك الجاي»:** a cancellation fee a cash customer did not pay is added to the cash for his next food or shop order (in whole 250s, once), and the courier is told the extra. If he pays only the food, the fee stays owed. Wallet line «سددت الرسوم». On by default; `CASH_DEBT_COLLECT=off` stops it. Blocking cash orders for debt (`CASH_DEBT_BLOCK`) stays off.
+- Details: `docs/api/owed-fees.md`.

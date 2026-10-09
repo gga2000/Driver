@@ -30,10 +30,10 @@ describe('staff', () => {
       resendAfter: new Date(now + 4.2 * 60_000),
     });
     expect(translate('merchant.staff.invite_to', { phone: invitePhone(invite)! }, 'ar-IQ')).toBe(
-      'دعوة مرسلة إلى \u20660770 ••• 1234\u2069',
+      'دعوة مرسلة إلى \u20660770\u00A0•••\u00A01234\u2069',
     );
     expect(invitePhone({ phoneHint: null, phoneMasked: '+96477*****34' })).toBe(
-      '\u2066+96477*****34\u2069',
+      '\u2066077•\u00A0•••\u00A0••34\u2069',
     );
     expect(invitePhone({ phoneHint: null, phoneMasked: null })).toBeNull();
     expect(resendWaitMinutes(invite, now)).toBe(5);

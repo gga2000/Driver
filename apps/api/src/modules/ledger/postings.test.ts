@@ -106,6 +106,25 @@ describe('order closed — money §2 worked example', () => {
     expect(extra.money.lines.find((l) => l.type === 'cash_rounding_credit')?.amount).toBe(500);
   });
 
+  it('M-3: owed fees collected with the cash settle back onto his wallet, price first when the cash is short', () => {
+    const paid = postOrderClosed(workedExample({ debtCollectIqd: 1000 }), rules);
+    validateGroup(paid.money);
+    const n = nets(paid.money);
+    expect(n['cash:k1']).toBe(-17500); // the courier holds the price and the fees
+    expect(n['customer:c1']).toBe(1000); // the 1,000 he owed is paid off
+    expect(paid.totalIqd).toBe(16500);
+    expect(paid.money.lines.find((l) => l.type === 'debt_settled')).toMatchObject({ amount: 1000, fromAccount: 'cash:k1', toAccount: 'customer:c1', memo: 'owed_fees' });
+    // He handed over only the price: nothing is settled, the fees stay owed.
+    const priceOnly = postOrderClosed(workedExample({ debtCollectIqd: 1000, cashCollectedIqd: 16500 }), rules);
+    validateGroup(priceOnly.money);
+    expect(priceOnly.money.lines.some((l) => l.type === 'debt_settled')).toBe(false);
+    expect(nets(priceOnly.money)['customer:c1']).toBe(0);
+    // Half of them: half settled.
+    const half = postOrderClosed(workedExample({ debtCollectIqd: 1000, cashCollectedIqd: 17000 }), rules);
+    expect(half.money.lines.find((l) => l.type === 'debt_settled')?.amount).toBe(500);
+    expect(() => postOrderClosed(workedExample({ debtCollectIqd: 1000, payment: 'wallet' }), rules)).toThrow(/owed fees/);
+  });
+
   it('points redeem against the delivery fee first, then the service fee (J-D10); the platform funds them', () => {
     const p = postOrderClosed(workedExample({ pointsRedeemed: 60 }), rules);
     validateGroup(p.money);

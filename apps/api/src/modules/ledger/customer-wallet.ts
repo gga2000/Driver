@@ -3,6 +3,7 @@ import {
   AZIZIYAH_ZONES,
   LATE_PROMISE_MEMO,
   ledgerLineLabel,
+  walletDebtPaidTitle,
   walletLineDetail,
   walletLineTitle,
   walletOrderDetail,
@@ -19,6 +20,7 @@ import {
   type WalletTransactionsInput,
   type WalletTransactionsView,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { Accounts } from './accounts.js';
@@ -155,7 +157,9 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       const net = list.reduce((s, e) => s + signedFor(account, e), 0);
       const cash = list.filter((e) => e.toAccount === account && CASH_TYPES.has(e.type)).reduce((s, e) => s + e.amount, 0);
       // Charged = everything except the cash that paid for it: purchases, minus discounts, plus rounding.
-      const charged = -list.filter((e) => !CASH_TYPES.has(e.type)).reduce((s, e) => s + signedFor(account, e), 0);
+      // M-3: owed fees paid with this order's cash are their own line, never part of what it cost.
+      const debtPaid = list.filter((e) => e.toAccount === account && e.type === 'debt_settled').reduce((s, e) => s + e.amount, 0);
+      const charged = -list.filter((e) => !CASH_TYPES.has(e.type) && e.type !== 'debt_settled').reduce((s, e) => s + signedFor(account, e), 0);
       const kind = purchaseKind(groupId, new Set(list.map((e) => e.type)), list.map((e) => e.memo ?? ''));
       const method = cash > 0 ? 'cash' : 'wallet';
       out.push({
@@ -173,7 +177,7 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         ...refs,
       });
       const noChange = list.filter((e) => e.toAccount === account && e.type === 'cash_change_to_wallet').reduce((s, e) => s + e.amount, 0);
-      const rest = net - noChange;
+      const rest = net - noChange - debtPaid;
       if (method === 'cash' && rest !== 0) {
         const k = rest > 0 ? 'cash_change' : 'debt';
         const d = rest > 0 ? 'cash_change' : 'short_cash';
@@ -187,6 +191,22 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
           detail_ar: walletLineDetail(d, 'ar-IQ'),
           detail_en: walletLineDetail(d, 'en'),
           amount: rest,
+          unit: 'iqd',
+          method: null,
+          ...refs,
+        });
+      }
+      if (debtPaid > 0) {
+        out.push({
+          id: `${groupId}:debt_paid`,
+          occurredAt: first.occurredAt,
+          book: 'money',
+          kind: 'debt',
+          title_ar: walletDebtPaidTitle('ar-IQ'),
+          title_en: walletDebtPaidTitle('en'),
+          detail_ar: walletLineDetail('debt_paid', 'ar-IQ'),
+          detail_en: walletLineDetail('debt_paid', 'en'),
+          amount: debtPaid,
           unit: 'iqd',
           method: null,
           ...refs,
@@ -215,7 +235,12 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       if (signed === 0) continue;
       const kind = singleKind(e, signed);
       const label =
-        kind === 'topup' || kind === 'late_credit' ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') } : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
+        kind === 'topup' || kind === 'late_credit'
+          ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') }
+          : e.type === 'departure_cancel_fee' && signed > 0
+            ? // A الرجعة driver who cancelled late or never came (M-11) pays the rider: say why, not «رسوم».
+              { ar: t('wallet.line.departure_credit', undefined, 'ar-IQ'), en: t('wallet.line.departure_credit', undefined, 'en') }
+            : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
       const orderDetail = kind === 'late_credit' && e.orderId ? { ar: walletOrderDetail(e.orderId, 'ar-IQ'), en: walletOrderDetail(e.orderId, 'en') } : null;
       out.push({
         id: e.id,

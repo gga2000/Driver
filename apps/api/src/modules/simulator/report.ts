@@ -70,6 +70,9 @@ export interface SimulationReport {
     /** "الخردة علينا": drop-offs where the courier had no change and the rest went to the wallet. */
     noChangeCredits: number;
     noChangeCreditIqd: number;
+    /** M-3: owed cancellation fees paid with a later order's cash (`debt_settled`, `CASH_DEBT_COLLECT`). */
+    owedFeesSettled: number;
+    owedFeesSettledIqd: number;
     /** G-91 shift-guarantee top-ups the Sunday settlement paid for the day's shifts (06:00–15:00 and 15:00–02:00). */
     guaranteeTopUps: number;
     guaranteeTopUpIqd: number;
@@ -79,6 +82,7 @@ export interface SimulationReport {
 }
 
 const isGuaranteeTopUp = (e: { type: string; memo?: string | undefined }) => e.type === 'driver_incentive' && (e.memo ?? '').startsWith('guarantee:');
+const isOwedFeeSettled = (e: { type: string; memo?: string | undefined }) => e.type === 'debt_settled' && e.memo === 'owed_fees';
 
 export function percentiles(values: readonly number[]): Percentiles {
   if (values.length === 0) return { n: 0, p50: null, p95: null };
@@ -184,6 +188,8 @@ export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: 
       merchantHandoverIqd: snapshot.handovers.reduce((s, h) => s + h.amountIqd, 0),
       noChangeCredits: snapshot.ledger.filter((e) => e.type === 'cash_change_to_wallet').length,
       noChangeCreditIqd: snapshot.ledger.filter((e) => e.type === 'cash_change_to_wallet').reduce((s, e) => s + e.amount, 0),
+      owedFeesSettled: snapshot.ledger.filter(isOwedFeeSettled).length,
+      owedFeesSettledIqd: snapshot.ledger.filter(isOwedFeeSettled).reduce((s, e) => s + e.amount, 0),
       guaranteeTopUps: snapshot.ledger.filter(isGuaranteeTopUp).length,
       guaranteeTopUpIqd: snapshot.ledger.filter(isGuaranteeTopUp).reduce((s, e) => s + e.amount, 0),
     },
@@ -217,6 +223,7 @@ export function summaryTable(r: SimulationReport): string {
     ['أحداث محجوزة', 'Quarantined late replays', fmt(r.activity.quarantinedEvents)],
     ['تسليم فلوس المطاعم', 'Merchant hand-overs', `${fmt(r.activity.merchantHandovers)} (${fmt(r.activity.merchantHandoverIqd)} IQD)`],
     ['باقي الكاش للمحفظة', 'No-change credits to wallets', `${fmt(r.activity.noChangeCredits)} (${fmt(r.activity.noChangeCreditIqd)} IQD)`],
+    ['رسوم انسددت ويا طلب', 'Owed fees paid with an order', `${fmt(r.activity.owedFeesSettled)} (${fmt(r.activity.owedFeesSettledIqd)} IQD)${r.activity.owedFeesSettled === 0 ? ' · switched off or none owed' : ''}`],
     ['تكملة ضمان الشفت', 'Shift-guarantee top-ups', `${fmt(r.activity.guaranteeTopUps)} (${fmt(r.activity.guaranteeTopUpIqd)} IQD)${AZIZIYAH_MONEY_RULES.guarantee.enabled ? '' : ' · switched off'}`],
     ['الثوابت', 'Invariants passed', `${r.invariants.length - r.violations.length}/${r.invariants.length}`],
   ];
