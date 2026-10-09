@@ -4114,6 +4114,7 @@
   "wallet.line.purchase": "دفعة",
   "wallet.line.topup": "شحن رصيد",
   "wallet.line.credit": "رصيد مضاف",
+  "wallet.line.departure_credit": "تعويض: السايق ما طلع بالرحلة",
   "wallet.line.refund": "استرجاع",
   "wallet.line.penalty": "رسوم",
   "wallet.line.cash_change": "الباقي رصيد",

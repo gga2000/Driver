@@ -19,6 +19,7 @@ import {
   type WalletTransactionsInput,
   type WalletTransactionsView,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { Accounts } from './accounts.js';
@@ -215,7 +216,12 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       if (signed === 0) continue;
       const kind = singleKind(e, signed);
       const label =
-        kind === 'topup' || kind === 'late_credit' ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') } : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
+        kind === 'topup' || kind === 'late_credit'
+          ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') }
+          : e.type === 'departure_cancel_fee' && signed > 0
+            ? // A الرجعة driver who cancelled late or never came (M-11) pays the rider: say why, not «رسوم».
+              { ar: t('wallet.line.departure_credit', undefined, 'ar-IQ'), en: t('wallet.line.departure_credit', undefined, 'en') }
+            : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
       const orderDetail = kind === 'late_credit' && e.orderId ? { ar: walletOrderDetail(e.orderId, 'ar-IQ'), en: walletOrderDetail(e.orderId, 'en') } : null;
       out.push({
         id: e.id,

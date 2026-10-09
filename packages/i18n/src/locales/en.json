@@ -4114,6 +4114,7 @@
   "wallet.line.purchase": "Payment",
   "wallet.line.topup": "Top-up",
   "wallet.line.credit": "Credit",
+  "wallet.line.departure_credit": "Credit: your driver didn't make the trip",
   "wallet.line.refund": "Refund",
   "wallet.line.penalty": "Fee",
   "wallet.line.cash_change": "Change to wallet",
