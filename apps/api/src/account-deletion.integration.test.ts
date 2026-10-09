@@ -66,6 +66,8 @@ describe.skipIf(!url)('account deletion on Postgres (needs DATABASE_URL)', () =>
     await db.order.update({ where: { id: orderId }, data: { state: 'delivered' } });
     expect((await identity.deletionCheck({ personId, sessionId: 'it' })).blockers).toEqual([]);
 
+    // The server names the zone from the pin; deletion keeps whatever zone it stored.
+    const { zoneKey } = (await db.order.findUniqueOrThrow({ where: { id: orderId } })).dropoff as { zoneKey: string };
     await identity.deletionStart({ personId, sessionId: 'it' });
     await identity.deletionConfirm({ personId, sessionId: 'it' }, { code: (await identity.devLastOtp(phone)).code! });
 
@@ -82,7 +84,7 @@ describe.skipIf(!url)('account deletion on Postgres (needs DATABASE_URL)', () =>
 
     const kept = await db.order.findUniqueOrThrow({ where: { id: orderId }, include: { lines: true } });
     expect(kept).toMatchObject({ note: null, courierNote: null, totalIqd: order.totalIqd });
-    expect(kept.dropoff).toEqual({ zoneKey: 'street_30', pin: { lat: 32.91, lng: 45.06 } });
+    expect(kept.dropoff).toEqual({ zoneKey, pin: { lat: 32.91, lng: 45.06 } });
     expect(kept.lines.every((l) => l.note === null)).toBe(true);
 
     const pins = await db.$queryRaw<Array<{ lat: number; lng: number }>>`
