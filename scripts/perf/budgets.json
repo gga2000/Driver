@@ -21,9 +21,9 @@
       "why": "dish photos moved behind @driver/ui/dishes, never bundled here: 4.3 -> 2.93"
     },
     "merchant.code_mb": {
-      "max": 6.23,
+      "max": 6.24,
       "target": 5.5,
-      "why": "PR B (shop setup «جهّز محلك», shop rules, the printed tickets «الريل»): 5.95 -> 6.16 (+0.21 MB): about 2,200 lines of setup screens, 2,500 of print (kitchen ticket, bag stub, slip, ESC/POS plan), 700 of board shop-load parts, and 360 more words in each merchant locale. Before: s1 per-app words (merchant-slim), 6.53 -> 5.95; shared @driver/ui trip chat cards and their words ride along in the barrel (private car round 2): 6.19 -> 6.22; the dish photo take-down notice (p4: the dish note, the tile mark, the board strip and their words): 6.22 -> 6.23"
+      "why": "PR B (shop setup «جهّز محلك», shop rules, the printed tickets «الريل»): 5.95 -> 6.16 (+0.21 MB): about 2,200 lines of setup screens, 2,500 of print (kitchen ticket, bag stub, slip, ESC/POS plan), 700 of board shop-load parts, and 360 more words in each merchant locale. Before: s1 per-app words (merchant-slim), 6.53 -> 5.95; shared @driver/ui trip chat cards and their words ride along in the barrel (private car round 2): 6.19 -> 6.22; the dish photo take-down notice (p4: the dish note, the tile mark, the board strip and their words): 6.22 -> 6.23; m5 a dish ticked as out on a ticket comes off the menu for today (the accept-sheet row and its words): 6.23 -> 6.24"
     },
     "merchant.assets_mb": {
       "max": 4.1,
