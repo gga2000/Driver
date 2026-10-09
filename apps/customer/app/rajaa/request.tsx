@@ -8,9 +8,9 @@ import { requestStateLabel, seatsCount, slotLabel } from '@/features/rajaa/label
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { clockLabel, depositFor, REQUEST_HOURS, requestHourAvailable, requestWhen, RIDER_TRAVELLING_AS, type RequestDay } from '@/features/rajaa/logic';
 import { RuleList, Section } from '@/features/rajaa/Option';
-import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest } from '@/features/rajaa/queries';
-import { REQUEST_PLACES, OFFER_SORTS, offerWinners, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
-import { DetailPills, OfferCard, SeenLine } from '@/features/rajaa/RequestParts';
+import { useCancelRequest, useMyRequests, usePickOffer, usePostRequest, useUsualRange } from '@/features/rajaa/queries';
+import { REQUEST_PLACES, OFFER_SORTS, offerWinners, placeIdFor, sortOffers, type OfferSort } from '@/features/rajaa/request-offers';
+import { DetailPills, OfferCard, SeenLine, UsualRangeLine } from '@/features/rajaa/RequestParts';
 import { SwitchRow } from '@/features/rajaa/SeatParts';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -81,6 +81,8 @@ function RequestCard({ r }: { r: RequestPostView }) {
           <View style={{ gap: theme.space[3] }}>
             {/* y4: who has seen it, how many offered. */}
             <SeenLine seenBy={r.seenBy} offers={offers.length} />
+            {/* p1: what this trip usually costs, from real finished trips only. */}
+            {r.usualRange ? <UsualRangeLine range={r.usualRange} /> : null}
             {offers.length > 1 ? (
               <View style={{ gap: theme.space[2] }}>
                 {/* y6: three orders; the winner of each is named on its card. */}
@@ -105,6 +107,7 @@ function RequestCard({ r }: { r: RequestPostView }) {
                   offer={o}
                   details={r.details}
                   wins={wins.get(o.id) ?? []}
+                  range={r.usualRange}
                   action={!open ? <Button testID={`offer-${o.id}`} variant={(wins.get(o.id) ?? []).includes('best') ? 'primary' : 'secondary'} label={t('request.pick')} fullWidth onPress={() => setConfirming(o.id)} /> : null}
                 >
                   {open ? (
@@ -201,6 +204,9 @@ export default function RequestBoard() {
     carKind,
     ac,
   };
+  // p1: a destination picked from (or typed as) a chip has a usual range once enough trips finished.
+  const placeId = placeIdFor(to, (id) => t(`rajaa.req_place.${id}` as MessageKey));
+  const range = useUsualRange(privateCar ? placeId : null, trip);
   const ready = from.trim().length > 0 && to.trim().length > 0 && hourOk && requestDetailsProblem(details, when) === null;
 
   const submit = () => {
@@ -211,7 +217,7 @@ export default function RequestBoard() {
     post.mutate(
       {
         from: { label: from.trim() },
-        to: { label: to.trim() },
+        to: { label: to.trim(), ...(placeId ? { placeId } : {}) },
         when,
         seats,
         privateCar,
@@ -313,6 +319,8 @@ export default function RequestBoard() {
                 </View>
               </View>
             ) : null}
+            {/* A hint, not a step: if the read fails the line is left out (the offers show the range again). */}
+            {range.data && !range.isError ? <UsualRangeLine range={range.data} testID="rajaa-form-usual-range" /> : null}
           </Section>
 
           <Section title={t('rajaa.req_when')}>

@@ -161,6 +161,95 @@ describe('request board: the detailed request (y1), «شافوا طلبك» (y4)
   });
 });
 
+/** A finished private trip of `rider` to Karbala at `price` (picked, arrived, completed). */
+async function finishedTrip(h: RoutesHarness, rider: string, price: number, opts: { trip?: 'one_way' | 'wait_return'; placeId?: 'karbala' | 'najaf' } = {}) {
+  const trip = opts.trip ?? 'one_way';
+  const r = await h.requests.post(
+    rider,
+    PostRequestInput.parse({
+      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      to: { label: 'كربلاء', placeId: opts.placeId ?? 'karbala' },
+      when: h.at(30),
+      seats: 2,
+      travellingAs: 'aila',
+      details: trip === 'wait_return' ? { trip, waitHours: 3 } : { trip },
+    }),
+  );
+  const wait = trip === 'wait_return' ? { includedHours: 3, extraHourIqd: 5_000 } : undefined;
+  const o = (await h.requests.offer('d1', r.id, price, wait)).offers.at(-1)!;
+  h.wallet.set(rider, 100_000);
+  await h.requests.pick(rider, r.id, o.id);
+  await h.requests.complete('d1', r.id);
+  return r;
+}
+
+describe('private car round 2: waiting terms in the offer (w1), the usual price range (p1–p3)', () => {
+  it('a «يستناك وترجع» offer must carry its waiting terms; other trips refuse them; the extra hour is in 1,000s', async () => {
+    const h = routesHarness();
+    const wait = await h.requests.post(
+      'r1',
+      PostRequestInput.parse({ from: { label: 'العزيزية' }, to: { label: 'الكوت', placeId: 'kut' }, when: h.at(120), seats: 1, travellingAs: 'rijal', details: { trip: 'wait_return', waitHours: 4 } }),
+    );
+    expect(await code(h.requests.offer('d1', wait.id, 40_000))).toBe('offer_wait_terms_invalid');
+    expect(await code(h.requests.offer('d1', wait.id, 40_000, { includedHours: 4, extraHourIqd: 2_500 }))).toBe('offer_wait_terms_invalid');
+    expect(await code(h.requests.offer('d1', wait.id, 40_000, { includedHours: 4, extraHourIqd: -5_000 }))).toBe('offer_wait_terms_invalid');
+    await h.requests.offer('d1', wait.id, 40_000, { includedHours: 3, extraHourIqd: 5_000 });
+    await h.requests.offer('d2', wait.id, 45_000, { includedHours: 4, extraHourIqd: 0 });
+    const [mine] = await h.rpc.myRequests({ personId: 'r1', sessionId: 's' });
+    expect(mine!.offers.map((o) => [o.driverId, o.wait])).toEqual([
+      ['d1', { includedHours: 3, extraHourIqd: 5_000 }],
+      ['d2', { includedHours: 4, extraHourIqd: 0 }],
+    ]);
+    const oneWay = await postRequest(h, 'r2');
+    expect(await code(h.requests.offer('d1', oneWay.id, 30_000, { includedHours: 2, extraHourIqd: 1_000 }))).toBe('offer_wait_terms_invalid');
+    expect((await h.requests.offer('d1', oneWay.id, 30_000)).offers.at(-1)!.wait).toBeNull();
+  });
+
+  it('the range shows only from 5 finished trips in 90 days to that place and kind, the middle of what was paid', async () => {
+    const h = routesHarness();
+    const prices = [30_000, 35_000, 36_000, 38_000];
+    for (const [i, p] of prices.entries()) await finishedTrip(h, `r${i}`, p);
+    expect(await h.requests.usualRange('karbala', 'one_way')).toBeNull();
+    await finishedTrip(h, 'r9', 60_000);
+    // Nearest rank: 20th percentile = 30,000, 80th = 38,000 of [30, 35, 36, 38, 60].
+    expect(await h.requests.usualRange('karbala', 'one_way')).toEqual({ lowIqd: 30_000, highIqd: 38_000, trips: 5 });
+    // Another kind of trip, or another place, has no range of its own yet.
+    await finishedTrip(h, 'r10', 70_000, { trip: 'wait_return' });
+    await finishedTrip(h, 'r11', 20_000, { placeId: 'najaf' });
+    expect(await h.requests.usualRange('karbala', 'wait_return')).toBeNull();
+    expect(await h.requests.usualRange('najaf', 'one_way')).toBeNull();
+    expect((await h.requests.usualRange('karbala', 'one_way'))!.trips).toBe(5);
+    // 91 days later they have all aged out.
+    h.advance(91 * 24 * 60);
+    expect(await h.requests.usualRange('karbala', 'one_way')).toBeNull();
+  });
+
+  it('the rider and the drivers offering see the same range on a post to that place; a typed place has none', async () => {
+    const h = routesHarness();
+    for (const [i, p] of [30_000, 32_000, 34_000, 36_000, 38_000].entries()) await finishedTrip(h, `r${i}`, p);
+    const r = await h.requests.post(
+      'rx',
+      PostRequestInput.parse({ from: { label: 'العزيزية' }, to: { label: 'كربلاء', placeId: 'karbala' }, when: h.at(120), seats: 2, travellingAs: 'aila' }),
+    );
+    const typed = await postRequest(h, 'ry');
+    const range = { lowIqd: 30_000, highIqd: 36_000, trips: 5 };
+    expect((await h.rpc.myRequests({ personId: 'rx', sessionId: 's' }))[0]!.usualRange).toEqual(range);
+    const forD2 = await h.rpc.openRequests({ personId: 'd2', sessionId: 's' }, {});
+    expect(forD2.find((p) => p.id === r.id)!.usualRange).toEqual(range);
+    expect(forD2.find((p) => p.id === typed.id)!.usualRange).toBeNull();
+    expect(await h.rpc.usualRange({ personId: 'rx', sessionId: 's' }, { placeId: 'karbala', trip: 'one_way' })).toEqual(range);
+  });
+
+  it("a stranded rider's capped trip is not counted in the range", async () => {
+    const h = routesHarness();
+    for (const [i, p] of [30_000, 32_000, 34_000, 36_000].entries()) await finishedTrip(h, `r${i}`, p);
+    const r = await finishedTrip(h, 'r8', 38_000);
+    const stored = (await h.requests.get(r.id))!;
+    await h.repo.saveRequest({ ...stored, origin: 'stranded' });
+    expect(await h.requests.usualRange('karbala', 'one_way')).toBeNull();
+  });
+});
+
 describe('request board no-shows and settlement through the ledger', () => {
   it('driver no-show: 2× the deposit from the driver to the rider, after 20 minutes', async () => {
     const h = routesHarness();

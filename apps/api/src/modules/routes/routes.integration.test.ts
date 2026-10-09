@@ -311,6 +311,34 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(await repo.privateTripCounts([ids.driver])).toEqual({ [ids.driver]: 1 });
   });
 
+  it('waiting terms survive the round-trip, and finished trips feed the usual range by place and kind (w1, p1)', async () => {
+    const since = new Date(clock.now().getTime() - 60_000);
+    const pricesBefore = await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since });
+    const r = await requests.post(
+      ids.r1,
+      PostRequestInput.parse({
+        from: { label: 'العزيزية' },
+        to: { label: 'مدينة الطب', placeId: 'medical_city' },
+        when: at(120),
+        seats: 1,
+        travellingAs: 'rijal',
+        details: { trip: 'wait_return', waitHours: 5 },
+      }),
+    );
+    const offered = await requests.offer(ids.driver, r.id, 47_000, { includedHours: 4, extraHourIqd: 6_000 });
+    expect((await repo.getRequest(r.id))?.offers[0]?.wait).toEqual({ includedHours: 4, extraHourIqd: 6_000 });
+    expect((await repo.getRequest(r.id))?.to).toEqual({ label: 'مدينة الطب', placeId: 'medical_city' });
+    wallet.set(ids.r1, 100_000);
+    await requests.pick(ids.r1, r.id, offered.offers[0]!.id);
+    await requests.complete(ids.driver, r.id);
+    const after = await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since });
+    expect(after.length).toBe(pricesBefore.length + 1);
+    expect(after).toContain(47_000);
+    // Another kind of trip, or a later window, does not see it.
+    expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'one_way', since })).not.toContain(47_000);
+    expect(await repo.completedPrivatePrices({ placeId: 'medical_city', trip: 'wait_return', since: new Date(clock.now().getTime() + 60_000) })).toEqual([]);
+  });
+
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
     // A second writer stands in for a second API machine: its own in-process mutex, the same database,
     // so only the transaction's advisory lock keeps «seen» and «pick» apart. Its reads are slowed, so

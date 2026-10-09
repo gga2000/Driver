@@ -3,7 +3,9 @@ import type {
   DemandPostState,
   IntercityDepartureState,
   IntercityDirection,
+  RequestPlaceId,
   RequestState,
+  RequestTripKind,
 } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { FINISHED_RUN, type BookingRecord, type DemandPostRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
@@ -97,6 +99,11 @@ export interface RoutesRepository {
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
   /** y5: completed private trips per driver (his offer was picked and the trip completed). */
   privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>>;
+  /**
+   * p1: the prices of finished private trips riders posted to a known place with this trip kind,
+   * closed at or after `since` (stranded posts and seat-to-other-destination posts left out).
+   */
+  completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }, tx?: Tx): Promise<number[]>;
 
   /** Appends one seat-PIN attempt (the log is never updated or deleted). */
   addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void>;
@@ -265,6 +272,18 @@ export class InMemoryRoutesRepository implements RoutesRepository {
           a.when.getTime() - b.when.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
       )
       .map(clone);
+  }
+
+  async completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }): Promise<number[]> {
+    const out: number[] = [];
+    for (const r of this.requests.values()) {
+      if (r.state !== 'completed' || r.origin !== 'rider' || !r.privateCar) continue;
+      if (r.to.placeId !== f.placeId || r.details.trip !== f.trip) continue;
+      if (!r.closedAt || r.closedAt.getTime() < f.since.getTime()) continue;
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (picked) out.push(picked.priceIqd);
+    }
+    return out;
   }
 
   async privateTripCounts(driverIds: readonly string[]): Promise<Record<string, number>> {

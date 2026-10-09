@@ -117,6 +117,14 @@ export default async function run(s) {
   await p.byTestId('offer-send').click();
   await p.page.getByText('ينتظر الراكب').first().waitFor({ timeout: 10_000 });
   await p.shot('request-offer-sent', { settle: 800 });
+  // w1/p2: a «يستناك وترجع» trip to Najaf: the usual range under the price, and his waiting terms.
+  await p.goto(`/intercity/request/${seed.posts.najaf}`);
+  await p.wait('offer-wait');
+  await p.shot('request-offer-wait', { full: true, settle: 1000 });
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.shot('request-offer-wait-set', { full: true, settle: 600 });
   await p.goto(`/intercity/request/${seed.posts.stranded}`);
   await p.wait('request-offer');
   await p.shot('request-stranded', { settle: 1000 });

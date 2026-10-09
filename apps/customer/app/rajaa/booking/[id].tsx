@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import type { BookingView, SeatPayment } from '@driver/contracts';
-import { Button, Card, CountdownRing, EmptyState, PriceLine, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, CountdownRing, EmptyState, PriceLine, QueryBoundary, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { useWalletBalance } from '@/features/account/queries';
 import { Screen } from '@/components/Screen';
 import { seatsList } from '@/features/rajaa/labels';
@@ -176,6 +176,12 @@ export default function HoldAndPay() {
 
       <Section title={t('rajaa.pay_title')}>
         <PayCompare value={payment} onChange={setPayment} cancelUntil={clockLabel(boardingOpensAt(b.departure.departAt))} totalIqd={b.totalIqd} balanceIqd={balance} />
+        {/* The balance line shows once the wallet read is in; until then a placeholder, and a retry if it failed. */}
+        {wallet.data === undefined ? (
+          <QueryBoundary query={wallet} size="inline" skeleton={<Skeleton height={44} radius={12} />} testID="rajaa-wallet-read">
+            {() => null}
+          </QueryBoundary>
+        ) : null}
       </Section>
     </Screen>
   );

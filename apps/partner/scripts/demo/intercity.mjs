@@ -16,6 +16,7 @@
 //
 //   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, posts, pins }
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
+import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
 const BAB1 = { lat: 32.9032, lng: 45.0578 };
 const HASHIMI_DOOR = { lat: 32.8968, lng: 45.0662 };
@@ -51,6 +52,8 @@ export default async function register(demo) {
     );
   }
   const actor = (key) => ({ personId: people[key], sessionId: 'demo' });
+  // Through the contract, as tRPC would: the defaults (trip details) are filled in.
+  const postRequest = (who, input) => rpc.postRequest(who, PostRequestInput.parse(input));
   const state = { runA: null, runB: null, pins: {} };
 
   /** Baghdad wall-clock hour boundary `h` hours after now's hour. */
@@ -152,12 +155,19 @@ export default async function register(demo) {
     await rpc.postDemand(actor('poster8'), { corridorId: 'aziziyah_kut', direction: 'from_aziziyah', windowStart: hourFromNow(1), windowEnd: hourFromNow(2), seats: 2, travellingAs: 'nisa', pickup: { kind: 'garage' } });
 
     // ── Request board.
-    const hilla = await rpc.postRequest(actor('sara'), { from: { label: 'كراج البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الحلة' }, when: new Date(now + 180 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', note: 'عدنا جنطتين كبار وعربانة طفل' });
-    const najaf = await rpc.postRequest(actor('huda'), { from: { label: 'العزيزية، حي الهاشمي' }, to: { label: 'النجف (زيارة)' }, when: new Date(hourFromNow(30).getTime()), seats: 4, privateCar: true, travellingAs: 'aila' });
-    const stranded = await rpc.postRequest(actor('batool'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'بغداد، كراج النهضة' }, when: new Date(now + 45 * MIN), seats: 1, privateCar: true, travellingAs: 'nisa' });
+    const hilla = await postRequest(actor('sara'), { from: { label: 'كراج البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الحلة' }, when: new Date(now + 180 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', note: 'عدنا جنطتين كبار وعربانة طفل' });
+    // p1/p2: six finished Najaf trips (there and back, 4 hours' wait) give that trip a usual range.
+    for (const [i, price] of [50_000, 55_000, 55_000, 58_000, 60_000, 65_000].entries()) {
+      const done = await postRequest(actor(`poster${i}`), { from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: new Date(now + 20 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4 } });
+      const o = await rpc.offerOnRequest(driver, { postId: done.id, priceIqd: price, wait: { includedHours: 4, extraHourIqd: 5_000 } });
+      await rpc.pickOffer(actor(`poster${i}`), { postId: done.id, offerId: o.offers.at(-1).id });
+      await rpc.requestCompleted(driver, { postId: done.id });
+    }
+    const najaf = await postRequest(actor('huda'), { from: { label: 'العزيزية، حي الهاشمي' }, to: { label: 'النجف', placeId: 'najaf' }, when: new Date(hourFromNow(30).getTime()), seats: 4, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4 } });
+    const stranded = await postRequest(actor('batool'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'بغداد، كراج النهضة' }, when: new Date(now + 45 * MIN), seats: 1, privateCar: true, travellingAs: 'nisa' });
     const sr = await repo.getRequest(stranded.id);
     await repo.saveRequest({ ...sr, origin: 'stranded', priceCapIqd: 10_000 });
-    const suwaira = await rpc.postRequest(actor('rusul'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'الصويرة' }, when: new Date(now + 40 * MIN), seats: 2, privateCar: true, travellingAs: 'nisa' });
+    const suwaira = await postRequest(actor('rusul'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'الصويرة' }, when: new Date(now + 40 * MIN), seats: 2, privateCar: true, travellingAs: 'nisa' });
     const offered = await rpc.offerOnRequest(driver, { postId: suwaira.id, priceIqd: 25_000 });
     await rpc.pickOffer(actor('rusul'), { postId: suwaira.id, offerId: offered.offers[0].id });
 
