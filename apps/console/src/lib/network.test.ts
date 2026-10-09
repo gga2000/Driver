@@ -3,7 +3,7 @@ import { consoleNetwork, errorText } from './network';
 
 describe('console network errors (K-06)', () => {
   it('never shows "Failed to fetch": no response reads as "can\'t reach the server", offline as offline', () => {
-    expect(errorText(new TypeError('Failed to fetch'))).toBe('ما نگدر نوصل للسيرفر. دنحاول نتصل');
+    expect(errorText(new TypeError('Failed to fetch'))).toBe('ما نگدر نوصل للسيرفر. نحاول كل 5 ثواني');
     consoleNetwork().setDeviceOnline(false);
     expect(errorText({ message: 'fetch failed' })).toBe('النت مقطوع. نحاول نرجع…');
     consoleNetwork().setDeviceOnline(true);

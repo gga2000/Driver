@@ -191,7 +191,7 @@ export function NetworkBanner() {
         {kind === 'offline'
           ? t('console.net_offline')
           : kind === 'unreachable'
-            ? t('console.net_unreachable_retrying')
+            ? t('console.net_unreachable')
             : t('console.live_back')}
         {kind !== 'back' ? (
           <span className="font-normal text-muted">· {t('console.offline_frozen')}</span>

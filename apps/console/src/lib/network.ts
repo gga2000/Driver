@@ -72,7 +72,7 @@ export function useConsoleNetwork(): NetSnapshot {
 export function errorText(error: { message?: string; data?: unknown } | null | undefined): string {
   if (!error) return '';
   const kind = errorKind(error);
-  if (kind === 'network') return consoleNetwork().getSnapshot().state === 'offline' ? t('console.net_offline') : t('console.net_unreachable_retrying');
+  if (kind === 'network') return consoleNetwork().getSnapshot().state === 'offline' ? t('console.net_offline') : t('console.net_unreachable');
   if (kind === 'server') return t('console.net_server', { status: httpStatusOf(error) ?? 500 });
   return error.message || t('error.generic');
 }
