@@ -16,6 +16,7 @@ const AUDITED = [
   'ops.controls.setSwitch',
   'ops.controls.setScreen',
   'ops.controls.setCapacity',
+  'ops.waves.setSlots',
   'system.setBanner',
   'system.clearBanner',
   'system.setQuietDays',

@@ -1,6 +1,7 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { WAVE_RULES } from '@driver/contracts';
 import { AccessService } from './access.service.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /**
  * Lets waiting customers in as places open (W5): every minute, each zone with someone waiting. The
@@ -12,9 +13,14 @@ export class AccessSweepJob implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly access: AccessService) {}
+  constructor(
+    private readonly access: AccessService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), WAVE_RULES.sweepEveryMs);
     this.timer.unref();
   }
