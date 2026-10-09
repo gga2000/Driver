@@ -1872,5 +1872,8 @@
   "merchant.week.closing": "باقي إلك {amount} دينار",
   "merchant.week.closing_owe": "باقي عليك {amount} دينار، تنخصم من فلوسك الجاية",
   "merchant.week.closing_zero": "ما باقي شي، الحساب صافي",
-  "merchant.week.settled_open": "شوف شنو استلمت"
+  "merchant.week.settled_open": "شوف شنو استلمت",
+  "merchant.daynew.title": "الأرقام تبين بعد أول {count} طلبات",
+  "merchant.daynew.body": "من توصلك طلباتك الأولى، تشوف هنا يومك: شگد طلب إجاك، وقتك مضبوط لو لا، وشنو ينطلب أكثر",
+  "merchant.daynew.count": "{done} من {count} طلبات"
 }

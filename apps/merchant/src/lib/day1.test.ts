@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { phoneReason } from '@/features/auth/phone-reason';
 import { lessonNow } from '@/features/board/learn';
-import { dayBefore, dayCardMode, dayFacts, dayTitleKey, ON_TIME_TARGET_PCT, onTimeTone } from '@/features/day/logic';
+import { dayBefore, dayCardMode, dayFacts, dayTitleKey, numbersWaiting, ON_TIME_TARGET_PCT, onTimeTone } from '@/features/day/logic';
 import { headerSlot, menuNeedsLook } from '@/features/store/header-fit';
 import { translate } from './i18n-core';
 import { LRI, orderNo, PDI, visibleText } from './order-no';
@@ -136,5 +136,22 @@ describe('d18 · «وقتك مضبوط» is red only under the target', () => {
     expect(fact(0.71).tone).toBe('text');
     expect(fact(0.594).tone).toBe('danger');
     expect(fact(0.596).tone).toBe('text'); // rounds to 60 %, what the card shows
+  });
+});
+
+describe('d20 · «يومك» for a new shop waits for 10 orders', () => {
+  it('a shop in setup, or under 10 orders in 90 days, gets the one card', () => {
+    expect(numbersWaiting({ setupLive: false, orders: null })).toEqual({ waiting: true, done: 0 });
+    expect(numbersWaiting({ setupLive: true, orders: 0 })).toEqual({ waiting: true, done: 0 });
+    expect(numbersWaiting({ setupLive: null, orders: 7 })).toEqual({ waiting: true, done: 7 });
+    expect(numbersWaiting({ setupLive: true, orders: 10 })).toEqual({ waiting: false, done: 10 });
+    expect(numbersWaiting({ setupLive: null, orders: 480 })).toEqual({ waiting: false, done: 10 });
+  });
+  it('undecided while the orders load: the screen keeps what it had', () => {
+    expect(numbersWaiting({ setupLive: true, orders: null })).toBeNull();
+    expect(numbersWaiting({ setupLive: null, orders: null })).toBeNull();
+  });
+  it('says it in his words', () => {
+    expect(ar('merchant.daynew.title', { count: 10 })).toBe('الأرقام تبين بعد أول 10 طلبات');
   });
 });

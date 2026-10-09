@@ -1872,5 +1872,8 @@
   "merchant.week.closing": "{amount} IQD is still yours",
   "merchant.week.closing_owe": "{amount} IQD is still on you, taken off your next money",
   "merchant.week.closing_zero": "Nothing left, the account is square",
-  "merchant.week.settled_open": "See what you received"
+  "merchant.week.settled_open": "See what you received",
+  "merchant.daynew.title": "Your numbers show after your first {count} orders",
+  "merchant.daynew.body": "Once your first orders come in, you will see your day here: how many orders, whether you are on time, and what sells most",
+  "merchant.daynew.count": "{done} of {count} orders"
 }

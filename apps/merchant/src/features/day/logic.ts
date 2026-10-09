@@ -229,3 +229,18 @@ export function orderWhoLine(entries: readonly ActivityEntry[] | undefined, owne
   }
   return parts.length > 0 ? parts.join(' · ') : null;
 }
+
+/**
+ * d20 · «يومك» for a new shop (and its staff): until the first 10 orders there is nothing to read in
+ * the boxes, dashes and an empty heat map, so one friendly card says when the numbers come. A shop still
+ * in setup is new; otherwise the orders of the last 90 days decide (`merchantAdmin.insights`, any
+ * outcome). Null while that is still loading: the screen keeps what it had.
+ */
+export const NUMBERS_AFTER_ORDERS = 10;
+
+export function numbersWaiting(p: { setupLive: boolean | null; orders: number | null }): { waiting: boolean; done: number } | null {
+  if (p.setupLive === false) return { waiting: true, done: 0 };
+  if (p.orders === null) return null;
+  const done = Math.max(0, p.orders);
+  return { waiting: done < NUMBERS_AFTER_ORDERS, done: Math.min(done, NUMBERS_AFTER_ORDERS) };
+}
