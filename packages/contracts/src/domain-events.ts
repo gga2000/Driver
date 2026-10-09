@@ -352,9 +352,18 @@ export type SafetyIncidentClosedPayload = z.infer<typeof SafetyIncidentClosedPay
 
 /**
  * `order.rated`: the customer's first scored rating landed, in the rating's own transaction. `stars`
- * is the delivery score (courier/driver), or the food score when he scored only the food.
+ * is the delivery score (courier/driver), or the food score when he scored only the food. `food` and
+ * `delivery` are each score as given (absent when he skipped it) and `orderType` the order's type, so
+ * the Console's low-rating case can say who to hear from (optional: older rows carry only `stars`).
  */
-export const OrderRatedPayload = z.object({ orderId: z.string().min(1), stars: RatingScore, cityId: CityId });
+export const OrderRatedPayload = z.object({
+  orderId: z.string().min(1),
+  stars: RatingScore,
+  cityId: CityId,
+  food: RatingScore.optional(),
+  delivery: RatingScore.optional(),
+  orderType: OrderType.optional(),
+});
 export type OrderRatedPayload = z.infer<typeof OrderRatedPayload>;
 
 /**
