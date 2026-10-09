@@ -228,6 +228,9 @@ describe('online gate', () => {
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }] })).toBe('checkin');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_expired', message_ar: '' }, { code: 'checkin_locked', message_ar: '' }] })).toBe('locked');
+    // A pause after a safety report comes before everything else (lane E adds the code on the server).
+    const paused = { code: 'staff_paused', message_ar: '' } as unknown as { code: 'checkin_locked'; message_ar: string };
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_locked', message_ar: '' }, paused] })).toBe('paused');
   });
 });
 

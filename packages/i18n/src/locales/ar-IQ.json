@@ -8521,5 +8521,14 @@
   "partner.update_body": "هالنسخة صارت قديمة وما تشتغل بعد. حدّثها من المتجر، تاخذ دقيقة، وترجع تكمّل شغلك.",
   "partner.update_offers": "لحد ما تحدّث، ما تگدر تاخذ طلبات من هالتلفون.",
   "partner.update_button": "حدّث من المتجر",
-  "error.server_busy": "الضغط عالي هسة. جرّب بعد لحظات"
+  "error.server_busy": "الضغط عالي هسة. جرّب بعد لحظات",
+  "partner.gate_paused_banner": "حسابك موقّف مؤقتاً",
+  "partner.gate_paused_banner_sub": "دا نراجع بلاغ. اضغط وشوف شنو اللي يصير",
+  "partner.paused_header": "حسابك",
+  "partner.paused_title": "حسابك موقّف مؤقتاً",
+  "partner.paused_body": "وصلنا بلاغ عن مشوار، فوقّفنا الطلبات عنك لحد ما نراجعه. هذا اللي نسويه ويه كل بلاغ، مو حكم عليك.",
+  "partner.paused_next": "شنو اللي يصير هسة",
+  "partner.paused_step_review": "نراجع البلاغ وتفاصيل المشوار.",
+  "partner.paused_step_call": "نتصل بيك ونسمع منك قبل أي قرار.",
+  "partner.paused_step_back": "نبلّغك بالقرار برسالة، وإذا ماكو مشكلة يرجع حسابك يشتغل."
 }
