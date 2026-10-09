@@ -120,7 +120,7 @@ function makeHelpers(page, viewport, list) {
     const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
     if (!code) throw new Error('dev code not shown');
     await page.locator('[data-testid="otp-input"]').fill(code);
-    await Promise.race(['board', 'stores', 'not-activated'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
+    await Promise.race(['board', 'stores', 'not-activated', 'setup'].map((id) => byTestId(id).waitFor({ timeout: 20_000 })));
     const onBoard = await byTestId('board').isVisible().catch(() => false);
     if (onBoard && !lesson) await skipLesson();
     if (onBoard && !keepGate && !lesson) await startShift();
@@ -142,7 +142,7 @@ try {
     const page = await context.newPage();
     page.on('console', (m) => {
       const text = m.text();
-      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext/.test(text)) errors.push(`[${viewport}] ${text}`);
+      if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext|status of 412/.test(text)) errors.push(`[${viewport}] ${text}`);
     });
     page.on('pageerror', (e) => errors.push(`[${viewport}] ${e.stack ?? e.message}`));
     page.on('response', (r) => {

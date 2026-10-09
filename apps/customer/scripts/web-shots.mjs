@@ -137,7 +137,9 @@ page.on('response', (r) => {
 // order / chat screens keep an SSE stream open and the map keeps fetching tiles, so the network is
 // never idle there.
 const LOADED = { waitUntil: 'load' };
-const byTestId = (id) => page.locator(`[data-testid="${id}"]`).first();
+// Visible matches only: screens stay mounted under the one on top (home's basket bar sits under a
+// restaurant's), and the first match in the page would be the hidden one.
+const byTestId = (id) => page.locator(`[data-testid="${id}"]`).filter({ visible: true }).first();
 const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
@@ -588,6 +590,11 @@ async function bookedShots() {
   await byTestId('booked-looking').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked screen «نأكدلك قبل» not shown'));
   await shot('booked-looking');
   await byTestId('booked-cancel').click();
+  // W11: it asks first (free or with a fee), then cancels.
+  await byTestId('booked-cancel-sheet-yes').waitFor({ timeout: 15_000 });
+  await settle(400);
+  await shot('booked-cancel-ask');
+  await byTestId('booked-cancel-sheet-yes').click();
   await byTestId('booked-new').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked ride not cancelled'));
 
   const confirmed = await demoPost(`/demo/booked-ride?personId=${encodeURIComponent(personId)}&state=confirmed`);
@@ -714,7 +721,8 @@ async function tripsFlow(khalid, personId, seed) {
   await shot('trips-dinner-list');
   // Screens stay mounted under the new one on web: the visible copy of each element.
   const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
-  await visible(`restaurant-row-${khalid}`).click();
+  // «سوق العزيزية» opens on the street of shopfronts (p3).
+  await visible(`shop-front-${khalid}`).click();
   await visible(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
   await visible(`dish-add-${khalid}_pepsi`).click();
   if (await visible('item-sheet').isVisible().catch(() => false)) {
@@ -1823,8 +1831,9 @@ async function driverShots(personId) {
   // A new driver (أحمد, the تاهو: no trips yet): «جديد» instead of a rating, no bars, no reviews yet.
   await page.goto(`${origin}/rajaa`, LOADED);
   await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').first().waitFor({ timeout: 15_000 });
-  const tiles = await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
-  const newId = tiles[2]?.replace(/^departure-/, '');
+  // Found by its car, not its place on the board (cars before 4 am sit on the night before).
+  const tahoe = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').filter({ hasText: 'تاهو' }).first();
+  const newId = (await tahoe.getAttribute('data-testid'))?.replace(/^departure-/, '');
   await page.goto(`${origin}/rajaa/driver/${newId}`, LOADED);
   await byTestId('driver-profile-qualities-wait').waitFor({ timeout: 15_000 }).catch(() => errors.push('new driver profile not shown'));
   await settle();
@@ -2136,7 +2145,30 @@ async function chatShots(personId) {
  */
 async function seasonShots(khalid) {
   const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
-  await page.clock.setFixedTime(new Date(`${today}T13:00:00+03:00`));
+  const at = new Date(`${today}T13:00:00+03:00`).getTime();
+  // Only Date is frozen (while the flag is set): Playwright's clock also fakes requestAnimationFrame,
+  // and Reanimated's frame callbacks (home's drifting tiles) throw under it («setting 'startTime'»).
+  await page.addInitScript(() => {
+    const fixed = Number(globalThis.sessionStorage.getItem('shots.fixedNow'));
+    if (!fixed) return;
+    const Real = Date;
+    globalThis.Date = class extends Real {
+      constructor(...a) {
+        super(...(a.length ? a : [fixed]));
+      }
+      static now() {
+        return fixed;
+      }
+    };
+  });
+  await page.evaluate((t) => globalThis.sessionStorage.setItem('shots.fixedNow', String(t)), at);
+  // The countdown reads the server's clock (THIN-10): the API's Date header says 13:00 too (not the live stream).
+  const apiClock = async (route) => {
+    if (route.request().headers().accept === 'text/event-stream') return route.continue();
+    const res = await route.fetch();
+    await route.fulfill({ response: res, headers: { ...res.headers(), date: new Date(at).toUTCString() } });
+  };
+  await page.route(`${apiBase}/**`, apiClock);
   await page.evaluate(() => localStorage.removeItem('driver.customer.ramadan_timetable'));
   await demoPost('/demo/season?kind=ramadan');
   await page.goto(`${origin}/`, LOADED);
@@ -2161,6 +2193,8 @@ async function seasonShots(khalid) {
   await byTestId('cart-bar').click();
   await byTestId('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  // «وكت التوصيل» is a folded row now: open it for the chips.
+  await byTestId('checkout-row-when').click();
   await byTestId('chip-later').click();
   const iftarChip = page.getByText(/على الفطور/).first();
   await iftarChip.waitFor({ timeout: 10_000 });
@@ -2175,6 +2209,8 @@ async function seasonShots(khalid) {
   await byTestId('home-season').waitFor({ timeout: 15_000 });
   await shot('season-home-eid');
   await demoPost('/demo/season?kind=off');
+  await page.unroute(`${apiBase}/**`, apiClock);
+  await page.evaluate(() => globalThis.sessionStorage.removeItem('shots.fixedNow'));
 }
 
 /**
@@ -2836,7 +2872,13 @@ async function liveShots(personId) {
   await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await demoPost(`/demo/ride/accept?orderId=${rideId}`);
-  if (await byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => true).catch(() => false)) {
+  // A demo driver a minute away gets «قريب، اطلع هسة» first, which holds the reveal back: close it.
+  const first = await Promise.race([
+    byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => 'reveal', () => null),
+    byTestId('ride-near').waitFor({ timeout: 25_000 }).then(() => 'near', () => null),
+  ]);
+  if (first === 'near') await byTestId('ride-near-close').click();
+  if (first && (await byTestId('driver-reveal').waitFor({ timeout: 5_000 }).then(() => true).catch(() => false))) {
     await settle(1500);
     await shot('live-reveal-ride');
   } else errors.push('ride reveal did not show');

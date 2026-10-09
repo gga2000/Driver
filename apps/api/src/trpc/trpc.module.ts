@@ -23,7 +23,7 @@ import { ShareLinksService, TrackingModule, TrackingService } from '../modules/t
 import { ChatModule, ChatService, TripChatService } from '../modules/chat/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
-import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
+import { MerchantModule, MerchantService, MerchantSetupService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
@@ -89,6 +89,7 @@ export class TrpcService {
     private readonly households: HouseholdsRpc,
     private readonly partner: PartnerService,
     private readonly merchant: MerchantService,
+    private readonly merchantSetup: MerchantSetupService,
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
     private readonly tripChat: TripChatService,
@@ -144,7 +145,8 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.keepQuote(req) },
+      // Perf z3: the same caller re-asking for the same trip gets its kept quote back (no new rows).
+      pricing: { quote: (req) => this.pricing.keepQuote(req, auth ? `p:${auth.sub}` : ip ? `ip:${ip}` : null) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
@@ -170,6 +172,7 @@ export class TrpcService {
       households: this.households,
       partner: this.partner,
       merchant: this.merchant,
+      merchantSetup: this.merchantSetup,
       chat: this.chat,
       tripChat: this.tripChat,
       trackingShare: this.shareLinks,

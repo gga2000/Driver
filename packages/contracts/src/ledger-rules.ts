@@ -243,13 +243,6 @@ export const MoneyRules = z.object({
    */
   requestCashReservation: z.object({ enabled: z.boolean() }).default({ enabled: false }),
   /**
-   * Step 5 (Ali's price item 51, 2026-10-07): a الرجعة seat and the seat back on the same road, booked
-   * before the first car leaves, each take `percent` off the seat price (seats only, not the front
-   * premium or pickup and drop fees), rounded down to 250. `fundedBy` platform: the driver is still
-   * paid on the full seat and the company covers the discount; driver: the fare itself is lower.
-   * Off until Ali switches it on: no pair is made and every seat costs the full price.
-   */
-  /**
    * Step 6 (Ali's price item 56, rules s1–s4, 2026-10-07): the booker of a private car shares it by a
    * link. The car's price is split evenly over the people he asked for (each place rounded down to
    * 250, the rest on him); a friend pays his places from his wallet (held until the trip ends, then
@@ -260,6 +253,14 @@ export const MoneyRules = z.object({
   requestSharing: z
     .object({ enabled: z.boolean(), closeBeforeMin: z.number().int().min(30).max(1_440) })
     .default({ enabled: false, closeBeforeMin: 120 }),
+  /**
+   * Step 5 (Ali's price item 51, 2026-10-07): a الرجعة seat and the seat back on the same road, booked
+   * before the first car leaves, each take `percent` off the seat price (seats only, not the front
+   * premium or pickup and drop fees), rounded down to 250. `fundedBy` platform: the driver is still
+   * paid on the full seat and the company covers the discount; driver: the fare itself is lower.
+   * The pair's discount never exceeds what the later booking's seats cost. Off until Ali switches it
+   * on: no pair is made and every seat costs the full price.
+   */
   intercityReturnBundle: z
     .object({
       enabled: z.boolean(),

@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
@@ -31,10 +32,11 @@ import { countText } from '@/lib/plural';
 import { useSignedIn } from '@/lib/session';
 import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
+import { badRating } from '@/lib/rating-case';
 import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
-import { ChatVoiceNote } from './support/voice-note';
+import { StuckStrip } from './stuck/strip';
 import {
   Avatar,
   Button,
@@ -66,6 +68,10 @@ import {
   useNow,
   useToast,
 } from './ui';
+
+// Only orders with a bad rating or a voice note need these, so they load on demand (Console speed budget).
+const RatingCase = dynamic(() => import('./rating-case').then((m) => m.RatingCase));
+const ChatVoiceNote = dynamic(() => import('./support/voice-note').then((m) => m.ChatVoiceNote));
 
 const POLL_MS = 5_000;
 const RIDE_TYPES: ReadonlySet<string> = new Set(['ride', 'seat', 'subscription']);
@@ -133,6 +139,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   return (
     <Frame>
       <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} now={now} />
+      <StuckStrip orderId={o.id} />
+      {o.rating && badRating(o.rating) ? <RatingCase o={o} courierId={courierId} /> : null}
       <section aria-labelledby="order-story" className="rounded-lg border border-line bg-surface shadow-card">
         <Facts o={o} courierId={courierId} zoneKey={row?.zoneKey ?? null} />
         <Story o={o} events={events} now={now} logError={log.error} />

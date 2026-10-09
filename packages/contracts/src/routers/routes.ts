@@ -70,7 +70,7 @@ import {
   SelfieInput,
 } from '../routes-io.js';
 import { SafetyCallSession } from '../safety-io.js';
-import { OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from '../departure-staff-io.js';
+import { OverdueDeparture, OverdueDeparturesInput, StaffDepartureDriver, StaffDepartureDriversInput, StaffDepartureInput, StaffDepartureResult } from '../departure-staff-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Drivers who announce departures and offer on the request board. */
@@ -434,6 +434,11 @@ export const routesRouter = router({
       .input(OverdueDeparturesInput)
       .output(z.array(OverdueDeparture))
       .query(({ ctx, input }) => ctx.routes.overdueDepartures(ctx.actor, input)),
+    /** Who drives each departure, in any state (name + masked number, one logged staff vault read). */
+    departureDrivers: protectedProcedure(INTERCITY_OPS_ROLES)
+      .input(StaffDepartureDriversInput)
+      .output(z.array(StaffDepartureDriver))
+      .query(({ ctx, input }) => ctx.routes.departureDrivers(ctx.actor, input)),
     /** Cancel for a driver who never came: riders moved to the next cars, no fee (M-11 open), audit row. */
     cancelDeparture: protectedProcedure(INTERCITY_OPS_ROLES)
       .input(StaffDepartureInput)

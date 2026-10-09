@@ -24,6 +24,7 @@ import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
+import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
 import type { TripChatPort } from './trip-chat-io.js';
@@ -94,6 +95,8 @@ export interface AppContext {
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
   merchant: MerchantPort;
+  /** «جهّز محلك»: a new shop's first-day setup (`modules/merchant`). */
+  merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
   /** Baghdad/Kut chat between a rider and a run's or private car's driver, with the price cards (`modules/chat`, step 4c). */

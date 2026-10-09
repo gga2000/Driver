@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLOSE_IN_M, LOOK_AHEAD, LOOK_BEHIND, storyShot } from './story';
+import { CLOSE_IN_M, DOOR_IN_VIEW_M, LOOK_AHEAD, LOOK_BEHIND, storyShot } from './story';
 
 const K = { lat: 32.906, lng: 45.061 };
 const D = { lat: 32.896, lng: 45.071 };
@@ -15,8 +15,8 @@ describe('story camera', () => {
     expect(storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: 300 })).toEqual({ points: [C, D], zoom: [15.5, 17] });
   });
   it('on the way and still far: frames him with room ahead toward the door, not courier and door at opposite edges (f19)', () => {
-    const shot = storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: 900 });
-    expect(shot.zoom).toEqual([12.5, 16.5]);
+    const shot = storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: DOOR_IN_VIEW_M + 500 });
+    expect(shot.zoom).toEqual([12, 16.5]);
     expect(shot.points[0]).toEqual(C);
     const ahead = shot.points[1]!;
     expect(ahead.lat).toBeCloseTo(C.lat + (D.lat - C.lat) * LOOK_AHEAD, 9);
@@ -25,6 +25,11 @@ describe('story camera', () => {
     const behind = shot.points[2]!;
     expect(behind.lat).toBeCloseTo(C.lat - (D.lat - C.lat) * LOOK_BEHIND, 9);
     expect(LOOK_BEHIND).toBeLessThan(LOOK_AHEAD);
+  });
+
+  it('a few minutes out: him and the door together, so the customer watches him close in', () => {
+    expect(storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: DOOR_IN_VIEW_M })).toEqual({ points: [C, D], zoom: [12, 16.5] });
+    expect(storyShot({ ...base, phase: 'on_the_way', courier: C, toDoorM: CLOSE_IN_M + 1 }).points).toEqual([C, D]);
   });
 
   it('tightens on the door when he is close, and stays on it once delivered', () => {

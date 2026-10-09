@@ -1,5 +1,6 @@
 import {
   orderTicketNumber,
+  type BoardBill,
   type BoardColumn,
   type BoardCourier,
   type BoardGroup,
@@ -14,6 +15,7 @@ import {
   type Trip,
 } from '@driver/contracts';
 import { bearingDeg, haversineKm } from '../dispatch/index.js';
+import { MISSED_STATES } from '../orders/index.js';
 
 /**
  * The kitchen's view of its live orders (Driver Merchant spec): pure, so the column rules, the
@@ -187,6 +189,22 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     handedOverAt: o.handedOverAt ?? null,
     // «عزيمة» (joy g1): the ticket prints no amounts when the sender hid the prices.
     gift: o.gift ?? null,
+    // Print redesign k2: the customer slip's amounts, never added up on the tablet; none for a hidden-price gift.
+    ...(o.gift?.hidePrices ? {} : { bill: billOf(o) }),
+  };
+}
+
+/** The order's money as the slip prints it (`BoardBill`): copied from the order, nothing recomputed. */
+export function billOf(o: Order): BoardBill {
+  return {
+    itemsIqd: o.itemsTotalIqd,
+    deliveryFeeIqd: o.deliveryFeeIqd,
+    serviceFeeIqd: o.serviceFeeIqd,
+    smallOrderFeeIqd: o.smallOrderFeeIqd ?? 0,
+    discountIqd: o.discountIqd,
+    pointsIqd: o.pointsIqd ?? 0,
+    changeIqd: o.changeIqd ?? 0,
+    totalIqd: o.totalIqd,
   };
 }
 
@@ -195,9 +213,7 @@ export const MISSED_LIST_MAX = 10;
 
 /** Why an order left without the kitchen's answer, or null when it didn't (M-01). */
 export function missedReason(o: Pick<Order, 'state' | 'cancellationReason'>): MissedReason | null {
-  if (o.state === 'merchant_rejected' && o.cancellationReason === 'merchant_timeout') return 'merchant_timeout';
-  if (o.state === 'platform_cancelled' && o.cancellationReason === 'partial_timeout') return 'partial_timeout';
-  return null;
+  return MISSED_STATES.find((m) => m.state === o.state && m.reason === o.cancellationReason)?.reason ?? null;
 }
 
 /**

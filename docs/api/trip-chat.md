@@ -85,7 +85,7 @@ no-show amount. `chat.trip.threads` counts `waitingOnYou` from it.
 
 Pushes (`chat.message_sent`) open the right app: the rider's `driver://rajaa/chat/<subject>/<id>`
 (`?with=<driverId>` on a request), the driver's `driver-partner://intercity/chat/<subject>/<id>`
-(`?with=<riderId>` on a run). A card pushes «عنده سعر يحتاج ردك».
+(`?with=<riderId>` on a run). A card pushes «عنده طلب يحتاج ردك» (an ask or a price).
 
 ## Apps
 

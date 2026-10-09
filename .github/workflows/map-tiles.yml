@@ -1,0 +1,132 @@
+# Driver (درايفر) — build the Aziziyah/Wasit map (tools/map-tiles) and publish it to Supabase Storage.
+#
+# Runs by hand (Actions → Map tiles) and on the 1st of every month, so the map follows Overture's
+# monthly releases. Output: a public bucket `map` on the environment's Supabase project:
+#   wasit.pmtiles                            the vector map (HTTP Range requests, CORS *, Supabase CDN)
+#   fonts/<fontstack>/<start>-<end>.pbf      Arabic label glyphs (IBM Plex Sans Arabic Regular/Medium/Bold)
+# The apps read them at build time (docs/deploy/map.md):
+#   EXPO_PUBLIC_MAP_TILES_URL / NEXT_PUBLIC_MAP_TILES_URL   = <project>/storage/v1/object/public/map/wasit.pmtiles
+#   EXPO_PUBLIC_MAP_GLYPHS_URL / NEXT_PUBLIC_MAP_GLYPHS_URL = <project>/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf
+# Until those are set the apps keep the OSM raster fallback.
+#
+# Needs, in the GitHub environment: variable DATABASE_REF (the Supabase project ref, already set for
+# staging) and secret SUPABASE_SECRET_KEY (Supabase → Project Settings → API Keys → a secret key).
+# The key only ever goes into GitHub; it is never printed.
+name: Map tiles
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which Supabase project gets the map
+        type: choice
+        options: [staging, production]
+        default: staging
+  schedule:
+    - cron: '17 3 1 * *'
+
+concurrency:
+  group: map-tiles-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: map → ${{ inputs.environment || 'staging' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'staging' }}
+    timeout-minutes: 30
+    env:
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - name: Settings present
+        run: |
+          fail() { echo "::error title=Map tiles::$1 (docs/deploy/map.md)"; exit 1; }
+          [[ "$DATABASE_REF" =~ ^[a-z0-9]{20}$ ]] || fail "set the variable DATABASE_REF (the Supabase project ref) on this environment"
+          [ -n "$SUPABASE_SECRET_KEY" ] || fail "set the secret SUPABASE_SECRET_KEY on this environment"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: tools/map-tiles/requirements.txt
+
+      - name: Install
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+          pnpm install --frozen-lockfile
+          python3 -m pip install -r tools/map-tiles/requirements.txt
+
+      - name: Build (Overture → wasit.pmtiles + glyphs)
+        run: |
+          tools/map-tiles/build.sh
+          out=tools/map-tiles/out
+          [ -s "$out/wasit.pmtiles" ] || { echo "::error title=Map tiles::the build made no wasit.pmtiles"; exit 1; }
+          n=$(find "$out/fonts" -name '*.pbf' | wc -l)
+          [ "$n" -gt 0 ] || { echo "::error title=Map tiles::the build made no glyphs"; exit 1; }
+          echo "wasit.pmtiles: $(du -h "$out/wasit.pmtiles" | cut -f1); glyph files: $n"
+
+      - name: Publish to Supabase Storage (bucket `map`, public)
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys, urllib.error, urllib.parse, urllib.request
+
+          base = f"https://{os.environ['DATABASE_REF']}.supabase.co/storage/v1"
+          key = os.environ['SUPABASE_SECRET_KEY']
+          # New-style secret keys go in `apikey` only; a legacy service_role JWT also needs the bearer.
+          auth = {'apikey': key} if key.startswith('sb_') else {'apikey': key, 'Authorization': f'Bearer {key}'}
+
+          def call(method, path, body=b'', headers=None):
+              req = urllib.request.Request(base + path, data=body, method=method, headers={**auth, **(headers or {})})
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as res:
+                      return res.status, res.read()
+              except urllib.error.HTTPError as err:
+                  return err.code, err.read()
+
+          status, body = call('POST', '/bucket', json.dumps({'id': 'map', 'name': 'map', 'public': True}).encode(), {'Content-Type': 'application/json'})
+          if status not in (200, 409) and b'already exists' not in body.lower():
+              sys.exit(f'::error title=Map tiles::could not make the bucket (HTTP {status})')
+          # An existing bucket is made public in case it was not.
+          call('PUT', '/bucket/map', json.dumps({'public': True}).encode(), {'Content-Type': 'application/json'})
+
+          out = pathlib.Path('tools/map-tiles/out')
+          files = [(out / 'wasit.pmtiles', 'application/octet-stream', 'max-age=3600')]
+          files += [(p, 'application/x-protobuf', 'max-age=86400') for p in sorted((out / 'fonts').rglob('*.pbf'))]
+          for path, ctype, cache in files:
+              rel = path.relative_to(out).as_posix()
+              status, _ = call('POST', '/object/map/' + urllib.parse.quote(rel), path.read_bytes(),
+                               {'Content-Type': ctype, 'Cache-Control': cache, 'x-upsert': 'true'})
+              if status != 200:
+                  sys.exit(f'::error title=Map tiles::upload of {rel} failed (HTTP {status})')
+          print(f'uploaded {len(files)} files')
+          PY
+
+      - name: Check what the apps will fetch (Range + CORS)
+        run: |
+          pub="https://${DATABASE_REF}.supabase.co/storage/v1/object/public/map"
+          origin=https://driver-customer-iota.vercel.app
+          head=$(curl -sS -D - -o /dev/null -H "Origin: $origin" -H 'Range: bytes=0-16383' "$pub/wasit.pmtiles")
+          grep -qE '^HTTP/[0-9.]+ 206' <<< "$head" || { echo "::error title=Map tiles::wasit.pmtiles does not answer Range requests"; echo "$head"; exit 1; }
+          grep -qi '^access-control-allow-origin:' <<< "$head" || { echo "::error title=Map tiles::wasit.pmtiles sends no CORS header"; exit 1; }
+          glyph="$pub/fonts/IBM%20Plex%20Sans%20Arabic%20Regular/0-255.pbf"
+          curl -fsS -o /dev/null -H "Origin: $origin" "$glyph" || { echo "::error title=Map tiles::$glyph is not reachable"; exit 1; }
+          {
+            echo "### Map published"
+            echo "- EXPO_PUBLIC_MAP_TILES_URL / NEXT_PUBLIC_MAP_TILES_URL = \`$pub/wasit.pmtiles\`"
+            echo "- EXPO_PUBLIC_MAP_GLYPHS_URL / NEXT_PUBLIC_MAP_GLYPHS_URL = \`$pub/fonts/{fontstack}/{range}.pbf\`"
+          } >> "$GITHUB_STEP_SUMMARY"

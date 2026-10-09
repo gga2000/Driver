@@ -96,6 +96,10 @@ describe('step 6: sharing a private car by link (Ali item 56, s1–s4; switch re
     const c2 = await open(other.h, other.r.id);
     other.h.wallet.set('f1', 5_000);
     expect(await code(other.h.requests.joinShare('f1', c2, 1))).toBe('wallet_insufficient');
+    // Money his wallet food order already holds is not his to share either (SEC-07, as `pick`).
+    other.h.wallet.set('f1', 60_000);
+    other.h.wallet.elsewhere.set('f1', 40_000);
+    expect(await code(other.h.requests.joinShare('f1', c2, 1))).toBe('wallet_insufficient');
     expect(h.events.ofType('request.share_joined')[0]?.payload).toMatchObject({ personId: 'f1', places: 2, amountIqd: 55_000, riderId: 'r1', driverId: 'd1' });
   });
 

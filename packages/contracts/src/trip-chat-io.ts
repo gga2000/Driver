@@ -122,4 +122,6 @@ export interface TripChatPort {
   send(actor: Actor, input: TripChatSendInput): Promise<ChatMessage>;
   voiceUpload(actor: Actor, input: TripChatVoiceUploadInput): Promise<VoiceUploadTicket>;
   markRead(actor: Actor, input: TripChatMarkReadInput): Promise<ChatMarkReadOutput>;
+  /** The pair's live channel party, after the same access check as `thread` (no names, no messages). */
+  liveParty(actor: Actor, input: TripChatRef): Promise<string>;
 }

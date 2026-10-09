@@ -187,8 +187,10 @@ export const liveRouter = router({
     .subscription(({ ctx, input, signal }) =>
       stream(ctx, {
         channels: [liveChannel.tripChat(input.id, input.with ?? ctx.actor.personId)],
+        // The pair-only check; a `with` that resolves to another party than the channel's is refused.
         check: async () => {
-          await ctx.tripChat.thread(ctx.actor, { ...input, afterSeq: Number.MAX_SAFE_INTEGER });
+          const party = await ctx.tripChat.liveParty(ctx.actor, input);
+          if (party !== (input.with ?? ctx.actor.personId)) throw new DriverError('chat_not_party');
         },
         signal,
       }),

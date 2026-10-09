@@ -629,10 +629,13 @@ export class RequestBoardService {
         if (r.share.bookerPlaces === bookerPlaces) return r;
         r.share.bookerPlaces = bookerPlaces;
       } else {
+        const placeIqd = sharePlaceIqd(this.picked(r).priceIqd, r.seats);
+        // A place must cost something: a 0 share would fail the ride's money at completion.
+        if (placeIqd <= 0) throw new DriverError('request_state_conflict');
         r.share = {
           code: await this.newShareCode(tx),
           bookerPlaces,
-          placeIqd: sharePlaceIqd(this.picked(r).priceIqd, r.seats),
+          placeIqd,
           openedAt: this.now(),
           members: [],
         };
@@ -673,7 +676,11 @@ export class RequestBoardService {
       }
       if (places > r.seats - share.bookerPlaces - sharedPlaces(share)) throw new DriverError('share_full');
       const amountIqd = places * share.placeIqd;
-      const available = (await this.wallet.balance(personId)) - (await walletHolds(this.repo, personId, tx));
+      // SEC-07, as `pick`: under the friend's wallet lock (taken by the writer), net of every other hold on it.
+      const available =
+        (await this.wallet.balance(personId)) -
+        (await walletHolds(this.repo, personId, tx)) -
+        (await this.wallet.heldElsewhere(personId, tx));
       if (available < amountIqd) throw new DriverError('wallet_insufficient');
       const member = {
         id: this.ids.id('rqs'),
@@ -697,7 +704,7 @@ export class RequestBoardService {
         driverId: this.picked(r).driverId,
       });
       return r;
-    });
+    }, { walletLocks: [personId] });
   }
 
   /** A friend leaves before joining closes; his hold is released at once. */

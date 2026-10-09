@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { t } from '@driver/i18n';
@@ -32,13 +33,19 @@ import {
   Skeleton,
   useSecondsSince,
 } from '../ui';
-import { SupportActionDialogs, type ActionPrefill } from './actions';
+import type { ActionPrefill } from './actions';
 import { ContextPane, type SupportAction } from './context';
 import { Conversation, type CannedIntent, type ComposerHandle } from './conversation';
-import { NewTicketDialog } from './new-ticket';
 import { SupportQueue } from './queue';
 
 const POLL_MS = 10_000;
+
+// The refund, fault, escalate and resolve dialogs load the first time one opens (speed budget).
+const SupportActionDialogs = dynamic(() => import('./actions').then((m) => m.SupportActionDialogs), {
+  ssr: false,
+});
+// «قضية جديدة» loads the first time it opens too.
+const NewTicketDialog = dynamic(() => import('./new-ticket').then((m) => m.NewTicketDialog), { ssr: false });
 
 /**
  * The support desk (flagship): queue · conversation · context, one screen, keyboard first.
@@ -58,6 +65,11 @@ export function SupportDesk() {
   const [seen, setSeen] = useState<SeenMap>({});
   const [action, setAction] = useState<SupportAction | null>(null);
   const [prefill, setPrefill] = useState<ActionPrefill | null>(null);
+  // Stays mounted once used, so a dialog can animate closed.
+  const [actionsUsed, setActionsUsed] = useState(false);
+  useEffect(() => {
+    if (action) setActionsUsed(true);
+  }, [action]);
   const [newTicket, setNewTicket] = useState(false);
   const [contextSheet, setContextSheet] = useState(false);
   const composer = useRef<ComposerHandle>(null);
@@ -264,12 +276,14 @@ export function SupportDesk() {
 
       {kase.data ? (
         <>
-          <SupportActionDialogs
-            data={kase.data}
-            open={action}
-            onClose={() => setAction(null)}
-            prefill={prefill}
-          />
+          {action || actionsUsed ? (
+            <SupportActionDialogs
+              data={kase.data}
+              open={action}
+              onClose={() => setAction(null)}
+              prefill={prefill}
+            />
+          ) : null}
           <Sheet
             open={contextSheet}
             onClose={() => setContextSheet(false)}
@@ -291,7 +305,7 @@ export function SupportDesk() {
           </Sheet>
         </>
       ) : null}
-      <NewTicketDialog open={newTicket} onClose={() => setNewTicket(false)} />
+      {newTicket ? <NewTicketDialog open onClose={() => setNewTicket(false)} /> : null}
     </div>
   );
 }

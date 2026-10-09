@@ -7,7 +7,7 @@ import { EntryTile } from '@/components/EntryTile';
 import { both, LoadPending } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { HolidaySheet, HolidaysPanel, ShiftSheet, WeekPanel } from '@/features/hours/HoursParts';
 import {
   addHoliday,
@@ -52,7 +52,7 @@ export default function Hours() {
   const hours = useStoreHours(store?.orgId ?? null);
   const save = useSaveHours();
   const { setOpen } = useStoreSwitches();
-  const now = useServerNow(0, 15_000);
+  const now = useServerTime(15_000);
   const [sheet, setSheet] = useState<'close' | 'busy' | 'holiday' | null>(null);
   const [editing, setEditing] = useState<{ dow: number; index: number } | null>(null);
   const [draft, setDraft] = useState<HoursDraft | null>(null);
@@ -194,12 +194,12 @@ export default function Hours() {
             testID="hours-busy"
             icon="flame"
             title={t('merchant.busy_mode')}
-            hint={s.busy.on && s.busy.until ? `${t('merchant.busy.ends_at', { time: clock12(s.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(s.busy.until, now) })}` : t('merchant.busy.sheet_body')}
+            hint={s.busy.on && s.busy.until ? `${t('merchant.busy.ends_at', { time: clock12(s.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(s.busy.until, now) })}` : t('merchant.busy.sheet_body_pick_short')}
             onPress={() => setSheet('busy')}
             trailing={
               <StatusPill
                 tone={s.busy.on ? 'warning' : 'neutral'}
-                label={s.busy.on ? '⁦+10⁩' : t('merchant.busy.turn_on')}
+                label={s.busy.on ? `\u2066+${s.busy.extraPrepMinutes}\u2069` : t('merchant.busy.turn_on')}
               />
             }
           />

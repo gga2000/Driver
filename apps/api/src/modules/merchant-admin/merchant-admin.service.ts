@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  type ActivityTodayInput,
   DISH_LABELS,
   type DishLabel,
   AZIZIYAH_MONEY_RULES,
@@ -15,6 +16,7 @@ import {
   type MerchantPotView,
   POT_RULES,
   type MerchantAdminPort,
+  type MerchantActivity,
   type MerchantCashAccount,
   type MerchantDaySummary,
   type MerchantDispute,
@@ -23,6 +25,8 @@ import {
   type MerchantStaffRole,
   type MoneyToday,
   type Order,
+  type OrderWho,
+  type OrderWhoInput,
   type PriceChange,
   type ReorderCategoriesInput,
   type StaffMember,
@@ -43,12 +47,15 @@ import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, OrdersService 
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
+import { activityActorIds, activityEntries, composeActivity, ITEM_ACTIVITY_TYPES, ORDER_ACTIVITY_TYPES, type ActivityNames } from './activity.js';
 import { composeDaySummary, summaryDay } from './day-summary.js';
 import { composeInsights, defaultOutcome, disputeKindOf, staffInsights } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
 
 const DAY_MS = 86_400_000;
+/** The feed also reads orders placed this long before the day starts (a late order readied after midnight). */
+const ACTIVITY_ORDER_LEAD_MS = 6 * 3_600_000;
 const STAFF_KINDS: readonly MerchantStaffRole[] = ['merchant_owner', 'merchant_staff'];
 /** Disputes the merchant still sees (domain §9: customers dispute until close, support after). */
 export const DISPUTE_LOOKBACK_DAYS = 30;
@@ -138,6 +145,8 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
+      photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
     };
   }
 
@@ -215,8 +224,10 @@ export class MerchantAdminService implements MerchantAdminPort {
   async menuReplacePhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; uploadId: string }): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     await this.assertUpload(actor.personId, input.uploadId);
-    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId }, (tx) =>
-      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx),
+    // p4 (Ali 2026-10-08): the photo shows to customers at once; `review: 'pending'` puts it on the
+    // team's same-day review (the Console queue reads `CatalogService.photoReviewQueue`).
+    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId, review: 'pending' }, (tx) =>
+      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx, null, true),
     );
   }
 
@@ -547,6 +558,59 @@ export class MerchantAdminService implements MerchantAdminPort {
     });
   }
 
+  // ───────────────────────── who pressed what (owner only) ─────────────────────────
+
+  /**
+   * Names for the feed: one batched vault read (purpose `merchant_activity_view`) of the people who
+   * acted, name only (the phone is dropped here). The ids are the actors of kitchen actions, which
+   * are gated to a role at this store; the orders' customers are left out as a second fence.
+   */
+  private async activityNames(actor: Actor, events: Parameters<typeof activityActorIds>[0], notStaff: ReadonlySet<string>, merchantOrgId: string): Promise<ActivityNames> {
+    const ids = activityActorIds(events).filter((id) => !notStaff.has(id));
+    const [cards, menu] = await Promise.all([
+      ids.length > 0 ? this.identity.memberCards(ids, actor.personId, 'merchant_activity_view') : Promise.resolve({} as Record<string, { name: string | null }>),
+      events.some((e) => e.type.startsWith('item.')) ? this.catalog.adminMenu(merchantOrgId) : Promise.resolve([]),
+    ]);
+    const people = new Map<string, string | null>();
+    for (const id of ids) people.set(id, cards[id]?.name ?? null);
+    return { people, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])), viewerId: actor.personId };
+  }
+
+  /**
+   * «مين سوّى شنو»: a Baghdad local day's kitchen actions (default today), newest first, with who did
+   * each. Owner only (staff FORBIDDEN on the server). Reads: the day's orders, the store's dish
+   * events for the day (indexed aggregate + occurred_at), the orders' action events (indexed
+   * order_id), then one vault read for the names.
+   */
+  async activityToday(actor: Actor, input: { merchantOrgId: string; date?: ActivityTodayInput['date'] }): Promise<MerchantActivity> {
+    await this.owner(actor, input.merchantOrgId);
+    const localDate = input.date ?? localDateKey(this.clock.now());
+    const noon = new Date(`${localDate}T12:00:00+03:00`);
+    if (Number.isNaN(noon.getTime())) throw new DriverError('invalid_input');
+    const from = startOfLocalDay(noon);
+    const window = { from, to: new Date(from.getTime() + DAY_MS) };
+    const [orders, itemEvents] = await Promise.all([
+      this.ordersIn(input.merchantOrgId, { from: new Date(from.getTime() - ACTIVITY_ORDER_LEAD_MS), to: window.to }),
+      this.events.forAggregate('org', input.merchantOrgId, { ...window, types: ITEM_ACTIVITY_TYPES }),
+    ]);
+    const orderEvents = await this.events.forOrders([...orders.keys()], { types: ORDER_ACTIVITY_TYPES });
+    const events = [...itemEvents, ...orderEvents.filter((e) => e.occurredAt >= window.from && e.occurredAt < window.to)].sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
+    const customers = new Set([...orders.values()].map((o) => o.ordererId));
+    const names = await this.activityNames(actor, events, customers, input.merchantOrgId);
+    return composeActivity({ merchantOrgId: input.merchantOrgId, localDate, events, names, window });
+  }
+
+  /** One order's kitchen actions, oldest first, with who did each. Owner only; another store's order is NOT_FOUND. */
+  async activityOrder(actor: Actor, input: { merchantOrgId: string; orderId: OrderWhoInput['orderId'] }): Promise<OrderWho> {
+    await this.owner(actor, input.merchantOrgId);
+    const order = await this.orders.get(input.orderId).catch(() => null);
+    if (!order || order.merchantOrgId !== input.merchantOrgId) throw new DriverError('not_found');
+    const types: ReadonlySet<string> = new Set(ORDER_ACTIVITY_TYPES);
+    const events = (await this.events.forOrder(order.id)).filter((e) => types.has(e.type));
+    const names = await this.activityNames(actor, events, new Set([order.ordererId]), input.merchantOrgId);
+    return { orderId: order.id, entries: activityEntries(events, names) };
+  }
+
   // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
 
   /** Today's pot (even past its «لحد» time), last week's same day and the recent ones, follower counts. */
@@ -668,7 +732,8 @@ export class MerchantAdminService implements MerchantAdminPort {
         return {
           personId,
           name: pending ? null : (cards[personId]?.name ?? null),
-          phoneMasked: cards[personId]?.phoneMasked ?? null,
+          // The 4+4 form the owner saw on the invite («0780 ••• 4455»): they added this number themselves.
+          phoneMasked: cards[personId]?.phoneHint ?? null,
           role: roleOf.get(personId)!,
           you: personId === actor.personId,
           pending,

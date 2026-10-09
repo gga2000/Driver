@@ -11,7 +11,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./style.json": "./dist/style.json"
+    "./style.json": "./dist/style.json",
+    "./golden": {
+      "types": "./dist/golden/index.d.ts",
+      "default": "./dist/golden/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node dist/emit-style.js",
@@ -21,6 +25,7 @@
   },
   "dependencies": {
     "@driver/contracts": "workspace:*",
+    "@driver/design-tokens": "workspace:*",
     "@maplibre/maplibre-gl-style-spec": "24.10.0",
     "@types/geojson": "7946.0.16"
   },

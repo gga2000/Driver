@@ -16,6 +16,7 @@ import { categoryNames, checkImport, emptyRow, rowProblems, type ImportRow } fro
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
 import { GlyphButton, Panel, Pill } from './parts';
 import { useImportActions, useImportJob, useMenu, usePhotoUpload } from './queries';
+import { useSetupActions } from '@/features/setup/queries';
 import { color } from '@driver/design-tokens';
 
 type Stage = 'photos' | 'reading' | 'review' | 'done';
@@ -33,8 +34,11 @@ export function ImportScreen() {
   const locale = useLocale();
   const toast = useCounterToast();
   const { wide } = useLayout();
-  const params = useLocalSearchParams<{ job?: string }>();
+  const params = useLocalSearchParams<{ job?: string; setup?: string }>();
   const jobId = typeof params.job === 'string' && params.job ? params.job : null;
+  // «جهّز محلك» (m2): typed rows go back to setup as yes/fix cards instead of straight onto the menu.
+  const setupMode = params.setup === '1';
+  const setupActions = useSetupActions();
   const { store } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const job = useImportJob(storeId, jobId);
@@ -93,6 +97,13 @@ export function ImportScreen() {
   const apply = () => {
     setTried(true);
     if (!storeId || !jobId || check.problems > 0 || check.ready.length === 0) return;
+    if (setupMode) {
+      setupActions.menuDraft.mutate(
+        { merchantOrgId: storeId, jobId, items: check.ready },
+        { onSuccess: () => router.replace('/setup/menu'), onError: fail },
+      );
+      return;
+    }
     actions.apply.mutate(
       { merchantOrgId: storeId, jobId, items: check.ready },
       { onSuccess: (j) => toast.show({ message: t('merchant.import.applied_toast', { count: j.appliedCount }), tone: 'success' }), onError: fail },
@@ -323,7 +334,7 @@ export function ImportScreen() {
         <Pill tone="success" dot label={t('merchant.import.ready_count', { count: check.ready.length })} />
         {check.problems > 0 ? <Pill tone="danger" dot label={t('merchant.import.fix_count', { count: check.problems })} /> : null}
       </View>
-      <Button testID="import-apply" size="lg" label={t('merchant.import.apply', { count: check.ready.length })} disabled={check.ready.length === 0 || check.problems > 0} loading={actions.apply.isPending} onPress={apply} style={{ minWidth: wide ? 260 : undefined, flex: wide ? undefined : 1 }} />
+      <Button testID="import-apply" size="lg" label={setupMode ? t('merchant.setup.import_to_cards', { count: check.ready.length }) : t('merchant.import.apply', { count: check.ready.length })} disabled={check.ready.length === 0 || check.problems > 0} loading={actions.apply.isPending || setupActions.menuDraft.isPending} onPress={apply} style={{ minWidth: wide ? 260 : undefined, flex: wide ? undefined : 1 }} />
     </View>
   );
 

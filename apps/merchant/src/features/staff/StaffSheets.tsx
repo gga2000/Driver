@@ -7,7 +7,7 @@ import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { useDates } from '@/lib/dates';
 import { invitePhone, isLastOwner, resendWaitMinutes } from './logic';
 import { useStaffActions } from './queries';
@@ -131,7 +131,7 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
   const toast = useCounterToast();
   const { setRole, remove, resend } = useStaffActions();
   const dates = useDates();
-  const now = useServerNow(0, 15_000);
+  const now = useServerTime(15_000);
   const [role, setRoleState] = useState<MerchantStaffRole>('merchant_staff');
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
@@ -251,9 +251,7 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
           ? member.inviteSentAt
             ? t('merchant.staff.invite_sent_at', { when: dates.when(member.inviteSentAt, now) })
             : undefined
-          : member.phoneMasked
-            ? `⁦${member.phoneMasked}⁩`
-            : undefined
+          : (invitePhone(member) ?? undefined)
       }
       footer={
         member.you ? undefined : (

@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import type { MerchantBoard } from '@driver/contracts';
 import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
-import { clockOffset, startServerClock } from '@/lib/time';
+import { clockOffset } from '@/lib/time';
+import { serverClock } from './clock';
 import { isPractice, practice, usePractice } from './practice';
 import { applyRadar } from './radar';
 import { readyQueue, useReadyQueue, withQueuedReady } from './ready-queue';
+import { beatLog } from './shop-load';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
@@ -55,6 +58,7 @@ export function useBoard(merchantOrgId: string | null) {
     staleTime: 0,
   });
   const offset = q.data ? clockOffset(q.data.now, q.dataUpdatedAt) : 0;
+  useEffect(() => serverClock.setOffset(offset), [offset]);
   const trial = usePractice().order;
   const queue = useReadyQueue();
   const data = useMemo(() => {
@@ -63,13 +67,6 @@ export function useBoard(merchantOrgId: string | null) {
     return { ...q.data, orders: trial ? [trial, ...orders] : orders };
   }, [q.data, trial, queue]);
   return { ...q, data, offset };
-}
-
-/** Ticks every `ms` with server time (board `now` + elapsed): the board re-renders its timers on each tick. */
-export function useServerNow(offset: number, ms = 1000): number {
-  const [now, setNow] = useState(() => Date.now() + offset);
-  useEffect(() => startServerClock(offset, ms, setNow), [offset, ms]);
-  return now;
 }
 
 /**
@@ -149,6 +146,11 @@ export function useOnline(): boolean {
 /**
  * `orders.merchant.heartbeat` every 30 s while the app is open on a store (and once at start).
  * Mounted once, app-wide (MerchantRuntime); a missing response flips `useOnline()` to false.
+ *
+ * h5 (Ali, 2026-10-08): 5 minutes without a heartbeat pause the shop for customers, and an app in the
+ * background sends none. So the moment the app is in front again it beats at once (the 30-s rhythm
+ * restarts from there), and every answered beat goes in the beat log, which tells the board how long
+ * the shop was paused while the app was away.
  */
 export function useHeartbeat(merchantOrgId: string | null): void {
   const client = useApiClient();
@@ -156,10 +158,15 @@ export function useHeartbeat(merchantOrgId: string | null): void {
   useEffect(() => {
     if (!signedIn || !merchantOrgId) return;
     let alive = true;
+    void beatLog.load(merchantOrgId);
     const beat = () => {
       client.orders.merchant.heartbeat
         .mutate({ merchantOrgId })
-        .then(() => alive && setOnline(true))
+        .then(() => {
+          if (!alive) return;
+          setOnline(true);
+          void beatLog.ok(merchantOrgId, Date.now());
+        })
         .catch((err: unknown) => {
           // A refused call (4xx) is not "offline"; only a missing response is.
           const status = (err as { data?: { httpStatus?: number } } | null)?.data?.httpStatus;
@@ -167,10 +174,34 @@ export function useHeartbeat(merchantOrgId: string | null): void {
         });
     };
     beat();
-    const id = setInterval(beat, HEARTBEAT_MS);
+    let id = setInterval(beat, HEARTBEAT_MS);
+    let state: AppStateStatus = AppState.currentState;
+    const sub = AppState.addEventListener('change', (next) => {
+      const wasAway = state !== 'active';
+      state = next;
+      if (next !== 'active' || !wasAway) return;
+      beat();
+      clearInterval(id);
+      id = setInterval(beat, HEARTBEAT_MS);
+    });
     return () => {
       alive = false;
       clearInterval(id);
+      sub.remove();
     };
   }, [client, signedIn, merchantOrgId]);
+}
+
+/** `orders.merchant.remakeRule` (c6): whether «سوّيناه من جديد» may show, and from when after «جاهز». */
+export function useRemakeRule(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.orders.merchant.remakeRule.queryOptions(), enabled: signedIn && enabled, staleTime: 5 * 60_000 });
+}
+
+/** c6: «سوّيناه من جديد» — Driver pays the first batch of a ready order no courier came for. */
+export function useRemake() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({ ...api.orders.merchant.remake.mutationOptions(), onSettled: () => void qc.invalidateQueries(api.merchant.board.pathFilter()) });
 }

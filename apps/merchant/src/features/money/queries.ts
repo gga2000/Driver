@@ -12,6 +12,24 @@ export function useMoneyToday(merchantOrgId: string | null, enabled: boolean) {
   return useQuery({ ...api.merchantAdmin.money.today.queryOptions({ merchantOrgId: merchantOrgId ?? '' }), enabled: signedIn && enabled && !!merchantOrgId, refetchInterval: 60_000 });
 }
 
+/** «منو سوّى شنو»: the day's kitchen actions with who did each (owner only; `enabled` carries `canSeeMoney`). */
+export function useActivityToday(merchantOrgId: string | null, enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.merchantAdmin.activity.today.queryOptions({ merchantOrgId: merchantOrgId ?? '' }), enabled: signedIn && enabled && !!merchantOrgId, refetchInterval: 60_000 });
+}
+
+/** One order's who-line for the order sheet (owner only), read when the sheet opens. */
+export function useOrderWho(merchantOrgId: string | null, orderId: string | null, enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.merchantAdmin.activity.order.queryOptions({ merchantOrgId: merchantOrgId ?? '', orderId: orderId ?? '' }),
+    enabled: signedIn && enabled && !!merchantOrgId && !!orderId,
+    staleTime: 15_000,
+  });
+}
+
 /** Polled faster while a request is on its way, so "استلمتها" shows up by itself. */
 export function useCashAccount(merchantOrgId: string | null, enabled: boolean) {
   const api = useApi();
