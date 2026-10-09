@@ -116,7 +116,7 @@ export function BookerSharePanel({ r, dayLabel }: { r: RequestPostView; dayLabel
             initial={name.slice(0, 1)}
             title={m.places > 1 ? t('rajaa.carshare_named_places', { name, places: t(countKey('rajaa.carshare_places', m.places), { n: m.places }) }) : name}
             body={t('rajaa.carshare_friend_body', { amount: amountParam(m.amountIqd) })}
-            tag={<StatusPill size="sm" tone="success" icon="check" label={t('rajaa.carshare_tag_paid')} />}
+            tag={<StatusPill size="sm" tone="success" icon="check" label={t(m.boardedBy ? 'rajaa.carshare_tag_in' : 'rajaa.carshare_tag_paid')} />}
           />
         );
       })}
