@@ -1,36 +1,22 @@
 import type { ReactNode } from 'react';
 import { Image } from 'expo-image';
-import { Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import { Text, useTheme, type StatusTone } from '@driver/ui';
 import { DishDrawing, dishLook, motifForDish } from '@driver/ui/dishes';
+import { Switch } from '@/components/Switch';
 import { COUNTER } from '@/lib/counter';
 import { Glyph, type GlyphName } from './Glyph';
 import { absoluteUrl } from './photo';
-import { color as palette } from '@driver/design-tokens';
 
 /**
  * Small building blocks shared by the menu and deals screens: a big kitchen switch, round glyph
  * buttons, tappable pills, the dish thumbnail (photo or its drawing) and panel cards.
  */
 
+/** The kitchen switch (d15: the app's one switch — brand colour on, grey off, 44 px to tap). */
 export function Toggle({ value, onChange, testID, label, disabled }: { value: boolean; onChange: (v: boolean) => void; testID?: string; label: string; disabled?: boolean }) {
-  const theme = useTheme();
-  return (
-    <Switch
-      testID={testID}
-      accessibilityLabel={label}
-      value={value}
-      disabled={disabled}
-      onValueChange={(v) => {
-        theme.haptic('selection');
-        onChange(v);
-      }}
-      trackColor={{ true: theme.colors.success, false: theme.colors.borderStrong }}
-      thumbColor={palette.neutral[0]}
-      {...({ activeThumbColor: palette.neutral[0] } as object)}
-    />
-  );
+  return <Switch value={value} onValueChange={onChange} accessibilityLabel={label} disabled={disabled} {...(testID ? { testID } : {})} />;
 }
 
 type Variant = 'outline' | 'tonal' | 'accent' | 'plain';

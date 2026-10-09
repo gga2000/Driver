@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Platform, Switch, View } from 'react-native';
+import { View } from 'react-native';
+import { Switch } from '@/components/Switch';
 import { Button, EmptyState, Skeleton, Text, TextField, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
@@ -104,15 +105,7 @@ export function StoryScreen() {
               {t('merchant.story.show_hint')}
             </Text>
           </View>
-          <Switch
-            testID="story-shown"
-            accessibilityLabel={t('merchant.story.show')}
-            value={current.shown}
-            disabled={!editable}
-            onValueChange={(v) => setDraft({ ...current, shown: v })}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-            {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
-          />
+          <Switch testID="story-shown" accessibilityLabel={t('merchant.story.show')} value={current.shown} disabled={!editable} onValueChange={(v) => setDraft({ ...current, shown: v })} />
         </View>
         {problems.length > 0 ? (
           <Text variant="label" color="dangerText" testID="story-problem">
