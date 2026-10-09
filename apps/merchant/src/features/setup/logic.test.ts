@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestLibraryDish, doorsOf, fridayPrayer, greetingName, menuScore, shouldLand, shutterFraction, shutterOpens, STEP_HREF, stepMinutes, toggleDoor, voiceOf } from './logic';
+import { bestLibraryDish, doorsOf, fridayPrayer, greetingName, menuScore, priceTyping, shouldLand, shutterFraction, shutterOpens, STEP_HREF, stepMinutes, toggleDoor, voiceOf } from './logic';
 
 const LIB = [
   { slug: 'kebab', nameAr: 'كباب', words: ['كباب'], section: 'grill' as const },
@@ -75,5 +75,17 @@ describe('setup in the app', () => {
   it('finds the Friday prayer among the pauses', () => {
     expect(fridayPrayer([{ dow: 5, start: '11:45', end: '13:15' }])).toEqual({ start: '11:45', end: '13:15' });
     expect(fridayPrayer([])).toBeNull();
+  });
+});
+
+describe('d13 · the fix sheet price', () => {
+  it('reads «6,000» as he types, never a bare 6000', () => {
+    expect(priceTyping('6000')).toBe('6,000');
+    expect(priceTyping('6,0005')).toBe('60,005');
+    expect(priceTyping('٧٥٠')).toBe('750');
+    expect(priceTyping('15000 دينار')).toBe('15,000');
+    expect(priceTyping('')).toBe('');
+    expect(priceTyping('00250')).toBe('250');
+    expect(priceTyping('123456789')).toBe('12,345,678');
   });
 });

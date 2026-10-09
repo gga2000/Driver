@@ -417,11 +417,23 @@ export function clampOffer(price: number, cap: number | null): number {
   return cap !== null ? Math.min(stepped, Math.floor(cap / OFFER_STEP_IQD) * OFFER_STEP_IQD) : stepped;
 }
 
-/** A starting offer: the cap for stranded riders, else a round figure by seats (private car higher). */
-export function suggestedOffer(post: { priceCapIqd: number | null; seats: number; privateCar: boolean }): number {
+/**
+ * A starting offer: the cap for stranded riders; the middle of the usual range when real trips gave
+ * one (p2, so offers start fair); else a round figure by seats (private car higher).
+ */
+export function suggestedOffer(post: { priceCapIqd: number | null; seats: number; privateCar: boolean; usualRange?: { lowIqd: number; highIqd: number } | null }): number {
   if (post.priceCapIqd !== null) return clampOffer(post.priceCapIqd, post.priceCapIqd);
+  if (post.usualRange) return clampOffer((post.usualRange.lowIqd + post.usualRange.highIqd) / 2, null);
   const base = post.privateCar ? 35_000 : 10_000 * post.seats;
   return clampOffer(base, null);
+}
+
+/** w1: the extra-hour price steps like the offer (1,000s); 0 means extra hours are free. */
+export const EXTRA_HOUR_MAX_IQD = 50_000;
+
+export function stepExtraHour(current: number | null, delta: 1 | -1): number {
+  if (current === null) return delta > 0 ? OFFER_STEP_IQD : 0;
+  return Math.max(0, Math.min(EXTRA_HOUR_MAX_IQD, current + delta * OFFER_STEP_IQD));
 }
 
 /** Wallet deposit the rider pays on picking an offer (20 % rounded up to 500, min 5,000), as the server does. */

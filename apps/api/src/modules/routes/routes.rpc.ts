@@ -28,6 +28,7 @@ import {
   type ReviewOpsView,
   type RequestOfferDriver,
   type RequestPostView,
+  type UsualRange,
   type RoutesPort,
 } from '@driver/contracts';
 import { shortDisplayName } from '../identity/index.js';
@@ -280,8 +281,12 @@ export class RoutesRpc implements RoutesPort {
 
   async myRequests(actor: Actor): Promise<RequestPostView[]> {
     const mine = await this.requests.mine(actor.personId);
-    const drivers = await this.offerDrivers(mine, actor.personId);
-    return mine.map((r) => requestView(r, undefined, drivers));
+    const [drivers, ranges] = await Promise.all([this.offerDrivers(mine, actor.personId), this.requests.usualRanges(mine)]);
+    return mine.map((r) => requestView(r, undefined, drivers, ranges.get(r.id) ?? null));
+  }
+
+  async usualRange(_actor: Actor, input: In<'usualRange'>): Promise<UsualRange | null> {
+    return this.requests.usualRange(input.placeId, input.trip);
   }
 
   async pickOffer(actor: Actor, input: In<'pickOffer'>): Promise<RequestPostView> {
@@ -293,7 +298,13 @@ export class RoutesRpc implements RoutesPort {
   }
 
   private async riderRequestView(r: RequestRecord, riderId: string): Promise<RequestPostView> {
-    return requestView(r, undefined, await this.offerDrivers([r], riderId));
+    const [drivers, ranges] = await Promise.all([this.offerDrivers([r], riderId), this.requests.usualRanges([r])]);
+    return requestView(r, undefined, drivers, ranges.get(r.id) ?? null);
+  }
+
+  /** p2: a driver sees the same usual range the rider does, so offers start fair. */
+  private async driverRequestView(r: RequestRecord, driverId: string): Promise<RequestPostView> {
+    return requestView(r, driverId, undefined, (await this.requests.usualRanges([r])).get(r.id) ?? null);
   }
 
   /**
@@ -548,18 +559,18 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async openRequests(actor: Actor, input: In<'openRequests'>): Promise<RequestPostView[]> {
-    return (await this.requests.listOpen(actor.personId, input?.cityId)).map((r) =>
-      requestView(r, actor.personId),
-    );
+    const open = await this.requests.listOpen(actor.personId, input?.cityId);
+    const ranges = await this.requests.usualRanges(open);
+    return open.map((r) => requestView(r, actor.personId, undefined, ranges.get(r.id) ?? null));
   }
 
   async requestSeen(actor: Actor, input: In<'requestSeen'>): Promise<RequestPostView> {
-    return requestView(await this.requests.seen(actor.personId, input.postId), actor.personId);
+    return this.driverRequestView(await this.requests.seen(actor.personId, input.postId), actor.personId);
   }
 
   async offerOnRequest(actor: Actor, input: In<'offerOnRequest'>): Promise<RequestPostView> {
-    return requestView(
-      await this.requests.offer(actor.personId, input.postId, input.priceIqd),
+    return this.driverRequestView(
+      await this.requests.offer(actor.personId, input.postId, input.priceIqd, input.wait),
       actor.personId,
     );
   }

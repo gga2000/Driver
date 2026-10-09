@@ -23,7 +23,7 @@ import { doorsOf, greetingName, voiceOf } from './logic';
 import { openStep, setupLater, usePayoutLine } from './nav';
 import { setupSession, useMe, useSetup, useSetupActions } from './queries';
 import { SetupRing } from './SetupRing';
-import { GapDot, SetupSteps, stepHint, stepTitle } from './SetupSteps';
+import { MissingTag, SetupSteps, stepHint, stepTitle } from './SetupSteps';
 import { DoorChip } from './DoorChip';
 
 /**
@@ -192,8 +192,8 @@ function Home({ view, name, menu, hours, payout, wide }: { view: MerchantSetupVi
 }
 
 /**
- * f2: «هذا اللي يشوفه الزبون» — his shop as the customer app shows it, with every gap a saffron dot that
- * opens its step. The shop photo is optional (it never holds him back) but lit the same way.
+ * f2: «هذا اللي يشوفه الزبون» — his shop as the customer app shows it, with every gap a small «ناقص» label
+ * (d14: not a pulsing dot, which read as loading) that opens its step. The shop photo is optional (it never holds him back) but lit the same way.
  */
 function ShopPreview({ view, menu, hours, wide }: { view: MerchantSetupView; menu: AdminMenu | undefined; hours: StoreHoursView | undefined; wide: boolean }) {
   const theme = useTheme();
@@ -238,7 +238,7 @@ function ShopPreview({ view, menu, hours, wide }: { view: MerchantSetupView; men
           <PhotoImage uri={absoluteUrl(view.shopPhotoUrl)} style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, width: '100%', height: '100%' }} />
         ) : (
           <>
-            <GapDot />
+            <MissingTag testID="setup-missing-photo" />
             <View style={{ paddingHorizontal: theme.space[3], height: 30, borderRadius: 15, justifyContent: 'center', backgroundColor: COUNTER.paper }}>
               <Text variant="caption" weight={700} style={{ color: COUNTER.date }}>
                 {busy ? t('merchant.setup.uploading') : t('merchant.setup.shop_photo')}
@@ -256,7 +256,7 @@ function ShopPreview({ view, menu, hours, wide }: { view: MerchantSetupView; men
             doors.map((d: FoodDoor) => <DoorChip key={d} door={d} small />)
           ) : (
             <Pressable testID="setup-gap-kind" accessibilityRole="button" onPress={() => openStep('kind')} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44 }}>
-              <GapDot size={20} />
+              <MissingTag />
               <Text variant="label" weight={700} style={{ color: COUNTER.newBadge }}>
                 {t('merchant.setup.step_kind')}
               </Text>
@@ -264,14 +264,14 @@ function ShopPreview({ view, menu, hours, wide }: { view: MerchantSetupView; men
           )}
         </View>
         <Pressable testID="setup-gap-hours" accessibilityRole="button" onPress={() => openStep('hours')} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44 }}>
-          {hoursLine ? <MIcon name="clock" size={16} color="textMuted" /> : <GapDot size={20} />}
+          {hoursLine ? <MIcon name="clock" size={16} color="textMuted" /> : <MissingTag />}
           <Text variant="footnote" color={hoursLine ? 'textMuted' : 'text'} weight={hoursLine ? 400 : 700} tabular style={{ flex: 1 }}>
             {hoursLine ? t('merchant.setup.hours_preview', { hours: hoursLine }) : t('merchant.setup.hours_missing')}
           </Text>
         </Pressable>
         {items.length === 0 ? (
           <Pressable testID="setup-gap-menu" accessibilityRole="button" onPress={() => openStep('menu')} style={{ minHeight: 96, borderRadius: theme.radius.lg, borderWidth: 2, borderStyle: 'dashed', borderColor: COUNTER.saffron, alignItems: 'center', justifyContent: 'center', gap: theme.space[2], padding: theme.space[3] }}>
-            <GapDot size={22} />
+            <MissingTag />
             <Text variant="label" weight={700} style={{ color: COUNTER.newBadge }} align="center">
               {view.menu.pendingCards > 0 || view.menu.cards === 'reading' ? stepHint(t, view, 'menu', null) : t('merchant.setup.menu_empty_gap')}
             </Text>
@@ -281,7 +281,7 @@ function ShopPreview({ view, menu, hours, wide }: { view: MerchantSetupView; men
             {items.map((i) => (
               <Pressable key={i.id} accessibilityRole="button" accessibilityLabel={i.nameAr} onPress={() => openStep(i.photoUrl ? 'menu' : 'photos')} style={{ flexBasis: '47%', flexGrow: 1, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
                 <View style={{ aspectRatio: 4 / 3, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
-                  {i.photoUrl ? <Image source={{ uri: absoluteUrl(i.photoUrl) }} style={{ width: '100%', height: '100%' }} contentFit="cover" /> : <GapDot size={22} />}
+                  {i.photoUrl ? <Image source={{ uri: absoluteUrl(i.photoUrl) }} style={{ width: '100%', height: '100%' }} contentFit="cover" /> : <MissingTag />}
                 </View>
                 <View style={{ padding: theme.space[2] }}>
                   <Text variant="label" weight={700} numberOfLines={1}>

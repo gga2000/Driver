@@ -768,7 +768,8 @@ app.use('/demo/usuals', async (req, res) => {
 // middle seat that a woman can't take between two men, a van with a walk-up, a family-only SUV,
 // a car with its front seat sold), demand posts behind the board banner, and three dev hooks:
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
-//   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and four offer
+//   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and five offer
+//   POST /demo/rajaa/history             finished private trips to Najaf (the usual range, p1)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
@@ -1189,6 +1190,7 @@ const rajaa = await (async () => {
   });
 
   // y5: private trips the offering drivers already completed (post → offer → pick → done), once.
+  // They go to Najaf (the chip) there and back with a 4-hour wait, so that trip has a usual range (p1).
   let privateSeeded = false;
   async function seedPrivateTrips() {
     if (privateSeeded) return;
@@ -1197,13 +1199,24 @@ const rajaa = await (async () => {
       for (let i = 0; i < n; i += 1) {
         const who = rider();
         await ledger.record({ type: 'adjustment', amount: 20_000, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
-        const r = await requests.post(who, { from: { label: 'العزيزية' }, to: { label: 'النجف' }, when: at(1), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false } });
-        const o = (await requests.offer(driverId, r.id, price)).offers.at(-1);
+        const r = await requests.post(who, { from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: at(1), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4, returnAt: null, bigBags: 0, carKind: null, ac: false } });
+        const o = (await requests.offer(driverId, r.id, price, { includedHours: 4, extraHourIqd: 5_000 })).offers.at(-1);
         await requests.pick(who, r.id, o.id);
         await requests.complete(driverId, r.id);
       }
     }
   }
+
+  // p1: the finished trips behind «عادةً بين … و …», before the rider opens the request form.
+  app.use('/demo/rajaa/history', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
+      await seedPrivateTrips();
+      json(res, 200, { ok: true });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
 
   app.use('/demo/rajaa/offers', async (req, res) => {
     try {
@@ -1215,10 +1228,15 @@ const rajaa = await (async () => {
         // y4: seven drivers opened it, four offered (y5, y6: the Elantra with AC, the cheaper Avante
         // without, the GMC with the best record, and one more).
         for (const d of [D.drv_1Q7Z, D.drv_6J2L, D.drv_9B3H]) await requests.seen(d, r.id);
-        await requests.offer(D.drv_7K2Q, r.id, 55_000);
-        await requests.offer(D.drv_3C5N, r.id, 42_000);
-        await requests.offer(D.drv_4M9T, r.id, 60_000);
-        await requests.offer(D.drv_5R1D, r.id, 48_000);
+        // w1: on a «يستناك وترجع» trip each offer says the hours included and the extra-hour price
+        // (one includes fewer hours than asked, one waits for free); p3: one is well above the usual.
+        const asked = r.details.waitHours ?? 3;
+        const wait = (hours, extra) => (r.details.trip === 'wait_return' ? { includedHours: hours, extraHourIqd: extra } : undefined);
+        await requests.offer(D.drv_7K2Q, r.id, 55_000, wait(asked, 5_000));
+        await requests.offer(D.drv_3C5N, r.id, 42_000, wait(Math.max(1, asked - 2), 5_000));
+        await requests.offer(D.drv_4M9T, r.id, 60_000, wait(asked, 0));
+        await requests.offer(D.drv_5R1D, r.id, 48_000, wait(asked, 4_000));
+        await requests.offer(D.drv_9B3H, r.id, 80_000, wait(asked + 1, 5_000));
       }
       json(res, 200, { requests: open.map((r) => r.id) });
     } catch (err) {
@@ -1668,7 +1686,9 @@ const rajaa = await (async () => {
       const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
       await trips.reportPosition(driverId, { tripId: trip.id, pin: PICKUP, at: new Date(), bearing: 320, speedKmh: 0 });
       await trips.arrive(trip.id, pickup.id, driverId, { pin: PICKUP });
-      await trips.completeStop(trip.id, pickup.id, driverId);
+      // A night ride (21:00–05:59) starts with the rider's code, as on /demo/ride/advance.
+      const startCode = (await orders.startCodeOf(ride.id)) ?? undefined;
+      await trips.completeStop(trip.id, pickup.id, driverId, startCode ? { startCode } : {});
       await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: await demoVoiceNote(driverId), durationSec: 4 });

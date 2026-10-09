@@ -13,6 +13,7 @@ import type {
   RequestOfferDriver,
   RequestPostView,
   TravellingAs,
+  UsualRange,
 } from '@driver/contracts';
 import { haversineMeters } from '../trips/index.js';
 import type { DeparturesService } from './departures.service.js';
@@ -104,7 +105,8 @@ export function departureSummary(s: DeparturesService, dep: DepartureRecord): De
   return {
     id: dep.id,
     corridorId: dep.corridorId,
-    cityId: s.corridor(dep.corridorId).cityId,
+    // A list must still show if a corridor is ever retired from config; the app falls back to its own lookup.
+    cityId: s.network.corridors.find((c) => c.id === dep.corridorId)?.cityId,
     direction: dep.direction,
     garageId: dep.garageId,
     departAt: dep.departAt,
@@ -289,7 +291,12 @@ export function demandView(p: DemandPostRecord): DemandPostView {
  * A request as its rider (or, with `viewerDriverId`, one offering driver) sees it. `drivers` carries
  * the offering drivers' cards for the rider (R-01); without it every offer's `driver` is null.
  */
-export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?: ReadonlyMap<string, RequestOfferDriver>): RequestPostView {
+export function requestView(
+  r: RequestRecord,
+  viewerDriverId?: string,
+  drivers?: ReadonlyMap<string, RequestOfferDriver>,
+  usualRange: UsualRange | null = null,
+): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
     id: r.id,
@@ -302,6 +309,7 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
     travellingAs: r.travellingAs,
     note: r.note,
     details: r.details,
+    usualRange,
     // y4: only the rider learns how many drivers opened it.
     seenBy: viewerDriverId ? 0 : r.seenDriverIds.length,
     state: r.state,
@@ -311,6 +319,7 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
       id: o.id,
       driverId: o.driverId,
       priceIqd: o.priceIqd,
+      wait: o.wait,
       at: o.at,
       state: o.state,
       driver: drivers?.get(o.driverId) ?? null,

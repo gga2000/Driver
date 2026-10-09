@@ -287,12 +287,14 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
 async function cashToCollect(ctx: SimContext, orderId: string): Promise<{ cashIqd: number; changeToWalletIqd?: number } | undefined> {
   const order = await ctx.call('driver.order', () => ctx.s.orders.get(orderId));
   if (!order) return undefined;
+  // M-3: the owed fees the order collects ride on the cash.
+  const due = order.totalIqd + (order.debtCollectIqd ?? 0);
   if (stableBucket(orderId, DRIVER_BEHAVIOUR.noChangeEvery) === 0) {
-    const note = order.statedTenderIqd ?? tenderOptions(order.totalIqd)[1];
-    const extra = note !== undefined ? note - order.totalIqd : 0;
+    const note = order.statedTenderIqd ?? tenderOptions(due)[1];
+    const extra = note !== undefined ? note - due : 0;
     if (extra > 0 && extra <= 25_000 && extra % 250 === 0) return { cashIqd: note!, changeToWalletIqd: extra };
   }
-  return { cashIqd: order.totalIqd };
+  return { cashIqd: due };
 }
 
 /** A fixed bucket 0…n−1 for an id (FNV-1a), independent of every random stream. */

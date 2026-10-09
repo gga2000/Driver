@@ -1,4 +1,4 @@
-import { DEFAULT_REQUEST_DETAILS, PinAlertKind, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestPlaceId, type RequestTripKind, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -327,6 +327,8 @@ export class PrismaRoutesRepository implements RoutesRepository {
           requestId: r.id,
           driverId: o.driverId,
           priceIqd: o.priceIqd,
+          waitIncludedHours: o.wait?.includedHours ?? null,
+          extraHourIqd: o.wait?.extraHourIqd ?? null,
           state: o.state,
           createdAt: o.at,
         },
@@ -362,6 +364,25 @@ export class PrismaRoutesRepository implements RoutesRepository {
       orderBy: [{ when: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toRequest);
+  }
+
+  async completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }, tx?: Tx): Promise<number[]> {
+    // The picked offer's price on each finished private trip a rider posted to that place and kind.
+    const rows = await this.db(tx).rideRequestOffer.findMany({
+      where: {
+        state: 'picked',
+        request: {
+          state: 'completed',
+          origin: 'rider',
+          privateCar: true,
+          closedAt: { gte: f.since },
+          toPlace: { path: ['placeId'], equals: f.placeId },
+          details: { path: ['trip'], equals: f.trip },
+        },
+      },
+      select: { priceIqd: true },
+    });
+    return rows.map((r) => r.priceIqd);
   }
 
   async privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>> {
@@ -608,6 +629,10 @@ function toRequest(r: RequestRow): RequestRecord {
       id: o.id,
       driverId: o.driverId,
       priceIqd: o.priceIqd,
+      wait:
+        o.waitIncludedHours !== null && o.extraHourIqd !== null
+          ? { includedHours: o.waitIncludedHours, extraHourIqd: o.extraHourIqd }
+          : null,
       at: o.createdAt,
       state: o.state,
     })),

@@ -12,7 +12,7 @@ import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { balanceState, exposure, holderRows, moneyPill, requestBlocker, requestProgress } from './logic';
+import { balanceState, beforeFirstOrder, exposure, holderRows, moneyPill, requestBlocker, requestProgress } from './logic';
 import { useRequestMoney } from './queries';
 
 const TONE_COLOR = { success: 'success', warning: 'warning', danger: 'danger', neutral: 'textMuted' } as const;
@@ -37,7 +37,7 @@ export function TodayView({
   const [receipt, setReceipt] = useState<CashHandover | null>(null);
   const start = (
     <>
-      {cash ? <CashHero account={cash} merchantOrgId={merchantOrgId} onReceipt={setReceipt} /> : <Skeleton height={300} radius={20} />}
+      {cash ? <CashHero account={cash} first={beforeFirstOrder(cash, today?.orders ?? 0)} merchantOrgId={merchantOrgId} onReceipt={setReceipt} /> : <Skeleton height={300} radius={20} />}
       {cash ? <HoldersPanel account={cash} /> : null}
     </>
   );
@@ -76,7 +76,7 @@ function heroWhen(account: MerchantCashAccount, t: (k: TKey, p?: Record<string, 
   return p.sub && h.kind === 'owed' ? t(p.sub) : t(`merchant.money.mode_${account.mode}` as TKey);
 }
 
-function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCashAccount; merchantOrgId: string; onReceipt: (h: CashHandover) => void }) {
+function CashHero({ account, first, merchantOrgId, onReceipt }: { account: MerchantCashAccount; /** d12: no delivered order yet. */ first: boolean; merchantOrgId: string; onReceipt: (h: CashHandover) => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -131,6 +131,16 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
               {iqd(account.balanceIqd, { locale })}
             </Text>
           </View>
+        ) : first ? (
+          // d12: a new shop has no money story yet; nothing that reads like money went missing.
+          <View testID="cash-first" style={{ gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
+            <Text testID="cash-balance" variant="title" weight={700}>
+              {t('merchant.money.first_title')}
+            </Text>
+            <Text variant="footnote" color="text">
+              {t('merchant.money.first_why')}
+            </Text>
+          </View>
         ) : (
           // M-07: a negative balance is explained in plain words (not a 44-px red minus), zero says so.
           <View testID={`cash-${state.kind}`} style={{ gap: theme.space[2], backgroundColor: state.kind === 'owe' ? theme.colors.warningTint : theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[4] }}>
@@ -143,24 +153,26 @@ function CashHero({ account, merchantOrgId, onReceipt }: { account: MerchantCash
           </View>
         )}
 
-        <View style={{ gap: theme.space[2] }}>
-          <Meter value={ex.fill} color={theme.colors[TONE_COLOR[ex.tone]]} height={12} />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: theme.space[3] }}>
-            <Text variant="footnote" weight={600} color={ex.tone === 'danger' ? 'dangerText' : ex.tone === 'warning' ? 'warningText' : 'successText'} tabular>
-              {ex.over ? t('merchant.money.cap_over') : t('merchant.money.cap_left', { amount: amountParam(ex.leftIqd) })}
-            </Text>
-            <Text variant="footnote" color="textMuted" tabular>
-              {t('merchant.money.cap_label', { amount: amountParam(account.exposureCapIqd) })}
-            </Text>
+        {first ? null : (
+          <View style={{ gap: theme.space[2] }}>
+            <Meter value={ex.fill} color={theme.colors[TONE_COLOR[ex.tone]]} height={12} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: theme.space[3] }}>
+              <Text variant="footnote" weight={600} color={ex.tone === 'danger' ? 'dangerText' : ex.tone === 'warning' ? 'warningText' : 'successText'} tabular>
+                {ex.over ? t('merchant.money.cap_over') : t('merchant.money.cap_left', { amount: amountParam(ex.leftIqd) })}
+              </Text>
+              <Text variant="footnote" color="textMuted" tabular>
+                {t('merchant.money.cap_label', { amount: amountParam(account.exposureCapIqd) })}
+              </Text>
+            </View>
+            {!ex.over ? (
+              <Text variant="caption" color="textMuted">
+                {t('merchant.money.cap_hint')}
+              </Text>
+            ) : null}
           </View>
-          {!ex.over ? (
-            <Text variant="caption" color="textMuted">
-              {t('merchant.money.cap_hint')}
-            </Text>
-          ) : null}
-        </View>
+        )}
 
-        {open ? null : (
+        {open || first ? null : (
           <View style={{ gap: theme.space[2] }}>
             <Button testID="money-request" label={t('merchant.request_money')} icon="wallet" size="lg" fullWidth loading={request.isPending} disabled={blocker !== null} onPress={() => void ask()} />
             {/* M-07: a disabled button always says why. */}
@@ -417,7 +429,7 @@ function Figure({ label, value, muted }: { label: string; value: string; muted?:
       <Text variant="caption" color="textMuted">
         {label}
       </Text>
-      <Text variant="title" weight={700} color={muted ? 'textMuted' : 'text'} tabular numberOfLines={1} adjustsFontSizeToFit>
+      <Text variant="title" weight={700} color={muted ? 'textMuted' : 'text'} tabular>
         {value}
       </Text>
     </View>

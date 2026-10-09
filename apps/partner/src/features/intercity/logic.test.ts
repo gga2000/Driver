@@ -26,6 +26,7 @@ import {
   seatOccupants,
   splitDepartures,
   suggestedDepart,
+  stepExtraHour,
   suggestedOffer,
   windowLabel,
 } from './logic';
@@ -100,6 +101,8 @@ describe('money', () => {
     expect(clampOffer(15_000, 10_000)).toBe(10_000);
     expect(suggestedOffer({ priceCapIqd: 10_000, seats: 1, privateCar: true })).toBe(10_000);
     expect(suggestedOffer({ priceCapIqd: null, seats: 2, privateCar: false })).toBe(20_000);
+    // p2: the middle of the usual range from real trips, rounded to 1,000.
+    expect(suggestedOffer({ priceCapIqd: null, seats: 2, privateCar: true, usualRange: { lowIqd: 30_000, highIqd: 37_000 } })).toBe(34_000);
     expect(depositFor(25_000)).toBe(5_000);
     expect(depositFor(45_000)).toBe(9_000);
     expect(depositFor(36_000)).toBe(7_500);
@@ -210,5 +213,15 @@ describe('PIN pad', () => {
     expect(['1', '2', '3', '4', '5'].reduce(pinPress, '')).toBe('1234');
     expect(pinPress('12', 'back')).toBe('1');
     expect(pinPress('12', 'x')).toBe('12');
+  });
+});
+
+describe('extra waiting hour price (w1)', () => {
+  it('starts unset; plus sets 1,000, minus sets free; steps by 1,000 between 0 and 50,000', () => {
+    expect(stepExtraHour(null, 1)).toBe(1_000);
+    expect(stepExtraHour(null, -1)).toBe(0);
+    expect(stepExtraHour(5_000, 1)).toBe(6_000);
+    expect(stepExtraHour(0, -1)).toBe(0);
+    expect(stepExtraHour(50_000, 1)).toBe(50_000);
   });
 });
