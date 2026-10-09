@@ -241,3 +241,18 @@ export const OUTCOME_KEY: Record<InboxStaffOutcome | 'auto', MessageKey> = {
   duplicate: 'console.today.outcome_duplicate',
   auto: 'console.today.outcome_auto',
 };
+
+/**
+ * While someone works the list (a row highlighted with the keys, or the mouse over it), rows that
+ * arrive by themselves wait behind «N جديد · اعرضها» so the row under their hand doesn't jump.
+ * Rows already on screen keep updating; an SOS never waits.
+ */
+export function holdRows<R extends Pick<InboxRow, 'id' | 'kind'>>(
+  rows: readonly R[],
+  onScreen: ReadonlySet<string> | null,
+  holding: boolean,
+): { shown: R[]; held: number } {
+  if (!holding || onScreen === null) return { shown: [...rows], held: 0 };
+  const shown = rows.filter((r) => onScreen.has(r.id) || r.kind === 'sos');
+  return { shown, held: rows.length - shown.length };
+}

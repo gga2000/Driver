@@ -11,7 +11,7 @@ import { PinPad } from './DepartureParts';
 import { TripsActions, useTripsColors } from './TripsColors';
 import { seatLook } from './GarageParts';
 import { departureState, riderName, seatName, statusLabel } from './labels';
-import { clockLabel, walkUpCash, type SeatOccupant } from './logic';
+import { clockLabel, seatCounts, walkUpCash, type SeatOccupant } from './logic';
 
 /**
  * الرجعة in the trips' own colours (partner redesign i1/i2/f1, Ali's Yes): date brown with gold. The
@@ -36,23 +36,25 @@ export function GoldTime({ at, now, note, countdown, size = 'hero' }: { at: Date
   );
 }
 
-/** Seats already sold (booked or boarded, walk-ups included) and how many of them are in the car. */
-export function seatCounts(dep: Pick<DriverDepartureView, 'fill' | 'bookings' | 'walkUps'>): { sold: number; total: number; boarded: number; toBoard: number; free: number } {
-  let boarded = dep.walkUps.length;
-  let toBoard = 0;
-  for (const b of dep.bookings) {
-    if (b.state === 'checked_in' || b.state === 'completed') boarded += b.seatIds.length;
-    else if (b.state === 'booked') toBoard += b.seatIds.length;
-  }
-  const sold = dep.fill.booked + dep.fill.walkUps;
-  return { sold, total: dep.fill.seatsTotal, boarded, toBoard, free: Math.max(0, dep.fill.seatsTotal - sold - dep.fill.held) };
-}
-
 function seatsLeftLabel(t: TFn, n: number): string {
   if (n <= 0) return t('partner.ic_seats_left_none');
   if (n === 1) return t('partner.ic_seats_left_one');
   if (n === 2) return t('partner.ic_seats_left_two');
   return t('partner.ic_seats_left_few', { n });
+}
+
+/**
+ * What follows «5 من 7 مقاعد» on every partner screen, from the one count (`seatCounts`): «4 صعدوا ·
+ * منهم 1 من الكراج · 1 ماسكينه · باقي مقعد واحد». While a held seat is still being paid for the car is
+ * not «كاملة» — the held seat says so instead. Seats left only while riders can still book.
+ */
+export function seatFacts(t: TFn, c: ReturnType<typeof seatCounts>, open: boolean): string[] {
+  return [
+    c.boarded > 0 ? t('partner.ic_fill_checked', { n: c.boarded }) : null,
+    c.walkUps > 0 ? t('partner.ic_fill_walkups', { n: c.walkUps }) : null,
+    c.held > 0 ? t('partner.ic_fill_held', { n: c.held }) : null,
+    open && (c.free > 0 || c.held === 0) ? seatsLeftLabel(t, c.free) : null,
+  ].filter((x): x is string => x !== null);
 }
 
 /** The car as the board shows it: model, colour, plate. */
@@ -109,7 +111,7 @@ export function TripsBand({ dep, from, to, now, note, orFull }: { dep: DriverDep
             {t('intercity.fill', { filled: c.sold, total: c.total })}
           </Text>
           <Text variant="footnote" weight={600} color={withAlpha(band.on, 0.78)} tabular>
-            {[c.boarded > 0 ? t('partner.ic_fill_checked', { n: c.boarded }) : null, open ? seatsLeftLabel(t, c.free) : null].filter(Boolean).join(' · ')}
+            {seatFacts(t, c, open).join(' · ')}
           </Text>
         </View>
         <BandSeats dep={dep} />

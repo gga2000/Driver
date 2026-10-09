@@ -79,7 +79,7 @@ const RIDER: Array<[string, (c: Call) => Promise<unknown>]> = [
     'requestBoard.post',
     (c) =>
       c.routes.requestBoard.post({
-        from: { label: 'البوابة ١' },
+        from: { label: 'البوابة 1' },
         to: { label: 'الصويرة' },
         when: AT,
         seats: 2,

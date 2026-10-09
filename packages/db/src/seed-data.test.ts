@@ -53,7 +53,7 @@ describe('seed data (plan Step 1)', () => {
     const points = MEETING_POINTS.filter((m) => !m.garage);
     expect(garages).toHaveLength(4);
     expect(points).toHaveLength(6);
-    expect(garages.map((g) => g.nameAr)).toEqual(['كراج البوابة ١', 'كراج البوابة ٢', 'كراج السوق', 'كراج النهضة']);
+    expect(garages.map((g) => g.nameAr)).toEqual(['كراج البوابة 1', 'كراج البوابة 2', 'كراج السوق', 'كراج النهضة']);
     expect(garages.find((g) => g.nameAr === 'كراج النهضة')?.cityId).toBe('baghdad');
     const zoneKeys = new Set(AZIZIYAH_ZONES.map((z) => z.id));
     for (const m of MEETING_POINTS) if (m.zoneKey) expect(zoneKeys.has(m.zoneKey), m.key).toBe(true);

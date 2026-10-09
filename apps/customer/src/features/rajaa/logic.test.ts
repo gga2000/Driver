@@ -55,8 +55,8 @@ const tAr = createT('ar-IQ');
 
 const GARAGES = [
   { id: 'mp_garage_souq', cityId: 'aziziyah', nameAr: 'كراج السوق', lat: 32.9062, lng: 45.0612 },
-  { id: 'mp_garage_bab2', cityId: 'aziziyah', nameAr: 'كراج البوابة ٢', lat: 32.9088, lng: 45.0648 },
-  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة ١', lat: 32.9032, lng: 45.0578 },
+  { id: 'mp_garage_bab2', cityId: 'aziziyah', nameAr: 'كراج البوابة 2', lat: 32.9088, lng: 45.0648 },
+  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة 1', lat: 32.9032, lng: 45.0578 },
   { id: 'mp_garage_nahdha', cityId: 'baghdad', nameAr: 'كراج النهضة', lat: 33.3344, lng: 44.4165 },
   { id: 'mp_garage_kut', cityId: 'kut', nameAr: 'كراج الكوت', lat: 32.5126, lng: 45.8189 },
 ];

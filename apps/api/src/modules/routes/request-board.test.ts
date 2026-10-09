@@ -35,7 +35,7 @@ function postRequest(h: RoutesHarness, riderId = 'r1') {
   return h.requests.post(
     riderId,
     PostRequestInput.parse({
-      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      from: { label: 'كراج البوابة 1', garageId: BAB1.id },
       to: { label: 'الصويرة' },
       when: h.at(120),
       seats: 3,
@@ -167,7 +167,7 @@ async function finishedTrip(h: RoutesHarness, rider: string, price: number, opts
   const r = await h.requests.post(
     rider,
     PostRequestInput.parse({
-      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      from: { label: 'كراج البوابة 1', garageId: BAB1.id },
       to: { label: 'كربلاء', placeId: opts.placeId ?? 'karbala' },
       when: h.at(30),
       seats: 2,

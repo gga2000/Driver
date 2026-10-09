@@ -12,10 +12,9 @@ import { PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/Dep
 import { GarageLegend, GarageSeatMap, RiderSheet, WalkUpSheet } from '@/features/intercity/GarageParts';
 import { blockerText, cityName, countdownLabel, departureState, riderName, seatName, seatsList } from '@/features/intercity/labels';
 import { TripsActions } from '@/features/intercity/TripsColors';
-import { AboardList, BoardingCodeSheet, CarArtSeats, SeatRoster, seatCounts, TripsBand, type CodeMatch } from '@/features/intercity/TripsParts';
+import { AboardList, BoardingCodeSheet, CarArtSeats, SeatRoster, seatFacts, TripsBand, type CodeMatch } from '@/features/intercity/TripsParts';
 import {
   ANNOUNCE_RULES,
-  boardedSeats,
   clockLabel,
   corridorCity,
   departBlockerNote,
@@ -29,6 +28,7 @@ import {
   minutesUntil,
   pickupRoute,
   pinPress,
+  seatCounts,
   seatOccupants,
   type SeatOccupant,
 } from '@/features/intercity/logic';
@@ -320,6 +320,8 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
     try {
       await actions.arrive.mutateAsync({ departureId: dep.id });
       theme.haptic('success');
+      // «وصلتوا» replaces the trip; «انطلقتوا» must not stay over it (check-up 2026-10-09).
+      toast.hide();
     } catch (err) {
       fail(err);
     }
@@ -339,7 +341,6 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const lowFill = dep.state === 'scheduled' && toLowFill > 0 && dep.fill.filled < ANNOUNCE_RULES.minSeatsAtTMinus30;
   const busy = Object.values(actions).some((m) => m.isPending && m !== actions.position);
   const soon = minutesUntil(dep.departAt, now) <= 60;
-  const checkedIn = boardedSeats(dep.bookings);
   const stepsDone = !!dep.selfieAt && !!dep.driverCheckedInAt && dep.driverInsideGarage !== false;
   const blocker = blockerText(t, departBlockerNote(readiness), dep.departAt);
 
@@ -397,7 +398,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
       {dep.state === 'departed' ? <Banner tone="info" icon="car" title={t('partner.ic_on_road_title', { city: cityName(t, toCity) })} body={t('partner.ic_on_road_body')} /> : null}
       {dep.state === 'arrived' || dep.state === 'closed' ? (
-        <Banner tone="success" icon="check" title={t('partner.ic_arrived_title')} body={t('partner.ic_arrived_body', { n: dep.bookings.filter((b) => b.state === 'completed').length })} />
+        <Banner tone="success" icon="check" title={t('partner.ic_arrived_title')} body={t('partner.ic_arrived_body', { n: counts.boarded })} />
       ) : null}
       {dep.state === 'cancelled_low_fill' ? <Banner tone="danger" icon="x" title={departureState(t, dep.state)} body={t('partner.ic_cancelled_low_fill_body')} /> : null}
       {lowFill ? <Banner tone="warning" icon="clock" title={t('partner.low_fill_warn', { minutes: toLowFill, n: dep.fill.filled })} /> : null}
@@ -467,14 +468,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
             <View style={{ gap: theme.space[3] }}>
               <SeatStrip dep={dep} />
               <Text variant="label" weight={600} tabular>
-                {[
-                  t('intercity.fill', { filled: dep.fill.booked + dep.fill.walkUps, total: dep.fill.seatsTotal }),
-                  checkedIn > 0 ? t('partner.ic_fill_checked', { n: checkedIn }) : null,
-                  dep.fill.walkUps > 0 ? t('partner.ic_fill_walkups', { n: dep.fill.walkUps }) : null,
-                  dep.fill.held > 0 ? t('partner.ic_fill_held', { n: dep.fill.held }) : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {[t('intercity.fill', { filled: counts.sold, total: counts.total }), ...seatFacts(t, counts, open)].join(' · ')}
               </Text>
             </View>
           </Card>
@@ -538,14 +532,6 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
             </View>
           ) : null}
 
-          {hasPickupRun(route) && live ? (
-            <View style={{ gap: theme.space[3] }}>
-              <SectionHead title={t('partner.ic_route_title')} />
-              <Card padding={4}>
-                <PickupRoute stops={route} garageName={garage?.nameAr ?? ''} names={names} />
-              </Card>
-            </View>
-          ) : null}
         </>
       )}
 
@@ -583,8 +569,8 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
       <BoardingCodeSheet
         open={codeOpen}
         onClose={() => setCodeOpen(false)}
-        boarded={counts.boarded - dep.walkUps.length}
-        total={counts.boarded - dep.walkUps.length + counts.toBoard}
+        boarded={counts.boarded}
+        total={counts.boarded + counts.toBoard}
         pin={codePin}
         error={codeError}
         busy={actions.checkIn.isPending}
