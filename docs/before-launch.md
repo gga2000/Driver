@@ -105,3 +105,28 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.
+
+## 7. Platform (servers, tests, alerts): dated work and parked items
+
+Added 2026-10-09 when Ali closed the platform thread. Unlike sections 1–6, the dated rows are already
+agreed and only wait for their day; the platform work restarts from here.
+
+| When | What | Who | Details |
+|---|---|---|---|
+| Before 2 Nov | Upgrade Supabase to Pro (Ali said yes on 2026-10-08) | Ali | `docs/deploy/supabase.md` |
+| Before 9 Nov | Type the test sign-in code `STAGING_TEST_OTP` into GitHub → Settings → Environments → staging (only there, never in chat) | Ali | `docs/deploy/staging.md` |
+| 9 Nov | The big load test on the test server (bigger test server approved), results in `docs/launch/load-YYYY-MM-DD.md` | platform | `docs/launch/load-test.md` |
+| Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
+| 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
+| When the real server is set up | Error reports (`SENTRY_DSN` on the real API) and uptime monitors with email alerts (Better Stack, free) | platform | `docs/deploy/hosting.md` "Logs and errors" |
+| Week before launch | Phone-call alerts (Better Stack Responder, about $29 a month): the alert phone number goes only into Better Stack's own settings, never into this repo | Ali | — |
+| Each test-server run | Approve it when GitHub asks ("Review deployments") | Ali | — |
+
+Parked (start when convenient, no date):
+
+- Two database clean-ups wait behind the other teams' database changes: the old-data clean-up (#38) and
+  the events index. Each takes the next free migration slot when picked up (`docs/launch/migrations.md`).
+- Game day row 11 (the nightly money close on a web machine) has no on-demand start yet; until it does,
+  that row is run by hand around the scheduled close time.
+- Sign-in texts and phone notifications wait with no time limit if their provider hangs
+  (`apps/api/src/shared/messaging/http.ts`, lane D's); game day row 6 will show it.

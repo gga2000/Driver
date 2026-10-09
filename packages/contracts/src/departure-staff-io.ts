@@ -47,3 +47,21 @@ export const OverdueDeparture = z.object({
   actions: z.array(z.enum(['cancel', 'arrive'])),
 });
 export type OverdueDeparture = z.infer<typeof OverdueDeparture>;
+
+/**
+ * `routes.ops.departureDrivers`: who drives each departure, for the Console garage view, whatever its
+ * state (riders' `driverCards` only show board departures and their own trips, so a departed or
+ * overdue run had no name). One logged staff vault read (purpose `intercity_ops_departure`).
+ */
+export const StaffDepartureDriversInput = z.object({ departureIds: z.array(z.string().min(1)).min(1).max(100) });
+export type StaffDepartureDriversInput = z.infer<typeof StaffDepartureDriversInput>;
+
+export const StaffDepartureDriver = z.object({
+  departureId: z.string(),
+  driverId: z.string(),
+  /** "حيدر ك."; null when the vault has no name. */
+  displayName: z.string().nullable(),
+  /** Masked number (identity's member card), never the number itself. */
+  phoneMasked: z.string().nullable(),
+});
+export type StaffDepartureDriver = z.infer<typeof StaffDepartureDriver>;

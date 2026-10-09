@@ -21,7 +21,7 @@ import { LIVE_RULES, type LiveEvent } from './live-io.js';
 export function liveBackoffMs(
   n: number,
   random: () => number = Math.random,
-  rules: Pick<typeof LIVE_RULES, 'backoffBaseMs' | 'backoffMaxMs'> = LIVE_RULES,
+  rules: { backoffBaseMs: number; backoffMaxMs: number } = LIVE_RULES,
 ): number {
   const raw = Math.min(rules.backoffMaxMs, rules.backoffBaseMs * 2 ** Math.max(0, n - 1));
   return Math.round(raw * (0.8 + 0.4 * random()));
