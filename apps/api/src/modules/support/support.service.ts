@@ -17,6 +17,11 @@ import {
   type OpenTicketInput,
   type PayQueryStatus,
   type Order,
+  type RefundApproval,
+  type RefundApprovalDeclineInput,
+  type RefundApprovalIdInput,
+  type RefundApprovalLimit,
+  type RefundApprovalListInput,
   type RefundLimits,
   type SlaState,
   type SupportCustomer,
@@ -45,7 +50,7 @@ import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService, type PublishedEvent, type StoredEvent } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { LedgerService, SupportCreditService, type SupportCreditFunder } from '../ledger/index.js';
-import { OrdersService } from '../orders/index.js';
+import { OrdersService, RefundApprovalsService, type RefundApprovalRecord } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { TripsService } from '../trips/index.js';
 import { CANNED_RESPONSES, CHAT_SUBJECT_AR, DISPUTE_SUBJECT_AR, HOSTILE_WORDS, KIND_AR, STATUS_AR, SUGGESTED_BY_DISPUTE, chatReopenedAr, chatSubjectAr } from './canned.js';
@@ -194,9 +199,13 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     @Inject(CLOCK) private readonly clock: Clock,
     // «كلّم الدعم» (before-launch §6): the order's support chat; absent in tests that don't need it.
     @Optional() @Inject(SUPPORT_CHAT) private readonly chat?: SupportChatPort,
+    // Refunds over a limit wait for a second OK; without it (older tests) they are refused as before.
+    @Optional() private readonly approvals?: RefundApprovalsService,
   ) {}
 
   onModuleInit(): void {
+    // An approved refund over a limit posts here, in the approval's transaction.
+    if (this.approvals) this.unsubscribe.push(this.approvals.register('ticket', (row, approverId, tx) => this.postApproved(row, approverId, tx)));
     // The customer's message in the order's support chat opens (or reopens) its case; the desk's moves it on.
     this.unsubscribe.push(this.events.subscribe('support:chat', ['chat.message_sent'], (e, ctx) => this.onChatMessage(e, ctx.tx)));
     // A customer dispute (or the unreachable protocol's default dispute) opens a ticket by itself.
@@ -628,7 +637,8 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const usedToday = (await this.repo.refundsBy(actor.personId, startOfLocalDay(now))).reduce((a, e) => a + (e.amountIqd ?? 0), 0);
     const customerUsed = ticket.customerId ? await this.customerCredits(ticket.customerId, now) : 0;
     const agentLeft = tier === 'agent' ? Math.max(0, SUPPORT_LIMITS.agentDailyCapIqd - usedToday) : Number.MAX_SAFE_INTEGER;
-    const singleLeft = tier === 'admin' ? Number.MAX_SAFE_INTEGER : SUPPORT_LIMITS.escalateAboveIqd;
+    // What he may give without a second OK (admins too above 25,000 once the queue is there).
+    const singleLeft = tier === 'admin' && !this.approvals ? Number.MAX_SAFE_INTEGER : SUPPORT_LIMITS.escalateAboveIqd;
     const customerLeft = tier === 'admin' ? Number.MAX_SAFE_INTEGER : Math.max(0, SUPPORT_LIMITS.customerMonthlyCapIqd - customerUsed);
     const orderLeft = order ? Math.max(0, order.totalIqd - (await this.refundedOnOrder(order.id))) : Number.MAX_SAFE_INTEGER;
     const available = ticket.customerId ? Math.min(agentLeft, singleLeft, customerLeft, orderLeft) : 0;
@@ -707,7 +717,13 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       canned: this.canned(),
       suggestion: disputeKind.success ? (SUGGESTED_BY_DISPUTE[disputeKind.data] ?? null) : null,
       customerDisputes30d: disputes30d,
+      pendingApproval: await this.pendingApprovalOf(ticket.id),
     };
+  }
+
+  private async pendingApprovalOf(ticketId: string): Promise<TicketCase['pendingApproval']> {
+    const row = this.approvals ? (await this.approvals.pendingFor({ ticketId }))[0] : undefined;
+    return row ? { id: row.id, amountIqd: row.amountIqd, requestedAt: row.requestedAt } : null;
   }
 
   /**
@@ -784,43 +800,205 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   async refund(actor: Actor, input: z.output<typeof TicketRefundInput>): Promise<TicketCase> {
     const prior = await this.repo.entryByKey(`refund:${input.idempotencyKey}`);
     if (prior) return this.get(actor, { ticketId: prior.ticketId });
+    // The same click again while (or after) it waited for a second OK: nothing new.
+    if (this.approvals && (await this.approvals.byKey(`refund:${input.idempotencyKey}`))) return this.get(actor, { ticketId: input.ticketId });
     const ticket = await this.load(input.ticketId);
     if (ticket.status === 'resolved') throw new DriverError('ticket_closed');
     if (!ticket.customerId) throw new DriverError('refund_no_customer');
     const customerId = ticket.customerId;
     const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
     const tier = await this.tierOf(actor.personId);
-    if (tier !== 'admin' && input.amountIqd > SUPPORT_LIMITS.escalateAboveIqd) throw new DriverError('refund_needs_escalation');
+    // Without the second-OK queue an admin may go above 25,000 alone and everyone else is refused.
+    if (!this.approvals && tier !== 'admin' && input.amountIqd > SUPPORT_LIMITS.escalateAboveIqd) throw new DriverError('refund_needs_escalation');
     const funder = await this.funderFor(input.faultParty, order, input.method);
     const now = this.clock.now();
     await this.uow.run(async (tx) => {
       await this.repo.lockCustomer(customerId, tx);
       if (await this.repo.entryByKey(`refund:${input.idempotencyKey}`, tx)) return;
-      if (tier === 'agent') {
-        const used = (await this.repo.refundsBy(actor.personId, startOfLocalDay(now), tx)).reduce((a, e) => a + (e.amountIqd ?? 0), 0);
-        if (used + input.amountIqd > SUPPORT_LIMITS.agentDailyCapIqd) throw new DriverError('refund_over_agent_limit');
-      }
-      if (tier !== 'admin' && (await this.customerCredits(customerId, now, tx)) + input.amountIqd > SUPPORT_LIMITS.customerMonthlyCapIqd) throw new DriverError('refund_customer_cap');
       if (order && (await this.refundedOnOrder(order.id, tx)) + input.amountIqd > order.totalIqd) throw new DriverError('refund_exceeds_order');
-      const groupId = `support:${ticket.id}:${input.idempotencyKey}`;
-      const posted = await this.credits.credit({ groupId, ticketId: ticket.id, customerId, orderId: order?.id ?? null, amountIqd: input.amountIqd, method: input.method, funder, occurredAt: now }, tx);
-      const text = input.method === 'points' ? `${posted.points ?? 0} نقطة (${input.amountIqd.toLocaleString('en-US')} دينار)` : `${input.amountIqd.toLocaleString('en-US')} دينار رصيد بالمحفظة`;
-      await this.repo.addEntry(
-        { ticketId: ticket.id, actorId: actor.personId, kind: 'refund', text: input.note ? `${text} — ${input.note}` : text, amountIqd: input.amountIqd, meta: { method: input.method, faultParty: input.faultParty, funder: funder.kind, ledgerGroupId: groupId, points: posted.points }, idempotencyKey: `refund:${input.idempotencyKey}`, at: now },
-        tx,
-      );
-      await this.touch(ticket, actor, { refundedIqd: ticket.refundedIqd + input.amountIqd, ...(input.faultParty !== 'platform' ? { faultParty: input.faultParty } : {}) }, tx);
-      await this.events.emit(
-        tx,
-        { actorId: actor.personId, type: 'support.refunded', occurredAt: now, ...(order ? { orderId: order.id } : {}), payload: { ticketId: ticket.id, customerId, amountIqd: input.amountIqd, method: input.method, faultParty: input.faultParty, ledgerGroupId: groupId } },
-        { name: 'support_ticket', id: ticket.id },
-      );
-      await this.audits.record(
-        { cityId: ticket.cityId, actorId: actor.personId, action: 'ticket.refund', subjectKind: 'ticket', subjectId: ticket.id, summaryAr: `تعويض ${text} على ${faultAr(input.faultParty)}`, detail: { amountIqd: input.amountIqd, method: input.method, faultParty: input.faultParty, ledgerGroupId: groupId } },
-        tx,
-      );
+      const limit = await this.limitHit(actor.personId, tier, customerId, input.amountIqd, now, tx);
+      if (limit && this.approvals) {
+        await this.askSecondOk(actor, ticket, customerId, order, input, limit, now, tx);
+        return;
+      }
+      if (limit === 'agent_daily') throw new DriverError('refund_over_agent_limit');
+      if (limit === 'customer_month') throw new DriverError('refund_customer_cap');
+      await this.post({ actorId: actor.personId, auditorId: actor.personId, approvedBy: null, ticket, customerId, order, amountIqd: input.amountIqd, method: input.method, faultParty: input.faultParty, note: input.note ?? null, key: input.idempotencyKey, funder, now }, tx);
     });
     return this.get(actor, { ticketId: ticket.id });
+  }
+
+  /**
+   * Which limit this refund goes over, if any: one refund above 25,000 (everyone, admins too, once the
+   * second-OK queue is there), the agent's 10,000 a day, the customer's 25,000 a month (not for admin).
+   */
+  private async limitHit(personId: string, tier: 'admin' | 'finance' | 'agent', customerId: string, amountIqd: number, now: Date, tx: Tx): Promise<RefundApprovalLimit | null> {
+    if (this.approvals && amountIqd > SUPPORT_LIMITS.escalateAboveIqd) return 'per_refund';
+    if (tier === 'agent') {
+      const used = (await this.repo.refundsBy(personId, startOfLocalDay(now), tx)).reduce((a, e) => a + (e.amountIqd ?? 0), 0);
+      if (used + amountIqd > SUPPORT_LIMITS.agentDailyCapIqd) return 'agent_daily';
+    }
+    if (tier !== 'admin' && (await this.customerCredits(customerId, now, tx)) + amountIqd > SUPPORT_LIMITS.customerMonthlyCapIqd) return 'customer_month';
+    return null;
+  }
+
+  /** Over a limit: the request waits for a second OK; the case says so; nothing posts. */
+  private async askSecondOk(actor: Actor, ticket: TicketRecord, customerId: string, order: Order | null, input: z.output<typeof TicketRefundInput>, limit: RefundApprovalLimit, now: Date, tx: Tx): Promise<void> {
+    const row = await this.approvals!.request(
+      {
+        kind: 'ticket',
+        cityId: ticket.cityId,
+        ticketId: ticket.id,
+        orderId: order?.id ?? null,
+        amountIqd: input.amountIqd,
+        limitKind: limit,
+        payload: { method: input.method, faultParty: input.faultParty, note: input.note ?? null, idempotencyKey: input.idempotencyKey, customerId },
+        requestedBy: actor.personId,
+        idempotencyKey: `refund:${input.idempotencyKey}`,
+      },
+      tx,
+    );
+    const money = input.amountIqd.toLocaleString('en-US');
+    await this.repo.addEntry({ ticketId: ticket.id, actorId: actor.personId, kind: 'note', text: `تعويض ${money} دينار ينتظر موافقة ثانية (${LIMIT_AR[limit]})`, amountIqd: null, meta: { refundApprovalId: row.id, limit }, idempotencyKey: `refund_wait:${input.idempotencyKey}`, at: now }, tx);
+    await this.touch(ticket, actor, {}, tx);
+    await this.approvalEvent(tx, row, actor.personId, now);
+    await this.audits.record(
+      { cityId: ticket.cityId, actorId: actor.personId, action: 'ticket.refund_requested', subjectKind: 'ticket', subjectId: ticket.id, summaryAr: `طلب تعويض ${money} دينار ينتظر موافقة ثانية (${LIMIT_AR[limit]})`, detail: { refundApprovalId: row.id, amountIqd: input.amountIqd, method: input.method, faultParty: input.faultParty, limit } },
+      tx,
+    );
+  }
+
+  /** An approved ticket refund posts, as the agent who asked, with the approver on the audit row. */
+  private async postApproved(row: RefundApprovalRecord, approverId: string, tx: Tx): Promise<void> {
+    const ticket = await this.load(row.ticketId!, tx);
+    if (ticket.status === 'resolved') throw new DriverError('ticket_closed');
+    if (!ticket.customerId) throw new DriverError('refund_no_customer');
+    const p = row.payload as { method: 'wallet' | 'points'; faultParty: FaultParty; note: string | null; idempotencyKey: string };
+    const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
+    await this.repo.lockCustomer(ticket.customerId, tx);
+    if (await this.repo.entryByKey(`refund:${p.idempotencyKey}`, tx)) return;
+    if (order && (await this.refundedOnOrder(order.id, tx)) + row.amountIqd > order.totalIqd) throw new DriverError('refund_exceeds_order');
+    const funder = await this.funderFor(p.faultParty, order, p.method);
+    await this.post({ actorId: row.requestedBy, auditorId: approverId, approvedBy: approverId, ticket, customerId: ticket.customerId, order, amountIqd: row.amountIqd, method: p.method, faultParty: p.faultParty, note: p.note, key: p.idempotencyKey, funder, now: this.clock.now() }, tx);
+  }
+
+  /** The credit, the case entry, the ticket total, `support.refunded` and the audit row, in one transaction. */
+  private async post(
+    r: { actorId: string; auditorId: string; approvedBy: string | null; ticket: TicketRecord; customerId: string; order: Order | null; amountIqd: number; method: 'wallet' | 'points'; faultParty: FaultParty; note: string | null; key: string; funder: SupportCreditFunder; now: Date },
+    tx: Tx,
+  ): Promise<void> {
+    const { ticket, order } = r;
+    const groupId = `support:${ticket.id}:${r.key}`;
+    const posted = await this.credits.credit({ groupId, ticketId: ticket.id, customerId: r.customerId, orderId: order?.id ?? null, amountIqd: r.amountIqd, method: r.method, funder: r.funder, occurredAt: r.now }, tx);
+    const text = r.method === 'points' ? `${posted.points ?? 0} نقطة (${r.amountIqd.toLocaleString('en-US')} دينار)` : `${r.amountIqd.toLocaleString('en-US')} دينار رصيد بالمحفظة`;
+    await this.repo.addEntry(
+      {
+        ticketId: ticket.id,
+        actorId: r.actorId,
+        kind: 'refund',
+        text: r.note ? `${text} — ${r.note}` : text,
+        amountIqd: r.amountIqd,
+        meta: { method: r.method, faultParty: r.faultParty, funder: r.funder.kind, ledgerGroupId: groupId, points: posted.points, ...(r.approvedBy ? { approvedBy: r.approvedBy } : {}) },
+        idempotencyKey: `refund:${r.key}`,
+        at: r.now,
+      },
+      tx,
+    );
+    const fresh = await this.load(ticket.id, tx);
+    await this.touch(fresh, { personId: r.actorId } as Actor, { refundedIqd: fresh.refundedIqd + r.amountIqd, ...(r.faultParty !== 'platform' ? { faultParty: r.faultParty } : {}) }, tx);
+    await this.events.emit(
+      tx,
+      { actorId: r.actorId, type: 'support.refunded', occurredAt: r.now, ...(order ? { orderId: order.id } : {}), payload: { ticketId: ticket.id, customerId: r.customerId, amountIqd: r.amountIqd, method: r.method, faultParty: r.faultParty, ledgerGroupId: groupId } },
+      { name: 'support_ticket', id: ticket.id },
+    );
+    await this.audits.record(
+      {
+        cityId: ticket.cityId,
+        actorId: r.auditorId,
+        action: 'ticket.refund',
+        subjectKind: 'ticket',
+        subjectId: ticket.id,
+        summaryAr: `تعويض ${text} على ${faultAr(r.faultParty)}${r.approvedBy ? ' (موافقة ثانية)' : ''}`,
+        detail: { amountIqd: r.amountIqd, method: r.method, faultParty: r.faultParty, ledgerGroupId: groupId, ...(r.approvedBy ? { requestedBy: r.actorId, approvedBy: r.approvedBy } : {}) },
+      },
+      tx,
+    );
+  }
+
+  // ───────────── second OK on refunds over a limit (`support.refundApprovals`) ─────────────
+
+  async refundApprovals(_actor: Actor, input: z.output<typeof RefundApprovalListInput>): Promise<RefundApproval[]> {
+    if (!this.approvals) return [];
+    return this.approvalViews(await this.approvals.list({ pending: input.state === 'pending', cityId: input.cityId }));
+  }
+
+  async approveRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval> {
+    const row = await this.approvalsOrFail().approve(actor.personId, input.id, (r, tx) => this.decided(r, actor.personId, tx));
+    return (await this.approvalViews([row]))[0]!;
+  }
+
+  async declineRefund(actor: Actor, input: RefundApprovalDeclineInput): Promise<RefundApproval> {
+    const row = await this.approvalsOrFail().decline(actor.personId, input.id, input.note, (r, tx) => this.decided(r, actor.personId, tx));
+    return (await this.approvalViews([row]))[0]!;
+  }
+
+  async cancelRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval> {
+    const row = await this.approvalsOrFail().cancel(actor.personId, input.id, (r, tx) => this.decided(r, actor.personId, tx));
+    return (await this.approvalViews([row]))[0]!;
+  }
+
+  private approvalsOrFail(): RefundApprovalsService {
+    if (!this.approvals) throw new DriverError('approval_not_found');
+    return this.approvals;
+  }
+
+  /** Every decision: the event, a Console audit row, and on a ticket a line on the case. */
+  private async decided(row: RefundApprovalRecord, actorId: string, tx: Tx): Promise<void> {
+    const now = this.clock.now();
+    const money = row.amountIqd.toLocaleString('en-US');
+    const verb = { approved: 'انوافق على', declined: 'انرفض', cancelled: 'انلغى', pending: '' }[row.state];
+    await this.approvalEvent(tx, row, actorId, now);
+    const subject = row.kind === 'ticket' ? { subjectKind: 'ticket', subjectId: row.ticketId! } : { subjectKind: 'order', subjectId: row.orderId! };
+    await this.audits.record(
+      { cityId: row.cityId, actorId, action: `refund_approval.${row.state}`, ...subject, summaryAr: `${verb} تعويض ${money} دينار${row.declineNote ? ` — ${row.declineNote}` : ''}`, detail: { refundApprovalId: row.id, kind: row.kind, amountIqd: row.amountIqd, requestedBy: row.requestedBy, limit: row.limitKind } },
+      tx,
+    );
+    if (row.kind === 'ticket' && row.ticketId && row.state !== 'approved') {
+      await this.repo.addEntry({ ticketId: row.ticketId, actorId, kind: 'note', text: `${verb} طلب التعويض (${money} دينار)${row.declineNote ? ` — ${row.declineNote}` : ''}`, amountIqd: null, meta: { refundApprovalId: row.id, state: row.state }, idempotencyKey: `refund_decided:${row.id}`, at: now }, tx);
+    }
+  }
+
+  private async approvalEvent(tx: Tx, row: RefundApprovalRecord, actorId: string, now: Date): Promise<void> {
+    await this.events.emit(
+      tx,
+      { actorId, type: 'support.refund_approval', occurredAt: now, ...(row.orderId ? { orderId: row.orderId } : {}), payload: { refundApprovalId: row.id, kind: row.kind, state: row.state, amountIqd: row.amountIqd, limit: row.limitKind, requestedBy: row.requestedBy, ticketId: row.ticketId, orderId: row.orderId } },
+      { name: 'refund_approval', id: row.id },
+    );
+  }
+
+  private async approvalViews(rows: RefundApprovalRecord[]): Promise<RefundApproval[]> {
+    const names = await this.staff.of([...new Set(rows.flatMap((r) => [r.requestedBy, ...(r.decidedBy ? [r.decidedBy] : [])]))]);
+    return rows.map((r) => {
+      const p = r.payload as { method?: 'wallet' | 'points'; faultParty?: FaultParty; note?: string | null; reason?: string };
+      return {
+        id: r.id,
+        kind: r.kind,
+        cityId: r.cityId,
+        ticketId: r.ticketId,
+        orderId: r.orderId,
+        amountIqd: r.amountIqd,
+        method: p.method ?? null,
+        faultParty: p.faultParty ?? 'platform',
+        note: p.note ?? p.reason ?? null,
+        limit: r.limitKind,
+        requestedBy: { id: r.requestedBy, name: names[r.requestedBy] ?? null },
+        requestedAt: r.requestedAt,
+        state: r.state,
+        decidedBy: r.decidedBy ? { id: r.decidedBy, name: names[r.decidedBy] ?? null } : null,
+        decidedAt: r.decidedAt,
+        declineNote: r.declineNote,
+      };
+    });
   }
 
   /** Wallet refunds are funded by the party at fault (the courier's earnings, the merchant's cash account); points always by the platform. */
@@ -893,6 +1071,14 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     return this.get(actor, { ticketId: ticket.id });
   }
 }
+
+/** Which limit sent a refund for a second OK, as the case and the audit log say it. */
+const LIMIT_AR: Record<RefundApprovalLimit, string> = {
+  per_refund: 'فوق 25,000 للتعويض الواحد',
+  agent_daily: 'فوق حدّك اليومي 10,000',
+  customer_month: 'فوق 25,000 للزبون بالشهر',
+  dispute: 'فوق 25,000 للشكوى',
+};
 
 function faultAr(f: FaultParty): string {
   return { none: 'ماكو طرف', courier: 'الدليفري', merchant: 'المطعم', platform: 'درايفر', customer: 'الزبون' }[f];

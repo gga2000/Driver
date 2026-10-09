@@ -3832,3 +3832,35 @@ model InboxItem {
   @@map("inbox_items")
   @@schema("public")
 }
+
+/// A refund over a limit (support spec §2, Ali 2026-10-08): nothing posts until a second staff member
+/// (finance or admin, never the one who asked) approves it. `payload` is the original request (ticket:
+/// method, idempotency key; complaint: outcome). Ids and amounts only.
+model RefundApproval {
+  id             String    @id @default(cuid())
+  /// ticket | dispute
+  kind           String
+  cityId         String    @map("city_id")
+  ticketId       String?   @map("ticket_id")
+  orderId        String?   @map("order_id")
+  amountIqd      Int       @map("amount_iqd")
+  /// per_refund | agent_daily | customer_month | dispute
+  limitKind      String    @map("limit_kind")
+  payload        Json      @default("{}")
+  requestedBy    String    @map("requested_by")
+  requestedAt    DateTime  @map("requested_at")
+  /// pending | approved | declined | cancelled
+  state          String    @default("pending")
+  decidedBy      String?   @map("decided_by")
+  decidedAt      DateTime? @map("decided_at")
+  declineNote    String?   @map("decline_note")
+  idempotencyKey String    @unique @map("idempotency_key")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, requestedAt])
+  @@index([ticketId])
+  @@index([orderId])
+  @@map("refund_approvals")
+  @@schema("public")
+}

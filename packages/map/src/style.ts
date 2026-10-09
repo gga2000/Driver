@@ -34,8 +34,12 @@ export const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyri
 
 /** Glyphs for vector labels once PMTiles land (Noto stacks carry Arabic). */
 export const DEFAULT_GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf';
-/** MapLibre needs the RTL plugin to shape Arabic in vector labels. */
-export const RTL_TEXT_PLUGIN_URL = 'https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js';
+/**
+ * MapLibre needs the RTL plugin to shape Arabic in vector labels. Our own copy of
+ * @mapbox/mapbox-gl-rtl-text 0.3.0, next to the tiles in the Supabase `map` bucket (uploaded by the
+ * Map tiles workflow with a checksum check), so no third-party script host is needed.
+ */
+export const RTL_TEXT_PLUGIN_URL = 'https://lapigvjdsuapfexzdcvl.supabase.co/storage/v1/object/public/map/plugins/mapbox-gl-rtl-text-0.3.0.js';
 
 /** Arabic first, then the default name, then English (vector basemap labels). */
 export const ARABIC_FIRST_NAME = ['coalesce', ['get', 'name:ar'], ['get', 'name'], ['get', 'name:en']] as const;

@@ -9,6 +9,7 @@ import { useApi } from '@/lib/api';
 import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
+import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
 import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
@@ -29,25 +30,6 @@ export function BaseMap(props: BaseMapProps) {
 }
 
 export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
-
-/** How often the Golden hour light is checked (it changes a few times a day; the swap is a quiet cross-fade). */
-const LIGHT_CHECK_MS = 10 * 60_000;
-
-type Maplibre = typeof import('maplibre-gl');
-
-let protocolAdded = false;
-/** Once per page: the `pmtiles://` protocol and the Arabic text shaping our labels need. */
-async function prepareGolden(maplibregl: Maplibre): Promise<void> {
-  if (!protocolAdded) {
-    const { Protocol } = await import('pmtiles');
-    maplibregl.addProtocol('pmtiles', new Protocol().tile);
-    protocolAdded = true;
-  }
-  if (maplibregl.getRTLTextPluginStatus() === 'unavailable') {
-    const { RTL_TEXT_PLUGIN_URL } = await import('@driver/map');
-    void maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true).catch(() => undefined);
-  }
-}
 
 /**
  * The camera lives in the shared values (`cam`): every frame the map is jumped to them, so the
