@@ -176,7 +176,7 @@ function Header({ p, name }: { p: RajaaDriverProfile; name: string }) {
   );
 }
 
-/** His car: the painted top-down picture when we have it, the model and colour, and the plate as it looks. */
+/** His car: the flat top-down saloon for a 4-seat car, the model and colour, and the plate as it looks. */
 function CarSection({ p }: { p: RajaaDriverProfile }) {
   const theme = useTheme();
   const t = useT();

@@ -265,7 +265,7 @@ export default function BookSeat() {
 
   const max = travellingAs ? maxSeatsFor(travellingAs, dep.vehicle.layout) : 1;
   const ready = !!travellingAs && seatIds.length > 0 && pickup.kind !== 'way';
-  // The driver's own car under the seats when it has a picture (Ali, 2026-10-07); the drawn map otherwise.
+  // The flat car under the seats for a 4-seat run (Ali, 2026-10-09: no glossy pictures); the drawn map otherwise.
   const art = carArtFor(dep.vehicle);
   const mapSeats = toSeatMap(dep.seats) as SeatInfo[];
   const mapSelection = mode === 'seats' ? selection : seatIds;

@@ -15,7 +15,7 @@ import { clockLabel, walkUpCash, type SeatOccupant } from './logic';
 
 /**
  * الرجعة in the trips' own colours (partner redesign i1/i2/f1, Ali's Yes): date brown with gold. The
- * garage page opens on a brown band with the departure time on gold split-flap tiles, his own car seen
+ * garage page opens on a brown band with the departure time on gold split-flap tiles, the car seen
  * from above with every seat filling as riders board, a boarding-code sheet that goes rider by rider,
  * and the riders on board by seat for «وصلنا». Seats never say «رجال» or «نساء» (riders stopped choosing).
  */
@@ -154,7 +154,7 @@ export function BandSeats({ dep }: { dep: Pick<DriverDepartureView, 'seats' | 'b
   );
 }
 
-// ───────────────────────── his own car from above (i2) ─────────────────────────
+// ───────────────────────── the car from above (i2) ──────────────────────────────
 
 const MARK = 44;
 /** The painting is always light, so its marks use the sun palette in both schemes (like `CarSeatArt`). */
@@ -233,7 +233,7 @@ function ArtSeat({ occ, at, tagW, editable, onPress }: { occ: SeatOccupant; at: 
 }
 
 /**
- * i2: his own car painted from above (the same picture his riders book on), a disc on every seat in
+ * i2: the flat car from above (the same picture his riders book on), a disc on every seat in
  * its state's colour and sign, the rider's first name under it. Tap a seat: the rider's sheet or the
  * walk-up sheet, exactly like the drawn map. Physical layout: never mirrored.
  */
@@ -295,7 +295,7 @@ export function CarArtSeats({
 }
 
 /**
- * Under the painted car: one row per seat in seat order, each with the same disc, the name, the seat
+ * Under the flat car: one row per seat in seat order, each with the same disc, the name, the seat
  * and what is going on ("متأخر 6 دقيقة · إلك 1,000 دينار"), so nothing is said by colour alone.
  */
 export function SeatRoster({ dep, occupants, editable, onSeat }: { dep: DriverDepartureView; occupants: Map<IntercitySeatId, SeatOccupant>; editable: boolean; onSeat: (occ: SeatOccupant) => void }) {

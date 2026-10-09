@@ -354,7 +354,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   );
   // The seat colour key is pinned right above the slide, always whole: under the map it peeked out
   // half hidden behind «انطلقنا» (review p5a).
-  // With his painted car the roster under it says every seat in words, so the key is only for the drawn map.
+  // With the flat car the roster under it says every seat in words, so the key is only for the drawn map.
   // The slide and «دخّل رمز صعود» in the trips' date brown and gold (i1, f1).
   const footer = (
     <TripsActions>

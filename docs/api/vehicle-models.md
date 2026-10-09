@@ -2,7 +2,7 @@
 
 Ali, 2026-10-07: the rider should see the driver's real car when he picks a seat on a Baghdad/Kut
 run ("when we register a new driver and select his car it shows his car here"), drawn in the
-Date & Saffron style (the AI-painted Hyundai Elantra he approved).
+Date & Saffron style. Since 2026-10-09 that picture is one flat saloon (see the end of this page).
 
 ## The list (`packages/contracts/src/vehicle-models.ts`)
 
@@ -29,13 +29,15 @@ Date & Saffron style (the AI-painted Hyundai Elantra he approved).
 ## Apps
 - Partner, أعلن طلعة: «شنو سيارتك؟» lists the models that fit the chosen seat layout (`other` last, with
   a name field), prefilled from his last run. Required: no model, no announce.
-- Customer, احجز مقعدك: `CarSeatArt` (`packages/ui`) lays the seat buttons on the car's picture when the
-  run's model has one (`apps/customer/src/features/rajaa/car-art*.ts`); otherwise the drawn `SeatMap` of
-  the same layout. Same selection rules, rejections, haptics and spoken labels as `SeatMap`.
+- Customer, احجز مقعدك, and the partner garage page: `CarSeatArt` (`packages/ui`) and `CarArtSeats` lay the
+  seats on one flat top-down saloon in date brown and saffron, the same for every 4-seat car
+  (`apps/<app>/src/features/*/car-art*.ts`, picture `assets/cars/sedan.webp`). 6- and 7-seat runs show
+  the drawn `SeatMap` of the same layout. Same selection rules, rejections, haptics and spoken labels as
+  `SeatMap`.
 
-## Adding a car picture
-Top-down painting, front up, driver on the left, flat cream backdrop, 2:3. Put it at
-`apps/customer/assets/cars/<key>.webp`, add its seat points (percent of the picture) to
-`CAR_ART_LAYOUTS` and its `require` to `CAR_PICTURES`. `car-art.test.ts` checks every seat of the
-layout has a point inside the picture. Today only `elantra` has a picture; the other cars were
-generated and wait for Ali's pick.
+## The flat car (partner check-up item 5, Ali 2026-10-09)
+The painted, glossy Elantra was replaced by a flat drawing: no glossy pictures, and the model no
+longer changes the picture (the model's name still shows in words on the band and the pass).
+`scripts/art/flat-car.py` draws it (Pillow) and writes the same file to both apps; a test keeps the
+two apps' pictures and seat points equal. A flat van for 6 and 7 seats would be added the same way:
+draw it, add its points to `CAR_ART_LAYOUTS` under its layout and its `require` to `CAR_PICTURES`.

@@ -1,21 +1,20 @@
 /**
- * Where the seats sit on each car picture (Ali, 2026-10-07: the rider sees the driver's own car).
- * Pure data for plain Node tests; the pictures themselves are bundled in `car-art.ts`.
- *
- * Every picture is a top-down painting, front up, driver on the left, on a flat cream backdrop.
- * Points are percent of the picture (0–100). Adding a car: drop its picture in
- * `assets/cars/<model>.webp`, add its seats here and its `require` in `car-art.ts`.
+ * The car under the seat map: one flat top-down saloon in date brown and saffron, the same for every
+ * 4-seat car (partner check-up item 5, Ali 2026-10-09: no glossy pictures; it replaced the painted
+ * Elantra). Pure data for plain Node tests; the picture is bundled in `car-art.ts` and drawn by
+ * `scripts/art/flat-car.py`. Front up, driver on the left; points are percent of the picture.
  */
-import type { IntercitySeatLayout, IntercityVehicle, VehicleModelKey } from '@driver/contracts';
+import type { IntercitySeatLayout, IntercityVehicle } from '@driver/contracts';
 import type { CarArtLayout } from '@driver/ui';
 
 export interface CarArtEntry extends CarArtLayout {
-  /** The seat layout the picture shows; a run on another layout falls back to the drawn map. */
+  /** The seat layout the picture shows. */
   layout: IntercitySeatLayout;
 }
 
-export const CAR_ART_LAYOUTS: Partial<Record<VehicleModelKey, CarArtEntry>> = {
-  elantra: {
+/** One flat car per seat layout; a layout with no picture yet keeps the drawn seat map. */
+export const CAR_ART_LAYOUTS: Partial<Record<IntercitySeatLayout, CarArtEntry>> = {
+  4: {
     layout: 4,
     aspect: 688 / 1024,
     background: '#FEF6E4',
@@ -29,19 +28,15 @@ export const CAR_ART_LAYOUTS: Partial<Record<VehicleModelKey, CarArtEntry>> = {
   },
 };
 
-/**
- * The picture for this run's car, or null (no model on the run, no picture yet, or the picture
- * shows another seat layout) so the screen draws the plain `SeatMap` of the same size.
- */
+/** The flat car for this run's seat layout, or null so the screen draws the plain `SeatMap` of the same size. */
 export function pickCarArt<S>(
-  vehicle: Pick<IntercityVehicle, 'modelKey' | 'layout'> | null | undefined,
-  sources: Partial<Record<VehicleModelKey, S>>,
-  layouts: Partial<Record<VehicleModelKey, CarArtEntry>> = CAR_ART_LAYOUTS,
+  vehicle: Pick<IntercityVehicle, 'layout'> | null | undefined,
+  sources: Partial<Record<IntercitySeatLayout, S>>,
+  layouts: Partial<Record<IntercitySeatLayout, CarArtEntry>> = CAR_ART_LAYOUTS,
 ): (CarArtEntry & { source: S }) | null {
-  const key = vehicle?.modelKey;
-  if (!vehicle || !key) return null;
-  const entry = layouts[key];
-  const source = sources[key];
-  if (!entry || source === undefined || entry.layout !== vehicle.layout) return null;
+  if (!vehicle) return null;
+  const entry = layouts[vehicle.layout];
+  const source = sources[vehicle.layout];
+  if (!entry || source === undefined) return null;
   return { ...entry, source };
 }
