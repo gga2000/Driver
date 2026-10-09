@@ -16,6 +16,26 @@ export const BACKGROUND_STATE_KEY = 'driver.partner.background-state';
 export const BACKGROUND_INTERVAL_MS = 5_000;
 export const BACKGROUND_DISTANCE_M = 10;
 
+/**
+ * How hard the OS works for a fix (partner redesign b1, battery). On a job the customer watches him on
+ * the map: precise GPS every 5 s after 10 m of movement. Waiting for an offer only the 30 s heartbeat
+ * needs him, and dispatch needs his zone, not his metre: the phone's balanced fix (cell + Wi-Fi, GPS
+ * only when needed) twice per heartbeat (a late wake still beats inside presence's 90 s), with no
+ * distance filter so a parked courier still wakes the task and keeps his place in dispatch.
+ */
+export interface TrackingProfile {
+  accuracy: 'high' | 'balanced';
+  intervalMs: number;
+  distanceM: number;
+}
+
+export const JOB_TRACKING: TrackingProfile = { accuracy: 'high', intervalMs: BACKGROUND_INTERVAL_MS, distanceM: BACKGROUND_DISTANCE_M };
+export const WAITING_TRACKING: TrackingProfile = { accuracy: 'balanced', intervalMs: HEARTBEAT_MS / 2, distanceM: 0 };
+
+export function trackingProfile(s: Pick<BackgroundState, 'onJob'>): TrackingProfile {
+  return s.onJob ? JOB_TRACKING : WAITING_TRACKING;
+}
+
 /** What the running shift needs from the background task. */
 export interface BackgroundState {
   online: boolean;

@@ -671,19 +671,20 @@ export class IdentityService implements IdentityPort {
    * Household cards (domain §12): name and masked phone of each member for another member to see.
    * Every read is logged against the member read (purpose household_view). Deleted people are left
    * out — no vault read, nothing shown — like `firstNamesFor` / `courierCard` (review 2026-10-04 #23);
-   * callers render a missing card as a nameless row.
+   * callers render a missing card as a nameless row. `phoneHint` ("0780 ••• 4455") is for a team list
+   * whose reader added the person by number (merchant staff), the same form their invite showed.
    */
-  async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
+  async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string; phoneHint: string }>> {
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
-      const out: Record<string, { name: string | null; phoneMasked: string }> = {};
+      const out: Record<string, { name: string | null; phoneMasked: string; phoneHint: string }> = {};
       for (const personId of new Set(personIds)) {
         const person = await this.repo.findPersonById(personId, tx);
         if (!person || person.deletedAt) continue;
         const identity = await this.repo.readIdentity(personId, tx);
         if (!identity) continue;
         if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name', 'phone_e164'], now }, tx);
-        out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164) };
+        out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164), phoneHint: invitePhoneHint(identity.phoneE164) };
       }
       return out;
     });

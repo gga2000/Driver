@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPostView, TravellingAs } from '@driver/contracts';
+import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestTripKind, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
@@ -206,6 +206,17 @@ export function useMyRequests() {
     ...api.routes.requestBoard.mine.queryOptions(),
     enabled: signedIn,
     refetchInterval: (q) => (q.state.data?.some((r: RequestPostView) => r.state === 'open') ? RAJAA_RULES.pollMs : false),
+  });
+}
+
+/** p1: what a private trip to a known place usually costs; off until a chip names the place. */
+export function useUsualRange(placeId: RequestPlaceId | null, trip: RequestTripKind) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.requestBoard.usualRange.queryOptions({ placeId: placeId ?? 'kut', trip }),
+    enabled: signedIn && placeId !== null,
+    staleTime: 10 * 60_000,
   });
 }
 

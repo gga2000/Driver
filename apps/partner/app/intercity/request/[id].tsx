@@ -1,12 +1,12 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
-import type { DriverRequestRide, RequestPostView } from '@driver/contracts';
+import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, type DriverRequestRide, type RequestPostView } from '@driver/contracts';
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SosControl } from '@/features/safety/SosControl';
-import { requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
-import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, suggestedOffer } from '@/features/intercity/logic';
+import { countedKey, requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
+import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, stepExtraHour, suggestedOffer } from '@/features/intercity/logic';
 import { useMyRides, useOpenRequests, useRequestActions } from '@/features/intercity/queries';
 import { useNow } from '@/features/intercity/useNow';
 import { apiErrorMessage } from '@/lib/api';
@@ -103,16 +103,27 @@ function OfferView({ post }: { post: RequestPostView }) {
     markSeen({ postId: post.id });
   }, [post.id, markSeen]);
   const [price, setPrice] = useState(() => mine?.priceIqd ?? suggestedOffer(post));
+  // w1: on a «يستناك وترجع» trip he says the hours his price includes and each extra hour's price.
+  const needsWait = offerNeedsWaitTerms(post.details);
+  const [included, setIncluded] = useState(() => mine?.wait?.includedHours ?? post.details.waitHours ?? 1);
+  const [extraHour, setExtraHour] = useState<number | null>(() => mine?.wait?.extraHourIqd ?? null);
   useEffect(() => {
-    if (mine) setPrice(mine.priceIqd);
+    if (!mine) return;
+    setPrice(mine.priceIqd);
+    if (mine.wait) {
+      setIncluded(mine.wait.includedHours);
+      setExtraHour(mine.wait.extraHourIqd);
+    }
   }, [mine]);
+  const waitReady = !needsWait || extraHour !== null;
+  const pricier = pricierThanUsual(price, post.usualRange);
   const cap = post.priceCapIqd;
   const deposit = depositFor(price);
   const quick = [price - 5_000, price + 5_000].map((p) => clampOffer(p, cap)).filter((p, i, a) => p !== price && a.indexOf(p) === i);
 
   const send = async () => {
     try {
-      await offer.mutateAsync({ postId: post.id, priceIqd: price });
+      await offer.mutateAsync({ postId: post.id, priceIqd: price, ...(needsWait && extraHour !== null ? { wait: { includedHours: included, extraHourIqd: extraHour } } : {}) });
       theme.haptic('success');
       toast.show({ message: t('partner.ic_req_sent'), tone: 'success' });
     } catch (err) {
@@ -120,7 +131,7 @@ function OfferView({ post }: { post: RequestPostView }) {
     }
   };
 
-  const same = mine?.priceIqd === price;
+  const same = mine?.priceIqd === price && (!needsWait || (mine.wait?.includedHours === included && mine.wait.extraHourIqd === extraHour));
   return (
     <Screen
       testID="request-offer"
@@ -131,7 +142,7 @@ function OfferView({ post }: { post: RequestPostView }) {
           label={mine ? (same ? t('partner.ic_req_waiting', { amount: amountParam(price) }) : t('partner.ic_req_update', { amount: amountParam(price) })) : t('partner.ic_req_send', { amount: amountParam(price) })}
           size="lg"
           fullWidth
-          disabled={same}
+          disabled={same || !waitReady}
           loading={offer.isPending}
           onPress={() => void send()}
         />
@@ -169,6 +180,22 @@ function OfferView({ post }: { post: RequestPostView }) {
               {t('partner.ic_req_cap_note', { amount: amountParam(cap) })}
             </Text>
           ) : null}
+          {/* p2/p3: the same usual range the rider sees, and a soft word when he is well above it. */}
+          {post.usualRange ? (
+            <View testID="offer-usual-range" style={{ alignItems: 'center', gap: 2 }}>
+              <Text variant="label" weight={600} align="center" tabular>
+                {t('rajaa.usual_range', { low: amountParam(post.usualRange.lowIqd), high: amountParam(post.usualRange.highIqd) })}
+              </Text>
+              <Text variant="caption" color="textMuted" align="center">
+                {t(countedKey('rajaa.usual_range_from', post.usualRange.trips), { n: post.usualRange.trips })}
+              </Text>
+              {pricier ? (
+                <Text testID="offer-pricier" variant="footnote" color="warningText" align="center">
+                  {t('partner.ic_req_pricier')}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           <Rule />
           <View style={{ gap: theme.space[2] }}>
             <MoneyLine icon="wallet" text={t('partner.ic_req_deposit_note', { deposit: amountParam(deposit), cash: amountParam(price - deposit) })} />
@@ -176,6 +203,44 @@ function OfferView({ post }: { post: RequestPostView }) {
           </View>
         </View>
       </Card>
+
+      {needsWait ? (
+        <Card padding={5} testID="offer-wait">
+          <View style={{ gap: theme.space[4] }}>
+            <View style={{ gap: theme.space[1] }}>
+              <Text variant="bodyStrong">{t('partner.ic_req_wait_title')}</Text>
+              <Text variant="footnote" color="textMuted">
+                {t('partner.ic_req_wait_hint', { hours: t(countedKey('rajaa.req_hours', post.details.waitHours ?? 1), { n: post.details.waitHours ?? 1 }) })}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text variant="label" weight={600} style={{ flex: 1 }}>
+                {t('partner.ic_req_wait_included')}
+              </Text>
+              <IconButton icon="minus" variant="tonal" size={44} accessibilityLabel="−1" disabled={included === 0} onPress={() => setIncluded((h) => Math.max(0, h - 1))} />
+              <Text testID="offer-wait-hours" variant="label" weight={700} tabular align="center" style={{ minWidth: 76 }}>
+                {t(countedKey('rajaa.req_hours', included), { n: included })}
+              </Text>
+              <IconButton icon="plus" variant="tonal" size={44} accessibilityLabel="+1" disabled={included === REQUEST_WAIT_HOURS_MAX} onPress={() => setIncluded((h) => Math.min(REQUEST_WAIT_HOURS_MAX, h + 1))} />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text variant="label" weight={600} style={{ flex: 1 }}>
+                {t('partner.ic_req_extra_hour')}
+              </Text>
+              <IconButton icon="minus" variant="tonal" size={44} accessibilityLabel="−1,000" disabled={extraHour === 0} onPress={() => setExtraHour((v) => stepExtraHour(v, -1))} />
+              <Text testID="offer-extra-hour" variant="label" weight={700} tabular align="center" color={extraHour === null ? 'accentText' : 'text'} style={{ minWidth: 76 }}>
+                {extraHour === null ? t('partner.ic_req_extra_unset') : extraHour === 0 ? t('partner.ic_req_extra_free') : `${amountParam(extraHour)} ${t('quote.currency')}`}
+              </Text>
+              <IconButton icon="plus" variant="tonal" size={44} accessibilityLabel="+1,000" onPress={() => setExtraHour((v) => stepExtraHour(v, 1))} />
+            </View>
+            {extraHour === null ? (
+              <Text variant="footnote" color="warningText" testID="offer-wait-missing">
+                {t('partner.ic_req_wait_missing')}
+              </Text>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
     </Screen>
   );
 }

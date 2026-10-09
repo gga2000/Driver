@@ -26,7 +26,8 @@ export function partName(t: ReturnType<typeof useT>, id: DayPartId): string {
 }
 
 /** What one line's card says (s1): its city, the trip, the seat, today's cars and the first one. */
-export type CorridorSummary = { corridor: CorridorView; today: number; first: DepartureCard | null };
+/** `today` is null while that line's board hasn't arrived (or failed): the card says nothing rather than «ماكو». */
+export type CorridorSummary = { corridor: CorridorView; today: number | null; first: DepartureCard | null };
 
 /**
  * «بغداد» and «الكوت» as two cards (s1) instead of small chips: the time on the road, the seat price,
@@ -42,14 +43,14 @@ export function CorridorCards({ items, value, onChange }: { items: readonly Corr
       {items.map(({ corridor: c, today, first }) => {
         const on = c.id === value;
         const trip = t('rajaa.corridor_trip', { duration: formatMinutes(c.travelMin, { locale }) });
-        const cars = today > 0 ? t(countKey('rajaa.garage_count', today), { n: today }) : t('rajaa.corridor_none_today');
+        const cars = today === null ? null : today > 0 ? t(countKey('rajaa.garage_count', today), { n: today }) : t('rajaa.corridor_none_today');
         return (
           <Pressable
             key={c.id}
             testID={`corridor-${c.id}`}
             accessibilityRole="radio"
             accessibilityState={{ selected: on }}
-            accessibilityLabel={t('rajaa.corridor_a11y', { city: cityName(t, c.cityId), trip, price: iqd(c.seatPriceIqd, { locale }), cars })}
+            accessibilityLabel={t('rajaa.corridor_a11y', { city: cityName(t, c.cityId), trip, price: iqd(c.seatPriceIqd, { locale }), cars: cars ?? '' })}
             onPress={() => {
               theme.haptic('selection');
               onChange(c.id);
@@ -77,9 +78,11 @@ export function CorridorCards({ items, value, onChange }: { items: readonly Corr
             <Text variant="caption" color="textMuted" numberOfLines={1}>
               {trip}
             </Text>
-            <Text variant="caption" color={today > 0 ? 'text' : 'textMuted'} numberOfLines={2} tabular>
-              {[cars, first ? t('rajaa.corridor_first', { time: clockLabel(first.departAt) }) : null].filter(Boolean).join(' · ')}
-            </Text>
+            {cars !== null ? (
+              <Text variant="caption" color={today ? 'text' : 'textMuted'} numberOfLines={2} tabular>
+                {[cars, first ? t('rajaa.corridor_first', { time: clockLabel(first.departAt) }) : null].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}

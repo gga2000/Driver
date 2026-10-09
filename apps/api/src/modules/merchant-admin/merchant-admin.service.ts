@@ -751,7 +751,8 @@ export class MerchantAdminService implements MerchantAdminPort {
         return {
           personId,
           name: pending ? null : (cards[personId]?.name ?? null),
-          phoneMasked: cards[personId]?.phoneMasked ?? null,
+          // The 4+4 form the owner saw on the invite («0780 ••• 4455»): they added this number themselves.
+          phoneMasked: cards[personId]?.phoneHint ?? null,
           role: roleOf.get(personId)!,
           you: personId === actor.personId,
           pending,

@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Share, View } from 'react-native';
-import { Button, Card, DepartureTime, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, DepartureTime, EmptyState, Icon, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { bookingStateLabel, cityName, plate, prepayLabel, routeLabel, seatsList } from '@/features/rajaa/labels';
 import { lateStages, passPhase } from '@/features/rajaa/pass';
@@ -147,8 +147,12 @@ export default function BoardingPassScreen() {
       : null;
   // r3: who follows the trip, by name (the trusted people get its link when the rider gets in).
   const trusted = (me.data?.trustedContacts ?? []).map((c) => c.name);
-  const watching: Watching =
-    me.data?.safety.autoShareRajaa && trusted.length > 0 ? { kind: b.state === 'checked_in' ? 'now' : 'soon', names: trusted } : { kind: 'none' };
+  // Unknown (null) until the profile is in: never «nobody follows» just because the read failed.
+  const watching: Watching | null = !me.data
+    ? null
+    : me.data.safety.autoShareRajaa && trusted.length > 0
+      ? { kind: b.state === 'checked_in' ? 'now' : 'soon', names: trusted }
+      : { kind: 'none' };
   // r4: the same SOS as a taxi ride: the car read out to the police, and a live link when no contact is set.
   const sosCar = [driverCard?.firstName ?? t('track.driver_fallback'), b.departure.vehicle.model, plate(b.departure.vehicle.plate)].filter(Boolean).join(' · ');
 
@@ -336,7 +340,14 @@ export default function BoardingPassScreen() {
       <GarageTaxiCard bookingId={b.id} />
       <ArmedRideCard bookingId={b.id} />
 
-      {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching} onShare={() => void onShare()} /> : null}
+      {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching}
+          unknown={
+            <QueryBoundary query={me} size="inline" skeleton={<Skeleton height={44} radius={12} />} testID="rajaa-watching-read">
+              {() => null}
+            </QueryBoundary>
+          }
+          onShare={() => void onShare()}
+        /> : null}
 
       {/* Joy r6: «عشاك يوصل وياك» on the way back to Aziziyah. */}
       {dinner.data?.source.kind === 'rajaa' && dinner.data.source.bookingId === b.id ? <DinnerCard chance={dinner.data} now={now} testID="rajaa-dinner" /> : null}
