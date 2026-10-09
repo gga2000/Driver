@@ -207,7 +207,7 @@ describe('step 6: sharing a private car by link (Ali item 56, s1–s4; switch re
 describe('step 6: who sees what', () => {
   const as = (personId: string, roles: string[] = ['customer']) => ({ personId, roles }) as never;
 
-  it('the booker sees the link and his friends by first name; the driver sees the cash, no names, no link', async () => {
+  it('the booker sees the link and his friends by first name; the driver sees the cash and no link (names only on his ride)', async () => {
     const { h, r } = await sharedCar();
     h.riderNames.set('f1', 'كرار حسن');
     h.riderNames.set('r1', 'أحمد علي');
@@ -219,7 +219,9 @@ describe('step 6: who sees what', () => {
     expect(mine.shareable).toBe(true);
     expect(h.nameReads).toContainEqual({ personId: 'f1', accessorId: 'r1', purpose: 'request_share_member' });
     const [ride] = await h.rpc.myRequestRides(as('d1', ['intercity_driver']));
-    expect(ride).toMatchObject({ priceIqd: 110_000, cashToCollectIqd: 60_500, share: { path: null } });
+    // Way C: the picked driver sees who is coming by first name while the trip is live, never the link.
+    expect(ride).toMatchObject({ priceIqd: 110_000, cashToCollectIqd: 60_500, share: { path: null, members: [{ firstName: 'كرار', boardedBy: null }] } });
+    expect(h.nameReads).toContainEqual({ personId: 'f1', accessorId: 'd1', purpose: 'request_share_driver' });
     const dv = await h.rpc.requestSeen(as('d1', ['intercity_driver']), { postId: r.id });
     expect(dv.share).toMatchObject({ path: null, members: [{ firstName: null }], cashIqd: 60_500 });
     expect(dv.shareable).toBe(false);
@@ -247,5 +249,68 @@ describe('step 6: who sees what', () => {
     expect((await h.rpc.shareInvite(as('f1'), { code: c })).myState).toBe('paid');
     expect(await code(h.rpc.shareInvite(as('f9'), { code: c }))).toBe('share_not_found');
     expect(await h.rpc.sharedWithMe(as('f1'))).toEqual([]);
+  });
+});
+
+describe('way C (Ali 2026-10-09: "c"): each friend taps «صعدت» next to the car', () => {
+  const as = (personId: string, roles: string[] = ['customer']) => ({ personId, roles }) as never;
+  const AT_CAR = { lat: BAB1.lat, lng: BAB1.lng };
+  // About 1.1 km north of the garage.
+  const FAR = { lat: BAB1.lat + 0.01, lng: BAB1.lng };
+
+  async function boardingCar() {
+    const { h, r } = await sharedCar();
+    h.riderNames.set('f1', 'كرار حسن');
+    h.riderNames.set('f2', 'زينب علي');
+    const c = await open(h, r.id);
+    h.wallet.set('f1', 100_000);
+    h.wallet.set('f2', 100_000);
+    await h.requests.joinShare('f1', c, 1);
+    await h.requests.joinShare('f2', c, 1);
+    return { h, r, c };
+  }
+
+  it('«صعدت» only once the driver arrived, and only next to where he pressed «وصلت»; twice is a no-op', async () => {
+    const { h, r, c } = await boardingCar();
+    expect(await code(h.rpc.shareBoard(as('f1'), { code: c, ...AT_CAR }))).toBe('request_state_conflict');
+    h.advance(600);
+    await h.requests.arrived('d1', r.id, AT_CAR);
+    expect(await code(h.rpc.shareBoard(as('f1'), { code: c, ...FAR }))).toBe('share_board_far');
+    const v = await h.rpc.shareBoard(as('f1'), { code: c, ...AT_CAR });
+    expect(v).toMatchObject({ myState: 'joined', myBoardedBy: 'self', boardNearM: 300 });
+    await h.rpc.shareBoard(as('f1'), { code: c, ...AT_CAR });
+    expect(h.events.ofType('request.share_boarded').map((e) => e.payload)).toEqual([expect.objectContaining({ personId: 'f1', by: 'self', riderId: 'r1', driverId: 'd1' })]);
+    // Someone without places, and the booker: not his to say.
+    expect(await code(h.rpc.shareBoard(as('f9'), { code: c, ...AT_CAR }))).toBe('share_not_found');
+    expect(await code(h.rpc.shareBoard(as('r1'), { code: c, ...AT_CAR }))).toBe('share_not_found');
+    // The booker and the driver see who got in.
+    expect((await h.rpc.myRequests(as('r1')))[0]!.share!.members.map((m) => [m.firstName, m.boardedBy])).toEqual([['كرار', 'self'], ['زينب', null]]);
+    const [ride] = await h.rpc.myRequestRides(as('d1', ['intercity_driver']));
+    expect(ride!.share!.members.map((m) => [m.firstName, m.boardedBy])).toEqual([['كرار', 'self'], ['زينب', null]]);
+  });
+
+  it('the driver taps «صعد» for a friend whose phone can\'t; she can answer «ما صعدت», which clears it and is logged', async () => {
+    const { h, r, c } = await boardingCar();
+    const driver = as('d1', ['intercity_driver']);
+    const zainab = (await h.requests.get(r.id))!.share!.members.find((m) => m.personId === 'f2')!;
+    expect(await code(h.rpc.shareBoardFor(driver, { postId: r.id, memberId: zainab.id }))).toBe('request_state_conflict');
+    h.advance(600);
+    await h.requests.arrived('d1', r.id, AT_CAR);
+    expect(await code(h.rpc.shareBoardFor(as('d2', ['intercity_driver']), { postId: r.id, memberId: zainab.id }))).toBe('forbidden');
+    expect(await code(h.rpc.shareBoardFor(driver, { postId: r.id, memberId: 'rqs_missing' }))).toBe('share_not_found');
+    const view = await h.rpc.shareBoardFor(driver, { postId: r.id, memberId: zainab.id });
+    expect(view.share!.members.find((m) => m.id === zainab.id)).toMatchObject({ firstName: 'زينب', boardedBy: 'driver' });
+    expect(h.events.ofType('request.share_boarded').at(-1)!.payload).toMatchObject({ memberId: zainab.id, personId: 'f2', by: 'driver' });
+    expect((await h.rpc.shareInvite(as('f2'), { code: c })).myBoardedBy).toBe('driver');
+
+    // Her own «صعدت» can't be taken back; only the driver's tap can be answered.
+    expect(await code(h.rpc.shareNotBoarded(as('f1'), { code: c }))).toBe('request_state_conflict');
+    const denied = await h.rpc.shareNotBoarded(as('f2'), { code: c });
+    expect(denied.myBoardedBy).toBeNull();
+    expect(h.events.ofType('request.share_board_denied')[0]!.payload).toMatchObject({ memberId: zainab.id, personId: 'f2', riderId: 'r1', driverId: 'd1' });
+
+    // A record only: what each friend pays is unchanged, both still pay their places at the end.
+    const done = await h.requests.complete('d1', r.id);
+    expect(done.share!.members.map((m) => [m.personId, m.state])).toEqual([['f1', 'paid'], ['f2', 'paid']]);
   });
 });

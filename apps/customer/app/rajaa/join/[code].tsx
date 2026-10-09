@@ -10,7 +10,8 @@ import { clockLabel } from '@/features/rajaa/logic';
 import { RuleList } from '@/features/rajaa/Option';
 import { RajaaDriver } from '@/features/rajaa/RajaaDriver';
 import { DetailPills } from '@/features/rajaa/RequestParts';
-import { useJoinShare, useLeaveShare, useShareInvite } from '@/features/rajaa/queries';
+import { currentFix } from '@/features/account/device';
+import { useJoinShare, useLeaveShare, useShareBoarding, useShareInvite } from '@/features/rajaa/queries';
 import { joinPhase, joinPlacesMax } from '@/features/rajaa/share-car';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorCode, apiErrorMessage } from '@/lib/api';
@@ -82,6 +83,7 @@ function JoinBody({ v, header }: { v: RequestShareInvite; header: ReactNode }) {
   // Failures surface as a toast from each tap's onError.
   const { mutate: joinCar, isPending: joining } = useJoinShare();
   const { mutate: leaveCar, isPending: leaving } = useLeaveShare();
+  const boarding = useShareBoarding();
   const wallet = useWalletBalance();
   const now = useNow(30_000);
   const phase = joinPhase(v);
@@ -94,6 +96,16 @@ function JoinBody({ v, header }: { v: RequestShareInvite; header: ReactNode }) {
   const closes = clockLabel(v.closesAt);
   const sameDay = Math.floor((v.when.getTime() + 3 * 3600_000) / 86_400_000) === Math.floor((now.getTime() + 3 * 3600_000) / 86_400_000);
   const failed = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' }, 5000);
+  // Way C (Ali 2026-10-09): once the driver is here, each friend says «صعدت» next to the car.
+  const canBoard = phase === 'joined' && v.state === 'driver_arrived' && v.myBoardedBy === null;
+  const board = async () => {
+    const fix = await currentFix();
+    if (fix === 'denied' || fix === null) {
+      toast.show({ message: t('rajaa.join_board_location'), tone: 'warning', icon: 'map-pin' }, 6000);
+      return;
+    }
+    boarding.board.mutate({ code: v.code, ...fix.pin }, { onSuccess: () => theme.haptic('success'), onError: failed });
+  };
 
   const footer =
     phase === 'join' ? (
@@ -112,6 +124,22 @@ function JoinBody({ v, header }: { v: RequestShareInvite; header: ReactNode }) {
           onPress={() => joinCar({ code: v.code, places: n }, { onError: failed })}
         />
       </View>
+    ) : canBoard ? (
+      <View style={{ gap: theme.space[2] }}>
+        <Button testID="rajaa-join-board" size="lg" fullWidth icon="check" label={t('rajaa.join_board_cta')} loading={boarding.board.isPending} onPress={() => void board()} />
+        <Text variant="caption" color="textMuted" align="center">
+          {t('rajaa.join_board_hint')}
+        </Text>
+      </View>
+    ) : phase === 'joined' && v.myBoardedBy === 'driver' ? (
+      <Button
+        testID="rajaa-join-not-boarded"
+        variant="ghost"
+        fullWidth
+        label={t('rajaa.join_not_boarded')}
+        loading={boarding.notBoarded.isPending}
+        onPress={() => boarding.notBoarded.mutate({ code: v.code }, { onSuccess: () => toast.show({ message: t('rajaa.join_not_boarded_toast') }), onError: failed })}
+      />
     ) : phase === 'joined' && v.open ? (
       <Button
         testID="rajaa-join-leave"
@@ -204,7 +232,13 @@ function JoinBody({ v, header }: { v: RequestShareInvite; header: ReactNode }) {
               </View>
             </View>
             <Text variant="footnote" weight={600} testID="rajaa-join-meet">
-              {v.driverArrivedAt ? t('rajaa.join_arrived', { from: v.from.label }) : t('rajaa.join_meet', { from: v.from.label })}
+              {v.myBoardedBy === 'self'
+                ? t('rajaa.join_boarded_self')
+                : v.myBoardedBy === 'driver'
+                  ? t('rajaa.join_boarded_driver')
+                  : v.driverArrivedAt
+                    ? t('rajaa.join_arrived', { from: v.from.label })
+                    : t('rajaa.join_meet', { from: v.from.label })}
             </Text>
             {v.open ? <RuleList items={[t('rajaa.join_rule_leave', { time: closes }), t('rajaa.join_rule_cancel')]} /> : null}
           </View>

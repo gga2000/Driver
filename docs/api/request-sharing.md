@@ -46,8 +46,31 @@ Errors: `share_not_found`, `share_closed`, `share_full`, plus `wallet_insufficie
 Events (aggregate `ride_request`, not ledger events): `request.share_opened`, `request.share_joined`,
 `request.share_left`, `request.shares_released {personIds, reason}`. No pushes yet (lane D can add them).
 
-Not built: a per-friend boarding code (private cars have none today; friends ride with the booker), and
-any change to who pays a no-show.
+## Who got in: way C (Ali 2026-10-09, "c")
+
+Design page: https://claude.ai/artifact/JJHYhKdTYVk5gR35A3Fvj8 (ways A, B, C; C picked). No codes. Once the
+driver pressed «وصلت», each friend taps «صعدت» on his own phone, within `requestBoard.shareBoardNearM`
+(300 m) of where the driver pressed it. His position is checked, never stored. The driver sees the
+friends by first name (vault purpose `request_share_driver`, only while the trip is live), and confirms
+«أكّد الصعود» for a friend whose phone can't. A friend can answer the driver's tap with «ما صعدت»: it is
+cleared and the event is the record support reads. His own «صعدت» can't be taken back.
+
+It is a record only: what each friend pays is unchanged (a friend who never came still pays his places at
+the end, as before). Migration `20261010490000_share_boarding` (`ride_request_shares.boarded_at`,
+`boarded_by` `self|driver`).
+
+| procedure | who | does |
+|---|---|---|
+| `shareBoard({code, lat, lng})` | friend | «صعدت»; `request_state_conflict` before the driver arrived, `share_board_far` too far from the car |
+| `shareBoardFor({postId, memberId})` | picked driver | «أكّد الصعود» for that friend |
+| `shareNotBoarded({code})` | friend | «ما صعدت» on the driver's tap |
+
+Views: each `members[]` row carries `id` and `boardedBy`; the invite carries `myBoardedBy` and
+`boardNearM`. Events `request.share_boarded {memberId, personId, by}` and `request.share_board_denied
+{memberId, personId, markedAt}`. A push to the friend on the driver's tap is lane D's to add (until then
+the friend sees it on the car's page).
+
+Not built: any change to who pays a no-show.
 
 Demo: `POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…]` (customer demo
 API). Screenshots: `SHOTS=share node scripts/web-shots.mjs` in `apps/customer`.

@@ -774,7 +774,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
 //   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
 //   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
-//   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…]   share a private car by link (step 6, demo switch on)
+//   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…][&arrived=1][&board=self|driver]   share a private car by link (step 6, demo switch on; way C boarding)
 //   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
@@ -1404,7 +1404,21 @@ const rajaa = await (async () => {
         await topUp(personId, 60_000);
         if (url.searchParams.get('joined') === '1') await requests.joinShare(personId, code, 1);
       }
-      json(res, 200, { postId: r.id, code, n: shareSeq });
+      // Way C: `arrived=1` brings the trip to now and علي حسن to the door (CAR_AT); `board=self` has the
+      // other friend say «صعدت»; `board=driver` has the driver confirm the person (a friend) himself.
+      const CAR_AT = { lat: 32.9105, lng: 45.0611 };
+      if (url.searchParams.get('arrived') === '1') {
+        const rec = await requests.get(r.id);
+        await requests.repo.saveRequest({ ...rec, when: new Date(Math.ceil((Date.now() + 5 * MIN) / (5 * MIN)) * 5 * MIN) });
+        await requests.arrived(D.drv_7K2Q, r.id, CAR_AT);
+        const board = url.searchParams.get('board');
+        if (board === 'self') await requests.boardShare(friend, code, CAR_AT);
+        if (board === 'driver') {
+          const m = (await requests.get(r.id)).share.members.find((x) => x.personId === personId && x.state === 'joined');
+          if (m) await requests.boardShareFor(D.drv_7K2Q, r.id, m.id);
+        }
+      }
+      json(res, 200, { postId: r.id, code, n: shareSeq, carAt: CAR_AT });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
