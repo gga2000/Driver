@@ -5,6 +5,7 @@ import { offerNeedsWaitTerms, pricierThanUsual, REQUEST_WAIT_HOURS_MAX, waitExtr
 import { Button, Card, Chip, EmptyState, Icon, IconButton, Rule, Skeleton, StatusPill, Text, useTheme, useToast, WaitClock } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { RequestChatEntry } from '@/features/chat/TripChatEntry';
+import { SharedCarRiders } from '@/features/intercity/SharedCarRiders';
 import { SosControl } from '@/features/safety/SosControl';
 import { countedKey, requestDetailLabels, rideState, seatsCount, timeWithPeriod, travellingAsLabel, whenLabel } from '@/features/intercity/labels';
 import { clampOffer, depositFor, OFFER_STEP_IQD, privateRideNet, stepExtraHour, suggestedOffer } from '@/features/intercity/logic';
@@ -467,6 +468,7 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
           </View>
         </Card>
       ) : null}
+      {live ? <SharedCarRiders ride={ride} collectIqd={collectIqd} /> : null}
       <TripCard post={ride} />
       {clock ? <WaitClock clock={clock} now={now} side="driver" locale={locale} testID="ride-wait-clock" /> : null}
       <Card padding={5} testID="ride-money">

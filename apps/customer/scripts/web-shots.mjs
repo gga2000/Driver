@@ -1505,6 +1505,34 @@ async function shareShots(personId) {
   await show('rajaa-join-joined', 'share-joined');
   await page.goto(`${origin}/rajaa`, LOADED);
   await show('rajaa-shared-strip', 'share-board-strip');
+
+  // Way C (Ali 2026-10-09): the driver is at the door; the friend says «صعدت» next to the car.
+  const ctx = page.context();
+  try {
+    const arrived = await demoPost(`/demo/rajaa/share?${q}&as=friend&joined=1&arrived=1`);
+    await ctx.grantPermissions(['geolocation'], { origin });
+    await ctx.setGeolocation({ latitude: arrived.carAt.lat + 0.0004, longitude: arrived.carAt.lng, accuracy: 10 });
+    await page.goto(`${origin}/rajaa/join/${arrived.code}`, LOADED);
+    await byTestId('rajaa-join-board').waitFor({ timeout: 20_000 });
+    await settle(800);
+    await shot('share-board-ready');
+    await byTestId('rajaa-join-board').click();
+    await byTestId('rajaa-join-board').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('share: «صعدت» did not go through'));
+    await settle(800);
+    await shot('share-boarded-self');
+    // The driver confirmed for him: he can answer «ما صعدت».
+    const byDriver = await demoPost(`/demo/rajaa/share?${q}&as=friend&joined=1&arrived=1&board=driver`);
+    await page.goto(`${origin}/rajaa/join/${byDriver.code}`, LOADED);
+    await byTestId('rajaa-join-not-boarded').waitFor({ timeout: 20_000 }).catch(() => errors.push('share: «ما صعدت» not shown'));
+    await settle(800);
+    await shot('share-boarded-driver');
+  } finally {
+    await ctx.clearPermissions();
+  }
+  // The booker's panel: كرار said «صعدت».
+  await demoPost(`/demo/rajaa/share?${q}&as=booker&arrived=1&board=self`);
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await show('rajaa-carshare-friend-0', 'share-booker-boarded');
 }
 
 /**

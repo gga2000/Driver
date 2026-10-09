@@ -291,20 +291,30 @@ export class RoutesRpc implements RoutesPort {
     drivers?: ReadonlyMap<string, RequestOfferDriver>,
     usualRange: UsualRange | null = null,
     riderName: string | null = null,
-    memberNames: Readonly<Record<string, string | null>> = {},
+    memberNames?: Readonly<Record<string, string | null>>,
   ): RequestPostView {
     return requestViewOf(r, viewerDriverId, drivers, usualRange, this.requests.moneyRules, riderName, {
-      // Step 6: the booker sees his friends' first names and the link; the picked driver neither.
-      share: this.requests.shareView(r, viewerDriverId ? null : memberNames),
+      // Step 6: the booker sees his friends' first names and the link. The picked driver never sees the
+      // link; way C gives him the friends' first names while the trip is live, to say who got in.
+      share: viewerDriverId ? this.requests.shareView(r, memberNames ?? null, false) : this.requests.shareView(r, memberNames ?? {}),
       shareable: this.requests.shareable(r),
     });
   }
 
-  /** Step 6: the first names of the friends in the booker's shared cars, one logged vault read. */
-  private async shareNames(records: readonly RequestRecord[], bookerId: string): Promise<Record<string, string | null>> {
-    const ids = [...new Set(records.filter((r) => r.riderId === bookerId).flatMap((r) => r.share?.members.map((m) => m.personId) ?? []))];
+  /**
+   * Step 6: the first names of the friends in the booker's shared cars, one logged vault read. Way C:
+   * the picked driver reads the friends still holding places, only while the trip is live.
+   */
+  private async shareNames(records: readonly RequestRecord[], viewerId: string, as: 'booker' | 'driver' = 'booker'): Promise<Record<string, string | null>> {
+    const ids = [
+      ...new Set(
+        records
+          .filter((r) => (as === 'booker' ? r.riderId === viewerId : (r.state === 'matched' || r.state === 'driver_arrived') && r.offers.some((o) => o.id === r.pickedOfferId && o.driverId === viewerId)))
+          .flatMap((r) => r.share?.members.filter((m) => as === 'booker' || m.state === 'joined').map((m) => m.personId) ?? []),
+      ),
+    ];
     if (ids.length === 0 || !this.names) return {};
-    return this.names.firstNamesFor(ids, bookerId, 'request_share_member');
+    return this.names.firstNamesFor(ids, viewerId, as === 'booker' ? 'request_share_member' : 'request_share_driver');
   }
 
   /**
@@ -341,6 +351,8 @@ export class RoutesRpc implements RoutesPort {
       myAmountIqd: held ? mine.amountIqd : 0,
       myState: mine?.state ?? null,
       driverArrivedAt: r.driverArrivedAt,
+      myBoardedBy: held ? mine.boardedBy : null,
+      boardNearM: this.departures.rules.requestBoard.shareBoardNearM,
     };
   }
 
@@ -366,6 +378,18 @@ export class RoutesRpc implements RoutesPort {
     return this.inviteView(await this.requests.leaveShare(actor.personId, input.code), actor.personId);
   }
 
+  async shareBoard(actor: Actor, input: In<'shareBoard'>): Promise<RequestShareInvite> {
+    return this.inviteView(await this.requests.boardShare(actor.personId, input.code, { lat: input.lat, lng: input.lng }), actor.personId);
+  }
+
+  async shareNotBoarded(actor: Actor, input: In<'shareNotBoarded'>): Promise<RequestShareInvite> {
+    return this.inviteView(await this.requests.denyShareBoard(actor.personId, input.code), actor.personId);
+  }
+
+  async shareBoardFor(actor: Actor, input: In<'shareBoardFor'>): Promise<RequestPostView> {
+    return this.pickedDriverView(await this.requests.boardShareFor(actor.personId, input.postId, input.memberId), actor.personId);
+  }
+
   async sharedWithMe(actor: Actor): Promise<RequestShareInvite[]> {
     const rows = await this.requests.sharedWith(actor.personId);
     return Promise.all(rows.map((r) => this.inviteView(r, actor.personId)));
@@ -386,8 +410,8 @@ export class RoutesRpc implements RoutesPort {
 
   /** The picked driver's view of a live or just-closed request, with the fetched person's name. */
   private async pickedDriverView(r: RequestRecord, driverId: string): Promise<RequestPostView> {
-    const names = await this.fetchNames([r], driverId, 'driver');
-    return this.requestView(r, driverId, undefined, null, names[r.id] ?? null);
+    const [names, members] = await Promise.all([this.fetchNames([r], driverId, 'driver'), this.shareNames([r], driverId, 'driver')]);
+    return this.requestView(r, driverId, undefined, null, names[r.id] ?? null, members);
   }
 
   async myRequests(actor: Actor): Promise<RequestPostView[]> {
@@ -770,13 +794,13 @@ export class RoutesRpc implements RoutesPort {
       const picked = r.offers.find((o) => o.id === r.pickedOfferId);
       return picked?.driverId === actor.personId && !(r.closedAt && now - r.closedAt.getTime() > 12 * 3600_000);
     });
-    const names = await this.fetchNames(mine, actor.personId, 'driver');
+    const [names, members] = await Promise.all([this.fetchNames(mine, actor.personId, 'driver'), this.shareNames(mine, actor.personId, 'driver')]);
     for (const r of mine) {
       const picked = r.offers.find((o) => o.id === r.pickedOfferId)!;
       // 4b: a cash reservation held nothing on the wallet, so all of it is cash.
       const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
       out.push({
-        ...this.requestView(r, actor.personId, undefined, null, names[r.id] ?? null),
+        ...this.requestView(r, actor.personId, undefined, null, names[r.id] ?? null, members),
         priceIqd: picked.priceIqd,
         driverArrivedAt: r.driverArrivedAt,
         riderNoShowAt: r.driverArrivedAt
