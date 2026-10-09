@@ -538,6 +538,23 @@ try {
 } catch (err) {
   console.warn('demo support chat skipped:', err?.message ?? err);
 }
+// A refund over زينب's 10,000 a day: she already gave 5,000 today, so the next 6,000 posts nothing and
+// waits on /approvals for finance or an admin (علي can approve it; زينب sees "your request" and can
+// take it back).
+try {
+  // placed[i] belongs to customers[i] (the first six); 3 and 4 have no other case.
+  const [a, b] = [placed[3], placed[4]];
+  const [ca, cb] = [customers[3], customers[4]];
+  if (a && b) {
+    const first = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'complaint', channel: 'phone', subject: 'الصمون ناقص', customerId: cb, orderId: b.id });
+    await support.refund(actor(zainab), { ticketId: first.id, amountIqd: 5_000, method: 'wallet', faultParty: 'merchant', idempotencyKey: 'demo-refund-within-limit' });
+    const tk = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'complaint', channel: 'phone', subject: 'الطلب وصل بارد ومكبوب', note: 'اتصلت زعلانة، الكيس مفتوح والأكل بارد', customerId: ca, orderId: a.id });
+    await support.refund(actor(zainab), { ticketId: tk.id, amountIqd: 6_000, method: 'wallet', faultParty: 'courier', note: 'الدليفري وگع بيه الكيس، اعترف', idempotencyKey: 'demo-refund-over-limit' });
+    people.refundWaiting = `/support/${tk.id}`;
+  }
+} catch (err) {
+  console.warn('demo refund approval skipped:', err?.message ?? err);
+}
 const solved = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'question', channel: 'in_app', subject: 'شلون أشحن المحفظة كاش؟', customerId: customers[3] });
 await support.resolve(actor(zainab), { ticketId: solved.id, resolution: 'شرحناله الشحن عن طريق المندوب أو وكيل' });
 

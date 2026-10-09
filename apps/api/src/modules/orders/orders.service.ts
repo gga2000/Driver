@@ -1287,7 +1287,7 @@ export class OrdersService implements OnModuleInit {
 
   /**
    * The courier/driver who carried the order gets the delivery score as his own rating row (unique per
-   * order: a concurrent second rating fails the insert and its transaction). No driver ever took it
+   * order: a concurrent second rating writes nothing and rolls its transaction back). No driver ever took it
    * (a pickup that never left) → nothing to record.
    */
   private async recordCourierRating(order: OrderRecord, rating: OrderRating, tx: Tx): Promise<void> {
@@ -1295,10 +1295,12 @@ export class OrdersService implements OnModuleInit {
     const carrier = await this.trips.courierOf(order.id);
     if (!carrier) return;
     if (await this.repo.courierRatingOf(order.id, tx)) return;
-    await this.repo.addCourierRating(
+    const added = await this.repo.addCourierRating(
       { orderId: order.id, tripId: carrier.tripId, driverId: carrier.courierId, customerId: order.ordererId, score: rating.delivery, reasons: [...(rating.courierReasons ?? [])], ratedAt: rating.ratedAt },
       tx,
     );
+    // A concurrent rating stored it first: roll this one back; `rate` answers with the winner's order.
+    if (!added) throw new DriverError('order_state_conflict');
   }
 
   /**
