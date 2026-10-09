@@ -54,6 +54,17 @@ export function ShortcutsSheet({ open, onClose }: { open: boolean; onClose: () =
       ],
     },
     {
+      title: t('console.kb_group_today'),
+      rows: [
+        [['J'], t('console.kb_today_next')],
+        [['K'], t('console.kb_today_prev')],
+        [['↵'], t('console.kb_row_open')],
+        [['A'], t('console.kb_today_take')],
+        [['S'], t('console.kb_today_snooze')],
+        [['E'], t('console.kb_today_close')],
+      ],
+    },
+    {
       title: t('console.kb_group_lists'),
       rows: [
         [['J'], t('console.kb_next')],
