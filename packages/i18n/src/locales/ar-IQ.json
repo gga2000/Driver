@@ -8739,6 +8739,8 @@
   "partner.seen_features_note_tuktuk": "يطلع بس اللي تأكد بفحص التكتك.",
   "partner.seen_features_waiting_tuktuk": "بانتظار فحص التكتك",
   "partner.ops_cash_held_unit": "دينار بيده",
+  "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
+  "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار",
   "partner.door_money_take_change": "استلم {tender} · رجّعله {change}",
   "partner.door_money_wallet_or": "أو حطها رصيد بمحفظته إذا ما عندك خردة",
   "partner.door_money_exact": "استلم {tender} بالضبط · ما يحتاج خردة",
@@ -8765,6 +8767,5 @@
   "partner.receipt_take_label_v2": "حصة درايفر {rate}",
   "partner.receipt_dispute_reason_take_v2": "حصة درايفر مو مضبوطة",
   "partner.e5_tip_v2": "إكرامية {amount} دينار",
-  "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
-  "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار"
+  "partner.receipt_reason_take_v2": "حصة درايفر {rate} من الأجرة، الباقي كله إلك"
 }

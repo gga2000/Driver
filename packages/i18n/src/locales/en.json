@@ -8739,6 +8739,8 @@
   "partner.seen_features_note_tuktuk": "Only what the tuktuk check confirmed shows.",
   "partner.seen_features_waiting_tuktuk": "Waiting for the tuktuk check",
   "partner.ops_cash_held_unit": "IQD in hand",
+  "partner.switch_blocked_paused": "Paused while we look into the report",
+  "partner.switch_blocked_hint_paused": "We'll call you and hear your side before any decision",
   "partner.door_money_take_change": "Take {tender} · give back {change}",
   "partner.door_money_wallet_or": "or put it in his wallet if you have no change",
   "partner.door_money_exact": "Take exactly {tender} · no change needed",
@@ -8765,6 +8767,5 @@
   "partner.receipt_take_label_v2": "Driver's share {rate}",
   "partner.receipt_dispute_reason_take_v2": "Driver's share is wrong",
   "partner.e5_tip_v2": "{amount} IQD tip",
-  "partner.switch_blocked_paused": "Paused while we look into the report",
-  "partner.switch_blocked_hint_paused": "We'll call you and hear your side before any decision"
+  "partner.receipt_reason_take_v2": "Driver takes {rate} of the fare, the rest is all yours"
 }

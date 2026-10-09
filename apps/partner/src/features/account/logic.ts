@@ -212,7 +212,9 @@ const MEMO_PAY_KEY: Record<string, MessageKey> = {
  * The name a component shows: the ledger's own label (`ledger.line.<type>`), refined by its memo
  * where the memo names the pay ("guarantee:…" → تكملة ضمان الشفت, "night" → إضافة الليل).
  */
-export function componentLabel(c: { label_ar: string; memo: string | null }, t: T): string {
+export function componentLabel(c: { label_ar: string; memo: string | null; type?: string }, t: T): string {
+  // Check-up item 8: one word for the take everywhere — «حصة درايفر», not the ledger's «عمولة المنصة».
+  if (c.type === 'commission_accrued') return t('partner.fleet_take');
   const memo = (c.memo ?? '').split(':')[0] ?? '';
   if (memo === 'guarantee') return t('partner.earn_guarantee_memo');
   const key = MEMO_PAY_KEY[memo];

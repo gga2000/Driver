@@ -19,7 +19,7 @@ const REASON_KEY: Record<ReceiptReasonCode, MessageKey> = {
   door_pickup: 'quote.reason.door_pickup',
   wait: 'quote.reason.wait',
   fare: 'partner.receipt_reason_fare',
-  take: 'partner.receipt_reason_take',
+  take: 'partner.receipt_reason_take_v2',
   tip: 'partner.receipt_reason_tip',
   batch: 'partner.receipt_reason_batch',
   compensation: 'partner.receipt_reason_compensation',
