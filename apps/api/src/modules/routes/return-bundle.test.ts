@@ -209,6 +209,32 @@ describe('step 5: a big family pair never prices a seat below 0', () => {
   });
 });
 
+describe('step 5: a van family, 6 seats out and 5 back at 10 %', () => {
+  it('the 5,500 off is spread over the seats back and every seat posts', async () => {
+    const h = routesHarness({ money: ON });
+    const van = { kind: 'van' as const, layout: 7 as const, plate: 'واسط 54321' };
+    const six = ['middle_left', 'middle_middle', 'middle_right', 'rear_left', 'rear_middle', 'rear_right'] as const;
+    const out = await h.announce({ vehicle: van });
+    const back = await h.announce({ driverId: 'd2', garageId: NAHDHA.id, departAt: h.at(360), latestDepartureAt: h.at(390), vehicle: { ...van, plate: 'واسط 54322' } });
+    await h.book('r1', out.id, [...six], { payment: 'cash' });
+    const home = await h.book('r1', back.id, six.slice(0, 5), { payment: 'cash' });
+    expect(home.returnDiscountIqd).toBe(5_500);
+    h.advance(355);
+    await h.driverAt(back.id, NAHDHA, 0, 'd2');
+    await h.departures.selfie('d2', back.id, 'selfie');
+    await h.checkIn(back.id, home.id, 'd2');
+    h.advance(6);
+    await h.departures.depart('d2', back.id);
+    h.advance(120);
+    await h.departures.arrive('d2', back.id);
+    const seats = h.events.ofType('seat.completed').map((e) => e.payload as { fareIqd: number; platformDiscountIqd: number });
+    expect(seats.map((s) => s.platformDiscountIqd)).toEqual([5_000, 500, 0, 0, 0]);
+    const l = await deliver(h.events.events);
+    expect(await (await l.ledger.balance('cash:d2')).amount).toBe(-(25_000 - 5_500));
+    expect((await l.ledger.checkInvariant()).ok).toBe(true);
+  });
+});
+
 describe('step 5: children on a lap ride free (Ali item 52)', () => {
   it('one per seat, never on the front seat; free; the driver sees them', async () => {
     expect(lapChildrenAllowed(['front'])).toBe(0);
