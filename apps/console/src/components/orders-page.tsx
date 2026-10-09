@@ -18,6 +18,7 @@ import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
 import { useNames } from '@/lib/names';
 import { CopyLinkButton } from './copy-link';
+import { OrdersExportButton } from './orders-export';
 import { OrderRef, OrgName, PersonName } from './named';
 import { OrderStatus } from './order-status';
 import { PeriodPicker } from './period-picker';
@@ -244,7 +245,9 @@ export function OrdersPage() {
             <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || filter.view === 'late'} />
           </div>
 
-          <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn} />
+          <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
+            <OrdersExportButton input={input} fileTag={`${filter.view}-${filter.period.preset}-${now.toISOString().slice(0, 10)}`} />
+          </FilterBar>
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">
             {ticket ? (
@@ -294,7 +297,7 @@ export function OrdersPage() {
   );
 }
 
-function FilterBar({ filter, set, onClear, count }: { filter: ListFilter; set: (p: Partial<ListFilter>) => void; onClear: () => void; count: number }) {
+function FilterBar({ filter, set, onClear, count, children }: { filter: ListFilter; set: (p: Partial<ListFilter>) => void; onClear: () => void; count: number; children?: ReactNode }) {
   const merchants = useMerchants();
   const ids = { q: useId(), type: useId(), merchant: useId(), zone: useId(), payment: useId() };
   const zones = useMemo(() => [...AZIZIYAH_ZONES].map((z) => ({ id: z.id, name: zoneName(z.id) })).sort((a, b) => a.name.localeCompare(b.name, 'ar')), []);
@@ -346,7 +349,8 @@ function FilterBar({ filter, set, onClear, count }: { filter: ListFilter; set: (
           <span className="num text-xs text-faint">{count}</span>
         </Button>
       )}
-      <span className="ms-auto">
+      <span className="ms-auto flex flex-wrap items-center gap-1">
+        {children}
         <CopyLinkButton />
       </span>
     </div>
