@@ -5474,8 +5474,6 @@
   "ride.pin_title_dropoff": "Where exactly?",
   "ride.pin_hint": "Move the map until the pin sits on the exact spot",
   "ride.pin_moving": "Let go to see the area…",
-  "ride.pin_zone_failed": "We couldn't check this spot",
-  "ride.pin_zone_failed_hint": "Check your internet and try again",
   "ride.pin_out_of_service": "This spot is outside our service area for now",
   "ride.pin_confirm_pickup": "Set pickup here",
   "ride.pin_confirm_dropoff": "Set destination here",
@@ -8329,6 +8327,8 @@
   "kitchen.booked_body": "We send it to {name} ahead of time so it reaches you hot, and tell you when they accept",
   "kitchen.booked_body_plain": "We send it to the kitchen ahead of time so it reaches you hot, and tell you when they accept",
   "notify.settings.load_failed": "Couldn't load your choices",
+  "ride.pin_zone_failed": "We couldn't check this spot",
+  "ride.pin_zone_failed_hint": "Check your internet and try again",
   "restaurant.whats_left_title": "What's left today?",
   "restaurant.whats_left_line": "{count} sold out today, {left} you can still order",
   "restaurant.whats_left_all": "Whole menu",
@@ -8568,5 +8568,8 @@
   "console.garage.fee_doubled": "Doubled because the run is at or after 6 pm.",
   "console.garage.fee_settle": "It goes on his balance and he settles it at his next cash hand-in.",
   "console.garage.fee_line": "driver pays {amount} IQD if cancelled",
-  "console.garage.fee_done": "Each rider ({n}) got {per} IQD credit; the driver owes {amount} IQD."
+  "console.garage.fee_done": "Each rider ({n}) got {per} IQD credit; the driver owes {amount} IQD.",
+  "partner.cash_owed_split": "{order} for the order + {fees} owed from before",
+  "partner.job_owed_fees": "Collect {fees} IQD on top of the order",
+  "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings."
 }
