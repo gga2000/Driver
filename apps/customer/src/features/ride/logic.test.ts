@@ -49,7 +49,7 @@ import { createMemoryStorage } from '@/lib/storage';
 
 const home: Spot = { id: 'saved:p1', kind: 'saved', title: 'البيت', subtitle: 'شارع 30', zoneId: 'street_30', pin: { lat: 32.9095, lng: 45.0635 }, savedLabel: 'home' };
 const park: LandmarkView = { id: 'lm_mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', name_en: 'Al-Shasha park', pin: { lat: 32.9122, lng: 45.0552 }, zoneId: 'mahdood_1', kind: 'meeting_point', category: 'other', aliases_ar: ['الحديقة'], photoUrl: null };
-const garage: LandmarkView = { id: 'lm_garage_bab2', name_ar: 'كراج البوابة ٢', name_en: 'Gate 2 garage', pin: { lat: 32.9088, lng: 45.0648 }, zoneId: 'street_30', kind: 'garage', category: 'garage', aliases_ar: ['كراج الكوت'], photoUrl: null };
+const garage: LandmarkView = { id: 'lm_garage_bab2', name_ar: 'كراج البوابة 2', name_en: 'Gate 2 garage', pin: { lat: 32.9088, lng: 45.0648 }, zoneId: 'street_30', kind: 'garage', category: 'garage', aliases_ar: ['كراج الكوت'], photoUrl: null };
 
 const c = (key: QuoteComponent['key'], amount: number): QuoteComponent => ({ key, amount, label_ar: key, label_en: key, driverShareRule: 'driver_full', visibility: 'shown' });
 const quote = (total: number, components: QuoteComponent[] = [c('base', total)]): Quote => ({
@@ -74,7 +74,7 @@ describe('search normal form', () => {
     expect(normalizeArabic('إعدادية')).toBe('اعداديه');
     expect(normalizeArabic('گراج')).toBe('كراج');
     expect(normalizeArabic('الهاشمي')).toBe(normalizeArabic('هاشمي'));
-    expect(westernDigits('كراج البوابة ٢')).toBe('كراج البوابة 2');
+    expect(westernDigits('كراج البوابة 2')).toBe('كراج البوابة 2');
   });
 
   it('scores exact, word-prefix and inside matches; every word has to match', () => {

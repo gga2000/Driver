@@ -17,6 +17,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { EventsService } from '../events/index.js';
@@ -102,13 +103,19 @@ export class TopUpService implements TopUpPort {
     @Inject(TOPUP_PEOPLE) private readonly people: TopUpPeople,
     /** THIN-12 / M-13: `agentCashAccounts` (off by default) keeps an agent's top-up cash on his own account. */
     @Optional() @Inject(ORDER_OUTCOME_RULES) private readonly outcomes?: Pick<OrderOutcomeRules, 'agentCashAccounts'>,
-  ) {}
+  ) {
+    this.requestLock = new DistributedKeyedLock(uow, 'topups.request');
+  }
+
+  private readonly requestLock: DistributedKeyedLock;
 
   async request(actor: Actor, input: RequestTopUpInput): Promise<TopUpView> {
     const amount = input.amountIqd;
     if (amount < TOPUP_RULES.minIqd || amount > TOPUP_RULES.maxIqd || amount % TOPUP_RULES.stepIqd !== 0) throw new DriverError('topup_amount_invalid');
     const now = this.clock.now();
-    return this.uow.run(async (tx) => {
+    // THIN-13: one request per customer at a time (every instance), so parallel taps can't each pass the
+    // daily limit or leave two live codes.
+    return this.requestLock.run(actor.personId, async (tx) => {
       const today = await this.repo.ofCustomer(actor.personId, startOfLocalDay(now), tx);
       const open = today.find((r) => topUpState(r, now) === 'pending');
       // Asking again for the same amount returns the code he already has.

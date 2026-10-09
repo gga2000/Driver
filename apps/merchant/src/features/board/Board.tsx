@@ -819,6 +819,7 @@ export function Board() {
 
       <AcceptSheet
         order={byId(acceptId)}
+        storeId={storeId}
         onClose={closeAccept}
         startPartial={acceptPartial}
         busyMinutes={busyMinutes}

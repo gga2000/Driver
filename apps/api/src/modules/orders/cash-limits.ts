@@ -30,7 +30,7 @@ const COLLECTED: readonly OrderState[] = ['delivered', 'completed', 'closed', 'd
 export class CashLimits implements OrdersCashRiskPort {
   constructor(
     private readonly base: OrdersCashRiskPort,
-    private readonly repo: Pick<OrdersRepository, 'forPerson'>,
+    private readonly repo: Pick<OrdersRepository, 'forPerson' | 'openPlacedBy' | 'countPlacedBy'>,
     private readonly ledger: CashLimitsLedgerPort,
     private readonly eventLog: OrderEventLog,
     private readonly rules: OrderOutcomeRules,
@@ -51,9 +51,8 @@ export class CashLimits implements OrdersCashRiskPort {
     if (!this.rules.cashDebt.collectOnNext) return 0;
     const { owedIqd } = await this.debt(customerId);
     if (owedIqd <= 0) return 0;
-    const mine = await this.repo.forPerson(customerId);
-    const carried = mine
-      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'cash' && !TERMINAL_ORDER_STATES.includes(o.state) && !COLLECTED.includes(o.state))
+    const carried = (await this.repo.openPlacedBy(customerId))
+      .filter((o) => o.paymentMethod === 'cash' && !COLLECTED.includes(o.state))
       .reduce((s, o) => s + (o.debtCollectIqd ?? 0), 0);
     const left = Math.max(0, owedIqd - carried);
     // Whole 250s, like every cash amount; the odd rest stays owed.
@@ -61,15 +60,15 @@ export class CashLimits implements OrdersCashRiskPort {
   }
 
   async standing(customerId: string): Promise<CashStanding> {
-    const mine = (await this.repo.forPerson(customerId)).filter((o) => o.ordererId === customerId);
+    // FOOD-04: his open orders and a count, never his whole history (this runs on every cash quote and place).
     // Open = not yet at his door: delivered (closing in 2 h) and complaints under review do not count.
-    const openCashOrders = mine.filter((o) => o.paymentMethod === 'cash' && !TERMINAL_ORDER_STATES.includes(o.state) && !NOT_OPEN.includes(o.state)).length;
-    const completed = mine.filter((o) => FINISHED.includes(o.state)).length;
+    const [open, completed] = await Promise.all([this.repo.openPlacedBy(customerId), this.repo.countPlacedBy(customerId, { states: FINISHED })]);
+    const openCashOrders = open.filter((o) => o.paymentMethod === 'cash' && !NOT_OPEN.includes(o.state)).length;
     const oc = this.rules.openCash;
     const openCashLimit = oc.enabled ? (completed < oc.newAccountBelowCompleted ? oc.newAccountMax : oc.regularMax) : null;
     const { owedIqd, unpaidFees } = await this.debt(customerId);
     let blockedBy: CashStanding['blockedBy'] = null;
-    if (oc.prepayAfterNoAnswer && (await this.lastWasNoAnswer(mine))) blockedBy = 'prepay_required';
+    if (oc.prepayAfterNoAnswer && (await this.lastWasNoAnswer((await this.repo.forPerson(customerId)).filter((o) => o.ordererId === customerId)))) blockedBy = 'prepay_required';
     else if (this.rules.cashDebt.block && (unpaidFees >= this.rules.cashDebt.maxUnpaidFees || owedIqd > this.rules.cashDebt.maxOwedIqd)) blockedBy = 'cash_debt_blocked';
     else if (openCashLimit !== null && openCashOrders >= openCashLimit) blockedBy = 'open_cash_orders_cap';
     return { owedIqd, unpaidFees, openCashOrders, openCashLimit, cashAllowed: blockedBy === null, blockedBy };

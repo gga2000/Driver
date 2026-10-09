@@ -47,7 +47,7 @@ export interface TrackingOrdersPort {
   }>;
   get(orderId: string): Promise<Order>;
   /** The person's own orders (orderer), any state. */
-  listForPerson(personId: string): Promise<Order[]>;
+  listForPerson(personId: string, opts?: { limit?: number }): Promise<Order[]>;
   /** The city's live orders (Console at-risk list). Optional for fakes. */
   listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
   /** Ride ideas c9/s3: the orders with the rider's name for this reader (logged vault read). Optional for fakes. */
@@ -535,9 +535,8 @@ export class TrackingService implements TrackingPort {
    * looked up once per merchant; rides add the zone they went to.
    */
   async history(actor: Actor): Promise<OrderHistoryRow[]> {
-    const recent = [...(await this.orders.listForPerson(actor.personId))]
-      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
-      .slice(0, ORDER_HISTORY_LIMIT);
+    // FOOD-04: the newest ORDER_HISTORY_LIMIT come from the database, already newest first.
+    const recent = await this.orders.listForPerson(actor.personId, { limit: ORDER_HISTORY_LIMIT });
     // c9/s3: a ride booked for someone else reads «لـ ماما» in his history.
     const orders = this.orders.withRiders ? await this.orders.withRiders(recent, actor.personId) : recent;
     return this.historyRows(orders);

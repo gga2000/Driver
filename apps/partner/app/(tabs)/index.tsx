@@ -26,12 +26,12 @@ import { useBookedJobs, useDemandMap, useMe, useStatus } from '@/features/work/q
 import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
 import { useLocale, useT } from '@/lib/i18n';
-import { formatWhen } from '@driver/i18n';
+import { formatClock, formatWhen, type Locale } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
 
-/** «7:42» in Baghdad time, Western digits. */
-function clockOf(d: Date, locale: string): string {
-  return new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : 'ar-IQ-u-nu-latn', { hour: 'numeric', minute: '2-digit', hour12: false, timeZone: 'Asia/Baghdad' }).format(d);
+/** «7:42 م» in Baghdad time, Western digits, 12-hour with ص/م like every time in the app (check-up item 8). */
+function clockOf(d: Date, locale: Locale): string {
+  return formatClock(d, { locale });
 }
 
 /**
@@ -76,8 +76,13 @@ export default function Home() {
   const practice = s?.canDrive && !online && !s.activeTripId && !gate && practiceDone === null && practiceKindFor(s.vehicleClass) !== null;
 
   const state = dashState(online, !cut);
+  // «الشغل هسة بـ…» is about town jobs (food and city rides); a الرجعة or خطوط driver has his garage or run card.
   // Paused after a report: no "go where the work is" while he can't take any.
-  const hint = s?.canDrive && gate !== 'paused' ? workHint(s.demand, s.position) : null;
+  const townWork = Boolean(s?.modes.some((m) => m === 'courier' || m === 'city'));
+  const hint = s?.canDrive && townWork && gate !== 'paused' ? workHint(s.demand, s.position) : null;
+  // A خطوط driver's open trip is his run: the banner goes back to the run screen, and he starts the
+  // run there, not with the town «اسحب وابدأ الشغل».
+  const khatRun = Boolean(s?.activeTripId) && Boolean(s?.modes.includes('khat')) && !townWork;
   const goOnline = () => {
     if (cut) {
       toast.show({ message: t('partner.go_online_offline'), tone: 'warning', icon: 'wifi-off' });
@@ -104,7 +109,7 @@ export default function Home() {
     if (invite && !s.activeTripId) present.push('invite');
     if (online && s.climateCheck) present.push('climate');
     for (const k of attentionOrder(present)) {
-      if (k === 'job') attention.push({ key: k, node: <ActiveJobBanner /> });
+      if (k === 'job') attention.push({ key: k, node: <ActiveJobBanner khat={khatRun} /> });
       if (k === 'gate' && gate) attention.push({ key: k, node: <GateBanner kind={gate} /> });
       if (k === 'cash') attention.push({ key: k, node: <CashLine cash={s.cash} /> });
       if (k === 'papers' && papers) attention.push({ key: k, node: <PapersBanner kind={papers.kind} days={papers.days} /> });
@@ -165,7 +170,7 @@ export default function Home() {
                 <ModeTile
                   testID="mode-booked"
                   icon="taxi"
-                  title={t('partner.booked_title')}
+                  title={t('partner.booked_title_later')}
                   body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
                   cta={t('partner.booked_home_cta')}
                   onPress={() => router.push('/booked')}
@@ -181,7 +186,7 @@ export default function Home() {
         </View>
       </ScrollView>
 
-      {s?.canDrive ? (
+      {s?.canDrive && !(khatRun && !online) ? (
         <SafeAreaView edges={[]} style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3], paddingTop: theme.space[2], backgroundColor: theme.colors.bg }}>
           <View style={column}>
             {gate ? (

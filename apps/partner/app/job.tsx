@@ -41,7 +41,7 @@ import {
   zoneCheckMoment,
   zoneName,
 } from '@/features/work/logic';
-import { tenderLine } from '@/features/work/cash-door';
+import { doorState, tenderLine } from '@/features/work/cash-door';
 import { giftNote, type GiftNote } from '@/features/work/gift';
 import { applyQueued } from '@/features/work/offline-queue';
 import { PayLines } from '@/features/work/OfferParts';
@@ -217,6 +217,7 @@ function JobView({
   const [dismissedUnreachable, setDismissedUnreachable] = useState(false);
   const ride = isRide(job.vertical);
   const stop = job.stops.find((s) => s.stopId === job.currentStopId) ?? null;
+  const rideCollectIqd = ride && stop?.type === 'pickup' ? job.stops.reduce((n, s) => (s.type === 'dropoff' ? n + s.collectIqd : n), 0) : 0;
   const action = stop ? jobAction(stop, job.vertical) : null;
   const progress = taskProgress(job);
   const busy = tapping || actions.unreachable.isPending || actions.fail.isPending;
@@ -529,7 +530,14 @@ function JobView({
                 quote={hint?.note ?? null}
                 near={hint?.landmark ? t('partner.slip_near', { place: hint.landmark }) : null}
                 zone={zoneName(stop.zoneId, locale, t)}
-                aside={stop.type === 'dropoff' && stop.collectIqd > 0 ? <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" /> : null}
+                aside={
+                  stop.type === 'dropoff' && stop.collectIqd > 0 ? (
+                    <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" />
+                  ) : rideCollectIqd > 0 ? (
+                    // A ride's cash is taken at the end: from the pickup on, he knows what the rider pays.
+                    <StatusPill testID="job-ride-collect" label={t('partner.job_ride_collect', { amount: amountParam(rideCollectIqd) })} tone="warning" icon="wallet" size="sm" />
+                  ) : null
+                }
               />
 
               {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} /> : null}
@@ -544,7 +552,7 @@ function JobView({
               ) : null}
 
               {/* f3: a gift and the customer's wallet top-up are one ink card (the top-up confirms with a slide). */}
-              <DoorExtras gift={giftNote(stop)} topUp={topUp} />
+              <DoorMoneyCard gift={giftNote(stop)} topUp={topUp && stop.type === 'dropoff'} stop={stop} />
               <JobNotes job={job} stop={stop} ride={ride} />
 
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
@@ -628,26 +636,15 @@ function JobView({
 const SPOKEN = new Set<string>();
 
 /**
- * The one-line notes on a job (partner redesign r7, r8): a gift, the change to bring, the rider booked
- * for, the night code, what the rider carries — drawn like the order slip's notes.
+ * The one-line notes on a job (partner redesign r7, r8): the rider booked for, the night code, what the rider carries — drawn like the order slip's notes.
  */
 function JobNotes({ job, stop, ride }: { job: PartnerJob; stop: PartnerJobStop; ride: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const tender = stop.type === 'dropoff' && stop.collectIqd > 0 ? tenderLine(stop.collectIqd, stop.tenderIqd ?? null) : null;
   const cargo = cargoLine(job.rideCargo ?? [], t);
   const accent = { bg: theme.colors.accentTint, ink: theme.colors.accentText };
   return (
     <>
-      {/* "الخردة علينا": the note the customer said at checkout and the change to bring. */}
-      {tender ? (
-        <SlipNote
-          testID="job-tender"
-          icon="cash"
-          title={tender.changeIqd > 0 ? t('cashchange.job_tender', { tender: amountParam(tender.tenderIqd), change: amountParam(tender.changeIqd) }) : t('cashchange.job_tender_exact')}
-          {...accent}
-        />
-      ) : null}
       {/* M-3: the amount is more than the order because the customer pays what he owed from before with it. */}
       {stop.type === 'dropoff' && stop.collectIqd > 0 && stop.owedFeesIqd ? (
         <SlipNote
@@ -680,18 +677,22 @@ function placeTitle(s: PartnerJobStop, ride: boolean, t: TFn, locale: 'ar-IQ' | 
 }
 
 /**
- * Partner redesign f3: what is special about this door, on one ink card — «عزيمة» (joy g1: «هدية · لا
- * تذكر السعر» at the door, the receipt out of the bag at the kitchen) and «الزبون يريد يشحن محفظته»,
- * which opens the top-up desk (code → amount → slide to confirm; it counts on his cash cap).
+ * Partner redesign f3 + check-up item 2 (Ali, 2026-10-09): everything about money and this door on ONE
+ * ink card — «عزيمة» (joy g1: «هدية · لا تذكر السعر»), the note the customer said at checkout with the
+ * change to hand back («استلم 25,000 · رجّعله 11,000», or into his wallet when the rules allow), and
+ * «إذا يريد يشحن محفظته», which opens the top-up desk (code → amount → slide; it counts on his cash cap).
  */
-function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) {
+function DoorMoneyCard({ gift, topUp, stop }: { gift: GiftNote | null; topUp: boolean; stop: PartnerJobStop }) {
   const theme = useTheme();
   const t = useT();
-  if (!gift && !topUp) return null;
+  const tender = stop.type === 'dropoff' && stop.collectIqd > 0 ? tenderLine(stop.collectIqd, stop.tenderIqd ?? null) : null;
+  const walletOk = !!tender && tender.changeIqd > 0 && doorState(stop.collectIqd, tender.tenderIqd).walletAllowed;
+  if (!gift && !topUp && !tender) return null;
   // By day a dark ink card; at night (n2) a raised brown card instead of a cream block that glares.
   const night = theme.scheme === 'dark';
   const cream = night ? theme.colors.text : theme.colors.bg;
   const soft = withAlpha(cream, 0.7);
+  const divider = <View style={{ height: 1, marginHorizontal: theme.space[4], backgroundColor: withAlpha(cream, 0.14) }} />;
   return (
     <View testID="job-extras" style={{ backgroundColor: night ? theme.colors.surface : theme.colors.text, borderRadius: theme.radius.xl, overflow: 'hidden', ...(night ? { borderWidth: 1.5, borderColor: theme.colors.border } : {}) }}>
       {gift ? (
@@ -711,7 +712,27 @@ function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) 
           </View>
         </View>
       ) : null}
-      {gift && topUp ? <View style={{ height: 1, marginHorizontal: theme.space[4], backgroundColor: withAlpha(cream, 0.14) }} /> : null}
+      {gift && tender ? divider : null}
+      {tender ? (
+        <View testID="job-tender" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[4] }}>
+          <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="cash" size={20} color={theme.colors.onAccent} strokeWidth={2.2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" weight={700} color={cream} tabular>
+              {tender.changeIqd > 0
+                ? t('partner.door_money_take_change', { tender: amountParam(tender.tenderIqd), change: amountParam(tender.changeIqd) })
+                : t('partner.door_money_exact', { tender: amountParam(tender.tenderIqd) })}
+            </Text>
+            {walletOk ? (
+              <Text variant="caption" color={soft}>
+                {t('partner.door_money_wallet_or')}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+      {(gift || tender) && topUp ? divider : null}
       {topUp ? (
         <Pressable
           testID="job-topup-entry"
@@ -724,7 +745,7 @@ function DoorExtras({ gift, topUp }: { gift: GiftNote | null; topUp: boolean }) 
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="label" weight={700} color={cream}>
-              {t('partner.job_topup_entry')}
+              {t('partner.job_topup_entry_if')}
             </Text>
             <Text variant="caption" color={soft}>
               {t('partner.job_topup_entry_sub')}

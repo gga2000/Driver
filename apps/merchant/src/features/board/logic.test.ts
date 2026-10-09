@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardOrder } from '@driver/contracts';
-import { busyExtra, prepOptions, byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged, rushRows, acceptAllTargets, needsReading } from './logic';
+import { busyExtra, prepOptions, byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged, rushRows, acceptAllTargets, needsReading, dishesOut } from './logic';
 
 const T0 = Date.parse('2026-10-03T17:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000);
@@ -249,5 +249,25 @@ describe('counter board (redesign step 2)', () => {
   it('writes the dishes for the ribbon, with how many more', () => {
     const o = { groups: [group([line('a', 'تكة', 2), line('b', 'كص', 1), line('c', 'ماي', 2), line('d', 'لبن', 1), line('e', 'x', 1, 'removed')])] };
     expect(dishLine(o)).toEqual({ shown: [{ qty: 2, name: 'تكة' }, { qty: 1, name: 'كص' }, { qty: 2, name: 'ماي' }], more: 1 });
+  });
+});
+
+describe('dishesOut (m5)', () => {
+  const lines = [
+    { lineId: 'a', name: 'كباب', menuItemId: 'kebab' },
+    { lineId: 'b', name: 'كباب', menuItemId: 'kebab' },
+    { lineId: 'c', name: 'شي خاص', menuItemId: null },
+    { lineId: 'd', name: 'لبن', menuItemId: 'laban' },
+    { lineId: 'e', name: 'تكة', menuItemId: 'tikka' },
+  ];
+  it('names each ticked dish once, in ticket order, and skips free-text lines', () => {
+    expect(dishesOut(lines, new Set(['d', 'b', 'a', 'c']))).toEqual([
+      { id: 'kebab', name: 'كباب' },
+      { id: 'laban', name: 'لبن' },
+    ]);
+  });
+  it('is empty when nothing ticked has a dish on the menu', () => {
+    expect(dishesOut(lines, new Set(['c']))).toEqual([]);
+    expect(dishesOut(lines, new Set())).toEqual([]);
   });
 });

@@ -61,7 +61,7 @@ function setup() {
 function postRequest(h: RoutesHarness, riderId = 'r1') {
   return h.requests.post(
     riderId,
-    PostRequestInput.parse({ from: { label: 'كراج البوابة ١', garageId: BAB1.id }, to: { label: 'الصويرة' }, when: h.at(120), seats: 3, privateCar: true, travellingAs: 'aila' }),
+    PostRequestInput.parse({ from: { label: 'كراج البوابة 1', garageId: BAB1.id }, to: { label: 'الصويرة' }, when: h.at(120), seats: 3, privateCar: true, travellingAs: 'aila' }),
   );
 }
 

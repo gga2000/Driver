@@ -23,7 +23,7 @@ async function sharedCar(opts: { on?: boolean; seats?: number } = {}) {
   const r = await h.requests.post(
     'r1',
     PostRequestInput.parse({
-      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      from: { label: 'كراج البوابة 1', garageId: BAB1.id },
       to: { label: 'بغداد · مستشفى ابن النفيس' },
       when: h.at(600),
       seats: opts.seats ?? 4,

@@ -186,15 +186,21 @@ export interface PartnerDash {
   /** Working: top-to-bottom gold → saffron, ink text. */
   working: readonly [string, string];
   onWorking: string;
+  /** Second lines on the working top. */
+  onWorkingMuted: string;
+  /** The big number and the breathing dot on the working top (saffron at night). */
+  workingMark: string;
   /** No internet: ink top, cream text. */
   offline: string;
   onOffline: string;
+  onOfflineMuted: string;
   /** Cash in hand past 80 % of the cap (idea h7): a saffron card. */
   cashNear: string;
   onCashNear: string;
 }
 
 export const partnerDash: Record<PartnerThemeName, PartnerDash> = {
-  sun: { working: ['#FFC155', '#F38A1B'], onWorking: '#140B05', offline: '#140B05', onOffline: '#FFF3E2', cashNear: '#FFE7C7', onCashNear: '#6B3300' },
-  ember: { working: ['#FFB65C', '#E9861F'], onWorking: '#140B05', offline: '#FFF3E2', onOffline: '#140B05', cashNear: '#3E2810', onCashNear: '#FFC98A' },
+  sun: { working: ['#FFC155', '#F38A1B'], onWorking: '#140B05', onWorkingMuted: '#1A0C02', workingMark: '#140B05', offline: '#140B05', onOffline: '#FFF3E2', onOfflineMuted: '#D9C6AE', cashNear: '#FFE7C7', onCashNear: '#6B3300' },
+  // Check-up item 4 (Ali, 2026-10-09): at night no top glares — a deep ember panel with a saffron number.
+  ember: { working: ['#3E2611', '#26170B'], onWorking: '#FFF3E2', onWorkingMuted: '#D2BCA2', workingMark: '#FFA63D', offline: '#2B1C11', onOffline: '#FFF3E2', onOfflineMuted: '#D2BCA2', cashNear: '#3E2810', onCashNear: '#FFC98A' },
 };

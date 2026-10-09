@@ -47,7 +47,7 @@ export function destinationCity(corridorCityId: string, direction: IntercityDire
   return direction === 'from_aziziyah' ? corridorCityId : HOME_CITY;
 }
 
-/** Board order of garages (customer app: النهضة; البوابة ١، البوابة ٢، السوق; Kut). */
+/** Board order of garages (customer app: النهضة; البوابة 1، البوابة 2، السوق; Kut). */
 export const GARAGE_ORDER = ['mp_garage_bab1', 'mp_garage_bab2', 'mp_garage_souq', 'mp_garage_nahdha', 'mp_garage_kut'] as const;
 
 export function garagesFor<G extends { id: string; cityId: string }>(garages: readonly G[], cityId: string): G[] {
@@ -230,11 +230,21 @@ export function riderStatus(b: DriverBookingRow): RiderStatus {
 }
 
 /**
- * Seats already boarded: a booking can hold two or three seats (مريم and her sister), so "صعدوا" counts
- * seats, the same unit as "6 من 7 مقاعد" and the green seats on the map — not bookings.
+ * The one count every partner screen shows (check-up 2026-10-09: the band said «4 صعدوا», the card
+ * «3 صعدوا · 1 من الكراج», the arrival «3 ركاب»). Everything counts seats, the unit of «6 من 7 مقاعد»
+ * and the green seats on the map — a booking can hold two or three seats. «صعدوا» is every seat in the
+ * car: riders who gave their code (or arrived with it) and walk-ups from the garage; `walkUps` says how
+ * many of those came from the garage. `free` leaves out seats someone is holding while paying.
  */
-export function boardedSeats(bookings: readonly Pick<DriverBookingRow, 'state' | 'seatIds'>[]): number {
-  return bookings.reduce((n, b) => (b.state === 'checked_in' ? n + b.seatIds.length : n), 0);
+export function seatCounts(dep: Pick<DriverDepartureView, 'fill' | 'bookings' | 'walkUps'>): { sold: number; total: number; boarded: number; walkUps: number; toBoard: number; held: number; free: number } {
+  let boarded = dep.walkUps.length;
+  let toBoard = 0;
+  for (const b of dep.bookings) {
+    if (b.state === 'checked_in' || b.state === 'completed') boarded += b.seatIds.length;
+    else if (b.state === 'booked') toBoard += b.seatIds.length;
+  }
+  const sold = dep.fill.booked + dep.fill.walkUps;
+  return { sold, total: dep.fill.seatsTotal, boarded, walkUps: dep.walkUps.length, toBoard, held: dep.fill.held, free: Math.max(0, dep.fill.seatsTotal - sold - dep.fill.held) };
 }
 
 /** Seat → who sits there (booked riders by first name, walk-ups, free seats with their premium). */
@@ -313,7 +323,7 @@ export function pickupRoute(garage: LatLngLike, bookings: readonly DriverBooking
   for (const [key, rows] of ordered) {
     const p = rows[0]!.pickup;
     const pin = p.kind === 'pin';
-    stops.push({ key, kind: pin ? 'pin' : 'meeting_point', at: p, nameAr: pin ? null : p.nameAr, note: pin ? p.note : null, bookings: rows, legKm: haversineM(from, p) / 1000 });
+    stops.push({ key, kind: pin ? 'pin' : 'meeting_point', at: p, nameAr: pin ? null : publicPlaceName(p.nameAr ?? ''), note: pin ? p.note : null, bookings: rows, legKm: haversineM(from, p) / 1000 });
     from = p;
   }
   return stops;
@@ -461,3 +471,12 @@ export function asksInOrder(all: readonly AgreementView[]): AgreementView[] {
   return all.filter((a) => rank(a) < 3).sort((a, b) => rank(a) - rank(b) || +new Date(a.askedAt) - +new Date(b.askedAt));
 }
 
+
+/**
+ * A garage or meeting-point name as drivers see it (check-up 2026-10-09): the network config marks
+ * places field ops have not verified yet with "(مسودة)" for Ali and ops; drivers, like riders, never
+ * see the word.
+ */
+export function publicPlaceName(nameAr: string): string {
+  return nameAr.replace(/\s*\(\s*مسودة\s*\)\s*/g, ' ').trim();
+}
