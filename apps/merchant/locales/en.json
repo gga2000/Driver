@@ -1876,5 +1876,8 @@
   "merchant.daynew.title": "Your numbers show after your first {count} orders",
   "merchant.daynew.body": "Once your first orders come in, you will see your day here: how many orders, whether you are on time, and what sells most",
   "merchant.daynew.count": "{done} of {count} orders",
-  "merchant.display.no_photo_tile": "No photo"
+  "merchant.display.no_photo_tile": "No photo",
+  "merchant.board.tick_done": "Done",
+  "merchant.board.prep_bar_label": "Prep time left",
+  "merchant.board.prep_bar_label_late": "Prep time is up"
 }

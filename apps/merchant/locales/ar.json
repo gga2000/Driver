@@ -1876,5 +1876,8 @@
   "merchant.daynew.title": "الأرقام تبين بعد أول {count} طلبات",
   "merchant.daynew.body": "من توصلك طلباتك الأولى، تشوف هنا يومك: شگد طلب إجاك، وقتك مضبوط لو لا، وشنو ينطلب أكثر",
   "merchant.daynew.count": "{done} من {count} طلبات",
-  "merchant.display.no_photo_tile": "ماكو صورة"
+  "merchant.display.no_photo_tile": "ماكو صورة",
+  "merchant.board.tick_done": "خلصت",
+  "merchant.board.prep_bar_label": "الوقت الباقي للتحضير",
+  "merchant.board.prep_bar_label_late": "خلص وقت التحضير"
 }

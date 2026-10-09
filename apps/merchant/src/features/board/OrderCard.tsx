@@ -118,8 +118,14 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
         </Text>
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
         {onTick ? (
-          <View style={{ alignSelf: 'center', width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-            {done ? <Icon name="check" size={16} color={COUNTER.onDate} strokeWidth={3} /> : null}
+          // d22: the box says what it is for — «خلصت» — on a pill, filled green once ticked.
+          <View style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingStart: 5, paddingEnd: 10, borderRadius: 17, borderWidth: 1.5, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent' }}>
+            <View style={{ width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: done ? COUNTER.onDate : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : COUNTER.paper, alignItems: 'center', justifyContent: 'center' }}>
+              {done ? <Icon name="check" size={14} color={COUNTER.onDate} strokeWidth={3} /> : null}
+            </View>
+            <Text variant="caption" weight={700} style={{ color: done ? COUNTER.onDate : theme.colors.text, textDecorationLine: 'none' }}>
+              {t('merchant.board.tick_done')}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -276,20 +282,26 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
 
 /**
  * o5: the time left on a cooking ticket as a bar that drains — readable from across the kitchen
- * without reading numbers. Date brown while there's time, red (and full) once it is late.
+ * without reading numbers. Date brown while there's time, red (and full) once it is late. d22: kept,
+ * with its name above it («الوقت الباقي للتحضير»).
  */
 export function PrepBar({ fraction, late, testID }: { fraction: number; late: boolean; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   const pct = Math.round((late ? 1 : fraction) * 100);
+  const tone = late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date;
+  // d22: the bar says what it measures (it read as an unexplained black line).
   return (
-    <View
-      testID={testID}
-      accessibilityRole="progressbar"
-      accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })}
-      style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}
-    >
-      <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date }} />
+    <View testID={testID} accessibilityRole="progressbar" accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })} style={{ gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name="clock" size={14} color={late ? COUNTER.late : theme.colors.textMuted} />
+        <Text variant="caption" weight={600} style={{ color: late ? COUNTER.late : theme.colors.textMuted }} numberOfLines={1}>
+          {late ? t('merchant.board.prep_bar_label_late') : t('merchant.board.prep_bar_label')}
+        </Text>
+      </View>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}>
+        <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: tone }} />
+      </View>
     </View>
   );
 }
