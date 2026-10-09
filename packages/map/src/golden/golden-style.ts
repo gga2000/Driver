@@ -1,7 +1,7 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
 import { GOLDEN_PALETTES, type GoldenPalette } from './palettes.js';
-import { PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
+import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
 
 /**
@@ -50,7 +50,7 @@ export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {
 
 /** Images the style uses; add each with `map.addImage(id, image)` (or on `styleimagemissing`). */
 export function goldenImages(light: GoldenLight): Record<string, PatternImage> {
-  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]) };
+  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]) };
 }
 
 type Stops = number[];
@@ -93,8 +93,13 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-farm', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('farm2'), paint: { 'fill-color': p.farm, 'fill-opacity': fade(7, 0.8, 12, 0.7, 14, 0.35, 16, 0) } },
     { id: 'golden-urban', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('urban'), paint: { 'fill-color': p.urban } },
     { id: 'golden-palms', type: 'fill', ...src, 'source-layer': 'palms', paint: { 'fill-color': p.palm } },
+    // the ground says what it is: school yards sandy, parks and pitches green
+    { id: 'golden-yard', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('school'), minzoom: 13, paint: { 'fill-color': p.yard, 'fill-outline-color': p.wall } },
+    { id: 'golden-green', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('green'), minzoom: 13, paint: { 'fill-color': p.green } },
   ];
   if (rich) {
+    // fields drawn in rows around town; they fade before the streets get close, where the rows would read as noise
+    L.push({ id: 'golden-furrows', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('farm2'), minzoom: 12.5, maxzoom: 15.3, paint: { 'fill-pattern': FURROW_PATTERN, 'fill-opacity': fade(12.5, 0, 13, 0.7, 14.8, 0.7, 15.3, 0) } });
     L.push({ id: 'golden-palm-crowns', type: 'fill', ...src, 'source-layer': 'palms', minzoom: 14.2, paint: { 'fill-pattern': PALM_PATTERN, 'fill-opacity': fade(14.2, 0, 15, 1) } });
   }
   if (rich && p.shadowOpacity > 0) {
@@ -115,6 +120,8 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     }
   }
   L.push(
+    // a mud bank along the Tigris, under the water's own edge
+    { id: 'golden-bank', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('river'), minzoom: 12, paint: { 'line-color': p.bank, 'line-width': zoom(12, 2, 15, 6, 18, 22), 'line-blur': fade(12, 1, 18, 8), 'line-opacity': 0.8 } },
     { id: 'golden-water', type: 'fill', ...src, 'source-layer': 'water', filter: kindIn('river'), paint: { 'fill-color': p.water } },
     { id: 'golden-water-edge', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('river'), paint: { 'line-color': p.waterEdge, 'line-width': zoom(10, 0.6, 15, 1.4, 18, 3) } },
     { id: 'golden-river-line', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('centre'), maxzoom: 13, layout: ROUND, paint: { 'line-color': p.water, 'line-width': zoom(7, 3.5, 11, 5, 13, 2) } },
@@ -150,14 +157,41 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-bridge-case', type: 'line', ...road, filter: isCls('bridge'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': p.deckCase, 'line-width': zoom(...cased(WIDTH.bridge, 4)) } },
     { id: 'golden-bridge', type: 'line', ...road, filter: isCls('bridge'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': p.deck, 'line-width': zoom(...WIDTH.bridge) } },
   );
+  if (rich) {
+    // built streets up close: a pale kerb along main roads and a dashed centre line
+    const kerb = (cls: 'major' | 'mid', w: number): LayerSpecification => ({
+      id: `golden-kerb-${cls}`, type: 'line', ...road, filter: isCls(cls), minzoom: 15.5, layout: ROUND,
+      paint: { 'line-color': p.kerb, 'line-gap-width': zoom(...WIDTH[cls]), 'line-width': zoom(15.5, w * 0.2, 18, w) },
+    });
+    L.push(kerb('major', 3.2), kerb('mid', 2.4), {
+      id: 'golden-centre-line', type: 'line', ...road, filter: ['in', ['get', 'cls'], ['literal', ['major', 'highway']]] as never, minzoom: 16.8,
+      paint: { 'line-color': p.marking, 'line-width': zoom(16.8, 0.6, 18, 1.8), 'line-dasharray': [3, 4], 'line-opacity': fade(16.8, 0, 17.3, 0.9) },
+    });
+  }
   const bld = { ...src, 'source-layer': 'buildings' } as const;
-  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, p.roof] as never;
+  // each house wears one of six real roof finishes; at night a share of them have their lights on
+  const t = p.roofTones;
+  const finish = ['match', ['%', ['coalesce', ['get', 'tone'], 0], 6], 0, t[0], 1, t[1], 2, t[2], 3, t[3], 4, t[4], t[5]];
+  const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
+  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
   L.push({
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
   });
   if (rich) {
     const rise = riseAt ?? (mode === 'courier' ? 15.4 : 16.4);
+    // a soft dark line where walls meet the ground, so houses sit on the street instead of floating
+    L.push({
+      id: 'golden-wall-foot', type: 'line', ...bld, minzoom: rise, filter: kindIn('house'),
+      paint: { 'line-color': p.shadow, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.6, 18, 4] as never, 'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.5, 18, 3] as never, 'line-opacity': fade(rise, 0, rise + 0.6, p.litRoof ? 0.6 : 0.32) },
+    });
+    if (p.windowGlow) {
+      // lit houses spill warm light onto the street around them
+      L.push({
+        id: 'golden-window-glow', type: 'circle', ...src, 'source-layer': 'lights', minzoom: 14.5,
+        paint: { 'circle-color': p.windowGlow, 'circle-opacity': 0.32, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 5, 18, 34] as never },
+      });
+    }
     L.push({
       id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('house', 'mosque'),
       paint: {
@@ -259,10 +293,11 @@ export function buildGoldenStyle(opts: GoldenStyleOptions): StyleSpecification {
       position: [1.15, sun.az, Math.min(75, Math.max(30, 90 - sun.alt))],
     },
   };
-  if (mode === 'courier') {
+  if (mode === 'courier' || mode === 'customer') {
+    // a warm sky over every tilted view, and far streets fading into haze so the near street stays sharp
     style.sky = {
       'sky-color': p.sky.sky, 'horizon-color': p.sky.horizon, 'fog-color': p.sky.fog,
-      'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55, 'atmosphere-blend': 0,
+      'sky-horizon-blend': 0.7, 'horizon-fog-blend': 0.8, 'fog-ground-blend': mode === 'courier' ? 0.55 : 0.62, 'atmosphere-blend': 0,
     };
   }
   return style;

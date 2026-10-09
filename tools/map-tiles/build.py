@@ -107,7 +107,9 @@ for f in L(TOWN, 'land_use'):
     s = f['properties']['subtype']; g = sg.shape(f['geometry'])
     if s == 'residential': add('landuse', g, {'kind': 'urban'}, poly_zoom(g, 10))
     elif s in ('agriculture', 'horticulture'): add('landuse', g, {'kind': 'farm2'}, poly_zoom(g, 10))
-    elif s == 'park': add('palms', g, {}, poly_zoom(g, 11))
+    elif s == 'park': add('landuse', g, {'kind': 'green'}, poly_zoom(g, 12))
+    elif s == 'education': add('landuse', g, {'kind': 'school'}, poly_zoom(g, 12))
+    elif s == 'recreation': add('landuse', g, {'kind': 'green'}, poly_zoom(g, 12))
 
 # buildings (no heights in Overture here: 1-3 storeys from footprint + stable hash, as convert.py) ----
 lat0 = 32.9; mx = 111320 * math.cos(math.radians(lat0)); my = 110540
@@ -156,7 +158,9 @@ for f in L(TOWN, 'building'):
     hm = [0, 3.6, 6.8, 10][fl]; kind = 'house'
     if area > 120 and any(m.distance(g) * mx < 4 for m in mosq): kind = 'mosque'; hm = 7.5; use = 'mosque'
     # tone: one of six real roof finishes (plaster, yellow brick, cream…), stable per building
-    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind, 'use': use, 'tone': h % 6}, 14); nb += 1
+    lit = 1 if kind == 'house' and use == 'home' and (h >> 14) % 10 < 3 else None   # about 3 homes in 10 have lights on at night
+    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind, 'use': use, 'tone': h % 6, 'lit': lit}, 14); nb += 1
+    if lit: add('lights', g.representative_point(), {}, 15)
     if kind != 'house' or use in ('school', 'civic'): continue
     # rooftop life, only when the town is close (z15+ tiles): a water tank on about a third of the roofs, the stair hut
     # (بيت الدرج) on most houses (every roof is used: sleeping in summer, washing, the tank), and a satellite dish on some
@@ -211,7 +215,7 @@ def merc(xy):
     y = (1 - np.log(np.tan(lat) + 1 / np.cos(lat)) / math.pi) / 2
     return np.column_stack([x, y])
 geoms_m = shapely.transform(np.array([f[1] for f in F], dtype=object), merc)
-LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'places', 'localities']
+LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'lights', 'places', 'localities']
 LAYER_TYPES = {}
 lon2x = lambda lon: (lon + 180) / 360
 lat2y = lambda lat: (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2
