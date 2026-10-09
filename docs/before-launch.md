@@ -119,6 +119,7 @@ agreed and only wait for their day; the platform work restarts from here.
 | Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
 | 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
 | When the real server is set up | Error reports (`SENTRY_DSN` on the real API) and uptime monitors with email alerts (Better Stack, free) | platform | `docs/deploy/hosting.md` "Logs and errors" |
+| When the real server is set up | The map on the real Supabase project: secret `SUPABASE_SECRET_KEY` in GitHub → Environments → Production, run Actions → Map tiles → `production`, then set the map URLs in the real app builds | Ali (key) + platform | `docs/deploy/map.md` |
 | Week before launch | Phone-call alerts (Better Stack Responder, about $29 a month): the alert phone number goes only into Better Stack's own settings, never into this repo | Ali | — |
 | Each test-server run | Approve it when GitHub asks ("Review deployments") | Ali | — |
 
