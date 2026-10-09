@@ -303,6 +303,17 @@ jobs:
           echo "$body" | jq -c '.result.data.json'
           node scripts/e2e/realdb-core.mjs
 
+      - name: Simulator on Postgres (pnpm sim --db postgres, its own fresh database)
+        # CRIT3-05: the simulated day through the Prisma repositories, timers on the fake clock. Fails on
+        # an invariant, on any failed Prisma query and on any outbox delivery that needed a retry.
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/driver_sim
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d driver -c 'CREATE DATABASE driver_sim'
+          pnpm db:migrate
+          pnpm db:seed
+          pnpm sim --orders 200 --seed 1 --db postgres --quiet
+
       - name: Upload API log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
