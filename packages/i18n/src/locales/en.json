@@ -8728,6 +8728,7 @@
   "partner.cash_owed_split": "{order} for the order + {fees} owed from before",
   "partner.job_owed_fees": "Collect {fees} IQD on top of the order",
   "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings.",
+  "track.map_at_door": "At your door",
   "partner.switch_blocked_paused": "Paused while we look into the report",
   "partner.switch_blocked_hint_paused": "We'll call you and hear your side before any decision",
   "console.kb_group_today": "Today",
@@ -8741,5 +8742,7 @@
   "console.today.new_rows_2": "2 new problems",
   "console.today.new_rows_few": "{n} new problems",
   "console.today.new_rows_many": "{n} new problems",
-  "console.today.show_new": "Show them"
+  "console.today.show_new": "Show them",
+  "error.location_web": "We couldn't get your location from the browser",
+  "error.location_web_hint": "Turn on location for your browser in your computer's settings, or move the map to your door"
 }
