@@ -17,7 +17,7 @@ import type { Actor } from './identity-io.js';
  *    from the Console case (it opens a support ticket by itself, docs/api/support-chat.md).
  *  - `rider_driver`      — Baghdad/Kut (private car round 2 step 4c): a rider and the driver of a seat
  *    run or of a private-car offer, one thread per pair, with the agreed-price cards. Its key is the
- *    run or request id plus the other side (`chat.trip.*`, trip-chat-io.ts, docs/api/trip-chat.md).
+ *    run or request id plus the other side (the `tripChat` procedures, trip-chat-io.ts, docs/api/trip-chat.md).
  *
  * Support (support, dispatcher, admin) may read and join any thread. A thread opens at accept (the
  * courier's accept for the courier threads, the kitchen's for `customer_merchant`) and closes 30

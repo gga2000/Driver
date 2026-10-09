@@ -94,25 +94,25 @@ export function WaitClock({ clock, now, side, locale, testID = 'wait-clock', sty
   const tone = s.phase === 'ending' || over ? 'warning' : s.phase === 'done' ? 'success' : 'accent';
   const barColor = tone === 'warning' ? theme.colors.warning : tone === 'success' ? theme.colors.success : theme.colors.accent;
 
-  const title = s.phase === 'done' ? tr('rajaa.wait_title_done') : tr(side === 'rider' ? 'rajaa.wait_title_rider' : 'rajaa.wait_title_driver');
+  const title = s.phase === 'done' ? tr('wait.title_done') : tr(side === 'rider' ? 'wait.title_rider' : 'wait.title_driver');
   const extraLine =
     clock.extraHourIqd === 0
-      ? tr('rajaa.wait_over_free', { duration: formatMinutes(s.overMin, { locale }) })
+      ? tr('wait.over_free', { duration: formatMinutes(s.overMin, { locale }) })
       : clock.charged
-        ? tr(pluralKey('rajaa.wait_extra', s.extraHours), { n: s.extraHours, amount: formatAmount(s.extraIqd) })
-        : tr('rajaa.wait_over', { duration: formatMinutes(s.overMin, { locale }) });
+        ? tr(pluralKey('wait.extra', s.extraHours), { n: s.extraHours, amount: formatAmount(s.extraIqd) })
+        : tr('wait.over', { duration: formatMinutes(s.overMin, { locale }) });
   const line =
     clock.includedHours === 0 && !over
-      ? tr('rajaa.wait_included_none')
+      ? tr('wait.included_none')
       : s.phase === 'included'
-        ? tr('rajaa.wait_included_until', { time: time(s.includedEndsAt) })
+        ? tr('wait.included_until', { time: time(s.includedEndsAt) })
         : s.phase === 'ending'
-          ? tr('rajaa.wait_left', { duration: formatMinutes(s.leftMin, { locale }) })
+          ? tr('wait.left', { duration: formatMinutes(s.leftMin, { locale }) })
           : s.phase === 'grace'
-            ? tr('rajaa.wait_grace', { time: time(s.graceEndsAt) })
+            ? tr('wait.grace', { time: time(s.graceEndsAt) })
             : s.phase === 'extra' || over
               ? extraLine
-              : tr('rajaa.wait_within', { duration: formatMinutes(s.waitedMin, { locale }) });
+              : tr('wait.within', { duration: formatMinutes(s.waitedMin, { locale }) });
 
   return (
     <Card testID={testID} padding={4} elevation={0} tone={tone === 'warning' ? 'tint' : undefined} style={style}>
@@ -123,14 +123,14 @@ export function WaitClock({ clock, now, side, locale, testID = 'wait-clock', sty
             {title}
           </Text>
           <Text variant="footnote" color="textMuted" tabular>
-            {tr('rajaa.wait_since', { time: time(clock.startedAt) })}
+            {tr('wait.since', { time: time(clock.startedAt) })}
           </Text>
         </View>
         <Text
           testID={`${testID}-elapsed`}
           variant="numeralSm"
           tabular
-          accessibilityLabel={tr('rajaa.wait_elapsed_a11y', { duration: formatMinutes(s.waitedMin, { locale }) })}
+          accessibilityLabel={tr('wait.elapsed_a11y', { duration: formatMinutes(s.waitedMin, { locale }) })}
         >
           {hm(s.waitedMin)}
         </Text>

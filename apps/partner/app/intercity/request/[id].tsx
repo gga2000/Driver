@@ -434,7 +434,7 @@ function RideView({ ride }: { ride: DriverRequestRide }) {
     <Screen testID="request-ride" edges={['bottom']} footer={footer}>
       <Stack.Screen options={{ title: t('partner.ic_ride_title'), headerRight: live ? () => <SosControl subject={{ kind: 'request', id: ride.id }} style={{ marginEnd: theme.space[3] }} /> : undefined }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <StatusPill label={clock && !clock.endedAt && live ? t('rajaa.wait_title_driver') : rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
+        <StatusPill label={clock && !clock.endedAt && live ? t('wait.title_driver') : rideState(t, ride.state)} tone={live ? 'accent' : ride.state === 'completed' ? 'success' : 'neutral'} live={live} />
       </View>
       {live ? (
         <Card padding={4} testID="ride-person">
