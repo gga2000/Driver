@@ -115,7 +115,7 @@ agreed and only wait for their day; the platform work restarts from here.
 | When | What | Who | Details |
 |---|---|---|---|
 | Before 2 Nov | Upgrade Supabase to Pro (Ali said yes on 2026-10-08) | Ali | `docs/deploy/supabase.md` |
-| Before 9 Nov | Type the test sign-in code `STAGING_TEST_OTP` into GitHub → Settings → Environments → staging (only there, never in chat) | Ali | `docs/deploy/staging.md` |
+| Done 9 Oct | Test sign-in code `STAGING_TEST_OTP` set by Ali in GitHub (staging); test numbers 0770 000 0100–0199 sign in on the customer website | Ali | `docs/api/staging-test-numbers.md` |
 | 9 Nov | The big load test on the test server (bigger test server approved), results in `docs/launch/load-YYYY-MM-DD.md` | platform | `docs/launch/load-test.md` |
 | Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
 | 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
@@ -152,6 +152,9 @@ Still to build:
 
 - When the shared-car boarding change (trips, slot 490000) is on `main`: a push to a friend when the driver
   confirms they got in, «السايق أكد إنك صعدت».
+- A test restaurant owner on the test server: make one test number (e.g. 0770 000 0150) the owner of a
+  seeded restaurant, so the restaurant website can be tried with a test number too (today a test number
+  signs in there but owns no restaurant). Not built; offered 9 Oct.
 - The WhatsApp sign-in template is called `driver_otp` in one place and `otp_login` in another: settle on
   one name before submitting templates to Meta.
 - OTPIQ, after Ali signs up: ask for the sender name **Driver** (row in section 2).

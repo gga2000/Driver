@@ -32,6 +32,7 @@ import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
 import { InMemoryOrderComplimentsRepository, ORDER_COMPLIMENTS_REPOSITORY, PrismaOrderComplimentsRepository, type OrderComplimentsRepository } from './compliments.repository.js';
 import { ReferralsModule, ReferralsService } from '../referrals/index.js';
+import { InMemoryRefundApprovalsRepository, PrismaRefundApprovalsRepository, REFUND_APPROVALS_REPOSITORY, RefundApprovalsService, type RefundApprovalsRepository } from './refund-approvals.js';
 import { ORDERS_STAFF_PORTS, OrdersStaffService, STUCK_BOARD, type OrdersStaffPorts, type OrderEventLog } from './orders.staff.js';
 import { OrdersStaffJob } from './orders.staff.job.js';
 import { CASH_LIMITS, CashLimits } from './cash-limits.js';
@@ -82,7 +83,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     // W3 staff way-out: the ledger, the Console audit log, role checks and the order's event log.
     {
       provide: ORDERS_STAFF_PORTS,
-      useFactory: (ledger: LedgerService, audit: AuditLogService, identity: IdentityService, events: EventsService): OrdersStaffPorts => ({
+      useFactory: (ledger: LedgerService, audit: AuditLogService, identity: IdentityService, events: EventsService, approvals: RefundApprovalsService): OrdersStaffPorts => ({
         ledger: { recordAll: (g, tx) => ledger.recordAll(g, tx), hasGroup: (id, tx) => ledger.hasGroup(id, tx), eventsForOrder: (id) => ledger.eventsForOrder(id) },
         audit: { record: (input, tx) => audit.record(input, tx) },
         roles: { hasRole: (personId, kind) => identity.hasRole(personId, kind) },
@@ -91,9 +92,17 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
           marks: async () => (await events.forAggregate(STUCK_BOARD.name, STUCK_BOARD.id)).map((e) => ({ type: e.type, orderId: e.orderId ?? e.aggregateId, occurredAt: e.occurredAt, payload: e.payload })),
           emit: async (tx, event) => void (await events.emit(tx, event, STUCK_BOARD)),
         },
+        approvals,
       }),
-      inject: [LedgerService, AuditLogService, IdentityService, EventsService],
+      inject: [LedgerService, AuditLogService, IdentityService, EventsService, RefundApprovalsService],
     },
+    // Refunds over a limit wait for a second OK (support desk and complaints alike).
+    {
+      provide: REFUND_APPROVALS_REPOSITORY,
+      useFactory: (prisma: PrismaService): RefundApprovalsRepository => (prisma.configured ? new PrismaRefundApprovalsRepository(prisma) : new InMemoryRefundApprovalsRepository()),
+      inject: [PrismaService],
+    },
+    RefundApprovalsService,
     OrdersStaffService,
     OrdersStaffJob,
     // Maps program SP3d: an order links to the saved place it goes to only when the orderer may use it.
@@ -158,7 +167,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     OrderComplimentsService,
     OrdersRpc,
   ],
-  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService, OrdersStaffService, ORDER_OUTCOME_RULES],
+  exports: [OrdersService, OrdersRpc, CatalogRpc, OrderTipsService, OrderComplimentsService, OrdersStaffService, RefundApprovalsService, ORDER_OUTCOME_RULES],
 })
 export class OrdersModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrdersModule.name);

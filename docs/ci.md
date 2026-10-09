@@ -176,7 +176,7 @@ Everything above runs the services on in-memory repositories or repository by re
 key or an aborted transaction that only Postgres enforces never shows (CRIT2-04). This job does: it
 migrates and seeds a fresh database (`SEED_ADMIN_PHONE=07700000099` adds an admin), builds the API,
 starts `apps/api/dist/main.js` with `NODE_ENV=test`, `LOG_FORMAT=json`, Postgres and Redis (stdout →
-`api.log`), and runs `node scripts/e2e/realdb-core.mjs`, a plain tRPC client that drives five flows, each
+`api.log`), and runs `node scripts/e2e/realdb-core.mjs`, a plain tRPC client that drives five core flows, each
 as new people with its own `x-request-id` prefix:
 
 | Flow     | Prefix        | What it does                                                                                                                 |
@@ -186,6 +186,16 @@ as new people with its own `x-request-id` prefix:
 | `sos`    | `e2e-sos-`    | emergency contact set, a taxi ride placed, `safety.sos`, `safety.status`                                                     |
 | `ride`   | `e2e-ride-`   | `pricing.quote` → `orders.place` with the quote id, as the app sends it                                                      |
 | `share`  | `e2e-share-`  | a ride, `tracking.createShareLink`, the admin forces it on a new driver (`dispatch.override`), he accepts, `tracking.shared` |
+
+Twelve more flows walk the customer paths end to end (`scripts/e2e/customer-paths.mjs`, same harness,
+prefix `e2e-<flow>-`): `delivery` (kitchen accept/ready, courier, chat, a top-up handed to the courier,
+cash, a double-tapped rating, tip, compliment, complaint), `cancels`, `ridelife` (with the night start
+code and «نسيت غرض»), `sosend`, `household` (payer approves, then declines), `seats` (الرجعة hold, book,
+PIN check-in, depart, arrive, rate), `board` (request board with its 20 % deposit, a late cancel),
+`profile`, `places`, `browse` (menu, follow, invitation), `later` (scheduled and gift orders, a seat
+wish) and `doubletap` (identical taps at once never give a 5xx). Couriers and drivers are new people
+the seeded admin grants a role and forces the job on (`dispatch.override`), so no vehicle or daily
+check-in is needed. The whole run takes about 15 seconds; `FLOWS=delivery,board` runs some of them.
 
 The API stamps the request id on every log line of a call (`apps/api/src/shared/request-context.ts`),
 logs every failed Prisma query under the `Prisma` context (`shared/db/prisma-error-log.ts`), and tags

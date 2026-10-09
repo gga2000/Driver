@@ -75,6 +75,7 @@ const LAST_KNOWN_MAX_AGE_MS = 60_000;
 
 /** One GPS fix; 'denied' when location permission is refused, null when no fix came in time. */
 export async function currentFix(): Promise<Fix | 'denied' | null> {
+  if (Platform.OS === 'web') return browserFix();
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
     if (!perm.granted) return 'denied';
@@ -88,6 +89,42 @@ export async function currentFix(): Promise<Fix | 'denied' | null> {
   } catch {
     return null;
   }
+}
+
+type GeoError = { code: number };
+const PERMISSION_DENIED = 1;
+
+function browserRead(geo: Geolocation, opts: PositionOptions): Promise<GeolocationPosition | GeoError> {
+  return new Promise((resolve) => geo.getCurrentPosition(resolve, (e) => resolve({ code: e.code }), opts));
+}
+
+/**
+ * The browser's position. A computer has no GPS: it places itself by Wi-Fi, which often fails at
+ * once (macOS «kCLErrorLocationUnknown») when the browser is off in the system's location settings or
+ * no network is known. So: a fresh-enough remembered position first, then a coarse read with a long
+ * wait, then one precise read, and only then give up (the screen says to check the browser's
+ * location setting or move the map by hand, `error.location_web`).
+ */
+async function browserFix(): Promise<Fix | 'denied' | null> {
+  const geo = typeof navigator === 'undefined' ? undefined : navigator.geolocation;
+  if (!geo) return null;
+  const tries: PositionOptions[] = [
+    { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 15_000 },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
+  ];
+  for (const opts of tries) {
+    const r = await browserRead(geo, opts);
+    if ('coords' in r) return { pin: { lat: r.coords.latitude, lng: r.coords.longitude }, accuracyM: r.coords.accuracy ?? null };
+    if (r.code === PERMISSION_DENIED) return 'denied';
+  }
+  return null;
+}
+
+/** The toast when no position came: go outdoors on a phone; on the web, the browser's location setting or the map by hand. */
+export function locationWeakToast(t: (key: 'error.location_weak' | 'error.location_web' | 'error.location_web_hint') => string) {
+  return Platform.OS === 'web'
+    ? { message: t('error.location_web'), detail: t('error.location_web_hint'), tone: 'danger' as const }
+    : { message: t('error.location_weak'), tone: 'danger' as const };
 }
 
 /**

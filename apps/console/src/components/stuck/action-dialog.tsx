@@ -60,8 +60,12 @@ export function StaffActionDialog({
   const [fault, setFault] = useState<FaultParty>('platform');
   const [tried, setTried] = useState(false);
 
-  const done = (r: { changed: boolean }) => {
-    toast({ title: t(r.changed ? DONE_KEY[action] : 'console.stuck.no_change'), tone: r.changed ? 'ok' : undefined });
+  const done = (r: { changed: boolean; pendingApprovalId?: string }) => {
+    // A complaint refund over 25,000 posts nothing yet: it waits for a second OK (Ali, 2026-10-08).
+    if (r.pendingApprovalId) {
+      toast({ title: t('console.stuck.done_refund_waits'), tone: 'ok' });
+      void qc.invalidateQueries({ queryKey: trpc.support.refundApprovals.list.pathKey() });
+    } else toast({ title: t(r.changed ? DONE_KEY[action] : 'console.stuck.no_change'), tone: r.changed ? 'ok' : undefined });
     void qc.invalidateQueries({ queryKey: trpc.orders.ops.stuck.queryKey() });
     void qc.invalidateQueries({ queryKey: trpc.orders.get.queryKey() });
     void qc.invalidateQueries({ queryKey: trpc.orders.events.queryKey() });

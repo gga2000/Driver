@@ -278,7 +278,7 @@ jobs:
           NODE_ENV: test
           LOG_FORMAT: json
           PORT: '3999'
-          # Nine sign-ins from one address in a few seconds.
+          # About forty sign-ins (core + customer paths) from one address in a few seconds.
           OTP_RATE_LIMIT_PER_IP_HOUR: '10000'
           OTP_RATE_LIMIT_PER_DEVICE_HOUR: '10000'
           E2E_API_URL: http://localhost:3999
