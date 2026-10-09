@@ -29,6 +29,7 @@
 // → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
 // strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat. Five riders' lines
 // about two الرجعة drivers wait in «كلام الركاب» (/reviews), one of them already hidden.
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -50,7 +51,7 @@ process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-p
 const { createApp } = await load('bootstrap.js');
 const { IdentityService } = await load('modules/identity/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { CatalogService, CATALOG_REPOSITORY, seedStorefronts } = await load('modules/catalog/index.js');
 const { OrdersService, OrdersStaffService } = await load('modules/orders/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { LedgerService, LedgerFacade, CapsService } = await load('modules/ledger/index.js');
@@ -462,6 +463,21 @@ await get(MerchantService).setPickupSpot(actor(khalidOwner), {
   photoIds: [await upload(khalidOwner, pickupWindowPng(), 'image/png')],
 });
 people.khalid = { phone: '07740000001', id: khalidOwner, storeId: khalid.orgId, stores: `/stores/${khalid.orgId}` };
+// p4 same-day look (Console › الموافقات): two shops put up their own dish photos today. Khalid's
+// kebab plate went up this morning (past the 8 h mark, so it shows late), then his tikka wrap and
+// الشام's shawarma plate. Each photo is a picture from the dish library, uploaded as the shop's own.
+{
+  const sham = stores.find((s) => s.seed.key === 'sham');
+  const shamOwner = await person('07740000002', 'أبو سامر', [{ kind: 'merchant_owner', orgId: sham.orgId }]);
+  const shopPhoto = async (owner, store, key, file) => {
+    const uploadId = await upload(owner, readFileSync(join(apiDir, 'media/food', file)), 'image/webp');
+    await get(MerchantAdminService).menuReplacePhoto(actor(owner), { merchantOrgId: store.orgId, itemId: store.itemIds.get(key), uploadId });
+  };
+  await shopPhoto(khalidOwner, khalid, 'kebab_plate', 'lib-kebab-1.webp');
+  await app.get(CATALOG_REPOSITORY, { strict: false }).updateItem(khalid.itemIds.get('kebab_plate'), { photoReviewPendingAt: new Date(Date.now() - 9 * 3_600_000) });
+  await shopPhoto(khalidOwner, khalid, 'tikka_wrap', 'lib-tikka-2.webp');
+  await shopPhoto(shamOwner, sham, 'shawarma_plate', 'lib-shawarma-1.webp');
+}
 // A chat on the order behind the WhatsApp ticket, read-only on /orders/[id] and the desk.
 try {
   const { ChatService } = await load('modules/chat/index.js');
@@ -498,7 +514,12 @@ const late = queue.find((r) => r.orderId === placed[0].id);
 if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتصلت بالمطعم: الطلب طلع بوقته، التأخير من الدليفري بالطريق. نعوّضه رصيد ونحسبها على الدليفري.', internal: true });
 const missing = queue.find((r) => r.orderId === placed[7].id);
 if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
-await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
+// The safety report names a delivered order, so its courier shows (and can be paused, r6).
+const incidentOrder = await (async () => {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  return [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].find((o) => o.state === 'delivered' && o.type === 'food' && !o.id.endsWith('_y')) ?? placed[5];
+})();
+await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: incidentOrder.ordererId, orderId: incidentOrder.id });
 // «كلّم الدعم»: a customer wrote in his order's support chat (it opens a chat case by itself); زينب
 // answered into the chat, and he wrote again. The case reads as one conversation on /support.
 try {

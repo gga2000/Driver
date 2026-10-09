@@ -16,6 +16,7 @@ import { countText } from '@/lib/plural';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { CashCapBar } from './cash-cap';
+import { DriverPause } from './driver-pause';
 import { PeriodPicker } from './period-picker';
 import { AccountName, CopyId, OrderRef } from './named';
 import { Avatar, cx, EmptyState, IconBack, IconCheckCircle, Mono, NeedLogin, QueryError, Skeleton, Tabs, useNow } from './ui';
@@ -73,6 +74,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
       </header>
 
       {!signedIn ? <NeedLogin /> : null}
+      <DriverPause personId={driverId} className="mb-5" />
       {ledger.error ? <QueryError error={ledger.error} onRetry={() => void ledger.refetch()} /> : null}
       {signedIn && !v && ledger.isPending ? (
         <div className="space-y-5" aria-busy>
