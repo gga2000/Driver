@@ -30,6 +30,12 @@ const Payer = {
    * from the 0–249 rounding change. Cash only; the orders module has already checked it.
    */
   changeToWalletIqd: Iqd.positive().optional(),
+  /**
+   * M-3 (THIN-01, «ينضاف لطلبك الجاي»): of `cashCollectedIqd`, the cancellation fees he owed and pays
+   * off with this order's cash, back onto his wallet as its own line (`debt_settled`, memo `owed_fees`).
+   * Cash only; the orders module locked it on the order when it was placed.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
   /** Points the customer redeems (100 = 1,000 IQD), against the delivery fee first, then the service fee (J-D10, `pointsRedemption`). */
   pointsRedeemed: z.number().int().nonnegative().default(0),
   /** Legacy (G-88 500-step rounding): ignored since the 250 change-to-wallet rule (2026-10-04). */

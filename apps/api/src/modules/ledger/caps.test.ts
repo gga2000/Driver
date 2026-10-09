@@ -106,4 +106,26 @@ describe('cap profiles from identity (role) and scoring (tier)', () => {
     expect((await caps.status('d1')).capIqd).toBe(75000);
     expect((await caps.status('x1')).capIqd).toBe(300000);
   });
+
+  it("speed x2: the partner app's reads keep his limit; his cash is read every time and dispatch's check stays live", async () => {
+    const h = ledgerHarness();
+    let reads = 0;
+    let tier: 'silver' | 'bronze' = 'silver';
+    const caps = new CapsService(h.ledger, rules, {
+      profile: async () => {
+        reads += 1;
+        return { role: 'courier', tier };
+      },
+    });
+    const first = await caps.status('k1', { keptLimit: true });
+    expect(first.capIqd).toBe(150000);
+    tier = 'bronze';
+    await h.ledger.recordAll(postMerchantPaidByCourier({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 9000, occurredAt: at }));
+    const kept = await caps.status('k1', { keptLimit: true });
+    expect(kept).toMatchObject({ tier: 'silver', capIqd: 150000 });
+    expect(Math.abs(kept.cashIqd - first.cashIqd)).toBe(9000);
+    expect(reads).toBe(1);
+    expect(await caps.status('k1')).toMatchObject({ tier: 'bronze', capIqd: 75000 });
+    expect(reads).toBe(2);
+  });
 });

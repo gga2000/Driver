@@ -86,6 +86,21 @@ describe('customer wallet: readable lines', () => {
     expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(3_400);
   });
 
+  it('M-3: owed fees paid with an order\'s cash are their own «سددت الرسوم» line, never part of what the order cost', async () => {
+    const h = walletHarness();
+    // He owed 1,000 from a cancelled order and handed over 17,750: 16,500 order + 1,000 fees + 250 change.
+    await h.ledger.recordAll(group('cancel:1', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 1_000, fromAccount: Accounts.customer('c1'), toAccount: Accounts.merchantCash('m1') }]));
+    const p = postOrderClosed(workedExample({ debtCollectIqd: 1_000, cashCollectedIqd: 17_750 }), h.rules);
+    await h.ledger.recordAll(p.money);
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]).filter((l) => l.orderId === 'o1');
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar])).toEqual([
+      ['food', -16_500, 'طلب أكل', 'كاش عند الاستلام'],
+      ['cash_change', 250, 'الباقي رصيد', 'صار رصيد إلك'],
+      ['debt', 1_000, 'سددت الرسوم', 'رسوم إلغاء كانت عليك، دفعتها كاش ويا هالطلب'],
+    ]);
+    expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(250);
+  });
+
   it('the honest-delay credit says it was for the late order («تعويض التأخير · طلب #…»), fee back or free-delivery 1,000; other credits stay «رصيد مضاف»', async () => {
     const h = walletHarness();
     const late = (orderId: string, amount: number, at: string): PostingGroup => ({

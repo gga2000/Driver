@@ -1088,6 +1088,8 @@ model Order {
   statedTenderIqd    Int?          @map("stated_tender_iqd")
   /// "الخردة علينا": what went to the customer's wallet at the door because the courier had no change; null = none.
   changeToWalletIqd  Int?          @map("change_to_wallet_iqd")
+  /// M-3 «ينضاف لطلبك الجاي»: the cancellation fees he owed, locked at placement and collected in cash with this order; 0 = none.
+  debtCollectIqd     Int           @default(0) @map("debt_collect_iqd")
   scheduledFor       DateTime?     @map("scheduled_for")
   payerApprovedAt    DateTime?     @map("payer_approved_at")
   placedAt           DateTime      @default(now()) @map("placed_at")
@@ -2558,6 +2560,23 @@ model LedgerEvent {
   @@index([orderId, occurredAt])
   @@index([tripId, occurredAt])
   @@map("ledger_events")
+  @@schema("public")
+}
+
+/// Running balance of each driver money account (`driver:<id>` earnings, `cash:<id>` cash held), kept
+/// by the `ledger_balances_apply` trigger in the same transaction as every `ledger_events` insert, so a
+/// balance read is one row instead of the full history (perf item 13). A projection, not the source of
+/// truth: the nightly close compares it with the full sum and repairs it from there.
+model LedgerBalance {
+  /// The trigger inserts rows with gen_random_uuid(); rows are found by account, never by id.
+  id        String   @id @default(cuid())
+  accountId String   @unique @map("account_id")
+  amountIqd Int      @map("amount_iqd")
+  events    Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ledger_balances")
   @@schema("public")
 }
 
