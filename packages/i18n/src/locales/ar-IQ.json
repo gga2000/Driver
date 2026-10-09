@@ -8773,6 +8773,18 @@
   "track.map_at_door": "عند بابك",
   "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
   "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار",
+  "console.kb_group_today": "اليوم",
+  "console.kb_today_next": "المشكلة الجاية",
+  "console.kb_today_prev": "المشكلة السابقة",
+  "console.kb_today_take": "استلم المشكلة المحددة",
+  "console.kb_today_snooze": "أجّلها (بعدين 1–4 للدقايق)",
+  "console.kb_today_close": "سكّرها وگول شنو صار",
+  "console.today.new_rows_0": "ولا مشكلة جديدة",
+  "console.today.new_rows_1": "مشكلة جديدة",
+  "console.today.new_rows_2": "مشكلتين جداد",
+  "console.today.new_rows_few": "{n} مشاكل جديدة",
+  "console.today.new_rows_many": "{n} مشكلة جديدة",
+  "console.today.show_new": "اعرضها",
   "error.location_web": "ما گدرنا نعرف موقعك من المتصفح",
   "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك"
 }

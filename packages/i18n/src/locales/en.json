@@ -8773,6 +8773,18 @@
   "track.map_at_door": "At your door",
   "partner.switch_blocked_paused": "Paused while we look into the report",
   "partner.switch_blocked_hint_paused": "We'll call you and hear your side before any decision",
+  "console.kb_group_today": "Today",
+  "console.kb_today_next": "Next problem",
+  "console.kb_today_prev": "Previous problem",
+  "console.kb_today_take": "Take the highlighted problem",
+  "console.kb_today_snooze": "Snooze it (then 1–4 for the minutes)",
+  "console.kb_today_close": "Close it and say what happened",
+  "console.today.new_rows_0": "no new problems",
+  "console.today.new_rows_1": "1 new problem",
+  "console.today.new_rows_2": "2 new problems",
+  "console.today.new_rows_few": "{n} new problems",
+  "console.today.new_rows_many": "{n} new problems",
+  "console.today.show_new": "Show them",
   "error.location_web": "We couldn't get your location from the browser",
   "error.location_web_hint": "Turn on location for your browser in your computer's settings, or move the map to your door"
 }
