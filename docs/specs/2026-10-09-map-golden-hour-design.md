@@ -81,7 +81,18 @@ Rebuild the style when the light changes (check every 10 minutes; the change is 
 animation loop). On phones the native map needs a development build (`@maplibre/maplibre-react-native`);
 until then the web studio shows the real map and the phones keep the zone sketch.
 
+## Trips on the map: routes and pins in the service colour
+`goldenRouteLayers({ service, light, routeSource, pinSource, id })` draws one trip, added before
+`GOLDEN_FIRST_LABEL`. Services and colours come from the design tokens (`services`): food saffron, taxi
+yellow, tuktuk plum, the trips' date brown and الرجعة gold.
+- Route source: LineStrings with `part: 'done' | 'ahead'`. The part already driven is a quiet dotted line;
+  the road ahead is the service colour on a thin dark edge (so taxi yellow still reads on cream streets).
+- Pin source: Points with `role`: `from` (restaurant or pickup, service colour), `to` (the door, ink with a
+  paper ring), `vehicle` (service colour inside a white ring, with a soft halo).
+- At night the brighter dark-theme colour (`services.dark[s].card.dot`) replaces the day fill, because plum
+  and date brown vanish on the night map. A test holds every service at 3:1 against land and streets in
+  every light.
+
 ## Not in this PR
-Per-service route and pin styling from the book (route glow in the service colour, the white-ring courier,
-matte chips), curated landmark stamps, and each screen's switch-over: they land with the screen owners.
+Matte chips, curated landmark stamps, and each screen's switch-over: they land with the screen owners.
 Data gaps (heights, street names, neighbourhoods, mosques, garages) need the field walk, not code.
