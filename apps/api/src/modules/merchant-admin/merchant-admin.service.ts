@@ -2,6 +2,8 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   type ActivityTodayInput,
   DISH_LABELS,
+  kindOfLabels,
+  withKind,
   type DishLabel,
   AZIZIYAH_MONEY_RULES,
   DriverError,
@@ -150,6 +152,7 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      kind: kindOfLabels(i.labels),
       photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
       photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
       ...(takenDown ? { photoTakenDown: i.photoUrl ? null : (takenDown.get(i.id) ?? null) } : {}),
@@ -253,6 +256,13 @@ export class MerchantAdminService implements MerchantAdminPort {
   async menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
+      // The customer labels and the ticket kind share one column: a save that names one keeps the other.
+      const stored = input.labels !== undefined || input.kind !== undefined
+        ? input.itemId ? ((await this.catalog.adminItem(input.merchantOrgId, input.itemId, tx)).labels ?? []) : []
+        : null;
+      const labels = stored === null
+        ? undefined
+        : withKind(input.labels ?? stored.filter((l) => (DISH_LABELS as readonly string[]).includes(l)), input.kind !== undefined ? input.kind : kindOfLabels(stored));
       const { item, created } = await this.catalog.upsertItem(
         input.merchantOrgId,
         {
@@ -268,7 +278,7 @@ export class MerchantAdminService implements MerchantAdminPort {
             ...(input.available !== undefined ? { available: input.available } : {}),
             ...(input.servesMin !== undefined ? { servesMin: input.servesMin } : {}),
             ...(input.servesMax !== undefined ? { servesMax: input.servesMax } : {}),
-            ...(input.labels !== undefined ? { labels: [...input.labels] } : {}),
+            ...(labels !== undefined ? { labels } : {}),
           },
         },
         actor.personId,

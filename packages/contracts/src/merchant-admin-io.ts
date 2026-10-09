@@ -5,7 +5,7 @@ import { SettlementRequestReason } from './ledger-io.js';
 import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
-import { DISH_LABELS, DishLabel } from './catalog-io.js';
+import { DISH_LABELS, DishKind, DishLabel } from './catalog-io.js';
 import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
@@ -68,6 +68,8 @@ export const AdminMenuItem = z.object({
   servesMax: z.number().int().nullable().optional(),
   /** The kitchen's dish labels (joy o8). */
   labels: z.array(DishLabel).optional(),
+  /** The owner's ticket kind (k4/j6 override); null or absent = the app guesses it from the name. */
+  kind: DishKind.nullable().optional(),
   /** «جهّز محلك»: the photo is Driver's library photo (its slug), «صورة توضيحية» to customers; null = his own. */
   photoLibrary: z.string().nullable().optional(),
   /**
@@ -115,6 +117,8 @@ export const UpsertItemInput = MerchantScope.extend({
   servesMax: z.number().int().min(1).max(50).nullable().optional(),
   /** The kitchen's dish labels (joy o8). */
   labels: z.array(DishLabel).max(DISH_LABELS.length).optional(),
+  /** The ticket kind (k4/j6 override); null hands it back to the guess from the name, absent keeps it. */
+  kind: DishKind.nullable().optional(),
 });
 export type UpsertItemInput = z.infer<typeof UpsertItemInput>;
 

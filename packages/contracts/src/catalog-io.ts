@@ -107,6 +107,32 @@ export const DISH_LABELS = ['spicy', 'new', 'family'] as const;
 export const DishLabel = z.enum(DISH_LABELS);
 export type DishLabel = z.infer<typeof DishLabel>;
 
+/**
+ * How the kitchen ticket marks a dish (k4/j6): the Merchant app guesses it from the dish's name, and
+ * the owner can say it when the guess is wrong. Kept in the dish's `labels` column as `kind:<value>`
+ * (no migration); customers never see it (their labels are `DISH_LABELS` only).
+ */
+export const DISH_KINDS = ['food', 'hot_drink', 'cold_drink', 'sweet'] as const;
+export const DishKind = z.enum(DISH_KINDS);
+export type DishKind = z.infer<typeof DishKind>;
+const KIND_PREFIX = 'kind:';
+
+/** The owner's ticket kind kept in a dish's stored labels, or null when he left it to the guess. */
+export function kindOfLabels(labels: readonly string[] | null | undefined): DishKind | null {
+  for (const l of labels ?? []) {
+    if (!l.startsWith(KIND_PREFIX)) continue;
+    const k = l.slice(KIND_PREFIX.length);
+    if ((DISH_KINDS as readonly string[]).includes(k)) return k as DishKind;
+  }
+  return null;
+}
+
+/** Stored labels with the ticket kind set (or cleared with null); the other labels stay as they are. */
+export function withKind(labels: readonly string[], kind: DishKind | null): string[] {
+  const rest = labels.filter((l) => !l.startsWith(KIND_PREFIX));
+  return kind ? [...rest, `${KIND_PREFIX}${kind}`] : rest;
+}
+
 /** The kitchen's two numbers as a range, or null when it said nothing (or said something impossible). */
 export function servesOf(min: number | null | undefined, max: number | null | undefined): Serves | null {
   const lo = min ?? max ?? null;

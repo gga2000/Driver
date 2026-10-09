@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { ZoneTier } from './city-config.js';
 import { Iqd, LatLng } from './common.js';
+import { DishKind } from './catalog-io.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
@@ -77,6 +78,8 @@ export const BoardLine = z.object({
   availability: z.enum(['available', 'unavailable', 'removed']),
   /** The dish on the menu (null for a free-text line), so the kitchen can stop it for the day from the ticket (m5). */
   menuItemId: z.string().nullable().optional(),
+  /** The owner's ticket kind for this dish (k4/j6 override); absent or null = guess from the name. */
+  kind: DishKind.nullable().optional(),
 });
 export type BoardLine = z.infer<typeof BoardLine>;
 

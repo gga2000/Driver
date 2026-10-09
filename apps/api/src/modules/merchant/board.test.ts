@@ -90,6 +90,12 @@ describe('merchant board — grouping by person', () => {
     expect(abu!.lines[0]).toMatchObject({ name: 'وجبة كباب', unitPriceIqd: 9000, totalIqd: 9000, modifiers: ['نفر إضافي'] });
   });
 
+  it("carries the owner's ticket kind on the dishes he set it for (k4/j6 override)", () => {
+    const groups = groupLines(order(), NAMES, new Map([['kebab', 'food' as const]]));
+    expect(groups[0]!.lines[0]!.kind).toBeUndefined();
+    expect(groups[1]!.lines[0]!.kind).toBe('food');
+  });
+
   it('keeps a person whose lines are only partly removed, drops one with nothing left', () => {
     const o = order();
     o.lines[2]!.availability = 'unavailable';
