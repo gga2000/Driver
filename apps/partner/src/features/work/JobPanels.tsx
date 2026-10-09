@@ -30,7 +30,7 @@ export function HandoverPanel({
   onClose,
 }: {
   collectIqd: number;
-  /** M-3: of `collectIqd`, the earlier cancel fees the customer pays with this order; absent/0 = none. */
+  /** M-3: of `collectIqd`, what the customer owed from before (cancel fees or short cash) and pays with this order; absent/0 = none. */
   owedFeesIqd?: number;
   /** The note the customer said he will pay with; null/absent = none. */
   tenderIqd?: number | null;

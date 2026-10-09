@@ -648,7 +648,7 @@ function JobNotes({ job, stop, ride }: { job: PartnerJob; stop: PartnerJobStop; 
           {...accent}
         />
       ) : null}
-      {/* M-3: the amount is more than the order because the customer pays an earlier cancel fee with it. */}
+      {/* M-3: the amount is more than the order because the customer pays what he owed from before with it. */}
       {stop.type === 'dropoff' && stop.collectIqd > 0 && stop.owedFeesIqd ? (
         <SlipNote
           testID="job-owed-fees"
