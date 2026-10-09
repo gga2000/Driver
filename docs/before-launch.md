@@ -39,7 +39,7 @@ we can't open to the public without it.
 | Supabase Pro in Frankfurt (database) | Yes | `docs/deploy/supabase.md`, `docs/deploy/runbook.md` |
 | Fly.io for the server | Yes | `docs/deploy/hosting.md` |
 | Cloudflare Pages for the web apps; own street map on Cloudflare R2 | Yes | `docs/deploy/web.md`, maps spec §5.2 |
-| An SMS provider for sign-in codes (today codes only go to the log) | Yes | `docs/deploy/runbook.md` |
+| SMS for sign-in codes: OTPIQ (Ali's pick, 2026-10-09). Sign up, top up, live key into production secrets. Ask OTPIQ for the sender id **Driver** early: until it is approved only sign-in codes go out, and other texts (notification SMS, the gift recipient's SMS) fail | Yes | `docs/api/otpiq.md` |
 | WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages) | Yes | `docs/whatsapp-templates.md` |
 | Push notifications working on 5 test phones | Yes | launch playbook §7 |
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |

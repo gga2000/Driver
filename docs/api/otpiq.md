@@ -15,7 +15,8 @@ contract or monthly fee.
   `verificationCode`, on the channel `OTPIQ_CODE_CHANNEL` (default `sms`). OTPIQ writes the
   message's wording, not our «رمز دخول درايفر» text.
 - **Any other text** (the SMS twins of notifications, the gift recipient's SMS) goes as
-  `smsType: custom`, SMS only. OTPIQ allows free text only with an approved sender id.
+  `smsType: custom`, SMS only. OTPIQ allows free text only with an approved sender id, so until
+  `SMS_SENDER_ID` is set these texts fail (permanent error, not retried) while sign-in codes still go out.
 - **Retries:** errors map like the other providers.
   - A 400 (bad number, empty balance, spending cap) is permanent. A bad number also marks the
     recipient invalid.
