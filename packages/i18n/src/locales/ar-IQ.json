@@ -8836,5 +8836,18 @@
   "console.csv_capped": "نزل الملف بأول {n} طلب بس. ضيّق الفترة حتى يطلع كلشي",
   "console.csv_failed": "ما نزل الملف: {message}",
   "error.location_web": "ما گدرنا نعرف موقعك من المتصفح",
-  "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك"
+  "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك",
+  "console.nav_glance": "اليوم بنظرة",
+  "console.glance.title": "اليوم بنظرة",
+  "console.glance.subtitle": "حال المدينة هسة على شاشة وحدة، للقراية بس. الشغل يصير من صفحة اليوم.",
+  "console.glance.verdict_sos": "بلاغ سلامة مفتوح هسة. شوف الطوارئ.",
+  "console.glance.verdict_nobody_sos": "محد ماسك الطوارئ هسة، فأي بلاغ يروح للأدمن.",
+  "console.glance.verdict_late": "اكو طلبات متأخرة: {n}.",
+  "console.glance.verdict_unowned": "اكو مشاكل محد ماسكها: {n}.",
+  "console.glance.verdict_calm": "المدينة هادية، ماكو شي يحتاج إيدك.",
+  "console.glance.cash_field": "كاش بيد السواق",
+  "console.glance.sos_holder": "ماسك الطوارئ: {name} لحد {time}",
+  "console.glance.top": "أهم المشاكل المفتوحة هسة",
+  "console.glance.none_open": "ماكو مشاكل مفتوحة.",
+  "console.glance.open_today": "افتح صفحة اليوم"
 }

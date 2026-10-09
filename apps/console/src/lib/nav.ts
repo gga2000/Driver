@@ -18,6 +18,7 @@ const GARAGE: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 export type IconName =
   | 'today'
+  | 'glance'
   | 'map'
   | 'dispatch'
   | 'orders'
@@ -66,6 +67,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // E1 (CON-12): the home page, one row per problem with its owner.
       { href: '/', key: 'console.nav_today', icon: 'today', roles: INBOX_READ_ROLES, jump: 't' },
       { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
+      // h8: today on one phone screen, read only, for a check from home at night.
+      { href: '/glance', key: 'console.nav_glance', icon: 'glance', roles: READ, jump: 'h' },
     ],
   },
   {
