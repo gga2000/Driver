@@ -13,3 +13,17 @@ export function quoteStop(err: unknown, t: (key: MessageKey) => string, locale: 
   const key = code ? STOPS[code] : undefined;
   return key ? apiErrorMessage(err, t(key), locale) : null;
 }
+
+/**
+ * The closed line on a shop's page, cart and checkout. A quick pause or the opening hours say when the
+ * shop is back; with no time (a tablet offline past its pause, h5, or an early close with no return
+ * time) the line never promises one: «يرجع الساعة » with nothing after it reads as broken.
+ */
+export function closedLine(
+  restaurant: { closedReason?: string | null; opensAt?: string | null },
+  t: (key: MessageKey, params?: Record<string, string>) => string,
+): string {
+  const time = restaurant.opensAt;
+  if (restaurant.closedReason === 'paused') return time ? t('restaurant.paused_until', { time }) : t('error.merchant_paused');
+  return time ? t('error.merchant_closed', { time }) : t('error.merchant_closed_now');
+}

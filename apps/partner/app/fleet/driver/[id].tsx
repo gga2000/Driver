@@ -10,6 +10,7 @@ import { useDriverEarnings, useFleetOverview } from '@/features/fleet/queries';
 import { baghdadClock } from '@/features/ops/logic';
 import { capShare, jobsKey } from '@/features/work/logic';
 import { apiErrorMessage } from '@/lib/api';
+import { componentLabel } from '@/features/account/logic';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 
@@ -243,7 +244,7 @@ function JobList({ view }: { view: EarningsView }) {
                 </Text>
                 <View style={{ flex: 1 }}>
                   <Text variant="footnote" color="textMuted" tabular numberOfLines={2}>
-                    {j.components.map((c) => `${c.label_ar} ${amountParam(c.amountIqd, { sign: c.amountIqd < 0 })}`).join(' · ')}
+                    {j.components.map((c) => `${componentLabel(c, t)} ${amountParam(c.amountIqd, { sign: c.amountIqd < 0 })}`).join(' · ')}
                   </Text>
                   {j.cashCollectedIqd > 0 ? (
                     <Text variant="caption" color="warningText" tabular>

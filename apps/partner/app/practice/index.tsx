@@ -100,7 +100,7 @@ export default function PracticeIntro() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Icon name="lock" size={18} color="successText" strokeWidth={2.2} />
             <Text variant="label" weight={600} color="successText" style={{ flex: 1 }}>
-              {t('partner.practice_nothing_sent')}
+              {t(kind === 'food' ? 'partner.practice_nothing_sent' : 'partner.practice_nothing_sent_ride')}
             </Text>
           </View>
         </ScrollView>

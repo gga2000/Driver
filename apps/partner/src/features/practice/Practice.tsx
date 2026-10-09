@@ -5,7 +5,6 @@ import { View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { AppRouter } from '@driver/contracts';
-import { partnerServices } from '@driver/design-tokens';
 import { Button, Icon, Text, useTheme } from '@driver/ui';
 import { ApiScope, useApiClient, type ApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -50,10 +49,13 @@ export function PracticeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** The practice colour: plum, the same on the band and the tips, on every practice screen. */
+/**
+ * The practice colour: calm date brown (check-up item 6, Ali 2026-10-09), the same on the band and the
+ * tips on every practice screen — never a service's colour, so a practice order never looks like a real job.
+ */
 function usePracticeColor() {
   const theme = useTheme();
-  return partnerServices[theme.scheme === 'dark' ? 'ember' : 'sun'].tuktuk;
+  return { fill: theme.colors.info, on: theme.colors.onInverse, tint: theme.colors.infoTint, ink: theme.colors.infoText };
 }
 
 /** «بروفة · طلب تجريبي، ما يروح لأحد» across the top, with the step: a real order never looks like this. */
@@ -69,7 +71,7 @@ export function PracticeBand() {
     <SafeAreaView edges={['top']} style={{ backgroundColor: color.fill }} testID="practice-band">
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3], paddingHorizontal: theme.space[4], minHeight: 40, paddingVertical: 6 }}>
         <Text variant="label" weight={700} style={{ color: color.on, flexShrink: 1 }} numberOfLines={1}>
-          {t('partner.practice_band')}
+          {t(s && s.kind !== 'food' ? 'partner.practice_band_ride' : 'partner.practice_band')}
         </Text>
         <Text variant="label" weight={700} tabular style={{ color: color.on }} testID="practice-step">
           {t('partner.practice_step', { n, total: PRACTICE_STEPS })}
@@ -79,7 +81,7 @@ export function PracticeBand() {
   );
 }
 
-/** The one purple tip for the step he is on, at the top of the sheet. */
+/** The one date-brown tip for the step he is on, at the top of the sheet. */
 export function PracticeTip() {
   const practice = useInPractice();
   const s = usePracticeState();
@@ -122,7 +124,7 @@ export function PracticeDone() {
               <Icon name="check" size={30} color="successText" strokeWidth={2.6} />
             </View>
             <Text variant="heading" weight={700}>
-              {t('partner.practice_done_title')}
+              {t(s.kind === 'food' ? 'partner.practice_done_title' : 'partner.practice_done_title_ride')}
             </Text>
             <Text variant="body" color="textMuted" tabular>
               {t('partner.practice_done_minutes', { n: practiceMinutes(s) })}

@@ -3,7 +3,7 @@ import { formatMinutes, formatRange, pluralCategory, type MessageKey } from '@dr
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
-import { clockBare, clockLabel, dayOffset, dayPeriod, minutesUntil, windowLabel, type DepartBlockerNote, type LegendState, type RiderStatus } from './logic';
+import { clockBare, clockLabel, dayOffset, dayPeriod, minutesUntil, publicPlaceName, windowLabel, type DepartBlockerNote, type LegendState, type RiderStatus } from './logic';
 
 /** Copy helpers for the intercity screens (every string from @driver/i18n). */
 
@@ -91,7 +91,7 @@ export function paymentLabel(t: TFn, b: Pick<DriverBookingRow, 'state' | 'prepay
 }
 
 export function pickupLabel(t: TFn, b: Pick<DriverBookingRow, 'pickup'>): string {
-  if (b.pickup.kind === 'meeting_point') return t('partner.ic_pickup_mp', { place: b.pickup.nameAr ?? '' });
+  if (b.pickup.kind === 'meeting_point') return t('partner.ic_pickup_mp', { place: publicPlaceName(b.pickup.nameAr ?? '') });
   if (b.pickup.kind === 'pin') return t('partner.ic_pickup_pin', { price: agreedPrice(t, b.pickup.feeIqd) });
   if (b.pickup.kind === 'door') return t('partner.ic_pickup_door');
   return t('partner.ic_pickup_garage');

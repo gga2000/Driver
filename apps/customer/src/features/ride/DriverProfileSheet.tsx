@@ -1,7 +1,20 @@
 import { View } from 'react-native';
 import type { DriverProfile } from '@driver/contracts';
 import { pluralKey } from '@driver/i18n';
-import { Avatar, Button, Icon, ModalSheet, PlateChip, RetryState, retryKindFor, Skeleton, Text, useNetwork, useTheme, useToast } from '@driver/ui';
+import {
+  Avatar,
+  Button,
+  Icon,
+  ModalSheet,
+  PlateChip,
+  RetryState,
+  retryKindFor,
+  Skeleton,
+  Text,
+  useNetwork,
+  useTheme,
+  useToast,
+} from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
@@ -16,7 +29,21 @@ import { memberSpan } from './logic';
  * driver offered the searching ride; without it, the driver of this ride. After the ride, `onAvoid`
  * adds «ما أريده مرة ثانية» (s5).
  */
-export function DriverProfileSheet({ orderId, offerId, visible, now, onClose, onAvoid }: { orderId: string; offerId: string | null; visible: boolean; now: number; onClose: () => void; onAvoid?: () => void }) {
+export function DriverProfileSheet({
+  orderId,
+  offerId,
+  visible,
+  now,
+  onClose,
+  onAvoid,
+}: {
+  orderId: string;
+  offerId: string | null;
+  visible: boolean;
+  now: number;
+  onClose: () => void;
+  onAvoid?: () => void;
+}) {
   const t = useT();
   const profile = useDriverProfile(orderId, offerId, visible);
   const p = profile.data;
@@ -26,9 +53,26 @@ export function DriverProfileSheet({ orderId, offerId, visible, now, onClose, on
       onClose={onClose}
       title={p ? (p.firstName ?? t('track.driver_fallback')) : t('ride.profile_title')}
       testID="driver-profile"
-      footer={onAvoid && p ? <Button label={t('ride.avoid_button')} icon="x" variant="ghost" fullWidth onPress={onAvoid} testID="driver-profile-avoid" /> : undefined}
+      footer={
+        onAvoid && p ? (
+          <Button
+            label={t('ride.avoid_button')}
+            icon="x"
+            variant="ghost"
+            fullWidth
+            onPress={onAvoid}
+            testID="driver-profile-avoid"
+          />
+        ) : undefined
+      }
     >
-      {p ? <ProfileBody p={p} now={now} /> : profile.isError ? <ProfileError onRetry={() => void profile.refetch()} error={profile.error} /> : <ProfileLoading />}
+      {p ? (
+        <ProfileBody p={p} now={now} />
+      ) : profile.isError ? (
+        <ProfileError onRetry={() => void profile.refetch()} error={profile.error} />
+      ) : (
+        <ProfileLoading />
+      )}
     </ModalSheet>
   );
 }
@@ -37,29 +81,91 @@ function ProfileBody({ p, now }: { p: DriverProfile; now: number }) {
   const theme = useTheme();
   const t = useT();
   const name = p.firstName ?? t('track.driver_fallback');
+  const fresh = p.rating === null;
   const span = memberSpan(p.memberSince, now);
   return (
-    <View style={{ gap: theme.space[5], paddingBottom: theme.space[4] }} testID="driver-profile-body">
+    <View
+      style={{ gap: theme.space[5], paddingBottom: theme.space[4] }}
+      testID="driver-profile-body"
+    >
       <View style={{ alignItems: 'center', gap: theme.space[2] }}>
         <Avatar name={name} uri={apiPhoto(p.photoUrl) ?? undefined} size={96} />
-        {span ? (
+        {span && !fresh ? (
           <Text variant="footnote" color="textMuted" testID="driver-profile-since">
-            {span.unit === 'new' ? t('ride.member_new') : t(pluralKey(span.unit === 'months' ? 'ride.member_months' : 'ride.member_years', span.n), { n: span.n })}
+            {span.unit === 'new'
+              ? t('ride.member_new')
+              : t(
+                  pluralKey(
+                    span.unit === 'months' ? 'ride.member_months' : 'ride.member_years',
+                    span.n,
+                  ),
+                  { n: span.n },
+                )}
           </Text>
         ) : null}
       </View>
-      <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-        <Stat value={p.rating !== null ? p.rating.toFixed(1) : t('track.rating_new')} label={p.ratingCount > 0 ? t(pluralKey('ride.profile_ratings', p.ratingCount), { n: p.ratingCount }) : t('ride.profile_rating')} star testID="driver-profile-rating" />
-        <Stat value={p.tripCount.toLocaleString('en-US')} label={t('ride.profile_trips')} testID="driver-profile-trips" />
-        <Stat value={p.onTimePct !== null ? `${p.onTimePct}٪` : '—'} label={p.onTimePct !== null ? t('ride.profile_on_time') : t('ride.profile_on_time_new')} testID="driver-profile-ontime" />
-      </View>
+      {/* Check-up item 7 (Ali, 2026-10-09): a driver nobody has rated yet gets one honest line, not three "new" tiles. */}
+      {fresh ? (
+        <View
+          testID="driver-profile-new"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: theme.space[2],
+            minHeight: 52,
+            borderRadius: theme.radius.lg,
+            backgroundColor: theme.colors.surfaceSunken,
+          }}
+        >
+          <Icon name="star" size={18} color="star" filled fillColor="star" />
+          <Text variant="bodyStrong">{t('ride.new_driver_line')}</Text>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+          <Stat
+            value={p.rating !== null ? p.rating.toFixed(1) : t('track.rating_new')}
+            label={
+              p.ratingCount > 0
+                ? t(pluralKey('ride.profile_ratings', p.ratingCount), { n: p.ratingCount })
+                : t('ride.profile_rating')
+            }
+            star
+            testID="driver-profile-rating"
+          />
+          <Stat
+            value={p.tripCount.toLocaleString('en-US')}
+            label={t('ride.profile_trips')}
+            testID="driver-profile-trips"
+          />
+          <Stat
+            value={p.onTimePct !== null ? `${p.onTimePct}٪` : '—'}
+            label={p.onTimePct !== null ? t('ride.profile_on_time') : t('ride.profile_on_time_new')}
+            testID="driver-profile-ontime"
+          />
+        </View>
+      )}
       <View style={{ gap: theme.space[2] }}>
         <Text variant="label" color="textMuted">
           {t('ride.profile_car')}
         </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[3] }}>
-          <CarLine model={p.vehicleModel} colour={p.vehicleColour} fallback={t(p.vehicleClass === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi')} testID="driver-profile-car" />
-          {p.plate ? <PlateChip plate={p.plate} accessibilityLabel={t('driver.plate')} size="md" /> : null}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: theme.space[3],
+          }}
+        >
+          <CarLine
+            model={p.vehicleModel}
+            colour={p.vehicleColour}
+            fallback={t(p.vehicleClass === 'tuktuk' ? 'ride.vehicle_tuktuk' : 'ride.vehicle_taxi')}
+            testID="driver-profile-car"
+          />
+          {p.plate ? (
+            <PlateChip plate={p.plate} accessibilityLabel={t('driver.plate')} size="md" />
+          ) : null}
         </View>
         <FeatureTags features={p.features} testID="driver-profile-tags" />
       </View>
@@ -70,7 +176,18 @@ function ProfileBody({ p, now }: { p: DriverProfile; now: number }) {
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {p.compliments.map((c) => (
-              <View key={c.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: theme.space[3], borderRadius: 18, backgroundColor: theme.colors.successTint }}>
+              <View
+                key={c.key}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  minHeight: 36,
+                  paddingHorizontal: theme.space[3],
+                  borderRadius: 18,
+                  backgroundColor: theme.colors.successTint,
+                }}
+              >
                 <Icon name="heart" size={14} color="successText" />
                 <Text variant="label" color="successText">
                   {t(`compliment.${c.key}`)}
@@ -87,10 +204,30 @@ function ProfileBody({ p, now }: { p: DriverProfile; now: number }) {
   );
 }
 
-function Stat({ value, label, star = false, testID }: { value: string; label: string; star?: boolean; testID: string }) {
+function Stat({
+  value,
+  label,
+  star = false,
+  testID,
+}: {
+  value: string;
+  label: string;
+  star?: boolean;
+  testID: string;
+}) {
   const theme = useTheme();
   return (
-    <View testID={testID} style={{ flex: 1, alignItems: 'center', gap: 2, paddingVertical: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+    <View
+      testID={testID}
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        gap: 2,
+        paddingVertical: theme.space[3],
+        borderRadius: theme.radius.lg,
+        backgroundColor: theme.colors.surfaceSunken,
+      }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         {star ? <Icon name="star" size={16} color="star" filled fillColor="star" /> : null}
         <Text variant="title" tabular>
@@ -107,7 +244,10 @@ function Stat({ value, label, star = false, testID }: { value: string; label: st
 function ProfileLoading() {
   const theme = useTheme();
   return (
-    <View style={{ gap: theme.space[4], alignItems: 'center', paddingBottom: theme.space[4] }} testID="driver-profile-loading">
+    <View
+      style={{ gap: theme.space[4], alignItems: 'center', paddingBottom: theme.space[4] }}
+      testID="driver-profile-loading"
+    >
       <Skeleton width={96} height={96} radius={48} />
       <View style={{ flexDirection: 'row', gap: theme.space[2], alignSelf: 'stretch' }}>
         <Skeleton height={64} style={{ flex: 1 }} />
@@ -129,7 +269,17 @@ function ProfileError({ error, onRetry }: { error: unknown; onRetry: () => void 
  * Ride idea s5: «ما أريده مرة ثانية» asks once, plainly — he isn't told, and the rider can undo it
  * from «سواقي» — then the server keeps him off this rider's rides (and off the favourites).
  */
-export function AvoidDriverSheet({ orderId, name, visible, onClose }: { orderId: string; name: string; visible: boolean; onClose: () => void }) {
+export function AvoidDriverSheet({
+  orderId,
+  name,
+  visible,
+  onClose,
+}: {
+  orderId: string;
+  name: string;
+  visible: boolean;
+  onClose: () => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -143,7 +293,8 @@ export function AvoidDriverSheet({ orderId, name, visible, onClose }: { orderId:
           toast.show({ message: t('ride.avoid_done', { name }), tone: 'neutral', icon: 'check' });
           onClose();
         },
-        onError: (e) => toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' }),
+        onError: (e) =>
+          toast.show({ message: apiErrorMessage(e, t('error.network'), locale), tone: 'danger' }),
       },
     );
   return (
@@ -154,8 +305,21 @@ export function AvoidDriverSheet({ orderId, name, visible, onClose }: { orderId:
       testID="avoid-sheet"
       footer={
         <View style={{ gap: theme.space[2] }}>
-          <Button label={t('ride.avoid_confirm')} variant="destructive" fullWidth loading={avoid.isPending} onPress={confirm} testID="avoid-confirm" />
-          <Button label={t('action.cancel')} variant="ghost" fullWidth onPress={onClose} testID="avoid-cancel" />
+          <Button
+            label={t('ride.avoid_confirm')}
+            variant="destructive"
+            fullWidth
+            loading={avoid.isPending}
+            onPress={confirm}
+            testID="avoid-confirm"
+          />
+          <Button
+            label={t('action.cancel')}
+            variant="ghost"
+            fullWidth
+            onPress={onClose}
+            testID="avoid-cancel"
+          />
         </View>
       }
     >
