@@ -1855,5 +1855,8 @@
   "merchant.notfound.title": "ماكو هيچ صفحة",
   "merchant.notfound.body": "يمكن الرابط قديم أو بيه غلط. طلباتك بمكانها",
   "merchant.notfound.back": "رجوع للطلبات",
-  "merchant.startup.loading": "دا نجيب طلباتك…"
+  "merchant.startup.loading": "دا نجيب طلباتك…",
+  "merchant.money.first_title": "فلوسك تبين هنا من أول طلب",
+  "merchant.money.first_why": "من يوصل أول طلب للزبون، تشوف هنا شگد إلك ومنو عنده فلوسك وشلون توصلك",
+  "merchant.money.pill_first": "فلوسك تبين هنا من أول طلب"
 }

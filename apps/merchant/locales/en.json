@@ -1855,5 +1855,8 @@
   "merchant.notfound.title": "There's no such page",
   "merchant.notfound.body": "The link may be old or wrong. Your orders are where you left them",
   "merchant.notfound.back": "Back to orders",
-  "merchant.startup.loading": "Getting your orders…"
+  "merchant.startup.loading": "Getting your orders…",
+  "merchant.money.first_title": "Your money shows here from your first order",
+  "merchant.money.first_why": "Once your first order reaches a customer, you will see here what is yours, who holds it and how it reaches you",
+  "merchant.money.pill_first": "Your money shows here from your first order"
 }

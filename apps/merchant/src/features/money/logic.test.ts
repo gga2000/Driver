@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MerchantDispute, StatementOrderLine } from '@driver/contracts';
 import { hour12, hourPeriod, localDayKey, localParts, relativeDay, startOfLocalWeek } from '@/lib/calendar';
-import { balanceState, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
+import { balanceState, beforeFirstOrder, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
 
 const H = 3_600_000;
 
@@ -156,5 +156,25 @@ describe('money in one line (S-M5) and the weekly bridge (M-17)', () => {
     ]);
     expect(b.adds).toBe(true);
     expect(statementBridge({ openingIqd: 0, closingIqd: 0, totals: { ...totals, netIqd: 12_750, settledIqd: 12_750, adjustmentsIqd: 0 } }).terms.map((x) => x.key)).toEqual(['opening', 'net', 'settled', 'closing']);
+  });
+});
+
+describe('d12 · before the first delivered order', () => {
+  const fresh = { balanceIqd: 0, lastSettledAt: null, handovers: [], request: null, holders: [], heldByPlatformIqd: 0 };
+  it('a zero balance that never moved says «فلوسك تبين هنا من أول طلب»', () => {
+    expect(beforeFirstOrder(fresh)).toBe(true);
+    expect(moneyPill({ kind: 'zero', amountIqd: 0, arrives: null, by: null }, { firstOrder: true }).main.key).toBe('merchant.money.pill_first');
+  });
+  it('anything that ever moved opens the gate', () => {
+    expect(beforeFirstOrder(undefined)).toBe(false);
+    expect(beforeFirstOrder(fresh, 1)).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, balanceIqd: 4_500 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, balanceIqd: -500 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, lastSettledAt: new Date('2026-10-01T10:00:00Z') })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, heldByPlatformIqd: 2_000 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, holders: [{ courierId: 'c1', name: 'حيدر', amountIqd: 9_000 }] })).toBe(false);
+    // Settled back to zero: an old shop keeps «ما عندك فلوس عند درايفر هسة».
+    expect(beforeFirstOrder({ ...fresh, handovers: [{ handoverId: 'h1', at: new Date(), courierId: 'c1', courierName: null, amountIqd: 9_000, balanceAfterIqd: 0, confirmedBy: 'pin' }] })).toBe(false);
+    expect(moneyPill({ kind: 'zero', amountIqd: 0, arrives: null, by: null }).main.key).toBe('merchant.money.pill_zero');
   });
 });

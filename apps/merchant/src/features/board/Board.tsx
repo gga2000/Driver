@@ -27,6 +27,7 @@ import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, use
 import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
 import { dayCardKey, dayCardMode, orderWhoLine, showDayCard } from '@/features/day/logic';
 import { useDayDismissed, useDaySummary } from '@/features/day/queries';
+import { beforeFirstOrder } from '@/features/money/logic';
 import { useCashAccount, useOrderWho } from '@/features/money/queries';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { StoreHeader, type HeaderAlert } from '@/features/store/StoreHeader';
@@ -649,6 +650,7 @@ export function Board() {
         status={s}
         balance={balance.data}
         headline={cash.data?.headline}
+        firstOrder={beforeFirstOrder(cash.data)}
         canSeeMoney={canSeeMoney}
         now={now}
         wide={wide}

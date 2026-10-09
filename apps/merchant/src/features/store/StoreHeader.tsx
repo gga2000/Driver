@@ -21,6 +21,8 @@ export interface StoreHeaderProps {
   balance: MerchantBalanceView | undefined;
   /** S-M5: the server's one-line money pill (owners); falls back to `balance` while it loads. */
   headline?: MoneyHeadline | undefined;
+  /** d12: a new shop before its first delivered order — «فلوسك تبين هنا من أول طلب» instead of zero. */
+  firstOrder?: boolean;
   canSeeMoney: boolean;
   now: number;
   wide: boolean;
@@ -167,10 +169,10 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
  * فلوسك"; "عليك 4,250 دينار عمولة · تنخصم من الجاية" on the warning tint; "فلوسك جاية قبل 9:40 م".
  * Amounts and times are the server's; a tap on anything but the button opens the Money screen.
  */
-export function MoneyLine({ headline, wide, onRequest, onOpen, roomy = false }: { headline: MoneyHeadline; wide: boolean; onRequest: () => void; onOpen: () => void; /** In the «…» sheet: a full-size «اطلب فلوسك» (44 px+). */ roomy?: boolean }) {
+export function MoneyLine({ headline, wide, onRequest, onOpen, roomy = false, firstOrder = false }: { headline: MoneyHeadline; wide: boolean; onRequest: () => void; onOpen: () => void; /** In the «…» sheet: a full-size «اطلب فلوسك» (44 px+). */ roomy?: boolean; /** d12: before the first delivered order. */ firstOrder?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const p = moneyPill(headline);
+  const p = moneyPill(headline, { firstOrder });
   const bg = p.tone === 'warning' ? theme.colors.warningTint : p.tone === 'success' ? theme.colors.successTint : theme.colors.surface;
   const edge = p.tone === 'warning' ? theme.colors.warning : p.tone === 'success' ? theme.colors.success : theme.colors.border;
   const fg = p.tone === 'warning' ? 'warningText' : p.tone === 'success' ? 'successText' : 'text';
@@ -335,7 +337,7 @@ function MoreButton({ dot, onPress, label, dotLabel }: { dot: boolean; onPress: 
  * money line («اطلب فلوسك»), missed orders and any other alarm live in «…», which carries a dot while
  * something there needs a look. On a phone the alarm slot takes its own row only while it shows.
  */
-export function StoreHeader({ storeName, status, balance, headline, canSeeMoney, wide, onToggleOpen, onBusy, onCash, alerts = [], menuItems = [], suggestBusy = false, closeMenu = 0 }: StoreHeaderProps) {
+export function StoreHeader({ storeName, status, balance, headline, firstOrder = false, canSeeMoney, wide, onToggleOpen, onBusy, onCash, alerts = [], menuItems = [], suggestBusy = false, closeMenu = 0 }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -400,7 +402,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
   const openMoney = fromMenu(() => router.push('/money'));
   const money =
     canSeeMoney && headline ? (
-      <MoneyLine headline={headline} wide={false} roomy onRequest={fromMenu(onCash)} onOpen={openMoney} />
+      <MoneyLine headline={headline} wide={false} roomy firstOrder={firstOrder} onRequest={fromMenu(onCash)} onOpen={openMoney} />
     ) : canSeeMoney && balance && state ? (
       state.kind === 'owed' ? (
         <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 60, paddingStart: theme.space[4], paddingEnd: 6, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
@@ -425,7 +427,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
           <MIcon name="cash" size={20} color={state.kind === 'owe' ? 'warningText' : 'textMuted'} />
           <View style={{ flex: 1 }}>
             <Text variant="label" weight={700} tabular color={state.kind === 'owe' ? 'warningText' : 'text'} style={{ lineHeight: 20 }}>
-              {state.kind === 'owe' ? t('merchant.money.pill_owe', { amount: amountParam(state.amountIqd) }) : t('merchant.money.pill_zero')}
+              {state.kind === 'owe' ? t('merchant.money.pill_owe', { amount: amountParam(state.amountIqd) }) : firstOrder ? t('merchant.money.pill_first') : t('merchant.money.pill_zero')}
             </Text>
             {state.kind === 'owe' ? (
               <Text variant="caption" color="warningText" style={{ lineHeight: 16 }}>
