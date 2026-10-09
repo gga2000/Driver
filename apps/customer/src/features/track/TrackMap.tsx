@@ -7,6 +7,7 @@ import { Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
+import { MAP_CREDIT } from './map/credit';
 import { useLabelAvoid } from './map/useLabelAvoid';
 import { CourierMarker, HeadingArrow, PlacePin, placePinSide, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
@@ -168,13 +169,13 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
         </>
       ) : null}
       {!camera.follow ? <RecentreChip bottom={bottomInset + theme.space[5]} onPress={camera.recentre} /> : null}
-      {/* Tile credit (OSM raster today, the OSM-derived PMTiles later), clear of the sheet. */}
+      {/* Tile credit (the original OSM map, or our Golden hour tiles), clear of the sheet. */}
       <Text
         variant="caption"
         color="textMuted"
         style={{ position: 'absolute', right: theme.space[3], bottom: bottomInset + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}
       >
-        © OpenStreetMap
+        {MAP_CREDIT}
       </Text>
     </View>
   );
