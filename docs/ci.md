@@ -76,8 +76,10 @@ same day runs through the real Prisma repositories (Redis is still dropped: the 
 memory on the fake clock). It needs a freshly migrated and seeded database and refuses one that already
 has orders, since the invariants read the whole ledger. Besides the invariants, it fails on any Prisma
 query that failed (a foreign key or an aborted transaction that only Postgres raises: the bug class
-behind four of the audit's P0s) and on any outbox delivery that needed a retry. The `e2e-postgres` job
-runs it on its own `driver_sim` database after the core flows.
+behind four of the audit's P0s) and on any outbox delivery that needed a retry. It is a manual and
+pre-release check, not a per-PR job: on Postgres the day is slow (100 orders took about 13 minutes on
+a laptop, 2,000 did not finish in 50), while the in-memory gate above stays the per-PR one. On
+2026-10-09, 60- and 100-order days passed with no failed query and no retry.
 
 The timed paths the simulator does not walk are in `apps/api/src/timed-paths.integration.test.ts`, on
 Postgres through the whole app on a fake clock: a scheduled food order reaching the kitchen, a customer
