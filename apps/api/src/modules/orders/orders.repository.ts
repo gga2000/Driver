@@ -1,4 +1,4 @@
-import { RideCargo, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
+import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -209,6 +209,15 @@ export interface OrdersRepository {
   deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /**
+   * FOOD-04: the same orders with their lines and participants, newest first (placedAt, id), at most
+   * `limit` of them when given: one id read on the two indexes and one batched load, never a read per order.
+   */
+  aggregatesForPerson(personId: string, opts?: { limit?: number }, tx?: Tx): Promise<OrderAggregate[]>;
+  /** FOOD-04: the orders `ordererId` placed that are not finished yet (the few that hold wallet money or points). */
+  openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /** FOOD-04: how many orders `ordererId` placed, optionally only of one type and state, leaving one order out. */
+  countPlacedBy(ordererId: string, filter?: { type?: OrderType; state?: OrderState; exceptId?: string }, tx?: Tx): Promise<number>;
   /**
    * Joy w4: a household's orders placed in `[from, to)` — on its wallet, or «للسفرة» orders of the
    * given members — oldest first. One bounded read on `(household_org_id, placed_at)` plus the members'
@@ -527,6 +536,38 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}, tx?: Tx): Promise<OrderAggregate[]> {
+    // The same UNION as `forPerson` (each half on its own index); the newest `limit` ids are picked by
+    // `(placed_at, id)` before any row leaves the database, then all of them load in one batched read.
+    const limit = opts.limit ?? null;
+    const ids = await this.db(tx).$queryRaw<Array<{ id: string }>>`
+      SELECT o."id" FROM "public"."orders" o
+      WHERE o."id" IN (
+        SELECT "id" FROM "public"."orders" WHERE "orderer_id" = ${personId}
+        UNION
+        SELECT "order_id" FROM "public"."participants" WHERE "person_id" = ${personId})
+      ORDER BY o."placed_at" DESC, o."id" DESC
+      LIMIT ${limit}`;
+    if (ids.length === 0) return [];
+    const rows = await this.db(tx).order.findMany({
+      where: { id: { in: ids.map((r) => r.id) } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]> {
+    const rows = await this.db(tx).order.findMany({ where: { ordererId, state: { notIn: [...TERMINAL_ORDER_STATES] } }, orderBy: [{ placedAt: 'desc' }, { id: 'desc' }] });
+    return rows.map(orderFromRow);
+  }
+
+  countPlacedBy(ordererId: string, filter: { type?: OrderType; state?: OrderState; exceptId?: string } = {}, tx?: Tx): Promise<number> {
+    return this.db(tx).order.count({
+      where: { ordererId, ...(filter.type ? { type: filter.type } : {}), ...(filter.state ? { state: filter.state } : {}), ...(filter.exceptId ? { id: { not: filter.exceptId } } : {}) },
+    });
+  }
+
   async search(f: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]> {
     const and: Prisma.OrderWhereInput[] = [{ cityId: f.cityId }];
     if (f.states && f.states.length > 0) and.push({ state: { in: [...f.states] } });
@@ -712,6 +753,20 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .filter((o) => o.placedAt >= from && o.placedAt < to && (o.householdOrgId === householdOrgId || (o.familyTable === true && memberIds.includes(o.ordererId))))
       .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))
       .map((o) => ({ ...o }));
+  }
+
+  async openPlacedBy(ordererId: string): Promise<OrderRecord[]> {
+    return (await this.forPerson(ordererId)).filter((o) => o.ordererId === ordererId && !TERMINAL_ORDER_STATES.includes(o.state));
+  }
+
+  async countPlacedBy(ordererId: string, filter: { type?: OrderType; state?: OrderState; exceptId?: string } = {}): Promise<number> {
+    return [...this.orders.values()].filter((o) => o.ordererId === ordererId && (!filter.type || o.type === filter.type) && (!filter.state || o.state === filter.state) && o.id !== filter.exceptId).length;
+  }
+
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}): Promise<OrderAggregate[]> {
+    const mine = await this.forPerson(personId);
+    const picked = opts.limit === undefined ? mine : mine.slice(0, opts.limit);
+    return Promise.all(picked.map(async (o) => (await this.find(o.id))!));
   }
 
   async forPerson(personId: string): Promise<OrderRecord[]> {

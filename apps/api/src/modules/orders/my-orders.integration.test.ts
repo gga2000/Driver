@@ -50,11 +50,43 @@ describe.skipIf(!url)('orders.forPerson on Postgres (needs DATABASE_URL)', () =>
     expect(got).toEqual([order['mineNew'], ...ties, order['friendTreat'], order['mineOld']]);
   });
 
+  it('FOOD-04: loads the same orders with their lines and participants in one batch, newest first', async () => {
+    const got = await repo.aggregatesForPerson(ids.me);
+    const ties = [order['tieA']!, order['tieB']!].sort().reverse();
+    expect(got.map((a) => a.order.id)).toEqual([order['mineNew'], ...ties, order['friendTreat'], order['mineOld']]);
+    const newest = got[0]!;
+    expect(newest.participants.map((p) => p.personId).sort()).toEqual([ids.me, ids.friend].sort());
+    expect(newest.lines).toEqual([]);
+  });
+
+  it('FOOD-04: a limit keeps only the newest, chosen in the database', async () => {
+    const ties = [order['tieA']!, order['tieB']!].sort().reverse();
+    expect((await repo.aggregatesForPerson(ids.me, { limit: 2 })).map((a) => a.order.id)).toEqual([order['mineNew'], ties[0]]);
+    expect((await repo.aggregatesForPerson(ids.me, { limit: 50 })).length).toBe(5);
+    expect(await repo.aggregatesForPerson(ids.stranger, { limit: 1 })).toHaveLength(1);
+  });
+
+  it('FOOD-04: open orders and counts read only what the person placed', async () => {
+    const db = prisma.prisma;
+    await db.order.update({ where: { id: order['mineOld']! }, data: { state: 'closed' } });
+    try {
+      // Placed by me and not finished (mineOld is closed): mineNew and tieA; never a friend's order I eat on.
+      expect((await repo.openPlacedBy(ids.me)).map((o) => o.id)).toEqual([order['mineNew'], order['tieA']]);
+      expect(await repo.countPlacedBy(ids.me)).toBe(3);
+      expect(await repo.countPlacedBy(ids.me, { state: 'closed' })).toBe(1);
+      expect(await repo.countPlacedBy(ids.me, { state: 'closed', exceptId: order['mineOld']! })).toBe(0);
+      expect(await repo.countPlacedBy(ids.me, { type: 'ride' })).toBe(0);
+    } finally {
+      await db.order.update({ where: { id: order['mineOld']! }, data: { state: 'placed' } });
+    }
+  });
+
   it('is empty for a person with no orders, and the in-memory twin agrees on that', async () => {
     const nobody = (await prisma.prisma.person.create({ data: {} })).id;
     try {
       expect(await repo.forPerson(nobody)).toEqual([]);
       expect(await new InMemoryOrdersRepository().forPerson(nobody)).toEqual([]);
+      expect(await repo.aggregatesForPerson(nobody, { limit: 5 })).toEqual([]);
     } finally {
       await prisma.prisma.person.delete({ where: { id: nobody } });
     }
