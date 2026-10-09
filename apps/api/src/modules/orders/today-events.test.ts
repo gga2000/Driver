@@ -17,7 +17,7 @@ describe('order.rated (Console "Today" list)', () => {
     await h.orders.rate('c1', { orderId: order.id, delivery: 1 });
     const rated = h.events.ofType('order.rated');
     expect(rated).toHaveLength(1);
-    expect(decodeDomainEvent('order.rated', rated[0]!.payload)).toEqual({ orderId: order.id, stars: 4, cityId: 'aziziyah' });
+    expect(decodeDomainEvent('order.rated', rated[0]!.payload)).toEqual({ orderId: order.id, stars: 4, cityId: 'aziziyah', food: 2, delivery: 4, orderType: 'food' });
     expect(rated[0]!).toMatchObject({ actorId: 'c1', orderId: order.id, aggregate: { name: 'order', id: order.id } });
   });
 
@@ -25,7 +25,9 @@ describe('order.rated (Console "Today" list)', () => {
     const h = make();
     const a = (await h.delivered()).order;
     await h.orders.rate('c1', { orderId: a.id, food: 5 });
-    expect(h.events.last('order.rated')!.payload).toMatchObject({ orderId: a.id, stars: 5 });
+    expect(decodeDomainEvent('order.rated', h.events.last('order.rated')!.payload)).toEqual({ orderId: a.id, stars: 5, cityId: 'aziziyah', food: 5, orderType: 'food' });
+    // A row written before these fields still reads.
+    expect(decodeDomainEvent('order.rated', { orderId: a.id, stars: 5, cityId: 'aziziyah' })).toEqual({ orderId: a.id, stars: 5, cityId: 'aziziyah' });
     const b = (await h.delivered()).order;
     await h.orders.rate('c1', { orderId: b.id });
     expect(h.events.ofType('order.rated').map((e) => e.orderId)).toEqual([a.id]);

@@ -171,7 +171,7 @@ an amount.
 
 | Event | Payload | Emitted by, and when | Aggregate |
 |---|---|---|---|
-| `order.rated` | `{ orderId, stars: 1..5, cityId }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
+| `order.rated` | `{ orderId, stars: 1..5, cityId, food?, delivery?, orderType? }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. `food` / `delivery` are the two scores as given (absent when skipped) and `orderType` the order's type, for the Console's low-rating case (rows from before 2026-10-09 carry only `stars`). A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
 | `courier.cash_over_cap` | `{ courierId, cashIqd, capIqd, cityId }` | `LedgerService.recordAll`, in the posting's transaction, when the posting takes the driver from under his cash cap to at or over it (in practice a cash collection, `order.cash_collected`). Actor: `system`. | `driver` |
 | `courier.cash_under_cap` | same as above | the same place, when a posting takes him from over the cap to under it (a hand-in: agent, ZainCash, ops round, or paying a merchant). | `driver` |
 | `order.stuck` | `{ orderId, cityId, reason: StuckReason, since }` | the W3 watchdog (`OrdersStaffJob`, every 5 min, `OrdersStaffService.watchStuck`), when an order is on `orders.ops.stuck` and was not on it at the last look. `since` is when the state's clock started (ISO time). Actor: `system`. | `stuck_board` / `orders` |
