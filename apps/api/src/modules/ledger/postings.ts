@@ -316,17 +316,26 @@ export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): R
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
   const fareType: LedgerEventType = r.takeClass === 'parcel' || r.takeClass === 'parcel_intercity' ? 'parcel_fee' : 'fare';
 
-  b.add(fareType, r.fareIqd, payer, driver, r.takeClass);
+  // Step 6: friends who joined a shared private car pay their places from their own wallets.
+  const sharedIqd = r.sharedBy.reduce((sum, f) => sum + f.amountIqd, 0);
+  if (sharedIqd > r.fareIqd) throw new RangeError(`shared places ${sharedIqd} are more than the fare ${r.fareIqd}`);
+  for (const f of r.sharedBy) {
+    const friend = Accounts.customer(f.customerId);
+    if (friend === payer) throw new RangeError('the payer cannot share with himself');
+    b.add(fareType, f.amountIqd, friend, driver, 'request_share');
+    b.control(friend, -f.amountIqd);
+  }
+  b.add(fareType, r.fareIqd - sharedIqd, payer, driver, r.takeClass);
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, r, r.fareIqd - sharedIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 
 // ───────────────────────── intercity seats ─────────────────────────
 
-/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch. */
+/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch; a company-paid return discount is `promo_funded`. */
 export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostings {
   const s = SeatMoneyPayload.parse(input);
   const b = new GroupBuilder(`seat:${s.seatId}:money`, 'money', s.occurredAt, { departureId: s.departureId, routeId: s.routeId });
@@ -339,7 +348,10 @@ export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostin
   b.add('commission_accrued', seatTake, driver, Accounts.platform, 'take:intercity_seat');
   b.add('seat_premium', s.frontPremiumIqd, payer, driver, 'front');
   b.add('commission_accrued', premiumTake, driver, Accounts.platform, 'take:front_seat_premium');
-  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd, Accounts.cash(s.driverId), rules);
+  // Step 5: the return-trip discount the company pays comes off what the rider owes, not the driver's fare.
+  if (s.platformDiscountIqd > s.fareIqd) throw new RangeError(`return discount ${s.platformDiscountIqd} is more than the seat fare ${s.fareIqd}`);
+  b.add('promo_funded', s.platformDiscountIqd, Accounts.platform, payer, 'return_bundle');
+  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd - s.platformDiscountIqd, Accounts.cash(s.driverId), rules);
   return { money: b.build(), takeIqd: seatTake + premiumTake, totalIqd: total };
 }
 

@@ -71,6 +71,24 @@ violation exits 1 and prints `violation: <name>`. The same `--seed` reproduces t
 `pnpm sim --orders 30 --inject-fault ledger_money_balanced` shows the gate failing on purpose (any
 invariant name works).
 
+**On Postgres (CRIT3-05).** `pnpm sim --orders 200 --seed 1 --db postgres` keeps `DATABASE_URL`, so the
+same day runs through the real Prisma repositories (Redis is still dropped: the timer queues stay in
+memory on the fake clock). It needs a freshly migrated and seeded database and refuses one that already
+has orders, since the invariants read the whole ledger. Besides the invariants, it fails on any Prisma
+query that failed (a foreign key or an aborted transaction that only Postgres raises: the bug class
+behind four of the audit's P0s) and on any outbox delivery that needed a retry. It is a manual and
+pre-release check, not a per-PR job: on Postgres the day is slow (100 orders took about 13 minutes on
+a laptop, 2,000 did not finish in 50), while the in-memory gate above stays the per-PR one. On
+2026-10-09, 60- and 100-order days passed with no failed query and no retry.
+
+The timed paths the simulator does not walk are in `apps/api/src/timed-paths.integration.test.ts`, on
+Postgres through the whole app on a fake clock: a scheduled food order reaching the kitchen, a customer
+unreachable at the door (desk at 3:00, fail at 5:00, order disputed), a household order waiting for its
+payer (30-minute free cancel, and a yes), a full خطوط run with the car-check alert 5 minutes after the
+last drop, and the nightly ledger close. It fails the same way on any failed Prisma query or retried
+outbox delivery. The request-board driver no-show money is covered in `routes.integration.test.ts`;
+points have no expiry job (pending points older than 90 days are hidden when the wallet is read).
+
 The Console's System page (`system.simulator.start/status/stop`, admin and dispatcher) runs the same
 actors live against the running API at 60× (or `speed`), with real presence, so the map shows the
 drivers moving.
@@ -158,7 +176,7 @@ Everything above runs the services on in-memory repositories or repository by re
 key or an aborted transaction that only Postgres enforces never shows (CRIT2-04). This job does: it
 migrates and seeds a fresh database (`SEED_ADMIN_PHONE=07700000099` adds an admin), builds the API,
 starts `apps/api/dist/main.js` with `NODE_ENV=test`, `LOG_FORMAT=json`, Postgres and Redis (stdout →
-`api.log`), and runs `node scripts/e2e/realdb-core.mjs`, a plain tRPC client that drives five flows, each
+`api.log`), and runs `node scripts/e2e/realdb-core.mjs`, a plain tRPC client that drives five core flows, each
 as new people with its own `x-request-id` prefix:
 
 | Flow     | Prefix        | What it does                                                                                                                 |
@@ -168,6 +186,16 @@ as new people with its own `x-request-id` prefix:
 | `sos`    | `e2e-sos-`    | emergency contact set, a taxi ride placed, `safety.sos`, `safety.status`                                                     |
 | `ride`   | `e2e-ride-`   | `pricing.quote` → `orders.place` with the quote id, as the app sends it                                                      |
 | `share`  | `e2e-share-`  | a ride, `tracking.createShareLink`, the admin forces it on a new driver (`dispatch.override`), he accepts, `tracking.shared` |
+
+Twelve more flows walk the customer paths end to end (`scripts/e2e/customer-paths.mjs`, same harness,
+prefix `e2e-<flow>-`): `delivery` (kitchen accept/ready, courier, chat, a top-up handed to the courier,
+cash, a double-tapped rating, tip, compliment, complaint), `cancels`, `ridelife` (with the night start
+code and «نسيت غرض»), `sosend`, `household` (payer approves, then declines), `seats` (الرجعة hold, book,
+PIN check-in, depart, arrive, rate), `board` (request board with its 20 % deposit, a late cancel),
+`profile`, `places`, `browse` (menu, follow, invitation), `later` (scheduled and gift orders, a seat
+wish) and `doubletap` (identical taps at once never give a 5xx). Couriers and drivers are new people
+the seeded admin grants a role and forces the job on (`dispatch.override`), so no vehicle or daily
+check-in is needed. The whole run takes about 15 seconds; `FLOWS=delivery,board` runs some of them.
 
 The API stamps the request id on every log line of a call (`apps/api/src/shared/request-context.ts`),
 logs every failed Prisma query under the `Prisma` context (`shared/db/prisma-error-log.ts`), and tags

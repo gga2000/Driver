@@ -1,8 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import type { DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
-import { Button, Card, EmptyState, Icon, Rule, SegmentedControl, Skeleton, SlideToConfirm, Text, useTheme, useToast } from '@driver/ui';
+import type { AgreementView, DriverDepartureView, IntercitySeatId, TravellingAs } from '@driver/contracts';
+import { Button, Card, EmptyState, Icon, QueryBoundary, Rule, SegmentedControl, Skeleton, SlideToConfirm, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
 import { SosControl } from '@/features/safety/SosControl';
@@ -12,13 +12,13 @@ import { PickupRoute, PinPad, RiderRow, StepRow } from '@/features/intercity/Dep
 import { GarageLegend, GarageSeatMap, RiderSheet, WalkUpSheet } from '@/features/intercity/GarageParts';
 import { blockerText, cityName, countdownLabel, departureState, riderName, seatName, seatsList } from '@/features/intercity/labels';
 import { TripsActions } from '@/features/intercity/TripsColors';
-import { AboardList, BoardingCodeSheet, CarArtSeats, SeatRoster, seatCounts, TripsBand, type CodeMatch } from '@/features/intercity/TripsParts';
+import { AboardList, BoardingCodeSheet, CarArtSeats, SeatRoster, seatFacts, TripsBand, type CodeMatch } from '@/features/intercity/TripsParts';
 import {
   ANNOUNCE_RULES,
-  boardedSeats,
   clockLabel,
   corridorCity,
   departBlockerNote,
+  asksInOrder,
   departReadiness,
   destinationCity,
   hasPickupRun,
@@ -28,10 +28,13 @@ import {
   minutesUntil,
   pickupRoute,
   pinPress,
+  seatCounts,
   seatOccupants,
   type SeatOccupant,
 } from '@/features/intercity/logic';
-import { useDeparture, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
+import { useDeparture, useDepartureAgreements, useDriverActions, useNetwork, useRiderNames } from '@/features/intercity/queries';
+import { RunChats } from '@/features/chat/TripChatEntry';
+import { PriceAsks, PriceSheet } from '@/features/intercity/AgreeParts';
 import { useNow } from '@/features/intercity/useNow';
 import { useRunCall } from '@/features/intercity/useRunCall';
 import { pickPhoto, uploadPhoto } from '@/features/account/photo';
@@ -99,6 +102,24 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const open = dep.state === 'scheduled' || dep.state === 'boarding';
   const live = open || dep.state === 'departed';
   const readiness = departReadiness(dep);
+  // Step 4: riders' price asks (a pin on the road, a door drop) while the car can still take them.
+  const agreements = useDepartureAgreements(dep.id, open);
+  const asks = useMemo(() => asksInOrder(agreements.data ?? []), [agreements.data]);
+  const [pricing, setPricing] = useState<AgreementView | null>(null);
+  const propose = (amountIqd: number) => {
+    if (!pricing) return;
+    actions.propose.mutate(
+      { agreementId: pricing.id, amountIqd },
+      {
+        onSuccess: () => {
+          theme.haptic('success');
+          setPricing(null);
+          toast.show({ message: t('partner.ic_agree_sent'), icon: 'send' });
+          void agreements.refetch();
+        },
+      },
+    );
+  };
 
   const [tab, setTab] = useState<Tab>(live ? 'seats' : 'details');
   const [sheetSeat, setSheetSeat] = useState<IntercitySeatId | null>(null);
@@ -299,6 +320,8 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
     try {
       await actions.arrive.mutateAsync({ departureId: dep.id });
       theme.haptic('success');
+      // «وصلتوا» replaces the trip; «انطلقتوا» must not stay over it (check-up 2026-10-09).
+      toast.hide();
     } catch (err) {
       fail(err);
     }
@@ -310,7 +333,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const runPins: MapPin[] = route.map((s, i) =>
     s.kind === 'garage'
       ? { at: s.at, kind: 'garage', label: `${garage?.nameAr ?? ''} · ${dep.fill.booked + dep.fill.walkUps}/${dep.fill.seatsTotal}` }
-      : { at: s.at, kind: 'stop', badge: String(i + 1), label: s.kind === 'door' ? riderName(t, names.get(s.bookings[0]!.bookingId)) : (s.nameAr ?? '') },
+      : { at: s.at, kind: 'stop', badge: String(i + 1), label: s.kind === 'door' || s.kind === 'pin' ? riderName(t, names.get(s.bookings[0]!.bookingId)) : (s.nameAr ?? '') },
   );
   const late = dep.bookings.filter((b) => b.state === 'booked' && b.meterMinutes !== null);
   const meterOff = open && now.getTime() > dep.departAt.getTime() && dep.bookings.some((b) => b.state === 'booked' && b.pickup.kind === 'garage' && b.meterMinutes === null && (b.prepaid || b.prepayRail === 'trusted_cash'));
@@ -318,7 +341,6 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
   const lowFill = dep.state === 'scheduled' && toLowFill > 0 && dep.fill.filled < ANNOUNCE_RULES.minSeatsAtTMinus30;
   const busy = Object.values(actions).some((m) => m.isPending && m !== actions.position);
   const soon = minutesUntil(dep.departAt, now) <= 60;
-  const checkedIn = boardedSeats(dep.bookings);
   const stepsDone = !!dep.selfieAt && !!dep.driverCheckedInAt && dep.driverInsideGarage !== false;
   const blocker = blockerText(t, departBlockerNote(readiness), dep.departAt);
 
@@ -376,10 +398,33 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
 
       {dep.state === 'departed' ? <Banner tone="info" icon="car" title={t('partner.ic_on_road_title', { city: cityName(t, toCity) })} body={t('partner.ic_on_road_body')} /> : null}
       {dep.state === 'arrived' || dep.state === 'closed' ? (
-        <Banner tone="success" icon="check" title={t('partner.ic_arrived_title')} body={t('partner.ic_arrived_body', { n: dep.bookings.filter((b) => b.state === 'completed').length })} />
+        <Banner tone="success" icon="check" title={t('partner.ic_arrived_title')} body={t('partner.ic_arrived_body', { n: counts.boarded })} />
       ) : null}
       {dep.state === 'cancelled_low_fill' ? <Banner tone="danger" icon="x" title={departureState(t, dep.state)} body={t('partner.ic_cancelled_low_fill_body')} /> : null}
       {lowFill ? <Banner tone="warning" icon="clock" title={t('partner.low_fill_warn', { minutes: toLowFill, n: dep.fill.filled })} /> : null}
+
+      {open && asks.length > 0 ? (
+        <View style={{ gap: theme.space[1] }}>
+          <SectionHead title={t('partner.ic_agree_title')} sub={t('partner.ic_agree_hint')} />
+          <Card padding={0} style={{ paddingHorizontal: theme.space[4], marginTop: theme.space[2] }}>
+            <PriceAsks asks={asks} garage={garage ?? null} onPrice={(a) => { actions.propose.reset(); setPricing(a); }} />
+          </Card>
+        </View>
+      ) : null}
+      {/* Step 4c: the riders who wrote to him on this run. */}
+      <RunChats id={dep.id} />
+      {open && agreements.isError ? (
+        <QueryBoundary query={agreements} size="inline" skeleton={null} testID="ic-agreements-read">
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+      <PriceSheet
+        ask={pricing}
+        busy={actions.propose.isPending}
+        error={actions.propose.isError ? apiErrorMessage(actions.propose.error, t('error.network'), locale) : null}
+        onClose={() => setPricing(null)}
+        onSend={propose}
+      />
 
       {tab === 'seats' ? (
         <>
@@ -423,14 +468,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
             <View style={{ gap: theme.space[3] }}>
               <SeatStrip dep={dep} />
               <Text variant="label" weight={600} tabular>
-                {[
-                  t('intercity.fill', { filled: dep.fill.booked + dep.fill.walkUps, total: dep.fill.seatsTotal }),
-                  checkedIn > 0 ? t('partner.ic_fill_checked', { n: checkedIn }) : null,
-                  dep.fill.walkUps > 0 ? t('partner.ic_fill_walkups', { n: dep.fill.walkUps }) : null,
-                  dep.fill.held > 0 ? t('partner.ic_fill_held', { n: dep.fill.held }) : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {[t('intercity.fill', { filled: counts.sold, total: counts.total }), ...seatFacts(t, counts, open)].join(' · ')}
               </Text>
             </View>
           </Card>
@@ -478,7 +516,7 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
                 manifest.map((b, i) => (
                   <View key={b.bookingId}>
                     {i > 0 ? <Rule /> : null}
-                    <RiderRow booking={b} firstName={names.get(b.bookingId) ?? null} busy={busy} onNoShow={() => void noShow(b.bookingId)} onPickup={(accept) => void respondPickup(b.bookingId, accept)} />
+                    <RiderRow booking={b} firstName={names.get(b.bookingId) ?? null} busy={busy} onNoShow={() => void noShow(b.bookingId)} onPickup={(accept) => void respondPickup(b.bookingId, accept)} onMessage={live ? () => router.push({ pathname: '/intercity/chat/[subject]/[id]', params: { subject: 'departure', id: dep.id, with: b.riderId } }) : undefined} />
                   </View>
                 ))
               )}
@@ -494,14 +532,6 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
             </View>
           ) : null}
 
-          {hasPickupRun(route) && live ? (
-            <View style={{ gap: theme.space[3] }}>
-              <SectionHead title={t('partner.ic_route_title')} />
-              <Card padding={4}>
-                <PickupRoute stops={route} garageName={garage?.nameAr ?? ''} names={names} />
-              </Card>
-            </View>
-          ) : null}
         </>
       )}
 
@@ -539,8 +569,8 @@ function DepartureView({ dep }: { dep: DriverDepartureView }) {
       <BoardingCodeSheet
         open={codeOpen}
         onClose={() => setCodeOpen(false)}
-        boarded={counts.boarded - dep.walkUps.length}
-        total={counts.boarded - dep.walkUps.length + counts.toBoard}
+        boarded={counts.boarded}
+        total={counts.boarded + counts.toBoard}
         pin={codePin}
         error={codeError}
         busy={actions.checkIn.isPending}

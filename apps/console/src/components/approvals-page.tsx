@@ -11,7 +11,10 @@ import { CITY_ID, queryRetry } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC } from '@/lib/trpc';
 import { errorText, useConsoleNetwork } from '@/lib/network';
+import { DishPhotoQueue } from './dish-photo-queue';
 import { MenuPhotoQueue } from './menu-photo-queue';
+import { PhotoZoom } from './photo-zoom';
+import { RefundApprovalsQueue } from './refund-approvals';
 import {
   Avatar,
   Button,
@@ -23,7 +26,6 @@ import {
   Field,
   IconBack,
   IconCheckCircle,
-  IconClose,
   IconForward,
   IconLock,
   IconZoom,
@@ -81,6 +83,9 @@ export function ApprovalsPage() {
         </span>
         <LiveBadge seconds={POLL_MS / 1000} updatedAt={list.dataUpdatedAt} fetching={list.isFetching} error={Boolean(list.error)} />
       </PageHeader>
+      <div className="mb-5">
+        <RefundApprovalsQueue />
+      </div>
       {list.error && <QueryError error={list.error} onRetry={() => void list.refetch()} />}
       {!list.data && list.isPending && (
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]" aria-busy>
@@ -100,6 +105,9 @@ export function ApprovalsPage() {
           onDecided={(next) => setSelected(next)}
         />
       )}
+      <div className="mt-5">
+        <DishPhotoQueue />
+      </div>
       <div className="mt-5">
         <MenuPhotoQueue />
       </div>
@@ -433,7 +441,7 @@ function ApprovalDetail({ item, now, position, onMove, onDecided }: { item: Appr
         </fieldset>
       </footer>
 
-      {zoom && <PhotoZoom photo={zoom} onClose={() => setZoom(null)} />}
+      {zoom && <PhotoZoom url={zoom.url} label={zoom.label_ar} onClose={() => setZoom(null)} />}
     </article>
   );
 }
@@ -526,20 +534,3 @@ function PhotoPane({
   );
 }
 
-function PhotoZoom({ photo, onClose }: { photo: ApprovalPhoto; onClose: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current;
-    if (d && !d.open) d.showModal();
-  }, []);
-  return (
-    <dialog ref={ref} onClose={onClose} aria-label={photo.label_ar} className="m-auto max-h-[92vh] max-w-[92vw] overflow-visible bg-transparent p-0 backdrop:bg-inverse/80" onClick={(e) => e.target === e.currentTarget && ref.current?.close()}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- signed API URLs */}
-      <img src={fileUrl(photo.url, API_URL)} alt={photo.label_ar} className="max-h-[86vh] max-w-[92vw] rounded-lg object-contain shadow-overlay" />
-      <p className="mt-2 text-center text-sm text-on-inverse">{photo.label_ar}</p>
-      <IconButton label={t('console.close')} variant="secondary" className="absolute -top-3 end-[-12px]" onClick={() => ref.current?.close()}>
-        <IconClose size={18} />
-      </IconButton>
-    </dialog>
-  );
-}

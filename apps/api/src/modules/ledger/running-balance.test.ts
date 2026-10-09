@@ -76,15 +76,22 @@ describe('running driver balance (perf item 13)', () => {
       historyReads += 1;
       return byAccount(id);
     };
+    let sums = 0;
+    const sumFor = repo.sumFor.bind(repo);
+    repo.sumFor = async (id, before) => {
+      sums += 1;
+      return sumFor(id, before);
+    };
     const ledger = new LedgerService(repo);
     await randomBook(ledger, 50, 3);
     expect(await ledger.balance('driver:new')).toEqual({ accountId: 'driver:new', amount: 0, events: 0 });
     await ledger.balance('driver:a');
     await ledger.balance('cash:b');
+    expect(historyReads + sums).toBe(0);
+    await ledger.balance('platform'); // not projected: summed by the store (SCALE-16), history never loaded
+    await ledger.balance('driver:a', new Date(at.getTime() + 10 * 60_000)); // as of a past instant: summed too
+    expect(sums).toBe(2);
     expect(historyReads).toBe(0);
-    await ledger.balance('platform'); // not projected: full sum
-    await ledger.balance('driver:a', new Date(at.getTime() + 10 * 60_000)); // as of a past instant: full sum
-    expect(historyReads).toBe(2);
   });
 
   it('reconcile repairs drift from the full sum and reports only what it changed', async () => {

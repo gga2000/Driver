@@ -186,15 +186,67 @@ export class TwilioSmsProvider implements SmsPort {
   }
 }
 
+// ───────────────────────── OTPIQ (Iraq) ─────────────────────────
+
+/** How OTPIQ delivers a sign-in code. SMS only by default: WhatsApp is our own Meta account (Ali, 2026-10-09). */
+export type OtpiqChannel = 'whatsapp-sms' | 'sms' | 'whatsapp' | 'telegram-sms' | 'whatsapp-telegram-sms' | 'auto';
+const OTPIQ_CHANNELS: readonly OtpiqChannel[] = ['whatsapp-sms', 'sms', 'whatsapp', 'telegram-sms', 'whatsapp-telegram-sms', 'auto'];
+
+export interface OtpiqConfig {
+  apiKey: string;
+  /** Channel for sign-in codes (default `sms`); other texts (the SMS twins of notifications) always go as SMS. */
+  codeChannel: OtpiqChannel;
+  senderId?: string | undefined;
+  baseUrl: string;
+}
+
+/**
+ * OTPIQ (otpiq.com), an Iraqi SMS service: sends our own code by SMS (`codeChannel`, which could also
+ * be WhatsApp-then-SMS, but WhatsApp goes through our own Meta account). OTPIQ writes the code's
+ * wording; texts that are not a code go as a plain SMS (`custom`, which needs an approved sender id).
+ */
+export class OtpiqSmsProvider implements SmsPort {
+  readonly name = 'otpiq';
+
+  constructor(
+    private readonly config: OtpiqConfig,
+    private readonly fetchImpl: FetchLike = globalFetch,
+  ) {}
+
+  async send(message: SmsMessage): Promise<SmsResult> {
+    if (!this.config.apiKey) throw new ProviderError(this.name, 'not_configured', 'OTPIQ_API_KEY is not set', true);
+    const phoneNumber = formatNumber(message.to, 'digits');
+    const payload: Record<string, string> = message.code
+      ? { phoneNumber, smsType: 'verification', verificationCode: message.code, provider: this.config.codeChannel }
+      : { phoneNumber, smsType: 'custom', customMessage: message.body, provider: 'sms' };
+    if (this.config.senderId) payload['senderId'] = this.config.senderId;
+    const res = await send(this.name, this.fetchImpl, `${this.config.baseUrl.replace(/\/$/, '')}/api/sms`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${this.config.apiKey}` },
+      body: JSON.stringify(payload),
+    });
+    const json = parseJson(res.body);
+    if (res.status < 200 || res.status >= 300) {
+      const text = String(pick(json, 'message') ?? res.body.slice(0, 200));
+      // A 400 is a bad number, an empty balance or a spending cap: retrying the same request won't help.
+      const invalid = res.status === 400 && /phone/i.test(text);
+      throw new ProviderError(this.name, `http_${res.status}`, text, !transientStatus(res.status), invalid);
+    }
+    const id = pick(json, 'smsId');
+    return { provider: this.name, messageId: typeof id === 'string' ? id : null };
+  }
+}
+
 // ───────────────────────── env ─────────────────────────
 
-export type SmsProviderName = 'dev' | 'http' | 'twilio';
+export type SmsProviderName = 'dev' | 'http' | 'twilio' | 'otpiq';
 
-/** `SMS_PROVIDER`: `dev` (also the old `fake`), `http` (also the old `gateway`), `twilio`. */
+/** `SMS_PROVIDER`: `dev` (also the old `fake`), `http` (also the old `gateway`), `twilio`, `otpiq`. */
 export function smsProviderName(env: NodeJS.ProcessEnv = process.env): SmsProviderName {
   const v = (env['SMS_PROVIDER'] ?? 'dev').trim().toLowerCase();
   if (v === 'http' || v === 'gateway') return 'http';
   if (v === 'twilio') return 'twilio';
+  if (v === 'otpiq') return 'otpiq';
   return 'dev';
 }
 
@@ -225,10 +277,21 @@ export function twilioSmsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Tw
   };
 }
 
+export function otpiqConfigFromEnv(env: NodeJS.ProcessEnv = process.env): OtpiqConfig {
+  const channel = (env['OTPIQ_CODE_CHANNEL'] ?? 'sms').trim().toLowerCase() as OtpiqChannel;
+  return {
+    apiKey: env['OTPIQ_API_KEY'] ?? '',
+    codeChannel: OTPIQ_CHANNELS.includes(channel) ? channel : 'sms',
+    senderId: env['SMS_SENDER_ID'],
+    baseUrl: env['OTPIQ_BASE_URL'] ?? 'https://api.otpiq.com',
+  };
+}
+
 /** The SMS port `SMS_PROVIDER` asks for. A misconfigured real provider fails each send loudly (permanent). */
 export function smsPortFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fetchImpl?: FetchLike; log?: boolean } = {}): SmsPort {
   const name = smsProviderName(env);
   if (name === 'http') return new HttpSmsProvider(httpSmsConfigFromEnv(env), opts.fetchImpl);
   if (name === 'twilio') return new TwilioSmsProvider(twilioSmsConfigFromEnv(env), opts.fetchImpl);
+  if (name === 'otpiq') return new OtpiqSmsProvider(otpiqConfigFromEnv(env), opts.fetchImpl);
   return new DevSmsProvider(opts.log ?? true);
 }

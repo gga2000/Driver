@@ -41,6 +41,20 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
 - `item.photo_replaced` events from the shop carry `review: 'pending'`.
 - For the Console: `CatalogService.photoReviewQueue(limit)` (oldest first) and
   `CatalogService.markPhotoReviewed(itemId)`.
+- When the team takes a photo down (`catalog.photo_taken_down` on the store, see
+  `docs/api/dish-photo-review.md`), `merchantAdmin.menu.get` adds `AdminMenuItem.photoTakenDown:
+  { reason, at }` (additive; the latest take-down of the last 14 days, null once the dish has a photo
+  again). The Merchant app says «نزّلنا صورة {dish} لأنها {reason}، صوّرها من جديد» on the dish screen,
+  «نزّلنا صورتها» on its tile, and once on the board (per device, in a quiet moment) with «صوّرها».
+  An unknown reason reads as «ما تناسب المنيو».
+
+## m5 — a dish that ran out comes off the menu from the ticket
+
+- `BoardLine.menuItemId` (additive, null for a free-text line).
+- In the accept sheet's «شنو اللي خلص؟», the dishes ticked as out also come off the menu for the rest of
+  the day («شيل {dish} من المنيو لباقي اليوم», on by default, the kitchen can untick it): after the
+  partial accept goes to the customer, the app calls `merchantAdmin.menu.soldOutToday` for each, so it
+  comes back by itself tomorrow. A practice order changes nothing on the menu.
 
 ## Left for other teams
 
@@ -49,3 +63,26 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
 - **Console**: the same-day photo review queue (a screen over `photoReviewQueue` / `markPhotoReviewed`
   behind an ops router).
 - **Migration**: the two columns ride in `20261010260000_merchant_setup`.
+
+## m4 — a dish that keeps running out is named in «الأرقام»
+
+`merchantAdmin.insights` gains `soldOutHabits` (optional): each dish marked «خلص اليوم» (an
+`item.sold_out` event with an `until`) on at least 3 Baghdad days of the window, most days first, top
+3, with `usualMinute`, the median local time of its first sell-out each day. Turning a dish off by
+hand (`until` null) is not running out. Owners and staff both see it; it has no money in it. The
+merchant app shows it as the «يخلص قبل وقته» panel at the top of الأرقام, only when there is one.
+
+## k4 / j6 — hot or cold, and colour by kind on the ticket
+
+No server change. The board reads each line's name with the shared dish rules
+(`@driver/ui/dishes`: `temperatureOf`, `motifForDish`), the same rules as the menu's glass display
+and the customer's dish cards. Drinks wear a cardamom-olive edge and a «ساخن» / «بارد» mark, sweets a
+rose edge and «حلو», the kitchen's food no edge (`apps/merchant/src/features/board/kind.ts`). An
+order with both cold and hot things says once under its lines «البارد بكيس وحده، بعيد عن الساخن».
+
+## k5 — the sugar choice
+
+A drink's editor offers «أضف اختيار السكر»: a ready options group «السكر» (one pick required, all
+free: بدون سكر، سكر خفيف، سكر عادي، سكر زيادة) that opens filled for the owner to save or edit. It is
+a normal modifier group, so the customer app shows it with no change, and the ticket shows the
+chosen sugar bold in the drink colour.

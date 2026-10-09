@@ -23,12 +23,15 @@ import { clock, unreachablePhase } from './logic';
  */
 export function HandoverPanel({
   collectIqd,
+  owedFeesIqd,
   tenderIqd,
   busy,
   onConfirm,
   onClose,
 }: {
   collectIqd: number;
+  /** M-3: of `collectIqd`, what the customer owed from before (cancel fees or short cash) and pays with this order; absent/0 = none. */
+  owedFeesIqd?: number;
   /** The note the customer said he will pay with; null/absent = none. */
   tenderIqd?: number | null;
   busy: boolean;
@@ -87,6 +90,11 @@ export function HandoverPanel({
               {t('quote.currency')}
             </Text>
           </Text>
+          {owedFeesIqd && owedFeesIqd > 0 ? (
+            <Text testID="cash-owed-split" variant="label" weight={600} color="text" tabular align="center" style={{ paddingHorizontal: theme.space[4] }}>
+              {t('partner.cash_owed_split', { order: amountParam(collectIqd - owedFeesIqd), fees: amountParam(owedFeesIqd) })}
+            </Text>
+          ) : null}
           <Text variant="caption" color="warningText" align="center" style={{ paddingHorizontal: theme.space[4] }}>
             {t('partner.cash_hint')}
           </Text>
@@ -138,7 +146,7 @@ export function HandoverPanel({
                 key={c.amountIqd}
                 testID={`tender-chip-${c.amountIqd}`}
                 amount={amountParam(c.amountIqd)}
-                tag={c.stated ? t('cashchange.door_said') : c.exact ? t('cashchange.pay_with_exact') : null}
+                tag={c.stated ? t('cashchange.door_said_note') : c.exact ? t('cashchange.pay_with_exact') : null}
                 label={t('cashchange.door_chip_a11y', { amount: amountParam(c.amountIqd) })}
                 selected={paid === c.amountIqd}
                 onPress={() => pick(c.amountIqd)}
@@ -146,9 +154,9 @@ export function HandoverPanel({
             ))}
             <NoteChip
               testID="tender-chip-other"
-              amount={other ? amountParam(paid) : t('cashchange.door_other')}
-              tag={other ? t('cashchange.door_other') : null}
-              label={t('cashchange.door_other')}
+              amount={other ? amountParam(paid) : t('cashchange.door_other_amount')}
+              tag={other ? t('cashchange.door_other_amount') : null}
+              label={t('cashchange.door_other_amount')}
               selected={other}
               onPress={() => setPad('')}
             />
@@ -320,7 +328,7 @@ export function UnreachablePanel({ status, busy, onFail, onResponded }: { status
   const c = clock(p.remainingMs);
   const steps = [
     { key: 'call', label: t('partner.unreachable_step_call'), done: true },
-    { key: 'dispatch', label: p.dispatcherAlerted ? t('unreachable.driver_dispatcher_alerted') : t('partner.unreachable_step_dispatch'), done: p.dispatcherAlerted },
+    { key: 'dispatch', label: p.dispatcherAlerted ? t('partner.unreachable_support_alerted') : t('partner.unreachable_step_support'), done: p.dispatcherAlerted },
     { key: 'end', label: t('partner.unreachable_step_end'), done: p.canFail },
   ];
   return (

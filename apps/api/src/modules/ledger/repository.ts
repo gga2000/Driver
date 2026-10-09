@@ -31,6 +31,19 @@ export interface LedgerRepository {
   appendMany(events: readonly NewLedgerEvent[], tx?: Tx): Promise<LedgerEvent[]>;
   /** Events touching an account (as source or destination), oldest first; inside `tx` when given. */
   byAccount(accountId: string, tx?: Tx): Promise<LedgerEvent[]>;
+  /**
+   * SCALE-16: an account's signed sum and line count (lines before `before` only, when given), added
+   * up by the store instead of loading the history; inside `tx` when given.
+   */
+  sumFor(accountId: string, before?: Date, tx?: Tx): Promise<RunningBalance>;
+  /** SCALE-16: the account's lines of these `types` and/or at or after `since`, oldest first. */
+  byAccountWhere(accountId: string, where: { types?: readonly LedgerEvent['type'][]; since?: Date }): Promise<LedgerEvent[]>;
+  /**
+   * SCALE-16: the newest `take` lines of an account before `before`, oldest first, widened so the
+   * oldest timestamp is never split (a posting group's lines share one timestamp, so no group is
+   * cut). `complete`: nothing older exists.
+   */
+  byAccountPage(accountId: string, page: { before?: Date | undefined; take: number }): Promise<{ events: LedgerEvent[]; complete: boolean }>;
   byTrip(tripId: string): Promise<LedgerEvent[]>;
   byPostingGroups(groupIds: readonly string[]): Promise<LedgerEvent[]>;
   /** Lines carrying this order id, oldest first (support case view). */
@@ -44,7 +57,7 @@ export interface LedgerRepository {
    * no history read). `undefined` when the account is not projected or this store keeps none; a
    * projected account with no lines yet is `{ amount: 0, events: 0 }`.
    */
-  runningBalance(accountId: string): Promise<RunningBalance | undefined>;
+  runningBalance(accountId: string, tx?: Tx): Promise<RunningBalance | undefined>;
   /** Every stored running balance (nightly check), or `undefined` when this store keeps none. */
   runningBalances(): Promise<Map<string, RunningBalance> | undefined>;
   /**
@@ -120,6 +133,33 @@ export class InMemoryLedgerRepository implements LedgerRepository {
 
   async byAccount(accountId: string): Promise<LedgerEvent[]> {
     return [...(this.byAccountIdx.get(accountId) ?? [])];
+  }
+
+  async sumFor(accountId: string, before?: Date): Promise<RunningBalance> {
+    let amount = 0;
+    let events = 0;
+    for (const e of this.byAccountIdx.get(accountId) ?? []) {
+      if (before && e.occurredAt.getTime() >= before.getTime()) continue;
+      amount += (e.toAccount === accountId ? e.amount : 0) - (e.fromAccount === accountId ? e.amount : 0);
+      events += 1;
+    }
+    return { amount, events };
+  }
+
+  async byAccountWhere(accountId: string, where: { types?: readonly LedgerEvent['type'][]; since?: Date }): Promise<LedgerEvent[]> {
+    const types = where.types ? new Set<string>(where.types) : null;
+    return (this.byAccountIdx.get(accountId) ?? []).filter((e) => (!types || types.has(e.type)) && (!where.since || e.occurredAt.getTime() >= where.since.getTime()));
+  }
+
+  async byAccountPage(accountId: string, page: { before?: Date | undefined; take: number }): Promise<{ events: LedgerEvent[]; complete: boolean }> {
+    const older = (this.byAccountIdx.get(accountId) ?? [])
+      .filter((e) => !page.before || e.occurredAt.getTime() < page.before.getTime())
+      .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+    if (older.length <= page.take) return { events: older, complete: true };
+    let start = older.length - page.take;
+    const floor = older[start]!.occurredAt.getTime();
+    while (start > 0 && older[start - 1]!.occurredAt.getTime() === floor) start -= 1;
+    return { events: older.slice(start), complete: start === 0 };
   }
 
   async byTrip(tripId: string): Promise<LedgerEvent[]> {

@@ -144,6 +144,16 @@ export function partialValid(selected: ReadonlySet<string>, lineIds: readonly st
   return selected.size > 0 && selected.size < lineIds.length && [...selected].every((id) => lineIds.includes(id));
 }
 
+/**
+ * m5: the dishes behind the lines the kitchen ticked as out, once each (two lines of the same dish for
+ * two people are one dish), in ticket order. Free-text lines have no dish on the menu and are skipped.
+ */
+export function dishesOut(lines: readonly { lineId: string; name: string; menuItemId?: string | null | undefined }[], missing: ReadonlySet<string>): { id: string; name: string }[] {
+  const out = new Map<string, string>();
+  for (const l of lines) if (missing.has(l.lineId) && l.menuItemId && !out.has(l.menuItemId)) out.set(l.menuItemId, l.name);
+  return [...out].map(([id, name]) => ({ id, name }));
+}
+
 /** Short Arabic/English item count etc. are copy; this is the people count for the detail header. */
 export function peopleCount(o: Pick<BoardOrder, 'groups'>): number {
   return o.groups.length;

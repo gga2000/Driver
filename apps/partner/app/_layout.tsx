@@ -6,6 +6,7 @@ import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { partnerThemes } from '@driver/design-tokens';
+import { HeaderBack } from '@/components/HeaderBack';
 import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, useTheme } from '@driver/ui';
 import { loadAppearancePref, useAppearance } from '@/lib/appearance';
 import { loadTextSize, useTextSize } from '@/lib/text-size';
@@ -126,6 +127,8 @@ function RootNavigator() {
           headerTitleAlign: 'center',
           headerShadowVisible: false,
           headerBackTitle: t('action.back'),
+          headerBackVisible: false,
+          headerLeft: ({ canGoBack }) => (canGoBack ? <HeaderBack /> : null),
           headerStyle: { backgroundColor: chrome.colors.bg },
           headerTintColor: chrome.colors.text,
           headerTitleStyle: { fontFamily: Platform.OS === 'web' ? 'IBM Plex Sans Arabic' : 'IBMPlexSansArabic_600SemiBold' },
@@ -149,6 +152,7 @@ function RootNavigator() {
         <Stack.Screen name="seen" options={{ title: t('partner.seen_title') }} />
         <Stack.Screen name="location-why" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="checkin" options={{ title: t('partner.hub_checkin') }} />
+        <Stack.Screen name="paused" options={{ title: t('partner.paused_header') }} />
         <Stack.Screen name="intercity/index" options={{ title: t('partner.hub_intercity') }} />
         <Stack.Screen name="khat/index" options={{ title: t('partner.hub_khat') }} />
         <Stack.Screen name="fleet/index" options={{ title: t('partner.hub_fleet') }} />
@@ -187,7 +191,11 @@ function OfferWatcher() {
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);
-  const offerId = offer.data?.offerId ?? null;
+  // Only a live offer rings: not one left in the cache from a cold start once his status says he is
+  // offline, and never a خطوط substitute run (it waits on the run screen, khat.substituteOffers, with
+  // its children and start time; the ride card would show «0 دينار» and a batch line).
+  const ringing = offer.data && (status.data ? online : true) && offer.data.vertical !== 'khat' ? offer.data : null;
+  const offerId = ringing?.offerId ?? null;
 
   useEffect(() => {
     if (!offerId || shown.current === offerId || segments[0] === 'offer') return;

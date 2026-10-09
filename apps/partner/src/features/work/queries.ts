@@ -4,8 +4,8 @@ import { DEMAND_MAP_RULES, isPartner, type OrderRoute } from '@driver/contracts'
 import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
-import { LIVE_PARTNER_KEY, useLiveChannel, useLiveMode, useLivePollMs } from '@/lib/live';
-import { offerPollMs } from './offer-poll';
+import { LIVE_PARTNER_KEY, useLiveChannel, useLiveMode } from '@/lib/live';
+import { offerPollMs, workPollMs } from './offer-poll';
 import { useSignedIn } from '@/lib/session';
 import { heartbeatStep, versionToSend, type HeldVersion } from './heartbeat-version';
 
@@ -43,11 +43,18 @@ export function usePartnerGate(): PartnerGate {
   return isPartner(me.data.roles.map((r) => r.kind)) ? 'allowed' : 'denied';
 }
 
+/** l2: the status/job refetch, three times slower in low-data mode while the stream is live. */
+function useWorkPollMs(): number {
+  const mode = useLiveMode(LIVE_PARTNER_KEY);
+  const lite = useLiteMode();
+  return workPollMs(mode, (ms) => liteInterval(ms, lite));
+}
+
 export function useStatus() {
   const api = useApi();
   const signedIn = useSignedIn();
   const gate = usePartnerGate();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  const pollMs = useWorkPollMs();
   return useQuery({ ...api.partner.status.queryOptions(), enabled: signedIn && gate === 'allowed', refetchInterval: pollMs });
 }
 
@@ -55,7 +62,8 @@ export function useCurrentOffer(enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
   const mode = useLiveMode(LIVE_PARTNER_KEY);
-  const q = useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: offerPollMs(mode), staleTime: 0 });
+  const lite = useLiteMode();
+  const q = useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: offerPollMs(mode, (ms) => liteInterval(ms, lite)), staleTime: 0 });
   // The stream just dropped: look for an offer now rather than at the next tick.
   const was = useRef(mode);
   const { refetch } = q;
@@ -69,7 +77,7 @@ export function useCurrentOffer(enabled: boolean) {
 export function useActiveJob(enabled = true) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  const pollMs = useWorkPollMs();
   return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
 }
 

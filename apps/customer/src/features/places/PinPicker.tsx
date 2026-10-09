@@ -7,6 +7,7 @@ import type { LabelObstacle } from '@driver/map';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { TILE_SIZE, type Camera, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import { MAP_CREDIT } from '@/features/track/map/credit';
 
 const EARTH_CIRCUMFERENCE_M = 40_075_016.686;
 /** Below this the ring hides under the pin head: not worth drawing. */
@@ -33,12 +34,12 @@ export function metresPerPixel(lat: number, zoom: number): number {
   return (EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) / (TILE_SIZE * 2 ** zoom);
 }
 
-/** "© OpenStreetMap" on every map surface (maps program f12). */
+/** The map credit on every map surface (maps program f12). */
 export function MapCredit({ bottom }: { bottom: number }) {
   const theme = useTheme();
   return (
     <Text variant="caption" color="textMuted" style={{ position: 'absolute', right: theme.space[3], bottom: bottom + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}>
-      © OpenStreetMap
+      {MAP_CREDIT}
     </Text>
   );
 }

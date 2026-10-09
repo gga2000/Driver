@@ -242,6 +242,28 @@ export function setMinMax(g: DraftGroup, minSelect: number, maxSelect: number): 
   return { ...g, minSelect: min, maxSelect: max, required: min >= 1 };
 }
 
+/**
+ * k5 sugar (Ali, 2026-10-09 "yes build them"): one tap gives a drink a ready «السكر» group, one pick
+ * required, every option free, so the customer says how sweet and the ticket shows it. `names` are
+ * the group's and options' words in the shop's language.
+ */
+export function sugarGroup(names: { group: string; options: readonly string[] }): DraftGroup {
+  return {
+    key: draftKey('g'),
+    nameAr: names.group,
+    required: true,
+    minSelect: 1,
+    maxSelect: 1,
+    modifiers: names.options.map((nameAr) => ({ key: draftKey('m'), nameAr, price: '0', available: true })),
+  };
+}
+
+/** Offer the sugar group on drinks that are sweetened (tea, coffee, juice, not water or a can) and don't have one yet. */
+export function wantsSugar(motif: string, temp: 'hot' | 'cold' | null, groups: readonly { nameAr: string }[]): boolean {
+  if (!temp || motif === 'water' || motif === 'can' || motif === 'laban') return false;
+  return !groups.some((g) => /سكر|شكر|sugar/i.test(g.nameAr));
+}
+
 let keySeq = 0;
 export function draftKey(prefix = 'k'): string {
   keySeq += 1;

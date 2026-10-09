@@ -15,6 +15,8 @@ import type { AlarmStage } from './ladder';
 import { LADDER, stageFor } from './ladder';
 import { useServerSelect, useServerTime } from './clock';
 import { PickupCode } from './PickupCode';
+import { Glyph } from '../menu/Glyph';
+import { lineLook, packApart, type LineLook } from './kind';
 import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, needsReading, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
@@ -29,6 +31,8 @@ export interface OrderCardProps {
   stage?: AlarmStage | null;
   /** Cap on item lines shown (the detail sheet shows all). */
   maxLines?: number;
+  /** Day-one d07: no countdown ring (the shop is paused offline: a ring stuck at 0 only alarms). */
+  noRing?: boolean;
   /** One-tap accept (M-12): the store's usual prep time, busy minutes included, shown on the button. */
   oneTapMinutes?: number;
   /** One tap: accept with the usual time. Without it the button opens the time sheet (`onAccept`). */
@@ -99,14 +103,49 @@ export function KitchenNote({ note, testID }: { note: string; testID?: string })
   );
 }
 
-/** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
+/** j6 / k4: a drink's or a sweet's mark after the dish name, in its kind's colour (hot / cold for drinks). */
+function KindMark({ look }: { look: LineLook }) {
+  const t = useT();
+  if (look.kind === 'kitchen') return null;
+  const drink = look.kind === 'drink';
+  const fg = drink ? COUNTER.kindDrink : COUNTER.kindSweet;
+  const word = look.temp === 'cold' ? t('merchant.display.cold') : look.temp === 'hot' ? t('merchant.display.hot') : t('merchant.board.kind_sweet');
+  return (
+    <View testID={`kind-${look.kind}${look.temp ? `-${look.temp}` : ''}`} style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 3, height: 22, paddingHorizontal: 7, borderRadius: 11, backgroundColor: drink ? COUNTER.kindDrinkWash : COUNTER.kindSweetWash }}>
+      {look.temp ? <Glyph name={look.temp === 'cold' ? 'snow' : 'steam'} size={12} color={fg} strokeWidth={2.2} /> : null}
+      <Text variant="caption" weight={700} style={{ color: fg }}>
+        {word}
+      </Text>
+    </View>
+  );
+}
+
+/** k4: an order with cold and hot things says so once, under its lines: the cold goes in its own bag. */
+function PackApart({ order }: { order: BoardOrder }) {
+  const theme = useTheme();
+  const t = useT();
+  const pack = packApart(order.groups.flatMap((g) => g.lines));
+  if (!pack) return null;
+  return (
+    <View testID="pack-apart" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], borderRadius: theme.radius.md, backgroundColor: COUNTER.kindDrinkWash, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2] }}>
+      <Glyph name="snow" size={16} color={COUNTER.kindDrink} strokeWidth={2.2} />
+      <Text variant="label" weight={700} style={{ flex: 1, color: COUNTER.kindDrink }}>
+        {t('merchant.board.pack_apart', { cold: pack.cold })}
+      </Text>
+    </View>
+  );
+}
+
+/** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip; drinks and sweets wear their kind's edge (j6). */
 function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   const struck = out || done === true;
   const type = useTicketType();
+  const look = lineLook(name);
+  const edge = look.kind === 'drink' ? COUNTER.kindDrink : look.kind === 'sweet' ? COUNTER.kindSweet : 'transparent';
   const body = (
-    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1 }}>
+    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1, borderStartWidth: 4, borderStartColor: edge, paddingStart: theme.space[2] }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
         <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }, type(18, 30)]}>
           {`${qty}×`}
@@ -114,16 +153,29 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
         <Text variant="bodyStrong" weight={700} style={[{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }, type(17, 26)]}>
           {name}
         </Text>
+        <KindMark look={look} />
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
         {onTick ? (
-          <View style={{ alignSelf: 'center', width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-            {done ? <Icon name="check" size={16} color={COUNTER.onDate} strokeWidth={3} /> : null}
+          // d22: the box says what it is for — «خلصت» — on a pill, filled green once ticked.
+          <View style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingStart: 5, paddingEnd: 10, borderRadius: 17, borderWidth: 1.5, borderColor: done ? COUNTER.ready : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : 'transparent' }}>
+            <View style={{ width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: done ? COUNTER.onDate : theme.colors.borderStrong, backgroundColor: done ? COUNTER.ready : COUNTER.paper, alignItems: 'center', justifyContent: 'center' }}>
+              {done ? <Icon name="check" size={14} color={COUNTER.onDate} strokeWidth={3} /> : null}
+            </View>
+            <Text variant="caption" weight={700} style={{ color: done ? COUNTER.onDate : theme.colors.text, textDecorationLine: 'none' }}>
+              {t('merchant.board.tick_done')}
+            </Text>
           </View>
         ) : null}
       </View>
       {modifiers.length > 0 ? (
         <Text variant="footnote" color="textMuted" style={[{ paddingStart: 38 }, type(13, 22)]}>
-          {modifiers.join(' · ')}
+          {modifiers.map((m, i) => (
+            // k5: how sweet is the one choice the cup can't show afterwards, so it reads bold in the drink's colour.
+            <Text key={`${i}-${m}`} variant="footnote" weight={/سكر|شكر|sugar/i.test(m) ? 700 : 400} style={[{ color: /سكر|شكر|sugar/i.test(m) ? COUNTER.kindDrink : theme.colors.textMuted }, type(13, 22)]}>
+              {i > 0 ? ' · ' : ''}
+              {m}
+            </Text>
+          ))}
         </Text>
       ) : null}
       {note ? (
@@ -223,6 +275,7 @@ export function OrderItems({ order, maxLines = 99, ticks }: { order: BoardOrder;
   return (
     <View style={{ gap: theme.space[3] }}>
       {blocks}
+      <PackApart order={order} />
       {hidden > 0 ? (
         <Text variant="footnote" weight={700} style={{ color: COUNTER.qty }}>
           {t('merchant.card.more_items', { count: hidden })}
@@ -274,20 +327,26 @@ export function PaymentPill({ order }: { order: BoardOrder }) {
 
 /**
  * o5: the time left on a cooking ticket as a bar that drains — readable from across the kitchen
- * without reading numbers. Date brown while there's time, red (and full) once it is late.
+ * without reading numbers. Date brown while there's time, red (and full) once it is late. d22: kept,
+ * with its name above it («الوقت الباقي للتحضير»).
  */
 export function PrepBar({ fraction, late, testID }: { fraction: number; late: boolean; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   const pct = Math.round((late ? 1 : fraction) * 100);
+  const tone = late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date;
+  // d22: the bar says what it measures (it read as an unexplained black line).
   return (
-    <View
-      testID={testID}
-      accessibilityRole="progressbar"
-      accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })}
-      style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}
-    >
-      <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: late ? COUNTER.late : fraction < 0.25 ? COUNTER.newBadge : COUNTER.date }} />
+    <View testID={testID} accessibilityRole="progressbar" accessibilityLabel={late ? t('merchant.board.prep_bar_late') : t('merchant.board.prep_bar', { percent: pct })} style={{ gap: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name="clock" size={14} color={late ? COUNTER.late : theme.colors.textMuted} />
+        <Text variant="caption" weight={600} style={{ color: late ? COUNTER.late : theme.colors.textMuted }} numberOfLines={1}>
+          {late ? t('merchant.board.prep_bar_label_late') : t('merchant.board.prep_bar_label')}
+        </Text>
+      </View>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.colors.surfaceSunken, overflow: 'hidden', flexDirection: 'row' }}>
+        <View style={{ width: `${pct}%`, borderRadius: 4, backgroundColor: tone }} />
+      </View>
     </View>
   );
 }
@@ -301,14 +360,12 @@ export function numberMinWidth(label: string, fontSize: number): number {
 }
 
 export function OrderCard(props: OrderCardProps) {
-  const { order, clock, ringing = false, maxLines = 8, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
+  const { order, clock, ringing = false, maxLines = 8, noRing = false, oneTapMinutes, onAcceptNow, onAccept, onReject, onReady, onOpen, onExtend, busyReady, busyAccept, busyExtend, compact = false, onExpand, row = false, rowAction = false, ticks } = props;
   const theme = useTheme();
   const t = useT();
   const { wide, width } = useLayout();
   /** Three board columns under 1000 px leave a card ~190 px inside: the ticket number steps down. */
   const tight = wide && width < 1000;
-  /** Under 1200 px the board's columns are too narrow for a row of three buttons. */
-  const narrowBoard = wide && width < 1200;
   const numberLabel = t('merchant.card.number', { number: order.number });
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   // h3: a ticket re-draws on its own when its numbers change: every 10 s («من 4 د», the prep bar),
@@ -343,7 +400,7 @@ export function OrderCard(props: OrderCardProps) {
       <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} style={{ flex: 1 }} />
       {onAcceptNow && oneTapMinutes !== undefined ? (
         <>
-          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
           <Pressable
             testID={`accept-more-${order.number}`}
             accessibilityRole="button"
@@ -406,7 +463,7 @@ export function OrderCard(props: OrderCardProps) {
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          {order.acceptBy && !order.partial ? (
+          {order.acceptBy && !order.partial && !noRing ? (
             <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
           ) : (
             <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
@@ -428,7 +485,7 @@ export function OrderCard(props: OrderCardProps) {
             needsReading(order) ? (
               <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} />
             ) : onAcceptNow && oneTapMinutes !== undefined ? (
-              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
             ) : null
           ) : (
             <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
@@ -459,7 +516,7 @@ export function OrderCard(props: OrderCardProps) {
           })}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-            {order.acceptBy && !order.partial ? (
+            {order.acceptBy && !order.partial && !noRing ? (
               <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
@@ -534,7 +591,7 @@ export function OrderCard(props: OrderCardProps) {
                 .join(' · ')}
             </Text>
           </View>
-          {isNew && order.acceptBy && !order.partial ? (
+          {isNew && order.acceptBy && !order.partial && !noRing ? (
             <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
@@ -569,25 +626,18 @@ export function OrderCard(props: OrderCardProps) {
 
         {isNew && !order.partial ? (
           acceptButtons('lg')
-        ) : order.column === 'preparing' && narrowBoard ? (
-          // A narrow board column has no room for three buttons in a row: «صار جاهز» takes the full
-          // width on top, «+5 د» and «التفاصيل» share the line under it.
+        ) : order.column === 'preparing' ? (
+          // A ticket is never wider than a board column (about 370 px on a 1280 tablet), which has no room
+          // for three buttons in a row (day-one d03: «التفاصيل» broke into «التفا / صيل»): «صار جاهز» takes
+          // the full width on top, «+5 دقايق» and «التفاصيل» share the line under it.
           <View style={{ gap: theme.space[2] }}>
             <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} fullWidth />
             <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
               {onExtend && canExtendPrep(order) ? (
-                <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
+                <Button testID={`extend-${order.number}`} label={t('merchant.extend.button_full')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
               ) : null}
-              <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
+              <Button testID={`details-${order.number}`} label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
             </View>
-          </View>
-        ) : order.column === 'preparing' ? (
-          <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-            {onExtend && canExtendPrep(order) ? (
-              <Button testID={`extend-${order.number}`} label={t('merchant.extend.button')} variant="secondary" size="lg" loading={busyExtend} onPress={onExtend} accessibilityHint={t('merchant.extend.a11y')} />
-            ) : null}
-            <Button label={t('merchant.card.details')} variant="secondary" size="lg" onPress={onOpen} style={{ flex: 1 }} />
-            <Button testID={`ready-${order.number}`} label={t('merchant.card.mark_ready')} icon="check" size="lg" haptic="success" loading={busyReady} onPress={onReady} style={{ flex: 2 }} />
           </View>
         ) : null}
         {order.column === 'preparing' && order.prepExtended ? (

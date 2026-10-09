@@ -101,6 +101,23 @@ export async function fanout(e: FanoutInput, look: FanoutLookups): Promise<Publi
     const kind = ChatThreadKind.safeParse(p['kind']);
     const threadId = str(p['threadId']) ?? e.aggregateId;
     if (!orderId || !kind.success) return [];
+    if (kind.data === 'rider_driver') {
+      // A Baghdad/Kut pair thread (step 4c): its own channel; the other side's badges re-read.
+      const trip = p['trip'] && typeof p['trip'] === 'object' ? (p['trip'] as Record<string, unknown>) : {};
+      const partyId = str(trip['partyId']);
+      if (!partyId) return [];
+      out.patch(liveChannel.tripChat(orderId, partyId), {
+        type: 'chat',
+        orderId,
+        kind: kind.data,
+        threadId,
+        seq: typeof p['seq'] === 'number' ? p['seq'] : 0,
+        partyId,
+      });
+      for (const to of strs(p['recipientIds']))
+        out.invalidate(liveChannel.driver(to), ['chat.trip.threads'], { orderId });
+      return out.list();
+    }
     out.patch(liveChannel.chat(orderId, kind.data), {
       type: 'chat',
       orderId,

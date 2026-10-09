@@ -1,7 +1,7 @@
 // Wave-2 intercity shots: the garage board (both corridors/sides), announce, the boarding departure in
 // garage mode (S-5: the seat map is the page — walk-up sheet, the rider's PIN sheet, the late seat with
 // its meter and call, no-show, "انطلقنا" naming the blocker, التفاصيل), the evening run
-// with a door-pickup request, a request-board offer and the picked private ride.
+// with a door-pickup request and riders' price asks (step 4), a request-board offer and the picked private ride.
 export const name = 'intercity';
 
 export default async function run(s) {
@@ -110,6 +110,19 @@ export default async function run(s) {
   await p.page.waitForTimeout(600);
   await p.shot('evening-run-details', { full: true, settle: 800 });
 
+  // Step 4 agreed prices: «طلبات سعر» on the run — سارة waits for his price, هدى for her answer, نور agreed.
+  await p.byTestId('ic-price-asks').scrollIntoViewIfNeeded();
+  await p.shot('price-asks', { settle: 800 });
+  await p.page.locator('[data-testid^="ask-price-"]').first().click();
+  await p.wait('ic-price-send');
+  await p.byTestId('ic-price-2000').click();
+  await p.byTestId('ic-price-more').click();
+  await p.shot('price-sheet', { settle: 600 });
+  await p.byTestId('ic-price-send').click();
+  await p.byTestId('ic-price-send').waitFor({ state: 'detached', timeout: 10_000 });
+  await p.page.locator('[data-testid^="ask-price-"]').first().waitFor({ state: 'detached', timeout: 10_000 });
+  await p.shot('price-asks-sent', { settle: 800 });
+
   // Request board: offer on the family trip to الحلة, then the stranded rider (price cap).
   await p.goto(`/intercity/request/${seed.posts.hilla}`);
   await p.wait('request-offer');
@@ -117,9 +130,27 @@ export default async function run(s) {
   await p.byTestId('offer-send').click();
   await p.page.getByText('ينتظر الراكب').first().waitFor({ timeout: 10_000 });
   await p.shot('request-offer-sent', { settle: 800 });
+  // w1/p2: a «يستناك وترجع» trip to Najaf: the usual range under the price, and his waiting terms.
+  await p.goto(`/intercity/request/${seed.posts.najaf}`);
+  await p.wait('offer-wait');
+  await p.shot('request-offer-wait', { full: true, settle: 1000 });
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.byTestId('offer-wait').locator('[aria-label="+1,000"]').click();
+  await p.shot('request-offer-wait-set', { full: true, settle: 600 });
   await p.goto(`/intercity/request/${seed.posts.stranded}`);
   await p.wait('request-offer');
   await p.shot('request-stranded', { settle: 1000 });
+  // Step 4b a6: a rider asks to book and pay cash (no deposit); he says yes; the ride he booked that way.
+  await p.goto(`/intercity/request/${seed.posts.cashAsk}`);
+  await p.wait('offer-cash-ask');
+  await p.shot('request-cash-ask', { settle: 1000 });
+  await p.byTestId('offer-cash-yes').click();
+  await p.wait('offer-cash-accepted');
+  await p.shot('request-cash-accepted', { settle: 800 });
+  await p.goto(`/intercity/request/${seed.cashRide}`);
+  await p.wait('ride-money');
+  await p.shot('ride-cash', { full: true, settle: 1000 });
 
   // The ride the rider picked.
   await p.goto(`/intercity/request/${seed.rideId}`);
@@ -128,6 +159,20 @@ export default async function run(s) {
   await p.byTestId('ride-arrived').click();
   await p.wait('ride-complete');
   await p.shot('ride-arrived', { settle: 1000 });
+
+  // w2/w3: a «يستناك وترجع» ride: the start button once he drops the rider, then the live clock 10
+  // minutes before the included hours end, with «رجع الراكب · وقّف العداد».
+  await p.goto(`/intercity/request/${seed.waitRides.ready}`);
+  await p.wait('ride-wait-start');
+  await p.shot('ride-wait-start', { settle: 1000 });
+  await p.goto(`/intercity/request/${seed.waitRides.waiting}`);
+  await p.wait('ride-wait-clock');
+  await p.wait('ride-wait-end');
+  await p.shot('ride-waiting', { full: true, settle: 1000 });
+  // k2 «جيب واحد»: who he fetches, that the person at the pickup isn't the one who booked, and the call.
+  await p.goto(`/intercity/request/${seed.fetchRide}`);
+  await p.wait('ride-fetch-for');
+  await p.shot('ride-fetch', { full: true, settle: 1000 });
 
   await p.goto('/intercity');
   await p.wait('intercity-board');

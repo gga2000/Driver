@@ -10,6 +10,7 @@
 import { formatClock } from '@driver/i18n';
 import {
   AZIZIYAH_MONEY_RULES,
+  type AgreementView,
   type DemandBucket,
   type DepartureRiderName,
   type DriverBookingRow,
@@ -46,7 +47,7 @@ export function destinationCity(corridorCityId: string, direction: IntercityDire
   return direction === 'from_aziziyah' ? corridorCityId : HOME_CITY;
 }
 
-/** Board order of garages (customer app: النهضة; البوابة ١، البوابة ٢، السوق; Kut). */
+/** Board order of garages (customer app: النهضة; البوابة 1، البوابة 2، السوق; Kut). */
 export const GARAGE_ORDER = ['mp_garage_bab1', 'mp_garage_bab2', 'mp_garage_souq', 'mp_garage_nahdha', 'mp_garage_kut'] as const;
 
 export function garagesFor<G extends { id: string; cityId: string }>(garages: readonly G[], cityId: string): G[] {
@@ -229,11 +230,21 @@ export function riderStatus(b: DriverBookingRow): RiderStatus {
 }
 
 /**
- * Seats already boarded: a booking can hold two or three seats (مريم and her sister), so "صعدوا" counts
- * seats, the same unit as "6 من 7 مقاعد" and the green seats on the map — not bookings.
+ * The one count every partner screen shows (check-up 2026-10-09: the band said «4 صعدوا», the card
+ * «3 صعدوا · 1 من الكراج», the arrival «3 ركاب»). Everything counts seats, the unit of «6 من 7 مقاعد»
+ * and the green seats on the map — a booking can hold two or three seats. «صعدوا» is every seat in the
+ * car: riders who gave their code (or arrived with it) and walk-ups from the garage; `walkUps` says how
+ * many of those came from the garage. `free` leaves out seats someone is holding while paying.
  */
-export function boardedSeats(bookings: readonly Pick<DriverBookingRow, 'state' | 'seatIds'>[]): number {
-  return bookings.reduce((n, b) => (b.state === 'checked_in' ? n + b.seatIds.length : n), 0);
+export function seatCounts(dep: Pick<DriverDepartureView, 'fill' | 'bookings' | 'walkUps'>): { sold: number; total: number; boarded: number; walkUps: number; toBoard: number; held: number; free: number } {
+  let boarded = dep.walkUps.length;
+  let toBoard = 0;
+  for (const b of dep.bookings) {
+    if (b.state === 'checked_in' || b.state === 'completed') boarded += b.seatIds.length;
+    else if (b.state === 'booked') toBoard += b.seatIds.length;
+  }
+  const sold = dep.fill.booked + dep.fill.walkUps;
+  return { sold, total: dep.fill.seatsTotal, boarded, walkUps: dep.walkUps.length, toBoard, held: dep.fill.held, free: Math.max(0, dep.fill.seatsTotal - sold - dep.fill.held) };
 }
 
 /** Seat → who sits there (booked riders by first name, walk-ups, free seats with their premium). */
@@ -273,7 +284,7 @@ export function haversineM(a: LatLngLike, b: LatLngLike): number {
 
 export interface PickupStop {
   key: string;
-  kind: 'garage' | 'door' | 'meeting_point';
+  kind: 'garage' | 'door' | 'meeting_point' | 'pin';
   at: LatLngLike;
   /** Meeting point name; null for doors (the screen names the rider) and the garage. */
   nameAr: string | null;
@@ -285,7 +296,7 @@ export interface PickupStop {
 
 /**
  * The pickup run (review C-37): the garage first, then the accepted door pickups nearest-first
- * (they are in the departure town), then the on-the-way meeting points by distance from the garage.
+ * (they are in the departure town), then the on-the-way meeting points and agreed spots by distance from the garage.
  * Pending door pickups are left out until the driver accepts them; resolved riders drop off.
  */
 export function pickupRoute(garage: LatLngLike, bookings: readonly DriverBookingRow[]): PickupStop[] {
@@ -300,16 +311,19 @@ export function pickupRoute(garage: LatLngLike, bookings: readonly DriverBooking
     stops.push({ key: `door:${next.bookingId}`, kind: 'door', at: next.pickup, nameAr: null, note: next.pickup.note, bookings: [next], legKm: haversineM(from, next.pickup) / 1000 });
     from = next.pickup;
   }
+  // On the road: meeting points (riders sharing one stop) and each rider's agreed spot (step 4), by distance from the garage.
   const points = new Map<string, DriverBookingRow[]>();
   for (const b of live) {
-    if (b.pickup.kind !== 'meeting_point') continue;
-    const key = b.pickup.meetingPointId ?? `${b.pickup.lat},${b.pickup.lng}`;
-    points.set(key, [...(points.get(key) ?? []), b]);
+    if (b.pickup.kind === 'meeting_point') {
+      const key = `mp:${b.pickup.meetingPointId ?? `${b.pickup.lat},${b.pickup.lng}`}`;
+      points.set(key, [...(points.get(key) ?? []), b]);
+    } else if (b.pickup.kind === 'pin') points.set(`pin:${b.bookingId}`, [b]);
   }
   const ordered = [...points.entries()].sort((a, b) => haversineM(garage, a[1][0]!.pickup) - haversineM(garage, b[1][0]!.pickup));
   for (const [key, rows] of ordered) {
     const p = rows[0]!.pickup;
-    stops.push({ key: `mp:${key}`, kind: 'meeting_point', at: p, nameAr: p.nameAr, note: null, bookings: rows, legKm: haversineM(from, p) / 1000 });
+    const pin = p.kind === 'pin';
+    stops.push({ key, kind: pin ? 'pin' : 'meeting_point', at: p, nameAr: pin ? null : publicPlaceName(p.nameAr ?? ''), note: pin ? p.note : null, bookings: rows, legKm: haversineM(from, p) / 1000 });
     from = p;
   }
   return stops;
@@ -417,11 +431,23 @@ export function clampOffer(price: number, cap: number | null): number {
   return cap !== null ? Math.min(stepped, Math.floor(cap / OFFER_STEP_IQD) * OFFER_STEP_IQD) : stepped;
 }
 
-/** A starting offer: the cap for stranded riders, else a round figure by seats (private car higher). */
-export function suggestedOffer(post: { priceCapIqd: number | null; seats: number; privateCar: boolean }): number {
+/**
+ * A starting offer: the cap for stranded riders; the middle of the usual range when real trips gave
+ * one (p2, so offers start fair); else a round figure by seats (private car higher).
+ */
+export function suggestedOffer(post: { priceCapIqd: number | null; seats: number; privateCar: boolean; usualRange?: { lowIqd: number; highIqd: number } | null }): number {
   if (post.priceCapIqd !== null) return clampOffer(post.priceCapIqd, post.priceCapIqd);
+  if (post.usualRange) return clampOffer((post.usualRange.lowIqd + post.usualRange.highIqd) / 2, null);
   const base = post.privateCar ? 35_000 : 10_000 * post.seats;
   return clampOffer(base, null);
+}
+
+/** w1: the extra-hour price steps like the offer (1,000s); 0 means extra hours are free. */
+export const EXTRA_HOUR_MAX_IQD = 50_000;
+
+export function stepExtraHour(current: number | null, delta: 1 | -1): number {
+  if (current === null) return delta > 0 ? OFFER_STEP_IQD : 0;
+  return Math.max(0, Math.min(EXTRA_HOUR_MAX_IQD, current + delta * OFFER_STEP_IQD));
 }
 
 /** Wallet deposit the rider pays on picking an offer (20 % rounded up to 500, min 5,000), as the server does. */
@@ -432,4 +458,25 @@ export function depositFor(priceIqd: number): number {
 /** What the driver keeps of a private request-board ride (8 % take). */
 export function privateRideNet(priceIqd: number): number {
   return Math.round(priceIqd * (1 - AZIZIYAH_MONEY_RULES.take.intercity_private.rate));
+}
+
+// ───────────────────────── step 4: price asks ─────────────────────────
+
+/**
+ * What the driver still has to do first: asks waiting for his price, then prices waiting for the rider,
+ * then agreed ones not booked yet. Booked ones show on the rider's line in the list instead.
+ */
+export function asksInOrder(all: readonly AgreementView[]): AgreementView[] {
+  const rank = (a: AgreementView) => (a.state === 'asked' ? 0 : a.state === 'proposed' ? 1 : a.state === 'accepted' ? 2 : 3);
+  return all.filter((a) => rank(a) < 3).sort((a, b) => rank(a) - rank(b) || +new Date(a.askedAt) - +new Date(b.askedAt));
+}
+
+
+/**
+ * A garage or meeting-point name as drivers see it (check-up 2026-10-09): the network config marks
+ * places field ops have not verified yet with "(مسودة)" for Ali and ops; drivers, like riders, never
+ * see the word.
+ */
+export function publicPlaceName(nameAr: string): string {
+  return nameAr.replace(/\s*\(\s*مسودة\s*\)\s*/g, ' ').trim();
 }

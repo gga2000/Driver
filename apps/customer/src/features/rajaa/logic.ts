@@ -47,7 +47,7 @@ export const HOME_CITY = 'aziziyah';
 export const PRIMARY_CORRIDOR = 'aziziyah_baghdad';
 export const DEFAULT_DIRECTION: IntercityDirection = 'to_aziziyah';
 
-/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة ١، البوابة ٢، السوق in Aziziyah). */
+/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة 1، البوابة 2، السوق in Aziziyah). */
 export const GARAGE_ORDER = ['mp_garage_nahdha', 'mp_garage_bab1', 'mp_garage_bab2', 'mp_garage_souq', 'mp_garage_kut'] as const;
 
 export interface LatLngLike {
@@ -260,16 +260,19 @@ export interface SeatQuote {
   baseIqd: number;
   frontIqd: number;
   pickupIqd: number;
+  /** Step 4: an agreed door drop. */
+  dropoffIqd: number;
   totalIqd: number;
 }
 
-/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee. */
-export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0): SeatQuote {
+/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee, + an agreed door drop. */
+export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0, dropoffFeeIqd = 0): SeatQuote {
   const seats = seatIds.length;
   const baseIqd = seats * dep.seatPriceIqd;
   const frontIqd = seatIds.includes('front') ? dep.frontPremiumIqd : 0;
   const pickupIqd = seats > 0 ? pickupFeeIqd : 0;
-  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, totalIqd: baseIqd + frontIqd + pickupIqd };
+  const dropoffIqd = seats > 0 ? dropoffFeeIqd : 0;
+  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, dropoffIqd, totalIqd: baseIqd + frontIqd + pickupIqd + dropoffIqd };
 }
 
 /**

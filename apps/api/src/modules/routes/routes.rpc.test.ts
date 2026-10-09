@@ -164,7 +164,7 @@ describe('routes over tRPC: a whole run through the router (outputs validate aga
     expect(bookings[0]!.departure).toMatchObject({ corridorId: 'aziziyah_baghdad', cityId: 'baghdad' });
 
     const rq = await rider.requestBoard.post({
-      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      from: { label: 'كراج البوابة 1', garageId: BAB1.id },
       to: { label: 'الصويرة' },
       when: h.at(60),
       seats: 2,
@@ -351,7 +351,7 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     h.riderNames.set('d1', 'حيدر كاظم جواد');
     const dep = await h.announce({ vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 12345', model: 'سوناتا', color: 'بيضاء' } });
     await driver.driver.selfie({ departureId: dep.id, selfieRef: 'blob/selfie' });
-    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة ١', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 2, travellingAs: 'aila' });
+    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة 1', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 2, travellingAs: 'aila' });
     await driver.requestBoard.offer({ postId: rq.id, priceIqd: 45_000 });
     await fresh.requestBoard.offer({ postId: rq.id, priceIqd: 40_000 });
     const [mine] = await rider.requestBoard.mine();
@@ -373,7 +373,7 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     const d1 = as(h, 'd1', ['intercity_driver']);
     const d2 = as(h, 'd2', ['intercity_driver']);
     const rq = await rider.requestBoard.post({
-      from: { label: 'كراج البوابة ١', garageId: BAB1.id },
+      from: { label: 'كراج البوابة 1', garageId: BAB1.id },
       to: { label: 'مطار بغداد' },
       when: h.at(60),
       seats: 2,
@@ -396,7 +396,7 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     const rider = as(h, 'r1', ['customer']);
     const driver = as(h, 'd1', ['intercity_driver']);
     const rival = as(h, 'd2', ['intercity_driver']);
-    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة ١', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 3, travellingAs: 'aila' });
+    const rq = await rider.requestBoard.post({ from: { label: 'كراج البوابة 1', garageId: BAB1.id }, to: { label: 'الحلة' }, when: h.at(30), seats: 3, travellingAs: 'aila' });
     const mine = await driver.requestBoard.offer({ postId: rq.id, priceIqd: 45_000 });
     await rival.requestBoard.offer({ postId: rq.id, priceIqd: 50_000 });
     expect(await driver.requestBoard.myRides()).toEqual([]);
@@ -445,7 +445,7 @@ describe('garage mode (partner S-5): the PIN typed on a seat, and the late rider
         return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     };
-    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.agreements, h.repo, null, null, calls);
     const ctx = (personId: string, roles: readonly RoleKind[]) =>
       t.createCallerFactory(appRouter)({
         auth: { sub: personId, sid: `s_${personId}`, iss: 'driver-api', iat: 0, exp: 0 },
@@ -598,7 +598,7 @@ describe('seat PIN safeguards (Ali 2026-10-06): every PIN typed is logged, cross
         return { mode: 'proxy' as const, dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     };
-    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.repo, null, null, calls);
+    const rpc = new RoutesRpc(h.departures, h.demand, h.requests, h.agreements, h.repo, null, null, calls);
     const ops = t.createCallerFactory(appRouter)({
       auth: { sub: 'ops1', sid: 's_ops1', iss: 'driver-api', iat: 0, exp: 0 },
       authError: null,

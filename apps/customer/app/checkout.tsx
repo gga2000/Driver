@@ -36,7 +36,7 @@ import { useTimetable } from '@/features/season/use-timetable';
 import { useSeason } from '@/lib/use-season';
 import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
-import { quoteStop } from '@/features/food/stopped';
+import { closedLine, quoteStop } from '@/features/food/stopped';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
 import { useMyOrders } from '@/features/home/queries';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
@@ -249,9 +249,7 @@ export default function CheckoutScreen() {
   const blocker = netBlocker ?? stopped ?? (!dropoff
     ? t('cart.pick_place')
     : closedNow && restaurant
-        ? restaurant.closedReason === 'paused'
-          ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
-          : t('error.merchant_closed', { time: restaurant.opensAt ?? '' })
+        ? closedLine(restaurant, t)
         : capHit
           ? t('checkout.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) })
           : null);

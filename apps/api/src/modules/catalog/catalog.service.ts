@@ -281,6 +281,24 @@ export class CatalogService {
     return item.photoReviewPendingAt ? this.repo.updateItem(itemId, { photoReviewPendingAt: null }, tx) : item;
   }
 
+  /**
+   * p4: Driver's team takes down a shop photo that isn't fit to show (Console «انزّلها»): the dish shows
+   * no photo until the shop puts up another. Only the version staff looked at (`pendingSince`), so a
+   * newer upload is never taken down unseen; null = nothing taken down. The caller records
+   * `catalog.photo_taken_down` with the reason for the Merchant app.
+   */
+  takeDownShopPhoto(itemId: string, pendingSince: Date, tx?: Tx): Promise<CatalogItemRecord | null> {
+    return this.changed(this.repo.takeDownPendingPhoto(itemId, pendingSince, tx));
+  }
+
+  /**
+   * p4: Driver's team looked at the shop photo and keeps it (Console «تمام»): the dish leaves the queue.
+   * Same version rule as `takeDownShopPhoto`, so a newer upload stays waiting; null = nothing cleared.
+   */
+  keepShopPhoto(itemId: string, pendingSince: Date, tx?: Tx): Promise<CatalogItemRecord | null> {
+    return this.repo.keepPendingPhoto(itemId, pendingSince, tx);
+  }
+
   /** Creates (no `itemId`) or edits an item; a price edit goes through `updatePrice` for its history row. */
   async upsertItem(
     orgId: string,
