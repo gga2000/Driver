@@ -144,10 +144,19 @@ def near(tree, g, m):
     return tree is not None and len(tree.query(g, predicate='dwithin', distance=m / mx)) > 0
 def box(c, hx, hy):   # metres → a small lon/lat box around point c
     return sg.box(c[0] - hx / mx, c[1] - hy / my, c[0] + hx / mx, c[1] + hy / my)
+# landmarks in 3D (landmarks.py): the main mosque, the hospital and the garages, each on its own lot; the houses
+# Overture has on those lots give way to them
+from landmarks import landmark_parts
+lm_parts, lm_lots = landmark_parts(mx, my)
+for gm_, p_ in lm_parts:
+    add('landmarks', shapely.affinity.scale(gm_, 1 / mx, 1 / my, origin=(0, 0)), p_, 14)
+lot_tree = STRtree([shapely.affinity.scale(l, 1 / mx, 1 / my, origin=(0, 0)).buffer(2 / mx) for l in lm_lots])
+print('landmark parts', len(lm_parts), file=sys.stderr)
 nb = nr = 0
 for f in L(TOWN, 'building'):
     g = sg.shape(f['geometry'])
     if g.geom_type != 'Polygon': continue
+    if len(lot_tree.query(g, predicate='intersects')): continue
     area = g.area * mx * my; h = H(f['properties']['id'])
     if area < 12: continue
     fl = 1 if area < 70 else ((2 if h % 10 < 6 else 1) if area < 350 else (2 if h % 10 < 7 else 3))
@@ -215,7 +224,7 @@ def merc(xy):
     y = (1 - np.log(np.tan(lat) + 1 / np.cos(lat)) / math.pi) / 2
     return np.column_stack([x, y])
 geoms_m = shapely.transform(np.array([f[1] for f in F], dtype=object), merc)
-LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'lights', 'places', 'localities']
+LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'landmarks', 'lights', 'places', 'localities']
 LAYER_TYPES = {}
 lon2x = lambda lon: (lon + 180) / 360
 lat2y = lambda lat: (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2
@@ -230,7 +239,7 @@ for z in range(MINZ, MAXZ + 1):
     for g, i in zip(gs, idx):
         lay = F[i][0]
         if g.geom_type in ('Point', 'MultiPoint'): simp.append(g); continue
-        s = shapely.simplify(g, tol, preserve_topology=(lay == 'buildings'))
+        s = shapely.simplify(g, tol, preserve_topology=(lay in ('buildings', 'landmarks')))
         if lay in ('landuse', 'palms', 'water') and s.geom_type in ('Polygon', 'MultiPolygon') and s.area < 64: s = None
         simp.append(s)
     keep = [j for j, s in enumerate(simp) if s is not None and not s.is_empty]
