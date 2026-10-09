@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { phoneReason } from '@/features/auth/phone-reason';
 import { lessonNow } from '@/features/board/learn';
-import { dayBefore, dayCardMode, dayTitleKey } from '@/features/day/logic';
+import { dayBefore, dayCardMode, dayFacts, dayTitleKey, ON_TIME_TARGET_PCT, onTimeTone } from '@/features/day/logic';
 import { headerSlot, menuNeedsLook } from '@/features/store/header-fit';
 import { translate } from './i18n-core';
 import { LRI, orderNo, PDI, visibleText } from './order-no';
@@ -125,5 +125,16 @@ describe('d10 · a page that does not exist says so', () => {
     expect(ar('merchant.notfound.title')).toBe('ماكو هيچ صفحة');
     expect(ar('merchant.notfound.back')).toBe('رجوع للطلبات');
     expect(ar('merchant.startup.loading')).toBe('دا نجيب طلباتك…');
+  });
+});
+
+describe('d18 · «وقتك مضبوط» is red only under the target', () => {
+  it('60 % is the line: under it red, 71 % plain, 75 % and up green', () => {
+    expect(ON_TIME_TARGET_PCT).toBe(60);
+    expect([0, 59, 60, 64, 71, 74, 75, 100].map(onTimeTone)).toEqual(['danger', 'danger', 'text', 'text', 'text', 'text', 'success', 'success']);
+    const fact = (share: number) => dayFacts({ orders: 30, missed: 0, onTimeShare: share, netIqd: null }).find((f) => f.key === 'on_time')!;
+    expect(fact(0.71).tone).toBe('text');
+    expect(fact(0.594).tone).toBe('danger');
+    expect(fact(0.596).tone).toBe('text'); // rounds to 60 %, what the card shows
   });
 });

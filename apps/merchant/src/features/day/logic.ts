@@ -44,6 +44,18 @@ export interface DayFact {
   hero?: boolean;
 }
 
+/**
+ * d18 · the app's on-time target: under it «وقتك مضبوط» turns red; at or above it, no alarm. 71 % is
+ * not an emergency, so it reads plain; green from 75 %, like before.
+ */
+export const ON_TIME_TARGET_PCT = 60;
+const ON_TIME_GOOD_PCT = 75;
+
+export function onTimeTone(percent: number): 'danger' | 'text' | 'success' {
+  if (percent < ON_TIME_TARGET_PCT) return 'danger';
+  return percent >= ON_TIME_GOOD_PCT ? 'success' : 'text';
+}
+
 /** "42 طلب · فاتك 0 · وقتك مضبوط 91% · الصافي 512,000 دينار" as four facts (the net only for the owner). */
 export function dayFacts(s: Pick<MerchantDaySummary, 'orders' | 'missed' | 'onTimeShare' | 'netIqd'>): DayFact[] {
   const out: DayFact[] = [
@@ -52,7 +64,7 @@ export function dayFacts(s: Pick<MerchantDaySummary, 'orders' | 'missed' | 'onTi
   ];
   if (s.onTimeShare !== null) {
     const pct = Math.round(s.onTimeShare * 100);
-    out.push({ key: 'on_time', label: 'merchant.day.on_time_label', value: { key: 'merchant.day.on_time', params: { percent: pct } }, tone: pct >= 75 ? 'success' : 'danger' });
+    out.push({ key: 'on_time', label: 'merchant.day.on_time_label', value: { key: 'merchant.day.on_time', params: { percent: pct } }, tone: onTimeTone(pct) });
   } else {
     out.push({ key: 'on_time', label: 'merchant.day.on_time_label', value: { key: 'merchant.day.on_time_none', params: {} }, tone: 'muted' });
   }
