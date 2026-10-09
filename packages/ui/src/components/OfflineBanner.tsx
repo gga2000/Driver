@@ -54,7 +54,7 @@ export function OfflineBanner({ kind, ageSeconds, onRetry, locale, labels, topIn
         ? (labels?.back ?? tr('net.back'))
         : kind === 'offline'
           ? (labels?.offline ?? tr('net.offline'))
-          : (labels?.unreachable ?? tr('net.unreachable'));
+          : (labels?.unreachable ?? tr('net.unreachable_retrying'));
   const retry = kind === 'unreachable' && onRetry;
   return (
     <View

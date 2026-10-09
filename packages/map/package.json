@@ -11,7 +11,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./style.json": "./dist/style.json"
+    "./style.json": "./dist/style.json",
+    "./golden": {
+      "types": "./dist/golden/index.d.ts",
+      "default": "./dist/golden/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node dist/emit-style.js",
