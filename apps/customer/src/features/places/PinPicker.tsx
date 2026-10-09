@@ -93,7 +93,9 @@ export function PinPicker({
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value * 14 }] }));
   const shadowStyle = useAnimatedStyle(() => ({ opacity: 0.25 + lift.value * 0.2, transform: [{ scale: 1 - lift.value * 0.35 }] }));
   const onLayout = (e: LayoutChangeEvent) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
-  const head = tone === 'pickup' ? theme.colors.success : theme.colors.text;
+  // Fixed colours, not the app theme: the map is dark at night whatever the screen is (Ali 10-09).
+  const head = tone === 'pickup' ? palette.success[500] : palette.primary[500];
+  const dot = tone === 'pickup' ? palette.neutral[50] : palette.neutral[900];
   const ringPx = ringM === null ? 0 : Math.min(Math.max(size.w, size.h), ringM / metresPerPixel(drawn.lat, drawn.zoom));
 
   return (
@@ -127,28 +129,42 @@ export function PinPicker({
         ) : null}
         <Animated.View style={[{ position: 'absolute', width: 14, height: 6, borderRadius: 7, backgroundColor: palette.neutral[1000] }, shadowStyle]} />
         <Animated.View testID="pin-centre" style={[{ alignItems: 'center', marginBottom: 52 }, pinStyle]}>
+          {/* Saffron head in a cream ring with an ink edge, so it reads on the day map and the night map alike. */}
           <View
             style={{
-              width: PIN_HEAD,
-              height: PIN_HEAD,
-              borderRadius: PIN_HEAD / 2,
+              width: PIN_HEAD + 2,
+              height: PIN_HEAD + 2,
+              borderRadius: PIN_HEAD / 2 + 1,
+              borderWidth: 1,
+              borderColor: withAlpha(palette.neutral[900], 0.45),
               backgroundColor: head,
-              borderWidth: 4,
-              borderColor: theme.colors.surface,
               alignItems: 'center',
               justifyContent: 'center',
               shadowColor: palette.neutral[1000],
-              shadowOpacity: 0.22,
+              shadowOpacity: 0.3,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 3 },
               elevation: 6,
             }}
           >
-            <View style={{ width: 10, height: 10, borderRadius: tone === 'pickup' ? 5 : 2, backgroundColor: theme.colors.surface }} />
+            <View
+              style={{
+                position: 'absolute',
+                width: PIN_HEAD,
+                height: PIN_HEAD,
+                borderRadius: PIN_HEAD / 2,
+                borderWidth: 3,
+                borderColor: palette.neutral[50],
+              }}
+            />
+            <View style={{ width: 11, height: 11, borderRadius: tone === 'pickup' ? 6 : 2, backgroundColor: dot }} />
           </View>
-          <View style={{ width: 3, height: PIN_STEM, borderRadius: 2, backgroundColor: head }} />
+          {/* The stem: head colour inside a cream casing (the casing shows on the night map). */}
+          <View style={{ width: 6, height: PIN_STEM - 1, marginTop: -1, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, backgroundColor: palette.neutral[50], alignItems: 'center' }}>
+            <View style={{ width: 3, height: PIN_STEM - 2, borderRadius: 2, backgroundColor: head }} />
+          </View>
         </Animated.View>
-        <View style={{ position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: withAlpha(head, 0.3) }} />
+        <View style={{ position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: withAlpha(head, 0.45) }} />
       </View>
       <MapCredit bottom={0} />
     </View>
