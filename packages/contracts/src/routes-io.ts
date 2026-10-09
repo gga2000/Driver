@@ -4,7 +4,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { RIDE_RIDER_NAME_MAX } from './order.js';
 import type { CallSession } from './chat-io.js';
 import type { SafetyCallSession } from './safety-io.js';
-import type { OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from './departure-staff-io.js';
+import type { OverdueDeparture, OverdueDeparturesInput, StaffDepartureDriver, StaffDepartureDriversInput, StaffDepartureInput, StaffDepartureResult } from './departure-staff-io.js';
 import { modelFitsLayout, VehicleModelKey } from './vehicle-models.js';
 
 /**
@@ -1608,4 +1608,6 @@ export interface RoutesPort {
   opsCloseDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
   /** W3 / NTF-14: departures past their latest time with no driver, or departed and never arrived. */
   overdueDepartures(actor: Actor, input: OverdueDeparturesInput): Promise<OverdueDeparture[]>;
+  /** Console garage view: who drives each departure in any state (one logged staff vault read). */
+  departureDrivers(actor: Actor, input: StaffDepartureDriversInput): Promise<StaffDepartureDriver[]>;
 }

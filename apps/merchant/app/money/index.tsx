@@ -4,14 +4,18 @@ import { View } from 'react-native';
 import { SegmentedControl, useTheme } from '@driver/ui';
 import { both, Loadable } from '@/components/Loadable';
 import { Page } from '@/components/Page';
+import { ActivityList } from '@/features/day/ActivityList';
 import { DayStrip } from '@/features/day/DayStrip';
+import { numbersWaiting } from '@/features/day/logic';
+import { NewDayCard } from '@/features/day/NewDayCard';
 import { useDaySummary } from '@/features/day/queries';
 import { InsightsPanel } from '@/features/insights/InsightsPanel';
+import { useInsights } from '@/features/insights/queries';
 import { DisputesView } from '@/features/money/DisputesView';
 import { StatementView } from '@/features/money/StatementView';
 import { TodayView } from '@/features/money/TodayView';
 import { waitingCount, weekAnchor } from '@/features/money/logic';
-import { useCashAccount, useDisputes, useMoneyToday, useStatement } from '@/features/money/queries';
+import { useActivityToday, useCashAccount, useDisputes, useMoneyToday, useStatement } from '@/features/money/queries';
 import { useCurrentStore, useStoreStatus } from '@/features/store/queries';
 import { localParts } from '@/lib/calendar';
 import { useDates } from '@/lib/dates';
@@ -42,17 +46,24 @@ export default function DayScreen() {
   const { wide } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
   const params = useLocalSearchParams<{ tab?: string }>();
-  const [tab, setTab] = useState<Tab>(TABS.includes(params.tab as Tab) ? (params.tab as Tab) : 'today');
+  const [picked, setTab] = useState<Tab>(TABS.includes(params.tab as Tab) ? (params.tab as Tab) : 'today');
   const [back, setBack] = useState(0);
   const now = useNow();
   const orgId = store?.orgId ?? null;
+  const status = useStoreStatus(orgId);
+  // d20: a new shop (or its staff) sees one card until its first 10 orders, not empty numbers.
+  const lately = useInsights(orgId, 90);
+  const fresh = numbersWaiting({ setupLive: status.data?.setup ? status.data.setup.live : null, orders: lately.data?.orders ?? null });
+  const waitingNumbers = fresh?.waiting === true;
+  const tab: Tab = waitingNumbers && picked === 'insights' ? 'today' : picked;
   const weekOf = useMemo(() => weekAnchor(now, back), [now, back]);
 
   const today = useMoneyToday(orgId, canSeeMoney && tab === 'today');
   const cash = useCashAccount(orgId, canSeeMoney && tab === 'today');
+  // «منو سوّى شنو»: owner only (the server refuses staff too).
+  const activity = useActivityToday(orgId, canSeeMoney && tab === 'today');
   const statement = useStatement(orgId, weekOf, canSeeMoney && tab === 'statement');
   const disputes = useDisputes(orgId, canSeeMoney);
-  const status = useStoreStatus(orgId);
   const summary = useDaySummary(orgId, status.data ? String(status.data.open) : '');
 
   const waiting = disputes.data ? waitingCount(disputes.data, now) : 0;
@@ -62,11 +73,15 @@ export default function DayScreen() {
   };
   return (
     <Page title={t('merchant.nav.day')} subtitle={store ? `${store.name} · ${dates.dow(localParts(now).dow)} ${dates.dayMonth(now)}` : undefined} testID="money" maxWidth={1160}>
-      <Loadable query={both(status, summary)} compact stale={false} skeleton={<DayStrip summary={undefined} waiting={0} wide={wide} />} failed={t('merchant.dayscreen.day_failed')} testID="day-strip">
-        {([, day]) => <DayStrip summary={day} waiting={waiting} wide={wide} {...(canSeeMoney ? { onWaiting: () => select('disputes') } : {})} />}
-      </Loadable>
+      {waitingNumbers ? (
+        <NewDayCard done={fresh.done} wide={wide} />
+      ) : (
+        <Loadable query={both(status, summary)} compact stale={false} skeleton={<DayStrip summary={undefined} waiting={0} wide={wide} />} failed={t('merchant.dayscreen.day_failed')} testID="day-strip">
+          {([, day]) => <DayStrip summary={day} waiting={waiting} wide={wide} {...(canSeeMoney ? { onWaiting: () => select('disputes') } : {})} />}
+        </Loadable>
+      )}
       {store && !canSeeMoney ? (
-        <InsightsPanel merchantOrgId={orgId} owner={false} wide={wide} />
+        waitingNumbers ? null : <InsightsPanel merchantOrgId={orgId} owner={false} wide={wide} />
       ) : (
         <View style={{ alignSelf: wide ? 'flex-start' : 'stretch', minWidth: wide ? 640 : undefined }}>
           <SegmentedControl<Tab>
@@ -74,7 +89,7 @@ export default function DayScreen() {
               { value: 'today', label: t('merchant.money.tab_today') },
               { value: 'statement', label: t('merchant.dayscreen.tab_week') },
               { value: 'disputes', label: waiting > 0 ? t('merchant.money.tab_disputes_count', { count: waiting }) : t('merchant.money.tab_disputes') },
-              { value: 'insights', label: t('merchant.dayscreen.tab_numbers') },
+              ...(waitingNumbers ? [] : [{ value: 'insights' as const, label: t('merchant.dayscreen.tab_numbers') }]),
             ]}
             value={tab}
             onChange={select}
@@ -84,9 +99,12 @@ export default function DayScreen() {
       {!orgId || !canSeeMoney ? null : tab === 'insights' ? (
         <InsightsPanel merchantOrgId={orgId} owner wide={wide} />
       ) : tab === 'today' ? (
-        <Loadable query={both(today, cash)} skeleton={<TodayView merchantOrgId={orgId} today={undefined} cash={undefined} now={now} wide={wide} onStatement={() => undefined} />} failed={t('merchant.money.load_failed')} testID="money-today">
-          {([day, account]) => <TodayView merchantOrgId={orgId} today={day} cash={account} now={now} wide={wide} onStatement={() => select('statement')} />}
-        </Loadable>
+        <>
+          <Loadable query={both(today, cash)} skeleton={<TodayView merchantOrgId={orgId} today={undefined} cash={undefined} now={now} wide={wide} onStatement={() => undefined} />} failed={t('merchant.money.load_failed')} testID="money-today">
+            {([day, account]) => <TodayView merchantOrgId={orgId} today={day} cash={account} now={now} wide={wide} onStatement={() => select('statement')} />}
+          </Loadable>
+          <ActivityList query={activity} />
+        </>
       ) : tab === 'statement' ? (
         <Loadable query={statement} skeleton={<StatementView statement={undefined} storeName="" back={back} onBack={() => undefined} onForward={() => undefined} now={now} wide={wide} />} failed={t('merchant.money.load_failed')} testID="money-statement">
           {(week) => <StatementView statement={week} storeName={store?.name ?? ''} back={back} onBack={() => setBack((b) => b + 1)} onForward={() => setBack((b) => Math.max(0, b - 1))} now={now} wide={wide} />}

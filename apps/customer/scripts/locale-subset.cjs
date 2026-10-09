@@ -14,7 +14,8 @@ const path = require('node:path');
  *
  * The partner app reuses it (`writePartnerLocales`, speed s1 for the courier app): it drops the Console's and
  * the server's namespaces the same way, plus every namespace that neither its code nor the shared packages it
- * runs ever name (the customer app's food, checkout, home…), keeping the keys it does name.
+ * runs ever name (the customer app's food, checkout, home…), keeping the keys it does name. The merchant app
+ * does the same (`writeMerchantLocales`).
  *
  * Push, WhatsApp and SMS texts are written by the server: contracts' notify catalog (`SERVER_ONLY`) names
  * every one of them, so it is not read for key names, and `push` is dropped in both apps except the keys
@@ -96,4 +97,16 @@ function writePartnerLocales({ repoRoot, outDir }) {
   return writeLocales({ repoRoot, outDir, roots: PARTNER_ROOTS, always: PARTNER_DROP, unnamed: true });
 }
 
-module.exports = { keyRefs, pickMessages, dropFor, writeCustomerLocales, writePartnerLocales };
+/**
+ * The merchant app's shared tables (speed s1 for the Merchant app): its own `merchant.*` screens read
+ * apps/merchant/locales, and only the shared keys its code (or the shared packages it runs) names come
+ * from here, the same rules as the partner app.
+ */
+const MERCHANT_ROOTS = ['apps/merchant/app', 'apps/merchant/src', ...SHARED_ROOTS];
+/** As the partner app, plus the partner app's own screens (only the `partner.*` keys merchant code names stay). */
+const MERCHANT_DROP = new Set([...PARTNER_DROP, 'partner']);
+function writeMerchantLocales({ repoRoot, outDir }) {
+  return writeLocales({ repoRoot, outDir, roots: MERCHANT_ROOTS, always: MERCHANT_DROP, unnamed: true });
+}
+
+module.exports = { keyRefs, pickMessages, dropFor, writeCustomerLocales, writePartnerLocales, writeMerchantLocales };

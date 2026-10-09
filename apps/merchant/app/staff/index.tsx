@@ -7,7 +7,7 @@ import { LoadPending } from '@/components/Loadable';
 import { OwnerOnly } from '@/components/OwnerOnly';
 import { Page } from '@/components/Page';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
-import { useServerNow } from '@/features/board/queries';
+import { useServerTime } from '@/features/board/clock';
 import { invitePhone, roleKey, splitStaff } from '@/features/staff/logic';
 import { useStaff } from '@/features/staff/queries';
 import { InviteSheet, MemberSheet } from '@/features/staff/StaffSheets';
@@ -71,7 +71,7 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
   const theme = useTheme();
   const t = useT();
   const dates = useDates();
-  const now = useServerNow(0, 60_000);
+  const now = useServerTime(60_000);
   const owner = s.role === 'merchant_owner';
   if (s.pending) {
     // A waiting invite has no name (inviting a number is not a name lookup): say who it went to.
@@ -124,9 +124,9 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
           </Text>
           {s.you ? <Tag label={t('merchant.staff.you')} tone="neutral" /> : null}
         </View>
-        {s.phoneMasked ? (
+        {invitePhone(s) ? (
           <Text variant="caption" color="textMuted" tabular>
-            {`⁦${s.phoneMasked}⁩`}
+            {invitePhone(s)}
           </Text>
         ) : null}
       </View>

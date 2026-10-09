@@ -328,11 +328,13 @@ select {
   filter: invert(1);
 }
 .maplibregl-ctrl-attrib {
-  background: rgb(var(--c-surface) / 0.8) !important;
+  /* Solid, not see-through: over a half-loaded map the contrast changed run to run (axe, dark /map). */
+  background: rgb(var(--c-surface)) !important;
   color: rgb(var(--c-muted));
 }
-.maplibregl-ctrl-attrib a {
-  color: rgb(var(--c-muted));
+.maplibregl-ctrl-attrib a,
+.maplibregl-ctrl-attrib-inner > a {
+  color: rgb(var(--c-text)) !important;
 }
 
 /* Native <dialog> backdrop. */

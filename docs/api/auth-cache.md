@@ -23,10 +23,16 @@ Each API machine now keeps both in its own memory for up to **30 seconds**
   current row).
 - Expiry is checked on every use: a cached session past its end time is refused as before.
 
+## A person's own profile reads: one log row per 30 seconds
+
+Ali, 8 Oct 22:07 ("Log once per 30 s"): `identity.me` (every home open) writes its
+`vault_access_logs` row once per session per 30 seconds instead of on every call. The first read in
+each window, and any read of different fields (an emergency contact just added), writes its row.
+Reads by staff or by anyone of someone else's data write their row every time, as before. A row
+counts only after its transaction commits. `VAULT_SELF_LOG_WINDOW_SEC=0` writes every read again.
+
 ## Unchanged
 
-- The private-data access log: `identity.me` still writes its `vault_access_logs` row on every call
-  (Ali, 8 Oct: only the memory part of x4).
 - Within one request, roles are still read once for the whole batch (CON-21).
 
 ## Setting
@@ -34,6 +40,7 @@ Each API machine now keeps both in its own memory for up to **30 seconds**
 | Variable | Default | Meaning |
 |---|---|---|
 | `AUTH_CACHE_TTL_SEC` | `30` | Seconds an entry is kept. `0` turns the cache off; anything above 30 is capped at 30. |
+| `VAULT_SELF_LOG_WINDOW_SEC` | `30` | Seconds a person's own profile reads share one access-log row. `0` logs every read; capped at 30. |
 
 Without `REDIS_URL` (one machine, dev, tests) drops stay on that machine, which is all there is.
 

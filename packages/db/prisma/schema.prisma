@@ -172,6 +172,8 @@ model Org {
   payoutSettings  Json                                   @default("{}") @map("payout_settings")
   /// Busy mode (Driver Merchant): every prep time +10 min until this time; NULL = off.
   busyUntil       DateTime?                              @map("busy_until")
+  /// The busy minutes picked when busy mode was switched on (Ali 2026-10-08, r5): 10 or 20; NULL = +10.
+  busyExtraMin    Int?                                   @map("busy_extra_min")
   /// Closed by hand from the Merchant app (early-close reason); NULL = open.
   closedAt        DateTime?                              @map("closed_at")
   closedReason    String?                                @map("closed_reason")
@@ -200,6 +202,8 @@ model Org {
   pickupPhotoRefs String[]                               @default([]) @map("pickup_photo_refs")
   /// When the owner last saved the pickup spot; NULL = never set.
   pickupUpdatedAt DateTime?                              @map("pickup_updated_at")
+  /// «جهّز محلك»: a new shop's first-day setup (steps he confirmed, when it went live, its first order). NULL = a shop from before setup: nothing changes for it.
+  setup           Json?                                  @map("setup")
   createdAt       DateTime                               @default(now()) @map("created_at")
   updatedAt       DateTime                               @updatedAt @map("updated_at")
 
@@ -814,6 +818,10 @@ model CatalogItem {
   servesMax       Int?      @map("serves_max")
   /// The kitchen's dish labels (joy o8): spicy, new, family.
   labels          String[]  @default([])
+  /// «جهّز محلك»: the photo is Driver's library photo of this dish (its slug), «صورة توضيحية» to customers; NULL = the kitchen's own.
+  photoLibrary    String?   @map("photo_library")
+  /// p4 (Ali 2026-10-08): the shop's own uploaded photo shows at once; set when it was uploaded and Driver's team has not looked yet. NULL = nothing waiting.
+  photoReviewPendingAt DateTime? @map("photo_review_pending_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -1080,6 +1088,8 @@ model Order {
   statedTenderIqd    Int?          @map("stated_tender_iqd")
   /// "الخردة علينا": what went to the customer's wallet at the door because the courier had no change; null = none.
   changeToWalletIqd  Int?          @map("change_to_wallet_iqd")
+  /// M-3 «ينضاف لطلبك الجاي»: the cancellation fees he owed, locked at placement and collected in cash with this order; 0 = none.
+  debtCollectIqd     Int           @default(0) @map("debt_collect_iqd")
   scheduledFor       DateTime?     @map("scheduled_for")
   payerApprovedAt    DateTime?     @map("payer_approved_at")
   placedAt           DateTime      @default(now()) @map("placed_at")
@@ -2644,6 +2654,23 @@ model LedgerEvent {
   @@schema("public")
 }
 
+/// Running balance of each driver money account (`driver:<id>` earnings, `cash:<id>` cash held), kept
+/// by the `ledger_balances_apply` trigger in the same transaction as every `ledger_events` insert, so a
+/// balance read is one row instead of the full history (perf item 13). A projection, not the source of
+/// truth: the nightly close compares it with the full sum and repairs it from there.
+model LedgerBalance {
+  /// The trigger inserts rows with gen_random_uuid(); rows are found by account, never by id.
+  id        String   @id @default(cuid())
+  accountId String   @unique @map("account_id")
+  amountIqd Int      @map("amount_iqd")
+  events    Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ledger_balances")
+  @@schema("public")
+}
+
 enum SettlementMode {
   nightly_courier
   on_demand
@@ -3701,6 +3728,47 @@ model AlertLadder {
 
   @@index([closedAt, nextRingAt])
   @@map("alert_ladders")
+  @@schema("public")
+}
+
+/// Console E1 step 3: every open staff screen says "I'm here" every 30 s, with the state of its live
+/// updates. One row per browser tab; old rows are dropped by the on-call sweep. Ids and times only.
+model ConsolePresence {
+  id         String   @id @default(cuid())
+  cityId     String   @map("city_id")
+  tabId      String   @map("tab_id")
+  personId   String   @map("person_id")
+  /// live | connecting | fallback | stopped
+  live       String
+  /// When `live` last changed.
+  liveSince  DateTime @map("live_since")
+  lastSeenAt DateTime @map("last_seen_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([cityId, tabId])
+  @@index([cityId, lastSeenAt])
+  @@map("console_presence")
+  @@schema("public")
+}
+
+/// Console E1 step 3: the Console watching itself (nobody watching, live updates down). `openKey` is
+/// "<city>:<kind>" while open and null once closed, so a city has at most one open alert per kind.
+model ConsoleWatchAlert {
+  id        String    @id @default(cuid())
+  cityId    String    @map("city_id")
+  /// unwatched | live_down
+  kind      String
+  openKey   String?   @unique @map("open_key")
+  openedAt  DateTime  @map("opened_at")
+  /// How many people were told.
+  paged     Int       @default(0)
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, openedAt])
+  @@map("console_watch_alerts")
   @@schema("public")
 }
 

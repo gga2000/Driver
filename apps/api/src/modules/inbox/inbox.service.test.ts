@@ -148,6 +148,39 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(counts.oldestOpenAt).toEqual(new Date(T0));
   });
 
+  it('a safety case opened in support (an incident ticket) opens a row right after SOS; other tickets open nothing', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_late' });
+    await h.emit('support.ticket_opened', { orderId: 'ord_7200' }, { ticketId: 'tk_safe', kind: 'incident', channel: 'phone', slaDueAt: new Date().toISOString() });
+    await h.emit('support.ticket_opened', { orderId: 'ord_9' }, { ticketId: 'tk_cold', kind: 'dispute', channel: 'in_app', slaDueAt: new Date().toISOString() });
+    const rows = await h.list();
+    expect(rows.map((r) => r.kind)).toEqual(['safety_report', 'late']);
+    expect(rows[0]).toMatchObject({ subjectKind: 'ticket', subjectId: 'tk_safe', orderId: 'ord_7200', facts: { channel: 'phone' } });
+    // Closed in support (y1 off): the Today row closes by itself; another ticket's resolution does nothing.
+    await h.emit('support.resolved', { orderId: 'ord_9' }, { ticketId: 'tk_cold' });
+    expect((await h.list()).map((r) => r.kind)).toEqual(['safety_report', 'late']);
+    await h.emit('support.resolved', { orderId: 'ord_7200' }, { ticketId: 'tk_safe' });
+    expect((await h.list()).map((r) => r.kind)).toEqual(['late']);
+  });
+
+  it('a booked ride whose request was lost (lane B durable timers) opens a no-driver row', async () => {
+    const h = harness();
+    await h.emit(
+      'dispatch.needs_dispatcher',
+      { tripId: 'trp_lost' },
+      { cityId: 'aziziyah', vertical: 'taxi', reason: 'request_lost', timer: 'booked_open', orderId: 'ord_ride' },
+    );
+    const [row] = await h.list();
+    expect(row).toMatchObject({
+      kind: 'no_driver',
+      subjectId: 'trp_lost',
+      orderId: 'ord_ride',
+      facts: { reason: 'request_lost', vertical: 'taxi' },
+    });
+    await h.emit('dispatch.assigned', { tripId: 'trp_lost' }, { cityId: 'aziziyah' });
+    expect(await h.list()).toEqual([]);
+  });
+
   it('closes rows by themselves when the problem ends, and only the right ones', async () => {
     const h = harness();
     await h.emit('order.late_apology', { orderId: 'ord_1' });
@@ -287,6 +320,35 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(JSON.stringify(audit.map((a) => a.detail))).not.toContain('اتصلت');
   });
 
+  it('every bad rating (food or courier at 2 stars or under) opens a case that closes only with a note', async () => {
+    const h = harness();
+    await h.emit('order.rated', { orderId: 'ord_good', actorId: 'p_c' }, { orderId: 'ord_good', stars: 5, food: 4, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_3', actorId: 'p_c' }, { orderId: 'ord_3', stars: 3, food: 3, delivery: 3, orderType: 'food' });
+    expect(await h.list()).toEqual([]);
+    // Good courier, bad food: still a case. A ride rated 1 (courier score only) too.
+    await h.emit('order.rated', { orderId: 'ord_food', actorId: 'p_c' }, { orderId: 'ord_food', stars: 5, food: 2, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_ride', actorId: 'p_c' }, { orderId: 'ord_ride', stars: 1, food: null, delivery: 1, orderType: 'ride' });
+    // An older event with only `stars`.
+    await h.emit('order.rated', { orderId: 'ord_old', actorId: 'p_c' }, { orderId: 'ord_old', stars: 2 });
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId, r.facts]).sort()).toEqual([
+      ['low_rating', 'ord_food', { food: 2, delivery: 5, orderType: 'food' }],
+      ['low_rating', 'ord_old', { stars: 2 }],
+      ['low_rating', 'ord_ride', { delivery: 1, orderType: 'ride' }],
+    ]);
+    // The order closing (2-h window) does not close the case: staff do, after hearing all sides.
+    await h.emit('order.closed', { orderId: 'ord_food' });
+    expect(await h.list()).toHaveLength(3);
+    const food = rows.find((r) => r.subjectId === 'ord_food')!;
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'fixed' }))).rejects.toMatchObject({ code: 'invalid_input' });
+    const closed = await h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'called', note: 'الزبون: بارد. المطعم: تأخر الدليفري. الدليفري: انتظر 15 دقيقة' }));
+    expect(closed).toMatchObject({ state: 'done', outcome: 'called' });
+    // A note written earlier is enough.
+    const ride = rows.find((r) => r.subjectId === 'ord_ride')!;
+    await h.svc.note(SARA, { id: ride.id, note: 'السايق اعتذر، الزبون راضي' });
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: ride.id, outcome: 'fixed' }))).resolves.toMatchObject({ state: 'done' });
+  });
+
   it('an SOS row is taken when the SOS is taken, and closes only on the SOS desk', async () => {
     const h = harness();
     await h.emit(
@@ -310,6 +372,65 @@ describe('InboxService — the Today list (CON-12)', () => {
       { incidentId: 'sos_1', cityId: 'aziziyah', outcome: 'safe' },
     );
     expect(await h.list()).toEqual([]);
+  });
+
+  it('a stuck order and a courier over his cash cap each open one row, and close when the problem ends', async () => {
+    const h = harness();
+    const since = new Date(T0).toISOString();
+    await h.emit(
+      'order.stuck',
+      { orderId: 'ord_s' },
+      { orderId: 'ord_s', cityId: 'aziziyah', reason: 'courier_lost', since },
+    );
+    await h.emit(
+      'courier.cash_over_cap',
+      { aggregateId: 'p_d' },
+      { courierId: 'p_d', cashIqd: 52_000, capIqd: 50_000, cityId: 'aziziyah' },
+    );
+    await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
+
+    const rows = await h.list();
+    expect(rows.map((r) => r.kind)).toEqual(['stuck', 'late', 'cash_cap']);
+    expect(rows[0]).toMatchObject({
+      subjectKind: 'order',
+      subjectId: 'ord_s',
+      orderId: 'ord_s',
+      facts: { reason: 'courier_lost' },
+    });
+    expect(rows[2]).toMatchObject({
+      subjectKind: 'courier',
+      subjectId: 'p_d',
+      orderId: null,
+      facts: { cashIqd: 52_000, capIqd: 50_000 },
+    });
+
+    h.later(60);
+    await h.emit('order.unstuck', { orderId: 'ord_s' }, { orderId: 'ord_s', cityId: 'aziziyah', by: 'p_haider' });
+    await h.emit(
+      'courier.cash_under_cap',
+      { aggregateId: 'p_d' },
+      { courierId: 'p_d', cashIqd: 10_000, capIqd: 50_000, cityId: 'aziziyah' },
+    );
+    expect((await h.list()).map((r) => r.kind)).toEqual(['late']);
+    const done = await h.list('done');
+    expect(done.map((r) => [r.kind, r.outcome])).toEqual(
+      expect.arrayContaining([
+        ['stuck', 'auto'],
+        ['cash_cap', 'auto'],
+      ]),
+    );
+
+    // Over the cap again later: the same courier's row comes back, counted.
+    h.later(60);
+    await h.emit(
+      'courier.cash_over_cap',
+      { aggregateId: 'p_d' },
+      { courierId: 'p_d', cashIqd: 51_000, capIqd: 50_000, cityId: 'aziziyah' },
+    );
+    expect((await h.list()).find((r) => r.kind === 'cash_cap')).toMatchObject({
+      times: 2,
+      facts: { cashIqd: 51_000 },
+    });
   });
 
   it('keeps the event lists apart and in step with the handlers', () => {

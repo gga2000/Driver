@@ -17,7 +17,7 @@ import {
   type PayerApprovalRequest,
 } from './orgs.types.js';
 
-export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSettings, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
+export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSettings, MerchantSetupState, Org, OrgMember, OrgMemberRole, OrgType, PayerApprovalRequest } from './orgs.types.js';
 
 /**
  * Orgs: restaurants, grocers, fleets and households (domain §12) — members, merchant order-taking
@@ -26,6 +26,12 @@ export type { MerchantOrg, MerchantPauseWindow, MerchantPickupSpot, MerchantSett
  *
  * Constructed by hand (tests) it runs on its own in-memory repository and a database-less unit of work.
  */
+/**
+ * A heartbeat after this long a gap counts as a tablet coming back (x1): well under the 5 minutes
+ * offline that pause a shop, so a shop that paused always reopens on the lists at once.
+ */
+const HEARTBEAT_GAP_MS = 2 * 60_000;
+
 @Injectable()
 export class OrgsService {
   private readonly clock: Clock;
@@ -33,6 +39,8 @@ export class OrgsService {
   private readonly uow: UnitOfWork;
   /** One household creation at a time per payer (RDB-05). */
   private readonly householdLock: DistributedKeyedLock;
+  /** x1: when (epoch ms) a merchant's settings last changed through this instance; 0 when never. */
+  private merchantChangedAt = 0;
 
   constructor(
     @Optional() private readonly events?: EventsService,
@@ -230,18 +238,36 @@ export class OrgsService {
   }
 
   /** Writes only the given settings and returns the result. */
-  setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): Promise<MerchantSettings> {
-    return this.uow.run(async (tx) => {
-      await this.get(orgId, tx);
-      await this.repo.patchMerchant(orgId, patch, tx);
-      return { ...DEFAULT_MERCHANT_SETTINGS, ...(await this.get(orgId, tx)).merchant };
-    });
+  async setMerchantSettings(orgId: string, patch: Partial<Omit<MerchantSettings, 'lastHeartbeatAt'>>): Promise<MerchantSettings> {
+    try {
+      return await this.uow.run(async (tx) => {
+        await this.get(orgId, tx);
+        await this.repo.patchMerchant(orgId, patch, tx);
+        return { ...DEFAULT_MERCHANT_SETTINGS, ...(await this.get(orgId, tx)).merchant };
+      });
+    } finally {
+      this.merchantChanged();
+    }
   }
 
   /** Merchant-app presence ping (edge-case review A.2). */
   async heartbeat(orgId: string, at: Date = this.clock.now()): Promise<void> {
-    await this.get(orgId);
+    const before = (await this.get(orgId)).merchant?.lastHeartbeatAt ?? null;
     await this.repo.patchMerchant(orgId, { lastHeartbeatAt: at });
+    // A tablet back after a gap (long enough to have paused the shop) reopens it on the lists at once.
+    if (before === null || at.getTime() - before.getTime() > HEARTBEAT_GAP_MS) this.merchantChanged();
+  }
+
+  /**
+   * x1: when a merchant's settings last changed through this instance (epoch ms, 0 = never): opened
+   * or closed by hand, busy, moved, hours, or a tablet back online. The customer lists rebuild when it moves.
+   */
+  merchantChangeStamp(): number {
+    return this.merchantChangedAt;
+  }
+
+  private merchantChanged(): void {
+    this.merchantChangedAt = Math.max(this.merchantChangedAt + 1, this.clock.now().getTime());
   }
 
   householdsOf(personId: string): Promise<Org[]> {

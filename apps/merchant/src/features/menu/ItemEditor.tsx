@@ -121,7 +121,8 @@ export function ItemEditor() {
     try {
       const uploadId = await upload(picked);
       await actions.replacePhoto.mutateAsync({ merchantOrgId: storeId, itemId: item.id, uploadId });
-      toast.show({ message: t('merchant.item.photo_done'), tone: 'success' });
+      // p4: it is on the customer menu now; our team looks at it today.
+      toast.show({ message: t('merchant.item.photo_done_review'), tone: 'success' });
       return true;
     } catch (err) {
       fail(err);
@@ -130,9 +131,9 @@ export function ItemEditor() {
       setUploading(false);
     }
   };
-  const pickFromLibrary = async (source: number | string) => {
+  const pickFromLibrary = async (path: string) => {
     try {
-      if (await applyPhoto(await libraryPhoto(source))) setLibraryOpen(false);
+      if (await applyPhoto(libraryPhoto(path))) setLibraryOpen(false);
     } catch (err) {
       fail(err);
     }

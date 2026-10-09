@@ -41,6 +41,10 @@ describe('tRPC batch size (SEC-03)', () => {
       const input = Object.fromEntries(Array.from({ length: n }, (_, i) => [i, { json: {} }]));
       return fetch(`${base}/trpc/${paths}?batch=1&input=${encodeURIComponent(JSON.stringify(input))}`);
     };
+    // The limit counts in fixed one-minute windows: start well inside one, or a window edge in the
+    // middle of the loop resets the count and the last call is served (400) instead of refused.
+    const left = REQUEST_LIMITS.windowMs - (Date.now() % REQUEST_LIMITS.windowMs);
+    if (left < 15_000) await new Promise((r) => setTimeout(r, left + 50));
     for (let sent = 0; sent < REQUEST_LIMITS.quotePerGuestIp; sent += REQUEST_LIMITS.clientBatchItems) {
       expect((await quotes(Math.min(REQUEST_LIMITS.clientBatchItems, REQUEST_LIMITS.quotePerGuestIp - sent))).status).toBe(400);
     }
@@ -49,7 +53,7 @@ describe('tRPC batch size (SEC-03)', () => {
     const wait = Number(refused.headers.get('retry-after'));
     expect(wait).toBeGreaterThan(0);
     expect(wait).toBeLessThanOrEqual(60);
-  });
+  }, 45_000);
 
   it('the apps split their batches well below the limit', () => {
     expect(REQUEST_LIMITS.clientBatchItems).toBeLessThan(REQUEST_LIMITS.maxBatchSize);

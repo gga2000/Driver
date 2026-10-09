@@ -24,11 +24,13 @@ through the Cloud API (`POST graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP
 `/webhooks/whatsapp` (verify token `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, signature `WHATSAPP_APP_SECRET`);
 a message not delivered 60 s after sending gets its SMS twin (domain §8).
 
-16 templates.
+18 templates.
 
 | Template | Meta category | Sent as notify template (category) |
 |---|---|---|
 | `otp_login` | AUTHENTICATION | the sign-in code (identity, not a notify template) |
+| `console_live_down_alert` | UTILITY | `console_live_down_alert` (safety) |
+| `console_unwatched_alert` | UTILITY | `console_unwatched_alert` (safety) |
 | `courier_arriving` | UTILITY | `courier_arriving` (order_updates) |
 | `courier_arriving_paid` | UTILITY | `courier_arriving_paid` (order_updates) |
 | `courier_cash_receipt` | UTILITY | `courier_cash_receipt` (money) |
@@ -46,6 +48,44 @@ a message not delivered 60 s after sending gets its SMS twin (domain §8).
 | `wallet_topup_receipt` | UTILITY | `wallet_topup_receipt` (receipts) |
 
 ## Templates
+
+### `console_live_down_alert`
+
+- Category: **UTILITY** · languages: `ar`, `en` · i18n key: `wa.console_live_down` · notify template `console_live_down_alert`
+- Body parameters, in order: `{{1}}` minutes, `{{2}}` link
+
+Arabic (`ar`):
+
+```text
+درايفر: التحديث المباشر بالكونسول واقف من {{1}}، الشاشات تتحدث ببطء. شوف السيرفر: {{2}}
+```
+
+English (`en`):
+
+```text
+Driver: Console live updates have been down for {{1}}; screens refresh slowly. Check the server: {{2}}
+```
+
+Sample values for the submission: `{{1}}` = 1 دقيقة · `{{2}}` = https://console.driver.iq
+
+### `console_unwatched_alert`
+
+- Category: **UTILITY** · languages: `ar`, `en` · i18n key: `wa.console_unwatched` · notify template `console_unwatched_alert`
+- Body parameters, in order: `{{1}}` minutes, `{{2}}` link
+
+Arabic (`ar`):
+
+```text
+درايفر: من {{1}} ماكو ولا شاشة مفتوحة بالكونسول، وإنت المناوب. افتحه أو اتصل بالفريق: {{2}}
+```
+
+English (`en`):
+
+```text
+Driver: for {{1}} no Console screen has been open, and you're on call. Open it or call the team: {{2}}
+```
+
+Sample values for the submission: `{{1}}` = 5 دقيقة · `{{2}}` = https://console.driver.iq
 
 ### `courier_arriving`
 

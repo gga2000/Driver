@@ -39,7 +39,7 @@ we can't open to the public without it.
 | Supabase Pro in Frankfurt (database) | Yes | `docs/deploy/supabase.md`, `docs/deploy/runbook.md` |
 | Fly.io for the server | Yes | `docs/deploy/hosting.md` |
 | Cloudflare Pages for the web apps; own street map on Cloudflare R2 | Yes | `docs/deploy/web.md`, maps spec §5.2 |
-| An SMS provider for sign-in codes (today codes only go to the log) | Yes | `docs/deploy/runbook.md` |
+| SMS for sign-in codes: OTPIQ (Ali's pick, 2026-10-09). Sign up, top up, live key into production secrets. Ask OTPIQ for the sender id **Driver** early: until it is approved only sign-in codes go out, and other texts (notification SMS, the gift recipient's SMS) fail | Yes | `docs/api/otpiq.md` |
 | WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages) | Yes | `docs/whatsapp-templates.md` |
 | Push notifications working on 5 test phones | Yes | launch playbook §7 |
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |
@@ -105,3 +105,29 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.
+
+## 7. Platform (servers, tests, alerts): dated work and parked items
+
+Added 2026-10-09 when Ali closed the platform thread. Unlike sections 1–6, the dated rows are already
+agreed and only wait for their day; the platform work restarts from here.
+
+| When | What | Who | Details |
+|---|---|---|---|
+| Before 2 Nov | Upgrade Supabase to Pro (Ali said yes on 2026-10-08) | Ali | `docs/deploy/supabase.md` |
+| Before 9 Nov | Type the test sign-in code `STAGING_TEST_OTP` into GitHub → Settings → Environments → staging (only there, never in chat) | Ali | `docs/deploy/staging.md` |
+| 9 Nov | The big load test on the test server (bigger test server approved), results in `docs/launch/load-YYYY-MM-DD.md` | platform | `docs/launch/load-test.md` |
+| Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
+| 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
+| When the real server is set up | Error reports (`SENTRY_DSN` on the real API) and uptime monitors with email alerts (Better Stack, free) | platform | `docs/deploy/hosting.md` "Logs and errors" |
+| When the real server is set up | The map on the real Supabase project: secret `SUPABASE_SECRET_KEY` in GitHub → Environments → Production, run Actions → Map tiles → `production`, then set the map URLs in the real app builds | Ali (key) + platform | `docs/deploy/map.md` |
+| Week before launch | Phone-call alerts (Better Stack Responder, about $29 a month): the alert phone number goes only into Better Stack's own settings, never into this repo | Ali | — |
+| Each test-server run | Approve it when GitHub asks ("Review deployments") | Ali | — |
+
+Parked (start when convenient, no date):
+
+- Two database clean-ups wait behind the other teams' database changes: the old-data clean-up (#38) and
+  the events index. Each takes the next free migration slot when picked up (`docs/launch/migrations.md`).
+- Game day row 11 (the nightly money close on a web machine) has no on-demand start yet; until it does,
+  that row is run by hand around the scheduled close time.
+- Sign-in texts and phone notifications wait with no time limit if their provider hangs
+  (`apps/api/src/shared/messaging/http.ts`, lane D's); game day row 6 will show it.

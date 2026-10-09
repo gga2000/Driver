@@ -94,6 +94,9 @@ export function makeApiClient(store: SessionStore = appSession, url: string = AP
           url,
           transformer,
           EventSource: EventSourceImpl,
+          // CORE-05: the live connection says which build is asking too (the XHR source on phones sends it;
+          // a browser's EventSource can send no headers, and the web build has none to send).
+          eventSourceOptions: { headers: BUILD_HEADERS },
           // Signed out (a family member on the public share page): no stream token; only public streams open.
           connectionParams: async (): Promise<Record<string, string>> => ((await store.getAccessToken()) ? { streamToken: await tokens.get() } : {}),
         }),

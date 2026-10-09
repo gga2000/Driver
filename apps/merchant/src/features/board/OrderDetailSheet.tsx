@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
-import type { BoardOrder } from '@driver/contracts';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import type { BoardOrder, ChatThreadKind } from '@driver/contracts';
 import { Badge, Button, CountdownRing, Icon, ModalSheet, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
+import { SplitDialog } from '@/components/SplitDialog';
 import { threadOf } from '@/features/chat/logic';
 import { useChatThreads } from '@/features/chat/queries';
 import { useMaskedCall } from '@/features/chat/useMaskedCall';
@@ -25,7 +27,15 @@ export interface OrderDetailSheetProps {
   onReject: (o: BoardOrder) => void;
   onReady: (o: BoardOrder) => void;
   onPrint: (o: BoardOrder) => void;
+  /**
+   * «قبله منتظر 9:32 م · جهّزه علي 9:51 م»: who pressed what on this order. The owner's only: the
+   * board passes it for the owner and never for staff (the server refuses staff as well).
+   */
+  who?: string | null;
 }
+
+// d23: the chat panel loads when it is first opened (the board itself never needs it).
+const ChatScreen = lazy(() => import('@/features/chat/ChatScreen').then((m) => ({ default: m.ChatScreen })));
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   const theme = useTheme();
@@ -42,43 +52,48 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /** The whole ticket: every line by person, times, money, courier; print and the column's actions. */
-export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint }: OrderDetailSheetProps) {
+export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onReject, onReady, onPrint, who }: OrderDetailSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
+  const { wide } = useLayout();
+  // d23: on a tablet the chat opens beside the order (a side panel), not as a full page.
+  const [chat, setChat] = useState<ChatThreadKind | null>(null);
+  const orderId = order?.id ?? null;
+  useEffect(() => setChat(null), [orderId]);
   if (!order) return null;
   const courier = courierLine(order.courier, now);
-  return (
-    <ModalSheet
-      visible
-      onClose={onClose}
-      size="lg"
-      testID="order-detail"
-      title={t('merchant.detail.title', { number: order.number })}
-      // M-11: reading a long ticket is exactly when the 90 s run out — the same ring as the card.
-      aside={
-        order.column === 'new' && order.acceptBy && !order.partial ? (
-          <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
-        ) : null
-      }
-      subtitle={[t('merchant.detail.placed_at', { time: clock12(order.placedAt) }), order.promisedReadyAt ? t('merchant.detail.ready_by', { time: clock12(order.promisedReadyAt) }) : null].filter(Boolean).join(' · ')}
-      footer={
-        <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-          <Button testID="detail-print" label={t('merchant.print')} icon="receipt" variant="secondary" size="lg" onPress={() => onPrint(order)} style={{ flex: 1 }} />
-          {order.column === 'new' && !order.partial ? (
-            <>
-              <Button label={t('merchant.reject')} variant="secondary" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
-              <Button label={t('merchant.accept')} size="lg" onPress={() => onAccept(order)} style={{ flex: 2 }} />
-            </>
-          ) : order.column === 'preparing' ? (
-            <>
-              <Button label={t('merchant.detail.reject_late')} variant="ghost" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
-              <Button label={t('merchant.card.mark_ready')} icon="check" size="lg" onPress={() => onReady(order)} style={{ flex: 2 }} />
-            </>
-          ) : null}
-        </View>
-      }
-    >
+  const title = t('merchant.detail.title', { number: order.number });
+  // M-11: reading a long ticket is exactly when the 90 s run out — the same ring as the card.
+  const aside =
+    order.column === 'new' && order.acceptBy && !order.partial ? (
+      <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock ?? (() => now)} size={60} strokeWidth={5} testID="detail-ring" />
+    ) : null;
+  const subtitle = [t('merchant.detail.placed_at', { time: clock12(order.placedAt) }), order.promisedReadyAt ? t('merchant.detail.ready_by', { time: clock12(order.promisedReadyAt) }) : null].filter(Boolean).join(' · ');
+  const footer = (
+    <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+      <Button testID="detail-print" label={t('merchant.print')} icon="receipt" variant="secondary" size="lg" onPress={() => onPrint(order)} style={{ flex: 1 }} />
+      {order.column === 'new' && !order.partial ? (
+        <>
+          <Button label={t('merchant.reject')} variant="secondary" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
+          <Button label={t('merchant.accept')} size="lg" onPress={() => onAccept(order)} style={{ flex: 2 }} />
+        </>
+      ) : order.column === 'preparing' ? (
+        <>
+          <Button testID="detail-cancel" label={t('merchant.detail.cancel_short')} accessibilityLabel={t('merchant.detail.reject_late')} variant="ghost" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
+          <Button label={t('merchant.card.mark_ready')} icon="check" size="lg" onPress={() => onReady(order)} style={{ flex: 2 }} />
+        </>
+      ) : null}
+    </View>
+  );
+  const body = (
+    <>
+      {who ? (
+        <Text testID="detail-who" variant="footnote" color="textMuted">
+          {who}
+        </Text>
+      ) : null}
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
         {hasAllergy(order) ? <AllergyPill testID="detail-allergy" /> : null}
         {courier ? <StatusPill tone={courier.tone} icon="bike" live={courier.live} label={t(courier.key, courier.params)} /> : <StatusPill tone="neutral" icon="bike" label={t('merchant.courier.none')} />}
@@ -96,7 +111,7 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
       ) : null}
 
       {/* s2: a practice order has nobody behind it to chat with or call. */}
-      {isPractice(order.id) ? <StatusPill tone="accent" icon="bulb" label={t('merchant.practice.tag')} /> : <Contact order={order} onLeave={onClose} />}
+      {isPractice(order.id) ? <StatusPill tone="accent" icon="bulb" label={t('merchant.practice.tag')} /> : <Contact order={order} onLeave={onClose} {...(wide ? { onChat: setChat } : {})} />}
 
       <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[4] }}>
         <OrderItems order={order} />
@@ -123,15 +138,40 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
           {order.paymentMethod === 'cash' ? t('merchant.detail.payment_cash', { amount: amountParam(order.collectCashIqd) }) : t('merchant.detail.payment_prepaid')}
         </Text>
       </View>
+    </>
+  );
+  if (wide && chat) {
+    return (
+      <SplitDialog
+        testID="order-detail"
+        title={title}
+        subtitle={subtitle}
+        aside={aside}
+        footer={footer}
+        onClose={onClose}
+        side={
+          <Suspense fallback={<ActivityIndicator style={{ flex: 1 }} color={theme.colors.textMuted} />}>
+            <ChatScreen key={chat} orderId={order.id} kind={chat} orderNumber={order.number} onBack={() => setChat(null)} />
+          </Suspense>
+        }
+      >
+        {body}
+      </SplitDialog>
+    );
+  }
+  return (
+    <ModalSheet visible onClose={onClose} size="lg" testID="order-detail" title={title} aside={aside} subtitle={subtitle} footer={footer}>
+      {body}
     </ModalSheet>
   );
 }
 
 /**
  * Chat with the courier (and the customer, about the order) and a masked call to the courier
- * (notifications & support §2). Unread counts poll with the threads; the chat opens full screen.
+ * (notifications & support §2). Unread counts poll with the threads; the chat opens full screen on a
+ * phone and beside the order on a tablet (d23).
  */
-function Contact({ order, onLeave }: { order: BoardOrder; onLeave: () => void }) {
+function Contact({ order, onLeave, onChat }: { order: BoardOrder; onLeave: () => void; /** d23 (tablet): open the chat beside the order. */ onChat?: (kind: ChatThreadKind) => void }) {
   const theme = useTheme();
   const t = useT();
   const { wide } = useLayout();
@@ -140,6 +180,7 @@ function Contact({ order, onLeave }: { order: BoardOrder; onLeave: () => void })
   const customer = threadOf(threads.data, 'customer_merchant');
   const { call, busy } = useMaskedCall(order.id, 'merchant_courier', false);
   const open = (kind: 'merchant_courier' | 'customer_merchant') => {
+    if (onChat) return onChat(kind);
     onLeave();
     router.push({ pathname: '/chat/[orderId]', params: { orderId: order.id, kind, number: order.number } });
   };

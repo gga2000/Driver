@@ -27,12 +27,11 @@ export default {
     const readyTab = async () => {
       if (phone) await byTestId('segment-ready').click();
     };
-    /** The money pill: in the header on a tablet, in the "…" menu on a phone. */
+    /** The money pill: in the header's "…" menu on every size (day-one d04). */
     const pillShot = async (name) => {
-      if (!phone) return shot(name, { element: byTestId('cash-balance') });
       await byTestId('header-more').click();
       await byTestId('header-menu').waitFor({ timeout: 5000 });
-      await shot(name);
+      await shot(name, phone ? {} : { element: byTestId('cash-balance') });
       await byTestId('header-menu-close').click();
       await page.waitForTimeout(400);
     };

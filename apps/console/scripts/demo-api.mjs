@@ -51,9 +51,9 @@ const { createApp } = await load('bootstrap.js');
 const { IdentityService } = await load('modules/identity/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
 const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
-const { OrdersService } = await load('modules/orders/index.js');
+const { OrdersService, OrdersStaffService } = await load('modules/orders/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
-const { LedgerService, LedgerFacade } = await load('modules/ledger/index.js');
+const { LedgerService, LedgerFacade, CapsService } = await load('modules/ledger/index.js');
 const { DriverAccountService } = await load('modules/driver-account/index.js');
 const { OpsService } = await load('modules/ops/index.js');
 const { FleetService, FLEET_REPOSITORY } = await load('modules/fleet/index.js');
@@ -548,6 +548,16 @@ for (const c of deskCouriers) {
   await ledger.record({ type: 'cash_collected', amount: c.held + c.settled, fromAccount: `cash:${id}`, toAccount: `customer:${customers[n]}`, occurredAt: new Date(), idempotencyKey: `demo:cash:${id}` });
   if (c.settled) await ledger.record({ type: 'driver_settlement', amount: c.settled, fromAccount: 'bank', toAccount: `cash:${id}`, occurredAt: new Date(), memo: `ops_round:D-DEMO-${n}`, idempotencyKey: `demo:settle:${id}` });
 }
+// Today list: the desk's cash above went in one line at a time (no cap watch on single lines), so
+// say once, with his real numbers, who is over his cap now (the row a real hand-in closes).
+{
+  const caps = get(CapsService);
+  for (const c of deskCouriers) {
+    const st = await caps.status(c.id);
+    if (st.overCap)
+      await events.emit(undefined, { type: 'courier.cash_over_cap', actorId: 'system', occurredAt: new Date(), idempotencyKey: `demo:cap:${c.id}`, payload: { courierId: c.id, cashIqd: st.owedIqd, capIqd: st.capIqd, cityId: 'aziziyah' } }, { name: 'driver', id: c.id });
+  }
+}
 // Muntadhar's licence runs out in 9 days: /drivers shows it under "أوراقه تنتهي".
 {
   const m = deskCouriers[2];
@@ -820,6 +830,72 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
     }
   }
   if (hideId) await departures.hideReview(admin, hideId, 'not_about_trip');
+}
+
+// الرجعة garage board (Console › /garage, W3 / NTF-14): at كراج البوابة 1 one driver never came
+// (three riders waiting, 25 minutes past his latest time), one left for Baghdad and never pressed
+// «وصلت» (12 minutes past travel time + 30), and two cars still to go. Announced and booked through
+// the real service, then the two late ones are moved back in time in the routes table, the way a
+// real morning would leave them.
+{
+  const now = Date.now();
+  const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+  const routesRepo = get(ROUTES_REPOSITORY);
+  const garage = departures.garage('mp_garage_bab1');
+  const travel = departures.corridor('aziziyah_baghdad').travelMin;
+  const riders = ['أم حسين', 'باقر جواد', 'حوراء سعد', 'كاظم ياسر', 'منتظر علي', 'رسل حيدر', 'ضياء كريم', 'تبارك عباس', 'سيف نزار', 'إسراء هادي'];
+  let r = 0;
+  const run = async ({ phone, name, at, seats, vehicle }) => {
+    const driverId = await person(phone, name, ['intercity_driver']);
+    const dep = await departures.announce(
+      driverId,
+      AnnounceInput.parse({ garageId: garage.id, corridorId: 'aziziyah_baghdad', departAt: new Date(now + at * 60_000), latestDepartureAt: new Date(now + (at + 30) * 60_000), vehicle }),
+    );
+    const booked = [];
+    for (const seatId of seats) {
+      const rider = await person(`07715550${String(700 + r).padStart(3, '0')}`, riders[r % riders.length]);
+      r += 1;
+      const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal' }));
+      booked.push(await departures.book(rider, held.id, 'cash'));
+    }
+    return { driverId, dep, booked };
+  };
+  const back = async (id, patch) => {
+    const rec = await routesRepo.getDeparture(id);
+    if (rec) await routesRepo.saveDeparture({ ...rec, ...patch });
+  };
+  // Never came: announced for 55 minutes ago, latest 45 minutes ago → 25 minutes on the list.
+  const noShow = await run({ phone: '07814440701', name: 'عباس فاضل', at: 60, seats: ['front', 'back_left', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 30417', modelKey: 'elantra', color: 'بيضة' } });
+  await back(noShow.dep.id, { departAt: new Date(now - 55 * 60_000), latestDepartureAt: new Date(now - 45 * 60_000) });
+  // On the road and never pressed «وصلت».
+  const road = await run({ phone: '07814440702', name: 'مصطفى ناجي', at: 30, seats: ['front', 'back_left', 'back_middle', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 77120', modelKey: 'corolla', color: 'فضية' } });
+  await departures.selfie(road.driverId, road.dep.id, 'demo/selfie.jpg');
+  await departures.driverPosition(road.driverId, road.dep.id, { lat: garage.lat, lng: garage.lng });
+  for (const b of road.booked) await departures.checkIn(road.driverId, road.dep.id, b.pin);
+  await departures.depart(road.driverId, road.dep.id);
+  const left = now - (travel + 42) * 60_000;
+  await back(road.dep.id, { departAt: new Date(left - 5 * 60_000), latestDepartureAt: new Date(left + 25 * 60_000), departedAt: new Date(left) });
+  // Still to go.
+  await run({ phone: '07814440703', name: 'حسن جبار', at: 25, seats: ['front', 'back_left'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 41966', modelKey: 'sonata', color: 'سودة' } });
+  await run({ phone: '07814440704', name: 'ليث عدنان', at: 95, seats: ['front'], vehicle: { kind: 'van', layout: 7, plate: 'واسط 58302', modelKey: 'starex', color: 'بيضة' } });
+}
+
+// The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
+await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
+
+// Two bad ratings (Ali, 2026-10-08: every one is a case on Today): cold food under a fine courier, and a
+// courier who didn't answer. Rated by their own customers on two of the evening's delivered orders.
+{
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const delivered = [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].filter((o) => o.state === 'delivered' && o.type === 'food' && !o.rating && !o.id.endsWith('_y'));
+  const bad = [
+    { food: 2, delivery: 2, tags: ['cold'], note: 'الأكل وصل بارد والتمن معجّن' },
+    { food: 4, delivery: 1, courierReasons: ['hard_to_reach', 'late'], tags: ['late'], note: 'اتصلت بيه ثلاث مرات ما رد، ووصل بعد ساعة' },
+  ];
+  for (const [i, r] of bad.entries()) {
+    const o = delivered[i];
+    if (o) await orders.rate(o.ordererId, { orderId: o.id, ...r }).catch((err) => console.warn('demo rating skipped:', err?.message ?? err));
+  }
 }
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

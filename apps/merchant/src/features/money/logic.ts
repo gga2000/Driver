@@ -33,6 +33,29 @@ export function balanceState(balanceIqd: number): { kind: 'owed' | 'owe' | 'zero
 }
 
 /**
+ * d12 · a new shop's first day: until his first order is delivered there is nothing to say about money
+ * yet, so «ما عندك فلوس عند درايفر هسة» (which reads like money went missing) gives way to «فلوسك تبين
+ * هنا من أول طلب». Read from what the cash account already carries: a zero balance that has never moved
+ * — nothing settled, no hand-over, no request, nobody holding his cash — and no delivered order today.
+ * One delivered order moves the balance (his sales or the commission), so the gate opens by itself.
+ */
+export function beforeFirstOrder(
+  account: Pick<MerchantCashAccount, 'balanceIqd' | 'lastSettledAt' | 'handovers' | 'request' | 'holders' | 'heldByPlatformIqd'> | undefined,
+  deliveredToday = 0,
+): boolean {
+  if (!account) return false;
+  return (
+    account.balanceIqd === 0 &&
+    account.lastSettledAt === null &&
+    account.handovers.length === 0 &&
+    account.request === null &&
+    account.holders.length === 0 &&
+    account.heldByPlatformIqd === 0 &&
+    deliveredToday === 0
+  );
+}
+
+/**
  * Why "اطلب فلوسك" can't be pressed (M-07: a disabled button always says why), or null when it can.
  */
 export function requestBlocker(account: Pick<MerchantCashAccount, 'balanceIqd' | 'request'>): 'open' | 'owe' | 'zero' | null {
@@ -170,7 +193,7 @@ const ARRIVES_KEY: Record<NonNullable<MoneyHeadline['arrives']>, TKey> = {
   bank_weekly: 'merchant.moneypill.arrives_bank_weekly',
 };
 
-export function moneyPill(h: MoneyHeadline): MoneyPill {
+export function moneyPill(h: MoneyHeadline, opts: { firstOrder?: boolean } = {}): MoneyPill {
   switch (h.kind) {
     case 'owed':
       return { tone: 'neutral', main: { key: 'merchant.moneypill.owed', amountIqd: h.amountIqd }, sub: h.arrives ? ARRIVES_KEY[h.arrives] : null, action: 'request' };
@@ -181,7 +204,8 @@ export function moneyPill(h: MoneyHeadline): MoneyPill {
         ? { tone: 'success', main: { key: 'merchant.moneypill.requested', time: h.by }, sub: null, action: 'open_money' }
         : { tone: 'success', main: { key: 'merchant.moneypill.requested_pending' }, sub: null, action: 'open_money' };
     case 'zero':
-      return { tone: 'neutral', main: { key: 'merchant.money.pill_zero' }, sub: null, action: 'open_money' };
+      // d12: a new shop before its first delivered order.
+      return { tone: 'neutral', main: { key: opts.firstOrder ? 'merchant.money.pill_first' : 'merchant.money.pill_zero' }, sub: null, action: 'open_money' };
   }
 }
 
@@ -208,4 +232,35 @@ export function statementBridge(s: Pick<WeeklyStatement, 'openingIqd' | 'closing
   if (adj !== 0) terms.push({ key: 'adjustments', label: 'merchant.bridge.adjustments', amountIqd: adj, op: '+' });
   terms.push({ key: 'closing', label: 'merchant.bridge.closing', amountIqd: s.closingIqd, op: '=' });
   return { terms, adds: s.openingIqd + s.totals.netIqd - s.totals.settledIqd + adj === s.closingIqd };
+}
+
+/**
+ * d19 · the week in plain sentences instead of the «+ − =» row: «بدينا الأسبوع بـ… · ربحت… · استلمت… ·
+ * باقي إلك…». The same terms as `statementBridge` (the server's numbers, nothing recomputed); each line
+ * picks its words from the sign and shows the amount without a sign, because the words already say
+ * which way it goes («وعليك», «انخصم»).
+ */
+export interface WeekLine {
+  key: BridgeTerm['key'];
+  text: TKey;
+  /** Shown as «{amount} دينار»; always ≥ 0 (the sign is in the words). */
+  amountIqd: number;
+}
+
+const WEEK_WORDS: Record<BridgeTerm['key'], { plus: TKey; minus: TKey; zero: TKey }> = {
+  opening: { plus: 'merchant.week.opening', minus: 'merchant.week.opening_owe', zero: 'merchant.week.opening_zero' },
+  net: { plus: 'merchant.week.net', minus: 'merchant.week.net_owe', zero: 'merchant.week.net_zero' },
+  settled: { plus: 'merchant.week.settled', minus: 'merchant.week.settled', zero: 'merchant.week.settled_zero' },
+  adjustments: { plus: 'merchant.week.adjust_plus', minus: 'merchant.week.adjust_minus', zero: 'merchant.week.adjust_plus' },
+  closing: { plus: 'merchant.week.closing', minus: 'merchant.week.closing_owe', zero: 'merchant.week.closing_zero' },
+};
+
+export function weekLines(s: Pick<WeeklyStatement, 'openingIqd' | 'closingIqd' | 'totals'>): { lines: WeekLine[]; adds: boolean } {
+  const { terms, adds } = statementBridge(s);
+  const lines = terms.map((term) => {
+    const words = WEEK_WORDS[term.key];
+    const text = term.amountIqd > 0 ? words.plus : term.amountIqd < 0 ? words.minus : words.zero;
+    return { key: term.key, text, amountIqd: Math.abs(term.amountIqd) };
+  });
+  return { lines, adds };
 }

@@ -11,6 +11,7 @@ import {
   type LiveSubscriptionHandlers,
 } from '@driver/contracts/live-client';
 import { useApi, useApiClient, useLiveTokens } from './api';
+import { stopLiveOnUpdateRequired } from './app-version';
 
 /**
  * The real-time channel in this app (`live.*` over SSE; same file in customer, partner and merchant).
@@ -137,7 +138,8 @@ export function useLiveChannel(opts: LiveChannelOptions): LiveMode {
       timer ??= setTimeout(flush, 250);
     };
     const conn = createLiveConnection({
-      open: (h) => ref.current.subscribe(client, h),
+      // An old build (`update_required`) stops the stream for good instead of reconnecting with backoff.
+      open: (h) => ref.current.subscribe(client, stopLiveOnUpdateRequired(h, () => conn.stop())),
       onEvent: (e) => {
         if (e.type === 'invalidate') invalidate(e.keys);
         ref.current.onEvent?.(e, qc, api);

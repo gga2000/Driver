@@ -144,6 +144,7 @@ interface PayerSide {
   payment: 'cash' | 'wallet';
   cashCollectedIqd?: number | undefined;
   changeToWalletIqd?: number | undefined;
+  debtCollectIqd?: number | undefined;
 }
 
 function payerAccount(p: { customerId: string; householdId?: string | undefined }): string {
@@ -167,16 +168,22 @@ function payerAccount(p: { customerId: string; householdId?: string | undefined 
 function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd: number, collector: string, rules: MoneyRules): number {
   if (chargedIqd < 0) throw new RangeError(`customer total is negative (${chargedIqd})`);
   const extra = p.changeToWalletIqd ?? 0;
+  const debt = p.debtCollectIqd ?? 0;
   if (p.payment === 'wallet') {
     if (extra > 0) throw new RangeError('change to the wallet on a wallet payment');
+    if (debt > 0) throw new RangeError('owed fees collected on a wallet payment');
     b.control(payer, -chargedIqd);
     return chargedIqd;
   }
   const due = roundCustomerTotal(chargedIqd, rules);
-  const collected = p.cashCollectedIqd ?? due + extra;
-  // What paid for the price (and its rounding change) once the no-change credit is set apart.
-  const kept = collected - extra;
+  const collected = p.cashCollectedIqd ?? due + debt + extra;
+  // What paid for the price (and its rounding change) once the no-change credit and the owed fees
+  // (M-3) are set apart. The price comes first: cash short of price + fees settles only what is left
+  // over (none of it if he paid just the price), and the rest stays owed on his wallet as before.
+  const settled = Math.min(debt, Math.max(0, collected - extra - due));
+  const kept = collected - extra - settled;
   if (extra < 0 || (extra > 0 && kept < chargedIqd)) throw new RangeError(`change to the wallet ${extra} leaves ${kept} for a price of ${chargedIqd}`);
+  b.add('debt_settled', settled, collector, payer, 'owed_fees');
   b.add('cash_collected', Math.min(kept, chargedIqd), collector, payer);
   if (kept > chargedIqd) b.add('cash_rounding_credit', kept - chargedIqd, collector, payer, 'change_as_credit');
   b.add('cash_change_to_wallet', extra, collector, payer, 'no_change');

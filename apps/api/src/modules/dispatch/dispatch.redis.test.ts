@@ -46,6 +46,17 @@ describe.skipIf(!redisUrl)('dispatch on Redis (integration)', () => {
     await b.unlock(key);
   });
 
+  it("speed x2: a request is on the city's board until retired", async () => {
+    const store = new RedisDispatchStore(connect());
+    const r = { tripId: `${run}-board`, cityId: 'aziziyah' } as unknown as Parameters<RedisDispatchStore['saveRequest']>[0];
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(false);
+    await store.saveRequest(r);
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(true);
+    expect(await store.isActive('kut', r.tripId)).toBe(false);
+    await store.retireRequest(r);
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(false);
+  });
+
   it('per-driver lock (M2 follow-up): two pods serialise the same driver, and only the owner releases it', async () => {
     const a = new RedisDispatchStore(connect());
     const b = new RedisDispatchStore(connect());

@@ -8,6 +8,7 @@
 // (كص، باجة، تكة غنم), and three demo people:
 //   0770 123 4567  owner of مطعم خالد            → straight to the board
 //   0770 999 0000  staff at خالد and الحاج كريم  → store picker
+//   0770 111 0000  علي, staff at خالد             → straight to the board (staff: no money, no «مين سوّى شنو»)
 //   0770 555 0000  no store                      → "حسابك بعده ما متفعّل"
 // GET /demo/seed lists stores and people.
 //
@@ -44,6 +45,10 @@ const { DispatchService } = await load('modules/dispatch/index.js');
 const { LedgerService, Accounts } = await load('modules/ledger/index.js');
 const { COURIER_VEHICLES } = await load('modules/tracking/index.js');
 
+// CORE-05 (minimum app version): merchant builds below 0.0.2 are too old here, so a dev-tools web
+// export opened with `?demoBuild=0.0.1` gets `update_required` and shows «حدّث التطبيق»
+// (shots: SHOTS=app-version). Real builds (0.1.0 and up) and the plain web app are never refused.
+process.env.MIN_APP_VERSIONS ??= 'merchant:0.0.2';
 const app = await createApp();
 /**
  * Demo hooks live in one table so sections can add them after `app.init()` (Nest closes the router
@@ -127,10 +132,12 @@ const people = {
   owner: { phone: '07701234567', id: await person('07701234567', 'خالد') },
   multi: { phone: '07709990000', id: await person('07709990000', 'مصطفى') },
   inactive: { phone: '07705550000', id: await person('07705550000', 'سجاد') },
+  ali: { phone: '07701110000', id: await person('07701110000', 'علي') },
 };
 await identity.grantRole(SYSTEM, { personId: people.owner.id, kind: 'merchant_owner', orgId: khalid.orgId });
 await identity.grantRole(SYSTEM, { personId: people.multi.id, kind: 'merchant_staff', orgId: khalid.orgId });
 await identity.grantRole(SYSTEM, { personId: people.multi.id, kind: 'merchant_staff', orgId: kareem.orgId });
+await identity.grantRole(SYSTEM, { personId: people.ali.id, kind: 'merchant_staff', orgId: khalid.orgId });
 
 // ───────────────────────── context for sections ─────────────────────────
 
@@ -141,7 +148,7 @@ await identity.grantRole(SYSTEM, { personId: people.multi.id, kind: 'merchant_st
  *   services                   orgs, catalog, orders, identity, trips, dispatch, ledger, vehicles
  *   Accounts                   ledger account names (merchantCash(orgId), driver(id)…)
  *   stores: { khalid, kareem, all }   seeded storefronts ({ orgId, seed, itemIds: key → item id })
- *   people: { owner, multi, inactive } ({ phone, id })
+ *   people: { owner, multi, inactive, ali } ({ phone, id })
  *   line(store, key, qty, { choose: ['صمون حجري'], note, participantRef })   an order line with
  *                              required modifiers resolved by option name
  *   route(path, handler)       adds an Express-style hook; handler(req, res, url) may return a value

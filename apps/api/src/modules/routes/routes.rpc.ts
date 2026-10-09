@@ -4,6 +4,7 @@ import {
   DriverError,
   type Actor,
   type OverdueDeparture,
+  type StaffDepartureDriver,
   type StaffDepartureResult,
   type CallSession,
   type BoardInput,
@@ -938,6 +939,25 @@ export class RoutesRpc implements RoutesPort {
 
   async overdueDepartures(_actor: Actor, input: In<'overdueDepartures'>): Promise<OverdueDeparture[]> {
     return this.staffOrThrow().overdue(input);
+  }
+
+  /**
+   * Who drives each departure, whatever its state: the Console garage view names the driver of a run
+   * that left or is overdue (riders' `driverCards` stop at the board). Name and masked number are one
+   * fail-closed staff vault read (purpose `intercity_ops_departure`); unknown ids are skipped.
+   */
+  async departureDrivers(actor: Actor, input: In<'departureDrivers'>): Promise<StaffDepartureDriver[]> {
+    const deps: DepartureRecord[] = [];
+    for (const id of new Set(input.departureIds)) {
+      const dep = await this.repo.getDeparture(id);
+      if (dep) deps.push(dep);
+    }
+    if (deps.length === 0) return [];
+    const cards = this.names ? await this.names.memberCards([...new Set(deps.map((d) => d.driverId))], actor.personId, 'intercity_ops_departure') : {};
+    return deps.map((d) => {
+      const card = cards[d.driverId];
+      return { departureId: d.id, driverId: d.driverId, displayName: card?.name ? shortDisplayName(card.name) || null : null, phoneMasked: card?.phoneMasked ?? null };
+    });
   }
 
   private staffOrThrow(): DeparturesStaffService {

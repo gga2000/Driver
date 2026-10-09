@@ -12,7 +12,7 @@ import { useMaskedCall } from './useMaskedCall';
  * One conversation of an order for the kitchen (with the courier, or the customer about the
  * order): the shared `ChatThread` from @driver/ui, minus sending a location.
  */
-export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; kind: ChatThreadKind; orderNumber?: string }) {
+export function ChatScreen({ orderId, kind, orderNumber, onBack }: { orderId: string; kind: ChatThreadKind; orderNumber?: string; /** d23: the tablet's side panel closes itself instead of going back. */ onBack?: () => void }) {
   const t = useT();
   const locale = useLocale();
   const client = useApiClient();
@@ -32,7 +32,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       refresh={actions.refresh}
       call={() => void call()}
       calling={busy}
-      onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+      onBack={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))}
       errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)}
       errorCode={apiErrorCode}
       photoUri={absoluteUrl}

@@ -13,6 +13,7 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { CategoryNameSheet, ReorderSheet } from './CategorySheets';
 import { Glyph } from './Glyph';
+import { menuScore } from '@/features/setup/logic';
 import { categoryNames, filterMenu, itemStatus, sectionCounts, shelfRows, trayColumns, type MenuCategoryLike, type ShelfRow } from './logic';
 import { Tray } from './Tray';
 import { GlyphButton, Panel, Pill } from './parts';
@@ -178,7 +179,9 @@ export function MenuScreen() {
     </View>
   );
 
-  const subtitle = menu.data ? t('merchant.menu.subtitle', { count: counts.total, sections: named.length }) : store?.name;
+  // s-p2: «22 من 26 بصور» while some dishes still have no photo (a library photo counts).
+  const score = menuScore(allItems);
+  const subtitle = menu.data ? `${t('merchant.menu.subtitle', { count: counts.total, sections: named.length })}${score.missing > 0 ? ` · ${t('merchant.setup.score', { done: score.withPhoto, total: score.total })}` : ''}` : store?.name;
 
   const filters = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} style={{ flexGrow: 0 }}>

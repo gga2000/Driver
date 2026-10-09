@@ -192,6 +192,11 @@ export const PlaceOrderInput = z.object({
    */
   statedTenderIqd: Iqd.positive().optional(),
   /**
+   * M-3 «ينضاف لطلبك الجاي»: the owed fees the checkout showed (`orders.quote` → `debtCollectIqd`). A
+   * different figure (paid at an agent meanwhile, or another order took it) is `price_changed`.
+   */
+  debtCollectIqd: Iqd.min(0).optional(),
+  /**
    * W-02 / J-D10: spend the customer's points on this order («استخدم نقاطك»). The server decides how
    * many (his available points, capped by the delivery fee + service fee and by the price) and takes
    * them off the delivery fee first, then the service fee. Merchant orders only; ignored otherwise.
@@ -384,6 +389,11 @@ export const Order = z.object({
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */
   statedTenderIqd: Iqd.nullable().optional(),
   /**
+   * M-3 «ينضاف لطلبك الجاي»: cancellation fees he owed, collected in cash with this order on top of
+   * `totalIqd` (the courier takes `totalIqd + debtCollectIqd`); absent = none.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
+  /**
    * "الخردة علينا": what went to the customer's wallet at the door because the courier had no change
    * ("باقي الكاش"), on top of the rounding `changeIqd`; null/absent = none.
    */
@@ -451,6 +461,11 @@ export const OrderQuote = z.object({
    * people on a group order. 0/absent when it earns none.
    */
   pointsEarn: z.number().int().min(0).optional(),
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (cash food and shop orders, `CASH_DEBT_COLLECT`): the cancellation fees he
+   * owes, handed over with this order on top of `totalIqd` and its own line at checkout; absent = none.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
 });
 export type OrderQuote = z.infer<typeof OrderQuote>;
 

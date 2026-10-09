@@ -208,4 +208,24 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect(await orders.merchantOrders(ids.org, range)).toEqual([await orders.get(ids.order)]);
     expect(await orders.merchantOrders(ids.org, { from: range.from, to: placedAt })).toEqual([]);
   });
+
+  it("perf z5: the board's misses come from a read of the missed orders only", async () => {
+    const placedAt = (await orders.get(ids.order)).placedAt;
+    const range = { from: new Date(placedAt.getTime() - 3_600_000), to: new Date(placedAt.getTime() + 60_000) };
+    // The fixture order is live, not missed.
+    expect(await orders.merchantMissedOrders(ids.org, range)).toEqual([]);
+    const at = new Date(placedAt.getTime() + 1_000);
+    const base = { cityId: 'aziziyah', type: 'food' as const, ordererId: ids.customer, merchantOrgId: ids.org, placedAt: at };
+    const timedOut = await prisma.prisma.order.create({ data: { ...base, state: 'merchant_rejected', cancellationReason: 'merchant_timeout', cancelledAt: at } });
+    const lapsed = await prisma.prisma.order.create({ data: { ...base, state: 'platform_cancelled', cancellationReason: 'partial_timeout', cancelledAt: at } });
+    const refused = await prisma.prisma.order.create({ data: { ...base, state: 'merchant_rejected', cancellationReason: 'merchant_reject', cancelledAt: at } });
+    try {
+      const missed = await orders.merchantMissedOrders(ids.org, range);
+      expect(new Set(missed.map((o) => o.id))).toEqual(new Set([timedOut.id, lapsed.id]));
+      const all = await orders.merchantOrders(ids.org, range);
+      expect(missed).toEqual(all.filter((o) => o.id === timedOut.id || o.id === lapsed.id));
+    } finally {
+      await prisma.prisma.order.deleteMany({ where: { id: { in: [timedOut.id, lapsed.id, refused.id] } } });
+    }
+  });
 });
