@@ -60,6 +60,13 @@ describe.skipIf(!url)('control room repositories on Postgres (needs DATABASE_URL
     });
     expect((await repo.audit({ cityId: city, limit: 2 })).map((a) => a.action)).toEqual(['capacity.set', 'kill_switch.on']);
     expect((await repo.audit({ cityId: city, subjectKind: 'kill_switch', limit: 5 }))[0]?.detail).toEqual({ a: 1 });
+    // v10 audit page: a chip by action prefix, the count, and the next page after the last row.
+    const pauses = await repo.auditPage({ cityId: city, prefixes: ['kill_switch.', 'capacity.'], limit: 1 });
+    expect(pauses.total).toBeGreaterThanOrEqual(2);
+    expect(pauses.rows.map((a) => a.action)).toEqual(['capacity.set']);
+    const next = await repo.auditPage({ cityId: city, prefixes: ['kill_switch.', 'capacity.'], after: { at: pauses.rows[0]!.at, id: pauses.rows[0]!.id }, limit: 1 });
+    expect(next.rows.map((a) => a.action)).toEqual(['kill_switch.on']);
+    expect((await repo.auditPage({ cityId: city, prefixes: ['banner.'], limit: 5 })).rows.every((a) => a.action.startsWith('banner.'))).toBe(true);
   });
 
   it('support: tickets by source key, entries idempotent, refunds per agent / per customer, the customer lock', async () => {
