@@ -2004,6 +2004,9 @@ model RideRequestShare {
   state     String    @default("joined")
   joinedAt  DateTime  @map("joined_at")
   closedAt  DateTime? @map("closed_at")
+  /// Way C: when he got in («صعدت»), and who said so: self | driver
+  boardedAt DateTime? @map("boarded_at")
+  boardedBy String?   @map("boarded_by")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 

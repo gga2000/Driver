@@ -12,6 +12,8 @@ import {
   BoardInput,
   BookingIdInput,
   RateBookingInput,
+  RequestShareBoardForInput,
+  RequestShareBoardInput,
   RequestShareCodeInput,
   RequestShareInvite,
   RequestShareJoinInput,
@@ -219,6 +221,21 @@ export const routesRouter = router({
     sharedWithMe: protectedProcedure()
       .output(z.array(RequestShareInvite))
       .query(({ ctx }) => ctx.routes.sharedWithMe(ctx.actor)),
+    /** Friend (way C, Ali 2026-10-09): «صعدت», next to the car once the driver arrived. */
+    shareBoard: protectedProcedure()
+      .input(RequestShareBoardInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.shareBoard(ctx.actor, input)),
+    /** Friend (way C): «ما صعدت» on the driver's tap for him; cleared and logged for support. */
+    shareNotBoarded: protectedProcedure()
+      .input(RequestShareCodeInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.shareNotBoarded(ctx.actor, input)),
+    /** Picked driver (way C): «صعد» for a friend whose phone can't; logged, the friend is told. */
+    shareBoardFor: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestShareBoardForInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.shareBoardFor(ctx.actor, input)),
     /** Driver at the pickup (GPS recorded). */
     arrived: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestPositionInput)

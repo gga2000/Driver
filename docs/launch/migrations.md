@@ -36,6 +36,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010380000 | seat_return_bundle | trips thread | private car round 2 step 5 (reserved) |
 | 20261010390000 | request_shares | trips thread | private car round 2 step 6 (reserved) |
 | 20261010400000 | trip_chat | trips thread | private car round 2 step 4c, chat (reserved) |
+| 20261010490000 | share_boarding | trips thread | shared car way C, who got in (reserved) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6

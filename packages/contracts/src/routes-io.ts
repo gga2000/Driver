@@ -924,12 +924,20 @@ export function sharePlaceIqd(priceIqd: number, people: number): number {
   return Math.floor(priceIqd / people / 250) * 250;
 }
 
+/** Way C (Ali 2026-10-09): who confirmed a friend got in, the friend himself or the driver for him. */
+export const RequestShareBoardedBy = z.enum(['self', 'driver']);
+export type RequestShareBoardedBy = z.infer<typeof RequestShareBoardedBy>;
+
 export const RequestShareMember = z.object({
-  /** First name from the identity vault (booker's view only); null for the driver. */
+  /** The member row (the driver names it when he taps «صعد» for this friend). */
+  id: z.string(),
+  /** First name from the identity vault (the booker's view, and the picked driver's while the trip is live). */
   firstName: z.string().nullable(),
   places: z.number().int().positive(),
   amountIqd: Iqd,
   state: RequestShareMemberState,
+  /** «صعدت»: null until he (or the driver for him) confirms he is in the car. */
+  boardedBy: RequestShareBoardedBy.nullable().default(null),
 });
 export type RequestShareMember = z.infer<typeof RequestShareMember>;
 
@@ -1009,6 +1017,14 @@ export type RequestShareOpenInput = z.input<typeof RequestShareOpenInput>;
 export const RequestShareCodeInput = z.object({ code: z.string().regex(/^[A-Z2-9]{8}$/) });
 export type RequestShareCodeInput = z.infer<typeof RequestShareCodeInput>;
 
+/** Way C: the friend's «صعدت», with where he is (checked against the car, never stored). */
+export const RequestShareBoardInput = RequestShareCodeInput.extend({ lat: LatLng.shape.lat, lng: LatLng.shape.lng });
+export type RequestShareBoardInput = z.infer<typeof RequestShareBoardInput>;
+
+/** Way C: the driver's «صعد» for a friend whose phone can't. */
+export const RequestShareBoardForInput = z.object({ postId: z.string().min(1), memberId: z.string().min(1) });
+export type RequestShareBoardForInput = z.infer<typeof RequestShareBoardForInput>;
+
 export const RequestShareJoinInput = RequestShareCodeInput.extend({
   places: z.number().int().min(1).max(REQUEST_SHARE_PLACES_MAX).default(1),
 });
@@ -1039,6 +1055,10 @@ export const RequestShareInvite = z.object({
   myAmountIqd: Iqd,
   myState: RequestShareMemberState.nullable(),
   driverArrivedAt: z.coerce.date().nullable(),
+  /** Way C: whether he is in the car, and who said so (a driver's tap he can answer «ما صعدت»). */
+  myBoardedBy: RequestShareBoardedBy.nullable().default(null),
+  /** Way C: «صعدت» works within this many metres of where the driver pressed «وصلت». */
+  boardNearM: z.number().int().positive().default(300),
 });
 export type RequestShareInvite = z.infer<typeof RequestShareInvite>;
 
@@ -1548,6 +1568,12 @@ export interface RoutesPort {
   leaveShare(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
   /** Step 6: the shared cars a friend joined that are still ahead or on the road. */
   sharedWithMe(actor: Actor): Promise<RequestShareInvite[]>;
+  /** Way C: a friend's «صعدت» next to the car. */
+  shareBoard(actor: Actor, input: RequestShareBoardInput): Promise<RequestShareInvite>;
+  /** Way C: a friend's «ما صعدت» on the driver's tap for him (cleared and logged for support). */
+  shareNotBoarded(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  /** Way C: the picked driver's «صعد» for a friend whose phone can't (logged; the friend is told). */
+  shareBoardFor(actor: Actor, input: RequestShareBoardForInput): Promise<RequestPostView>;
   // driver
   announce(actor: Actor, input: z.infer<typeof AnnounceInput>): Promise<DriverDepartureView>;
   myDepartures(actor: Actor): Promise<DriverDepartureView[]>;

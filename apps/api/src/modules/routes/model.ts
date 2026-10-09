@@ -15,6 +15,7 @@ import type {
   PinAttemptResult,
   RajaaRatingTag,
   RequestPlaceId,
+  RequestShareBoardedBy,
   RequestShareMemberState,
   RequestState,
   ReviewHideReason,
@@ -295,6 +296,9 @@ export interface RequestShareMemberRecord {
   state: RequestShareMemberState;
   joinedAt: Date;
   closedAt: Date | null;
+  /** Way C: when he got in («صعدت»), and who said so; null until then. */
+  boardedAt: Date | null;
+  boardedBy: RequestShareBoardedBy | null;
 }
 
 /** Places friends hold now. */
