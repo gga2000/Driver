@@ -4,16 +4,16 @@
     "customer.code_mb": {
       "max": 7.12,
       "target": 6.2,
-      "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74; k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1); 6.97 after main merged on 8 Oct; private car round 2 steps 2–6 and the trip chat (wait clock, pick-up PIN, door drop, cash cards, rider chat): 6.99 -> 7.1; the Console's dish-photo review, staff pause and late-car Today rows add their schemas to the shared contracts barrel the app carries (metro does not tree-shake it): 7.11 on main b117723"
+      "why": "s1 landed (#45): 7.03 -> 6.73; server-only push/WhatsApp/SMS texts left out: 6.77 -> 6.74; k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1); 6.97 after main merged on 8 Oct; private car round 2 steps 2–6 and the trip chat (wait clock, pick-up PIN, door drop, cash cards, rider chat): 6.99 -> 7.1; the courier staff-pause words in the shared locale (#141; the customer bundle carries every partner.* key): 7.1 -> 7.11; the Console's dish-photo review, staff pause and late-car Today rows add their schemas to the shared contracts barrel (metro does not tree-shake it), within 7.12"
     },
     "customer.assets_mb": {
       "max": 5.45,
       "why": "dish photos for /food, the door pages and home served by the API (/media/food), 6.64 -> ~5.3 (#107); web fonts w3 live in public/ (web only); size.mjs leaves public/ out since #110; door page photos kubba, cocktail, laban (+0.13, #67); home gallery rice-dish photos (+0.24, concept C): 6.64; dish photos re-encoded (q75, 1.54 -> 1.16 MB): 6.48 -> 6.24 on main ab4f697 (CI-equal Android export with source maps); home card pictures, food landing photos"
     },
     "partner.code_mb": {
-      "max": 6.4,
+      "max": 6.42,
       "target": 5.5,
-      "why": "s1 landed for the partner app: 6.26 -> 5.95; server-only push/WhatsApp/SMS texts left out: 6.15 -> 6.12; the rest is s4 (lazy screens, barrel trims); k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1); main sat at 6.31 on cd968e0, the M-3 «مبلغ سابق» courier line (#154) takes it to 6.32 (the Golden hour map is web-only and adds nothing here); private car round 2 steps 2–6 and the trip chat on the driver side (wait clock, PIN check, door drop, cash cards, rider chat): +0.08"
+      "why": "s1 landed for the partner app: 6.26 -> 5.95; server-only push/WhatsApp/SMS texts left out: 6.15 -> 6.12; the rest is s4 (lazy screens, barrel trims); k1 inlineRequires: +0.14 MB of inlined require calls, traded for less work at launch (Ali voted Yes on k1); main sat at 6.31 on cd968e0, the M-3 «مبلغ سابق» courier line (#154) takes it to 6.32 (the Golden hour map is web-only and adds nothing here); private car round 2 steps 2–6 and the trip chat on the driver side (wait clock, PIN check, door drop, cash cards, rider chat): +0.08; the staff-pause screen, home banner and locked switch (#141): 6.4 -> 6.41"
     },
     "partner.assets_mb": {
       "max": 3.05,

@@ -8689,6 +8689,15 @@
   "partner.update_offers": "لحد ما تحدّث، ما تگدر تاخذ طلبات من هالتلفون.",
   "partner.update_button": "حدّث من المتجر",
   "error.server_busy": "الضغط عالي هسة. جرّب بعد لحظات",
+  "partner.gate_paused_banner": "حسابك موقّف مؤقتاً",
+  "partner.gate_paused_banner_sub": "دا نراجع بلاغ. اضغط وشوف شنو اللي يصير",
+  "partner.paused_header": "حسابك",
+  "partner.paused_title": "حسابك موقّف مؤقتاً",
+  "partner.paused_body": "وصلنا بلاغ عن مشوار، فوقّفنا الطلبات عنك لحد ما نراجعه. هذا اللي نسويه ويه كل بلاغ، مو حكم عليك.",
+  "partner.paused_next": "شنو اللي يصير هسة",
+  "partner.paused_step_review": "نراجع البلاغ وتفاصيل المشوار.",
+  "partner.paused_step_call": "نتصل بيك ونسمع منك قبل أي قرار.",
+  "partner.paused_step_back": "نبلّغك بالقرار برسالة، وإذا ماكو مشكلة يرجع حسابك يشتغل.",
   "console.garage.fee_off": "الغرامة على السايق مطفية هسة: محد يتعوّض ومحد ينحسب عليه شي بهذا الإلغاء.",
   "console.garage.fee_no_riders": "ماكو ركاب محجوزين، فما ينحسب شي على السايق.",
   "console.garage.fee_charge": "السايق يدفع {amount} دينار لأنه ما إجا",
@@ -8700,5 +8709,7 @@
   "partner.update_safe": "حسابك وفلوسك وأرباحك تبقى مثل ما هي",
   "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
   "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
-  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك."
+  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك.",
+  "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
+  "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار"
 }
