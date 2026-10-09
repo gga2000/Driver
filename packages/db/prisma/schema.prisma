@@ -3805,6 +3805,7 @@ model HandoverNote {
   authorId  String   @map("author_id")
   body      String
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   acks HandoverAck[]
 
@@ -3815,12 +3816,15 @@ model HandoverNote {
 
 /// Who has read a handover note (one row per person and note).
 model HandoverAck {
-  noteId   String       @map("note_id")
-  personId String       @map("person_id")
-  ackedAt  DateTime     @map("acked_at")
-  note     HandoverNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  id        String       @id @default(cuid())
+  noteId    String       @map("note_id")
+  personId  String       @map("person_id")
+  /// When the person tapped «وصلت».
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  note      HandoverNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
 
-  @@id([noteId, personId])
+  @@unique([noteId, personId])
   @@map("handover_acks")
   @@schema("public")
 }

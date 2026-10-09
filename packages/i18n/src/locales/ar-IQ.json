@@ -8755,5 +8755,15 @@
   "console.csv_capped": "نزل الملف بأول {n} طلب بس. ضيّق الفترة حتى يطلع كلشي",
   "console.csv_failed": "ما نزل الملف: {message}",
   "error.location_web": "ما گدرنا نعرف موقعك من المتصفح",
-  "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك"
+  "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك",
+  "console.handover.title": "ملاحظة تسليم الشفت",
+  "console.handover.from": "من",
+  "console.handover.ack": "وصلت",
+  "console.handover.write": "ملاحظة التسليم",
+  "console.handover.write_title": "اكتب للشفت الجاي",
+  "console.handover.write_hint": "شنو لازم يعرفون: شي معلّق، مطعم بيه مشكلة، سايق ننتظر رده. تطلعلهم فوق صفحة اليوم لحد ما كل واحد يگول وصلت.",
+  "console.handover.body": "الملاحظة",
+  "console.handover.body_hint": "بدون أرقام تلفونات. اكتب رقم الطلب إذا أكو.",
+  "console.handover.send": "دزّها للشفت الجاي",
+  "console.handover.saved": "انحفظت. الشفت الجاي يشوفها فوق صفحة اليوم"
 }

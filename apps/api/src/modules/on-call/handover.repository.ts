@@ -91,7 +91,7 @@ export class PrismaHandoverRepository implements HandoverRepository {
   async ack(id: string, personId: string, at: Date, tx?: Tx): Promise<void> {
     // ON CONFLICT DO NOTHING: a second tap must not abort the caller's transaction.
     await this.db(tx).handoverAck.createMany({
-      data: [{ noteId: id, personId, ackedAt: at }],
+      data: [{ id: newId(), noteId: id, personId, createdAt: at }],
       skipDuplicates: true,
     });
   }
