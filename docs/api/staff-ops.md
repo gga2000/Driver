@@ -102,6 +102,7 @@ What each procedure does:
 | `routes.ops.cancelDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.arriveDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.closeDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
+| `routes.ops.departureDrivers` | query | dispatcher, support, admin | `StaffDepartureDriversInput` | `StaffDepartureDriver[]` |
 
 The input shapes are in `packages/contracts/src/departure-staff-io.ts`:
 
@@ -111,6 +112,8 @@ OverdueDeparturesInput { limit: int 1..200 = 100 }
 StaffDepartureResult   { departureId, state: IntercityDepartureState, changed, auditId: string | null }
 OverdueDeparture       { departureId, corridorId, garageId, driverId, state, reason: 'driver_no_show'|'not_arrived',
                          since, minutes, riders, actions: ('cancel'|'arrive')[] }
+StaffDepartureDriversInput { departureIds: string[] (1..100) }
+StaffDepartureDriver       { departureId, driverId, displayName: string | null ("حيدر ك."), phoneMasked: string | null }
 ```
 
 - **`cancelDeparture`**: from `scheduled` or `boarding`. Riders move to the next cars exactly as on a
@@ -131,6 +134,11 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 - **`overdueDepartures`**: lists departures in one of two cases:
   - `driver_no_show`: still `scheduled` or `boarding`, 20 min past the latest departure time.
   - `not_arrived`: `departed`, 30 min past the corridor's travel time.
+- **`departureDrivers`**: who drives each departure, in any state, so the garage view can name the
+  driver of a run that left or is overdue (the riders' `routes.driverCards` only cover board
+  departures and the rider's own trips). Short name and masked number, never the number itself; one
+  fail-closed vault read for the staff member (purpose `intercity_ops_departure`). Unknown ids are
+  skipped.
 
 ## Switches (all off by default)
 
