@@ -1686,7 +1686,9 @@ const rajaa = await (async () => {
       const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
       await trips.reportPosition(driverId, { tripId: trip.id, pin: PICKUP, at: new Date(), bearing: 320, speedKmh: 0 });
       await trips.arrive(trip.id, pickup.id, driverId, { pin: PICKUP });
-      await trips.completeStop(trip.id, pickup.id, driverId);
+      // A night ride (21:00–05:59) starts with the rider's code, as on /demo/ride/advance.
+      const startCode = (await orders.startCodeOf(ride.id)) ?? undefined;
+      await trips.completeStop(trip.id, pickup.id, driverId, startCode ? { startCode } : {});
       await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: await demoVoiceNote(driverId), durationSec: 4 });

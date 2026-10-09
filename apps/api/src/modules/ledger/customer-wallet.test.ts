@@ -140,6 +140,13 @@ describe('customer wallet: readable lines', () => {
     expect(lines.map((l) => [l.kind, l.amount])).toEqual([['credit', 500]]);
   });
 
+  it('M-11: a الرجعة driver who never came (or cancelled late) pays the rider a credit that says why', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('departure:dep1:cancel', 'money', '2026-10-02T10:00:00Z', [{ type: 'departure_cancel_fee', amount: 2_000, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.title_en])).toEqual([['credit', 2_000, 'تعويض: السايق ما طلع بالرحلة', "Credit: your driver didn't make the trip"]]);
+  });
+
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {
     const h = walletHarness();
     await h.ledger.recordAll(group('topup:1', 'money', '2026-10-01T09:00:00Z', [{ type: 'credit_issued', amount: 20_000, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));
