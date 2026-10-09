@@ -230,6 +230,8 @@ export interface CatalogRepository {
   photoReviewQueue(limit: number, tx?: Tx): Promise<CatalogItemRecord[]>;
   /** p4: clears the photo and its pending stamp only while the stamp is still `pendingAt` (a newer upload wins); null = not cleared. */
   takeDownPendingPhoto(id: string, pendingAt: Date, tx?: Tx): Promise<CatalogItemRecord | null>;
+  /** p4: clears only the pending stamp (the photo stays) while it is still `pendingAt`; null = not cleared. */
+  keepPendingPhoto(id: string, pendingAt: Date, tx?: Tx): Promise<CatalogItemRecord | null>;
   /** Replaces every modifier group (and modifier) of the item. */
   replaceModifierGroups(itemId: string, groups: readonly NewModifierGroup[], tx?: Tx): Promise<CatalogItemRecord>;
   addPriceChange(input: Omit<PriceChangeRecord, 'id'>, tx?: Tx): Promise<PriceChangeRecord>;
@@ -477,6 +479,13 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     const item = this.items.get(id);
     if (!item?.photoReviewPendingAt || item.photoReviewPendingAt.getTime() !== pendingAt.getTime()) return null;
     Object.assign(item, { photoUrl: null, photoReviewPendingAt: null });
+    return clone(item);
+  }
+
+  async keepPendingPhoto(id: string, pendingAt: Date): Promise<CatalogItemRecord | null> {
+    const item = this.items.get(id);
+    if (!item?.photoReviewPendingAt || item.photoReviewPendingAt.getTime() !== pendingAt.getTime()) return null;
+    Object.assign(item, { photoReviewPendingAt: null });
     return clone(item);
   }
 
@@ -837,6 +846,11 @@ export class PrismaCatalogRepository implements CatalogRepository {
 
   async takeDownPendingPhoto(id: string, pendingAt: Date, tx?: Tx): Promise<CatalogItemRecord | null> {
     const { count } = await this.db(tx).catalogItem.updateMany({ where: { id, photoReviewPendingAt: pendingAt }, data: { photoUrl: null, photoReviewPendingAt: null } });
+    return count === 1 ? this.item(id, tx) : null;
+  }
+
+  async keepPendingPhoto(id: string, pendingAt: Date, tx?: Tx): Promise<CatalogItemRecord | null> {
+    const { count } = await this.db(tx).catalogItem.updateMany({ where: { id, photoReviewPendingAt: pendingAt }, data: { photoReviewPendingAt: null } });
     return count === 1 ? this.item(id, tx) : null;
   }
 

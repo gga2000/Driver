@@ -291,6 +291,14 @@ export class CatalogService {
     return this.changed(this.repo.takeDownPendingPhoto(itemId, pendingSince, tx));
   }
 
+  /**
+   * p4: Driver's team looked at the shop photo and keeps it (Console «تمام»): the dish leaves the queue.
+   * Same version rule as `takeDownShopPhoto`, so a newer upload stays waiting; null = nothing cleared.
+   */
+  keepShopPhoto(itemId: string, pendingSince: Date, tx?: Tx): Promise<CatalogItemRecord | null> {
+    return this.repo.keepPendingPhoto(itemId, pendingSince, tx);
+  }
+
   /** Creates (no `itemId`) or edits an item; a price edit goes through `updatePrice` for its history row. */
   async upsertItem(
     orgId: string,

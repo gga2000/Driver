@@ -80,6 +80,26 @@ describe('OpsDishPhotosService — p4 same-day look (Ali 2026-10-08)', () => {
     expect((await h.svc.queue(ZAINAB, { cityId: 'aziziyah' })).map((r) => r.photoUrl)).toEqual(['/files/up_new?sig=x']);
   });
 
+  it('an upload landing between the look and the write is not kept unseen (no audit row)', async () => {
+    const h = await setup();
+    const tikka = await h.dish(h.khalid.id, 'تكة');
+    await h.catalog.replacePhoto(h.khalid.id, tikka.id, 'upload:up_old', undefined, null, true);
+    const [seen] = await h.svc.queue(ZAINAB, { cityId: 'aziziyah' });
+    // The shop uploads again right after the service read the item, before its write.
+    const itemsOf = h.catalog.itemsOf.bind(h.catalog);
+    h.catalog.itemsOf = async (...args) => {
+      const read = await itemsOf(...args);
+      h.clock.advance(60_000);
+      await h.catalog.replacePhoto(h.khalid.id, tikka.id, 'upload:up_new', undefined, null, true);
+      return read;
+    };
+
+    expect(await h.svc.keep(ZAINAB, { merchantOrgId: h.khalid.id, itemId: tikka.id, pendingSince: seen!.pendingSince })).toEqual({ itemId: tikka.id, outcome: 'changed' });
+    h.catalog.itemsOf = itemsOf;
+    expect((await h.svc.queue(ZAINAB, { cityId: 'aziziyah' })).map((r) => r.photoUrl)).toEqual(['/files/up_new?sig=x']);
+    expect(await h.audits.list({ subjectKind: DISH_PHOTO_AUDIT.subjectKind, subjectId: h.khalid.id, limit: 5 })).toEqual([]);
+  });
+
   it('a dish of another store is not found through the wrong store', async () => {
     const h = await setup();
     const masgouf = await h.dish(h.kut.id, 'مسكوف');

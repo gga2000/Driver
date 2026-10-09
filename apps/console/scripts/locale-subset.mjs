@@ -16,7 +16,8 @@ import path from 'node:path';
  * (`e2e/pages.spec.ts`) look for on every page. `next dev` keeps the full tables, so new keys show at once.
  */
 
-const PLURAL = /_(zero|one|two|few|many|other)$/;
+/** Plural forms (`_one`, `_few`, …) and the Console's count families (`_0`, `_1`, `_2`; lib/plural.ts). */
+const PLURAL = /_(zero|one|two|few|many|other|0|1|2)$/;
 const SOURCE = /\.(tsx?|mjs)$/;
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'e2e']);
 /**

@@ -36,7 +36,7 @@ const REASON_AR: Record<DishPhotoTakedownReason, string> = {
 /**
  * p4 (Ali 2026-10-08), Console › الموافقات: dish photos a shop put up itself show to customers at
  * once and wait for the team's same-day look. The pending stamp, the queue and clearing it are the
- * catalog module's (`CatalogService.photoReviewQueue` / `markPhotoReviewed` / `takeDownShopPhoto`);
+ * catalog module's (`CatalogService.photoReviewQueue` / `keepShopPhoto` / `takeDownShopPhoto`);
  * this adds the city filter, the store and dish names, the signed photo link, the store's event and
  * the audit rows. The role gate is the router's (`DISH_PHOTO_REVIEW_ROLES`).
  */
@@ -77,15 +77,16 @@ export class OpsDishPhotosService implements DishPhotoReviewPort {
 
   /**
    * «تمام»: the photo stays and the dish leaves the queue. Only the version staff looked at: if the
-   * shop put up another photo since (a newer stamp), nothing is cleared and the row comes back fresh.
+   * shop put up another photo since (a newer stamp), nothing is cleared and the row comes back fresh;
+   * the catalog's conditional clear settles a race with an upload between the check and the write.
    */
   async keep(actor: Actor, input: KeepDishPhotoInput): Promise<KeepDishPhotoResult> {
     const [item] = await this.catalog.itemsOf(input.merchantOrgId, [input.itemId]);
     if (!item?.photoReviewPendingAt) return { itemId: input.itemId, outcome: 'gone' };
     if (item.photoReviewPendingAt.getTime() !== input.pendingSince.getTime()) return { itemId: item.id, outcome: 'changed' };
     const org = await this.orgs.get(item.orgId);
-    await this.uow.run(async (tx) => {
-      await this.catalog.markPhotoReviewed(item.id, tx);
+    const done = await this.uow.run(async (tx) => {
+      if (!(await this.catalog.keepShopPhoto(item.id, input.pendingSince, tx))) return false;
       await this.audits.record(
         {
           cityId: org.cityId,
@@ -98,8 +99,9 @@ export class OpsDishPhotosService implements DishPhotoReviewPort {
         },
         tx,
       );
+      return true;
     });
-    return { itemId: item.id, outcome: 'kept' };
+    return { itemId: item.id, outcome: done ? 'kept' : 'changed' };
   }
 
   /**
