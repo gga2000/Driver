@@ -53,6 +53,7 @@ const AUDITED = [
   'inbox.note',
   'onCall.add',
   'onCall.end',
+  'onCall.handoverWrite',
   // W3 staff way-outs (lane A): each writes its console_audit_log row in the same transaction.
   'orders.ops.cancel',
   'orders.ops.markDelivered',
@@ -80,6 +81,7 @@ const GAPS: Record<string, string> = {
   'merchantAdmin.deals.review': 'stored on the deal',
   'ops.addLandmarkPhoto': 'no trail',
   'onCall.present': 'heartbeat (a screen is open), not an action',
+  'onCall.handoverAck': 'a read receipt on the handover note (who read it is the row itself), not an action',
   'ops.completeTask': 'stored on the task',
   'ops.confirmTopUp': 'ledger entries only (cash, CON-10)',
   'ops.menuPhotos.addShot': 'stored on the shot',

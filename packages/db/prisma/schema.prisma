@@ -3797,6 +3797,34 @@ model ConsoleWatchAlert {
   @@schema("public")
 }
 
+/// Console › اليوم, the shift handover note (h5): the outgoing shift writes a few lines and the next
+/// shift sees them until each person taps «وصلت». Staff ids only; the words are staff-written notes.
+model HandoverNote {
+  id        String   @id @default(cuid())
+  cityId    String   @map("city_id")
+  authorId  String   @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  acks HandoverAck[]
+
+  @@index([cityId, createdAt])
+  @@map("handover_notes")
+  @@schema("public")
+}
+
+/// Who has read a handover note (one row per person and note).
+model HandoverAck {
+  noteId   String       @map("note_id")
+  personId String       @map("person_id")
+  ackedAt  DateTime     @map("acked_at")
+  note     HandoverNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, personId])
+  @@map("handover_acks")
+  @@schema("public")
+}
+
 /// Console › اليوم (E1, CON-12): one row per problem, opened and closed from domain events, worked
 /// by the desk (take, hand over, snooze, close with an outcome). Ids and short facts only.
 model InboxItem {

@@ -22,6 +22,13 @@ import {
   type ConsoleWatchConfig,
 } from './console-watch.service.js';
 import {
+  HANDOVER_REPOSITORY,
+  InMemoryHandoverRepository,
+  PrismaHandoverRepository,
+  type HandoverRepository,
+} from './handover.repository.js';
+import { HandoverService } from './handover.service.js';
+import {
   ON_CALL_CONFIG,
   ON_CALL_PORT,
   OnCallService,
@@ -41,6 +48,8 @@ function envInt(name: string, fallback: number): number {
  *
  * Also the Console watching itself (`console_presence`, `console_watch_alerts`): staff screens'
  * heartbeats, and the people on call told when nobody is watching or live updates are down.
+ *
+ * And the shift handover note on Today (`handover_notes`, `handover_acks`).
  *
  * Env: CONSOLE_BASE_URL (the link in the WhatsApp), ON_CALL_TICK_MS (default 5000; 0 turns the
  * ladder sweep and the watch off), CONSOLE_WATCH_CITIES (comma-separated, default aziziyah).
@@ -79,6 +88,13 @@ function envInt(name: string, fallback: number): number {
         consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
       }),
     },
+    {
+      provide: HANDOVER_REPOSITORY,
+      useFactory: (prisma: PrismaService): HandoverRepository =>
+        prisma.configured ? new PrismaHandoverRepository(prisma) : new InMemoryHandoverRepository(),
+      inject: [PrismaService],
+    },
+    HandoverService,
     ConsoleWatchService,
     OnCallService,
     { provide: ON_CALL_PORT, useExisting: OnCallService },
