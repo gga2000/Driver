@@ -63,3 +63,26 @@ Four rules for shops in the Merchant app. Built in the merchant app and the `mer
 - **Console**: the same-day photo review queue (a screen over `photoReviewQueue` / `markPhotoReviewed`
   behind an ops router).
 - **Migration**: the two columns ride in `20261010260000_merchant_setup`.
+
+## m4 — a dish that keeps running out is named in «الأرقام»
+
+`merchantAdmin.insights` gains `soldOutHabits` (optional): each dish marked «خلص اليوم» (an
+`item.sold_out` event with an `until`) on at least 3 Baghdad days of the window, most days first, top
+3, with `usualMinute`, the median local time of its first sell-out each day. Turning a dish off by
+hand (`until` null) is not running out. Owners and staff both see it; it has no money in it. The
+merchant app shows it as the «يخلص قبل وقته» panel at the top of الأرقام, only when there is one.
+
+## k4 / j6 — hot or cold, and colour by kind on the ticket
+
+No server change. The board reads each line's name with the shared dish rules
+(`@driver/ui/dishes`: `temperatureOf`, `motifForDish`), the same rules as the menu's glass display
+and the customer's dish cards. Drinks wear a cardamom-olive edge and a «ساخن» / «بارد» mark, sweets a
+rose edge and «حلو», the kitchen's food no edge (`apps/merchant/src/features/board/kind.ts`). An
+order with both cold and hot things says once under its lines «البارد بكيس وحده، بعيد عن الساخن».
+
+## k5 — the sugar choice
+
+A drink's editor offers «أضف اختيار السكر»: a ready options group «السكر» (one pick required, all
+free: بدون سكر، سكر خفيف، سكر عادي، سكر زيادة) that opens filled for the owner to save or edit. It is
+a normal modifier group, so the customer app shows it with no change, and the ticket shows the
+chosen sugar bold in the drink colour.

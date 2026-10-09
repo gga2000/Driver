@@ -14,7 +14,7 @@ import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { Glyph } from './Glyph';
 import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
-import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, toDraftGroups, type DraftGroup } from './logic';
+import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, sugarGroup, toDraftGroups, wantsSugar, type DraftGroup } from './logic';
 import { LibrarySheet, libraryPhoto } from './LibrarySheet';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
 import { PhotoDownNote } from './PhotoDown';
@@ -23,6 +23,7 @@ import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKi
 import { COUNTER } from '@/lib/counter';
 import { useMenu, useMenuActions, usePhotoUpload, usePriceHistory } from './queries';
 import { color } from '@driver/design-tokens';
+import { motifForDish, temperatureOf } from '@driver/ui/dishes';
 
 interface Basics {
   nameAr: string;
@@ -525,14 +526,27 @@ export function ItemEditor() {
           </Pressable>
         ))
       )}
-      <Button
-        testID="group-add"
-        size="sm"
-        variant="secondary"
-        icon="plus"
-        label={t('merchant.item.group_add')}
-        onPress={() => setGroupEdit({ group: { key: draftKey('g'), nameAr: '', required: false, minSelect: 0, maxSelect: 1, modifiers: [{ key: draftKey('m'), nameAr: '', price: '0', available: true }] }, isNew: true })}
-      />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+        <Button
+          testID="group-add"
+          size="sm"
+          variant="secondary"
+          icon="plus"
+          label={t('merchant.item.group_add')}
+          onPress={() => setGroupEdit({ group: { key: draftKey('g'), nameAr: '', required: false, minSelect: 0, maxSelect: 1, modifiers: [{ key: draftKey('m'), nameAr: '', price: '0', available: true }] }, isNew: true })}
+        />
+        {/* k5: a drink gets the ready sugar choice in one tap; the sheet opens filled, the owner saves or edits it. */}
+        {wantsSugar(motifForDish(form.nameAr, form.categoryAr || undefined), temperatureOf(form.nameAr, form.categoryAr || undefined), groups) ? (
+          <Button
+            testID="group-add-sugar"
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            label={t('merchant.sugar.add')}
+            onPress={() => setGroupEdit({ group: sugarGroup({ group: t('merchant.sugar.group'), options: [t('merchant.sugar.none'), t('merchant.sugar.light'), t('merchant.sugar.normal'), t('merchant.sugar.extra')] }), isNew: true })}
+          />
+        ) : null}
+      </View>
     </Panel>
   );
 
