@@ -1812,6 +1812,10 @@ model SeatBooking {
   seatPriceIqd       Int              @map("seat_price_iqd")
   frontPremiumIqd    Int              @default(0) @map("front_premium_iqd")
   pickupFeeIqd       Int              @default(0) @map("pickup_fee_iqd")
+  /// Step 4: the agreed door drop's price (0 without one); part of the total.
+  dropoffFeeIqd      Int              @default(0) @map("dropoff_fee_iqd")
+  /// Step 4: the agreed door drop {agreementId, lat, lng, note?}; null = the destination garage.
+  dropoff            Json?
   /// wallet | cash (null while held)
   payment            String?
   prepaid            Boolean          @default(false)
@@ -1821,6 +1825,12 @@ model SeatBooking {
   /// {kind, meetingPointId?, lat, lng, note?, feeIqd, status, detourMin?}
   pickup             Json
   largeBags          Boolean          @default(false) @map("large_bags")
+  /// Step 5: small children riding free on a lap (one per seat, never the front seat).
+  lapChildren        Int              @default(0) @map("lap_children")
+  /// Step 5: the return-trip discount on this booking (off the total); 0 = none.
+  returnDiscountIqd  Int              @default(0) @map("return_discount_iqd")
+  /// Step 5: the rider's booking the other way on the same road this one is paired with.
+  returnPairId       String?          @map("return_pair_id")
   heldUntil          DateTime?        @map("held_until")
   bookedAt           DateTime?        @map("booked_at")
   /// Rider's "أني بالكراج" inside the garage geofence: blocks a no-show (review C-32).
@@ -1941,14 +1951,27 @@ model RideRequest {
   priceCapIqd      Int?             @map("price_cap_iqd")
   pickedOfferId    String?          @map("picked_offer_id")
   depositIqd       Int?             @map("deposit_iqd")
+  /// Step 4b a6 «احجز وادفع كاش»: picked on the driver's yes; the deposit is not held, only owed on a no-show
+  cashReserved     Boolean          @default(false) @map("cash_reserved")
   driverArrivedAt  DateTime?        @map("driver_arrived_at")
   /// {lat, lng} of the driver's arrival tap
   driverArrivedPin Json?            @map("driver_arrived_pin")
+  /// w2: the waiting clock on a «يستناك وترجع» trip (driver starts it at the drop, stops it on the way back)
+  waitStartedAt    DateTime?        @map("wait_started_at")
+  waitEndedAt      DateTime?        @map("wait_ended_at")
+  /// k2 «جيب واحد»: the person the car fetches (id only; the name the poster gave lives in the identity vault)
+  fetchPersonId    String?          @map("fetch_person_id")
+  /// Step 6 (item 56): the car shared by link — the link's code, the booker's own places, one place's price, when he opened it
+  shareCode         String?         @unique @map("share_code")
+  shareBookerPlaces Int?            @map("share_booker_places")
+  sharePlaceIqd     Int?            @map("share_place_iqd")
+  shareOpenedAt     DateTime?       @map("share_opened_at")
   closedAt         DateTime?        @map("closed_at")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   offers RideRequestOffer[]
+  shares RideRequestShare[]
 
   @@index([state, when])
   @@index([riderId])
@@ -1965,6 +1988,8 @@ model RideRequestOffer {
   waitIncludedHours Int?          @map("wait_included_hours")
   extraHourIqd      Int?          @map("extra_hour_iqd")
   state     RideRequestOfferState @default(open)
+  /// Step 4b a6: the rider's «احجز وادفع كاش» ask on this offer — asked | accepted | declined (null = never asked)
+  cashState String?               @map("cash_state")
   createdAt DateTime              @default(now()) @map("created_at")
   updatedAt DateTime              @updatedAt @map("updated_at")
 
@@ -1973,6 +1998,62 @@ model RideRequestOffer {
   @@index([requestId])
   @@index([driverId])
   @@map("ride_request_offers")
+  @@schema("public")
+}
+
+/// Step 6 (item 56): a friend who joined a shared private car by its link. His places are held on his
+/// wallet while `joined`; `paid` when the trip completes (the ledger posts it), `left` when he leaves
+/// before joining closes, `released` when the trip is cancelled or fails.
+model RideRequestShare {
+  id        String    @id @default(cuid())
+  requestId String    @map("request_id")
+  personId  String    @map("person_id")
+  places    Int
+  amountIqd Int       @map("amount_iqd")
+  /// joined | left | released | paid
+  state     String    @default("joined")
+  joinedAt  DateTime  @map("joined_at")
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  request RideRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId])
+  @@index([personId, state])
+  @@map("ride_request_shares")
+  @@schema("public")
+}
+
+/// Step 4 agreed trip prices (docs/specs/2026-10-08-agreed-trip-prices.md): a rider asks a departure's
+/// driver to price a pickup from his pin on the way or a drop at a door; the driver names the price
+/// (whole 1,000s, 0 = free); the rider accepts; booking locks it (state used, booking_id set).
+model TripAgreement {
+  id          String    @id @default(cuid())
+  departureId String    @map("departure_id")
+  riderId     String    @map("rider_id")
+  driverId    String    @map("driver_id")
+  /// pin_pickup | door_drop
+  kind        String
+  lat         Float
+  lng         Float
+  note        String?
+  /// asked | proposed | accepted | declined | expired | withdrawn | used
+  state       String
+  /// The driver's price; null while only asked.
+  amountIqd   Int?      @map("amount_iqd")
+  askedAt     DateTime  @map("asked_at")
+  proposedAt  DateTime? @map("proposed_at")
+  expiresAt   DateTime? @map("expires_at")
+  decidedAt   DateTime? @map("decided_at")
+  bookingId   String?   @map("booking_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([departureId])
+  @@index([riderId])
+  @@index([state, expiresAt])
+  @@map("trip_agreements")
   @@schema("public")
 }
 
@@ -2195,8 +2276,11 @@ model SafetyIncidentFix {
 /// No foreign keys: orders are owned by the orders module.
 model ChatThread {
   id              String    @id @default(cuid())
+  /// The order; on a `rider_driver` thread (Baghdad/Kut, step 4c) the run (`dep_…`) or request (`rq_…`).
   orderId         String    @map("order_id")
   kind            String
+  /// A `rider_driver` thread's other key: the rider on a run, the driver on a request; '' on order threads.
+  partyId         String    @default("") @map("party_id")
   /// Highest message seq (the next message takes lastSeq + 1 under a row lock).
   lastSeq         Int       @default(0) @map("last_seq")
   /// s7 «نسيت غرض»: a completed ride's chat reopened by the customer until this time (ride end + 24 h).
@@ -2206,7 +2290,7 @@ model ChatThread {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  @@unique([orderId, kind])
+  @@unique([orderId, kind, partyId])
   @@index([lostItemUntil])
   @@map("chat_threads")
   @@schema("public")
@@ -2231,6 +2315,10 @@ model ChatMessage {
   lng           Float?
   masked        Boolean  @default(false)
   clientId      String   @map("client_id")
+  /// A `card` message (step 4c): what it is about (pin_pickup · door_drop · cash_reservation), its id, the amount it named.
+  refKind       String?  @map("ref_kind")
+  refId         String?  @map("ref_id")
+  refAmountIqd  Int?     @map("ref_amount_iqd")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -2868,6 +2956,28 @@ model DriverCheckIn {
 
   @@index([personId, localDate])
   @@map("driver_check_ins")
+  @@schema("public")
+}
+
+/// Staff paused a courier or driver while a report is looked into (r6, Ali 2026-10-08): he can't go
+/// online until a person lifts it. One open row (lifted_at null) per person; notes are staff words.
+model DriverPause {
+  id          String    @id @default(cuid())
+  personId    String    @map("person_id")
+  /// safety_report | other
+  reason      String
+  ticketId    String?   @map("ticket_id")
+  note        String
+  pausedAt    DateTime  @map("paused_at")
+  pausedById  String    @map("paused_by_id")
+  liftedAt    DateTime? @map("lifted_at")
+  liftedById  String?   @map("lifted_by_id")
+  liftNote    String?   @map("lift_note")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([personId, liftedAt])
+  @@map("driver_pauses")
   @@schema("public")
 }
 

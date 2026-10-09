@@ -9,6 +9,7 @@ import {
   type CallSession,
   type BoardInput,
   type BoardingPass,
+  type AgreementView,
   type BookingView,
   type DemandBucket,
   type DemandPostView,
@@ -28,16 +29,19 @@ import {
   type ReviewOpsView,
   type RequestOfferDriver,
   type RequestPostView,
+  type RequestShareInvite,
   type UsualRange,
   type RoutesPort,
 } from '@driver/contracts';
 import { shortDisplayName } from '../identity/index.js';
+import { agreementView } from './agreements.js';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { DeparturesStaffService } from './departures.staff.js';
 import { directionFrom } from './intercity.config.js';
 import { riderMeterMinutes } from './late-meter.js';
-import { LIVE, OPEN_DEPARTURE, type BookingRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
+import { LIVE, OPEN_DEPARTURE, sharedIqd, type BookingRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 import { RequestBoardService } from './request-board.service.js';
 import { ROUTES_REPOSITORY, type DriverRecord, type RoutesRepository } from './routes.repository.js';
 import { driverStats, firstTripAt, publicReviews, qualityBars } from './reputation.js';
@@ -54,7 +58,7 @@ import {
   graceEndsAt,
   pickupView,
   prepayRail,
-  requestView,
+  requestView as requestViewOf,
 } from './views.js';
 
 type In<K extends keyof RoutesPort> = Parameters<RoutesPort[K]>[1];
@@ -76,6 +80,7 @@ export class RoutesRpc implements RoutesPort {
     private readonly departures: DeparturesService,
     private readonly demand: DemandService,
     private readonly requests: RequestBoardService,
+    private readonly agreements: AgreementsService,
     @Inject(ROUTES_REPOSITORY) private readonly repo: RoutesRepository,
     @Optional() @Inject(ROUTES_RIDER_NAMES) private readonly names: RiderNamesReader | null = null,
     @Optional() @Inject(ROUTES_CONTROLS) private readonly controls: RoutesControlsPort | null = null,
@@ -279,10 +284,116 @@ export class RoutesRpc implements RoutesPort {
     return this.riderRequestView(await this.requests.post(actor.personId, input), actor.personId);
   }
 
+  /** A request as its viewer sees it, the waiting clock read with this board's money rules (w4's switch). */
+  private requestView(
+    r: RequestRecord,
+    viewerDriverId?: string,
+    drivers?: ReadonlyMap<string, RequestOfferDriver>,
+    usualRange: UsualRange | null = null,
+    riderName: string | null = null,
+    memberNames: Readonly<Record<string, string | null>> = {},
+  ): RequestPostView {
+    return requestViewOf(r, viewerDriverId, drivers, usualRange, this.requests.moneyRules, riderName, {
+      // Step 6: the booker sees his friends' first names and the link; the picked driver neither.
+      share: this.requests.shareView(r, viewerDriverId ? null : memberNames),
+      shareable: this.requests.shareable(r),
+    });
+  }
+
+  /** Step 6: the first names of the friends in the booker's shared cars, one logged vault read. */
+  private async shareNames(records: readonly RequestRecord[], bookerId: string): Promise<Record<string, string | null>> {
+    const ids = [...new Set(records.filter((r) => r.riderId === bookerId).flatMap((r) => r.share?.members.map((m) => m.personId) ?? []))];
+    if (ids.length === 0 || !this.names) return {};
+    return this.names.firstNamesFor(ids, bookerId, 'request_share_member');
+  }
+
+  /**
+   * Step 6: a shared car as a friend with the link sees it: the trip, the picked driver's card, the
+   * booker's first name, the place price and his own places. No other friend and no other price.
+   */
+  private async inviteView(r: RequestRecord, personId: string): Promise<RequestShareInvite> {
+    const s = r.share!;
+    const picked = r.offers.filter((o) => o.id === r.pickedOfferId);
+    const [drivers, booker] = await Promise.all([
+      this.offerDrivers([{ ...r, offers: picked }], personId),
+      this.names ? this.names.firstNamesFor([r.riderId], personId, 'request_share_booker') : Promise.resolve({} as Record<string, string | null>),
+    ]);
+    const rows = s.members.filter((m) => m.personId === personId);
+    const mine = rows.find((m) => m.state === 'joined' || m.state === 'paid') ?? rows.at(-1) ?? null;
+    const held = mine && (mine.state === 'joined' || mine.state === 'paid');
+    const view = this.requests.shareView(r, null)!;
+    return {
+      code: s.code,
+      postId: r.id,
+      state: r.state,
+      from: r.from,
+      to: r.to,
+      when: r.when,
+      details: r.details,
+      bookerName: booker[r.riderId] ?? null,
+      driver: picked[0] ? (drivers.get(picked[0].driverId) ?? null) : null,
+      people: r.seats,
+      placeIqd: s.placeIqd,
+      placesLeft: view.placesLeft,
+      closesAt: view.closesAt,
+      open: view.open,
+      myPlaces: held ? mine.places : 0,
+      myAmountIqd: held ? mine.amountIqd : 0,
+      myState: mine?.state ?? null,
+      driverArrivedAt: r.driverArrivedAt,
+    };
+  }
+
+  async openShare(actor: Actor, input: In<'openShare'>): Promise<RequestPostView> {
+    return this.riderRequestView(await this.requests.openShare(actor.personId, input.postId, input.bookerPlaces ?? 1), actor.personId);
+  }
+
+  async shareInvite(actor: Actor, input: In<'shareInvite'>): Promise<RequestShareInvite> {
+    const r = await this.requests.byShareCode(input.code);
+    // The booker and the driver have their own screens; the link is for everyone else.
+    if (r.riderId === actor.personId || r.offers.some((o) => o.id === r.pickedOfferId && o.driverId === actor.personId)) throw new DriverError('forbidden');
+    // After the trip ends only someone who joined may still read it.
+    const live = r.state === 'matched' || r.state === 'driver_arrived';
+    if (!live && !r.share!.members.some((m) => m.personId === actor.personId)) throw new DriverError('share_not_found');
+    return this.inviteView(r, actor.personId);
+  }
+
+  async joinShare(actor: Actor, input: In<'joinShare'>): Promise<RequestShareInvite> {
+    return this.inviteView(await this.requests.joinShare(actor.personId, input.code, input.places ?? 1), actor.personId);
+  }
+
+  async leaveShare(actor: Actor, input: In<'leaveShare'>): Promise<RequestShareInvite> {
+    return this.inviteView(await this.requests.leaveShare(actor.personId, input.code), actor.personId);
+  }
+
+  async sharedWithMe(actor: Actor): Promise<RequestShareInvite[]> {
+    const rows = await this.requests.sharedWith(actor.personId);
+    return Promise.all(rows.map((r) => this.inviteView(r, actor.personId)));
+  }
+
+  /**
+   * k2: the names posters gave the people their «جيب واحد» trips fetch, one logged vault read for
+   * `accessorId`: the poster himself (`request_rider_name`) or the driver he picked
+   * (`partner_request_rider`); a driver who was not picked never gets the name.
+   */
+  private async fetchNames(records: readonly RequestRecord[], accessorId: string, as: 'poster' | 'driver'): Promise<Record<string, string>> {
+    const ids = records
+      .filter((r) => r.fetchPersonId && (as === 'poster' ? r.riderId === accessorId : r.offers.some((o) => o.id === r.pickedOfferId && o.driverId === accessorId)))
+      .map((r) => r.id);
+    if (ids.length === 0 || !this.requests.riders) return {};
+    return this.requests.riders.names(ids, accessorId, as === 'poster' ? 'request_rider_name' : 'partner_request_rider');
+  }
+
+  /** The picked driver's view of a live or just-closed request, with the fetched person's name. */
+  private async pickedDriverView(r: RequestRecord, driverId: string): Promise<RequestPostView> {
+    const names = await this.fetchNames([r], driverId, 'driver');
+    return this.requestView(r, driverId, undefined, null, names[r.id] ?? null);
+  }
+
   async myRequests(actor: Actor): Promise<RequestPostView[]> {
     const mine = await this.requests.mine(actor.personId);
-    const [drivers, ranges] = await Promise.all([this.offerDrivers(mine, actor.personId), this.requests.usualRanges(mine)]);
-    return mine.map((r) => requestView(r, undefined, drivers, ranges.get(r.id) ?? null));
+    const [drivers, ranges, names, members] = await Promise.all([this.offerDrivers(mine, actor.personId), this.requests.usualRanges(mine), this.fetchNames(mine, actor.personId, 'poster'), this.shareNames(mine, actor.personId)]);
+    return mine.map((r) => this.requestView(r, undefined, drivers, ranges.get(r.id) ?? null, names[r.id] ?? null, members));
   }
 
   async usualRange(_actor: Actor, input: In<'usualRange'>): Promise<UsualRange | null> {
@@ -290,7 +401,11 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async pickOffer(actor: Actor, input: In<'pickOffer'>): Promise<RequestPostView> {
-    return this.riderRequestView(await this.requests.pick(actor.personId, input.postId, input.offerId), actor.personId);
+    return this.riderRequestView(await this.requests.pick(actor.personId, input.postId, input.offerId, input.cash), actor.personId);
+  }
+
+  async askCash(actor: Actor, input: In<'askCash'>): Promise<RequestPostView> {
+    return this.riderRequestView(await this.requests.askCash(actor.personId, input.postId, input.offerId), actor.personId);
   }
 
   async cancelRequest(actor: Actor, input: In<'cancelRequest'>): Promise<RequestPostView> {
@@ -298,13 +413,13 @@ export class RoutesRpc implements RoutesPort {
   }
 
   private async riderRequestView(r: RequestRecord, riderId: string): Promise<RequestPostView> {
-    const [drivers, ranges] = await Promise.all([this.offerDrivers([r], riderId), this.requests.usualRanges([r])]);
-    return requestView(r, undefined, drivers, ranges.get(r.id) ?? null);
+    const [drivers, ranges, names, members] = await Promise.all([this.offerDrivers([r], riderId), this.requests.usualRanges([r]), this.fetchNames([r], riderId, 'poster'), this.shareNames([r], riderId)]);
+    return this.requestView(r, undefined, drivers, ranges.get(r.id) ?? null, names[r.id] ?? null, members);
   }
 
   /** p2: a driver sees the same usual range the rider does, so offers start fair. */
   private async driverRequestView(r: RequestRecord, driverId: string): Promise<RequestPostView> {
-    return requestView(r, driverId, undefined, (await this.requests.usualRanges([r])).get(r.id) ?? null);
+    return this.requestView(r, driverId, undefined, (await this.requests.usualRanges([r])).get(r.id) ?? null);
   }
 
   /**
@@ -439,6 +554,41 @@ export class RoutesRpc implements RoutesPort {
     );
   }
 
+  // ───────────────────────── step 4: agreed trip prices ─────────────────────────
+
+  async askAgreement(actor: Actor, input: In<'askAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.ask(actor.personId, input));
+  }
+
+  async withdrawAgreement(actor: Actor, input: In<'withdrawAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.withdraw(actor.personId, input.agreementId));
+  }
+
+  async respondAgreement(actor: Actor, input: In<'respondAgreement'>): Promise<AgreementView> {
+    return agreementView(await this.agreements.respond(actor.personId, input));
+  }
+
+  async myAgreements(actor: Actor, input: In<'myAgreements'>): Promise<AgreementView[]> {
+    return (await this.agreements.mine(actor.personId, input.departureId)).map((a) => agreementView(a));
+  }
+
+  async proposeAgreement(actor: Actor, input: In<'proposeAgreement'>): Promise<AgreementView> {
+    const a = await this.agreements.propose(actor.personId, input);
+    return agreementView(a, (await this.riderFirstNames([a.riderId], actor.personId))[a.riderId] ?? null);
+  }
+
+  /** The driver's view of every ask on his departure, each with the rider's first name (vault read logged). */
+  async departureAgreements(actor: Actor, input: In<'departureAgreements'>): Promise<AgreementView[]> {
+    const rows = await this.agreements.onDeparture(actor.personId, input.departureId);
+    const names = await this.riderFirstNames(rows.map((a) => a.riderId), actor.personId);
+    return rows.map((a) => agreementView(a, names[a.riderId] ?? null));
+  }
+
+  private async riderFirstNames(ids: readonly string[], accessorId: string): Promise<Record<string, string | null>> {
+    if (!this.names || ids.length === 0) return {};
+    return this.names.firstNamesFor([...new Set(ids)], accessorId, 'intercity_manifest');
+  }
+
   /**
    * The riders on his own departure by first name (the rows `driverDeparture` lists), read from the
    * identity vault with purpose `intercity_manifest`. Without an identity reader names are null.
@@ -561,7 +711,7 @@ export class RoutesRpc implements RoutesPort {
   async openRequests(actor: Actor, input: In<'openRequests'>): Promise<RequestPostView[]> {
     const open = await this.requests.listOpen(actor.personId, input?.cityId);
     const ranges = await this.requests.usualRanges(open);
-    return open.map((r) => requestView(r, actor.personId, undefined, ranges.get(r.id) ?? null));
+    return open.map((r) => this.requestView(r, actor.personId, undefined, ranges.get(r.id) ?? null));
   }
 
   async requestSeen(actor: Actor, input: In<'requestSeen'>): Promise<RequestPostView> {
@@ -575,22 +725,37 @@ export class RoutesRpc implements RoutesPort {
     );
   }
 
+  async answerCash(actor: Actor, input: In<'answerCash'>): Promise<RequestPostView> {
+    return this.driverRequestView(await this.requests.answerCash(actor.personId, input.postId, input.offerId, input.accept), actor.personId);
+  }
+
   async requestArrived(actor: Actor, input: In<'requestArrived'>): Promise<RequestPostView> {
-    return requestView(
-      await this.requests.arrived(actor.personId, input.postId, { lat: input.lat, lng: input.lng }),
-      actor.personId,
-    );
+    return this.pickedDriverView(await this.requests.arrived(actor.personId, input.postId, { lat: input.lat, lng: input.lng }), actor.personId);
+  }
+
+  async requestWaitStart(actor: Actor, input: In<'requestWaitStart'>): Promise<RequestPostView> {
+    return this.pickedDriverView(await this.requests.waitStart(actor.personId, input.postId), actor.personId);
+  }
+
+  async requestWaitEnd(actor: Actor, input: In<'requestWaitEnd'>): Promise<RequestPostView> {
+    return this.pickedDriverView(await this.requests.waitEnd(actor.personId, input.postId), actor.personId);
+  }
+
+  /** k2: the picked driver calls the person he fetches (or the poster) over the masked-call bridge. */
+  async requestCall(actor: Actor, input: In<'requestCall'>): Promise<CallSession> {
+    if (!this.calls) throw new DriverError('call_unavailable');
+    const callId = `call_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const { calleeId } = await this.requests.callee(actor.personId, input.postId, callId);
+    const session = await this.calls.open({ callId, orderId: input.postId, callerId: actor.personId, calleeId }, this.departures.now());
+    return { callId, mode: session.mode, dial: session.dial, counterpart: 'customer', expiresAt: session.expiresAt };
   }
 
   async requestCompleted(actor: Actor, input: In<'requestCompleted'>): Promise<RequestPostView> {
-    return requestView(await this.requests.complete(actor.personId, input.postId), actor.personId);
+    return this.pickedDriverView(await this.requests.complete(actor.personId, input.postId), actor.personId);
   }
 
   async reportRiderNoShow(actor: Actor, input: In<'reportRiderNoShow'>): Promise<RequestPostView> {
-    return requestView(
-      await this.requests.riderNoShow(actor.personId, input.postId),
-      actor.personId,
-    );
+    return this.pickedDriverView(await this.requests.riderNoShow(actor.personId, input.postId), actor.personId);
   }
 
   /** Rides where the rider picked this driver's offer: live ones, and those closed in the last 12 h. */
@@ -601,13 +766,17 @@ export class RoutesRpc implements RoutesPort {
       states: ['matched', 'driver_arrived', 'completed', 'rider_no_show', 'cancelled', 'driver_no_show'],
     });
     const out: DriverRequestRide[] = [];
-    for (const r of rows) {
+    const mine = rows.filter((r) => {
       const picked = r.offers.find((o) => o.id === r.pickedOfferId);
-      if (!picked || picked.driverId !== actor.personId) continue;
-      if (r.closedAt && now - r.closedAt.getTime() > 12 * 3600_000) continue;
-      const deposit = r.depositIqd ?? 0;
+      return picked?.driverId === actor.personId && !(r.closedAt && now - r.closedAt.getTime() > 12 * 3600_000);
+    });
+    const names = await this.fetchNames(mine, actor.personId, 'driver');
+    for (const r of mine) {
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId)!;
+      // 4b: a cash reservation held nothing on the wallet, so all of it is cash.
+      const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
       out.push({
-        ...requestView(r, actor.personId),
+        ...this.requestView(r, actor.personId, undefined, null, names[r.id] ?? null),
         priceIqd: picked.priceIqd,
         driverArrivedAt: r.driverArrivedAt,
         riderNoShowAt: r.driverArrivedAt
@@ -616,7 +785,9 @@ export class RoutesRpc implements RoutesPort {
                 rb.riderNoShowWaitMin * MIN_MS,
             )
           : null,
-        cashToCollectIqd: Math.max(0, picked.priceIqd - deposit),
+        // w4: extra waiting (when switched on) is cash too: counted so far, fixed once the clock stops.
+        // Step 6: places friends paid from their wallets come off the cash too.
+        cashToCollectIqd: Math.max(0, picked.priceIqd + this.requests.waitExtra(r) - deposit - sharedIqd(r.share)),
       });
     }
     return out.sort((a, b) => a.when.getTime() - b.when.getTime());
@@ -667,7 +838,7 @@ export class RoutesRpc implements RoutesPort {
       await this.repo.listRequests({ states: ['open', 'matched', 'driver_arrived'] })
     )
       .filter((r) => r.from.garageId === g.id || r.cityId === g.cityId)
-      .map((r) => requestView(r));
+      .map((r) => this.requestView(r));
     return { garage: garageView(g), departures, demand, openRequests, stranded };
   }
 

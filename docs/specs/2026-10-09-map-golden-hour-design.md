@@ -96,3 +96,31 @@ yellow, tuktuk plum, the trips' date brown and الرجعة gold.
 ## Not in this PR
 Matte chips, curated landmark stamps, and each screen's switch-over: they land with the screen owners.
 Data gaps (heights, street names, neighbourhoods, mosques, garages) need the field walk, not code.
+
+## The order map (customer, live order)
+
+Couriers navigate in Google Maps; this map is for the customer to enjoy watching the order. Ali,
+2026-10-09: "I like the 3D design … use it as much as possible", so every moment is 3D. Design came
+from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-design/tracking/`).
+
+| Moment | Camera (`trackingCamera`) | On the map |
+|---|---|---|
+| `kitchen` (cooking) | on the restaurant, z17.1, tilt 52°, heading toward the door | restaurant lit in the service colour with warm light on the ground; the way he will come drawn in full (`plan`) |
+| `on_the_way` | fit courier + door, ≤ z16.8, tilt 45°, heading toward the door | driven part quiet (40 %), road ahead cased, one glint courier → door per update |
+| `near` (≈ 3 min out) | fit courier + door, ≤ z17.4, tilt 50° | same, closer |
+| `arrived` | on the door, z17.9, tilt 52° | route gone, the house lit with warm light, the courier's photo at the door |
+
+- Build the style with `riseAt: TRACKING_RISE_ZOOM` (15.2) so the town stands up for the whole ride;
+  hide `golden-places` (place names fight the roofs; street names stay).
+- Layers: `goldenTrackingLayers({ service, light, routeSource, glowSource, litSource })` before
+  `GOLDEN_FIRST_LABEL`. The route source needs `lineMetrics: true`; its lines carry `part` =
+  `plan` | `done` | `ahead`. `litSource` is the one building that matters (polygon with `hm`).
+- Pins are screen markers above the map (never map layers, so no roof hides them), three shapes:
+  restaurant = saffron teardrop with the food icon (dark ink); courier = 38 px photo disc (the
+  approved main photo) in a 3 px service-colour ring with a small heading wedge; door = dark
+  teardrop with the home icon and a cream halo.
+- Motion: ease the camera `TRACKING_EASE_MS` (1.2 s) when the moment changes, never while a finger
+  is on the map; one glint (`glintGradient`, `TRACKING_GLINT_MS`) after each position update, then
+  rest; no idle loops. Reduce motion: jump between cameras and keep the line resting.
+- Fit padding clears the header chip, courier card and sheet (≈ top 90, bottom 330 px on a phone).
+- `lite` phones keep the flat customer map.
