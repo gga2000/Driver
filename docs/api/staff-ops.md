@@ -75,8 +75,9 @@ What each procedure does:
   `order_state_conflict`. Both are read inside the posting's transaction.
 - **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`, except `void`, which moves
   no money and so needs no switch (it is the only way out of a `courier_lost` dispute while
-  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. Refunds above `agentLimitIqd` (25,000) need an admin
-  (`refund_needs_escalation`). A refund is never more than what was paid, less earlier refunds. The
+  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. A refund above `agentLimitIqd` (25,000) posts
+  nothing: it waits for a second staff member's OK, admins included (`pendingApprovalId` on the
+  result, the order stays disputed; [refund-approvals.md](refund-approvals.md)). A refund is never more than what was paid, less earlier refunds. The
   party at fault pays: courier `driver:<id>`, merchant `merchant_cash:<org>`, otherwise `platform`.
   - `stands` closes normally.
   - `refund_full` and `refund_partial` close the order, then post `dispute:<id>:<episode>:refund`
