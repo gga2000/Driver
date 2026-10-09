@@ -48,7 +48,7 @@ aggregate `refund_approval:<id>`). A decision also writes a Console audit row,
 
 ## Where
 
-`refund_approvals` (migration `20261010480000_refund_approvals`): ids and amounts only.
+`refund_approvals` (migration `20261010500000_refund_approvals`): ids and amounts only.
 `RefundApprovalsService` lives in `apps/api/src/modules/orders/refund-approvals.ts` and is shared by
 both paths. Support registers how an approved ticket refund posts, and orders registers the complaint
 path.
