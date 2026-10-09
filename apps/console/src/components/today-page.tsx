@@ -26,7 +26,9 @@ import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
 import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
+import { useLinkedFilters } from '@/lib/url-state';
 import { useTRPC } from '@/lib/trpc';
+import { CopyLinkButton } from './copy-link';
 import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
@@ -57,6 +59,8 @@ import {
 /** The list and its counts refresh this often (the plan's freshness bar: Today within 3 s). */
 const TODAY_POLL_MS = 3_000;
 const VIEWS: readonly InboxView[] = ['open', 'mine', 'snoozed', 'done'];
+const LINK_DEFAULTS = { view: 'open', kind: '' };
+const LINK_ALLOWED = { view: VIEWS, kind: INBOX_KINDS };
 const VIEW_KEY = {
   open: 'console.today.view_open',
   mine: 'console.today.view_mine',
@@ -86,6 +90,15 @@ function Today() {
   const canWork = loaded && hasAny(roles, INBOX_WORK_ROLES);
   const [view, setView] = useState<InboxView>('open');
   const [kind, setKind] = useState<InboxKind | null>(null);
+  useLinkedFilters(
+    { view, kind: kind ?? '' },
+    LINK_DEFAULTS,
+    (got) => {
+      if (got['view']) setView(got['view'] as InboxView);
+      if (got['kind']) setKind(got['kind'] as InboxKind);
+    },
+    LINK_ALLOWED,
+  );
   const counts = useQuery(
     trpc.inbox.counts.queryOptions(
       { cityId: CITY_ID },
@@ -132,6 +145,7 @@ function Today() {
               fetching={list.isFetching}
               error={list.isError}
             />
+            <CopyLinkButton />
           </div>
         </div>
         {view === 'open' && c ? <KindFilter counts={c} value={kind} onChange={setKind} /> : null}

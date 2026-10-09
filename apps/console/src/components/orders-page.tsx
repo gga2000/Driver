@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { AZIZIYAH_ZONES, OrderType as OrderTypeEnum, parseOrderTicket, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
 import { formatIqd } from '@/lib/format';
 import { orderTypeLabel, paymentLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS, useMerchants } from '@/lib/live';
@@ -13,9 +13,11 @@ import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/peri
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
+import { useLinkedFilters } from '@/lib/url-state';
 import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
 import { useNames } from '@/lib/names';
+import { CopyLinkButton } from './copy-link';
 import { OrderRef, OrgName, PersonName } from './named';
 import { OrderStatus } from './order-status';
 import { PeriodPicker } from './period-picker';
@@ -40,7 +42,15 @@ import {
 
 const PAGE = 50;
 const PRESETS: readonly PeriodPreset[] = PERIOD_PRESETS.filter((p) => p !== 'month');
-const VIEW_PARAM = 'view';
+const LINK_DEFAULTS = { view: EMPTY_FILTER.view, period: EMPTY_FILTER.period.preset, from: '', to: '', type: 'all', shop: '', zone: '', pay: 'all', sort: '' };
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const LINK_ALLOWED = {
+  view: ORDER_VIEW_KEYS,
+  period: PRESETS,
+  type: ['all', ...OrderTypeEnum.options],
+  pay: ['all', ...PaymentEnum.options],
+  sort: ['newest', 'late'],
+};
 
 /**
  * Order history (`orders.search`): saved views (الكل، شغّالة، متأخرة، ملغية، نزاعات) over every state,
@@ -59,18 +69,38 @@ export function OrdersPage() {
   const ticket = parseOrderTicket(q);
   const set = (patch: Partial<ListFilter>) => setFilter((f) => ({ ...f, ...patch }));
 
-  // The view lives in the URL so a view can be linked ("/orders?view=late").
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get(VIEW_PARAM);
-    if (v && (ORDER_VIEW_KEYS as readonly string[]).includes(v)) set({ view: v as OrderView });
-  }, []);
+  // The view, period and filters live in the link, so a teammate opening it sees the same list.
+  useLinkedFilters(
+    {
+      view: filter.view,
+      period: filter.period.preset,
+      from: filter.period.preset === 'custom' ? (filter.period.fromDay ?? '') : '',
+      to: filter.period.preset === 'custom' ? (filter.period.toDay ?? '') : '',
+      type: filter.type,
+      shop: filter.merchantOrgId,
+      zone: filter.zoneKey,
+      pay: filter.payment,
+      sort: sort ?? '',
+    },
+    LINK_DEFAULTS,
+    (got) => {
+      const preset = (got['period'] ?? EMPTY_FILTER.period.preset) as PeriodPreset;
+      setFilter((f) => ({
+        ...f,
+        ...(got['view'] ? { view: got['view'] as OrderView } : {}),
+        ...(got['period'] ? { period: { preset, ...(preset === 'custom' ? { fromDay: DAY.test(got['from'] ?? '') ? got['from'] : undefined, toDay: DAY.test(got['to'] ?? '') ? got['to'] : undefined } : {}) } } : {}),
+        ...(got['type'] ? { type: got['type'] as OrderType } : {}),
+        ...(got['shop'] ? { merchantOrgId: got['shop'] } : {}),
+        ...(got['zone'] ? { zoneKey: got['zone'] } : {}),
+        ...(got['pay'] ? { payment: got['pay'] as PaymentMethod } : {}),
+      }));
+      if (got['sort']) setSort(got['sort'] as ListSort);
+    },
+    LINK_ALLOWED,
+  );
   const setView = (view: OrderView) => {
     set({ view });
     setSort(null);
-    const url = new URL(window.location.href);
-    if (view === 'all') url.searchParams.delete(VIEW_PARAM);
-    else url.searchParams.set(VIEW_PARAM, view);
-    window.history.replaceState(null, '', url);
   };
 
   const dayKey = now.toISOString().slice(0, 13);
@@ -316,6 +346,9 @@ function FilterBar({ filter, set, onClear, count }: { filter: ListFilter; set: (
           <span className="num text-xs text-faint">{count}</span>
         </Button>
       )}
+      <span className="ms-auto">
+        <CopyLinkButton />
+      </span>
     </div>
   );
 }
