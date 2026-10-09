@@ -11,6 +11,7 @@ import { Glyph } from './Glyph';
 import { itemStatus } from './logic';
 import { absoluteUrl } from './photo';
 import { NoPhotoTile } from './parts';
+import { photoDownTile } from './PhotoDown';
 import { tiersOf } from './tiers';
 
 export interface TrayProps {
@@ -82,7 +83,7 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
         })}
       >
         <View onLayout={(e) => setPicH(e.nativeEvent.layout.height)} style={{ aspectRatio: 1.3, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: COUNTER.sand }}>
-          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} recyclingKey={item.id} transition={120} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors /> : <NoPhotoTile testID={`tray-nophoto-${item.id}`} room={on ? 44 : 0} />}
+          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} recyclingKey={item.id} transition={120} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors /> : <NoPhotoTile testID={`tray-nophoto-${item.id}`} room={on ? 44 : 0} down={photoDownTile(t, item)} />}
           {!on ? <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: withAlpha(COUNTER.sand, 0.62) }} /> : null}
           {status === 'sold_out_today' ? <Stamp wide={wide} title={t('merchant.menu.sold_out_today')} sub={t('merchant.display.stamp_back')} tone="late" /> : null}
           {status === 'off' ? <Stamp wide={wide} title={t('merchant.menu.off')} tone="off" /> : null}

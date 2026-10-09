@@ -260,16 +260,19 @@ export interface SeatQuote {
   baseIqd: number;
   frontIqd: number;
   pickupIqd: number;
+  /** Step 4: an agreed door drop. */
+  dropoffIqd: number;
   totalIqd: number;
 }
 
-/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee. */
-export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0): SeatQuote {
+/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee, + an agreed door drop. */
+export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0, dropoffFeeIqd = 0): SeatQuote {
   const seats = seatIds.length;
   const baseIqd = seats * dep.seatPriceIqd;
   const frontIqd = seatIds.includes('front') ? dep.frontPremiumIqd : 0;
   const pickupIqd = seats > 0 ? pickupFeeIqd : 0;
-  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, totalIqd: baseIqd + frontIqd + pickupIqd };
+  const dropoffIqd = seats > 0 ? dropoffFeeIqd : 0;
+  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, dropoffIqd, totalIqd: baseIqd + frontIqd + pickupIqd + dropoffIqd };
 }
 
 /**

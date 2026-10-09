@@ -273,6 +273,8 @@ export interface IntercityRules {
     riderNoShowWaitMin: number;
     driverNoShowAfterMin: number;
     arrivalGeofenceM: number;
+    /** Way C (Ali 2026-10-09): a friend's «صعدت» works within this of where the driver pressed «وصلت». */
+    shareBoardNearM: number;
   };
 }
 
@@ -314,6 +316,7 @@ export const INTERCITY_RULES: IntercityRules = {
     riderNoShowWaitMin: 10,
     driverNoShowAfterMin: 20,
     arrivalGeofenceM: 300,
+    shareBoardNearM: 300,
   },
 };
 

@@ -75,8 +75,9 @@ What each procedure does:
   `order_state_conflict`. Both are read inside the posting's transaction.
 - **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`, except `void`, which moves
   no money and so needs no switch (it is the only way out of a `courier_lost` dispute while
-  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. Refunds above `agentLimitIqd` (25,000) need an admin
-  (`refund_needs_escalation`). A refund is never more than what was paid, less earlier refunds. The
+  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. A refund above `agentLimitIqd` (25,000) posts
+  nothing: it waits for a second staff member's OK, admins included (`pendingApprovalId` on the
+  result, the order stays disputed; [refund-approvals.md](refund-approvals.md)). A refund is never more than what was paid, less earlier refunds. The
   party at fault pays: courier `driver:<id>`, merchant `merchant_cash:<org>`, otherwise `platform`.
   - `stands` closes normally.
   - `refund_full` and `refund_partial` close the order, then post `dispute:<id>:<episode>:refund`
@@ -148,6 +149,12 @@ StaffDepartureDriver       { departureId, driverId, displayName: string | null (
 - **`overdueDepartures`**: lists departures in one of two cases:
   - `driver_no_show`: still `scheduled` or `boarding`, 20 min past the latest departure time.
   - `not_arrived`: `departed`, 30 min past the corridor's travel time.
+- **Today rows for late cars**: the garage watch (every minute, job machines) records each departure
+  that enters this list as `departure.overdue` `{ departureId, garageId, corridorId, reason, since,
+  riders, cityId }`, and `departure.overdue_cleared` `{ departureId, cityId, by }` when it leaves it,
+  whatever moved it (`by` = the actor of its latest event since; `system` when none). Both sit on the
+  aggregate `garage_board` / `departures`, once per episode (idempotency key
+  `departure.overdue:<id>:<since>`). They only record; they run whatever the switches say.
 - **`departureDrivers`**: who drives each departure, in any state, so the garage view can name the
   driver of a run that left or is overdue (the riders' `routes.driverCards` only cover board
   departures and the rider's own trips). Short name and masked number, never the number itself; one

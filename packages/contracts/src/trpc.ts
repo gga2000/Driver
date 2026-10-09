@@ -27,6 +27,7 @@ import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
 import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
+import type { TripChatPort } from './trip-chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
@@ -40,6 +41,7 @@ import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
 import type { PhoneBookingPort } from './phone-booking-io.js';
 import type { GarageTaxiPort } from './garage-taxi-io.js';
+import type { DishPhotoReviewPort } from './dish-photos-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -64,6 +66,8 @@ export interface AppContext {
   ops: OpsPort;
   /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
   menuPhotos: MenuPhotosPort;
+  /** p4: shop-uploaded dish photos waiting for the same-day look (`modules/ops` over `modules/catalog`). */
+  dishPhotos: DishPhotoReviewPort;
   /** Console › المطاعم: stores' pickup spots set by field ops (`modules/ops` over `modules/merchant`). */
   pickupSpots: PickupSpotsOpsPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
@@ -98,6 +102,8 @@ export interface AppContext {
   merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
+  /** Baghdad/Kut chat between a rider and a run's or private car's driver, with the price cards (`modules/chat`, step 4c). */
+  tripChat: TripChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
   /** Real-time channel (`modules/live`): stream tokens and the SSE event streams of `live.*`. */

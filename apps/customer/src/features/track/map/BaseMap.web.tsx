@@ -1,4 +1,3 @@
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
@@ -10,6 +9,8 @@ import { useApi } from '@/lib/api';
 import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
+import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
+import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
@@ -29,25 +30,6 @@ export function BaseMap(props: BaseMapProps) {
 }
 
 export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
-
-/** How often the Golden hour light is checked (it changes a few times a day; the swap is a quiet cross-fade). */
-const LIGHT_CHECK_MS = 10 * 60_000;
-
-type Maplibre = typeof import('maplibre-gl');
-
-let protocolAdded = false;
-/** Once per page: the `pmtiles://` protocol and the Arabic text shaping our labels need. */
-async function prepareGolden(maplibregl: Maplibre): Promise<void> {
-  if (!protocolAdded) {
-    const { Protocol } = await import('pmtiles');
-    maplibregl.addProtocol('pmtiles', new Protocol().tile);
-    protocolAdded = true;
-  }
-  if (maplibregl.getRTLTextPluginStatus() === 'unavailable') {
-    const { RTL_TEXT_PLUGIN_URL } = await import('@driver/map');
-    void maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true).catch(() => undefined);
-  }
-}
 
 /**
  * The camera lives in the shared values (`cam`): every frame the map is jumped to them, so the
@@ -77,6 +59,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         if (golden) await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
+        ensureMaplibreCss();
         // Golden hour when its files are set up; the original map otherwise and as the fallback.
         let light = golden?.resolveLight().light;
         const goldenStyle = () =>

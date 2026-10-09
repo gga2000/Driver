@@ -1,11 +1,13 @@
 'use client';
 
-import maplibregl, { type GeoJSONSource, type Map as MlMap, type StyleSpecification } from 'maplibre-gl';
+import maplibregl, { type GeoJSONSource, type Map as MlMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { OrderReplay } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { AZIZIYAH_MAX_BOUNDS, buildMapStyle, MAP_COLORS, MAP_COLORS_LIGHT } from '@driver/map';
+import { AZIZIYAH_MAX_BOUNDS, MAP_COLORS, MAP_COLORS_LIGHT } from '@driver/map';
+import { GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 import { useEffect, useRef, useState } from 'react';
+import { openConsoleMapStyle, watchGoldenMap } from '@/lib/map-runtime';
 import { pathUntil, positionAt, type ReplayPoint } from '@/lib/replay';
 
 const SRC = { full: 'replay-full', driven: 'replay-driven' } as const;
@@ -23,36 +25,54 @@ export default function ReplayMap({ replay, path, t: at, theme }: { replay: Orde
   const courier = useRef<maplibregl.Marker | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** Bumped when our Golden hour map fails to open: the map reopens on the original one. */
+  const [reopen, setReopen] = useState(0);
   const C = theme === 'light' ? MAP_COLORS_LIGHT : MAP_COLORS;
 
   useEffect(() => {
     const el = box.current;
     if (!el) return;
     let map: MlMap;
+    const { style, golden } = openConsoleMapStyle({ theme });
     try {
-      map = new maplibregl.Map({ container: el, style: buildMapStyle({ theme }) as StyleSpecification, maxBounds: AZIZIYAH_MAX_BOUNDS, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
+      map = new maplibregl.Map({ container: el, style, maxBounds: AZIZIYAH_MAX_BOUNDS, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
     } catch {
       setFailed(true);
       return;
     }
-    mapRef.current = map;
+    // Drawn on only once loaded (`mapRef` stays empty until then); a map being replaced is never drawn on.
+    let replaced = false;
+    const stopWatch = golden
+      ? watchGoldenMap(map, { theme }, () => {
+          replaced = true;
+          mapRef.current = null;
+          setReopen((n) => n + 1);
+        })
+      : () => undefined;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
     map.on('load', () => {
+      if (replaced) return;
+      mapRef.current = map;
       map.addSource(SRC.full, { type: 'geojson', data: line([]) });
       map.addSource(SRC.driven, { type: 'geojson', data: line([]) });
-      map.addLayer({ id: SRC.full, type: 'line', source: SRC.full, paint: { 'line-color': C.muted, 'line-width': 3, 'line-opacity': 0.55, 'line-dasharray': [1, 1.5] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-      map.addLayer({ id: SRC.driven, type: 'line', source: SRC.driven, paint: { 'line-color': C.accent, 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      // On the Golden hour map the path goes under the street names, so they stay readable.
+      const under = golden && map.getLayer(GOLDEN_FIRST_LABEL) ? GOLDEN_FIRST_LABEL : undefined;
+      map.addLayer({ id: SRC.full, type: 'line', source: SRC.full, paint: { 'line-color': C.muted, 'line-width': 3, 'line-opacity': 0.55, 'line-dasharray': [1, 1.5] }, layout: { 'line-cap': 'round', 'line-join': 'round' } }, under);
+      map.addLayer({ id: SRC.driven, type: 'line', source: SRC.driven, paint: { 'line-color': C.accent, 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } }, under);
       setReady(true);
     });
     return () => {
+      replaced = true;
+      stopWatch();
       setReady(false);
+      courier.current?.remove();
       courier.current = null;
       mapRef.current = null;
       map.remove();
     };
     // The style is rebuilt with the theme.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [theme, reopen]);
 
   // The whole path, the stops, the frame: once per replay.
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CallSession, ChatLostItemInput, ChatLostItemResult, ChatLostItemThread, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView, ChatVoiceUploadInput, VoiceUploadTicket } from '../chat-io.js';
+import { TripChatMarkReadInput, TripChatSendInput, TripChatSummary, TripChatThreadInput, TripChatThreadsInput, TripChatView, TripChatVoiceUploadInput } from '../trip-chat-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { DRIVING_ROLES } from './trips.js';
 
@@ -44,4 +45,31 @@ export const chatRouter = router({
   lostItems: protectedProcedure(DRIVING_ROLES)
     .output(z.array(ChatLostItemThread))
     .query(({ ctx }) => ctx.chat.lostItems(ctx.actor)),
+  /**
+   * Baghdad/Kut (step 4c): a rider and the driver of a seat run or a private-car offer, one thread per
+   * pair, with the agreed-price cards and the «اللي اتفقنا عليه» strip (docs/api/trip-chat.md).
+   */
+  trip: router({
+    thread: protectedProcedure()
+      .input(TripChatThreadInput)
+      .output(TripChatView)
+      .query(({ ctx, input }) => ctx.tripChat.thread(ctx.actor, input)),
+    /** The caller's threads on one run or request (the driver's riders; the rider's drivers). */
+    threads: protectedProcedure()
+      .input(TripChatThreadsInput)
+      .output(z.array(TripChatSummary))
+      .query(({ ctx, input }) => ctx.tripChat.threads(ctx.actor, input)),
+    send: protectedProcedure()
+      .input(TripChatSendInput)
+      .output(ChatMessage)
+      .mutation(({ ctx, input }) => ctx.tripChat.send(ctx.actor, input)),
+    voiceUpload: protectedProcedure()
+      .input(TripChatVoiceUploadInput)
+      .output(VoiceUploadTicket)
+      .mutation(({ ctx, input }) => ctx.tripChat.voiceUpload(ctx.actor, input)),
+    markRead: protectedProcedure()
+      .input(TripChatMarkReadInput)
+      .output(ChatMarkReadOutput)
+      .mutation(({ ctx, input }) => ctx.tripChat.markRead(ctx.actor, input)),
+  }),
 });

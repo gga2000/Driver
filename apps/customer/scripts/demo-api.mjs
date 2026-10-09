@@ -770,7 +770,12 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
 //   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and five offer
 //   POST /demo/rajaa/history             finished private trips to Najaf (the usual range, p1)
+//   POST /demo/rajaa/waiting?personId=…&min=…[&charged=1]   the picked driver is waiting (w2 clock)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
+//   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
+//   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
+//   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…][&arrived=1][&board=self|driver]   share a private car by link (step 6, demo switch on; way C boarding)
+//   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1137,6 +1142,44 @@ const rajaa = await (async () => {
     }
   });
 
+  // POST /demo/rajaa/return?personId=… — step 5 «رايح وراجع» (demo switch on): a cash seat on a car to
+  // Baghdad in 3 h and two cars back from النهضة later today, so the pass offers the way back for 10 %.
+  let returnSeq = 0;
+  app.use('/demo/rajaa/return', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/return?personId=…' });
+      deps.money = { ...deps.money, intercityReturnBundle: { enabled: true, percent: 10, fundedBy: 'platform' } };
+      const n = (++returnSeq).toString(36).toUpperCase();
+      const at = (min) => new Date(Math.ceil((Date.now() + min * MIN) / (5 * MIN)) * 5 * MIN);
+      const out = await deps.announce(`drv_RTO${n}`, {
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(180),
+        latestDepartureAt: at(210),
+        vehicle: { ...saloon('63411 واسط', 'النترا', 'رصاصي'), ac: true },
+        familyOnly: false,
+      });
+      const back = [];
+      for (const [i, min] of [420, 480].entries()) {
+        const dep = await deps.announce(`drv_RTB${n}${i}`, {
+          garageId: 'mp_garage_nahdha',
+          corridorId: 'aziziyah_baghdad',
+          departAt: at(min),
+          latestDepartureAt: at(min + 30),
+          vehicle: { ...saloon(i === 0 ? '52817 بغداد' : '47205 واسط', i === 0 ? 'كورولا' : 'سوناتا', 'بيضاء'), ac: true },
+          familyOnly: false,
+        });
+        back.push(dep.id);
+      }
+      const held = await deps.hold(personId, { departureId: out.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'aila', pickup: { kind: 'garage' }, largeBags: false, lapChildren: 0 });
+      const booked = await deps.book(personId, held.id, 'cash');
+      json(res, 200, { departureId: out.id, bookingId: booked.id, backDepartureIds: back });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   // POST /demo/rajaa/arrived?personId=…[&told=1] — a whole trip that just ended (joy r2): a seat on a
   // car from Kut to Aziziyah, the other seats walk-ups, checked in, departed and arrived. The pass
   // then shows «وصلت بالسلامة». `told=1` first gives the person a trusted contact (أمي) with
@@ -1239,6 +1282,199 @@ const rajaa = await (async () => {
         await requests.offer(D.drv_9B3H, r.id, 80_000, wait(asked + 1, 5_000));
       }
       json(res, 200, { requests: open.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/waiting?personId=…&min=…[&charged=1] — w2: the driver of that person's picked
+  // «يستناك وترجع» request dropped them `min` minutes ago and is waiting; `charged=1` shows the extra
+  // hours as they will look once Ali switches the charge on (the demo only; the launch rule stays off).
+  app.use('/demo/rajaa/waiting', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const min = Number(url.searchParams.get('min') ?? 60);
+      const live = personId ? (await requests.mine(personId)).filter((r) => r.state === 'matched' || r.state === 'driver_arrived') : [];
+      if (req.method !== 'POST' || live.length === 0) return json(res, 400, { error: 'POST with a personId that has a picked request' });
+      const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+      const repo = app.get(ROUTES_REPOSITORY);
+      requests.moneyRules = { ...requests.moneyRules, requestWaitExtra: { enabled: url.searchParams.get('charged') === '1', freeMin: 15 } };
+      for (const r of live) {
+        const driverId = r.offers.find((o) => o.id === r.pickedOfferId)?.driverId;
+        if (!driverId) continue;
+        if (r.state === 'matched') await requests.arrived(driverId, r.id, { lat: 32.9105, lng: 45.0611 });
+        const now = await requests.get(r.id);
+        if (!now.waitStartedAt) await requests.waitStart(driverId, r.id);
+        const back = await requests.get(r.id);
+        back.waitStartedAt = new Date(Date.now() - min * 60_000);
+        back.waitEndedAt = null;
+        await repo.saveRequest(back);
+      }
+      json(res, 200, { requests: live.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/cash?personId=…[&answer=accept|decline|ask|none][&owe=5000] — step 4b a6 «احجز وادفع كاش»:
+  // switches the rule on for this demo only (the launch rule stays off), asks the 42,000 driver on each of
+  // the person's open requests and answers as given (`ask` leaves it waiting, `none` only switches it
+  // on and names the offer); `owe` puts a past
+  // no-show on his wallet so the «عليك» line shows.
+  app.use('/demo/rajaa/cash', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const answer = url.searchParams.get('answer') ?? 'accept';
+      const open = personId ? (await requests.mine(personId)).filter((r) => r.state === 'open') : [];
+      if (req.method !== 'POST' || open.length === 0) return json(res, 400, { error: 'POST with a personId that has an open request with offers' });
+      requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
+      const asked = [];
+      for (const r of open) {
+        const o = r.offers.find((x) => x.state === 'open' && x.driverId === D.drv_3C5N) ?? r.offers.find((x) => x.state === 'open');
+        if (!o) continue;
+        if (answer === 'none') {
+          asked.push(o.id);
+          continue;
+        }
+        if (!o.cash) await requests.askCash(personId, r.id, o.id);
+        if (answer !== 'ask' && (o.cash ?? 'asked') === 'asked') await requests.answerCash(o.driverId, r.id, o.id, answer === 'accept');
+        asked.push(o.id);
+      }
+      const owe = Number(url.searchParams.get('owe') ?? 0);
+      if (owe > 0) {
+        const { LedgerService } = await load('modules/ledger/index.js');
+        const { postCancellation } = await load('modules/ledger/postings.js');
+        await app.get(LedgerService).recordAll(postCancellation({ from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: `demo_owe_${Date.now()}`, occurredAt: new Date(), customerId: personId, by: 'customer', reason: 'request_board_rider_no_show', free: false, feeIqd: owe, beneficiaries: [{ kind: 'driver', id: D.drv_7K2Q, amountIqd: owe }] }));
+      }
+      json(res, 200, { offers: asked });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1] — step 6 «تقاسم السيارة» (demo switch
+  // on): a private car to Baghdad for 4 people in 10 h, علي حسن's 110,000 picked. `booker`: the person
+  // booked it and opened the link, and كرار already paid his place. `friend`: أحمد booked it and shared
+  // it, زيد took a place, and the person has the link (`joined=1`: he took a place too).
+  let shareSeq = 0;
+  const sharePeople = {};
+  async function namedPerson(name) {
+    if (sharePeople[name]) return sharePeople[name];
+    const phone = `0771977${String(1000 + Object.keys(sharePeople).length).padStart(4, '0')}`;
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code: otp } = await identity.devLastOtp(phone);
+    const id = (await identity.verifyOtp({ phone, code: otp })).personId;
+    await identity.setName({ personId: id, sessionId: 'demo' }, name);
+    sharePeople[name] = id;
+    return id;
+  }
+  const topUp = (who, amount) => ledger.record({ type: 'adjustment', amount, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
+  app.use('/demo/rajaa/share', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const as = url.searchParams.get('as') ?? 'booker';
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1]' });
+      requests.moneyRules = { ...requests.moneyRules, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+      // `postId`: كرار joins the link the person opened on that request himself.
+      const postId = url.searchParams.get('postId');
+      if (postId) {
+        const code = (await requests.get(postId))?.share?.code;
+        if (!code) return json(res, 400, { error: 'that request has no share link yet' });
+        const friend = await namedPerson('كرار حسن');
+        await topUp(friend, 30_000);
+        await requests.joinShare(friend, code, 1);
+        return json(res, 200, { postId, code });
+      }
+      shareSeq += 1;
+      const booker = as === 'friend' ? await namedPerson('أحمد علي') : personId;
+      await topUp(booker, 60_000);
+      const when = new Date(Math.ceil((Date.now() + 600 * MIN) / (5 * MIN)) * 5 * MIN);
+      const r = await requests.post(booker, { from: { label: 'العزيزية · البيت' }, to: { label: 'بغداد · مستشفى ابن النفيس' }, when, seats: 4, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 1, carKind: null, ac: true } });
+      const o = (await requests.offer(D.drv_7K2Q, r.id, 110_000)).offers.at(-1);
+      await requests.pick(booker, r.id, o.id);
+      if (url.searchParams.get('open') === '0') return json(res, 200, { postId: r.id, code: null });
+      const code = (await requests.openShare(booker, r.id, 1)).share.code;
+      const friend = await namedPerson(as === 'friend' ? 'زيد كاظم' : 'كرار حسن');
+      await topUp(friend, 30_000);
+      await requests.joinShare(friend, code, 1);
+      if (as === 'friend') {
+        await topUp(personId, 60_000);
+        if (url.searchParams.get('joined') === '1') await requests.joinShare(personId, code, 1);
+      }
+      // Way C: `arrived=1` brings the trip to now and علي حسن to the door (CAR_AT); `board=self` has the
+      // other friend say «صعدت»; `board=driver` has the driver confirm the person (a friend) himself.
+      const CAR_AT = { lat: 32.9105, lng: 45.0611 };
+      if (url.searchParams.get('arrived') === '1') {
+        const rec = await requests.get(r.id);
+        await requests.repo.saveRequest({ ...rec, when: new Date(Math.ceil((Date.now() + 5 * MIN) / (5 * MIN)) * 5 * MIN) });
+        await requests.arrived(D.drv_7K2Q, r.id, CAR_AT);
+        const board = url.searchParams.get('board');
+        if (board === 'self') await requests.boardShare(friend, code, CAR_AT);
+        if (board === 'driver') {
+          const m = (await requests.get(r.id)).share.members.find((x) => x.personId === personId && x.state === 'joined');
+          if (m) await requests.boardShareFor(D.drv_7K2Q, r.id, m.id);
+        }
+      }
+      json(res, 200, { postId: r.id, code, n: shareSeq, carAt: CAR_AT });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/agreements?personId=…&departureId=… — step 4 agreed prices: the driver of that
+  // car prices every ask the person made on it (a pin on the road 2,000 دينار, a door drop ببلاش),
+  // asking a door drop for him first if he has none open.
+  app.use('/demo/rajaa/agreements', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/agreements?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const agreements = app.get(AgreementsService);
+      const dep = await deps.departure(departureId);
+      const open = (a) => a.state === 'asked' || a.state === 'proposed' || a.state === 'accepted';
+      if (!(await agreements.mine(personId, dep.id)).some((a) => a.kind === 'door_drop' && open(a))) {
+        const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+        await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'البيت الثاني بعد الجامع' });
+      }
+      const priced = [];
+      for (const a of await agreements.mine(personId, dep.id)) {
+        if (a.state !== 'asked') continue;
+        priced.push((await agreements.propose(dep.driverId, { agreementId: a.id, amountIqd: a.kind === 'pin_pickup' ? 2_000 : 0 })).id);
+      }
+      json(res, 200, { priced });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // Step 4c: the Baghdad/Kut chat. The rider asks the driver about a spot on the road (سيطرة المدائن) and
+  // his door at the far end (each ask comes in as a card), the driver answers in words and prices both (2,000 and 3,000).
+  app.use('/demo/rajaa/trip-chat', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/trip-chat?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const { TripChatService } = await load('modules/chat/index.js');
+      const agreements = app.get(AgreementsService);
+      const chat = app.get(TripChatService);
+      const dep = await deps.departure(departureId);
+      const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+      const pin = await agreements.ask(personId, { departureId: dep.id, kind: 'pin_pickup', lat: 33.1667, lng: 44.5517, note: 'سيطرة المدائن، صوب الكازية' });
+      const door = await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'حي العسكري، قرب الجامع' });
+      const driver = { personId: dep.driverId, sessionId: 'demo' };
+      const ref = { subject: 'departure', id: dep.id, with: personId };
+      await new Promise((r) => setTimeout(r, 400));
+      await chat.send(driver, { ...ref, clientId: `demo-tc-${Date.now()}-1`, text: 'هلا بيك، إي أگدر. شوف الأسعار تحت' });
+      await agreements.propose(dep.driverId, { agreementId: pin.id, amountIqd: 2_000 });
+      await agreements.propose(dep.driverId, { agreementId: door.id, amountIqd: 3_000 });
+      json(res, 200, { pin: pin.id, door: door.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

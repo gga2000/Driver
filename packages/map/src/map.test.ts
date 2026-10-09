@@ -74,7 +74,7 @@ describe('bounds', () => {
 
 describe('garages', () => {
   it('lists the four garages; the town map drops Baghdad', () => {
-    expect(GARAGES.map((g) => g.name_ar)).toEqual(['كراج البوابة ١', 'كراج البوابة ٢', 'كراج السوق', 'كراج النهضة']);
+    expect(GARAGES.map((g) => g.name_ar)).toEqual(['كراج البوابة 1', 'كراج البوابة 2', 'كراج السوق', 'كراج النهضة']);
     expect(buildGaragesGeoJSON().features).toHaveLength(4);
     expect(buildGaragesGeoJSON({ onlyInCity: true }).features).toHaveLength(3);
   });

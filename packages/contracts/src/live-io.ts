@@ -69,6 +69,8 @@ export const LiveKey = z.enum([
   'orders.listActive',
   'chat.threads',
   'chat.thread',
+  /** Step 4c: a Baghdad/Kut run's or request's chat list (the driver's riders, the rider's drivers). */
+  'chat.trip.threads',
   'partner.status',
   'partner.currentOffer',
   'partner.activeJob',
@@ -144,6 +146,8 @@ export const LiveChat = z.object({
   kind: ChatThreadKind,
   threadId: z.string(),
   seq: z.number().int(),
+  /** A `rider_driver` thread (step 4c): the other side it is keyed by; `orderId` is the run or request id. */
+  partyId: z.string().optional(),
 });
 
 /**
@@ -190,6 +194,8 @@ export const liveChannel = {
   driver: (personId: string) => `driver:${personId}`,
   merchant: (merchantOrgId: string) => `merchant:${merchantOrgId}`,
   chat: (orderId: string, kind: ChatThreadKind) => `chat:${orderId}:${kind}`,
+  /** A Baghdad/Kut pair thread (step 4c): the run or request id and the side it is keyed by. */
+  tripChat: (id: string, partyId: string) => `tripchat:${id}:${partyId}`,
   city: (cityId: string) => `city:${cityId}`,
   /** Events whose city the fan-out cannot tell (an idle driver's pin); every Console board listens. */
   anyCity: () => 'city:*',

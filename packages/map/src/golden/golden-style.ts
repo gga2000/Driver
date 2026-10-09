@@ -22,6 +22,8 @@ export interface GoldenStyleOptions {
   light?: GoldenLight | 'auto';
   now?: Date;
   mode?: GoldenMode;
+  /** Zoom where houses start rising into 3D (customer/courier only); the order map uses TRACKING_RISE_ZOOM. */
+  riseAt?: number;
 }
 
 /** The vector source id and the font stacks `tools/map-tiles/glyphs.py` writes. */
@@ -83,7 +85,7 @@ export function shadowOffset(sun: SunPosition, heightM: number, z: number): [num
   return [Math.round(Math.sin(away) * px * 10) / 10, Math.round(-Math.cos(away) * px * 10) / 10];
 }
 
-function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition): LayerSpecification[] {
+function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt?: number): LayerSpecification[] {
   const rich = mode === 'customer' || mode === 'courier';
   const src = { source: GOLDEN_SOURCE } as const;
   const L: LayerSpecification[] = [
@@ -155,7 +157,7 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition): Layer
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
   });
   if (rich) {
-    const rise = mode === 'courier' ? 15.4 : 16.4;
+    const rise = riseAt ?? (mode === 'courier' ? 15.4 : 16.4);
     L.push({
       id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('house', 'mosque'),
       paint: {
@@ -235,7 +237,7 @@ export function buildGoldenStyle(opts: GoldenStyleOptions): StyleSpecification {
     sources: {
       [GOLDEN_SOURCE]: { type: 'vector', url: opts.pmtilesUrl, attribution: GOLDEN_ATTRIBUTION },
     },
-    layers: [...baseLayers(p, mode, sun), ...labelLayers(p)],
+    layers: [...baseLayers(p, mode, sun, opts.riseAt), ...labelLayers(p)],
     light: {
       anchor: 'map',
       color: p.light.color,
