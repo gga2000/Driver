@@ -16,7 +16,7 @@ import { tiersOf } from './tiers';
 export interface TrayProps {
   item: AdminMenuItem;
   now: number;
-  /** Tablet trays are a little roomier (bigger stamp, the full «ماكو صورة» line). */
+  /** Tablet trays are a little roomier (a bigger stamp). */
   wide: boolean;
   onSoldOut: (item: AdminMenuItem) => void;
   onBack: (item: AdminMenuItem) => void;
@@ -82,7 +82,7 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
         })}
       >
         <View onLayout={(e) => setPicH(e.nativeEvent.layout.height)} style={{ aspectRatio: 1.3, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: COUNTER.sand }}>
-          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} recyclingKey={item.id} transition={120} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors /> : <NoPhotoTile testID={`tray-nophoto-${item.id}`} />}
+          {item.photoUrl ? <Image source={{ uri: absoluteUrl(item.photoUrl) }} recyclingKey={item.id} transition={120} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors /> : <NoPhotoTile testID={`tray-nophoto-${item.id}`} room={on ? 44 : 0} />}
           {!on ? <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: withAlpha(COUNTER.sand, 0.62) }} /> : null}
           {status === 'sold_out_today' ? <Stamp wide={wide} title={t('merchant.menu.sold_out_today')} sub={t('merchant.display.stamp_back')} tone="late" /> : null}
           {status === 'off' ? <Stamp wide={wide} title={t('merchant.menu.off')} tone="off" /> : null}
@@ -144,6 +144,7 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
             position: 'absolute',
             top: theme.space[2] + picH - 36 - 8,
             start: theme.space[2] + 8,
+            end: theme.space[2] + 8,
             height: 36,
             flexDirection: 'row',
             alignItems: 'center',
@@ -160,7 +161,7 @@ export const Tray = memo(function Tray({ item, now, wide, onSoldOut, onBack, onO
         >
           <Glyph name="camera" size={17} color={COUNTER.date} strokeWidth={2} />
           <Text weight={700} numberOfLines={1} style={{ color: COUNTER.date, fontSize: 13, lineHeight: 19 }}>
-            {wide ? t('merchant.display.no_photo') : t('merchant.display.no_photo_short')}
+            {t('merchant.display.no_photo_short')}
           </Text>
         </Pressable>
       ) : null}
