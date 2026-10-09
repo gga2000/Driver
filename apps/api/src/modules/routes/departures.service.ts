@@ -6,6 +6,7 @@ import {
   HoldSeatInput,
   isDomainEventType,
   type IntercitySeatId,
+  type DepartureNoShowFee,
   type MoneyRules,
   type PickupChoice,
   type PinAlertKind,
@@ -763,25 +764,28 @@ export class DeparturesService {
 
   /**
    * Staff cancel of a departure whose driver never came (NTF-14). Riders are moved to the next cars
-   * exactly as on a driver cancel; unlike it, no fee is taken from the driver and no credit is paid
-   * (M-11 is open), so `departure.cancelled` carries fee 0 — nobody was charged yet (seats settle on
-   * arrival). `after` runs inside the same write (the audit row, the only place the staff's reason is
-   * kept); the departure and its events carry the fixed code `ops` (`driver_no_show` when automatic). Already cancelled: unchanged.
+   * exactly as on a driver cancel. With `fee` (M-11, switch `GARAGE_NO_SHOW_FEE`) the driver owes each
+   * booked rider what a late driver cancel costs (2,000, doubled from 18:00), carried by
+   * `departure.cancelled` (the ledger credits the riders and takes it from the driver's balance);
+   * without it the fee is 0. `after` runs inside the same write (the audit row, the only place the
+   * staff's reason is kept); the departure and its events carry the fixed code `ops` (`driver_no_show`
+   * when automatic). Already cancelled: unchanged, nothing charged twice.
    */
   staffCancel(
     staffId: string,
     departureId: string,
     after: StaffAfter,
-    opts: { auto?: boolean } = {},
+    opts: { auto?: boolean; fee?: boolean } = {},
   ): Promise<StaffWrite> {
     return this.writer.run(async (tx) => {
       const dep = await this.departure(departureId, tx);
-      if (dep.state === 'cancelled_by_driver' || dep.state === 'cancelled_low_fill') return { dep, changed: false, auditId: null };
+      if (dep.state === 'cancelled_by_driver' || dep.state === 'cancelled_low_fill') return { dep, changed: false, auditId: null, fee: null };
       this.requireState(dep, ['scheduled', 'boarding']);
       const bookings = await this.freshBookings(tx, dep);
       const now = this.now();
       const affected = bookings.filter((b) => LIVE.includes(b.state));
       const riders = uniq(affected.filter((b) => b.state !== 'held').map((b) => b.riderId));
+      const fee = opts.fee ? this.noShowFee(dep, bookings) : null;
       dep.state = 'cancelled_by_driver';
       dep.cancelledAt = now;
       // A fixed code only: the staff's free-text reason stays in the Console audit row (it may name people).
@@ -796,11 +800,16 @@ export class DeparturesService {
         occurredAt: now,
         driverId: dep.driverId,
         cancelledBy: 'driver',
-        feeIqd: 0,
+        feeIqd: fee?.driverChargeIqd ?? 0,
         riderIds: riders,
       });
-      await this.emit(tx, 'departure.ops_cancelled', staffId, dep, { reason: dep.cancelReason, auto: opts.auto === true, riders: riders.length });
-      return { dep, changed: true, auditId: await after(tx, dep) };
+      await this.emit(tx, 'departure.ops_cancelled', staffId, dep, {
+        reason: dep.cancelReason,
+        auto: opts.auto === true,
+        riders: riders.length,
+        feeIqd: fee?.driverChargeIqd ?? 0,
+      });
+      return { dep, changed: true, auditId: await after(tx, dep), fee };
     });
   }
 
@@ -808,9 +817,9 @@ export class DeparturesService {
   staffArrive(staffId: string, departureId: string, after: StaffAfter): Promise<StaffWrite> {
     return this.writer.run(async (tx) => {
       const dep = await this.departure(departureId, tx);
-      if (dep.state === 'arrived' || dep.state === 'closed') return { dep, changed: false, auditId: null };
+      if (dep.state === 'arrived' || dep.state === 'closed') return { dep, changed: false, auditId: null, fee: null };
       await this.arriveNow(tx, dep, await this.repo.bookingsFor(dep.id, tx), staffId);
-      return { dep, changed: true, auditId: await after(tx, dep) };
+      return { dep, changed: true, auditId: await after(tx, dep), fee: null };
     });
   }
 
@@ -818,13 +827,13 @@ export class DeparturesService {
   staffClose(staffId: string, departureId: string, after: StaffAfter): Promise<StaffWrite> {
     return this.writer.run(async (tx) => {
       const dep = await this.departure(departureId, tx);
-      if (dep.state === 'closed') return { dep, changed: false, auditId: null };
+      if (dep.state === 'closed') return { dep, changed: false, auditId: null, fee: null };
       this.requireState(dep, ['arrived']);
       dep.state = 'closed';
       dep.closedAt = this.now();
       await this.repo.saveDeparture(dep, tx);
       await this.emit(tx, 'departure.closed', staffId, dep, { by: 'ops' });
-      return { dep, changed: true, auditId: await after(tx, dep) };
+      return { dep, changed: true, auditId: await after(tx, dep), fee: null };
     });
   }
 
@@ -848,10 +857,24 @@ export class DeparturesService {
         reason = 'driver_no_show';
       }
       if (since.getTime() > now.getTime()) continue;
-      const riders = (await this.repo.bookingsFor(dep.id)).filter((b) => b.state === 'booked' || b.state === 'checked_in').length;
-      out.push({ dep, reason, since, minutes: Math.floor((now.getTime() - since.getTime()) / MIN_MS), riders });
+      const bookings = await this.repo.bookingsFor(dep.id);
+      const riders = bookings.filter((b) => b.state === 'booked' || b.state === 'checked_in').length;
+      const fee = reason === 'driver_no_show' ? this.noShowFee(dep, bookings) : null;
+      out.push({ dep, reason, since, minutes: Math.floor((now.getTime() - since.getTime()) / MIN_MS), riders, fee });
     }
     return out.sort((a, b) => a.since.getTime() - b.since.getTime()).slice(0, limit);
+  }
+
+  /**
+   * What a driver owes for leaving his booked riders (review C-46, M-11): `driverCancelFeePerRiderIqd`
+   * per distinct booked rider (held seats are nobody's yet), doubled for a departure at or after
+   * `cancelFeeDoublesFromHour` Baghdad time. Shared by a late driver cancel and a staff no-show cancel.
+   */
+  noShowFee(dep: DepartureRecord, bookings: readonly BookingRecord[]): DepartureNoShowFee {
+    const riders = uniq(bookings.filter((b) => LIVE.includes(b.state) && b.state !== 'held').map((b) => b.riderId)).length;
+    const doubled = localHour(dep.departAt, this.rules.utcOffsetMin) >= this.rules.cancelFeeDoublesFromHour;
+    const perRiderIqd = this.rules.driverCancelFeePerRiderIqd * (doubled ? 2 : 1);
+    return { riders, perRiderIqd, doubled, driverChargeIqd: riders * perRiderIqd };
   }
 
   /**
@@ -868,11 +891,8 @@ export class DeparturesService {
         now.getTime() >= dep.departAt.getTime() - this.rules.driverCancelFeeWindowMin * MIN_MS;
       const affected = bookings.filter((b) => LIVE.includes(b.state));
       const riders = uniq(affected.filter((b) => b.state !== 'held').map((b) => b.riderId));
-      const doubled =
-        localHour(dep.departAt, this.rules.utcOffsetMin) >= this.rules.cancelFeeDoublesFromHour;
-      const feeIqd = inside
-        ? riders.length * this.rules.driverCancelFeePerRiderIqd * (doubled ? 2 : 1)
-        : 0;
+      const { doubled, driverChargeIqd } = this.noShowFee(dep, bookings);
+      const feeIqd = inside ? driverChargeIqd : 0;
       dep.state = 'cancelled_by_driver';
       dep.cancelledAt = now;
       dep.cancelReason = reason;
@@ -1886,6 +1906,8 @@ export interface StaffWrite {
   dep: DepartureRecord;
   changed: boolean;
   auditId: string | null;
+  /** M-11: what a cancel charged; null when nothing was (switch off, replay, arrive/close). */
+  fee: DepartureNoShowFee | null;
 }
 export interface OverdueRecord {
   dep: DepartureRecord;
@@ -1893,6 +1915,8 @@ export interface OverdueRecord {
   since: Date;
   minutes: number;
   riders: number;
+  /** `driver_no_show` rows: what M-11 would charge if staff cancel now (whatever the switch). */
+  fee: DepartureNoShowFee | null;
 }
 
 function uniq<T>(xs: T[]): T[] {
