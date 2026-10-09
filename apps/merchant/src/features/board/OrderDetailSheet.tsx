@@ -77,7 +77,7 @@ export function OrderDetailSheet({ order, now, clock, onClose, onAccept, onRejec
             </>
           ) : order.column === 'preparing' ? (
             <>
-              <Button label={t('merchant.detail.reject_late')} variant="ghost" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
+              <Button testID="detail-cancel" label={t('merchant.detail.cancel_short')} accessibilityLabel={t('merchant.detail.reject_late')} variant="ghost" size="lg" onPress={() => onReject(order)} style={{ flex: 1 }} />
               <Button label={t('merchant.card.mark_ready')} icon="check" size="lg" onPress={() => onReady(order)} style={{ flex: 2 }} />
             </>
           ) : null}
