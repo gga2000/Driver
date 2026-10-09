@@ -8741,6 +8741,7 @@
   "partner.ops_cash_held_unit": "دينار بيده",
   "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
   "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار",
+  "partner.best_day_4w": "أحسن يوم بآخر 4 أسابيع",
   "partner.door_money_take_change": "استلم {tender} · رجّعله {change}",
   "partner.door_money_wallet_or": "أو حطها رصيد بمحفظته إذا ما عندك خردة",
   "partner.door_money_exact": "استلم {tender} بالضبط · ما يحتاج خردة",

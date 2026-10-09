@@ -8741,6 +8741,7 @@
   "partner.ops_cash_held_unit": "IQD in hand",
   "partner.switch_blocked_paused": "Paused while we look into the report",
   "partner.switch_blocked_hint_paused": "We'll call you and hear your side before any decision",
+  "partner.best_day_4w": "Best day, last 4 weeks",
   "partner.door_money_take_change": "Take {tender} · give back {change}",
   "partner.door_money_wallet_or": "or put it in his wallet if you have no change",
   "partner.door_money_exact": "Take exactly {tender} · no change needed",
