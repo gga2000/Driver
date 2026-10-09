@@ -5,8 +5,9 @@ const lateCar = (facts: Record<string, string | number | boolean>) => ({ kind: '
 
 describe('Today rows for a late الرجعة car', () => {
   it('say why and how many riders, and open the garage page', () => {
-    expect(detailText(lateCar({ reason: 'driver_no_show', riders: 4 }))).toBe('السايق ما إجا · 4 راكب');
-    expect(detailText(lateCar({ reason: 'not_arrived', riders: 3 }))).toBe('ما وصل · 3 راكب');
+    expect(detailText(lateCar({ reason: 'driver_no_show', riders: 4 }))).toBe('السايق ما إجا · 4 ركاب');
+    expect(detailText(lateCar({ reason: 'not_arrived', riders: 3 }))).toBe('ما وصل · 3 ركاب');
+    expect(detailText(lateCar({ reason: 'not_arrived', riders: 1 }))).toBe('ما وصل · راكب واحد');
     expect(rowHref(lateCar({ reason: 'not_arrived' }))).toBe('/garage');
   });
 

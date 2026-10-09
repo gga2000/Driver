@@ -7,6 +7,7 @@ import {
 import { t, type MessageKey } from '@driver/i18n';
 import type { ChipTone } from '@/components/ui';
 import { formatIqd } from './format';
+import { countText } from './plural';
 
 /**
  * Console › اليوم (E1, CON-12): how each row of the Today list reads, how urgent it looks, and where
@@ -188,7 +189,7 @@ export function detailText(
     }
     case 'late_departure':
       parts.push(t(f['reason'] === 'not_arrived' ? 'console.garage.late_not_arrived' : 'console.garage.late_no_show'));
-      if (typeof f['riders'] === 'number') parts.push(t('console.today.late_departure_riders', { n: f['riders'] }));
+      if (typeof f['riders'] === 'number') parts.push(countText('console.today.late_departure_riders', f['riders']));
       break;
     case 'pin_alert':
       parts.push(
