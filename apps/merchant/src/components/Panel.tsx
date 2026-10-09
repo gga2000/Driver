@@ -118,7 +118,7 @@ const PICKED_BAR_W = 4;
 
 /**
  * A pressable row inside a flush Panel: hairline between rows, 64 px tall. Rows of a list that picks
- * one item (a zone in «منطقة التوصيل» and «منين زبائنك») pass `selected`: every row then keeps a slot
+ * one item (a zone in «منطقة التوصيل» and «منين زباينك») pass `selected`: every row then keeps a slot
  * at its start for the accent bar the picked row shows (so nothing shifts when the pick moves), and
  * the row's own title goes bold.
  */
