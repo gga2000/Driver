@@ -152,20 +152,20 @@ export function ModeCard({ icon, title, body, cta, href, testID }: { icon: IconN
   );
 }
 
-/** Shown on home while a job is open: back to the job in one tap. */
-export function ActiveJobBanner() {
+/** Shown on home while a job is open: back to the job in one tap (a خطوط run goes back to its run screen). */
+export function ActiveJobBanner({ khat = false }: { khat?: boolean }) {
   const theme = useTheme();
   const t = useT();
   return (
     <Pressable
       testID="active-job-banner"
       accessibilityRole="button"
-      onPress={() => router.push('/job')}
+      onPress={() => router.push(khat ? '/khat' : '/job')}
       style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.text }}
     >
       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.success, marginStart: theme.space[1] }} />
       <Text variant="label" weight={600} color="surface" style={{ flex: 1 }}>
-        {t('partner.active_job')}
+        {t(khat ? 'partner.active_khat_run' : 'partner.active_job')}
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: withAlpha(color.neutral[0], 0.14), borderRadius: theme.radius.pill, paddingHorizontal: 12, paddingVertical: 4 }}>
         <Text variant="label" weight={600} color="surface">

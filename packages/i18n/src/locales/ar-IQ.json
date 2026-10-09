@@ -8694,5 +8694,15 @@
   "partner.update_safe": "حسابك وفلوسك وأرباحك تبقى مثل ما هي",
   "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
   "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
-  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك."
+  "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك.",
+  "partner.cash_carried": "كان بيدك قبلها",
+  "partner.cash_held_total": "بيدك هسة",
+  "partner.pay_fare_net": "أجرتك من الرحلة",
+  "partner.job_ride_collect": "يدفعلك {amount} دينار آخر المشوار",
+  "partner.active_khat_run": "خطك شغّال هسة",
+  "partner.booked_title_later": "مشاوير محجوزة",
+  "partner.features_title_tuktuk": "مميزات التكتك",
+  "partner.seen_plate_note_tuktuk": "رقم التكتك يطلع للراكب بس من تصير سايقه.",
+  "partner.seen_features_note_tuktuk": "يطلع بس اللي تأكد بفحص التكتك.",
+  "partner.seen_features_waiting_tuktuk": "بانتظار فحص التكتك"
 }

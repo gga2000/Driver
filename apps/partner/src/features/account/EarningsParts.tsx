@@ -13,6 +13,7 @@ import { useCompliments } from './queries';
 import {
   bestBucket,
   breakdownRows,
+  cashCarriedIqd,
   cashTruth,
   clockTime,
   componentLabel,
@@ -405,6 +406,8 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
   const truth = cashTruth({ owedIqd: cap.owedIqd, heldIqd: cash.heldIqd, capIqd: cap.capIqd, overCap: cap.overCap });
   const next = nextTierCap(cap);
   const urgent = truth.tone !== 'success';
+  // The period's rows add up to what he holds: what he already held before the period comes first.
+  const carried = cashCarriedIqd(cash);
   return (
     <Card testID="cash-cap-card" elevation={1} padding={5} style={urgent ? { borderWidth: 1.5, borderColor: withAlpha(theme.colors[truth.tone], 0.45) } : undefined}>
       <View style={{ gap: theme.space[4] }}>
@@ -420,9 +423,12 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
                 {`${t('partner.cash_period_title')} · ${rangeLabel}`}
               </Text>
             ) : null}
+            {carried !== 0 ? <CashRow label={t('partner.cash_carried')} amount={carried} /> : null}
             <CashRow label={t('partner.cash_collected_period')} amount={cash.collectedIqd} />
             <CashRow label={t('partner.cash_to_merchants')} amount={-cash.toMerchantsIqd} />
             <CashRow label={t('partner.cash_settled')} amount={-cash.settledIqd} />
+            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+            <CashRow label={t('partner.cash_held_total')} amount={cash.heldIqd} strong />
           </View>
         ) : null}
         <Button testID="handover-cta" label={t('partner.handover_cta')} icon="wallet" variant={urgent ? 'primary' : 'secondary'} fullWidth onPress={onHandover} />
@@ -436,13 +442,13 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
   );
 }
 
-function CashRow({ label, amount }: { label: string; amount: number }) {
+function CashRow({ label, amount, strong }: { label: string; amount: number; strong?: boolean }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-      <Text variant="footnote" color="textMuted">
+      <Text variant="footnote" color={strong ? 'text' : 'textMuted'} weight={strong ? 600 : undefined}>
         {label}
       </Text>
-      <Text variant="footnote" weight={600} tabular>
+      <Text variant="footnote" weight={strong ? 700 : 600} tabular>
         {amountParam(amount)}
       </Text>
     </View>

@@ -8694,5 +8694,15 @@
   "partner.update_safe": "Your account, cash and earnings stay as they are",
   "partner.cash_owed_split": "{order} for the order + {fees} owed from before",
   "partner.job_owed_fees": "Collect {fees} IQD on top of the order",
-  "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings."
+  "partner.job_owed_fees_body": "An amount the customer owed from before, added to this order. Not your earnings.",
+  "partner.cash_carried": "Already in hand before",
+  "partner.cash_held_total": "In hand now",
+  "partner.pay_fare_net": "Your share of the fare",
+  "partner.job_ride_collect": "Pays you {amount} IQD at the end",
+  "partner.active_khat_run": "Your run is under way",
+  "partner.booked_title_later": "Booked rides",
+  "partner.features_title_tuktuk": "Your tuktuk's features",
+  "partner.seen_plate_note_tuktuk": "Your tuktuk's number shows to the rider only once you are his driver.",
+  "partner.seen_features_note_tuktuk": "Only what the tuktuk check confirmed shows.",
+  "partner.seen_features_waiting_tuktuk": "Waiting for the tuktuk check"
 }

@@ -143,9 +143,12 @@ export function DashTop({
               </Text>
             ) : null}
             <BigMoney iqd={earningsIqd} color={cut ? 'onInverse' : working ? 'onAccent' : 'text'} testID="today-pill" />
-            <Text variant="footnote" weight={600} color={cut ? 'onInverseMuted' : working ? 'onAccent' : 'textMuted'} tabular>
-              {jobs > 0 ? t(jobsKey(jobs), { n: jobs }) : t('partner.today_zero')}
-            </Text>
+            {/* «ما اشتغلت اليوم بعد» only with nothing earned: الرجعة seats and خطوط runs earn without job counts. */}
+            {jobs > 0 || earningsIqd === 0 ? (
+              <Text variant="footnote" weight={600} color={cut ? 'onInverseMuted' : working ? 'onAccent' : 'textMuted'} tabular>
+                {jobs > 0 ? t(jobsKey(jobs), { n: jobs }) : t('partner.today_zero')}
+              </Text>
+            ) : null}
           </View>
         )}
       </View>

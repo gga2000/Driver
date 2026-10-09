@@ -43,7 +43,7 @@ export default function Seen() {
   }
   if (vehicle && hasFeatures(vehicle.vehicleClass)) {
     const f = featuresSummary(vehicle);
-    if (f.pending.length > 0) tips.push({ key: 'features', icon: 'clock', title: t('partner.seen_features_waiting'), subtitle: f.pending.map((x) => t(featureKey(x))).join('، '), href: '/vehicle' });
+    if (f.pending.length > 0) tips.push({ key: 'features', icon: 'clock', title: t(vehicle.vehicleClass === 'tuktuk' ? 'partner.seen_features_waiting_tuktuk' : 'partner.seen_features_waiting'), subtitle: f.pending.map((x) => t(featureKey(x))).join('، '), href: '/vehicle' });
     else if (f.confirmed.length === 0) tips.push({ key: 'features', icon: 'car', title: t('partner.seen_features_add'), subtitle: t('partner.seen_features_add_sub'), href: '/vehicle' });
   }
   tips.push({ key: 'words', icon: 'heart', title: t('partner.seen_words'), href: '/compliments' });
@@ -146,7 +146,7 @@ function RiderSheet({ p }: { p: DriverProfile }) {
         </View>
         <Tags features={p.features} />
         <Text variant="caption" color="textMuted">
-          {`${t('partner.seen_plate_note')} ${t('partner.seen_features_note')}`}
+          {p.vehicleClass === 'tuktuk' ? `${t('partner.seen_plate_note_tuktuk')} ${t('partner.seen_features_note_tuktuk')}` : `${t('partner.seen_plate_note')} ${t('partner.seen_features_note')}`}
         </Text>
       </View>
 

@@ -76,7 +76,12 @@ export default function Home() {
   const practice = s?.canDrive && !online && !s.activeTripId && !gate && practiceDone === null && practiceKindFor(s.vehicleClass) !== null;
 
   const state = dashState(online, !cut);
-  const hint = s?.canDrive ? workHint(s.demand, s.position) : null;
+  // «الشغل هسة بـ…» is about town jobs (food and city rides); a الرجعة or خطوط driver has his garage or run card.
+  const townWork = Boolean(s?.modes.some((m) => m === 'courier' || m === 'city'));
+  const hint = s?.canDrive && townWork ? workHint(s.demand, s.position) : null;
+  // A خطوط driver's open trip is his run: the banner goes back to the run screen, and he starts the
+  // run there, not with the town «اسحب وابدأ الشغل».
+  const khatRun = Boolean(s?.activeTripId) && Boolean(s?.modes.includes('khat')) && !townWork;
   const goOnline = () => {
     if (cut) {
       toast.show({ message: t('partner.go_online_offline'), tone: 'warning', icon: 'wifi-off' });
@@ -103,7 +108,7 @@ export default function Home() {
     if (invite && !s.activeTripId) present.push('invite');
     if (online && s.climateCheck) present.push('climate');
     for (const k of attentionOrder(present)) {
-      if (k === 'job') attention.push({ key: k, node: <ActiveJobBanner /> });
+      if (k === 'job') attention.push({ key: k, node: <ActiveJobBanner khat={khatRun} /> });
       if (k === 'gate' && gate) attention.push({ key: k, node: <GateBanner kind={gate} /> });
       if (k === 'cash') attention.push({ key: k, node: <CashLine cash={s.cash} /> });
       if (k === 'papers' && papers) attention.push({ key: k, node: <PapersBanner kind={papers.kind} days={papers.days} /> });
@@ -164,7 +169,7 @@ export default function Home() {
                 <ModeTile
                   testID="mode-booked"
                   icon="taxi"
-                  title={t('partner.booked_title')}
+                  title={t('partner.booked_title_later')}
                   body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
                   cta={t('partner.booked_home_cta')}
                   onPress={() => router.push('/booked')}
@@ -180,7 +185,7 @@ export default function Home() {
         </View>
       </ScrollView>
 
-      {s?.canDrive ? (
+      {s?.canDrive && !(khatRun && !online) ? (
         <SafeAreaView edges={[]} style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3], paddingTop: theme.space[2], backgroundColor: theme.colors.bg }}>
           <View style={column}>
             {gate ? (

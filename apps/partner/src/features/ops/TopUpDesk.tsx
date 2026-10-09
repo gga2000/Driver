@@ -153,12 +153,14 @@ export function TopUpDesk({
               label={t('partner.ops_rcpt_time')}
               value={`${baghdadDate(done.confirmedAt)} · ${baghdadClock(done.confirmedAt, locale)}`}
             />
-            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-            <Row
-              label={t('partner.ops_topup_balance')}
-              value={iqd(done.walletBalanceIqd, { locale })}
-              strong
-            />
+            {/* The customer's balance is his own business: the field-ops desk may read it back to him, a
+                courier at the door never sees it. */}
+            {mode === 'ops' ? (
+              <>
+                <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+                <Row label={t('partner.ops_topup_balance')} value={iqd(done.walletBalanceIqd, { locale })} strong />
+              </>
+            ) : null}
           </View>
         </Card>
         {after ? (

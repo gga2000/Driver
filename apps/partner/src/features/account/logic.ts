@@ -271,6 +271,14 @@ export interface CashTruth {
 }
 
 /**
+ * What he already held before the period: the period's rows (collected, paid to restaurants, handed to
+ * us) plus this add up to what he holds now, so the card's sum always closes.
+ */
+export function cashCarriedIqd(c: { heldIqd: number; collectedIqd: number; toMerchantsIqd: number; settledIqd: number }): number {
+  return c.heldIqd - c.collectedIqd + c.toMerchantsIqd + c.settledIqd;
+}
+
+/**
  * One cash truth (P-05): "لازم تسلّم" is `owedIqd` (held cash net of what the platform owes him) — the
  * figure the cap counts — on every screen; the colour and the bar come from it alone.
  */

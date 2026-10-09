@@ -187,7 +187,11 @@ function OfferWatcher() {
   const segments = useSegments();
   const router = useRouter();
   const shown = useRef<string | null>(null);
-  const offerId = offer.data?.offerId ?? null;
+  // Only a live offer rings: not one left in the cache from a cold start once his status says he is
+  // offline, and never a خطوط substitute run (it waits on the run screen, khat.substituteOffers, with
+  // its children and start time; the ride card would show «0 دينار» and a batch line).
+  const ringing = offer.data && (status.data ? online : true) && offer.data.vertical !== 'khat' ? offer.data : null;
+  const offerId = ringing?.offerId ?? null;
 
   useEffect(() => {
     if (!offerId || shown.current === offerId || segments[0] === 'offer') return;

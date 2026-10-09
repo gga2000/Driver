@@ -120,7 +120,8 @@ export const KIND_KEY: Record<Vertical, MessageKey> = {
 
 export const PAY_KEY: Record<PartnerPayKey, MessageKey> = {
   delivery: 'partner.pay_delivery',
-  fare: 'partner.pay_fare',
+  // Rides pay the fare after Driver's share: the line says so (the rider pays the whole fare).
+  fare: 'partner.pay_fare_net',
   distance: 'partner.pay_distance',
   wait: 'partner.pay_wait',
   batch_bonus: 'partner.pay_batch_bonus',

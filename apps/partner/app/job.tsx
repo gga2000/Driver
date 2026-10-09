@@ -217,6 +217,7 @@ function JobView({
   const [dismissedUnreachable, setDismissedUnreachable] = useState(false);
   const ride = isRide(job.vertical);
   const stop = job.stops.find((s) => s.stopId === job.currentStopId) ?? null;
+  const rideCollectIqd = ride && stop?.type === 'pickup' ? job.stops.reduce((n, s) => (s.type === 'dropoff' ? n + s.collectIqd : n), 0) : 0;
   const action = stop ? jobAction(stop, job.vertical) : null;
   const progress = taskProgress(job);
   const busy = tapping || actions.unreachable.isPending || actions.fail.isPending;
@@ -529,7 +530,14 @@ function JobView({
                 quote={hint?.note ?? null}
                 near={hint?.landmark ? t('partner.slip_near', { place: hint.landmark }) : null}
                 zone={zoneName(stop.zoneId, locale, t)}
-                aside={stop.type === 'dropoff' && stop.collectIqd > 0 ? <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" /> : null}
+                aside={
+                  stop.type === 'dropoff' && stop.collectIqd > 0 ? (
+                    <StatusPill label={t('partner.job_collect_here', { amount: amountParam(stop.collectIqd) })} tone="warning" icon="wallet" size="sm" />
+                  ) : rideCollectIqd > 0 ? (
+                    // A ride's cash is taken at the end: from the pickup on, he knows what the rider pays.
+                    <StatusPill testID="job-ride-collect" label={t('partner.job_ride_collect', { amount: amountParam(rideCollectIqd) })} tone="warning" icon="wallet" size="sm" />
+                  ) : null
+                }
               />
 
               {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} /> : null}

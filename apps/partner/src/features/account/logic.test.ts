@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DriverDocumentView, EarningsJobLine, MainPhotoView } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import {
+  cashCarriedIqd,
   memberSpan,
   papersReminder,
   papersPill,
@@ -324,5 +325,12 @@ describe('account hub and home papers (partner redesign a1 / a3)', () => {
     expect(checkInPill({ verifiedToday: true, lockedOut: false, required: true }, t)?.tone).toBe('success');
     expect(checkInPill({ verifiedToday: false, lockedOut: true, required: true }, t)?.tone).toBe('danger');
     expect(checkInPill({ verifiedToday: false, lockedOut: false, required: false }, t)).toBeNull();
+  });
+});
+
+describe('cash card rows add up (check-up 2026-10-09)', () => {
+  it('puts what he held before the period first', () => {
+    expect(cashCarriedIqd({ heldIqd: 68_500, collectedIqd: 87_000, toMerchantsIqd: 18_500, settledIqd: 9_000 })).toBe(9_000);
+    expect(cashCarriedIqd({ heldIqd: 10_000, collectedIqd: 10_000, toMerchantsIqd: 0, settledIqd: 0 })).toBe(0);
   });
 });

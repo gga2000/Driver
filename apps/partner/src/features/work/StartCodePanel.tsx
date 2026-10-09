@@ -21,7 +21,8 @@ export function StartCodePanel({ busy, wrongCount, onSubmit, onClose }: { busy: 
     setSeenWrong(wrongCount);
     setCode('');
   }
-  const wrong = wrongCount > 0;
+  // The refusal shows until he types again: a fresh attempt isn't greeted with the old error.
+  const wrong = wrongCount > 0 && code.length === 0;
   const press = (key: string) => {
     theme.haptic('selection');
     setCode((c) => typeKey(c, key));
@@ -56,7 +57,7 @@ export function StartCodePanel({ busy, wrongCount, onSubmit, onClose }: { busy: 
                 height: 64,
                 borderRadius: theme.radius.lg,
                 borderWidth: next ? 2 : 1.5,
-                borderColor: wrong && code.length === 0 ? theme.colors.danger : next ? theme.colors.text : theme.colors.border,
+                borderColor: wrong ? theme.colors.danger : next ? theme.colors.text : theme.colors.border,
                 backgroundColor: theme.colors.surface,
                 alignItems: 'center',
                 justifyContent: 'center',
