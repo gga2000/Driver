@@ -148,6 +148,12 @@ StaffDepartureDriver       { departureId, driverId, displayName: string | null (
 - **`overdueDepartures`**: lists departures in one of two cases:
   - `driver_no_show`: still `scheduled` or `boarding`, 20 min past the latest departure time.
   - `not_arrived`: `departed`, 30 min past the corridor's travel time.
+- **Today rows for late cars**: the garage watch (every minute, job machines) records each departure
+  that enters this list as `departure.overdue` `{ departureId, garageId, corridorId, reason, since,
+  riders, cityId }`, and `departure.overdue_cleared` `{ departureId, cityId, by }` when it leaves it,
+  whatever moved it (`by` = the actor of its latest event since; `system` when none). Both sit on the
+  aggregate `garage_board` / `departures`, once per episode (idempotency key
+  `departure.overdue:<id>:<since>`). They only record; they run whatever the switches say.
 - **`departureDrivers`**: who drives each departure, in any state, so the garage view can name the
   driver of a run that left or is overdue (the riders' `routes.driverCards` only cover board
   departures and the rider's own trips). Short name and masked number, never the number itself; one

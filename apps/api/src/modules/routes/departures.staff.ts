@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import type { Actor, OverdueDeparture, OverdueDeparturesInput, StaffDepartureInput, StaffDepartureResult } from '@driver/contracts';
+import { encodeDomainEvent, type Actor, type OverdueDeparture, type OverdueDeparturesInput, type StaffDepartureInput, type StaffDepartureResult } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { DeparturesService, type StaffWrite } from './departures.service.js';
+import type { RoutesDomainEvent } from './events.adapter.js';
 import type { DepartureRecord } from './model.js';
 
 /**
@@ -37,6 +38,21 @@ export interface DepartureAuditPort {
 }
 export const DEPARTURES_AUDIT = Symbol('DEPARTURES_AUDIT');
 
+/**
+ * Where `departure.overdue` / `departure.overdue_cleared` live: one aggregate of their own, like the
+ * orders' stuck board, so the Console's Today list reads every open mark from one place.
+ */
+export const GARAGE_BOARD = { name: 'garage_board', id: 'departures' } as const;
+
+/** The garage board's marks and the departure's event log (`EventsService`); absent in most tests. */
+export interface GarageBoardPort {
+  marks(): Promise<Array<{ type: string; departureId: string; occurredAt: Date; payload: Record<string, unknown> }>>;
+  emit(event: RoutesDomainEvent): Promise<void>;
+  /** Who moved the departure since `since`: the actor of its latest own event (`system` when none). */
+  lastActor(departureId: string, since: Date): Promise<string>;
+}
+export const GARAGE_BOARD_PORT = Symbol('GARAGE_BOARD_PORT');
+
 const HOME_CITY = 'aziziyah';
 const SYSTEM = 'system';
 export const GARAGE_WATCH_SWEEP_MS = 60_000;
@@ -58,11 +74,12 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     @Inject(DEPARTURES_AUDIT) private readonly audit: DepartureAuditPort,
     @Optional() @Inject(GARAGE_WATCH_RULES) private readonly rules: GarageWatchRules = DEFAULT_GARAGE_WATCH_RULES,
     @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+    @Optional() @Inject(GARAGE_BOARD_PORT) private readonly board: GarageBoardPort | null = null,
   ) {}
 
   onModuleInit(): void {
-    // Job machines only; the switch is off until Ali decides M-11.
-    if (!this.rules.autoCancelNoShow || !runsJobs(this.role)) return;
+    // Job machines only. The board marks run always (they only record); the auto-cancel stays behind its switch.
+    if ((!this.rules.autoCancelNoShow && !this.board) || !runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeSweep(), GARAGE_WATCH_SWEEP_MS);
     this.timer.unref?.();
   }
@@ -119,6 +136,58 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     return n;
   }
 
+  /**
+   * The Console's Today rows for late cars: `departure.overdue` when a departure enters the overdue list,
+   * `departure.overdue_cleared` when it leaves it, whatever moved it. The list is computed on read, so
+   * this tick is the detection point: it compares the list with the board's open marks. Each mark is
+   * once per episode (the key carries `since` and, from the second time on, the episode's number), so a
+   * second machine or a restart repeats nothing. It only records; it never moves a departure.
+   */
+  async watchOverdue(): Promise<number> {
+    const board = this.board;
+    if (!board) return 0;
+    const open = new Map<string, { key: string; at: Date }>();
+    const episodes = new Map<string, number>();
+    for (const m of await board.marks()) {
+      if (m.type === 'departure.overdue_cleared') open.delete(m.departureId);
+      else if (m.type === 'departure.overdue') {
+        const n = (episodes.get(m.departureId) ?? 0) + 1;
+        episodes.set(m.departureId, n);
+        open.set(m.departureId, { key: n === 1 ? String(m.payload['since']) : `${String(m.payload['since'])}:${n}`, at: m.occurredAt });
+      }
+    }
+    const now = this.departures.now();
+    const late = new Set<string>();
+    let done = 0;
+    for (const r of await this.departures.overdue(this.rules, 500)) {
+      late.add(r.dep.id);
+      if (open.has(r.dep.id)) continue;
+      const n = (episodes.get(r.dep.id) ?? 0) + 1;
+      const since = r.since.toISOString();
+      await board.emit({
+        type: 'departure.overdue',
+        actorId: SYSTEM,
+        occurredAt: now,
+        idempotencyKey: `departure.overdue:${r.dep.id}:${n === 1 ? since : `${since}:${n}`}`,
+        payload: encodeDomainEvent('departure.overdue', { departureId: r.dep.id, garageId: r.dep.garageId, corridorId: r.dep.corridorId, reason: r.reason, since: r.since, riders: r.riders, cityId: HOME_CITY }),
+      });
+      done++;
+    }
+    for (const [departureId, mark] of open) {
+      if (late.has(departureId)) continue;
+      const by = await board.lastActor(departureId, mark.at);
+      await board.emit({
+        type: 'departure.overdue_cleared',
+        actorId: by,
+        occurredAt: now,
+        idempotencyKey: `departure.overdue_cleared:${departureId}:${mark.key}`,
+        payload: encodeDomainEvent('departure.overdue_cleared', { departureId, cityId: HOME_CITY, by }),
+      });
+      done++;
+    }
+    return done;
+  }
+
   private after(actorId: string, action: string, summaryAr: string, detail: Record<string, unknown>) {
     return async (tx: Tx, dep: DepartureRecord): Promise<string> =>
       (await this.audit.record({ cityId: HOME_CITY, actorId, action, subjectKind: 'departure', subjectId: dep.id, summaryAr, detail: { ...detail, driverId: dep.driverId, corridorId: dep.corridorId, state: dep.state } }, tx)).id;
@@ -129,6 +198,7 @@ export class DeparturesStaffService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       await this.sweep();
+      await this.watchOverdue();
     } catch (err) {
       this.logger.error(`garage watch failed: ${(err as Error).message}`, (err as Error).stack);
     } finally {
