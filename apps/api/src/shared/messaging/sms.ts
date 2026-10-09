@@ -188,22 +188,22 @@ export class TwilioSmsProvider implements SmsPort {
 
 // ───────────────────────── OTPIQ (Iraq) ─────────────────────────
 
-/** How OTPIQ delivers a sign-in code: WhatsApp first with SMS as the fallback by default. */
+/** How OTPIQ delivers a sign-in code. SMS only by default: WhatsApp is our own Meta account (Ali, 2026-10-09). */
 export type OtpiqChannel = 'whatsapp-sms' | 'sms' | 'whatsapp' | 'telegram-sms' | 'whatsapp-telegram-sms' | 'auto';
 const OTPIQ_CHANNELS: readonly OtpiqChannel[] = ['whatsapp-sms', 'sms', 'whatsapp', 'telegram-sms', 'whatsapp-telegram-sms', 'auto'];
 
 export interface OtpiqConfig {
   apiKey: string;
-  /** Channel for sign-in codes; other texts (the SMS twins of notifications) always go as SMS. */
+  /** Channel for sign-in codes (default `sms`); other texts (the SMS twins of notifications) always go as SMS. */
   codeChannel: OtpiqChannel;
   senderId?: string | undefined;
   baseUrl: string;
 }
 
 /**
- * OTPIQ (otpiq.com), an Iraqi verification service: one call sends our own code over WhatsApp and
- * falls back to SMS by itself (`codeChannel`). OTPIQ writes the code's wording; texts that are not a
- * code go as a plain SMS (`custom`, which needs an approved sender id). Pay-as-you-go balance in IQD.
+ * OTPIQ (otpiq.com), an Iraqi SMS service: sends our own code by SMS (`codeChannel`, which could also
+ * be WhatsApp-then-SMS, but WhatsApp goes through our own Meta account). OTPIQ writes the code's
+ * wording; texts that are not a code go as a plain SMS (`custom`, which needs an approved sender id).
  */
 export class OtpiqSmsProvider implements SmsPort {
   readonly name = 'otpiq';
@@ -278,10 +278,10 @@ export function twilioSmsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Tw
 }
 
 export function otpiqConfigFromEnv(env: NodeJS.ProcessEnv = process.env): OtpiqConfig {
-  const channel = (env['OTPIQ_CODE_CHANNEL'] ?? 'whatsapp-sms').trim().toLowerCase() as OtpiqChannel;
+  const channel = (env['OTPIQ_CODE_CHANNEL'] ?? 'sms').trim().toLowerCase() as OtpiqChannel;
   return {
     apiKey: env['OTPIQ_API_KEY'] ?? '',
-    codeChannel: OTPIQ_CHANNELS.includes(channel) ? channel : 'whatsapp-sms',
+    codeChannel: OTPIQ_CHANNELS.includes(channel) ? channel : 'sms',
     senderId: env['SMS_SENDER_ID'],
     baseUrl: env['OTPIQ_BASE_URL'] ?? 'https://api.otpiq.com',
   };

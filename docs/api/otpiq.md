@@ -1,20 +1,19 @@
-# OTPIQ: sign-in codes by WhatsApp, then SMS
+# OTPIQ: sign-in codes by SMS
 
-OTPIQ (otpiq.com) is an Iraqi verification service. One call sends **our own** sign-in code on
-WhatsApp and, if that fails, as an SMS, so we don't run the fallback ourselves. Ali compared it with
-other services on 2026-10-09 (lane D thread). Approximate prices per message, from otpiq.com on that
-date:
-- WhatsApp with SMS fallback: 25 دينار.
-- SMS only: 100 دينار on Asiacell and Korek, 250 دينار on Zain.
+OTPIQ (otpiq.com) is an Iraqi SMS service. Ali chose on 2026-10-09 (lane D thread) to use one
+service for SMS and a separate one for WhatsApp. WhatsApp goes through our own Meta account
+(`WHATSAPP_PROVIDER=meta`, `docs/whatsapp-templates.md`), so OTPIQ sends SMS only.
 
-Billing is a prepaid balance with no contract or monthly fee.
+Approximate prices per SMS, from otpiq.com on 2026-10-09: 100 دينار on Asiacell and Korek, and
+250 دينار on Zain. The first 250 each month cost 80 دينار. Billing is a prepaid balance with no
+contract or monthly fee.
 
 ## How it plugs in
 
 - `SMS_PROVIDER=otpiq` selects `OtpiqSmsProvider` (`apps/api/src/shared/messaging/sms.ts`).
 - **A sign-in code** (any SMS that carries `code`) goes as `smsType: verification` with our code in
-  `verificationCode`, on the channel `OTPIQ_CODE_CHANNEL` (default `whatsapp-sms`: WhatsApp first,
-  SMS if WhatsApp fails). OTPIQ writes the message's wording, not our «رمز دخول درايفر» text.
+  `verificationCode`, on the channel `OTPIQ_CODE_CHANNEL` (default `sms`). OTPIQ writes the
+  message's wording, not our «رمز دخول درايفر» text.
 - **Any other text** (the SMS twins of notifications, the gift recipient's SMS) goes as
   `smsType: custom`, SMS only. OTPIQ allows free text only with an approved sender id.
 - **Retries:** errors map like the other providers.
@@ -23,14 +22,13 @@ Billing is a prepaid balance with no contract or monthly fee.
   - 429 and 5xx are retried.
   - No key is `not_configured`, which sign-in shows as `sms_not_configured`.
 - **Deadlines:** every call has the 10-second deadline from `shared/messaging/http.ts`.
-- The «ما وصلك؟ دزلي على واتساب» button still uses the WhatsApp port (`WHATSAPP_PROVIDER`). With
-  OTPIQ on `whatsapp-sms` the first send already tries WhatsApp.
+- The «ما وصلك؟ دزلي على واتساب» button uses our own WhatsApp account through Meta (`WHATSAPP_PROVIDER`).
 
 | Variable | Where | What |
 |---|---|---|
 | `SMS_PROVIDER` | production host | `otpiq` |
 | `OTPIQ_API_KEY` | production secret | The project's `sk_live…` key. A `sk_dev…` key only ever reaches the developer's own phone. |
-| `OTPIQ_CODE_CHANNEL` | optional | `whatsapp-sms` (default), `sms`, `whatsapp`, `auto`, `telegram-sms`, `whatsapp-telegram-sms` |
+| `OTPIQ_CODE_CHANNEL` | optional | `sms` (default). OTPIQ can also do `whatsapp-sms` and others; unused by choice. |
 | `SMS_SENDER_ID` | optional | `Driver`, once OTPIQ confirms the sender id is approved |
 | `OTPIQ_BASE_URL` | tests only | defaults to `https://api.otpiq.com` |
 

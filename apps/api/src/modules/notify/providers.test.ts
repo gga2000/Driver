@@ -223,21 +223,22 @@ describe('SMS providers', () => {
 describe('OTPIQ', () => {
   const ok = { status: 200, body: { message: 'Sent', smsId: 'sms-0123456789abcdef01234567', remainingCredit: 9975, cost: 25, canCover: true, paymentType: 'prepaid' } };
 
-  it('a sign-in code goes as a verification with our own code, WhatsApp first then SMS', async () => {
+  it('a sign-in code goes as a verification with our own code, by SMS', async () => {
     const f = fakeFetch(ok);
     const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'sk_live_x', SMS_SENDER_ID: 'Driver' }), f.fetchImpl);
     expect(await sms.send({ to: '+9647701234567', body: 'رمز دخول درايفر: 482913', code: '482913' })).toEqual({ provider: 'otpiq', messageId: 'sms-0123456789abcdef01234567' });
     expect(f.calls[0]!.url).toBe('https://api.otpiq.com/api/sms');
     expect(f.calls[0]!.init.headers).toMatchObject({ authorization: 'Bearer sk_live_x', 'content-type': 'application/json' });
-    expect(f.calls[0]!.json).toEqual({ phoneNumber: '9647701234567', smsType: 'verification', verificationCode: '482913', provider: 'whatsapp-sms', senderId: 'Driver' });
+    expect(f.calls[0]!.json).toEqual({ phoneNumber: '9647701234567', smsType: 'verification', verificationCode: '482913', provider: 'sms', senderId: 'Driver' });
   });
 
   it('other texts go as a plain SMS; the channel is configurable', async () => {
     const f = fakeFetch(ok);
-    const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'k', OTPIQ_CODE_CHANNEL: 'sms' }), f.fetchImpl);
+    const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'k', OTPIQ_CODE_CHANNEL: 'whatsapp-sms' }), f.fetchImpl);
     await sms.send({ to: '+9647701234567', body: 'الدليفري قريب' });
     expect(f.calls[0]!.json).toEqual({ phoneNumber: '9647701234567', smsType: 'custom', customMessage: 'الدليفري قريب', provider: 'sms' });
-    expect(otpiqConfigFromEnv({ OTPIQ_CODE_CHANNEL: 'pigeon' }).codeChannel).toBe('whatsapp-sms');
+    expect(otpiqConfigFromEnv({ OTPIQ_CODE_CHANNEL: 'pigeon' }).codeChannel).toBe('sms');
+    expect(otpiqConfigFromEnv({ OTPIQ_CODE_CHANNEL: 'whatsapp-sms' }).codeChannel).toBe('whatsapp-sms');
   });
 
   it('failures: no key is not configured, an empty balance is permanent, a bad number is invalid, 429 and 5xx retry', async () => {
