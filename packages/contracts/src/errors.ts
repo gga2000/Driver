@@ -94,6 +94,8 @@ export const ERROR_TABLE = {
   staff_last_owner: { retryHint: 'never', status: 'CONFLICT' },
   staff_invite_not_pending: { retryHint: 'never', status: 'CONFLICT' },
   store_hours_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «جهّز محلك»: going live (or opening) with steps still open.
+  setup_not_ready: { retryHint: 'never', status: 'CONFLICT' },
 
   // launch control room (kill switches, throttle, banner, approvals, support desk)
   service_paused: { retryHint: 'later', status: 'CONFLICT' },

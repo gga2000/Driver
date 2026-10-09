@@ -115,6 +115,14 @@ describe('merchant board — cards', () => {
     expect(card.acceptBy).toEqual(new Date(T0.getTime() + 90_000));
   });
 
+  it('print redesign k2: the slip money is the order\'s own amounts, and a hidden-price gift sends none', () => {
+    const card = toBoardOrder({ order: order({ smallOrderFeeIqd: 500, discountIqd: 1000, pointsIqd: 250, changeIqd: 250, totalIqd: 15000 }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })!;
+    expect(card.bill).toEqual({ itemsIqd: 14000, deliveryFeeIqd: 1000, serviceFeeIqd: 500, smallOrderFeeIqd: 500, discountIqd: 1000, pointsIqd: 250, changeIqd: 250, totalIqd: 15000 });
+    expect(toBoardOrder({ order: order(), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })!.bill).toMatchObject({ smallOrderFeeIqd: 0, pointsIqd: 0, changeIqd: 0 });
+    const gift = toBoardOrder({ order: order({ paymentMethod: 'wallet', gift: { hidePrices: true } }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })!;
+    expect(gift.bill).toBeUndefined();
+  });
+
   it('a preparing order knows its committed prep time and turns late after the promise', () => {
     const o = order({ state: 'preparing', paymentMethod: 'prepaid', acceptedAt: min(1), promisedReadyAt: min(26) });
     const onTime = toBoardOrder({ order: o, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(20) })!;

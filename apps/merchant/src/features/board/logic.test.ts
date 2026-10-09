@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardOrder } from '@driver/contracts';
-import { byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged, rushRows, acceptAllTargets, needsReading } from './logic';
+import { busyExtra, prepOptions, byDueFirst, byTimeLeft, cookingTotals, dishLine, prepLeft, tickKey, canExtendPrep, cardTiming, clampPrep, committedPrep, courierLine, defaultPrepChoice, hasAllergy, isLongOrder, isRush, kitchenNotes, newCount, newOrderSummary, oneTapPrep, partialValid, rejectReasonValue, splitColumns, phoneNow, suggestBusy, unacknowledged, rushRows, acceptAllTargets, needsReading } from './logic';
 
 const T0 = Date.parse('2026-10-03T17:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000);
@@ -51,8 +51,30 @@ describe('board logic', () => {
     expect(defaultPrepChoice(40)).toBe(25);
     expect(clampPrep(2)).toBe(5);
     expect(clampPrep(500)).toBe(120);
-    expect(committedPrep(15, true)).toBe(25);
-    expect(committedPrep(15, false)).toBe(15);
+    expect(committedPrep(15, 10)).toBe(25);
+    expect(committedPrep(15, 20)).toBe(35);
+    expect(committedPrep(15, 0)).toBe(15);
+  });
+
+  it('t5: a juice bar or café picks 3 / 5 / 8; food (and a shop with both) keeps 10 / 15 / 25', () => {
+    expect(prepOptions('drinks')).toEqual([3, 5, 8]);
+    expect(prepOptions('food')).toEqual([10, 15, 25]);
+    expect(prepOptions(undefined)).toEqual([10, 15, 25]);
+    expect(defaultPrepChoice(5, 'drinks')).toBe(5);
+    expect(defaultPrepChoice(20, 'drinks')).toBe(8);
+    expect(defaultPrepChoice(4, 'drinks')).toBe(5);
+    expect(clampPrep(2, 'drinks')).toBe(2);
+    expect(clampPrep(0, 'drinks')).toBe(1);
+    expect(clampPrep(2, 'food')).toBe(5);
+    expect(oneTapPrep(5, 0, 'drinks')).toEqual({ prepMinutes: 5, shown: 5 });
+  });
+
+  it('r5: the busy minutes in force are the ones picked (+10 or +20), none when off', () => {
+    expect(busyExtra({ busy: { on: true, until: new Date(T0), extraPrepMinutes: 20 } })).toBe(20);
+    expect(busyExtra({ busy: { on: true, until: new Date(T0), extraPrepMinutes: 10 } })).toBe(10);
+    expect(busyExtra({ busy: { on: false, until: null, extraPrepMinutes: 0 } })).toBe(0);
+    expect(busyExtra(undefined)).toBe(0);
+    expect(oneTapPrep(15, 20)).toEqual({ prepMinutes: 15, shown: 35 });
   });
 
   it('card timing: waiting, ready-in, late, ready-since', () => {
@@ -90,11 +112,11 @@ describe('board logic', () => {
   });
 
   it('one tap accepts with the usual prep time; busy adds 10 to what the customer sees (M-12)', () => {
-    expect(oneTapPrep(15, false)).toEqual({ prepMinutes: 15, shown: 15 });
+    expect(oneTapPrep(15, 0)).toEqual({ prepMinutes: 15, shown: 15 });
     // The server adds the busy minutes itself: we send the usual time and show the committed one.
-    expect(oneTapPrep(15, true)).toEqual({ prepMinutes: 15, shown: 25 });
-    expect(oneTapPrep(2, false)).toEqual({ prepMinutes: 5, shown: 5 });
-    expect(oneTapPrep(17.6, false)).toEqual({ prepMinutes: 18, shown: 18 });
+    expect(oneTapPrep(15, 10)).toEqual({ prepMinutes: 15, shown: 25 });
+    expect(oneTapPrep(2, 0)).toEqual({ prepMinutes: 5, shown: 5 });
+    expect(oneTapPrep(17.6, 0)).toEqual({ prepMinutes: 18, shown: 18 });
   });
 
   it('"+5 د" once, only on an accepted order still being prepared', () => {

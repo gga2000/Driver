@@ -102,6 +102,7 @@ What each procedure does:
 | `routes.ops.cancelDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.arriveDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.closeDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
+| `routes.ops.departureDrivers` | query | dispatcher, support, admin | `StaffDepartureDriversInput` | `StaffDepartureDriver[]` |
 
 The input shapes are in `packages/contracts/src/departure-staff-io.ts`:
 
@@ -111,6 +112,8 @@ OverdueDeparturesInput { limit: int 1..200 = 100 }
 StaffDepartureResult   { departureId, state: IntercityDepartureState, changed, auditId: string | null }
 OverdueDeparture       { departureId, corridorId, garageId, driverId, state, reason: 'driver_no_show'|'not_arrived',
                          since, minutes, riders, actions: ('cancel'|'arrive')[] }
+StaffDepartureDriversInput { departureIds: string[] (1..100) }
+StaffDepartureDriver       { departureId, driverId, displayName: string | null ("حيدر ك."), phoneMasked: string | null }
 ```
 
 - **`cancelDeparture`**: from `scheduled` or `boarding`. Riders move to the next cars exactly as on a
@@ -131,6 +134,11 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 - **`overdueDepartures`**: lists departures in one of two cases:
   - `driver_no_show`: still `scheduled` or `boarding`, 20 min past the latest departure time.
   - `not_arrived`: `departed`, 30 min past the corridor's travel time.
+- **`departureDrivers`**: who drives each departure, in any state, so the garage view can name the
+  driver of a run that left or is overdue (the riders' `routes.driverCards` only cover board
+  departures and the rider's own trips). Short name and masked number, never the number itself; one
+  fail-closed vault read for the staff member (purpose `intercity_ops_departure`). Unknown ids are
+  skipped.
 
 ## Switches (all off by default)
 
@@ -171,7 +179,7 @@ an amount.
 
 | Event | Payload | Emitted by, and when | Aggregate |
 |---|---|---|---|
-| `order.rated` | `{ orderId, stars: 1..5, cityId }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
+| `order.rated` | `{ orderId, stars: 1..5, cityId, food?, delivery?, orderType? }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. `food` / `delivery` are the two scores as given (absent when skipped) and `orderType` the order's type, for the Console's low-rating case (rows from before 2026-10-09 carry only `stars`). A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
 | `courier.cash_over_cap` | `{ courierId, cashIqd, capIqd, cityId }` | `LedgerService.recordAll`, in the posting's transaction, when the posting takes the driver from under his cash cap to at or over it (in practice a cash collection, `order.cash_collected`). Actor: `system`. | `driver` |
 | `courier.cash_under_cap` | same as above | the same place, when a posting takes him from over the cap to under it (a hand-in: agent, ZainCash, ops round, or paying a merchant). | `driver` |
 | `order.stuck` | `{ orderId, cityId, reason: StuckReason, since }` | the W3 watchdog (`OrdersStaffJob`, every 5 min, `OrdersStaffService.watchStuck`), when an order is on `orders.ops.stuck` and was not on it at the last look. `since` is when the state's clock started (ISO time). Actor: `system`. | `stuck_board` / `orders` |

@@ -16,13 +16,14 @@ import {
 import { t } from '@driver/i18n';
 import { useId, useState } from 'react';
 import { formatClock } from '@/lib/format';
-import { detailText, KIND_KEY, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
+import { detailText, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
 import { CITY_ID, queryRetry, useRightNow } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
 import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
   buttonCls,
@@ -419,6 +420,9 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
           </>
         ) : null}
       </div>
+      {row.kind === 'stuck' && row.subjectKind === 'order' && row.mine && !done ? (
+        <StuckRowActions orderId={row.subjectId} />
+      ) : null}
       {closing ? (
         <CloseDialog row={row} onClose={() => setClosing(false)} onDone={refresh} />
       ) : null}
@@ -440,6 +444,7 @@ function CloseDialog({
   const noteId = useId();
   const [outcome, setOutcome] = useState<InboxStaffOutcome>('fixed');
   const [note, setNote] = useState(row.note ?? '');
+  const needsNote = noteRequired(row);
   const close = useMutation(
     trpc.inbox.done.mutationOptions({
       onSuccess: () => {
@@ -477,12 +482,18 @@ function CloseDialog({
             options={OUTCOMES.map((o) => ({ value: o, label: t(OUTCOME_KEY[o]) }))}
           />
         </Field>
-        <Field label={t('console.today.note')} htmlFor={noteId} hint={t('console.today.note_hint')}>
+        <Field
+          label={t('console.today.note')}
+          htmlFor={noteId}
+          hint={t(needsNote ? 'console.today.note_hint_low_rating' : 'console.today.note_hint')}
+        >
           <Textarea
             id={noteId}
             rows={3}
             maxLength={INBOX_RULES.noteMax}
             value={note}
+            required={needsNote}
+            aria-required={needsNote || undefined}
             onChange={(e) => setNote(e.target.value)}
           />
         </Field>
@@ -490,7 +501,13 @@ function CloseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('console.today.cancel')}
           </Button>
-          <Button type="submit" variant="primary" loading={close.isPending} needsNet>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={close.isPending}
+            disabled={needsNote && !note.trim()}
+            needsNet
+          >
             {t('console.today.close_confirm')}
           </Button>
         </div>

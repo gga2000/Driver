@@ -14,12 +14,14 @@ import { formatIqd } from './format';
  */
 export const KIND_KEY: Record<InboxKind, MessageKey> = {
   sos: 'console.today.kind_sos',
+  safety_report: 'console.today.kind_safety_report',
   no_driver: 'console.today.kind_no_driver',
   store_silent: 'console.today.kind_store_silent',
   late: 'console.today.kind_late',
   unreachable: 'console.today.kind_unreachable',
   stuck: 'console.today.kind_stuck',
   cash_cap: 'console.today.kind_cash_cap',
+  low_rating: 'console.today.kind_low_rating',
   sweep: 'console.today.kind_sweep',
   pin_alert: 'console.today.kind_pin_alert',
   approval: 'console.today.kind_approval',
@@ -27,6 +29,7 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
 
 export const KIND_TONE: Record<InboxKind, ChipTone> = {
   sos: 'bad',
+  safety_report: 'bad',
   sweep: 'bad',
   pin_alert: 'warn',
   no_driver: 'warn',
@@ -35,6 +38,7 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   store_silent: 'warn',
   late: 'warn',
   cash_cap: 'warn',
+  low_rating: 'warn',
   approval: 'neutral',
 };
 
@@ -53,7 +57,7 @@ const REASON_KEY: Record<string, MessageKey> = {
   request_lost: 'console.today.reason_request_lost',
 };
 
-const STUCK_KEY: Record<string, MessageKey> = {
+export const STUCK_KEY: Record<string, MessageKey> = {
   merchant_no_answer: 'console.today.stuck_merchant_no_answer',
   kitchen_silent: 'console.today.stuck_kitchen_silent',
   no_courier: 'console.today.stuck_no_courier',
@@ -82,6 +86,19 @@ const DOC_KEY: Record<string, MessageKey> = {
   insurance: 'partner.docs_kind_insurance',
   photo: 'partner.docs_kind_photo',
 };
+
+const CHANNEL_KEY: Record<string, MessageKey> = {
+  in_app: 'console.sup_channel_in_app',
+  whatsapp: 'console.sup_channel_whatsapp',
+  phone: 'console.sup_channel_phone',
+  system: 'console.sup_channel_system',
+  chat: 'console.sup_channel_chat',
+};
+
+const RIDE_ORDER_TYPES: ReadonlySet<string> = new Set(['ride', 'seat', 'subscription']);
+
+/** A bad-rating case closes only with a note saying what each side said (Ali, 2026-10-08). */
+export const noteRequired = (row: Pick<InboxRow, 'kind'>): boolean => row.kind === 'low_rating';
 
 /** The second line of a row: what we know about it, in a few words. */
 export function detailText(
@@ -143,6 +160,25 @@ export function detailText(
           }),
         );
       break;
+    case 'safety_report': {
+      const c = typeof f['channel'] === 'string' ? CHANNEL_KEY[f['channel']] : undefined;
+      if (c) parts.push(t(c));
+      break;
+    }
+    case 'low_rating': {
+      // Both scores when the food was rated too; a ride names the driver, food the courier.
+      const ride = typeof f['orderType'] === 'string' && RIDE_ORDER_TYPES.has(f['orderType']);
+      if (typeof f['stars'] === 'number') parts.push(t('console.today.rating_stars', { n: f['stars'] }));
+      if (typeof f['food'] === 'number')
+        parts.push(t('console.today.rating_food', { n: f['food'] }));
+      if (typeof f['delivery'] === 'number')
+        parts.push(
+          t(ride ? 'console.today.rating_driver' : 'console.today.rating_courier', {
+            n: f['delivery'],
+          }),
+        );
+      break;
+    }
     case 'pin_alert':
       parts.push(
         t(f['alert'] === 'cross_use' ? 'console.today.pin_cross_use' : 'console.today.pin_wrong'),
@@ -160,6 +196,8 @@ export function rowHref(row: Pick<InboxRow, 'kind' | 'subjectId' | 'orderId'>): 
   switch (row.kind) {
     case 'sos':
       return `/safety/${encodeURIComponent(row.subjectId)}`;
+    case 'safety_report':
+      return `/safety/report/${encodeURIComponent(row.subjectId)}`;
     case 'sweep':
     case 'pin_alert':
       return '/safety';
