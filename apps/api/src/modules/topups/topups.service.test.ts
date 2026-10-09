@@ -126,7 +126,10 @@ describe('wallet top-up with cash — confirmation', () => {
     expect(await code(h.svc.lookup(courier, { code: r.code }, 'courier'))).toBe('topup_courier_not_assigned');
     expect(await code(h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier'))).toBe('topup_courier_not_assigned');
     h.carrying.add('k1|c1');
-    expect(await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier')).toMatchObject({ channel: 'courier', walletBalanceIqd: 15_000 });
+    const done = await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier');
+    expect(done).toMatchObject({ channel: 'courier' });
+    expect(done).not.toHaveProperty('walletBalanceIqd');
+    expect(await h.balance()).toBe(15_000);
     expect((await h.ledger.balance(Accounts.cash('k1'))).amount).toBe(-15_000);
   });
 });
