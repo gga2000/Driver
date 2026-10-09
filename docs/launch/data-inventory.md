@@ -111,6 +111,11 @@ so the drivers' and merchants' tables below are **keep** for this flow.
 | `public.daily_pots` | none | ops | Staff records. |
 | `public.incidents` | keep | ops | Ops incidents; staff ids only. |
 | `public.console_audit_log` | keep | controls | Staff actions audit; ids only. |
+| `public.inbox_items` | keep | inbox | The staff work queue (an SOS, a late order, a no-show): ids, fixed keys and the staff's own closing note; the case record stays. |
+| `public.alert_ladders` | keep | on-call | Who was paged for a safety alert and when: ids and keys only (`brief` holds the raiser's id, never a name). |
+| `public.on_call_shifts` | none | on-call | Staff on-call rota. |
+| `public.console_presence` | none | ops | Which Console tabs are open and live. |
+| `public.console_watch_alerts` | none | ops | "Nobody is watching the Console" alerts. |
 | `public.quiet_periods` | none | controls | Staff settings. |
 | `public.system_banners` | none | controls | Staff settings. |
 | `public.merchant_onboardings` | keep | merchant-admin | Restaurant sign-up records. |

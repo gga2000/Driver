@@ -302,7 +302,7 @@ export default function DeleteAccount() {
               style={{ alignSelf: 'center' }}
             />
           )}
-          {DEV_TOOLS && devCode.data?.code ? (
+          {DEV_TOOLS && !devCode.isError && devCode.data?.code ? (
             <Card elevation={0} tone="sunken" padding={3} testID="delete-dev-strip">
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                 <Icon name="shield" size={20} color="textMuted" />
