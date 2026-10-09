@@ -151,7 +151,7 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-bridge', type: 'line', ...road, filter: isCls('bridge'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': p.deck, 'line-width': zoom(...WIDTH.bridge) } },
   );
   const bld = { ...src, 'source-layer': 'buildings' } as const;
-  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, p.roof] as never;
+  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, p.roof] as never;
   L.push({
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
@@ -167,8 +167,13 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    // the stair hut (بيت الدرج) on two- and three-storey roofs: big enough to read as soon as the houses stand up
     L.push({
-      id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB'),
+      id: 'golden-roof-huts', type: 'fill-extrusion', ...bld, minzoom: rise + 0.6, filter: kindIn('hut'),
+      paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-vertical-gradient': true, 'fill-extrusion-opacity': fade(rise + 0.6, 0, rise + 1, 1) },
+    });
+    L.push({
+      id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB', 'dish'),
       paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-opacity': fade(17.5, 0, 17.9, 0.85) },
     });
   }

@@ -1,7 +1,7 @@
 # Build wasit.pmtiles (+ labels.json) from Overture GeoJSON extracts.
 # usage: python3 build.py  (reads data/*.json from fetch.py; writes out/wasit.pmtiles and out/labels.json)
 import json, gzip, math, hashlib, os, sys, time
-import numpy as np, shapely, shapely.geometry as sg
+import numpy as np, shapely, shapely.affinity, shapely.geometry as sg
 from shapely.ops import substring, linemerge
 from shapely.strtree import STRtree
 import mapbox_vector_tile as mvt
@@ -114,21 +114,54 @@ lat0 = 32.9; mx = 111320 * math.cos(math.radians(lat0)); my = 110540
 pois = L(TOWN, 'place')
 mosq = [sg.shape(f['geometry']) for f in pois if 'worship' in (f['properties'].get('basic_category') or '')
         or any(k in (nm(f['properties']) or '') for k in ('جامع', 'مسجد', 'حسينية'))]
-nb = 0
+# what a building is for, so heights follow use: school yards, clinics/hospitals, shop rows on main streets
+schools = [sg.shape(f['geometry']) for f in L(TOWN, 'land_use') if f['properties'].get('subtype') == 'education']
+civic = [sg.shape(f['geometry']) for f in pois if (f['properties'].get('basic_category') or '') in
+         ('hospital', 'health_care', 'specialized_medical_facility', 'college_university', 'place_of_learning', 'education')]
+mains = [g for (ly, g, p, *_ ) in F if ly == 'roads' and p.get('cls') in ('major', 'mid')]
+main_tree = STRtree(mains); school_tree = STRtree(schools) if schools else None; civic_tree = STRtree(civic) if civic else None
+def near(tree, g, m):
+    return tree is not None and len(tree.query(g, predicate='dwithin', distance=m / mx)) > 0
+def box(c, hx, hy):   # metres → a small lon/lat box around point c
+    return sg.box(c[0] - hx / mx, c[1] - hy / my, c[0] + hx / mx, c[1] + hy / my)
+nb = nr = 0
 for f in L(TOWN, 'building'):
     g = sg.shape(f['geometry'])
     if g.geom_type != 'Polygon': continue
     area = g.area * mx * my; h = H(f['properties']['id'])
     if area < 12: continue
     fl = 1 if area < 70 else ((2 if h % 10 < 6 else 1) if area < 350 else (2 if h % 10 < 7 else 3))
+    use = 'home'
+    if area > 150 and near(school_tree, g, 0): use, fl = 'school', 2            # schools: two tall storeys
+    elif area > 250 and near(civic_tree, g, 15): use, fl = 'civic', 3           # hospitals, clinics, colleges
+    elif area < 160 and near(main_tree, g, 7): use, fl = 'shop', 1               # shop rows face the main streets
     hm = [0, 3.6, 6.8, 10][fl]; kind = 'house'
-    if area > 120 and any(m.distance(g) * mx < 4 for m in mosq): kind = 'mosque'; hm = 7.5
-    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind}, 14); nb += 1
-    # a water tank on about a third of the roofs, 0.8-1.6 m across, so roofs read as Iraqi without looking busy
-    if kind == 'house' and 40 < area < 600 and h % 20 < 7:
-        c = g.representative_point(); s = 0.4 + ((h >> 8) % 5) * 0.1
-        t = sg.box(c.x - s / mx, c.y - s / my, c.x + s / mx, c.y + s / my)
-        if g.contains(t): add('buildings', t, {'hm': hm + 1.5, 'base': hm, 'kind': 'tankW' if h % 2 else 'tankB'}, 15)
+    if area > 120 and any(m.distance(g) * mx < 4 for m in mosq): kind = 'mosque'; hm = 7.5; use = 'mosque'
+    # tone: one of six real roof finishes (plaster, yellow brick, cream…), stable per building
+    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind, 'use': use, 'tone': h % 6}, 14); nb += 1
+    if kind != 'house' or use in ('school', 'civic'): continue
+    # rooftop life, only when the town is close (z15+ tiles): a water tank on about a third of the roofs, the stair hut
+    # (بيت الدرج) on most houses (every roof is used: sleeping in summer, washing, the tank), and a satellite dish on some
+    c = g.representative_point(); cx, cy = c.x, c.y
+    if 40 < area < 600 and h % 20 < 7:
+        s = 0.4 + ((h >> 8) % 5) * 0.1
+        t = box((cx, cy), s, s)
+        if g.contains(t): add('buildings', t, {'hm': hm + 1.5, 'base': hm, 'kind': 'tankW' if h % 2 else 'tankB'}, 15); nr += 1
+    if 60 < area < 500 and (h >> 4) % 10 < (8 if fl >= 2 else 6):
+        # work in metres: a 2.6 m square turned to the house's own walls, centred on a corner of the roof pulled
+        # 2.5 m inwards, so it always sits inside the parapet whatever way the street runs
+        gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+        inner = gm.buffer(-2.5, join_style='mitre')
+        if not inner.is_empty and inner.geom_type == 'Polygon':
+            rr = list(gm.minimum_rotated_rectangle.exterior.coords)
+            ang = math.degrees(math.atan2(rr[1][1] - rr[0][1], rr[1][0] - rr[0][0]))
+            pts = list(inner.exterior.coords)[:-1]; vx, vy = pts[(h >> 6) % len(pts)]
+            t = shapely.affinity.rotate(sg.box(vx - 1.3, vy - 1.3, vx + 1.3, vy + 1.3), ang, origin=(vx, vy))
+            if gm.contains(t): add('buildings', shapely.affinity.scale(t, 1 / mx, 1 / my, origin=(0, 0)), {'hm': hm + 2.4, 'base': hm, 'kind': 'hut'}, 15); nr += 1
+    if fl >= 1 and 50 < area < 600 and (h >> 10) % 10 < 3:
+        t = box((cx + 2.2 / mx * ((h >> 12) % 3 - 1), cy + 2.2 / my), 0.35, 0.35)
+        if g.contains(t): add('buildings', t, {'hm': hm + 0.9, 'base': hm, 'kind': 'dish'}, 15); nr += 1
+print('buildings', nb, 'roof pieces', nr, file=sys.stderr)
 
 # places (POIs) -----------------------------------------------------------------------
 for f in pois:

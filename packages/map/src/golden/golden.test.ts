@@ -81,6 +81,13 @@ describe('buildGoldenStyle', () => {
     const rise = (s: typeof courier) => s.layers.find((l) => l.id === 'golden-houses-3d')!.minzoom!;
     expect(rise(courier)).toBeLessThan(rise(buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' })));
   });
+
+  it('stands the stair huts up just after the houses, and the small tanks and dishes only up close', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    const z = (id: string) => style.layers.find((l) => l.id === id)!.minzoom!;
+    expect(z('golden-roof-huts')).toBeGreaterThan(z('golden-houses-3d'));
+    expect(z('golden-roof-tanks')).toBeGreaterThan(z('golden-roof-huts'));
+  });
   it('lights the main streets like sodium lamps at night only, and casts no shadows in the dark', () => {
     const night = ids(buildGoldenStyle({ ...base, light: 'night' }));
     expect(night).toContain('golden-lamp-glow');

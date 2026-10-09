@@ -41,7 +41,7 @@ then point a MapLibre page at `pmtiles://http://127.0.0.1:8765/wasit.pmtiles` an
 | `water` | `kind` river (polygon) / canal (line) / centre (river centre line), `name` | big river polygons z7, canals z10–z12 |
 | `landuse` | `kind` urban / farm2 | z10, town box only |
 | `palms` | — | z11, town box only (palm groves, parks) |
-| `buildings` | `hm` height m, `base`, `kind` house / mosque / tankW / tankB | houses z14, roof tanks z15 |
+| `buildings` | `hm` height m (3.6 / 6.8 / 10 by storeys; schools 2, clinics and hospitals 3, shops on main streets 1), `base`, `kind` house / mosque / tankW / tankB / hut (stair hut) / dish, `use` home / shop / school / civic / mosque, `tone` 0–5 roof finish | houses z14, roof pieces z15 |
 | `places` | `name`, `kind`, `rank` 1–3 | z14–z15 |
 | `localities` | `name`, `kind` city / town / village / hamlet / neighbourhood kinds, `rank`, `pop` | city z7 … hamlet z12 |
 
