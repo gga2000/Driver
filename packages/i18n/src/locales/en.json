@@ -8786,5 +8786,18 @@
   "console.today.new_rows_many": "{n} new problems",
   "console.today.show_new": "Show them",
   "error.location_web": "We couldn't get your location from the browser",
-  "error.location_web_hint": "Turn on location for your browser in your computer's settings, or move the map to your door"
+  "error.location_web_hint": "Turn on location for your browser in your computer's settings, or move the map to your door",
+  "console.nav_glance": "Today at a glance",
+  "console.glance.title": "Today at a glance",
+  "console.glance.subtitle": "The city right now on one screen, read only. The work happens on Today.",
+  "console.glance.verdict_sos": "An SOS is open right now. Check Emergencies.",
+  "console.glance.verdict_nobody_sos": "Nobody holds SOS right now, so any alert goes to the admins.",
+  "console.glance.verdict_late": "Late orders: {n}.",
+  "console.glance.verdict_unowned": "Problems nobody has taken: {n}.",
+  "console.glance.verdict_calm": "The city is calm; nothing needs you.",
+  "console.glance.cash_field": "Cash held by drivers",
+  "console.glance.sos_holder": "SOS: {name} until {time}",
+  "console.glance.top": "Most urgent open problems",
+  "console.glance.none_open": "No open problems.",
+  "console.glance.open_today": "Open Today"
 }
