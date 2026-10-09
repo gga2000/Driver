@@ -91,6 +91,8 @@ export interface DispatchStore {
   /** Drops the request from the city's board (finished or cancelled); the record lingers for a day. */
   retireRequest(r: DispatchRequest): Promise<void>;
   activeRequests(cityId: string): Promise<DispatchRequest[]>;
+  /** Speed x2: whether the trip's request is on the city's board (one set lookup). */
+  isActive(cityId: string, tripId: string): Promise<boolean>;
   /** SET key owner NX PX ttl — true only for the first caller. */
   tryLock(key: string, owner: string, ttlMs: number): Promise<boolean>;
   unlock(key: string): Promise<void>;
@@ -155,6 +157,10 @@ export class RedisDispatchStore implements DispatchStore {
     if (ids.length === 0) return [];
     const raws = await this.redis.mget(...ids.map(reqKey));
     return raws.filter((r): r is string => Boolean(r)).map((r) => JSON.parse(r) as DispatchRequest);
+  }
+
+  async isActive(cityId: string, tripId: string): Promise<boolean> {
+    return (await this.redis.sismember(activeKey(cityId), tripId)) === 1;
   }
 
   async tryLock(key: string, owner: string, ttlMs: number): Promise<boolean> {
@@ -237,6 +243,10 @@ export class InMemoryDispatchStore implements DispatchStore {
 
   async activeRequests(cityId: string): Promise<DispatchRequest[]> {
     return [...(this.active.get(cityId) ?? [])].map((id) => structuredClone(this.requests.get(id)!)).filter(Boolean);
+  }
+
+  async isActive(cityId: string, tripId: string): Promise<boolean> {
+    return this.active.get(cityId)?.has(tripId) ?? false;
   }
 
   async tryLock(key: string, owner: string, ttlMs: number): Promise<boolean> {
