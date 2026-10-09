@@ -17,6 +17,7 @@ import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './Ite
 import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, toDraftGroups, type DraftGroup } from './logic';
 import { LibrarySheet, libraryPhoto } from './LibrarySheet';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
+import { PhotoDownNote } from './PhotoDown';
 import { DishArt, Panel, PanelTitle, Pill, Toggle } from './parts';
 import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKind } from './tiers';
 import { COUNTER } from '@/lib/counter';
@@ -280,6 +281,7 @@ export function ItemEditor() {
   // ── panels ──
   const photoPanel = (
     <Panel testID="photo-panel" padded={false} style={[{ overflow: 'hidden' }, forPhoto && !photoUri ? { borderWidth: 2, borderColor: theme.colors.accent } : null]}>
+      {item && !photo ? <PhotoDownNote item={item} /> : null}
       <View style={{ aspectRatio: wide ? 4 / 3 : 16 / 9, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
         {photoUri ? (
           <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors />

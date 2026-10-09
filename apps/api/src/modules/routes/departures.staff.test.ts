@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError } from '@driver/contracts';
-import { DEFAULT_GARAGE_WATCH_RULES, DeparturesStaffService, garageWatchRulesFromEnv, type DepartureAuditPort, type GarageWatchRules } from './departures.staff.js';
+import { DEFAULT_GARAGE_WATCH_RULES, DeparturesStaffService, GARAGE_BOARD, garageWatchRulesFromEnv, type DepartureAuditPort, type GarageBoardPort, type GarageWatchRules } from './departures.staff.js';
 import { BAB2, routesHarness } from './test-harness.js';
 
 const ops = { personId: 'ops1', sessionId: 's' };
@@ -191,5 +191,48 @@ describe('routes rpc without the staff service', () => {
   it('the procedures refuse instead of pretending', async () => {
     const h = make();
     expect(await code(h.rpc.overdueDepartures(ops, { limit: 5 }))).toBe('internal');
+  });
+});
+
+describe('late cars on the Console Today list (departure.overdue / _cleared)', () => {
+  function withBoard() {
+    const h = routesHarness();
+    const audit: DepartureAuditPort = { record: async () => ({ id: 'audit_1' }) };
+    const board: GarageBoardPort = {
+      marks: async () =>
+        h.events.events.filter((e) => e.aggregate.name === GARAGE_BOARD.name).map((e) => ({ type: e.type, departureId: String(e.payload['departureId']), occurredAt: e.occurredAt, payload: e.payload })),
+      emit: (event) => h.events.emit(undefined, event, GARAGE_BOARD),
+      lastActor: async (departureId, since) =>
+        h.events.events.filter((e) => e.aggregate.name === 'departure' && e.aggregate.id === departureId && e.occurredAt.getTime() >= since.getTime()).at(-1)?.actorId ?? 'system',
+    };
+    const staff = new DeparturesStaffService(h.departures, audit, DEFAULT_GARAGE_WATCH_RULES, 'all', board);
+    return { ...h, staff };
+  }
+  const marks = (h: ReturnType<typeof withBoard>) => h.events.events.filter((e) => e.aggregate.name === GARAGE_BOARD.name);
+
+  it('a no-show car goes on once, and comes off with who moved it (switches off: nothing is cancelled)', async () => {
+    const h = withBoard();
+    const dep = await h.announce();
+    await h.book('r1', dep.id, ['front']);
+    h.advance(169);
+    expect(await h.staff.watchOverdue()).toBe(0);
+    h.advance(2);
+    expect(await h.staff.watchOverdue()).toBe(1);
+    expect(await h.staff.watchOverdue()).toBe(0);
+    expect(marks(h)).toEqual([
+      expect.objectContaining({ type: 'departure.overdue', payload: expect.objectContaining({ departureId: dep.id, reason: 'driver_no_show', riders: 1, cityId: 'aziziyah', garageId: dep.garageId, corridorId: dep.corridorId }) }),
+    ]);
+    await h.staff.cancel(ops, { departureId: dep.id, reason: 'السايق ما إجه' });
+    expect(await h.staff.watchOverdue()).toBe(1);
+    expect(marks(h).at(-1)).toMatchObject({ type: 'departure.overdue_cleared', actorId: 'ops1', payload: { departureId: dep.id, cityId: 'aziziyah', by: 'ops1' } });
+    expect(await h.staff.watchOverdue()).toBe(0);
+  });
+
+  it('without a board nothing is recorded', async () => {
+    const h = make();
+    const dep = await h.announce();
+    h.advance(171);
+    expect(await h.staff.watchOverdue()).toBe(0);
+    expect(h.events.events.some((e) => e.aggregate.name === GARAGE_BOARD.name || e.payload['departureId'] !== dep.id)).toBe(false);
   });
 });
