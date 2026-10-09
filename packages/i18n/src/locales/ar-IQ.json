@@ -3465,7 +3465,7 @@
   "rajaa.review_note": "الركاب يقرونها بملفه بدون اسمك",
   "rajaa.review_contact": "لا تكتب رقم تلفون أو رابط، كل الركاب يقرونها",
   "rajaa.review_yours": "كلمتك: {text}",
-  "order.number": "طلب #{id}",
+  "order.number": "طلب ⁦#{id}⁩",
   "track.reassigning": "نبدّل الدليفري، لحظات",
   "track.reassigning_note": "الدليفري الأول ما گدر يكمّل. دنلگيلك واحد ثاني وطلبك محفوظ",
   "track.courier_to_kitchen_short": "الدليفري رايح للمطعم",
