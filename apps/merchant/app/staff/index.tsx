@@ -124,9 +124,9 @@ function Row({ member: s, first, onPress }: { member: StaffMember; first: boolea
           </Text>
           {s.you ? <Tag label={t('merchant.staff.you')} tone="neutral" /> : null}
         </View>
-        {s.phoneMasked ? (
+        {invitePhone(s) ? (
           <Text variant="caption" color="textMuted" tabular>
-            {`⁦${s.phoneMasked}⁩`}
+            {invitePhone(s)}
           </Text>
         ) : null}
       </View>

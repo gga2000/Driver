@@ -1,16 +1,21 @@
 import { useMutation } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Button, TextField } from '@driver/ui';
+import { Button, TextField, useTheme } from '@driver/ui';
 import { AuthFrame } from '@/features/auth/AuthFrame';
+import { phoneReason } from '@/features/auth/phone-reason';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { getDeviceInfo } from '@/lib/device';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 
-/** Staff and owners sign in with their own number (the one the owner added them with). */
+/**
+ * Staff and owners sign in with their own number: the owner's is the one the shop was registered with,
+ * staff use the one the owner added them with (day-one d08: the hint speaks to both).
+ */
 export default function PhoneEntry() {
   const t = useT();
+  const theme = useTheme();
   const locale = useLocale();
   const api = useApi();
   const [value, setValue] = useState('');
@@ -18,8 +23,8 @@ export default function PhoneEntry() {
   const requestOtp = useMutation(api.identity.requestOtp.mutationOptions());
 
   const e164 = normalizeIraqiPhone(value);
-  const digits = value.replace(/\D/g, '').length;
-  const showInvalid = touched && !e164 && digits > 0;
+  // d08: why the number is wrong, under the field, as soon as it is clear (not just a pale button).
+  const showInvalid = phoneReason(value, touched) !== null;
   const serverError = requestOtp.error
     ? apiErrorCode(requestOtp.error) === 'phone_invalid'
       ? t('error.phone_invalid')
@@ -41,8 +46,8 @@ export default function PhoneEntry() {
     <AuthFrame
       testID="phone-screen"
       title={t('onboarding.phone_label')}
-      subtitle={t('merchant.auth.phone_hint')}
-      footer={<Button testID="phone-submit" label={t('onboarding.send_otp')} size="lg" fullWidth disabled={!e164} loading={requestOtp.isPending} onPress={() => void submit()} />}
+      subtitle={t('merchant.auth.phone_hint_all')}
+      footer={<Button testID="phone-submit" label={t('onboarding.send_otp')} size="lg" fullWidth disabled={!e164} loading={requestOtp.isPending} onPress={() => void submit()} style={e164 ? undefined : { opacity: 1, backgroundColor: theme.colors.accentTint }} />}
     >
       <TextField
         testID="phone-input"
@@ -60,7 +65,7 @@ export default function PhoneEntry() {
         autoFocus
         leadingIcon="phone"
         accessibilityLabel={t('onboarding.phone_label')}
-        error={showInvalid ? t('error.phone_invalid') : serverError}
+        error={showInvalid ? t('merchant.auth.phone_rule') : serverError}
       />
     </AuthFrame>
   );

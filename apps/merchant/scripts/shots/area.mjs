@@ -1,4 +1,4 @@
-// «منطقة التوصيل» (maps r5) and «منين زبائنك» on الإحصائيات (r6): the fee map fitted to the screen with
+// «منطقة التوصيل» (maps r5) and «منين زباينك» on الإحصائيات (r6): the fee map fitted to the screen with
 // its hint, a zone tapped on the map (the list scrolls to its row and highlights it), the customers'
 // map with its legend (grey = too few orders to name), and a zone tapped there. Seeded by the core
 // demo (zones, fees) and scripts/demo/insights.mjs (delivered orders per zone).

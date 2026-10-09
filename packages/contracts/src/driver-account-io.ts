@@ -287,10 +287,55 @@ export type CheckInResult = z.infer<typeof CheckInResult>;
 /** Whether he may go online now, and why not. The Partner shell calls it before `partner` presence. */
 export const OnlineGate = z.object({
   canGoOnline: z.boolean(),
-  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired']), message_ar: z.string() })),
+  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'staff_paused']), message_ar: z.string() })),
   checkIn: CheckInStatus,
 });
 export type OnlineGate = z.infer<typeof OnlineGate>;
+
+// ───────────────────────── staff pause (r6, Ali 2026-10-08) ─────────────────────────
+
+/**
+ * Staff can pause a courier or driver while they look into a safety report (Ali, 2026-10-08, r6):
+ * he can't go online (the gate says `staff_paused`, his app's heartbeat drops him within 30 s) until
+ * a person lifts it. Both steps need a short note and are audited; nothing about money changes.
+ */
+export const DriverPauseReason = z.enum(['safety_report', 'other']);
+export type DriverPauseReason = z.infer<typeof DriverPauseReason>;
+
+export const DRIVER_PAUSE_RULES = { noteMin: 3, noteMax: 300 } as const;
+const PauseNote = z.string().trim().min(DRIVER_PAUSE_RULES.noteMin).max(DRIVER_PAUSE_RULES.noteMax);
+
+export const PauseDriverInput = z.object({
+  personId: z.string().min(1).max(80),
+  reason: DriverPauseReason,
+  /** The safety report (support ticket) behind it, when there is one. */
+  ticketId: z.string().min(1).max(80).optional(),
+  note: PauseNote,
+});
+export type PauseDriverInput = z.infer<typeof PauseDriverInput>;
+
+export const LiftDriverPauseInput = z.object({ personId: z.string().min(1).max(80), note: PauseNote });
+export type LiftDriverPauseInput = z.infer<typeof LiftDriverPauseInput>;
+
+export const DriverPauseStatusInput = z.object({ personId: z.string().min(1).max(80) });
+export type DriverPauseStatusInput = z.infer<typeof DriverPauseStatusInput>;
+
+export const DriverPauseView = z.object({
+  personId: z.string(),
+  /** The pause in force, or null. */
+  active: z
+    .object({
+      id: z.string(),
+      reason: DriverPauseReason,
+      ticketId: z.string().nullable(),
+      note: z.string(),
+      pausedAt: z.coerce.date(),
+      pausedById: z.string(),
+      pausedByName: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type DriverPauseView = z.infer<typeof DriverPauseView>;
 
 /** The 4-digit code he reads to field ops when handing cash in (`ops.recordCashReceipt`). Rotates daily. */
 export const HandoverCode = z.object({ code: z.string().regex(/^\d{4}$/), validUntil: z.coerce.date() });
@@ -548,6 +593,9 @@ export const PayQueryResult = z.object({
 export type PayQueryResult = z.infer<typeof PayQueryResult>;
 
 export interface DriverAccountPort {
+  pauseStatus(actor: Actor, input: DriverPauseStatusInput): Promise<DriverPauseView>;
+  pause(actor: Actor, input: z.output<typeof PauseDriverInput>): Promise<DriverPauseView>;
+  liftPause(actor: Actor, input: z.output<typeof LiftDriverPauseInput>): Promise<DriverPauseView>;
   guarantee(actor: Actor): Promise<GuaranteeView>;
   shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
   /** «كلام الزبائن» (joy l4): his compliments counted and the latest ones. */

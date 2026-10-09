@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import { formatMinutes } from '@driver/i18n';
 import { Card, Icon, Text, Timeline, useTheme } from '@driver/ui';
@@ -20,14 +21,16 @@ export function namesList(t: TFn, names: readonly string[]): string {
 
 export type Watching = { kind: 'now' | 'soon'; names: string[] } | { kind: 'none' };
 
-export function RoadCard({ line, city, onRoad, watching, onShare }: { line: RoadLine; city: string; onRoad: boolean; watching: Watching; onShare: () => void }) {
+/** `watching` is null until the rider's profile is read; `unknown` stands in its place (a placeholder or a retry). */
+export function RoadCard({ line, city, onRoad, watching, unknown, onShare }: { line: RoadLine; city: string; onRoad: boolean; watching: Watching | null; unknown?: ReactNode; onShare: () => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const next = line.stops.find((s) => !s.passed) ?? line.stops[line.stops.length - 1]!;
   const travelMin = Math.round((line.stops[line.stops.length - 1]!.at.getTime() - line.stops[0]!.at.getTime()) / 60_000);
-  const watchText =
-    watching.kind === 'none'
+  const watchText = !watching
+    ? ''
+    : watching.kind === 'none'
       ? t('rajaa.watching_none')
       : watching.kind === 'soon'
         ? t('rajaa.watching_soon', { names: namesList(t, watching.names) })
@@ -67,18 +70,22 @@ export function RoadCard({ line, city, onRoad, watching, onShare }: { line: Road
         />
 
         {/* r3: who is following, by name; nobody → one tap shares it. */}
-        <Pressable
-          testID="rajaa-watching"
-          disabled={watching.kind !== 'none'}
-          accessibilityRole={watching.kind === 'none' ? 'button' : 'text'}
-          onPress={onShare}
-          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, opacity: pressed ? 0.7 : 1 })}
-        >
-          <Icon name={watching.kind === 'none' ? 'share' : 'heart'} size={16} color={watching.kind === 'none' ? 'accentText' : 'successText'} />
-          <Text variant="footnote" weight={600} color={watching.kind === 'none' ? 'accentText' : 'text'} style={{ flex: 1 }}>
-            {watchText}
-          </Text>
-        </Pressable>
+        {!watching ? (
+          unknown
+        ) : (
+          <Pressable
+            testID="rajaa-watching"
+            disabled={watching.kind !== 'none'}
+            accessibilityRole={watching.kind === 'none' ? 'button' : 'text'}
+            onPress={onShare}
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Icon name={watching.kind === 'none' ? 'share' : 'heart'} size={16} color={watching.kind === 'none' ? 'accentText' : 'successText'} />
+            <Text variant="footnote" weight={600} color={watching.kind === 'none' ? 'accentText' : 'text'} style={{ flex: 1 }}>
+              {watchText}
+            </Text>
+          </Pressable>
+        )}
       </View>
     </Card>
   );

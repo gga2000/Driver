@@ -1,4 +1,4 @@
-import type { IntercityVehicle, RequestDetails, RequestPostView } from '@driver/contracts';
+import type { IntercityVehicle, RequestDetails, RequestPlaceId, RequestPostView } from '@driver/contracts';
 import type { IconName } from '@driver/ui';
 
 /**
@@ -14,8 +14,13 @@ export const REQUEST_PLACES = [
   { id: 'najaf', icon: 'map-pin' },
   { id: 'kut', icon: 'map-pin' },
   { id: 'medical_city', icon: 'heart' },
-] as const satisfies readonly { id: string; icon: IconName }[];
-export type RequestPlaceId = (typeof REQUEST_PLACES)[number]['id'];
+] as const satisfies readonly { id: RequestPlaceId; icon: IconName }[];
+
+/** The chip a typed destination matches (by its label), so the usual range can be looked up. */
+export function placeIdFor(label: string, labelOf: (id: RequestPlaceId) => string): RequestPlaceId | null {
+  const typed = label.trim();
+  return REQUEST_PLACES.find((p) => labelOf(p.id) === typed)?.id ?? null;
+}
 
 export type RequestOffer = RequestPostView['offers'][number];
 

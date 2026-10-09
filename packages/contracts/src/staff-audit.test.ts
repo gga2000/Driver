@@ -40,6 +40,8 @@ const AUDITED = [
   'ops.zones.rename',
   'ops.zones.remove',
   'approvals.decide',
+  'driverAccount.pause',
+  'driverAccount.liftPause',
   'khat.closeSweepAlert',
   'system.clearQuietDays',
   'system.clearSeason',

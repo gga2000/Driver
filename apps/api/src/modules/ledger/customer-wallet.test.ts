@@ -117,8 +117,8 @@ describe('customer wallet: readable lines', () => {
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar, l.title_en, l.detail_en, l.orderId ?? null])).toEqual([
       ['credit', 2_000, 'رصيد مضاف', null, 'Credit issued', null, null],
-      ['late_credit', 500, 'تعويض التأخير', `طلب #${orderTicketNumber('o7')}`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
-      ['late_credit', 1_000, 'تعويض التأخير', `طلب #${orderTicketNumber('o8')}`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
+      ['late_credit', 500, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o7')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
+      ['late_credit', 1_000, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o8')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
     ]);
   });
 
@@ -138,6 +138,13 @@ describe('customer wallet: readable lines', () => {
     await h.ledger.recordAll(group('order:o3:merchant_late_reject', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.merchantCash('m1'), toAccount: Accounts.customer('c1'), memo: 'merchant_late_reject' }]));
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount])).toEqual([['credit', 500]]);
+  });
+
+  it('M-11: a الرجعة driver who never came (or cancelled late) pays the rider a credit that says why', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('departure:dep1:cancel', 'money', '2026-10-02T10:00:00Z', [{ type: 'departure_cancel_fee', amount: 2_000, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.title_en])).toEqual([['credit', 2_000, 'تعويض: السايق ما طلع بالرحلة', "Credit: your driver didn't make the trip"]]);
   });
 
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {

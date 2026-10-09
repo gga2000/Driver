@@ -1,36 +1,23 @@
 import type { ReactNode } from 'react';
 import { Image } from 'expo-image';
-import { Pressable, Switch, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 import { Text, useTheme, type StatusTone } from '@driver/ui';
 import { DishDrawing, dishLook, motifForDish } from '@driver/ui/dishes';
+import { Switch } from '@/components/Switch';
 import { COUNTER } from '@/lib/counter';
+import { useT } from '@/lib/i18n';
 import { Glyph, type GlyphName } from './Glyph';
 import { absoluteUrl } from './photo';
-import { color as palette } from '@driver/design-tokens';
 
 /**
  * Small building blocks shared by the menu and deals screens: a big kitchen switch, round glyph
  * buttons, tappable pills, the dish thumbnail (photo or its drawing) and panel cards.
  */
 
+/** The kitchen switch (d15: the app's one switch — brand colour on, grey off, 44 px to tap). */
 export function Toggle({ value, onChange, testID, label, disabled }: { value: boolean; onChange: (v: boolean) => void; testID?: string; label: string; disabled?: boolean }) {
-  const theme = useTheme();
-  return (
-    <Switch
-      testID={testID}
-      accessibilityLabel={label}
-      value={value}
-      disabled={disabled}
-      onValueChange={(v) => {
-        theme.haptic('selection');
-        onChange(v);
-      }}
-      trackColor={{ true: theme.colors.success, false: theme.colors.borderStrong }}
-      thumbColor={palette.neutral[0]}
-      {...({ activeThumbColor: palette.neutral[0] } as object)}
-    />
-  );
+  return <Switch value={value} onValueChange={onChange} accessibilityLabel={label} disabled={disabled} {...(testID ? { testID } : {})} />;
 }
 
 type Variant = 'outline' | 'tonal' | 'accent' | 'plain';
@@ -135,14 +122,36 @@ export function Pill({ label, tone = 'neutral', glyph, onPress, dot, testID, siz
 }
 
 /**
- * Dish photo, or (p2, until a photo arrives) the drawing customers see for that dish: the locked Date &
- * Saffron set, picked from the dish's name and section by the same rules as the customer app.
+ * Dish photo, or (d21) the «ماكو صورة» tile until a photo arrives. `name` and `section` stay for the
+ * callers (the customer app draws the dish from them; his own screens no longer do).
  */
-export function Thumb({ url, name, size = 64, dim, radius, id, section }: { url: string | null; name: string; size?: number; dim?: boolean; radius?: number; id?: string; section?: string | null }) {
+export function Thumb({ url, size = 64, dim, radius, id }: { url: string | null; name: string; size?: number; dim?: boolean; radius?: number; id?: string; section?: string | null }) {
   const r = radius ?? Math.round(size * 0.22);
   return (
     <View style={{ width: size, height: size, borderRadius: r, overflow: 'hidden', backgroundColor: COUNTER.sand, opacity: dim ? 0.5 : 1 }}>
-      {url ? <Image source={{ uri: absoluteUrl(url) }} recyclingKey={id ?? url} transition={120} style={{ width: size, height: size }} contentFit="cover" accessibilityIgnoresInvertColors /> : <DishArt name={name} id={id} section={section} />}
+      {url ? <Image source={{ uri: absoluteUrl(url) }} recyclingKey={id ?? url} transition={120} style={{ width: size, height: size }} contentFit="cover" accessibilityIgnoresInvertColors /> : <NoPhotoTile compact={size < 96} />}
+    </View>
+  );
+}
+
+/**
+ * d21 · a dish with no photo in his own menu: a clean tile — a camera and «ماكو صورة» — instead of the
+ * drawn plate (it read as a brown blob, and as if it were his photo). `compact` (thumbnails under
+ * 96 px) keeps only the camera. The customer app still shows its drawing until a photo arrives.
+ */
+export function NoPhotoTile({ compact = false, room = 0, testID }: { compact?: boolean; /** Space kept free at the bottom (the «صوّرها» button sits there). */ room?: number; testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID={testID} accessible={!compact} accessibilityLabel={compact ? undefined : t('merchant.display.no_photo_tile')} style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', gap: theme.space[1], paddingBottom: room, backgroundColor: COUNTER.sand, borderWidth: compact ? 0 : 1.5, borderStyle: 'dashed', borderColor: COUNTER.dateEdge, borderRadius: compact ? 0 : theme.radius.lg }}>
+      <View style={{ width: compact ? 26 : 40, height: compact ? 26 : 40, borderRadius: compact ? 13 : 20, backgroundColor: COUNTER.paper, alignItems: 'center', justifyContent: 'center' }}>
+        <Glyph name="camera" size={compact ? 15 : 20} color={COUNTER.date} strokeWidth={2} />
+      </View>
+      {compact ? null : (
+        <Text weight={700} style={{ color: COUNTER.date, fontSize: 13, lineHeight: 19 }}>
+          {t('merchant.display.no_photo_tile')}
+        </Text>
+      )}
     </View>
   );
 }
