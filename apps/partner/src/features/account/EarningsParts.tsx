@@ -129,7 +129,9 @@ export function EarningsHero({
   const jobs = view?.totals.jobs ?? 0;
   // This week's tile only on the day view (the week view already is the week).
   const week = period === 'day' && best && best.week.jobs > 0 ? best.week : null;
-  const bestDay = best?.bestDay ?? null;
+  // «أحسن يوم» covers the last 4 weeks, not the shown period: only on the day view, where it
+  // can't be mistaken for the week's or month's own best day (the chart names that one).
+  const bestDay = period === 'day' ? (best?.bestDay ?? null) : null;
   return (
     <View
       testID="earnings-hero"
@@ -169,7 +171,7 @@ export function EarningsHero({
         <View testID="earnings-mybest" style={{ flexDirection: 'row', gap: theme.space[2] }}>
           {week ? <MiniStat testID="earnings-week-so-far" label={t('partner.e5_week_so_far')} amount={week.netIqd} sub={t(jobsKey(week.jobs), { n: week.jobs })} /> : null}
           {bestDay ? (
-            <MiniStat testID="earnings-best-day" star label={t('partner.e5_best_day')} amount={bestDay.netIqd} sub={`${weekdayName(bestDay.at, t)} ${dayMonth(bestDay.at, t)}`} />
+            <MiniStat testID="earnings-best-day" star label={t('partner.best_day_4w')} amount={bestDay.netIqd} sub={`${weekdayName(bestDay.at, t)} ${dayMonth(bestDay.at, t)}`} />
           ) : null}
         </View>
       ) : null}

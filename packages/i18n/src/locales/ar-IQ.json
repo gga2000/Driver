@@ -8766,5 +8766,6 @@
   "partner.receipt_dispute_reason_take_v2": "حصة درايفر مو مضبوطة",
   "partner.e5_tip_v2": "إكرامية {amount} دينار",
   "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
-  "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار"
+  "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار",
+  "partner.best_day_4w": "أحسن يوم بآخر 4 أسابيع"
 }
