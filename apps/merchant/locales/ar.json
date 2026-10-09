@@ -1879,5 +1879,15 @@
   "merchant.display.no_photo_tile": "ماكو صورة",
   "merchant.board.tick_done": "خلصت",
   "merchant.board.prep_bar_label": "الوقت الباقي للتحضير",
-  "merchant.board.prep_bar_label_late": "خلص وقت التحضير"
+  "merchant.board.prep_bar_label_late": "خلص وقت التحضير",
+  "merchant.photo_down.notice": "نزّلنا صورة {dish} لأنها {reason}، صوّرها من جديد",
+  "merchant.photo_down.notice_many": "نزّلنا صور {count} أكلات من المنيو، صوّرها من جديد. السبب مكتوب على كل أكلة",
+  "merchant.photo_down.reason_blurry": "مو واضحة",
+  "merchant.photo_down.reason_wrong_dish": "مو صورة هالأكلة",
+  "merchant.photo_down.reason_people": "بيها ناس",
+  "merchant.photo_down.reason_other": "ما تناسب المنيو",
+  "merchant.photo_down.tile": "نزّلنا صورتها",
+  "merchant.photo_down.take": "صوّرها",
+  "merchant.photo_down.see": "شوفها",
+  "merchant.photo_down.ok": "تمام"
 }
