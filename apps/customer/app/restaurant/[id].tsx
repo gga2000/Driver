@@ -11,6 +11,7 @@ import { roleOf } from '@/features/doors/tray';
 import { cartMerchantOf, ME, type CartModifier } from '@/features/food/cart';
 import { closedArt } from '@/features/food/closed-art';
 import { DealBadges } from '@/features/food/DealBadge';
+import { closedLine } from '@/features/food/stopped';
 import { cartStore, useCartSelect } from '@/features/food/cart-store';
 import { CartButton, LiveCartBar, LiveDishCard, LiveDrinkGrid, type MenuActions } from '@/features/food/menu-live';
 import { WhatsLeft } from '@/features/food/WhatsLeft';
@@ -304,10 +305,7 @@ export default function RestaurantScreen() {
                 <View style={{ flex: 1 }}>
                   <Text variant="label" weight={600}>
                     {/* REL-16: a kitchen stopped from the Console says what ops wrote. */}
-                    {restaurant.stoppedNote ??
-                      (restaurant.closedReason === 'paused'
-                        ? t('restaurant.paused_until', { time: restaurant.opensAt ?? '' })
-                        : t('error.merchant_closed', { time: restaurant.opensAt ?? '' }))}
+                    {restaurant.stoppedNote ?? closedLine(restaurant, t)}
                   </Text>
                   <Text variant="footnote" color="textMuted" testID="restaurant-preorder">
                     {restaurant.opensAt ? t('restaurant.preorder_note', { time: restaurant.opensAt }) : t('restaurant.closed_browse')}
