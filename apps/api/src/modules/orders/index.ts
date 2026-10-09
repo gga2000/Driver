@@ -40,6 +40,8 @@ export { newStartCode, startCodeForNewOrder } from './start-code.js';
 export { OrdersStaffService, ORDERS_STAFF_PORTS, PLATFORM_FAILURE_FEE } from './orders.staff.js';
 export type { OrdersStaffPorts, OrderEventLog, StaffLedgerPort, StaffAuditPort } from './orders.staff.js';
 export { OrdersStaffJob, ORDERS_STAFF_SWEEP_MS } from './orders.staff.job.js';
+export { RefundApprovalsService, REFUND_APPROVALS_REPOSITORY, InMemoryRefundApprovalsRepository, PrismaRefundApprovalsRepository } from './refund-approvals.js';
+export type { RefundApprovalRecord, RefundApprovalsRepository, RefundApprovalKind } from './refund-approvals.js';
 export { CashLimits, CASH_LIMITS } from './cash-limits.js';
 export { ORDER_OUTCOME_RULES, DEFAULT_ORDER_OUTCOME_RULES, DISPUTE_OUTCOMES, outcomeRules, outcomeRulesFromEnv } from './outcomes.config.js';
 export type { OrderOutcomeRules, DisputeOutcome, CookedFoodPayer } from './outcomes.config.js';

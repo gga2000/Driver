@@ -150,6 +150,8 @@ export const TicketCase = z.object({
   suggestion: z.object({ cannedKey: z.string(), reason_ar: z.string() }).nullable(),
   /** Disputes by this customer in the last 30 days (> 3 → manual review). */
   customerDisputes30d: z.number().int(),
+  /** A refund on this case over a limit, waiting for a second staff member's OK (`support.refundApprovals`). */
+  pendingApproval: z.object({ id: z.string(), amountIqd: Iqd, requestedAt: z.coerce.date() }).nullable().optional(),
 });
 export type TicketCase = z.infer<typeof TicketCase>;
 
@@ -233,6 +235,48 @@ export const TicketFaultInput = z.object({ ticketId: z.string().min(1), faultPar
 export const TicketEscalateInput = z.object({ ticketId: z.string().min(1), reason: z.string().trim().min(3).max(500) });
 export const TicketResolveInput = z.object({ ticketId: z.string().min(1), resolution: z.string().trim().min(3).max(1000) });
 
+// ───────────────────────── second OK on refunds over a limit ─────────────────────────
+
+/**
+ * Which limit sent a refund for a second OK: one refund above 25,000 (everyone, admins too), the
+ * agent's 10,000 a day, the customer's 25,000 a month, or a complaint refund above 25,000.
+ */
+export const RefundApprovalLimit = z.enum(['per_refund', 'agent_daily', 'customer_month', 'dispute']);
+export type RefundApprovalLimit = z.infer<typeof RefundApprovalLimit>;
+export const RefundApprovalState = z.enum(['pending', 'approved', 'declined', 'cancelled']);
+export type RefundApprovalState = z.infer<typeof RefundApprovalState>;
+
+/** A refund over a limit: nothing posts until someone else in finance or admin approves it. */
+export const RefundApproval = z.object({
+  id: z.string(),
+  /** `ticket`: `support.refund`; `dispute`: `orders.staff.resolveDispute` (refund_full / refund_partial). */
+  kind: z.enum(['ticket', 'dispute']),
+  cityId: CityId,
+  ticketId: z.string().nullable(),
+  orderId: z.string().nullable(),
+  amountIqd: Iqd,
+  /** `ticket` only. */
+  method: z.enum(['wallet', 'points']).nullable(),
+  faultParty: FaultParty,
+  /** The agent's note (ticket) or reason (complaint). */
+  note: z.string().nullable(),
+  limit: RefundApprovalLimit,
+  requestedBy: z.object({ id: z.string(), name: z.string().nullable() }),
+  requestedAt: z.coerce.date(),
+  state: RefundApprovalState,
+  decidedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  decidedAt: z.coerce.date().nullable(),
+  declineNote: z.string().nullable(),
+});
+export type RefundApproval = z.infer<typeof RefundApproval>;
+
+export const RefundApprovalListInput = z.object({ state: z.enum(['pending', 'decided']).default('pending'), cityId: CityId.optional() });
+export type RefundApprovalListInput = z.input<typeof RefundApprovalListInput>;
+export const RefundApprovalIdInput = z.object({ id: z.string().min(1) });
+export type RefundApprovalIdInput = z.infer<typeof RefundApprovalIdInput>;
+export const RefundApprovalDeclineInput = z.object({ id: z.string().min(1), note: z.string().trim().min(3).max(500) });
+export type RefundApprovalDeclineInput = z.infer<typeof RefundApprovalDeclineInput>;
+
 /** `ctx.support`: the support desk. Roles are checked by the router; limits by the service. */
 export interface SupportPort {
   list(actor: Actor, input: z.output<typeof SupportListInput>): Promise<SupportList>;
@@ -248,4 +292,11 @@ export interface SupportPort {
   canned(): CannedResponse[];
   /** The desk has read the case's support chat up to `seq` (the customer sees «شافها»). */
   chatRead(actor: Actor, input: TicketChatReadInput): Promise<{ ok: true }>;
+  /** Refunds over a limit: the queue, newest last for pending and newest first for decided. */
+  refundApprovals(actor: Actor, input: z.output<typeof RefundApprovalListInput>): Promise<RefundApproval[]>;
+  /** Someone other than the requester (finance or admin) lets it post. */
+  approveRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval>;
+  declineRefund(actor: Actor, input: RefundApprovalDeclineInput): Promise<RefundApproval>;
+  /** The requester takes it back. */
+  cancelRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval>;
 }
