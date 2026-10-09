@@ -27,6 +27,7 @@ we can't open to the public without it.
 | SMS fallback limits (how many SMS per order, monthly cap) | Not set | No | maps spec §5.9 |
 | Money rules not yet approved: stamp cards, rolling points expiry, invite-gift amounts | Not approved | No | customer-joy spec §5.7, §6 |
 | Merchant staff invite: add an "accept" step? | Not decided | No | `docs/research/2026-10-04-backend-review.md` #6 |
+| A restaurant runs out of a dish and the customer doesn't answer within 60 seconds: send the rest of the order, or cancel it? | Not answered (recommended: send the rest, refund the missing dish) | No | section 8 |
 
 ## 2. Accounts and setup
 
@@ -40,7 +41,7 @@ we can't open to the public without it.
 | Fly.io for the server | Yes | `docs/deploy/hosting.md` |
 | Cloudflare Pages for the web apps; own street map on Cloudflare R2 | Yes | `docs/deploy/web.md`, maps spec §5.2 |
 | SMS for sign-in codes: OTPIQ (Ali's pick, 2026-10-09). Sign up, top up, live key into production secrets. Ask OTPIQ for the sender id **Driver** early: until it is approved only sign-in codes go out, and other texts (notification SMS, the gift recipient's SMS) fail | Yes | `docs/api/otpiq.md` |
-| WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages) | Yes | `docs/whatsapp-templates.md` |
+| WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages). Ali found Meta's sign-up hard (2026-10-09); every WhatsApp service, Interakt included, still needs it. Recommended: open with SMS only, then add WhatsApp through Bulk SMS Iraq (Erbil, a Meta partner that does the sign-up for you, about 39 دينار a code) once the company certificate is out. Ali hasn't decided | Yes for parents' messages; no for sign-in (SMS covers it) | `docs/whatsapp-templates.md`, section 8 |
 | Push notifications working on 5 test phones | Yes | launch playbook §7 |
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |
 | Road routing server (OSRM), until then times are straight-line estimates | No | `docs/deploy/hosting.md` |
@@ -129,5 +130,28 @@ Parked (start when convenient, no date):
   the events index. Each takes the next free migration slot when picked up (`docs/launch/migrations.md`).
 - Game day row 11 (the nightly money close on a web machine) has no on-demand start yet; until it does,
   that row is run by hand around the scheduled close time.
-- Sign-in texts and phone notifications wait with no time limit if their provider hangs
-  (`apps/api/src/shared/messaging/http.ts`, lane D's); game day row 6 will show it.
+
+## 8. Sign-in and messages (lane D): built, waiting to merge
+
+Added 2026-10-09 when Ali closed the sign-in and messages thread ("add this postponed work to the to do
+later file"). Each branch below is finished and passed every check on the day it was pushed. None is on
+`main` yet: each has a database change, so they merge in stamp order. To pick one up: merge `main` into
+the branch, re-stamp its migration to the next free slot if its slot is taken (`docs/launch/migrations.md`),
+run the checks, get the reviewer's `reviewed:<sha>` label and, for sign-in, Ali's own OK.
+
+| What it does for people | Branch | Blocks launch | Notes |
+|---|---|---|---|
+| A gift order's recipient gets one SMS when the courier is near (cash gifts say how much to pay) | `claude/lane-d-gift-sms`, PR #131 | No | migration slot 410000 |
+| Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 420000; built on an older `main`, expect conflicts |
+| A household member must accept before joining a shared wallet (SEC-06) | `claude/lane-d-household` | Yes: no one may be added to a wallet without saying yes | slot 430000 |
+| Opening in waves: new customers wait in a queue until ops opens more places | `claude/lane-d-waves` | Probably | slot 440000; the store reviewer's account must skip the queue |
+| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears |
+| A test kitchen and test numbers for Apple and Google's reviewers | `claude/lane-d-store-review` | Yes for the store review | slot 460000; drop its copy of the staging test numbers (#133 already put them on `main`); it must never erase demo data |
+
+Still to build:
+
+- When the shared-car boarding change (trips, slot 490000) is on `main`: a push to a friend when the driver
+  confirms they got in, «السايق أكد إنك صعدت».
+- The WhatsApp sign-in template is called `driver_otp` in one place and `otp_login` in another: settle on
+  one name before submitting templates to Meta.
+- OTPIQ, after Ali signs up: ask for the sender name **Driver** (row in section 2).
