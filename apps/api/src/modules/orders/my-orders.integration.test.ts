@@ -73,8 +73,8 @@ describe.skipIf(!url)('orders.forPerson on Postgres (needs DATABASE_URL)', () =>
       // Placed by me and not finished (mineOld is closed): mineNew and tieA; never a friend's order I eat on.
       expect((await repo.openPlacedBy(ids.me)).map((o) => o.id)).toEqual([order['mineNew'], order['tieA']]);
       expect(await repo.countPlacedBy(ids.me)).toBe(3);
-      expect(await repo.countPlacedBy(ids.me, { state: 'closed' })).toBe(1);
-      expect(await repo.countPlacedBy(ids.me, { state: 'closed', exceptId: order['mineOld']! })).toBe(0);
+      expect(await repo.countPlacedBy(ids.me, { states: ['closed'] })).toBe(1);
+      expect(await repo.countPlacedBy(ids.me, { states: ['closed'], exceptId: order['mineOld']! })).toBe(0);
       expect(await repo.countPlacedBy(ids.me, { type: 'ride' })).toBe(0);
     } finally {
       await db.order.update({ where: { id: order['mineOld']! }, data: { state: 'placed' } });

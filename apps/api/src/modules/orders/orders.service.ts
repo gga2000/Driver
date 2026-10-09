@@ -342,7 +342,7 @@ export class OrdersService implements OnModuleInit {
     // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
     if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
     const order = agg.order;
-    return this.repo.countPlacedBy(order.ordererId, { type: 'ride', state: 'completed', exceptId: orderId });
+    return this.repo.countPlacedBy(order.ordererId, { type: 'ride', states: ['completed'], exceptId: orderId });
   }
 
   onModuleInit(): void {
@@ -1701,13 +1701,9 @@ export class OrdersService implements OnModuleInit {
 
   /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
   async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
-    const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
-    const out: OrderAggregate[] = [];
-    for (const o of mine.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))) {
-      const agg = await this.repo.find(o.id);
-      if (agg) out.push(agg);
-    }
-    return out;
+    // FOOD-04: one batched read with the lines, not a read per order.
+    const mine = (await this.repo.aggregatesForPerson(personId)).filter(({ order: o }) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
+    return mine.reverse();
   }
 
   // ───────────────────────── timers ─────────────────────────

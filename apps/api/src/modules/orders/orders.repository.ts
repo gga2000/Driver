@@ -216,8 +216,8 @@ export interface OrdersRepository {
   aggregatesForPerson(personId: string, opts?: { limit?: number }, tx?: Tx): Promise<OrderAggregate[]>;
   /** FOOD-04: the orders `ordererId` placed that are not finished yet (the few that hold wallet money or points). */
   openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]>;
-  /** FOOD-04: how many orders `ordererId` placed, optionally only of one type and state, leaving one order out. */
-  countPlacedBy(ordererId: string, filter?: { type?: OrderType; state?: OrderState; exceptId?: string }, tx?: Tx): Promise<number>;
+  /** FOOD-04: how many orders `ordererId` placed, optionally only of one type and some states, leaving one order out. */
+  countPlacedBy(ordererId: string, filter?: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string }, tx?: Tx): Promise<number>;
   /**
    * Joy w4: a household's orders placed in `[from, to)` — on its wallet, or «للسفرة» orders of the
    * given members — oldest first. One bounded read on `(household_org_id, placed_at)` plus the members'
@@ -562,9 +562,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
-  countPlacedBy(ordererId: string, filter: { type?: OrderType; state?: OrderState; exceptId?: string } = {}, tx?: Tx): Promise<number> {
+  countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}, tx?: Tx): Promise<number> {
     return this.db(tx).order.count({
-      where: { ordererId, ...(filter.type ? { type: filter.type } : {}), ...(filter.state ? { state: filter.state } : {}), ...(filter.exceptId ? { id: { not: filter.exceptId } } : {}) },
+      where: { ordererId, ...(filter.type ? { type: filter.type } : {}), ...(filter.states ? { state: { in: [...filter.states] } } : {}), ...(filter.exceptId ? { id: { not: filter.exceptId } } : {}) },
     });
   }
 
@@ -759,8 +759,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return (await this.forPerson(ordererId)).filter((o) => o.ordererId === ordererId && !TERMINAL_ORDER_STATES.includes(o.state));
   }
 
-  async countPlacedBy(ordererId: string, filter: { type?: OrderType; state?: OrderState; exceptId?: string } = {}): Promise<number> {
-    return [...this.orders.values()].filter((o) => o.ordererId === ordererId && (!filter.type || o.type === filter.type) && (!filter.state || o.state === filter.state) && o.id !== filter.exceptId).length;
+  async countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}): Promise<number> {
+    return [...this.orders.values()].filter((o) => o.ordererId === ordererId && (!filter.type || o.type === filter.type) && (!filter.states || filter.states.includes(o.state)) && o.id !== filter.exceptId).length;
   }
 
   async aggregatesForPerson(personId: string, opts: { limit?: number } = {}): Promise<OrderAggregate[]> {
