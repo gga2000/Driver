@@ -159,6 +159,9 @@ importers:
       next:
         specifier: 15.5.27
         version: 15.5.27(@playwright/test@1.56.1)(@types/node@22.20.5)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      pmtiles:
+        specifier: 4.4.1
+        version: 4.4.1
       react:
         specifier: 19.3.0
         version: 19.3.0

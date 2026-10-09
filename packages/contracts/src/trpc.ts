@@ -41,6 +41,7 @@ import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
 import type { PhoneBookingPort } from './phone-booking-io.js';
 import type { GarageTaxiPort } from './garage-taxi-io.js';
+import type { DishPhotoReviewPort } from './dish-photos-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -65,6 +66,8 @@ export interface AppContext {
   ops: OpsPort;
   /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
   menuPhotos: MenuPhotosPort;
+  /** p4: shop-uploaded dish photos waiting for the same-day look (`modules/ops` over `modules/catalog`). */
+  dishPhotos: DishPhotoReviewPort;
   /** Console › المطاعم: stores' pickup spots set by field ops (`modules/ops` over `modules/merchant`). */
   pickupSpots: PickupSpotsOpsPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
