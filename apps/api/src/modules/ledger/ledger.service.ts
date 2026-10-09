@@ -120,9 +120,11 @@ export class LedgerService {
   /** Drivers' cap positions read inside `tx`, so earlier postings of the same transaction count. */
   private async positions(driverIds: readonly string[], tx?: Tx): Promise<Map<string, DriverPosition>> {
     const out = new Map<string, DriverPosition>();
+    // SCALE-16: the running balance (one row, read in `tx`), or a database sum where none is kept.
+    const read = async (account: string) => ((await this.repo.runningBalance(account, tx)) ?? (await this.repo.sumFor(account, undefined, tx))).amount;
     for (const id of driverIds) {
-      const [earnings, cash] = await Promise.all([this.repo.byAccount(Accounts.driver(id), tx), this.repo.byAccount(Accounts.cash(id), tx)]);
-      out.set(id, { earningsIqd: sumFor(Accounts.driver(id), earnings), cashIqd: sumFor(Accounts.cash(id), cash) });
+      const [earningsIqd, cashIqd] = await Promise.all([read(Accounts.driver(id)), read(Accounts.cash(id))]);
+      out.set(id, { earningsIqd, cashIqd });
     }
     return out;
   }
@@ -135,7 +137,8 @@ export class LedgerService {
   /**
    * Current balance. Driver accounts (`driver:`, `cash:`) read their running balance, one row kept in
    * the same transaction as every posting (perf item 13; the cap check runs this per nearby driver
-   * per dispatch wave); every other account, and any `before` cut-off, sums the full history.
+   * per dispatch wave); every other account, and any `before` cut-off, is summed by the store (SCALE-16:
+   * one sum in the database, not the history loaded).
    */
   async balance(accountId: string, before?: Date): Promise<Balance> {
     if (!before) {
@@ -147,8 +150,8 @@ export class LedgerService {
 
   /** Balance summed from the account's full history (the source of truth the running balance must equal). */
   async fullBalance(accountId: string, before?: Date): Promise<Balance> {
-    const events = (await this.repo.byAccount(accountId)).filter((e) => !before || e.occurredAt < before);
-    return { accountId, amount: sumFor(accountId, events), events: events.length };
+    const { amount, events } = await this.repo.sumFor(accountId, before);
+    return { accountId, amount, events };
   }
 
   /**
@@ -186,6 +189,17 @@ export class LedgerService {
     return sortByTime(await this.repo.byAccount(accountId));
   }
 
+  /** SCALE-16: the account's lines at or after `since`, oldest first (a year's savings, not the whole history). */
+  async eventsSince(accountId: string, since: Date): Promise<LedgerEvent[]> {
+    return sortByTime(await this.repo.byAccountWhere(accountId, { since }));
+  }
+
+  /** SCALE-16: one page of the account's newest lines before `before` (see `LedgerRepository.byAccountPage`). */
+  async eventsPage(accountId: string, page: { before?: Date | undefined; take: number }): Promise<{ events: LedgerEvent[]; complete: boolean }> {
+    const { events, complete } = await this.repo.byAccountPage(accountId, page);
+    return { events: sortByTime(events), complete };
+  }
+
   async eventsForTrip(tripId: string): Promise<LedgerEvent[]> {
     return this.repo.byTrip(tripId);
   }
@@ -219,9 +233,11 @@ export class LedgerService {
    * `from` inclusive, `to` exclusive.
    */
   async statement(accountId: string, range: { from?: Date | undefined; to?: Date | undefined } = {}): Promise<Statement> {
-    const events = await this.eventsFor(accountId);
-    let opening = 0;
-    let running = 0;
+    // SCALE-16: what came before `from` is one database sum; only the lines from `from` on are read.
+    const opened = range.from ? (await this.repo.sumFor(accountId, range.from)).amount : 0;
+    const events = range.from ? sortByTime(await this.repo.byAccountWhere(accountId, { since: range.from })) : await this.eventsFor(accountId);
+    let opening = opened;
+    let running = opened;
     let inIqd = 0;
     let outIqd = 0;
     const lines: StatementLine[] = [];
@@ -310,7 +326,7 @@ export class LedgerService {
 
   /** Completed cash orders of a customer at or above a size (referral unlock, new-customer cap). */
   async cashOrders(customerId: string, minIqd = 0): Promise<string[]> {
-    const events = await this.repo.byAccount(Accounts.customer(customerId));
+    const events = await this.repo.byAccountWhere(Accounts.customer(customerId), { types: ['cash_collected'] });
     const orders = new Set<string>();
     for (const e of events) {
       if (e.type !== 'cash_collected' || e.toAccount !== Accounts.customer(customerId) || !e.orderId) continue;

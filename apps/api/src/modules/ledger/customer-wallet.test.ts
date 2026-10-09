@@ -236,3 +236,39 @@ describe('customer wallet: pending points (domain §3, §10)', () => {
     expect(t.agents.every((a) => !/[٠-٩]/.test(a.zoneName_ar))).toBe(true);
   });
 });
+
+describe('customer wallet: history pages read a window, not the whole book (SCALE-16)', () => {
+  it('every page equals paging the full history, with shared timestamps and multi-line groups', async () => {
+    const h = walletHarness();
+    const groups: PostingGroup[] = [];
+    const at = (i: number) => new Date(Date.parse('2026-01-01T00:00:00Z') + Math.floor(i / 3) * 60_000).toISOString();
+    for (let i = 0; i < 400; i += 1) {
+      if (i % 5 === 0) groups.push(group(`pts:${i}`, 'points', at(i), [{ type: 'points_earned', amount: 10 + i, fromAccount: Accounts.pointsPool, toAccount: Accounts.points('c1') }]));
+      else if (i % 4 === 0)
+        groups.push(
+          group(`late:${i}`, 'money', at(i), [
+            { type: 'credit_issued', amount: 500, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1'), memo: LATE_PROMISE_MEMO },
+            { type: 'credit_issued', amount: 250, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1') },
+          ]),
+        );
+      else groups.push(group(`topup:${i}`, 'money', at(i), [{ type: 'credit_issued', amount: 1_000 + i, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));
+    }
+    await h.ledger.recordAll(groups);
+    const { pointsLines } = await import('./customer-wallet.js');
+    const full = [...moneyLines(Accounts.customer('c1'), await h.ledger.eventsFor(Accounts.customer('c1'))), ...pointsLines(Accounts.points('c1'), await h.ledger.eventsFor(Accounts.points('c1')))];
+    for (const limit of [1, 7, 30, 100]) {
+      let before: Date | undefined;
+      let seen = 0;
+      for (;;) {
+        const got = await h.wallet.transactions(actor('c1'), { limit, ...(before ? { before } : {}) });
+        const want = pageLines(full, limit, before);
+        expect(got.lines.map((l) => l.id)).toEqual(want.lines.map((l) => l.id));
+        expect(got.nextBefore?.getTime() ?? null).toBe(want.nextBefore?.getTime() ?? null);
+        seen += got.lines.length;
+        if (!got.nextBefore) break;
+        before = got.nextBefore;
+      }
+      expect(seen).toBe(full.length);
+    }
+  });
+});
