@@ -8728,6 +8728,7 @@
   "partner.cash_owed_split": "{order} للطلب + {fees} مبلغ سابق",
   "partner.job_owed_fees": "اقبض {fees} دينار زيادة على الطلب",
   "partner.job_owed_fees_body": "مبلغ سابق على الزبون ينضاف لهالطلب. مو من أرباحك.",
+  "track.map_at_door": "عند بابك",
   "partner.switch_blocked_paused": "موقّف لحد ما نراجع البلاغ",
   "partner.switch_blocked_hint_paused": "نتصل بيك ونسمع منك قبل أي قرار",
   "console.kb_group_today": "اليوم",
@@ -8752,5 +8753,7 @@
   "console.csv_late_min": "التأخير (دقيقة)",
   "console.csv_done": "نزل الملف: {n} طلب",
   "console.csv_capped": "نزل الملف بأول {n} طلب بس. ضيّق الفترة حتى يطلع كلشي",
-  "console.csv_failed": "ما نزل الملف: {message}"
+  "console.csv_failed": "ما نزل الملف: {message}",
+  "error.location_web": "ما گدرنا نعرف موقعك من المتصفح",
+  "error.location_web_hint": "شغّل الموقع للمتصفح من إعدادات جهازك، أو حرّك الخريطة لحد بابك"
 }

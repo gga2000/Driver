@@ -66,6 +66,8 @@ export const StaffActionResult = z.object({
   /** Money posted by this action, in IQD (refunds, kitchen pay); 0 when none. */
   postedIqd: Iqd.nonnegative(),
   auditId: z.string().nullable(),
+  /** A complaint refund over the limit: nothing posted yet, it waits for a second OK (`support.refundApprovals`). */
+  pendingApprovalId: z.string().optional(),
 });
 export type StaffActionResult = z.infer<typeof StaffActionResult>;
 
