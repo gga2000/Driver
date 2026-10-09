@@ -80,8 +80,6 @@ export default function CheckoutScreen() {
   const [street, setStreet] = useState(false);
   // W-02 «استخدم نقاطك»: the server decides how many points apply (delivery fee first, then service fee).
   const [usePoints, setUsePoints] = useState(false);
-  const quote = useCartQuote(cart, dropoff, street);
-  const orderQuote = useOrderQuote(cart, dropoff, street, usePoints);
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
@@ -120,6 +118,12 @@ export default function CheckoutScreen() {
   const dinnerAtMs = dinnerAt?.getTime() ?? null;
   const slots = useMemo(() => withDinnerSlot(plainSlots, dinnerAtMs !== null && dinnerDay === day ? new Date(dinnerAtMs) : null, (at) => ({ at, iftar: false })), [plainSlots, dinnerAtMs, dinnerDay, day]);
   const [slot, setSlot] = useState<string | null>(null);
+  const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
+  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
+  // FOOD-01/19: the fees are priced for the chosen slot (a pre-order after midnight is a different
+  // night), and the ones placed are `orders.quote`'s, priced on the server's clock.
+  const quote = useCartQuote(cart, dropoff, street, scheduledFor);
+  const orderQuote = useOrderQuote(cart, dropoff, street, usePoints, scheduledFor);
   const preset = useRef(false);
   useEffect(() => {
     const r = menu.data?.restaurant;
@@ -212,8 +216,6 @@ export default function CheckoutScreen() {
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
   const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
   const restaurant = menu.data?.restaurant;
-  const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
-  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
   const { groups } = groupByPerson(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
