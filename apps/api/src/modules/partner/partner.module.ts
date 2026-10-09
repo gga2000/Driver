@@ -17,11 +17,13 @@ import { PartnerService } from './partner.service.js';
 import { PlacesModule, SavedPlacesService } from '../places/index.js';
 import { PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps } from './ports.js';
 
-/** Ride take rules by vertical (money & ops §3); deliveries pass through and have none. */
+/** Take rules by vertical (money & ops §3): rides and parcels; food, grocery and errand fees pass through. */
 function takeFor(vertical: Vertical): TakeRule | null {
   const take = AZIZIYAH_MONEY_RULES.take;
   if (vertical === 'tuktuk') return take.tuktuk;
   if (vertical === 'taxi') return take.car;
+  // The ledger books a parcel as its fare less the parcel take (`postRideCompleted`), so the offer shows the same.
+  if (vertical === 'parcel') return take.parcel;
   return null;
 }
 
