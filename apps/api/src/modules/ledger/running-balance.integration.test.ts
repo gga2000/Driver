@@ -43,6 +43,9 @@ describe.skipIf(!url)('running driver balance on Postgres (needs DATABASE_URL)',
       expect(await ledger.balance(account), account).toEqual(full);
       expect(await ledger.fullBalance(account), account).toEqual(full);
     }
+    // SCALE-04: the right-now bar's cash in the field reads the running balances and agrees with the full sum.
+    const mine = (f: Awaited<ReturnType<LedgerService['cashInField']>>) => f.holders.filter((h) => h.driverId.startsWith(run));
+    expect(mine(await ledger.cashInField())).toEqual(mine(await plain.cashInField()));
   }
 
   it('random postings, a replayed group and a rolled-back group: running = full sum on every driver account', async () => {

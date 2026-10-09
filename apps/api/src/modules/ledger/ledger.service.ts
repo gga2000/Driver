@@ -286,14 +286,20 @@ export class LedgerService {
 
   /**
    * Cash in the field (Console right-now bar): what every courier and driver holds right now, i.e.
-   * the negative `cash:` balances, largest first. One pass over the book.
-   * TODO(perf): a per-account balance projection once the book outgrows a full read per poll.
+   * the negative `cash:` balances, largest first. SCALE-04: read from the running balances
+   * (`ledger_balances`, one row per driver account, kept in each posting's transaction); one pass
+   * over the book only where a store keeps none.
    */
   async cashInField(): Promise<{ totalIqd: number; holders: Array<{ driverId: string; amountIqd: number }> }> {
     const net = new Map<string, number>();
-    for (const e of await this.repo.all()) {
-      if (e.toAccount.startsWith('cash:')) net.set(e.toAccount, (net.get(e.toAccount) ?? 0) + e.amount);
-      if (e.fromAccount.startsWith('cash:')) net.set(e.fromAccount, (net.get(e.fromAccount) ?? 0) - e.amount);
+    const running = await this.repo.runningBalances();
+    if (running) {
+      for (const [account, b] of running) if (account.startsWith('cash:')) net.set(account, b.amount);
+    } else {
+      for (const e of await this.repo.all()) {
+        if (e.toAccount.startsWith('cash:')) net.set(e.toAccount, (net.get(e.toAccount) ?? 0) + e.amount);
+        if (e.fromAccount.startsWith('cash:')) net.set(e.fromAccount, (net.get(e.fromAccount) ?? 0) - e.amount);
+      }
     }
     const holders = [...net.entries()]
       .filter(([, amount]) => amount < 0)

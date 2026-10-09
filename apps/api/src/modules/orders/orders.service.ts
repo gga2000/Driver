@@ -333,7 +333,7 @@ export class OrdersService implements OnModuleInit {
 
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
-    return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
+    return this.repo.countPlacedBy(personId);
   }
 
   /** Partner redesign o10: rides the orderer of `orderId` finished before it (a count only); null when unknown. */
@@ -342,7 +342,7 @@ export class OrdersService implements OnModuleInit {
     // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
     if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
     const order = agg.order;
-    return (await this.repo.forPerson(order.ordererId)).filter((o) => o.id !== orderId && o.ordererId === order.ordererId && o.type === 'ride' && o.state === 'completed').length;
+    return this.repo.countPlacedBy(order.ordererId, { type: 'ride', states: ['completed'], exceptId: orderId });
   }
 
   onModuleInit(): void {
@@ -780,20 +780,18 @@ export class OrdersService implements OnModuleInit {
    */
   /** What his open orders on his own wallet will still take at close (the tip after rating can't spend it). */
   async openWalletHoldIqd(customerId: string): Promise<number> {
-    const mine = await this.repo.forPerson(customerId);
-    return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
+    const open = await this.repo.openPlacedBy(customerId);
+    return open.filter((o) => o.paymentMethod === 'wallet' && !o.householdOrgId).reduce((a, o) => a + o.totalIqd, 0);
   }
 
   private async walletAvailable(customerId: string, householdId: string | null, tx?: Tx): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
     const [balance, mine, elsewhere] = await Promise.all([
       this.wallet.balanceIqd({ customerId, householdId }),
-      this.repo.forPerson(customerId),
+      this.repo.openPlacedBy(customerId),
       householdId === null && this.wallet.heldElsewhere ? this.wallet.heldElsewhere(customerId, tx) : Promise.resolve(0),
     ]);
-    const held = mine
-      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
-      .reduce((a, o) => a + o.totalIqd, 0);
+    const held = mine.filter((o) => o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId).reduce((a, o) => a + o.totalIqd, 0);
     return balance - held - elsewhere;
   }
 
@@ -804,8 +802,8 @@ export class OrdersService implements OnModuleInit {
    */
   private async pointsOffer(customerId: string, fees: ServerFees, discount: OrderDiscount | null, priceIqd: number): Promise<{ balance: number; usable: number; valueIqd: number } | null> {
     if (!this.wallet?.pointsBalance) return null;
-    const [balance, mine] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.forPerson(customerId)]);
-    const held = mine.filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
+    const [balance, open] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.openPlacedBy(customerId)]);
+    const held = open.reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
     const available = Math.max(0, balance - held);
     const deliveryDeal = discount?.meta.funder === 'merchant' && discount.meta.target === 'delivery' ? discount.amountIqd : 0;
     const usable = redeemablePoints({ availablePoints: available, serviceFeeIqd: fees.serviceFeeIqd, deliveryFeeIqd: fees.deliveryFeeIqd - deliveryDeal, priceIqd }, ORDERS_RULES.pointValueIqd);
@@ -1476,13 +1474,17 @@ export class OrdersService implements OnModuleInit {
 
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
     // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
-    const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
-    return Promise.all(live.map((o) => this.view(o.id)));
+    // SCALE-12: one batched read with lines and participants, not a read per order.
+    const live = await this.repo.findManyAggregates({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
+    return live.map(toOrderView);
   }
 
-  async listForPerson(personId: string): Promise<Order[]> {
-    const orders = await this.repo.forPerson(personId);
-    return Promise.all(orders.map((o) => this.view(o.id)));
+  /**
+   * The orders a person placed or takes part in, newest first; at most `limit` (all when omitted).
+   * FOOD-04: two reads whatever the history's length, never a read per order.
+   */
+  async listForPerson(personId: string, opts: { limit?: number } = {}): Promise<Order[]> {
+    return (await this.repo.aggregatesForPerson(personId, opts)).map(toOrderView);
   }
 
   /**
@@ -1702,13 +1704,9 @@ export class OrdersService implements OnModuleInit {
 
   /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
   async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
-    const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
-    const out: OrderAggregate[] = [];
-    for (const o of mine.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))) {
-      const agg = await this.repo.find(o.id);
-      if (agg) out.push(agg);
-    }
-    return out;
+    // FOOD-04: one batched read with the lines, not a read per order.
+    const mine = (await this.repo.aggregatesForPerson(personId)).filter(({ order: o }) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
+    return mine.reverse();
   }
 
   // ───────────────────────── timers ─────────────────────────
