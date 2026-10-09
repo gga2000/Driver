@@ -7,6 +7,8 @@ import {
   ChangePhoneStartOutput,
   ConsentGuardianLinkInput,
   DevLastOtpInput,
+  StagingTestCodeInput,
+  StagingTestCodeOutput,
   DevLastOtpOutput,
   GrantRoleInput,
   GuardianLinkView,
@@ -72,4 +74,12 @@ export const identityRouter = router({
       if (ctx.env.nodeEnv === 'production') throw new DriverError('dev_only');
       return ctx.identity.devLastOtp(input.phone);
     }),
+  /**
+   * Staging only: the fixed code of a staging test number, for the «عبّيه» button on the code screen.
+   * Null on every other host, for every other number, and for a test number that holds a staff role.
+   */
+  stagingTestCode: publicProcedure
+    .input(StagingTestCodeInput)
+    .output(StagingTestCodeOutput)
+    .query(({ ctx, input }) => ctx.identity.stagingTestCode(input.phone)),
 });
