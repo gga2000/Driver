@@ -16,6 +16,7 @@ import {
   type MoneyRules,
   type OfferWaitTerms,
   type RequestPlaceId,
+  type RequestShareBoardedBy,
   type RequestShareView,
   type RequestTripKind,
   type RequestWaitClock,
@@ -29,7 +30,7 @@ import { haversineMeters } from '../trips/index.js';
 import { ROUTES_EVENTS, type RoutesEventEmitter } from './events.adapter.js';
 import type { IntercityNetworkConfig, IntercityRules } from './intercity.config.js';
 import { randomInt } from 'node:crypto';
-import { sharedIqd, sharedPlaces, type RequestOfferRecord, type RequestRecord } from './model.js';
+import { sharedIqd, sharedPlaces, type RequestOfferRecord, type RequestRecord, type RequestShareMemberRecord } from './model.js';
 import { ROUTES_REQUEST_RIDERS, type RequestRidersPort } from './request-riders.js';
 import { ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { MIN_MS, ROUTES_IDS, roundUpTo, walletHolds, type IdSource } from './support.js';
@@ -689,6 +690,8 @@ export class RequestBoardService {
         state: 'joined' as const,
         joinedAt: this.now(),
         closedAt: null,
+        boardedAt: null,
+        boardedBy: null,
       };
       share.members.push(member);
       await this.repo.saveRequest(r, tx);
@@ -724,6 +727,81 @@ export class RequestBoardService {
     });
   }
 
+  // ── way C (Ali 2026-10-09: "c"): who got in. A record only: what each friend pays is unchanged. ──
+
+  /**
+   * A friend's «صعدت»: once the driver pressed «وصلت», and within `shareBoardNearM` of where he did
+   * (the friend's position is checked, never stored). Saying it twice is a no-op.
+   */
+  boardShare(personId: string, code: string, at: { lat: number; lng: number }): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.byShareCode(code, tx);
+      const m = this.heldMember(r, personId);
+      if (m.boardedAt) return r;
+      if (r.state !== 'driver_arrived') throw new DriverError('request_state_conflict');
+      const car = r.driverArrivedPin;
+      if (car && haversineMeters(at, car) > this.rules.requestBoard.shareBoardNearM) throw new DriverError('share_board_far');
+      return this.markBoarded(tx, r, m, 'self', personId);
+    });
+  }
+
+  /** The picked driver's «صعد» for a friend whose phone can't (logged; the friend is told and can answer «ما صعدت»). */
+  boardShareFor(driverId: string, postId: string, memberId: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.mustDrive(driverId, postId, tx);
+      const m = r.share?.members.find((x) => x.id === memberId && x.state === 'joined');
+      if (!m) throw new DriverError('share_not_found');
+      if (m.boardedAt) return r;
+      if (r.state !== 'driver_arrived') throw new DriverError('request_state_conflict');
+      return this.markBoarded(tx, r, m, 'driver', driverId);
+    });
+  }
+
+  /**
+   * A friend's «ما صعدت» on the driver's tap for him: the mark is cleared and the event is the record
+   * support reads. His own «صعدت» can't be taken back, and what he pays does not change here.
+   */
+  denyShareBoard(personId: string, code: string): Promise<RequestRecord> {
+    return this.writer.run(async (tx) => {
+      const r = await this.byShareCode(code, tx);
+      const m = this.heldMember(r, personId);
+      if (m.boardedBy !== 'driver') throw new DriverError('request_state_conflict');
+      const markedAt = m.boardedAt;
+      m.boardedAt = null;
+      m.boardedBy = null;
+      await this.repo.saveRequest(r, tx);
+      await this.emit(tx, 'request.share_board_denied', personId, r, {
+        memberId: m.id,
+        personId,
+        markedAt,
+        riderId: r.riderId,
+        driverId: this.picked(r).driverId,
+      });
+      return r;
+    });
+  }
+
+  /** His places on this car, held (joined) or paid at the end; anyone else: `share_not_found`. */
+  private heldMember(r: RequestRecord, personId: string): RequestShareMemberRecord {
+    const m = r.share?.members.find((x) => x.personId === personId && (x.state === 'joined' || x.state === 'paid'));
+    if (!m) throw new DriverError('share_not_found');
+    return m;
+  }
+
+  private async markBoarded(tx: Tx, r: RequestRecord, m: RequestShareMemberRecord, by: RequestShareBoardedBy, actorId: string): Promise<RequestRecord> {
+    m.boardedAt = this.now();
+    m.boardedBy = by;
+    await this.repo.saveRequest(r, tx);
+    await this.emit(tx, 'request.share_boarded', actorId, r, {
+      memberId: m.id,
+      personId: m.personId,
+      by,
+      riderId: r.riderId,
+      driverId: this.picked(r).driverId,
+    });
+    return r;
+  }
+
   /** Shared cars this person joined that are still ahead or on the road. */
   async sharedWith(personId: string): Promise<RequestRecord[]> {
     if (!this.moneyRules.requestSharing.enabled) return [];
@@ -736,7 +814,7 @@ export class RequestBoardService {
    * The share as the booker (with friends' first names) or the picked driver (no names, no link)
    * sees it; null when the car is not shared.
    */
-  shareView(r: RequestRecord, names: Readonly<Record<string, string | null>> | null): RequestShareView | null {
+  shareView(r: RequestRecord, names: Readonly<Record<string, string | null>> | null, link = names !== null): RequestShareView | null {
     const s = r.share;
     if (!s) return null;
     const offer = r.offers.find((o) => o.id === r.pickedOfferId);
@@ -744,7 +822,7 @@ export class RequestBoardService {
     const deposit = r.cashReserved ? 0 : (r.depositIqd ?? 0);
     const fare = (offer?.priceIqd ?? 0) + this.waitExtra(r);
     return {
-      path: names ? `/rajaa/join/${s.code}` : null,
+      path: link ? `/rajaa/join/${s.code}` : null,
       people: r.seats,
       bookerPlaces: s.bookerPlaces,
       placeIqd: s.placeIqd,
@@ -752,10 +830,12 @@ export class RequestBoardService {
       open: this.shareOpen(r),
       placesLeft: Math.max(0, r.seats - s.bookerPlaces - sharedPlaces(s)),
       members: s.members.map((m) => ({
+        id: m.id,
         firstName: names ? (names[m.personId] ?? null) : null,
         places: m.places,
         amountIqd: m.amountIqd,
         state: m.state,
+        boardedBy: m.boardedBy,
       })),
       friendsIqd,
       cashIqd: Math.max(0, fare - friendsIqd - deposit),

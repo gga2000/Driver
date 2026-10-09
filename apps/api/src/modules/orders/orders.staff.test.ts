@@ -205,6 +205,42 @@ describe('orders.ops.resolveDispute (NTF-01, M-1)', () => {
     expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 
+  it('above the limit a complaint refund waits for a second OK (admins too); someone else approves, then it posts once', async () => {
+    const h = staffHarness({ disputes: { outcomes: [...DISPUTE_OUTCOMES], agentLimitIqd: 2_000 } }, { ledger: ledgerHarness(), approvals: true });
+    const { order } = await h.delivered();
+    await h.orders.openDispute('c1', { orderId: order.id, kind: 'missing_item' });
+    const asked = await h.staff.resolveDispute(ali, { orderId: order.id, outcome: 'refund_partial', amountIqd: 5_000, reason: 'ناقص صنف', faultParty: 'courier' });
+    expect(asked).toMatchObject({ state: 'disputed', changed: false, postedIqd: 0, pendingApprovalId: expect.any(String) });
+    // Asking again is the same request; nothing posted, the order still disputed.
+    expect((await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_partial', amountIqd: 5_000, reason: 'ناقص', faultParty: 'courier' })).pendingApprovalId).toBe(asked.pendingApprovalId);
+    expect(h.events.ofType('order.dispute_resolved')).toHaveLength(0);
+    expect(h.audits.at(-1)).toMatchObject({ action: 'order.refund_requested', actorId: 'ali' });
+    const id = asked.pendingApprovalId!;
+    await expect(h.approvals!.approve('ali', id)).rejects.toMatchObject({ code: 'approval_own_item' });
+    expect(await h.approvals!.approve('fin_1', id)).toMatchObject({ state: 'approved', decidedBy: 'fin_1' });
+    await expect(h.approvals!.approve('fin_2', id)).rejects.toMatchObject({ code: 'approval_state_conflict' });
+    await h.settle();
+    expect(await h.balance('customer:c1')).toBe(5_000);
+    expect((await h.repo.find(order.id))!.order).toMatchObject({ state: 'closed', refundState: 'credited' });
+    expect(h.events.last('order.dispute_resolved')!.payload).toMatchObject({ outcome: 'refund_partial', refundIqd: 5_000, funder: 'courier' });
+    expect(h.audits.at(-1)).toMatchObject({ action: 'order.ops_resolve_dispute', actorId: 'fin_1' });
+  });
+
+  it('a second OK that can no longer post leaves the request pending; declined, he may ask again', async () => {
+    const h = staffHarness({ disputes: { outcomes: [...DISPUTE_OUTCOMES], agentLimitIqd: 2_000 } }, { ledger: ledgerHarness(), approvals: true });
+    const { order } = await h.delivered();
+    await h.orders.openDispute('c1', { orderId: order.id, kind: 'missing_item' });
+    const first = (await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_partial', amountIqd: 5_000, reason: 'ناقص', faultParty: 'platform' })).pendingApprovalId!;
+    expect(await h.approvals!.decline('fin_1', first, 'نحچي ويا المطعم')).toMatchObject({ state: 'declined' });
+    const again = (await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_partial', amountIqd: 5_000, reason: 'ناقص', faultParty: 'platform' })).pendingApprovalId!;
+    expect(again).not.toBe(first);
+    // Meanwhile the complaint was settled another way: the approval fails and stays pending.
+    await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'stands', reason: 'انحل ويا الزبون', faultParty: 'platform' });
+    await expect(h.approvals!.approve('fin_1', again)).rejects.toMatchObject({ code: 'order_state_conflict' });
+    expect(await h.approvals!.get(again)).toMatchObject({ state: 'pending' });
+    expect(await h.approvals!.cancel('ops_1', again)).toMatchObject({ state: 'cancelled' });
+  });
+
   it('refund_partial: never more than he paid less earlier refunds; above the agent limit only admin', async () => {
     const h = make({ disputes: { outcomes: [...DISPUTE_OUTCOMES], agentLimitIqd: 2_000 } });
     const { order } = await h.delivered();

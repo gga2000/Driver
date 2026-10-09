@@ -372,6 +372,8 @@ export const ERROR_TABLE = {
   share_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   share_closed: { retryHint: 'never', status: 'CONFLICT' },
   share_full: { retryHint: 'never', status: 'CONFLICT' },
+  // Way C (Ali 2026-10-09): «صعدت» only works next to the car.
+  share_board_far: { retryHint: 'later', status: 'PRECONDITION_FAILED' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // w1: a «يستناك وترجع» offer must say the waiting hours included and the extra-hour price.
   offer_wait_terms_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
