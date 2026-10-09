@@ -21,7 +21,8 @@ touching the account).
   transaction as the posting. A rolled-back posting rolls its balance back; a replayed group writes no
   line, so it changes nothing; any code path that inserts a line (seed, script, old code during a
   deploy) is counted.
-- **Only per-driver accounts.** `platform`, `bank`, customers and merchants keep the full-sum read.
+- **Only per-driver accounts.** `platform`, `bank`, customers and merchants keep the full-sum read
+  (since SCALE-16 that sum runs in the database, see below).
   Each row is locked only by postings for that one driver, so postings of different drivers never wait
   on each other (a `platform` row would serialise every posting). The rule lives twice and must stay in
   step: `isProjectedAccount` in `repository.ts` and `ledger_balance_projected()` in the migration.
@@ -60,3 +61,26 @@ running balances in memory as it appends.
   concurrent postings on one driver all equal the full sum; the migration's backfill query gives the
   trigger's numbers; a line inserted with the trigger off is caught and repaired.
 - `pnpm sim --orders 2000 --seed 1 --ci`.
+
+## Reads that never load a whole account (SCALE-16)
+
+Every other balance and history read used to load all of an account's lines and add them up in the
+API, so the wallet screen and the cap check got slower with every order. Now:
+
+- **Balances of accounts without a running balance** (`customer:`, `points:`, `household:`, `platform`,
+  merchants, and any balance "as of" a past instant): two `SUM`/`COUNT` queries in the database on the
+  `(to_account, occurred_at)` and `(from_account, occurred_at)` indexes (`LedgerRepository.sumFor`).
+- **The cap check while posting** (`LedgerService.positions`): the running balance read inside the
+  posting's transaction, so lines that transaction already wrote count.
+- **`wallet.balance`**: «وفّرت هالسنة» reads only this year's lines (`eventsSince`).
+- **`wallet.transactions`**: reads the newest lines of the money and points books a window at a time
+  (`byAccountPage`: 60 lines or 3 × the page size, widened ×4 only when a page doesn't fill). A window
+  never splits a timestamp, and a posting group's lines share one, so an order is never cut in half.
+  Pages, their order and `nextBefore` are exactly what paging the full history gave.
+- **Staff statement**: the opening balance before `from` is one sum; only lines from `from` on are read.
+- **`cashOrders`** (new-customer cash cap, referral unlock): reads only the customer's `cash_collected` lines.
+
+Unchanged: amounts, balances, line wording and page boundaries. Proof: `customer-wallet.test.ts`
+(400 groups with shared timestamps paged at 1 / 7 / 30 / 100 equal the full-history pages),
+`ledger-reads.integration.test.ts` (Postgres sums, filtered reads and pages equal the in-memory store;
+an in-transaction read sees the transaction's own line), `running-balance.test.ts`.

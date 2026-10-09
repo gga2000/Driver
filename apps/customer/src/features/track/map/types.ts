@@ -23,4 +23,6 @@ export interface BaseMapProps {
   /** Bands covered by the screen's own bars (top bar, sheet), px: landmarks are not drawn half-hidden under them. */
   coveredTop?: number;
   coveredBottom?: number;
+  /** Always the day map, whatever the hour (pin pickers: Ali 10-09, setting a spot is easier in daylight). */
+  alwaysDay?: boolean;
 }

@@ -5,3 +5,4 @@ export * from './golden-style.js';
 export * from './fallback.js';
 export * from './routes.js';
 export * from './tracking.js';
+export * from './life.js';

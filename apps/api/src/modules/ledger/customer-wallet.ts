@@ -392,7 +392,9 @@ export class CustomerWalletService implements WalletPort {
 
   async balance(actor: Actor): Promise<WalletBalanceView> {
     const id = actor.personId;
-    const [money, points, pending, events] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id), this.ledger.eventsFor(Accounts.customer(id))]);
+    // SCALE-16: balances are database sums and «وفّرت» reads this year's lines only, not the whole history.
+    const now = this.clock.now();
+    const [money, points, pending, events] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id), this.ledger.eventsSince(Accounts.customer(id), baghdadYearStart(now))]);
     const home = await this.households.householdOf(id);
     const householdBalance = home ? (await this.ledger.balance(Accounts.household(home.id))).amount : 0;
     return {
@@ -405,14 +407,27 @@ export class CustomerWalletService implements WalletPort {
       pointValueIqd: this.rules.points.pointValueIqd,
       household: home ? { id: home.id, name: home.name, role: home.role, balanceIqd: householdBalance } : null,
       pointsMaxPerOrder: this.rules.points.maxPerOrder,
-      savedThisYearIqd: savedThisYear(Accounts.customer(id), events, this.clock.now()),
+      savedThisYearIqd: savedThisYear(Accounts.customer(id), events, now),
     };
   }
 
   async transactions(actor: Actor, input: z.infer<typeof WalletTransactionsInput>): Promise<WalletTransactionsView> {
     const id = actor.personId;
-    const [money, points] = await Promise.all([this.ledger.eventsFor(Accounts.customer(id)), this.ledger.eventsFor(Accounts.points(id))]);
-    return pageLines([...moneyLines(Accounts.customer(id), money), ...pointsLines(Accounts.points(id), points)], input.limit, input.before);
+    const accounts = { money: Accounts.customer(id), points: Accounts.points(id) };
+    // SCALE-16: read the newest lines of both books a window at a time, never the whole history. A
+    // window is whole down to its oldest timestamp (a posting group shares one), so lines at or after
+    // the later of the two floors are exactly what the full history would give there.
+    for (let take = Math.max(input.limit * 3, 60); ; take *= 4) {
+      const [money, points] = await Promise.all([this.ledger.eventsPage(accounts.money, { before: input.before, take }), this.ledger.eventsPage(accounts.points, { before: input.before, take })]);
+      const floors = [money, points].filter((w) => !w.complete).map((w) => w.events[0]?.occurredAt.getTime() ?? Number.POSITIVE_INFINITY);
+      const floor = floors.length > 0 ? Math.max(...floors) : null;
+      const lines = [...moneyLines(accounts.money, money.events), ...pointsLines(accounts.points, points.events)].filter((l) => floor === null || l.occurredAt.getTime() >= floor);
+      const page = pageLines(lines, input.limit, input.before);
+      if (floor === null || page.nextBefore) return page;
+      // Everything above the floor fit on this page: older lines remain, so either the page is full and
+      // the next one starts below it, or the window was too small and widens.
+      if (page.lines.length >= input.limit) return { lines: page.lines, nextBefore: page.lines[page.lines.length - 1]!.occurredAt };
+    }
   }
 
   async topupOptions(_actor: Actor): Promise<TopupOptionsView> {
