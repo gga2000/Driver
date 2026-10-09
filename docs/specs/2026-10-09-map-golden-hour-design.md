@@ -124,3 +124,22 @@ from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-desig
   rest; no idle loops. Reduce motion: jump between cameras and keep the line resting.
 - Fit padding clears the header chip, courier card and sheet (≈ top 90, bottom 330 px on a phone).
 - `lite` phones keep the flat customer map.
+
+## The town and the new look (Ali, 2026-10-09: "go ahead")
+- **Houses by use:** schools two storeys, hospitals and clinics three, shop rows on main streets one. Most houses carry the stair hut (بيت الدرج), some a satellite dish. River bridges of 80 m or more stand on piers.
+- **Roof finishes:** six per light (`roofTones`), picked by each building's stable `tone`.
+- **Sky and haze:** every tilted customer and courier view. Console and lite stay flat.
+- **Up close:** a soft wall foot, pale kerbs and a dashed centre line on main streets.
+- **Ground:** school yards, parks and pitches each have their own colour. Fields are drawn in rows (`golden-furrows`, z12.5–15.3), and there's a mud bank along the Tigris.
+- **Night:** about 3 homes in 10 are lit (`lit`, `lights` layer), with warm light spilling onto the street. The order route stays the brightest thing.
+
+## Street life (Ali picked "moving")
+`streetLife(roads, { seed, light, moving })` builds a calm street scene from the `roads` on screen. `lifeFrame(scene, t)` turns it into small 3D blocks for the moment `t`, and `goldenLifeLayers({ source })` draws them.
+- **Cars:** about 28 % of kerb slots on main streets hold a parked car. One moving car runs per ~110 m, in its lane. A few are تكتك.
+- **People:** on the pavements, about 60 % of them walking.
+- **Rules:**
+  - Only from `LIFE_MINZOOM` (16.6).
+  - Never saffron, yellow, blue or teal.
+  - Fewer at night, none in alleys.
+  - `moving: false` on slow phones and with reduce-motion gives a still scene.
+- **For the screen owner:** read the roads with `querySourceFeatures(GOLDEN_SOURCE, { sourceLayer: 'roads' })` on `moveend`. Feed `lifeFrame()` to a GeoJSON source each animation frame while the map is at street zoom, and stop the loop below it or when the screen is hidden.
