@@ -26,6 +26,7 @@ export const INBOX_KINDS = [
   'sweep',
   'pin_alert',
   'approval',
+  'late_departure',
 ] as const;
 export const InboxKind = z.enum(INBOX_KINDS);
 export type InboxKind = z.infer<typeof InboxKind>;
@@ -36,14 +37,16 @@ export const INBOX_PRIORITY: Record<InboxKind, number> = {
   safety_report: 1,
   sweep: 2,
   pin_alert: 3,
-  no_driver: 4,
-  unreachable: 5,
-  stuck: 6,
-  store_silent: 7,
-  late: 8,
-  cash_cap: 9,
-  low_rating: 10,
-  approval: 11,
+  // Riders standing at a garage with no car, or a car out on the road that never said «وصلت».
+  late_departure: 4,
+  no_driver: 5,
+  unreachable: 6,
+  stuck: 7,
+  store_silent: 8,
+  late: 9,
+  cash_cap: 10,
+  low_rating: 11,
+  approval: 12,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -56,6 +59,7 @@ export const InboxSubjectKind = z.enum([
   'pin_attempt',
   'courier',
   'ticket',
+  'departure',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 
