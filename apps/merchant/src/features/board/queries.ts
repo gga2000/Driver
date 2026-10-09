@@ -192,14 +192,14 @@ export function useHeartbeat(merchantOrgId: string | null): void {
   }, [client, signedIn, merchantOrgId]);
 }
 
-/** `orders.merchant.remakeRule` (c6): whether «أعدنا تسويه» may show, and from when after «جاهز». */
+/** `orders.merchant.remakeRule` (c6): whether «سوّيناه من جديد» may show, and from when after «جاهز». */
 export function useRemakeRule(enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({ ...api.orders.merchant.remakeRule.queryOptions(), enabled: signedIn && enabled, staleTime: 5 * 60_000 });
 }
 
-/** c6: «أعدنا تسويه» — Driver pays the first batch of a ready order no courier came for. */
+/** c6: «سوّيناه من جديد» — Driver pays the first batch of a ready order no courier came for. */
 export function useRemake() {
   const api = useApi();
   const qc = useQueryClient();

@@ -251,9 +251,7 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
           ? member.inviteSentAt
             ? t('merchant.staff.invite_sent_at', { when: dates.when(member.inviteSentAt, now) })
             : undefined
-          : member.phoneMasked
-            ? `⁦${member.phoneMasked}⁩`
-            : undefined
+          : (invitePhone(member) ?? undefined)
       }
       footer={
         member.you ? undefined : (

@@ -26,7 +26,7 @@ const BORDER_STROKE = 1.25;
 /**
  * Aziziyah's zones as a plain SVG (no map tiles: the Merchant app has no basemap and a counter tablet
  * stays light), north up and to scale, the kitchen as a pin. Each zone is painted by `shade` — fee bands
- * on «منطقة التوصيل», customers per zone on «منين زبائنك» — and tapping one selects it; the screens
+ * on «منطقة التوصيل», customers per zone on «منين زباينك» — and tapping one selects it; the screens
  * also list every zone in rows of 44 px or more, so the small zones are never only a tiny tap target.
  * The drawing hugs the zones and, given `maxHeight`, shrinks (centred) to stay within it.
  */

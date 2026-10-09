@@ -1332,6 +1332,17 @@ async function trackShots(personId) {
   await shot('track-rating-points');
 }
 
+/** Runs `flow` with one procedure's requests answered as a network failure (a batch carrying it fails whole). */
+async function whileFailing(proc, flow) {
+  const handler = async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
+  await page.route('**/trpc/**', handler);
+  try {
+    await flow();
+  } finally {
+    await page.unroute('**/trpc/**', handler);
+  }
+}
+
 /** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
 async function rajaaShots(personId) {
   await page.goto(`${origin}/rajaa`, LOADED);
@@ -1340,6 +1351,15 @@ async function rajaaShots(personId) {
   await firstCar.waitFor({ timeout: 15_000 });
   await shot('rajaa-board');
   await fullShot('rajaa-board-full');
+  // W8: the Kut line's count didn't load → its card leaves the count out, one retry under the cards.
+  await whileFailing('aziziyah_kut', async () => {
+    await page.reload(LOADED);
+    await page.locator('[data-testid="rajaa-lines-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('board: no line failed state'));
+    await settle(500);
+    await shot('rajaa-errors-lines');
+  });
+  await page.reload(LOADED);
+  await firstCar.waitFor({ timeout: 15_000 });
 
   // Narrowing (s2, s5, s7, x3): tomorrow's cars, then tomorrow night with none → one-tap «نبّهني».
   await byTestId('board-day-tomorrow').click();
@@ -1388,6 +1408,16 @@ async function rajaaShots(personId) {
   await settle(400);
   await shot('rajaa-pay-wallet');
   await byTestId('pay-cash').click();
+  // W8: the wallet balance didn't load → a retry under the choice, never a silent gap.
+  await whileFailing('wallet.balance', async () => {
+    await page.reload(LOADED);
+    await page.locator('[data-testid="rajaa-wallet-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('hold: no wallet failed state'));
+    await page.locator('[data-testid="rajaa-wallet-read-error"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+    await settle(500);
+    await shot('rajaa-errors-wallet');
+  });
+  await page.reload(LOADED);
+  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
 
   // Cash reservation → boarding pass (boarding is open on this car: live position shows).
   await byTestId('rajaa-confirm').click();
@@ -1418,6 +1448,14 @@ async function rajaaShots(personId) {
       await settle(300);
       await shot('rajaa-road');
       await fullShot('rajaa-road-full');
+      // W8: the profile didn't load → a retry where the names go, never «ماكو أحد يتابع».
+      await whileFailing('identity.me', async () => {
+        await page.reload(LOADED);
+        await page.locator('[data-testid="rajaa-watching-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('road: no who-follows failed state'));
+        await page.locator('[data-testid="rajaa-watching-read-error"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+        await settle(500);
+        await shot('rajaa-errors-watching');
+      });
     }
   }
 
@@ -1447,15 +1485,17 @@ async function rajaaShots(personId) {
   }
 
   // Request board: post → offers arrive → pick one → deposit rules → matched.
+  await demoPost('/demo/rajaa/history');
   await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  // y1, y2: the places as chips, there and back with a 4-hour wait, AC.
+  // y1, y2: the places as chips, there and back with a 4-hour wait, AC; p1: the usual range shows.
   await byTestId('req-from-aziziyah').click();
   await byTestId('req-place-najaf').click();
   await byTestId('req-trip-wait_return').click();
   await byTestId('req-wait').waitFor({ timeout: 5_000 });
   await page.locator('[data-testid="req-wait"] [aria-label="زيد واحد"]').first().click();
   await byTestId('req-ac').click();
+  await byTestId('rajaa-form-usual-range').waitFor({ timeout: 10_000 }).catch(() => errors.push('usual range not shown on the form'));
   await shot('rajaa-request-form');
   await fullShot('rajaa-request-form-full');
   await byTestId('req-trip-two_days').click();
@@ -1477,7 +1517,7 @@ async function rajaaShots(personId) {
     await shot('rajaa-request-offers-cheapest');
     await byTestId('offer-sort-best').click();
     // The pick button (offer-<id>) of the top card, not the driver row, price or card inside it.
-    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"])').first();
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"]):not([data-testid^="offer-wait-"]):not([data-testid^="offer-pricier-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });

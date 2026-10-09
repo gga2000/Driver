@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
-import { Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
@@ -125,10 +125,20 @@ export default function RajaaBoard() {
     span,
   );
   const lines = corridors.map((c, i) => {
-    const deps = lineBoards[i]?.data?.departures ?? [];
-    const today = network.data ? filterBoard(groupBoard(deps, network.data.garages, endpoints(c.cityId, direction).from, now).flatMap((g) => g.departures), days[0]!, null) : [];
+    const deps = lineBoards[i]?.data?.departures;
+    if (!deps || !network.data) return { corridor: c, today: null, first: null };
+    const today = filterBoard(groupBoard(deps, network.data.garages, endpoints(c.cityId, direction).from, now).flatMap((g) => g.departures), days[0]!, null);
     return { corridor: c, today: today.length, first: [...today].sort((a, b) => a.departAt.getTime() - b.departAt.getTime())[0] ?? null };
   });
+  // A line whose count couldn't load says so once under the cards, with a retry (its card just leaves the count out).
+  const failedLines = lineBoards.filter((q) => q.isError && q.data === undefined);
+  const linesRead = {
+    data: failedLines.length === 0 ? true : undefined,
+    error: failedLines[0]?.error ?? null,
+    isPending: false,
+    isError: failedLines.length > 0,
+    refetch: () => failedLines.forEach((q) => void q.refetch()),
+  };
 
   const openDemand = () => router.push({ pathname: '/rajaa/demand', params: { corridor: corridorId, direction } });
   // s7: one tap posts the wish for the day (or part) with what we know: who travels, one seat, the garage.
@@ -183,6 +193,11 @@ export default function RajaaBoard() {
               setCorridorId(id);
             }}
           />
+        ) : null}
+        {failedLines.length > 0 ? (
+          <QueryBoundary query={linesRead} size="inline" skeleton={null} testID="rajaa-lines-read">
+            {() => null}
+          </QueryBoundary>
         ) : null}
       </View>
 
