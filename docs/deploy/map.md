@@ -7,10 +7,11 @@ environment's database. It runs by hand (Actions → Map tiles → pick `staging
 the 1st of every month, so the map follows Overture's monthly releases. A scheduled run waits for the
 same "Review deployments" approval as any other staging run.
 
-| File                                  | What it is                                                                         | URL the apps use                                                                       |
-| ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `wasit.pmtiles` (about 11 MB)         | the vector map; the apps read only the parts on screen (HTTP Range requests)       | `https://<ref>.supabase.co/storage/v1/object/public/map/wasit.pmtiles`                 |
-| `fonts/<fontstack>/<start>-<end>.pbf` | Arabic label glyphs: IBM Plex Sans Arabic Regular, Medium and Bold, 21 ranges each | `https://<ref>.supabase.co/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf` |
+| File                                  | What it is                                                                         | URL the apps use                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `wasit.pmtiles` (about 11 MB)         | the vector map; the apps read only the parts on screen (HTTP Range requests)       | `https://<ref>.supabase.co/storage/v1/object/public/map/wasit.pmtiles`                                                                 |
+| `fonts/<fontstack>/<start>-<end>.pbf` | Arabic label glyphs: IBM Plex Sans Arabic Regular, Medium and Bold, 21 ranges each | `https://<ref>.supabase.co/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf`                                                 |
+| `plugins/mapbox-gl-rtl-text-0.3.0.js` | the plugin that joins Arabic letters on the map (pinned version, checksum checked) | `https://<ref>.supabase.co/storage/v1/object/public/map/plugins/mapbox-gl-rtl-text-0.3.0.js` (`RTL_TEXT_PLUGIN_URL` in `packages/map`) |
 
 `<ref>` is the Supabase project ref: staging is `lapigvjdsuapfexzdcvl`.
 

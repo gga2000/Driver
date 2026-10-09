@@ -33,8 +33,8 @@ export function serviceInk(service: MapService, light: GoldenLight): ServiceInk 
 
 /** Feature properties the route and pin sources use. */
 export interface RouteFeatureProps {
-  /** Route lines: `done` (behind the vehicle) or `ahead`. */
-  part?: 'done' | 'ahead';
+  /** Route lines: `done` (behind the vehicle), `ahead`, or `plan` (the order map, before pickup). */
+  part?: 'done' | 'ahead' | 'plan';
 }
 export interface PinFeatureProps {
   /** `vehicle` (courier, taxi…), `from` (pickup or restaurant), `to` (the door). */

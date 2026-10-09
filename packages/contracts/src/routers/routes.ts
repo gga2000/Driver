@@ -2,11 +2,21 @@ import { z } from 'zod';
 import type { RoleKind } from '../auth.js';
 import { CallSession } from '../chat-io.js';
 import {
+  AgreementIdInput,
+  AgreementView,
   AnnounceInput,
+  AnswerCashInput,
+  AskAgreementInput,
+  AskCashInput,
   BoardingPass,
   BoardInput,
   BookingIdInput,
   RateBookingInput,
+  RequestShareCodeInput,
+  RequestShareInvite,
+  RequestShareJoinInput,
+  RequestShareOpenInput,
+  RespondAgreementInput,
   BookingView,
   BookSeatInput,
   CancelDepartureInput,
@@ -38,6 +48,7 @@ import {
   PinAttemptView,
   PostDemandInput,
   PostRequestInput,
+  ProposeAgreementInput,
   RequestIdInput,
   RequestListInput,
   RequestOfferInput,
@@ -165,20 +176,72 @@ export const routesRouter = router({
       .input(RequestOfferInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.offerOnRequest(ctx.actor, input)),
-    /** Rider: pick an offer; 20 % deposit (min 5,000) held on the wallet. */
+    /** Rider: pick an offer; 20 % deposit (min 5,000) held on the wallet, or none on a cash reservation (4b). */
     pick: protectedProcedure()
       .input(PickOfferInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.pickOffer(ctx.actor, input)),
+    /** Rider (4b a6): ask the driver behind an offer for «احجز وادفع كاش». */
+    askCash: protectedProcedure()
+      .input(AskCashInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.askCash(ctx.actor, input)),
+    /** Driver (4b a6): answer «احجز وادفع كاش» on his own offer. */
+    answerCash: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(AnswerCashInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.answerCash(ctx.actor, input)),
     cancel: protectedProcedure()
       .input(RequestIdInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.cancelRequest(ctx.actor, input)),
+    /** Booker (step 6): open the share link, or change his own places while nobody has joined. */
+    openShare: protectedProcedure()
+      .input(RequestShareOpenInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.openShare(ctx.actor, input)),
+    /** Anyone signed in with the link (step 6): the trip and what a place costs. */
+    shareInvite: protectedProcedure()
+      .input(RequestShareCodeInput)
+      .output(RequestShareInvite)
+      .query(({ ctx, input }) => ctx.routes.shareInvite(ctx.actor, input)),
+    /** Friend (step 6): take places, held on his wallet until the trip ends. */
+    joinShare: protectedProcedure()
+      .input(RequestShareJoinInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.joinShare(ctx.actor, input)),
+    /** Friend (step 6): leave before joining closes; the hold is released. */
+    leaveShare: protectedProcedure()
+      .input(RequestShareCodeInput)
+      .output(RequestShareInvite)
+      .mutation(({ ctx, input }) => ctx.routes.leaveShare(ctx.actor, input)),
+    /** Friend (step 6): shared cars he joined, still ahead or on the road. */
+    sharedWithMe: protectedProcedure()
+      .output(z.array(RequestShareInvite))
+      .query(({ ctx }) => ctx.routes.sharedWithMe(ctx.actor)),
     /** Driver at the pickup (GPS recorded). */
     arrived: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestPositionInput)
       .output(RequestPostView)
       .mutation(({ ctx, input }) => ctx.routes.requestArrived(ctx.actor, input)),
+    /** w2: the driver dropped the rider on a «يستناك وترجع» trip; the waiting clock starts. */
+    waitStart: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestWaitStart(ctx.actor, input)),
+    /** w2: the rider is back in the car; the clock stops. */
+    waitEnd: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(RequestPostView)
+      .mutation(({ ctx, input }) => ctx.routes.requestWaitEnd(ctx.actor, input)),
+    /**
+     * k2: the picked driver calls the person he is fetching on a «جيب واحد» trip, or the poster on any
+     * other kind, through the masked-call bridge; never a raw number in production.
+     */
+    callPerson: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(RequestIdInput)
+      .output(CallSession)
+      .mutation(({ ctx, input }) => ctx.routes.requestCall(ctx.actor, input)),
     complete: protectedProcedure(INTERCITY_DRIVER_ROLES)
       .input(RequestIdInput)
       .output(RequestPostView)
@@ -267,6 +330,43 @@ export const routesRouter = router({
       .input(CancelDepartureInput)
       .output(DriverDepartureView)
       .mutation(({ ctx, input }) => ctx.routes.cancelDeparture(ctx.actor, input)),
+  }),
+
+  /**
+   * Agreed trip prices (step 4, docs/specs/2026-10-08-agreed-trip-prices.md): the rider asks for a pin
+   * pickup or a door drop, the departure's driver names the price, the rider accepts; booking locks it.
+   */
+  agreements: router({
+    /** Rider: ask the departure's driver to price a pickup from this pin or a drop at this door. */
+    ask: protectedProcedure()
+      .input(AskAgreementInput)
+      .output(AgreementView)
+      .mutation(({ ctx, input }) => ctx.routes.askAgreement(ctx.actor, input)),
+    /** Rider: take back an ask or a proposal he has not booked with. */
+    withdraw: protectedProcedure()
+      .input(AgreementIdInput)
+      .output(AgreementView)
+      .mutation(({ ctx, input }) => ctx.routes.withdrawAgreement(ctx.actor, input)),
+    /** Rider: «موافق» or «لا» on the driver's price. */
+    respond: protectedProcedure()
+      .input(RespondAgreementInput)
+      .output(AgreementView)
+      .mutation(({ ctx, input }) => ctx.routes.respondAgreement(ctx.actor, input)),
+    /** Rider: his agreements on one departure, newest first. */
+    mine: protectedProcedure()
+      .input(DepartureIdInput)
+      .output(z.array(AgreementView))
+      .query(({ ctx, input }) => ctx.routes.myAgreements(ctx.actor, input)),
+    /** Driver: name the price (whole 1,000s, 0 = «ببلاش»); replaces his earlier price on it. */
+    propose: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(ProposeAgreementInput)
+      .output(AgreementView)
+      .mutation(({ ctx, input }) => ctx.routes.proposeAgreement(ctx.actor, input)),
+    /** Driver: every agreement on his departure, with each rider's first name. */
+    onDeparture: protectedProcedure(INTERCITY_DRIVER_ROLES)
+      .input(DepartureIdInput)
+      .output(z.array(AgreementView))
+      .query(({ ctx, input }) => ctx.routes.departureAgreements(ctx.actor, input)),
   }),
 
   // ── ops ──

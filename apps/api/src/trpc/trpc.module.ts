@@ -20,7 +20,7 @@ import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { ShareLinksService, TrackingModule, TrackingService } from '../modules/tracking/index.js';
-import { ChatModule, ChatService } from '../modules/chat/index.js';
+import { ChatModule, ChatService, TripChatService } from '../modules/chat/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
 import { MerchantModule, MerchantService, MerchantSetupService } from '../modules/merchant/index.js';
@@ -92,6 +92,7 @@ export class TrpcService {
     private readonly merchantSetup: MerchantSetupService,
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
+    private readonly tripChat: TripChatService,
     private readonly shareLinks: ShareLinksService,
     private readonly live: LiveService,
     private readonly notify: NotifyService,
@@ -173,6 +174,7 @@ export class TrpcService {
       merchant: this.merchant,
       merchantSetup: this.merchantSetup,
       chat: this.chat,
+      tripChat: this.tripChat,
       trackingShare: this.shareLinks,
       live: this.live,
       liveAuth,

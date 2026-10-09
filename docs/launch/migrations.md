@@ -32,12 +32,13 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010260000 | merchant_setup (+ shop rules columns) | merchant | setup PR |
 | 20261010270000 | driver_running_balance | lane A | speed PR |
 | 20261010310000 | order_debt_collect | lane A | M-3 owed cancel fee |
-| 20261010340000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41) |
-| 20261010350000 | request_wait_clock | trips thread | private car round 2 step 2 (reserved) |
-| 20261010360000 | request_fetch_person | trips thread | private car round 2 step 3 (reserved) |
-| 20261010370000 | trip_agreed_items | trips thread | private car round 2 step 4 (reserved) |
-| 20261010380000 | seat_return_bundle | trips thread | private car round 2 step 5 (reserved) |
-| 20261010390000 | request_shares | trips thread | private car round 2 step 6 (reserved) |
+| 20261010340000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (#41, merged) |
+| 20261010350000 | request_wait_clock | trips thread | private car round 2 step 2 (steps 2–6 + 4c PR) |
+| 20261010360000 | request_fetch_person | trips thread | private car round 2 step 3 (steps 2–6 + 4c PR) |
+| 20261010370000 | trip_agreed_items | trips thread | private car round 2 step 4 (steps 2–6 + 4c PR) |
+| 20261010380000 | seat_return_bundle | trips thread | private car round 2 step 5 (steps 2–6 + 4c PR) |
+| 20261010390000 | request_shares | trips thread | private car round 2 step 6 (steps 2–6 + 4c PR) |
+| 20261010400000 | trip_chat | trips thread | private car round 2 step 4c, chat (steps 2–6 + 4c PR) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6

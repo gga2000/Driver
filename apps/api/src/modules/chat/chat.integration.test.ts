@@ -100,7 +100,7 @@ describe.skipIf(!url)('chat × share links on Postgres (needs DATABASE_URL)', ()
     );
     const sent = await Promise.all(sends);
     expect(sent.map((m) => m.seq).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    const thread = await prisma.prisma.chatThread.findUniqueOrThrow({ where: { orderId_kind: { orderId, kind: 'customer_courier' } } });
+    const thread = await prisma.prisma.chatThread.findUniqueOrThrow({ where: { orderId_kind_partyId: { orderId, kind: 'customer_courier', partyId: '' } } });
     threadIds.push(thread.id);
     expect(thread.lastSeq).toBe(8);
     const stored = await prisma.prisma.chatMessage.findFirstOrThrow({ where: { threadId: thread.id, senderId: 'c1', body: { contains: 'رقمي' } } });
@@ -129,14 +129,14 @@ describe.skipIf(!url)('chat × share links on Postgres (needs DATABASE_URL)', ()
     await blobs.receive({ id: ticket.uploadId, exp: signed.searchParams.get('exp') ?? undefined, sig: signed.searchParams.get('sig') ?? undefined, contentType: 'audio/mp4', bytes: m4a });
     const sent = await chat.send(as('c1'), { orderId, kind: 'customer_courier', clientId: `run-${randomUUID()}`, voiceUploadId: ticket.uploadId, durationSec: 9 });
     expect(sent).toMatchObject({ kind: 'voice', durationSec: 9 });
-    const thread = await prisma.prisma.chatThread.findUniqueOrThrow({ where: { orderId_kind: { orderId, kind: 'customer_courier' } } });
+    const thread = await prisma.prisma.chatThread.findUniqueOrThrow({ where: { orderId_kind_partyId: { orderId, kind: 'customer_courier', partyId: '' } } });
     threadIds.push(thread.id);
     expect(await prisma.prisma.chatMessage.findUniqueOrThrow({ where: { id: sent.id } })).toMatchObject({ voiceRef: ticket.uploadId, durationSec: 9, photoRef: null });
 
     // Paging from just before this thread finds it, with its one note.
     const before = thread.id.slice(0, -1);
     const page = await repo.threadsWithVoice({ afterThreadId: before, limit: 50 });
-    expect(page.find((t) => t.threadId === thread.id)).toEqual({ threadId: thread.id, orderId, kind: 'customer_courier', voices: [{ messageId: sent.id, voiceRef: ticket.uploadId }] });
+    expect(page.find((t) => t.threadId === thread.id)).toEqual({ threadId: thread.id, orderId, kind: 'customer_courier', partyId: '', voices: [{ messageId: sent.id, voiceRef: ticket.uploadId }] });
 
     await repo.clearVoice(sent.id);
     expect((await repo.threadsWithVoice({ afterThreadId: before, limit: 50 })).find((t) => t.threadId === thread.id)).toBeUndefined();

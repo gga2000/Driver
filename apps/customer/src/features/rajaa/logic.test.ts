@@ -107,13 +107,19 @@ function booking(over: Partial<BookingView> & { id: string }): BookingView {
     seatPriceIqd: 10_000,
     frontPremiumIqd: 0,
     pickupFeeIqd: 0,
+    dropoffFeeIqd: 0,
+    returnDiscountIqd: 0,
+    returnPairBookingId: null,
+    returnOfferPercent: null,
+    lapChildren: 0,
+    dropoff: null,
     totalIqd: 10_000,
     payment: 'cash',
     prepaid: false,
     prepayRail: 'cash_reservation',
     heldUntil: null,
     pin: '1234',
-    pickup: { kind: 'garage', meetingPointId: null, nameAr: null, lat: 0, lng: 0, note: null, feeIqd: 0, status: 'accepted', detourMin: null },
+    pickup: { kind: 'garage', meetingPointId: null, nameAr: null, lat: 0, lng: 0, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
     largeBags: false,
     movedToBookingId: null,
     movedFromBookingId: null,
@@ -241,9 +247,12 @@ describe('seats', () => {
       baseIqd: 20_000,
       frontIqd: 2_000,
       pickupIqd: 1_000,
+      dropoffIqd: 0,
       totalIqd: 23_000,
     });
     expect(quoteSelection([], { seatPriceIqd: 10_000, frontPremiumIqd: 2_000 }, 1_000).totalIqd).toBe(0);
+    // Step 4: an agreed door drop adds to the total like the pickup.
+    expect(quoteSelection(['back_left'], { seatPriceIqd: 5_000, frontPremiumIqd: 1_000 }, 2_000, 3_000)).toMatchObject({ dropoffIqd: 3_000, totalIqd: 10_000 });
   });
   it('prices the door pickup like the server (1,000 + 500 per km past 2 km, none past 10 km)', () => {
     const g = { lat: 32.9032, lng: 45.0578 };
