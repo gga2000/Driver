@@ -8744,5 +8744,13 @@
   "console.today.show_new": "Show them",
   "console.copy_link": "Copy link",
   "console.link_copied": "Link copied with these filters, send it to a teammate",
-  "console.link_copy_failed": "Couldn't copy, copy the link from the address bar"
+  "console.link_copy_failed": "Couldn't copy, copy the link from the address bar",
+  "console.csv_download": "Download CSV",
+  "console.csv_service": "Service",
+  "console.csv_delivered": "Delivered",
+  "console.csv_cancelled": "Cancelled",
+  "console.csv_late_min": "Late (min)",
+  "console.csv_done": "File downloaded: {n} orders",
+  "console.csv_capped": "File has the first {n} orders only. Narrow the period to get them all",
+  "console.csv_failed": "File didn't download: {message}"
 }

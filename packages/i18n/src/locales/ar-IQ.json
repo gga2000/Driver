@@ -8744,5 +8744,13 @@
   "console.today.show_new": "اعرضها",
   "console.copy_link": "انسخ الرابط",
   "console.link_copied": "انتسخ الرابط بنفس الفلاتر، دزّه لزميلك",
-  "console.link_copy_failed": "ما گدرت أنسخ، انسخ الرابط من شريط العنوان"
+  "console.link_copy_failed": "ما گدرت أنسخ، انسخ الرابط من شريط العنوان",
+  "console.csv_download": "نزّل CSV",
+  "console.csv_service": "الخدمة",
+  "console.csv_delivered": "توصّل",
+  "console.csv_cancelled": "انلغى",
+  "console.csv_late_min": "التأخير (دقيقة)",
+  "console.csv_done": "نزل الملف: {n} طلب",
+  "console.csv_capped": "نزل الملف بأول {n} طلب بس. ضيّق الفترة حتى يطلع كلشي",
+  "console.csv_failed": "ما نزل الملف: {message}"
 }
