@@ -320,6 +320,35 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(JSON.stringify(audit.map((a) => a.detail))).not.toContain('اتصلت');
   });
 
+  it('every bad rating (food or courier at 2 stars or under) opens a case that closes only with a note', async () => {
+    const h = harness();
+    await h.emit('order.rated', { orderId: 'ord_good', actorId: 'p_c' }, { orderId: 'ord_good', stars: 5, food: 4, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_3', actorId: 'p_c' }, { orderId: 'ord_3', stars: 3, food: 3, delivery: 3, orderType: 'food' });
+    expect(await h.list()).toEqual([]);
+    // Good courier, bad food: still a case. A ride rated 1 (courier score only) too.
+    await h.emit('order.rated', { orderId: 'ord_food', actorId: 'p_c' }, { orderId: 'ord_food', stars: 5, food: 2, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_ride', actorId: 'p_c' }, { orderId: 'ord_ride', stars: 1, food: null, delivery: 1, orderType: 'ride' });
+    // An older event with only `stars`.
+    await h.emit('order.rated', { orderId: 'ord_old', actorId: 'p_c' }, { orderId: 'ord_old', stars: 2 });
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId, r.facts]).sort()).toEqual([
+      ['low_rating', 'ord_food', { food: 2, delivery: 5, orderType: 'food' }],
+      ['low_rating', 'ord_old', { stars: 2 }],
+      ['low_rating', 'ord_ride', { delivery: 1, orderType: 'ride' }],
+    ]);
+    // The order closing (2-h window) does not close the case: staff do, after hearing all sides.
+    await h.emit('order.closed', { orderId: 'ord_food' });
+    expect(await h.list()).toHaveLength(3);
+    const food = rows.find((r) => r.subjectId === 'ord_food')!;
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'fixed' }))).rejects.toMatchObject({ code: 'invalid_input' });
+    const closed = await h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'called', note: 'الزبون: بارد. المطعم: تأخر الدليفري. الدليفري: انتظر 15 دقيقة' }));
+    expect(closed).toMatchObject({ state: 'done', outcome: 'called' });
+    // A note written earlier is enough.
+    const ride = rows.find((r) => r.subjectId === 'ord_ride')!;
+    await h.svc.note(SARA, { id: ride.id, note: 'السايق اعتذر، الزبون راضي' });
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: ride.id, outcome: 'fixed' }))).resolves.toMatchObject({ state: 'done' });
+  });
+
   it('an SOS row is taken when the SOS is taken, and closes only on the SOS desk', async () => {
     const h = harness();
     await h.emit(
@@ -359,8 +388,6 @@ describe('InboxService — the Today list (CON-12)', () => {
       { courierId: 'p_d', cashIqd: 52_000, capIqd: 50_000, cityId: 'aziziyah' },
     );
     await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
-    // A low rating opens nothing while the "case only on repeat" rule (s3) waits on Ali.
-    await h.emit('order.rated', { orderId: 'ord_r' }, { orderId: 'ord_r', stars: 1, cityId: 'aziziyah' });
 
     const rows = await h.list();
     expect(rows.map((r) => r.kind)).toEqual(['stuck', 'late', 'cash_cap']);

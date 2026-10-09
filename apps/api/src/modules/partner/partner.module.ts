@@ -105,7 +105,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
             pricing.quote({ cityId, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: dropoffZone, type: 'dropoff' }], options: { frontSeat: false, doorPickup: false, streetHandover: false, waitMinutes: 0, promoIqd: 0 }, at }),
         },
         money: {
-          cap: (id) => caps.status(id),
+          // Speed x2: his limit (role and tier) is kept a few minutes for the app's own reads; cash is read every time.
+          cap: (id) => caps.status(id, { keptLimit: true }),
           driverLines: async (id, from) => (await ledger.statement(Accounts.driver(id), { from })).lines,
           batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare,
           take: takeFor,

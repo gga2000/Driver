@@ -240,6 +240,24 @@ describe('partner wave 2 reads: the manifest names and the driver\'s request-boa
     expect(await rider.driverCards({ departureIds: [dep.id] })).toEqual([]);
   });
 
+  it('ops.departureDrivers: staff see who drives a departed run (riders\' cards stop at the board), one logged read', async () => {
+    const h = routesHarness();
+    h.riderNames.set('d1', 'حيدر كاظم جواد');
+    const ops = as(h, 'ops1', ['dispatcher']);
+    const { dep } = await finishRun(h, [{ id: 'r1' }]);
+    expect((await h.departures.departure(dep.id)).state).not.toBe('scheduled');
+    expect(await as(h, 'r9', ['customer']).driverCards({ departureIds: [dep.id] })).toEqual([]);
+    h.nameReads.length = 0;
+    expect(await ops.ops.departureDrivers({ departureIds: [dep.id, dep.id, 'dep_missing'] })).toEqual([
+      { departureId: dep.id, driverId: 'd1', displayName: 'حيدر ك.', phoneMasked: '0770 ••• ••01' },
+    ]);
+    expect(h.nameReads).toEqual([{ personId: 'd1', accessorId: 'ops1', purpose: 'intercity_ops_departure' }]);
+    expect(await ops.ops.departureDrivers({ departureIds: ['dep_missing'] })).toEqual([]);
+    // Ops roles only.
+    expect(await codeOf(as(h, 'd1', ['intercity_driver']).ops.departureDrivers({ departureIds: [dep.id] }))).toBe('FORBIDDEN');
+    expect(await codeOf(as(h, 'r1', ['customer']).ops.departureDrivers({ departureIds: [dep.id] }))).toBe('FORBIDDEN');
+  });
+
   /** d1 announces, each rider books a back seat, the rest are walk-ups; he checks in on time, leaves, arrives. */
   async function finishRun(h: RoutesHarness, riders: readonly { id: string }[], late = 0) {
     const dep = await h.announce({ departAt: h.at(40), latestDepartureAt: h.at(70), vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 12345', modelKey: 'elantra', noSmoking: true } });

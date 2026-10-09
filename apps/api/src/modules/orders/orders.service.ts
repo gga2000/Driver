@@ -1243,7 +1243,16 @@ export class OrdersService implements OnModuleInit {
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
       // The Console's "Today" list: the first scored rating, in its own transaction.
-      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
+      if (rating) {
+        await this.emit(tx, 'order.rated', actorId, order, {
+          orderId: order.id,
+          stars: rating.delivery ?? rating.food,
+          cityId: order.cityId,
+          ...(rating.food != null ? { food: rating.food } : {}),
+          ...(rating.delivery != null ? { delivery: rating.delivery } : {}),
+          orderType: order.type,
+        });
+      }
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1534,6 +1543,14 @@ export class OrdersService implements OnModuleInit {
    */
   async merchantOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
     return (await this.repo.merchantOrdersBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
+  }
+
+  /**
+   * The store's orders placed in `[from, to)` that left without its answer (`MISSED_STATES`), oldest
+   * first: the board's «طلبات فاتتك» (perf z5) reads only these few, not the whole day.
+   */
+  async merchantMissedOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
+    return (await this.repo.merchantMissedBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
   }
 
   /**

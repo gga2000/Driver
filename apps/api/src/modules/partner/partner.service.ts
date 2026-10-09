@@ -15,6 +15,8 @@ import {
   type PartnerBookedJobs,
   type PartnerDemandMap,
   type PartnerGoOnlineInput,
+  type PartnerGoOnlineResult,
+  type PartnerHeartbeatAck,
   type PartnerJob,
   type PartnerDoor,
   type PartnerPickupSpot,
@@ -34,7 +36,7 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines, workStateVersion } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
@@ -131,11 +133,35 @@ export class PartnerService implements PartnerPort {
   }
 
   /**
-   * Scoring §2: no daily check-in, a lock-out after two failed check-ins or an expired document keep
-   * him offline. A refused call while he is online (the heartbeat) also takes him out of the index,
-   * except for the check-in alone between local midnight and 04:00 (`gateAllowsHeartbeat`).
+   * Go online, and the heartbeat that keeps him there. Scoring §2: no daily check-in, a lock-out after
+   * two failed check-ins or an expired document keep him offline. A refused call while he is online
+   * (the heartbeat) also takes him out of the index, except for the check-in alone between local
+   * midnight and 04:00 (`gateAllowsHeartbeat`).
+   *
+   * Perf o4: an app that sends `knownVersion` gets the small `PartnerHeartbeatAck` — when his work
+   * state still has that version, only `{ changed: false, version }`, without building the status;
+   * otherwise the full status with its new version. Without `knownVersion`, the full status as before,
+   * so older apps keep working.
    */
-  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus> {
+  goOnline(actor: Actor, input: Omit<PartnerGoOnlineInput, 'knownVersion'> & { knownVersion?: undefined }): Promise<PartnerStatus>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput & { knownVersion: string }): Promise<PartnerHeartbeatAck>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult>;
+  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult> {
+    const beat = await this.beat(actor, input);
+    if (input.knownVersion === undefined) return this.status(actor);
+    const id = actor.personId;
+    const [trips, offer, climateCheck] = await Promise.all([
+      this.deps.trips.forDriver(id),
+      this.deps.dispatch.openOffer(id, beat.presence.cityId),
+      this.climateCheckOf(id, beat.roles, beat.presence.vehicle),
+    ]);
+    const version = workStateVersion({ ...beat, tripIds: trips.map((t) => t.id), offerId: offer?.offer.id ?? null, climateCheck });
+    if (version === input.knownVersion) return { changed: false, version };
+    return { changed: true, version, status: await this.status(actor) };
+  }
+
+  /** Checks the gate and the vehicle, then marks him online; what it read is half his work state (o4). */
+  private async beat(actor: Actor, input: PartnerGoOnlineInput) {
     const id = actor.personId;
     const [gate, present] = await Promise.all([this.deps.gate.onlineGate(id), this.deps.presence.get(id)]);
     if (!gateAllowsHeartbeat(gate, present !== null, this.clock.now())) {
@@ -153,14 +179,14 @@ export class PartnerService implements PartnerPort {
       if (present) await this.deps.presence.offline(id);
       throw new DriverError('vehicle_not_registered');
     }
-    await this.deps.presence.online(id, {
+    const presence = await this.deps.presence.online(id, {
       cityId: input.cityId,
       at: input.at,
       vehicle,
       tier: cap.tier,
       verticals,
     });
-    return this.status(actor);
+    return { roles, registered, gate, presence, cap };
   }
 
   async goOffline(actor: Actor): Promise<PartnerStatus> {

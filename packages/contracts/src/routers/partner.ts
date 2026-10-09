@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AnswerClimateCheckInput } from '../climate-check.js';
-import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandMap, PartnerGoOnlineInput, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandMap, PartnerGoOnlineInput, PartnerGoOnlineResult, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -17,7 +17,7 @@ export const partnerRouter = router({
     .query(({ ctx }) => ctx.partner.status(ctx.actor)),
   goOnline: protectedProcedure(PARTNER_DRIVING_ROLES)
     .input(PartnerGoOnlineInput)
-    .output(PartnerStatus)
+    .output(PartnerGoOnlineResult)
     .mutation(({ ctx, input }) => ctx.partner.goOnline(ctx.actor, input)),
   goOffline: protectedProcedure(PARTNER_DRIVING_ROLES)
     .input(z.object({}).optional())
