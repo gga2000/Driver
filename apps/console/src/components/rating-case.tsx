@@ -87,7 +87,7 @@ export function RatingCase({ o, courierId }: { o: Order; courierId: string | nul
             role={ride ? t('console.order_driver') : t('console.order_courier')}
             action={
               courierId ? (
-                <Link href={`/drivers/${encodeURIComponent(courierId)}`} className={buttonCls('ghost', 'sm')}>
+                <Link href={`/drivers/${encodeURIComponent(courierId)}/ledger`} className={buttonCls('ghost', 'sm')}>
                   {t('console.rating_case_open_driver')}
                 </Link>
               ) : null
