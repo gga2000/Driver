@@ -1879,5 +1879,15 @@
   "merchant.display.no_photo_tile": "No photo",
   "merchant.board.tick_done": "Done",
   "merchant.board.prep_bar_label": "Prep time left",
-  "merchant.board.prep_bar_label_late": "Prep time is up"
+  "merchant.board.prep_bar_label_late": "Prep time is up",
+  "merchant.photo_down.notice": "We took down the photo of {dish} because {reason}. Take a new one",
+  "merchant.photo_down.notice_many": "We took down {count} dish photos. Take new ones; the reason is on each dish",
+  "merchant.photo_down.reason_blurry": "it wasn't clear",
+  "merchant.photo_down.reason_wrong_dish": "it wasn't this dish",
+  "merchant.photo_down.reason_people": "it had people in it",
+  "merchant.photo_down.reason_other": "it didn't suit the menu",
+  "merchant.photo_down.tile": "Photo taken down",
+  "merchant.photo_down.take": "Take one",
+  "merchant.photo_down.see": "See them",
+  "merchant.photo_down.ok": "OK"
 }
