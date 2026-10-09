@@ -1,6 +1,7 @@
 import { Fragment, useMemo, type ReactNode } from 'react';
 import { View } from 'react-native';
-import { Button, ChipGroup, SegmentedControl, StatusPill, Text, Toggle, useTheme } from '@driver/ui';
+import { Button, ChipGroup, SegmentedControl, StatusPill, Text, useTheme } from '@driver/ui';
+import { Switch as Toggle } from '@/components/Switch';
 import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';

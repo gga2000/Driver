@@ -1,4 +1,5 @@
 import type { MerchantStaffRole, StaffMember } from '@driver/contracts';
+import { maskedPhone } from '@/lib/phone';
 
 /**
  * Staff list logic (pure, tested): who shows where, and what the owner may do to whom.
@@ -22,10 +23,14 @@ export function roleKey(role: MerchantStaffRole): 'merchant.staff.role_owner' | 
   return role === 'merchant_owner' ? 'merchant.staff.role_owner' : 'merchant.staff.role_staff';
 }
 
-/** "0770 ••• 4567" (the number the owner typed), else the vault mask; LTR-isolated inside Arabic. */
+/**
+ * "0770 ••• 4567" (the number the owner typed), else the vault mask in the same shape (d16: one form on
+ * the team list, the invites and the sheet; see `maskedPhone`); LTR-isolated inside Arabic.
+ */
 export function invitePhone(s: Pick<StaffMember, 'phoneHint' | 'phoneMasked'>): string | null {
   const p = s.phoneHint ?? s.phoneMasked;
-  return p ? `\u2066${p}\u2069` : null;
+  if (!p) return null;
+  return `\u2066${maskedPhone(p) ?? p}\u2069`;
 }
 
 /** Whole minutes until a resend is allowed (0 = now). */

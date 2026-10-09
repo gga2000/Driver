@@ -1,20 +1,25 @@
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import type { GeoJSONSource, Map as MlMap } from 'maplibre-gl';
+import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
 import { buildPlacedZonesGeoJSON, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
 import { useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
+import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
+import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
+import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
 import { ZONE_SHAPES_QUERY } from './zone-query';
 
-/** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
+/**
+ * Web: MapLibre GL with the Golden hour map when its files are set up (`GOLDEN_MAP`), else the
+ * `@driver/map` light style; the SVG base if WebGL is unavailable.
+ */
 export function BaseMap(props: BaseMapProps) {
   const [failed, setFailed] = useState(false);
   // Low-data mode (maps program q2): the drawn town instead of downloading map tiles.
@@ -24,6 +29,25 @@ export function BaseMap(props: BaseMapProps) {
 }
 
 export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
+
+/** How often the Golden hour light is checked (it changes a few times a day; the swap is a quiet cross-fade). */
+const LIGHT_CHECK_MS = 10 * 60_000;
+
+type Maplibre = typeof import('maplibre-gl');
+
+let protocolAdded = false;
+/** Once per page: the `pmtiles://` protocol and the Arabic text shaping our labels need. */
+async function prepareGolden(maplibregl: Maplibre): Promise<void> {
+  if (!protocolAdded) {
+    const { Protocol } = await import('pmtiles');
+    maplibregl.addProtocol('pmtiles', new Protocol().tile);
+    protocolAdded = true;
+  }
+  if (maplibregl.getRTLTextPluginStatus() === 'unavailable') {
+    const { RTL_TEXT_PLUGIN_URL } = await import('@driver/map');
+    void maplibregl.setRTLTextPlugin(RTL_TEXT_PLUGIN_URL, true).catch(() => undefined);
+  }
+}
 
 /**
  * The camera lives in the shared values (`cam`): every frame the map is jumped to them, so the
@@ -45,15 +69,24 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   useEffect(() => {
     let cancelled = false;
     let raf = 0;
+    let lightTimer: ReturnType<typeof setInterval> | undefined;
+    let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    import('maplibre-gl')
-      .then((mod) => {
+    Promise.all([import('maplibre-gl'), GOLDEN_MAP ? import('@driver/map/golden') : null])
+      .then(async ([mod, golden]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
+        if (golden) await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
+        ensureMaplibreCss();
+        // Golden hour when its files are set up; the original map otherwise and as the fallback.
+        let light = golden?.resolveLight().light;
+        const goldenStyle = () =>
+          golden!.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: light! }).style as unknown as StyleSpecification;
+        let onGolden = !!golden;
         try {
           map = new maplibregl.Map({
             container: container.current,
-            style: CUSTOMER_MAP_STYLE,
+            style: golden ? goldenStyle() : CUSTOMER_MAP_STYLE,
             center: [cam.lng.value, cam.lat.value],
             zoom: cam.zoom.value,
             attributionControl: false,
@@ -68,9 +101,32 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         }
         mapRef.current = map;
         const m = map;
-        m.once('load', () => {
+        // Every style load (first, fallback, new light): zones on the original map, palm pattern on ours.
+        m.on('style.load', () => {
           if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
+          if (onGolden && golden && light) {
+            for (const [id, img] of Object.entries(golden.goldenImages(light))) {
+              if (m.hasImage(id)) m.updateImage(id, img);
+              else m.addImage(id, img);
+            }
+          }
         });
+        if (golden) {
+          // Our file failing or silent for 10 s → the original map, once (with the customer's layers only).
+          stopFallback = golden.fallBackToOriginalMap(m as never, {
+            onFallback: () => {
+              onGolden = false;
+              clearInterval(lightTimer);
+              m.setStyle(CUSTOMER_MAP_STYLE);
+            },
+          });
+          lightTimer = setInterval(() => {
+            const next = golden.resolveLight().light;
+            if (!onGolden || next === light) return;
+            light = next;
+            m.setStyle(goldenStyle());
+          }, LIGHT_CHECK_MS);
+        }
         m.touchZoomRotate.disableRotation();
         m.keyboard.disableRotation();
         // Attribution is drawn by the screen (`MapAttribution`) above the sheet, not as a MapLibre control.
@@ -112,6 +168,8 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      clearInterval(lightTimer);
+      stopFallback?.();
       map?.remove();
       mapRef.current = null;
     };

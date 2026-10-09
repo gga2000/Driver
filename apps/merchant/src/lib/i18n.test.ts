@@ -58,7 +58,7 @@ describe('merchant copy (voice guide)', () => {
     expect(translate('merchant.nav.orders', undefined, 'ar-IQ')).toBe('الطلبات');
     expect(translate('merchant.nav.orders', undefined, 'en')).toBe('Orders');
     expect(translate('merchant.accept', undefined, 'ar-IQ')).toBe('اقبل');
-    expect(translate('merchant.courier.on_the_way', { minutes: 4 }, 'ar-IQ')).toBe('الدليفري بالطريق · 4 دقيقة');
+    expect(translate('merchant.courier.on_the_way', { minutes: 4 }, 'ar-IQ')).toBe('الدليفري بالطريق · 4 دقايق');
     expect(translate('merchant.card.since', {}, 'ar-IQ')).toBe('من {minutes} دقيقة');
   });
 });

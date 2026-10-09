@@ -1,0 +1,7 @@
+pyarrow==25.0.1
+shapely==2.2.0
+numpy==2.5.3
+mapbox-vector-tile==2.2.0
+pmtiles==3.8.1
+freetype-py==2.5.1
+scipy==1.18.1

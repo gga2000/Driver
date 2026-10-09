@@ -38,6 +38,8 @@ export function liveFilter(api: Api, key: LiveKey) {
       return api.chat.threads.pathFilter();
     case 'chat.thread':
       return api.chat.thread.pathFilter();
+    case 'chat.trip.threads':
+      return api.chat.trip.threads.pathFilter();
     case 'partner.status':
       return api.partner.status.pathFilter();
     case 'partner.currentOffer':

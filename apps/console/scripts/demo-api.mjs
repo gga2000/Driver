@@ -498,7 +498,12 @@ const late = queue.find((r) => r.orderId === placed[0].id);
 if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتصلت بالمطعم: الطلب طلع بوقته، التأخير من الدليفري بالطريق. نعوّضه رصيد ونحسبها على الدليفري.', internal: true });
 const missing = queue.find((r) => r.orderId === placed[7].id);
 if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
-await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
+// The safety report names a delivered order, so its courier shows (and can be paused, r6).
+const incidentOrder = await (async () => {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  return [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].find((o) => o.state === 'delivered' && o.type === 'food' && !o.id.endsWith('_y')) ?? placed[5];
+})();
+await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: incidentOrder.ordererId, orderId: incidentOrder.id });
 // «كلّم الدعم»: a customer wrote in his order's support chat (it opens a chat case by itself); زينب
 // answered into the chat, and he wrote again. The case reads as one conversation on /support.
 try {
@@ -882,5 +887,20 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
 
 // The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
 await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
+
+// Two bad ratings (Ali, 2026-10-08: every one is a case on Today): cold food under a fine courier, and a
+// courier who didn't answer. Rated by their own customers on two of the evening's delivered orders.
+{
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const delivered = [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].filter((o) => o.state === 'delivered' && o.type === 'food' && !o.rating && !o.id.endsWith('_y'));
+  const bad = [
+    { food: 2, delivery: 2, tags: ['cold'], note: 'الأكل وصل بارد والتمن معجّن' },
+    { food: 4, delivery: 1, courierReasons: ['hard_to_reach', 'late'], tags: ['late'], note: 'اتصلت بيه ثلاث مرات ما رد، ووصل بعد ساعة' },
+  ];
+  for (const [i, r] of bad.entries()) {
+    const o = delivered[i];
+    if (o) await orders.rate(o.ordererId, { orderId: o.id, ...r }).catch((err) => console.warn('demo rating skipped:', err?.message ?? err));
+  }
+}
 
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

@@ -52,6 +52,11 @@ export default function OtpEntry() {
   const verify = useMutation(api.identity.verifyOtp.mutationOptions());
   const resend = useMutation(api.identity.requestOtp.mutationOptions());
   const devCode = useQuery({ ...api.identity.devLastOtp.queryOptions({ phone }), enabled: DEV_TOOLS && !!phone, retry: false, staleTime: 0 });
+  // Staging test numbers 0770 000 01xx (Ali, 8 Oct): the server hands back their fixed code only on
+  // staging and never for staff, so «عبّيه» shows there and nowhere else.
+  const testCode = useQuery({ ...api.identity.stagingTestCode.queryOptions({ phone }), enabled: isStagingTestNumber(phone), retry: false });
+  // A failed lookup only means no button: the person types the code as usual.
+  const fillCode = (DEV_TOOLS ? devCode.data?.code : null) ?? (testCode.isError ? null : testCode.data?.code) ?? null;
 
   useEffect(() => {
     if (!phone) router.replace('/phone');
@@ -193,17 +198,22 @@ export default function OtpEntry() {
         </View>
       )}
 
-      {DEV_TOOLS && devCode.data?.code ? (
+      {fillCode ? (
         <Card elevation={0} tone="sunken" padding={3} testID="otp-dev-strip">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             <Icon name="shield" size={20} color="textMuted" />
             <Text variant="label" color="textMuted" tabular style={{ flex: 1 }}>
-              {t('onboarding.dev_code', { code: devCode.data.code })}
+              {t('onboarding.dev_code', { code: fillCode })}
             </Text>
-            <Button size="sm" variant="secondary" label={t('onboarding.dev_fill')} onPress={() => onChange(devCode.data?.code ?? '')} />
+            <Button size="sm" variant="secondary" label={t('onboarding.dev_fill')} onPress={() => onChange(fillCode)} />
           </View>
         </Card>
       ) : null}
     </AuthStage>
   );
+}
+
+/** 0770 000 0100 to 0199, however typed (spaces, 0 or 964 in front). */
+function isStagingTestNumber(phone: string): boolean {
+  return /^77000001\d{2}$/.test(phone.replace(/\D/g, '').replace(/^(964|0)/, ''));
 }

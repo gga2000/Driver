@@ -1,5 +1,7 @@
 import { drinksOnly, FOOD_DOORS, type FoodDoor, type MerchantSetupView, type SetupStep } from '@driver/contracts';
 import { libraryMatches, type LibraryDishLike } from '../menu/library';
+import { groupDigits } from '@/lib/money';
+import { toWesternDigits } from '@/lib/phone';
 
 /**
  * «جهّز محلك» in the Merchant app: the pure parts (tested). Where each step opens, how the shop's kind
@@ -85,4 +87,13 @@ export function shutterOpens(fraction: number, velocityY: number): boolean {
 export function fridayPrayer(pauses: readonly { dow: number; start: string; end: string }[]): { start: string; end: string } | null {
   const p = pauses.find((x) => x.dow === 5);
   return p ? { start: p.start, end: p.end } : null;
+}
+
+/**
+ * d13: a price as he types it, written the way the card shows it — «6,000» (the field says «دينار»
+ * beside it). Digits only (Arabic-Indic too), at most 8; empty stays empty so he can clear the field.
+ */
+export function priceTyping(text: string): string {
+  const digits = toWesternDigits(text).replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 8);
+  return digits ? groupDigits(Number(digits)) : '';
 }

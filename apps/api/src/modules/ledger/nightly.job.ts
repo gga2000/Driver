@@ -52,6 +52,7 @@ export class NightlyJob {
     const weekly = new Date(runAt.getTime() + this.rules.nightly.utcOffsetMin * 60_000).getUTCDay() === 0;
     const guaranteePaid = weekly ? await this.settleGuarantees(runAt) : [];
     const inv = await this.ledger.checkInvariant();
+    await this.reconcileRunningBalances(runAt);
 
     const driverIds = new Set<string>();
     for (const account of await this.ledger.accounts()) {
@@ -110,6 +111,28 @@ export class NightlyJob {
       this.logger.error(`shift guarantee settlement failed: ${message}`);
       await this.incidents.open({ kind: 'guarantee_settlement_failed', summary: `weekly ${localDay(runAt, this.rules)}: ${message}`, evidence: { runAt: runAt.toISOString() } });
       return [];
+    }
+  }
+
+  /**
+   * Perf item 13: the running driver balances must equal the full ledger sum. Runs before the
+   * per-driver report so the report reads repaired values. A mismatch is repaired from the full sum,
+   * logged and opened as an incident; a failure of the check itself must not stop the close.
+   */
+  private async reconcileRunningBalances(runAt: Date): Promise<void> {
+    try {
+      const drift = await this.ledger.reconcileRunningBalances();
+      if (drift.length === 0) return;
+      this.logger.error(`running balances repaired from the full ledger sum: ${drift.map((d) => `${d.accountId} ${d.runningIqd}→${d.fullIqd}`).join(', ')}`);
+      await this.incidents.open({
+        kind: 'ledger_balance_drift',
+        summary: `nightly ${localDay(runAt, this.rules)}: ${drift.length} running driver balance(s) differed from the ledger and were repaired`,
+        evidence: { drift, runAt: runAt.toISOString() },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`running balance check failed: ${message}`);
+      await this.incidents.open({ kind: 'ledger_balance_check_failed', summary: `nightly ${localDay(runAt, this.rules)}: ${message}`, evidence: { runAt: runAt.toISOString() } });
     }
   }
 

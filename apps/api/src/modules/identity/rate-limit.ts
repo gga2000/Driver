@@ -151,8 +151,27 @@ export class OtpGuard {
    * on. Throws `rate_limited` (with `retryAfterSec`) when an enforced rule is over its limit.
    */
   async admit(req: OtpSendRequest): Promise<OtpChannel> {
-    const c = this.config;
     const carrier = carrierOf(req.phoneE164);
+    await this.limits(req, carrier);
+    return this.channelWithinBudget(req, carrier);
+  }
+
+  /**
+   * A code that is never sent (a staging test number's fixed code): the same limits per number,
+   * device, sender and IP, and no SMS budget. On top, at most `rangePerDay` such codes a day across
+   * the whole range, so the one fixed code can't be guessed by spreading tries over many numbers.
+   */
+  async admitFixed(req: Pick<OtpSendRequest, 'phoneE164' | 'phoneHash' | 'origin'>, rangePerDay: number): Promise<void> {
+    await this.limits(req, carrierOf(req.phoneE164));
+    const r = await this.counter.hit('otp:guard:fixed:24h', DAY_MS, rangePerDay);
+    if (!r.allowed) {
+      this.log.warn(JSON.stringify({ event: 'otp.rate_limited', rule: 'fixed_range', windowH: 24 }));
+      throw new DriverError('rate_limited', { retryAfterSec: r.retryAfterSec });
+    }
+  }
+
+  private async limits(req: Pick<OtpSendRequest, 'phoneHash' | 'origin'>, carrier: IraqiCarrier): Promise<void> {
+    const c = this.config;
     const { ip, deviceFingerprint, actorId } = req.origin;
     if (ip) await this.rule('ip', digest(ip), HOUR_MS, c.perIpPerHour, carrier);
     if (deviceFingerprint) await this.rule('device', digest(deviceFingerprint), HOUR_MS, c.perDevicePerHour, carrier);
@@ -163,7 +182,6 @@ export class OtpGuard {
     const number = req.phoneHash.slice(0, 32);
     await this.rule('number', number, HOUR_MS, c.perNumberPerHour, carrier);
     await this.rule('number', number, DAY_MS, c.perNumberPerDay, carrier);
-    return this.channelWithinBudget(req, carrier);
   }
 
   /** After the provider accepted the code: the SMS budget and the number block's hourly count. */

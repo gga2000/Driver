@@ -5,7 +5,7 @@ import { Accounts } from './accounts.js';
 import type { CashCapWatch } from './cap-watch.js';
 import type { DriverPosition } from './caps.js';
 import type { PostingGroup } from './postings.js';
-import type { LedgerRepository, NewLedgerEvent } from './repository.js';
+import { isProjectedAccount, type LedgerRepository, type NewLedgerEvent, type RunningBalance } from './repository.js';
 import { LEDGER_REPOSITORY } from './tokens.js';
 
 export { Accounts } from './accounts.js';
@@ -15,6 +15,15 @@ export interface Balance {
   /** Sum of inflows minus outflows, in IQD (or points on points accounts). */
   amount: number;
   events: number;
+}
+
+/** A driver account whose running balance differed from its full-history sum and was repaired. */
+export interface BalanceDrift {
+  accountId: string;
+  runningIqd: number;
+  fullIqd: number;
+  runningEvents: number;
+  fullEvents: number;
 }
 
 export interface BookCheck {
@@ -123,10 +132,54 @@ export class LedgerService {
     return Boolean(await this.repo.findByIdempotencyKey(lineKey(groupId, 0), tx));
   }
 
-  /** Balance is computed, never stored. */
+  /**
+   * Current balance. Driver accounts (`driver:`, `cash:`) read their running balance, one row kept in
+   * the same transaction as every posting (perf item 13; the cap check runs this per nearby driver
+   * per dispatch wave); every other account, and any `before` cut-off, sums the full history.
+   */
   async balance(accountId: string, before?: Date): Promise<Balance> {
+    if (!before) {
+      const running = await this.repo.runningBalance(accountId);
+      if (running) return { accountId, amount: running.amount, events: running.events };
+    }
+    return this.fullBalance(accountId, before);
+  }
+
+  /** Balance summed from the account's full history (the source of truth the running balance must equal). */
+  async fullBalance(accountId: string, before?: Date): Promise<Balance> {
     const events = (await this.repo.byAccount(accountId)).filter((e) => !before || e.occurredAt < before);
     return { accountId, amount: sumFor(accountId, events), events: events.length };
+  }
+
+  /**
+   * Nightly check of the running balances: one pass over the book sums every driver account, and
+   * any account whose running balance differs is repaired from that full sum under its row lock
+   * (which re-reads the sum, so a posting in flight is not mistaken for drift). Returns only the
+   * accounts actually repaired; the nightly close logs and opens an incident for them.
+   */
+  async reconcileRunningBalances(): Promise<BalanceDrift[]> {
+    const running = await this.repo.runningBalances();
+    if (!running) return [];
+    const full = new Map<string, RunningBalance>();
+    const add = (account: string, delta: number) => {
+      if (!isProjectedAccount(account)) return;
+      const cur = full.get(account) ?? { amount: 0, events: 0 };
+      full.set(account, { amount: cur.amount + delta, events: cur.events + 1 });
+    };
+    for (const e of await this.repo.all()) {
+      add(e.toAccount, e.amount);
+      add(e.fromAccount, -e.amount);
+    }
+    const drift: BalanceDrift[] = [];
+    for (const accountId of [...new Set([...running.keys(), ...full.keys()])].sort()) {
+      const r = running.get(accountId) ?? { amount: 0, events: 0 };
+      const f = full.get(accountId) ?? { amount: 0, events: 0 };
+      if (r.amount === f.amount && r.events === f.events) continue;
+      const { before, after } = await this.repo.repairRunningBalance(accountId);
+      if (before.amount === after.amount && before.events === after.events) continue;
+      drift.push({ accountId, runningIqd: before.amount, fullIqd: after.amount, runningEvents: before.events, fullEvents: after.events });
+    }
+    return drift;
   }
 
   async eventsFor(accountId: string): Promise<LedgerEvent[]> {
