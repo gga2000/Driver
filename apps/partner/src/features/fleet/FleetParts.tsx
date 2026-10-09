@@ -56,7 +56,7 @@ export function EarningsHero({ todayIqd, weekIqd, days, today }: { todayIqd: num
             {amountParam(todayIqd)}
           </Text>
           <Text variant="title" style={{ color: withAlpha(cream, 0.72) }}>
-            دينار
+            {t('quote.currency')}
           </Text>
         </View>
         <Text variant="label" tabular testID="fleet-hero-caption" style={{ color: focus ? theme.colors.accent : withAlpha(cream, 0.72) }}>

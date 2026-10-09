@@ -8704,5 +8704,6 @@
   "partner.features_title_tuktuk": "Your tuktuk's features",
   "partner.seen_plate_note_tuktuk": "Your tuktuk's number shows to the rider only once you are his driver.",
   "partner.seen_features_note_tuktuk": "Only what the tuktuk check confirmed shows.",
-  "partner.seen_features_waiting_tuktuk": "Waiting for the tuktuk check"
+  "partner.seen_features_waiting_tuktuk": "Waiting for the tuktuk check",
+  "partner.ops_cash_held_unit": "IQD in hand"
 }

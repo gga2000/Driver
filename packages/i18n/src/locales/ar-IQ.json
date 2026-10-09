@@ -8704,5 +8704,6 @@
   "partner.features_title_tuktuk": "مميزات التكتك",
   "partner.seen_plate_note_tuktuk": "رقم التكتك يطلع للراكب بس من تصير سايقه.",
   "partner.seen_features_note_tuktuk": "يطلع بس اللي تأكد بفحص التكتك.",
-  "partner.seen_features_waiting_tuktuk": "بانتظار فحص التكتك"
+  "partner.seen_features_waiting_tuktuk": "بانتظار فحص التكتك",
+  "partner.ops_cash_held_unit": "دينار بيده"
 }

@@ -76,8 +76,9 @@ function CourierCard({ h, onPress }: { h: OpsCashHolder; onPress: () => void }) 
             <Text variant="title" weight={700} tabular>
               {amountParam(h.heldIqd)}
             </Text>
+            {/* The cash he carries (what can be handed over); «عليه» under the bar is what counts against his cap. */}
             <Text variant="caption" color="textMuted">
-              دينار
+              {t('partner.ops_cash_held_unit')}
             </Text>
           </View>
         </View>
@@ -200,7 +201,7 @@ function HandOver({ courier, onChange }: { courier: OpsCashHolder; onChange: () 
             style={{ flex: 1, fontSize: theme.type.numeralSm.size, color: theme.colors.text, ...theme.font(700), fontVariant: ['tabular-nums'], textAlign: 'right', padding: 0, outlineStyle: 'none' } as never}
           />
           <Text variant="title" color="textMuted">
-            دينار
+            {t('quote.currency')}
           </Text>
         </View>
         {problem === 'over' ? (

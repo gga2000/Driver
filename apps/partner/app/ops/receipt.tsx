@@ -68,7 +68,7 @@ export default function OpsReceipt() {
               {amountParam(amount)}
             </Text>
             <Text variant="label" color="textMuted">
-              دينار
+              {t('quote.currency')}
             </Text>
           </View>
           <Dashed />
