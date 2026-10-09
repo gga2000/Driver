@@ -124,7 +124,7 @@ export class AgreementsService {
       await this.emit(tx, 'agreement.accepted', riderId, a);
       if (plan) await this.departures.applyAgreement(tx, a, plan);
       return a;
-    });
+    }, { walletLocks: [riderId] });
   }
 
   /** The rider's agreements on one departure, newest ask first. */

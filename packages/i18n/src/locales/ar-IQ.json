@@ -3651,7 +3651,7 @@
   "push.chat_message.title_support": "رسالة جديدة من الدعم",
   "push.chat_message.photo": "دزلك صورة",
   "push.chat_message.location": "دزلك لوكيشن",
-  "push.chat_message.card": "عنده سعر يحتاج ردك",
+  "push.chat_message.card": "عنده طلب يحتاج ردك",
   "track.message_courier": "راسل الدليفري",
   "track.message_driver": "راسل السايق",
   "track.message_merchant": "راسل المطعم",

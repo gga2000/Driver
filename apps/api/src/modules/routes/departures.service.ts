@@ -763,7 +763,7 @@ export class DeparturesService {
           'seat.completed',
           actorId,
           dep,
-          this.seatMoney(dep, b, seatId, i === 0),
+          this.seatMoney(dep, b, seatId, i),
         );
       }
     }
@@ -1391,7 +1391,7 @@ export class DeparturesService {
           'seat.no_show',
           dep.driverId,
           dep,
-          this.seatMoney(dep, b, seatId, i === 0),
+          this.seatMoney(dep, b, seatId, i),
         );
     } else {
       const stats = await this.repo.riderStats(b.riderId, tx);
@@ -1911,14 +1911,19 @@ export class DeparturesService {
     };
   }
 
-  /** One posting per seat; the pickup fee rides on the group's first seat (folded into the fare, 10 %). */
+  /**
+   * One posting per seat; the pickup fee rides on the group's first seat (folded into the fare, 10 %).
+   * The return discount is spread over the booking's seats in order, never more than a seat's own fare.
+   */
   private seatMoney(
     dep: DepartureRecord,
     b: BookingRecord,
     seatId: IntercitySeatId,
-    first: boolean,
+    index: number,
   ): Record<string, unknown> {
-    const discount = this.discountSplit(b);
+    const first = index === 0;
+    const base = b.seatPriceIqd + (first ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) : 0);
+    const discount = this.seatDiscounts(b)[index] ?? { platform: 0, driver: 0 };
     return {
       seatId: `${b.id}.${seatId}`,
       departureId: dep.id,
@@ -1926,11 +1931,30 @@ export class DeparturesService {
       customerId: b.riderId,
       payment: b.payment === 'wallet' ? 'wallet' : 'cash',
       driverId: dep.driverId,
-      fareIqd: b.seatPriceIqd + (first ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) - discount.driver : 0),
+      fareIqd: base - discount.driver,
       frontPremiumIqd: seatId === 'front' ? b.frontPremiumIqd : 0,
       walkUp: false,
-      platformDiscountIqd: first ? discount.platform : 0,
+      platformDiscountIqd: discount.platform,
     };
+  }
+
+  /**
+   * The booking's return discount seat by seat. The driver's part (at most `percent` of his own seats) is
+   * shared evenly, so every fare stays above 0; the company's part then fills each seat in order, never
+   * above what is left of that seat's fare.
+   */
+  private seatDiscounts(b: BookingRecord): { platform: number; driver: number }[] {
+    const split = this.discountSplit(b);
+    const n = b.seatIds.length;
+    const each = Math.floor(split.driver / n);
+    let platform = split.platform;
+    return b.seatIds.map((_, i) => {
+      const fare = b.seatPriceIqd + (i === 0 ? b.pickupFeeIqd + (b.dropoffFeeIqd ?? 0) : 0);
+      const d = each + (i === 0 ? split.driver - each * n : 0);
+      const p = Math.min(platform, fare - d);
+      platform -= p;
+      return { platform: p, driver: d };
+    });
   }
 
   /**
@@ -1984,7 +2008,7 @@ export class DeparturesService {
   }
 
   /**
-   * The pair's discount (both seats' `percent`, each rounded down to 250) rides whole on the seat that
+   * The pair's discount (both seats' `percent`, each rounded down to 250) rides on the booking that
    * leaves later: if the first trip is cancelled or missed before it runs, the later one simply goes
    * back to full price, and nothing given on a trip already ridden is ever taken back.
    */
@@ -1996,7 +2020,9 @@ export class DeparturesService {
   ): { mine: number; theirs: number } {
     const pct = this.money.intercityReturnBundle.percent;
     const d = returnDiscount(b.seatIds.length, b.seatPriceIqd, pct) + returnDiscount(o.seatIds.length, o.seatPriceIqd, pct);
-    return dep.departAt.getTime() >= od.departAt.getTime() ? { mine: d, theirs: 0 } : { mine: 0, theirs: d };
+    // Never more than the later booking's own seats cost (a 1-seat trip back after 6 seats out).
+    const cap = (x: BookingRecord): number => Math.min(d, x.seatIds.length * x.seatPriceIqd);
+    return dep.departAt.getTime() >= od.departAt.getTime() ? { mine: cap(b), theirs: 0 } : { mine: 0, theirs: cap(o) };
   }
 
   /**

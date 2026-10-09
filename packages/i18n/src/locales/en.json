@@ -3651,7 +3651,7 @@
   "push.chat_message.title_support": "New message from support",
   "push.chat_message.photo": "Sent you a photo",
   "push.chat_message.location": "Sent you a location",
-  "push.chat_message.card": "A price is waiting for your answer",
+  "push.chat_message.card": "Something is waiting for your answer",
   "track.message_courier": "Message the courier",
   "track.message_driver": "Message the driver",
   "track.message_merchant": "Message the restaurant",

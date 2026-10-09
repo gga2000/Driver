@@ -17,6 +17,7 @@ import {
   type TripChatSendInput,
   type TripChatSubject,
   type TripChatSummary,
+  type TripChatRef,
   type TripChatThreadInput,
   type TripChatThreadsInput,
   type TripChatView,
@@ -83,6 +84,10 @@ export class TripChatService implements TripChatPort {
   }
 
   // ───────────────────────── reads ─────────────────────────
+
+  async liveParty(actor: Actor, input: TripChatRef): Promise<string> {
+    return (await this.resolve(actor.personId, input.subject, input.id, input.with)).pair.partyId;
+  }
 
   async thread(actor: Actor, input: TripChatThreadInput): Promise<TripChatView> {
     const { pair, role } = await this.resolve(actor.personId, input.subject, input.id, input.with);
@@ -311,7 +316,7 @@ export class TripChatService implements TripChatPort {
         stage,
         amountIqd: m.refAmountIqd,
         state: stale ? 'replaced' : now.state,
-        note: now.note,
+        note: now.note === null ? null : maskIraqiPhones(now.note).text,
         distanceKm: now.distanceKm,
         expiresAt: stale ? null : now.expiresAt,
       });
