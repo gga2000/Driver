@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { windowText } from './labels';
 import type { AgreementView, DemandBucket, DriverBookingRow, DriverDepartureView } from '@driver/contracts';
 import {
-  boardedSeats,
   clampDepart,
   clampOffer,
   clockLabel,
@@ -22,6 +21,8 @@ import {
   pickupRoute,
   asksInOrder,
   pinPress,
+  publicPlaceName,
+  seatCounts,
   privateRideNet,
   riderStatus,
   seatOccupants,
@@ -47,7 +48,7 @@ function row(over: Partial<DriverBookingRow> & { bookingId: string }): DriverBoo
     prepaid: true,
     prepayRail: 'wallet',
     totalIqd: 10_000,
-    pickup: { kind: 'garage', meetingPointId: null, nameAr: 'كراج البوابة ١', lat: GARAGE.lat, lng: GARAGE.lng, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
+    pickup: { kind: 'garage', meetingPointId: null, nameAr: 'كراج البوابة 1', lat: GARAGE.lat, lng: GARAGE.lng, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
     dropoff: null,
     largeBags: false,
     lapChildren: 0,
@@ -133,15 +134,24 @@ describe('the departure', () => {
     expect(occ.get('back_right')).toMatchObject({ kind: 'walkup', travellingAs: 'rijal' });
   });
 
-  it('counts boarded seats, not bookings (one booking can hold two seats)', () => {
+  it('one seat count for every screen: seats, not bookings, walk-ups and arrived riders included', () => {
     const bookings = [
       row({ bookingId: 'z', seatIds: ['front'], state: 'checked_in' }),
       row({ bookingId: 'm', seatIds: ['rear_left', 'rear_middle'], state: 'checked_in' }),
       row({ bookingId: 'h', seatIds: ['middle_left'] }),
       row({ bookingId: 'a', seatIds: [], state: 'no_show' }),
     ];
-    expect(boardedSeats(bookings)).toBe(3);
-    expect(boardedSeats([])).toBe(0);
+    const fill = { seatsTotal: 7, booked: 4, walkUps: 1, held: 1, filled: 6 } as DriverDepartureView['fill'];
+    const walkUps = [{ seatId: 'middle_right', travellingAs: 'aila' }] as DriverDepartureView['walkUps'];
+    expect(seatCounts({ fill, bookings, walkUps })).toEqual({ sold: 5, total: 7, boarded: 4, walkUps: 1, toBoard: 1, held: 1, free: 1 });
+    // After the arrival every rider is completed: «وصلوا» counts the same seats as «صعدوا».
+    const done = bookings.map((b) => (b.state === 'checked_in' ? { ...b, state: 'completed' as const } : b));
+    expect(seatCounts({ fill, bookings: done, walkUps }).boarded).toBe(4);
+  });
+
+  it('drivers never see the draft marker on a place name', () => {
+    expect(publicPlaceName('كراج الكوت (مسودة)')).toBe('كراج الكوت');
+    expect(publicPlaceName('كراج البوابة 1')).toBe('كراج البوابة 1');
   });
 
   it('rider status and manifest order: the late and pending first, no-shows last', () => {
