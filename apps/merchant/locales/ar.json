@@ -1301,8 +1301,8 @@
   "merchant.display.a11y_on": "{name}، {price}. دوس إذا خلص اليوم",
   "merchant.display.a11y_sold_out": "{name} خلص اليوم. دوس حتى يرجع هسة",
   "merchant.display.a11y_off": "{name} طافي. دوس حتى تعدّله",
-  "merchant.display.no_photo": "ماكو صورة · دوس وصوّر",
-  "merchant.display.no_photo_short": "صوّره",
+  "merchant.display.no_photo": "ماكو صورة · صوّرها",
+  "merchant.display.no_photo_short": "صوّرها",
   "merchant.display.from": "من {price}",
   "merchant.display.hot": "ساخن",
   "merchant.display.cold": "بارد",
@@ -1875,5 +1875,6 @@
   "merchant.week.settled_open": "شوف شنو استلمت",
   "merchant.daynew.title": "الأرقام تبين بعد أول {count} طلبات",
   "merchant.daynew.body": "من توصلك طلباتك الأولى، تشوف هنا يومك: شگد طلب إجاك، وقتك مضبوط لو لا، وشنو ينطلب أكثر",
-  "merchant.daynew.count": "{done} من {count} طلبات"
+  "merchant.daynew.count": "{done} من {count} طلبات",
+  "merchant.display.no_photo_tile": "ماكو صورة"
 }

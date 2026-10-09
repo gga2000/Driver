@@ -1,63 +1,16 @@
 // Menu section (wave 2): مطعم خالد's menu in the six sections a Kut grill uses — تكة، كص، مشويات، باجة،
-// سلطات، مشروبات — with option groups (bread, sauce, size), a few dish photos (drawn placeholders: a
-// plate on a warm table), a price history, one dish sold out today and one switched off.
+// سلطات، مشروبات — with option groups (bread, sauce, size), a few dish photos (from the photo library), a price history, one dish sold out today and one switched off.
 //
 //   POST /demo/menu/reset     dishes back on sale, the gus by the kilo back to one price (undo a screenshot run)
-import { Buffer } from 'node:buffer';
-import { deflateSync, crc32 } from 'node:zlib';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-/** A 400×300 PNG "photo": warm table, a plate, and food in the dish's colour. */
-function platePng(food, seed = 0) {
-  const W = 400;
-  const H = 300;
-  const raw = Buffer.alloc((W * 3 + 1) * H);
-  const [fr, fg, fb] = food;
-  for (let y = 0; y < H; y++) {
-    raw[y * (W * 3 + 1)] = 0;
-    for (let x = 0; x < W; x++) {
-      const o = y * (W * 3 + 1) + 1 + x * 3;
-      // table: warm wood with soft stripes
-      const stripe = Math.sin((y + seed * 13) / 9) * 6;
-      let r = 168 + stripe - y * 0.08;
-      let g = 112 + stripe * 0.7 - y * 0.06;
-      let b = 70 + stripe * 0.4;
-      const dx = x - W / 2;
-      const dy = (y - H / 2) * 1.25;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < 130) {
-        // shadow ring, then plate rim, then plate
-        const plate = d < 122 ? 246 - Math.max(0, d - 100) * 0.6 : 210;
-        r = plate;
-        g = plate - 6;
-        b = plate - 16;
-      }
-      // food: lumpy blob
-      const wob = 72 + 10 * Math.sin(Math.atan2(dy, dx) * 5 + seed) + 6 * Math.sin(Math.atan2(dy, dx) * 9 + seed * 2);
-      if (d < wob) {
-        const shade = 1 - (d / wob) * 0.35 + 0.08 * Math.sin(x / 7 + seed) * Math.cos(y / 6);
-        r = fr * shade;
-        g = fg * shade;
-        b = fb * shade;
-      }
-      raw[o] = Math.max(0, Math.min(255, r));
-      raw[o + 1] = Math.max(0, Math.min(255, g));
-      raw[o + 2] = Math.max(0, Math.min(255, b));
-    }
-  }
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const td = Buffer.concat([Buffer.from(type, 'latin1'), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(td) >>> 0);
-    return Buffer.concat([len, td, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(W, 0);
-  ihdr.writeUInt32BE(H, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 2;
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+/**
+ * A real dish photo from the API's photo library (apps/api/media/food), so the demo menu looks like a
+ * shop's: the drawn placeholder plates read as brown blobs (day-one d21).
+ */
+function libraryPhoto(file) {
+  return readFileSync(fileURLToPath(new URL(`../../../api/media/food/${file}.webp`, import.meta.url)));
 }
 
 export default async function register(ctx) {
@@ -111,22 +64,22 @@ export default async function register(ctx) {
   await catalog.upsertItem(orgId, { itemId: id('gus_plate'), patch: { description: 'كص لحم على السيخ، ويا تمن وسلطة وعمبة' } }, ctx.people.owner.id);
   await catalog.upsertItem(orgId, { itemId: id('pacha'), patch: { description: 'رأس كامل: لحم، لسان ومخ، ويا تشريب وخبز' } }, ctx.people.owner.id);
 
-  // Photos for some dishes (warm placeholders drawn above).
+  // Photos for some dishes, from the library.
   const PHOTOS = [
-    ['tikka_wrap', [176, 92, 44]],
-    ['tikka_plate', [186, 98, 50]],
-    ['gus_wrap', [198, 140, 82]],
-    ['gus_plate', [190, 128, 70]],
-    ['kebab_plate', [150, 78, 44]],
-    ['khalid_mix', [160, 86, 48]],
-    ['pacha', [214, 186, 150]],
-    ['salad', [96, 150, 70]],
+    ['tikka_wrap', 'lib-shawarma-1'],
+    ['tikka_plate', 'lib-tikka-1'],
+    ['gus_wrap', 'k-shawarma-2'],
+    ['gus_plate', 'k-tikka-1'],
+    ['kebab_plate', 'lib-kebab-1'],
+    ['khalid_mix', 'lib-mixed-grill-1'],
+    ['pacha', 'lib-pacha-2'],
+    ['salad', 'lib-salad-1'],
   ];
-  for (const [i, [key, colour]] of PHOTOS.entries()) {
-    const bytes = platePng(colour, i);
-    const ticket = await blobs.createUpload({ ownerId: ctx.people.owner.id, contentType: 'image/png', sizeBytes: bytes.length });
+  for (const [key, file] of PHOTOS) {
+    const bytes = libraryPhoto(file);
+    const ticket = await blobs.createUpload({ ownerId: ctx.people.owner.id, contentType: 'image/webp', sizeBytes: bytes.length });
     const url = new URL(ticket.uploadUrl, 'http://local');
-    await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp'), sig: url.searchParams.get('sig'), contentType: 'image/png', bytes });
+    await blobs.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp'), sig: url.searchParams.get('sig'), contentType: 'image/webp', bytes });
     await catalog.replacePhoto(orgId, id(key), `upload:${ticket.uploadId}`);
   }
 

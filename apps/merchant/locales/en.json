@@ -1301,8 +1301,8 @@
   "merchant.display.a11y_on": "{name}, {price}. Tap when it sells out today",
   "merchant.display.a11y_sold_out": "{name} sold out today. Tap to bring it back now",
   "merchant.display.a11y_off": "{name} is off. Tap to edit it",
-  "merchant.display.no_photo": "No photo · tap to add",
-  "merchant.display.no_photo_short": "Add photo",
+  "merchant.display.no_photo": "No photo · take one",
+  "merchant.display.no_photo_short": "Take one",
   "merchant.display.from": "from {price}",
   "merchant.display.hot": "Hot",
   "merchant.display.cold": "Cold",
@@ -1875,5 +1875,6 @@
   "merchant.week.settled_open": "See what you received",
   "merchant.daynew.title": "Your numbers show after your first {count} orders",
   "merchant.daynew.body": "Once your first orders come in, you will see your day here: how many orders, whether you are on time, and what sells most",
-  "merchant.daynew.count": "{done} of {count} orders"
+  "merchant.daynew.count": "{done} of {count} orders",
+  "merchant.display.no_photo_tile": "No photo"
 }
