@@ -106,7 +106,7 @@ export function Tabs<V extends string>({
       role="tablist"
       aria-label={label}
       onKeyDown={onKey}
-      className={cx('flex items-center gap-5 border-b border-line', className)}
+      className={cx('flex flex-wrap items-center gap-x-3 border-b border-line sm:gap-x-5', className)}
     >
       {options.map((o) => {
         const on = o.value === value;
