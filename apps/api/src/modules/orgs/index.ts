@@ -1,7 +1,7 @@
 export { OrgsModule } from './orgs.module.js';
 export { OrgsService } from './orgs.service.js';
-export type { Org, OrgType, OrgMember, OrgMemberRole, PayerApprovalRequest, MerchantSettings, MerchantPauseWindow, MerchantPickupSpot, MerchantOrg } from './orgs.service.js';
-export { closedNow, type MerchantClosed } from './orgs.types.js';
+export type { Org, OrgType, OrgMember, OrgMemberRole, PayerApprovalRequest, MerchantSettings, MerchantPauseWindow, MerchantPickupSpot, MerchantOrg, MerchantSetupState } from './orgs.service.js';
+export { closedNow, newSetupState, setupFrom, type MerchantClosed } from './orgs.types.js';
 export { InMemoryOrgsRepository, PrismaOrgsRepository, ORGS_REPOSITORY } from './orgs.repository.js';
 export type { OrgsRepository, OrgFilter } from './orgs.repository.js';
 export { HouseholdsRpc, HOUSEHOLD_PEOPLE, tableOrders } from './households.rpc.js';

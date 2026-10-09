@@ -164,6 +164,8 @@ export const MenuItem = z.object({
   serves: Serves.nullable().optional(),
   /** The kitchen's labels for the dish (joy o8). */
   labels: z.array(DishLabel).optional(),
+  /** «جهّز محلك»: the photo is Driver's library photo of the dish; the app writes «صورة توضيحية» on it. */
+  photoIllustrative: z.boolean().optional(),
 });
 export type MenuItem = z.infer<typeof MenuItem>;
 

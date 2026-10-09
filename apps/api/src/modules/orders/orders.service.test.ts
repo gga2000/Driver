@@ -312,6 +312,18 @@ describe('OrdersService — merchant acceptance', () => {
     expect(acc.promisedReadyAt).toEqual(new Date(h.clock.now().getTime() + 25 * MIN));
   });
 
+  it('r5 (Ali 2026-10-08): busy mode adds the extra the shop picked, +20 or the default +10', async () => {
+    for (const [picked, extra] of [[20, 20], [10, 10], [null, 10], [15, 10]] as const) {
+      const h = ordersHarness();
+      const rest = h.merchants.merchants.get('rest_1')!;
+      rest.busyUntil = new Date(h.clock.now().getTime() + 30 * MIN);
+      rest.busyExtraMin = picked;
+      const o = await h.orders.place('c1', h.foodInput());
+      const acc = await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+      expect(acc.promisedReadyAt, `picked ${picked}`).toEqual(new Date(h.clock.now().getTime() + (15 + extra) * MIN));
+    }
+  });
+
   it('merchants with the auto-accept flag skip acceptance', async () => {
     const h = ordersHarness();
     h.merchants.add('rest_auto', { autoAccept: true, defaultPrepMin: 25, location: { zoneKey: 'centre' } });

@@ -39,6 +39,32 @@ drawn by `web-icons.mjs`) and «لحظة…» inside `#root`, so a first visit s
 of a white page while the 1 MB app downloads (4 s on Iraqi 4G, up to 24 s on weak 3G). The app
 replaces it when it draws.
 
+## Split per screen, offline and new versions (customer)
+
+Each screen's code is its own file on the website (app.json, the expo-router plugin's
+`asyncRoutes: { web: "production" }`; the phone apps are not split): a first visit downloads only the
+shared code and the screen it opens, about 200 KB less (home 1,328 → 1,132 KB compressed, 5.8 → 4.3 s
+on slow 4G with a slow phone). Every other screen loads when it is first opened.
+
+`apps/customer/scripts/web-offline.mjs` runs after the export (in `vercel-build.sh`) and:
+- names the version (from the exported `index.html`) in the page (`<meta name="driver-build">`) and in
+  `/version.json`;
+- writes `/sw.js` (from `apps/customer/web/sw.js`), the offline worker. Pages always come from the
+  network first; the kept copy is used only when the network fails, so the app still opens with no
+  internet and shows its own «النت مقطوع» strip. The hashed files are kept on the phone (the first
+  bundles and every screen but the map library; only the first bundles when the phone saves data).
+  Each new version takes over at once and deletes what the old one kept.
+
+An open tab never stays on an old version (`src/lib/web-build.ts`): when it comes back to the front, and
+every 15 minutes, it reads `/version.json`; once a newer version is out, the next move to another screen
+loads it fresh (the cart and the sign-in are kept). A screen whose code no longer exists (an old tab
+after a deploy) or didn't download reloads the page once instead of showing «صار خلل». The phone apps'
+«حدّث التطبيق» (the server's `update_required`) is unchanged: the website sends no build header and is
+never turned away, because it is always the newest version.
+
+If the worker ever misbehaves: set `WEB_OFFLINE=off` in the Vercel project and redeploy. The next
+`/sw.js` deletes its caches and unregisters itself on every phone that had it.
+
 ## Live check
 
 `.github/workflows/web-smoke.yml` opens the live site in a real browser after every production deploy

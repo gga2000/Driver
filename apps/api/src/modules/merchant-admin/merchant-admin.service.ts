@@ -145,6 +145,8 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
+      photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
     };
   }
 
@@ -222,8 +224,10 @@ export class MerchantAdminService implements MerchantAdminPort {
   async menuReplacePhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; uploadId: string }): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     await this.assertUpload(actor.personId, input.uploadId);
-    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId }, (tx) =>
-      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx),
+    // p4 (Ali 2026-10-08): the photo shows to customers at once; `review: 'pending'` puts it on the
+    // team's same-day review (the Console queue reads `CatalogService.photoReviewQueue`).
+    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId, review: 'pending' }, (tx) =>
+      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx, null, true),
     );
   }
 

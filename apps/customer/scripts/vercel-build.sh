@@ -10,6 +10,9 @@ export EXPO_PUBLIC_SHARE_BASE_URL="${EXPO_PUBLIC_SHARE_BASE_URL:-https://${VERCE
 cd ../..
 pnpm turbo run build --filter=@driver/customer^...
 pnpm --filter @driver/customer web:export
+# Offline worker and the version name every page and /version.json carry (WEB_OFFLINE=off removes the
+# worker from phones). Before prepare-web, which copies index.html into invite.html.
+node apps/customer/scripts/web-offline.mjs apps/customer/dist-web
 # Same checks as the Cloudflare build (API URL inlined, no 404.html) and writes invite.html for /i/*.
 # Its _headers/_redirects files are Cloudflare syntax; on Vercel, vercel.json does that job.
 node scripts/deploy/prepare-web.mjs apps/customer/dist-web --api-url "$EXPO_PUBLIC_API_URL"

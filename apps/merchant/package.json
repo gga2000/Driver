@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Driver Merchant app (Expo) — restaurants and grocers: orders board, menu, money (phone + tablet)",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -37,6 +37,7 @@
     "expo-asset": "57.0.19",
     "expo-application": "57.0.3",
     "expo-audio": "57.0.5",
+    "expo-build-properties": "57.0.22",
     "expo-constants": "57.0.21",
     "expo-font": "57.0.4",
     "expo-haptics": "57.0.3",

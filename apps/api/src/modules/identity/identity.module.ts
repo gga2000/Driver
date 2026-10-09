@@ -6,7 +6,8 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { AuthCache, InProcessDropBus, RedisDropBus, authCacheTtlMsFromEnv, cachedIdentityRepository } from './auth-cache.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
-import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
+import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER, STAGING_TEST } from './identity.service.js';
+import { stagingTestFromEnv } from './staging-test.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
@@ -50,6 +51,9 @@ import { SMS_PROVIDER } from './sms/provider.js';
     // "ما وصلك؟ دزلي على واتساب": login codes over WhatsApp (template `otp_login`), same provider choice
     // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
     { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
+    // Staging test numbers 0770 000 01xx sign in with STAGING_TEST_OTP (a host secret); only where
+    // DEPLOY_ENVIRONMENT=staging, never as staff. Unset = off. docs/api/staging-test-numbers.md.
+    { provide: STAGING_TEST, useFactory: () => stagingTestFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     {
       provide: SessionService,

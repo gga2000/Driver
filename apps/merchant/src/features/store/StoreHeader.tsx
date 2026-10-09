@@ -330,7 +330,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         testID="busy-chip"
         icon="flame"
         tone="warning"
-        label={wide ? t('merchant.busy.chip_until', { time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
+        label={wide ? t('merchant.busy.chip_until_extra', { extra: status.busy.extraPrepMinutes, time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
         onPress={busyPress}
       />
     ) : (
@@ -422,7 +422,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         <Text variant="title" numberOfLines={1} style={[theme.face('display'), { color: COUNTER.onDate }]}>
           {storeName}
         </Text>
-        {status?.closed ? (
+        {status?.closed && !(status.setup && !status.setup.live) ? (
           <Text variant="caption" numberOfLines={1} style={{ color: COUNTER.onDateLate }}>
             {`${t(`merchant.close_reason.${status.closed.reason}` as const)} · ${clock12(status.closed.at)}`}
           </Text>
@@ -451,7 +451,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
             <Text variant="bodyStrong" numberOfLines={1} style={[theme.face('display'), { lineHeight: 24, color: COUNTER.onDate }]}>
               {storeName}
             </Text>
-            {status?.closed ? (
+            {status?.closed && !(status.setup && !status.setup.live) ? (
               <Text variant="caption" numberOfLines={1} style={{ lineHeight: 16, color: COUNTER.onDateLate }}>
                 {t(`merchant.close_reason.${status.closed.reason}` as const)}
               </Text>

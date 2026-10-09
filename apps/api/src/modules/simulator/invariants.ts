@@ -242,7 +242,9 @@ export const INVARIANTS: readonly Definition[] = [
           continue;
         }
         if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) cash total ${o.totalIqd}`);
-        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet');
+        // M-3: owed fees paid with the order's cash (`debt_settled`) are part of the note he took.
+        const debtPaid = sum(r, (e) => e.type === 'debt_settled');
+        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet' || e.type === 'debt_settled');
         if (collected % step !== 0) bad.push(`${o.id} (${o.type}) collected ${collected}`);
         if (r.some((e) => e.type === 'rounding_residue')) bad.push(`${o.id} (${o.type}) has a rounding_residue line (rounding must be change to the wallet)`);
         if (extra % step !== 0 || extra > RULES.changeToWalletMaxIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} (must be in ${step}s, ≤ ${RULES.changeToWalletMaxIqd})`);
@@ -250,7 +252,7 @@ export const INVARIANTS: readonly Definition[] = [
         // Cash on hand == collected: what left the collector's cash account for this order is the note he recorded.
         const rec = door.get(o.id);
         if (rec && collected > 0) {
-          const onHand = sum(r, (e) => e.fromAccount.startsWith('cash:') && (e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet'));
+          const onHand = sum(r, (e) => e.fromAccount.startsWith('cash:') && (e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet' || e.type === 'debt_settled'));
           if (onHand !== rec.collectedIqd) bad.push(`${o.id} (${o.type}) courier cash on hand ${onHand} ≠ the ${rec.collectedIqd} he recorded`);
           if (extra !== rec.changeToWalletIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} ≠ the ${rec.changeToWalletIqd} he recorded`);
         }
@@ -258,9 +260,9 @@ export const INVARIANTS: readonly Definition[] = [
         const groups = new Set(moneyGroupsOf(s.ledger, o.id));
         const payer = `customer:${o.ordererId}`;
         const net = r.filter((e) => e.postingGroupId && groups.has(e.postingGroupId)).reduce((n, e) => n + (e.toAccount === payer ? e.amount : 0) - (e.fromAccount === payer ? e.amount : 0), 0);
-        const rounding = net - extra;
+        const rounding = net - extra - debtPaid;
         if (rounding < 0 || rounding >= step) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd} (rounding change must be 0–${step - 1}, plus ${extra} no-change credit)`);
-        if (net !== (o.changeIqd ?? 0) + extra) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0} + recorded no-change credit ${extra}`);
+        if (net !== (o.changeIqd ?? 0) + extra + debtPaid) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0} + recorded no-change credit ${extra}`);
       }
       return { checked: s.orders.length, bad };
     },

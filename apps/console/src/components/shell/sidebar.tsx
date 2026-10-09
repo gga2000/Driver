@@ -33,6 +33,7 @@ import {
   IconSiren,
   IconStore,
   IconChat,
+  IconGarage,
   IconZones,
   Kbd,
   type IconProps,
@@ -62,6 +63,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   safety: IconSiren,
   phone: IconPhone,
   oncall: IconBell,
+  garage: IconGarage,
   system: IconSystem,
 };
 
