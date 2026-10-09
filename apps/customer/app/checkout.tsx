@@ -15,6 +15,7 @@ import {
   checkoutTotals,
   clock12,
   overNewCustomerCap,
+  owedOnOrder,
   placeProblem,
   priorCashOrders,
   validTender,
@@ -210,7 +211,10 @@ export default function CheckoutScreen() {
 
   // The server's deal (orders.quote) is part of the total; place sends it back as an expectation.
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
-  const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
+  // M-3: an earlier unpaid amount rides on a cash order; the courier takes the total plus it.
+  const owed = owedOnOrder(orderQuote.data?.debtCollectIqd, payment, Boolean(fromHome && home));
+  const dueIqd = totals ? totals.totalIqd + owed : null;
+  const tender = validTender(tenderPick, dueIqd, payment);
   const restaurant = menu.data?.restaurant;
   const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
   const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
@@ -288,6 +292,7 @@ export default function CheckoutScreen() {
           statedTenderIqd: tender,
           usePoints: usePoints && totals.pointsIqd > 0,
           pointsIqd: totals.pointsIqd,
+          ...(orderQuote.data ? { debtCollectIqd: owed } : {}),
           householdOrgId: fromHome && home ? home.id : null,
           gift: giftInput(gift, payment),
         }),
@@ -351,7 +356,7 @@ export default function CheckoutScreen() {
   onPlaceRef.current = onPlace;
 
   const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
-  const payLine = payCopy(amountParam(totals?.totalIqd ?? 0), payment, receiver);
+  const payLine = payCopy(amountParam(dueIqd ?? 0), payment, receiver);
   const etaMax = restaurant?.etaMaxMinutes ?? null;
   const whenValue = !scheduledFor
     ? t('checkout.when_now')
@@ -589,12 +594,15 @@ export default function CheckoutScreen() {
             />
           </Card>
         ) : null}
-        {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd} value={tender} onChange={setTenderPick} /> : null}
+        {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd + owed} value={tender} onChange={setTenderPick} /> : null}
       </Section>
 
       <Section title={t('checkout.price_breakdown')}>
         {totals ? (
-          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} note={t('quote.quote_locked')} testID="checkout-price" />
+          <View style={{ gap: theme.space[3] }}>
+            <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} note={t('quote.quote_locked')} testID="checkout-price" />
+            {owed > 0 ? <OwedLine owedIqd={owed} dueIqd={totals.totalIqd + owed} /> : null}
+          </View>
         ) : (
           <View style={{ gap: theme.space[2] }}>
             <Skeleton height={16} />
@@ -774,6 +782,27 @@ function NoteLink({ label, onPress, testID }: { label: string; onPress: () => vo
  * courier sees "الزبون يدفع بـ 25,000 · جهّز 7,250 خردة"; without change on him the rest goes to the
  * wallet.
  */
+/** M-3: the earlier unpaid amount, under the total and apart from it (it isn't this order's price). */
+function OwedLine({ owedIqd, dueIqd }: { owedIqd: number; dueIqd: number }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View style={{ gap: theme.space[1], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border }} testID="checkout-owed">
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2] }}>
+        <Text variant="body" style={{ flex: 1 }}>
+          {t('checkout.owed_line')}
+        </Text>
+        <Text variant="body" tabular testID="checkout-owed-amount">
+          {t('unit.iqd', { amount: amountParam(owedIqd) })}
+        </Text>
+      </View>
+      <Text variant="footnote" color="textMuted">
+        {t('checkout.owed_hint', { amount: amountParam(dueIqd) })}
+      </Text>
+    </View>
+  );
+}
+
 function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: number | null; onChange: (v: number | null) => void }) {
   const theme = useTheme();
   const t = useT();

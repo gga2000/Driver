@@ -29,6 +29,7 @@
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
 //            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
+//   owed-*   M-3: an earlier unpaid 500 دينار as its own line under checkout's total   POST /demo/owe
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
@@ -144,7 +145,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'owed', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -294,6 +295,7 @@ try {
   if (wants('share')) await shareShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
+  if (wants('owed')) await owedShots(personId, khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
@@ -1900,6 +1902,23 @@ async function dealsShots(khalid) {
   });
   await shot('deals-checkout');
   await fullShot('deals-checkout-full');
+}
+
+/** M-3: an earlier unpaid amount (500 دينار) shows as its own line under checkout's total, cash only. */
+async function owedShots(personId, khalid) {
+  if (!personId) return void errors.push('owed: no person');
+  await demoPost(`/demo/owe?personId=${encodeURIComponent(personId)}&amount=500`);
+  await demoPost('/demo/deals');
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${khalid}_lentil_soup`).click();
+  await page.waitForTimeout(300);
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-owed').waitFor({ timeout: 15_000 }).catch(() => errors.push('owed line at checkout not shown'));
+  await byTestId('checkout-owed').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('owed-checkout');
+  await fullShot('owed-checkout-full');
 }
 
 /**

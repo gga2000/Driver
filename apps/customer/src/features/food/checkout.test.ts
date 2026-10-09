@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, TABLE, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, owedOnOrder, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -181,6 +181,20 @@ describe('checkout payload builder', () => {
     const off = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: false, pointsIqd: 0 }));
     expect(off.usePoints).toBeUndefined();
     expect(off.pointsIqd).toBeUndefined();
+  });
+
+  it('M-3: an earlier unpaid amount rides on a cash order and is sent back as the quote showed it', () => {
+    expect(owedOnOrder(500, 'cash', false)).toBe(500);
+    expect(owedOnOrder(undefined, 'cash', false)).toBe(0);
+    // The quote prices it for his own cash order: a wallet or household order carries nothing.
+    expect(owedOnOrder(500, 'wallet', false)).toBe(0);
+    expect(owedOnOrder(500, 'cash', true)).toBe(0);
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', debtCollectIqd: 500 })).debtCollectIqd).toBe(500);
+    // 0 is sent too: if a fee appears before he taps, the server says price_changed and the checkout refreshes.
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', debtCollectIqd: 0 })).debtCollectIqd).toBe(0);
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'wallet', debtCollectIqd: 500 })).debtCollectIqd).toBeUndefined();
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash' })).debtCollectIqd).toBeUndefined();
   });
 
   it('joy w4: the household wallet only on a wallet order; «للسفرة» lines mark the family table', () => {
