@@ -190,6 +190,8 @@ export interface OrdersRepository {
   updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null>;
   updateLine(id: string, patch: { substitution: LineUnavailability | null }, tx?: Tx): Promise<OrderLineRecord>;
   findMany(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderRecord[]>;
+  /** SCALE-12: the same orders as `findMany`, with their lines and participants, in one batched read. */
+  findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]>;
   /**
    * One merchant's orders placed in `[from, to)`, with their lines and participants, oldest first
    * (placedAt, id) — one bounded read on `(merchant_org_id, placed_at)` (review 2026-10-04 #11).
@@ -475,6 +477,19 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: {
+        ...(filter.cityId ? { cityId: filter.cityId } : {}),
+        ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}),
+        ...(filter.states ? { state: { in: [...filter.states] } } : {}),
+      },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { placedAt: 'asc' },
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
     const rows = await this.db(tx).order.findMany({
       where: { merchantOrgId, placedAt: { gte: from, lt: to } },
@@ -710,6 +725,10 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return [...this.orders.values()]
       .filter((o) => (!filter.cityId || o.cityId === filter.cityId) && (!filter.merchantOrgId || o.merchantOrgId === filter.merchantOrgId) && (!filter.states || filter.states.includes(o.state)))
       .map((o) => ({ ...o }));
+  }
+
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }): Promise<OrderAggregate[]> {
+    return Promise.all((await this.findMany(filter)).map(async (o) => (await this.find(o.id))!));
   }
 
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {

@@ -1472,8 +1472,9 @@ export class OrdersService implements OnModuleInit {
 
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
     // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
-    const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
-    return Promise.all(live.map((o) => this.view(o.id)));
+    // SCALE-12: one batched read with lines and participants, not a read per order.
+    const live = await this.repo.findManyAggregates({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
+    return live.map(toOrderView);
   }
 
   /**

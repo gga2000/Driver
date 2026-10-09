@@ -81,6 +81,12 @@ describe.skipIf(!url)('orders.forPerson on Postgres (needs DATABASE_URL)', () =>
     }
   });
 
+  it('SCALE-12: active orders load with their participants in one read, oldest first', async () => {
+    const got = await repo.findManyAggregates({ merchantOrgId: ids.org, states: ['placed'] });
+    expect(got.map((a) => a.order.id)).toEqual((await repo.findMany({ merchantOrgId: ids.org, states: ['placed'] })).map((o) => o.id));
+    expect(got.find((a) => a.order.id === order['notMine'])?.participants.map((p) => p.personId)).toEqual([ids.stranger]);
+  });
+
   it('is empty for a person with no orders, and the in-memory twin agrees on that', async () => {
     const nobody = (await prisma.prisma.person.create({ data: {} })).id;
     try {
