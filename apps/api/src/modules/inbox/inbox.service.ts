@@ -58,6 +58,7 @@ export const INBOX_START_EVENTS = [
   'driver.document_submitted',
   'merchant.onboarding_drafted',
   'order.rated',
+  'departure.overdue',
 ] as const;
 
 /** The events that end a problem (the row closes by itself, outcome `auto`), or take it. */
@@ -84,6 +85,7 @@ export const INBOX_END_EVENTS = [
   'driver.document_reviewed',
   'merchant.activated',
   'merchant.onboarding_rejected',
+  'departure.overdue_cleared',
 ] as const;
 
 const KIND_AR: Record<InboxKind, string> = {
@@ -99,6 +101,7 @@ const KIND_AR: Record<InboxKind, string> = {
   sweep: 'فحص السيارة الفارغة بالخطوط',
   pin_alert: 'رمز مقعد غلط',
   approval: 'موافقة',
+  late_departure: 'سيارة رجعة متأخرة',
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -322,6 +325,21 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
             }
           : null;
       }
+      case 'departure.overdue': {
+        // The garage watch (routes module): a الرجعة car whose driver never came, or one out on the
+        // road past its arrival with no «وصلت». One row per departure; it closes when the car leaves the
+        // late list, whatever moved it (staff «ألغِ»/«وصلت», the driver, the automatic cancel).
+        const id = str(p['departureId']);
+        return id
+          ? {
+              ...base,
+              kind: 'late_departure',
+              subjectKind: 'departure',
+              subjectId: id,
+              facts: facts({ reason: p['reason'], riders: p['riders'], garageId: p['garageId'], corridorId: p['corridorId'] }),
+            }
+          : null;
+      }
       default:
         return null;
     }
@@ -396,6 +414,8 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
       case 'merchant.activated':
       case 'merchant.onboarding_rejected':
         return closeSubject('approval', str(p['onboardingId']));
+      case 'departure.overdue_cleared':
+        return closeSubject('late_departure', str(p['departureId']));
       default:
         return;
     }

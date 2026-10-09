@@ -7525,6 +7525,8 @@
   "console.today.kind_sweep": "فحص السيارة بالخطوط",
   "console.today.kind_pin_alert": "رمز مقعد",
   "console.today.kind_approval": "تنتظر موافقة",
+  "console.today.kind_late_departure": "سيارة رجعة متأخرة",
+  "console.today.late_departure_riders": "{n} راكب",
   "console.today.reason_no_acceptance": "ولا سايق قبل",
   "console.today.reason_passes_exhausted": "كل السواق القريبين عبروه",
   "console.today.reason_substitutes_exhausted": "ماكو بديل",
