@@ -706,3 +706,37 @@ describe('cancel and persistence', () => {
     });
   });
 });
+
+describe("the driver's own offer card (speed x2)", () => {
+  it('finds his newest open offer from his own offers, never reading every live trip', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    h.clock.advance(1_000);
+    await taxi(h, 't2');
+    let tripReads = 0;
+    const listByTrip = h.repo.listByTrip.bind(h.repo);
+    h.repo.listByTrip = (tripId: string) => {
+      tripReads += 1;
+      return listByTrip(tripId);
+    };
+    expect((await h.orchestrator.openOfferFor('a1', 'aziziyah'))?.request.tripId).toBe('t2');
+    expect(await h.orchestrator.openOfferFor('a1', 'kut')).toBeNull();
+    expect(await h.orchestrator.openOfferFor('a2', 'aziziyah')).toBeNull();
+    expect(tripReads).toBe(0);
+    // The newest one gone (cancelled), the older one shows; taken by him, none is left.
+    await h.service.cancel('t2');
+    expect((await h.orchestrator.openOfferFor('a1', 'aziziyah'))?.request.tripId).toBe('t1');
+    await respond(h, 't1', 'a1');
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).toBeNull();
+  });
+
+  it('an offer past its time is not shown', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).not.toBeNull();
+    h.clock.advance(16_000);
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).toBeNull();
+  });
+});

@@ -102,6 +102,7 @@ What each procedure does:
 | `routes.ops.cancelDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.arriveDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
 | `routes.ops.closeDeparture` | mutation | dispatcher, support, admin | `StaffDepartureInput` | `StaffDepartureResult` |
+| `routes.ops.departureDrivers` | query | dispatcher, support, admin | `StaffDepartureDriversInput` | `StaffDepartureDriver[]` |
 
 The input shapes are in `packages/contracts/src/departure-staff-io.ts`:
 
@@ -111,19 +112,35 @@ OverdueDeparturesInput { limit: int 1..200 = 100 }
 StaffDepartureResult   { departureId, state: IntercityDepartureState, changed, auditId: string | null }
 OverdueDeparture       { departureId, corridorId, garageId, driverId, state, reason: 'driver_no_show'|'not_arrived',
                          since, minutes, riders, actions: ('cancel'|'arrive')[] }
+StaffDepartureDriversInput { departureIds: string[] (1..100) }
+StaffDepartureDriver       { departureId, driverId, displayName: string | null ("حيدر ك."), phoneMasked: string | null }
 ```
 
 - **`cancelDeparture`**: from `scheduled` or `boarding`. Riders move to the next cars exactly as on a
   driver cancel (held seats are let go; anyone with no car within 2 h is stranded onto the request
-  board). There is **no fee for the driver and no credit for riders**, because M-11 is open.
-  - `departure.cancelled` carries `cancelledBy: 'driver', feeIqd: 0`.
-  - `departure.ops_cancelled` carries `{ reason, auto, riders }`, where `reason` is the fixed code
+  board).
+  - **M-11 (Ali, 2026-10-09), switch `GARAGE_NO_SHOW_FEE`, off:** with it on, the driver who never
+    came pays each distinct booked rider 2,000 دينار, or 4,000 for a departure at or after 18:00
+    Baghdad time (the same amount as a late driver cancel). Example: 4 riders on a 19:00 run = 16,000.
+    The ledger credits each rider's wallet («رصيد») and takes the total from the driver's balance,
+    which he settles at his next cash hand-in. A rider with two seats counts once; held seats count
+    for nobody. With the switch off, nobody is charged.
+  - The Console shows the amount **before** staff confirm: each `driver_no_show` row of
+    `overdueDepartures` carries `noShowFee` (null while the switch is off), and the cancel result
+    echoes what was actually charged (null on a replay, so a double tap never charges twice):
+    ```ts
+    DepartureNoShowFee { riders, perRiderIqd /* 2,000 | 4,000 */, doubled, driverChargeIqd /* riders × perRiderIqd */ }
+    OverdueDeparture   { …, noShowFee: DepartureNoShowFee | null }
+    StaffDepartureResult { …, noShowFee: DepartureNoShowFee | null }
+    ```
+  - `departure.cancelled` carries `cancelledBy: 'driver', feeIqd` (0 with the switch off).
+  - `departure.ops_cancelled` carries `{ reason, auto, riders, feeIqd }`, where `reason` is the fixed code
     `ops` (`driver_no_show` when the watch cancelled it); the departure's `cancellation_reason` is
     the same code.
   - The staff's written reason is kept only in the `console_audit_log` row (it may name people;
     personal data stays out of events and order/departure rows). The same holds for `courierLost`:
     its `order.disputed` event carries no note.
-  - Seats only settle when the car arrives, so nobody was charged.
+  - Seats only settle when the car arrives, so no fare was charged.
 - **`arriveDeparture`**: from `departed`. It does the same as the driver's own «وصلت»: checked-in
   seats complete and `seat.completed` settles each seat.
 - **`closeDeparture`**: from `arrived`. Closes it now; the scheduler would otherwise close it after
@@ -131,6 +148,11 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 - **`overdueDepartures`**: lists departures in one of two cases:
   - `driver_no_show`: still `scheduled` or `boarding`, 20 min past the latest departure time.
   - `not_arrived`: `departed`, 30 min past the corridor's travel time.
+- **`departureDrivers`**: who drives each departure, in any state, so the garage view can name the
+  driver of a run that left or is overdue (the riders' `routes.driverCards` only cover board
+  departures and the rider's own trips). Short name and masked number, never the number itself; one
+  fail-closed vault read for the staff member (purpose `intercity_ops_departure`). Unknown ids are
+  skipped.
 
 ## Switches (all off by default)
 
@@ -147,6 +169,7 @@ OverdueDeparture       { departureId, corridorId, garageId, driverId, state, rea
 | M-10 courier lost (NTF-13) | `COURIER_LOST_REFUND` | off | ends a lost order at once, refunded, with the kitchen paid |
 | M-10 charge the courier | `COURIER_LOST_CHARGE` | off | `chargeCourier` |
 | M-11 garage no-show (NTF-14) | `GARAGE_NO_SHOW_AUTO_CANCEL` | off | the watch cancels a no-show departure on its own, as `system`, with an audit row |
+| M-11 no-show fee (Ali, 2026-10-09) | `GARAGE_NO_SHOW_FEE` | off | a no-show cancel (staff or automatic) credits each booked rider 2,000 (4,000 from 18:00) from the driver |
 | M-13 agent cash accounts (THIN-12) | `AGENT_CASH_ACCOUNTS` | off | an agent's top-up cash sits on `cash:<agent>` instead of `bank` |
 | c6 remake pay (Ali's shop pick, 2026-10-08) | `MERCHANT_REMAKE_PAY` (`off` to stop) | **on** (Ali, 2026-10-08) | `orders.merchant.remake`: Driver pays the remade food once (`order:<id>:remake`) — see [shop-load.md](shop-load.md) |
 
@@ -172,7 +195,7 @@ an amount.
 
 | Event | Payload | Emitted by, and when | Aggregate |
 |---|---|---|---|
-| `order.rated` | `{ orderId, stars: 1..5, cityId }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
+| `order.rated` | `{ orderId, stars: 1..5, cityId, food?, delivery?, orderType? }` | `orders.rate`, in the rating's transaction, on the first rating that carries a score. `stars` is the delivery score, or the food score when only the food was scored. `food` / `delivery` are the two scores as given (absent when skipped) and `orderType` the order's type, for the Console's low-rating case (rows from before 2026-10-09 carry only `stars`). A tap with no score, a replay or a refused rating emits nothing. Actor: the customer. | `order` |
 | `courier.cash_over_cap` | `{ courierId, cashIqd, capIqd, cityId }` | `LedgerService.recordAll`, in the posting's transaction, when the posting takes the driver from under his cash cap to at or over it (in practice a cash collection, `order.cash_collected`). Actor: `system`. | `driver` |
 | `courier.cash_under_cap` | same as above | the same place, when a posting takes him from over the cap to under it (a hand-in: agent, ZainCash, ops round, or paying a merchant). | `driver` |
 | `order.stuck` | `{ orderId, cityId, reason: StuckReason, since }` | the W3 watchdog (`OrdersStaffJob`, every 5 min, `OrdersStaffService.watchStuck`), when an order is on `orders.ops.stuck` and was not on it at the last look. `since` is when the state's clock started (ISO time). Actor: `system`. | `stuck_board` / `orders` |

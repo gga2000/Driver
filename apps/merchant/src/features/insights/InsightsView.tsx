@@ -162,7 +162,7 @@ function RejectionPanel({ data }: { data: MerchantInsights }) {
         ) : null}
       </View>
       <Text variant="footnote" color={VERDICT[v].fg} weight={600}>
-        {v === 'good' ? t('merchant.insights.reject_good') : v === 'watch' ? t('merchant.insights.reject_watch') : v === 'bad' ? t('merchant.insights.reject_bad') : t('merchant.insights.no_data')}
+        {v === 'good' ? t('merchant.insights.reject_good') : v === 'watch' ? t('merchant.insights.reject_watch_honest', { percent: r.offered > 0 ? Math.round(((r.offered - r.rejected) / r.offered) * 100) : 0 }) : v === 'bad' ? t('merchant.insights.reject_bad') : t('merchant.insights.no_data')}
       </Text>
       {r.trend.length > 1 ? <TrendBars values={r.trend.map((b) => b.rate)} labels={r.trend.map((b) => dates.dayMonth(b.from))} tone={tone} /> : null}
     </Panel>

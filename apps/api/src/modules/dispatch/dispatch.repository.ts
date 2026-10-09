@@ -44,6 +44,8 @@ export interface DispatchRepository {
   sentSince(since: Date, tx?: Tx): Promise<OfferRecord[]>;
   /** A driver's accepted offers, newest first, at most `limit` (the profile's on-time share, ride step 3). */
   acceptedByDriver(driverId: string, limit: number, tx?: Tx): Promise<OfferRecord[]>;
+  /** Speed x2: a driver's open offers not expired at `now`, newest first (one indexed read, not one per live trip). */
+  openByDriver(driverId: string, now: Date, tx?: Tx): Promise<OfferRecord[]>;
 }
 
 export const DISPATCH_REPOSITORY = Symbol('DISPATCH_REPOSITORY');
@@ -95,6 +97,10 @@ export class PrismaDispatchRepository implements DispatchRepository {
 
   async acceptedByDriver(driverId: string, limit: number, tx?: Tx): Promise<OfferRecord[]> {
     return (await this.db(tx).dispatchOffer.findMany({ where: { driverId, state: 'accepted' }, orderBy: { respondedAt: 'desc' }, take: limit })) as OfferRecord[];
+  }
+
+  async openByDriver(driverId: string, now: Date, tx?: Tx): Promise<OfferRecord[]> {
+    return (await this.db(tx).dispatchOffer.findMany({ where: { driverId, state: { in: [...OPEN_STATES] }, expiresAt: { gt: now } }, orderBy: { sentAt: 'desc' } })) as OfferRecord[];
   }
 }
 
@@ -158,6 +164,13 @@ export class InMemoryDispatchRepository implements DispatchRepository {
       .filter((r) => r.driverId === driverId && r.state === 'accepted')
       .sort((a, b) => (b.respondedAt?.getTime() ?? 0) - (a.respondedAt?.getTime() ?? 0))
       .slice(0, limit)
+      .map((r) => ({ ...r }));
+  }
+
+  async openByDriver(driverId: string, now: Date): Promise<OfferRecord[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.driverId === driverId && OPEN_STATES.includes(r.state) && r.expiresAt.getTime() > now.getTime())
+      .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())
       .map((r) => ({ ...r }));
   }
 

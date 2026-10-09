@@ -7,6 +7,7 @@ import type { PartnerGate } from '@/lib/guard';
 import { LIVE_PARTNER_KEY, useLiveChannel, useLiveMode, useLivePollMs } from '@/lib/live';
 import { offerPollMs } from './offer-poll';
 import { useSignedIn } from '@/lib/session';
+import { heartbeatStep, versionToSend, type HeldVersion } from './heartbeat-version';
 
 /**
  * Partner query hooks over `partner.*`, `dispatch.*` and `trips.*`. The driver's own channel
@@ -125,12 +126,30 @@ export function useRefreshWork() {
     ]);
 }
 
+/** Perf o4: the version the last heartbeat answered with (`heartbeat-version.ts`). */
+let heldVersion: HeldVersion | null = null;
+
 export function useGoOnline() {
   const api = useApi();
   const qc = useQueryClient();
+  const key = api.partner.status.queryKey();
+  const base = api.partner.goOnline.mutationOptions();
+  type BaseFn = NonNullable<typeof base.mutationFn>;
+  const updatedAt = () => qc.getQueryState(key)?.dataUpdatedAt ?? -1;
   return useMutation({
-    ...api.partner.goOnline.mutationOptions(),
-    onSuccess: (status) => qc.setQueryData(api.partner.status.queryKey(), status),
+    ...base,
+    mutationFn: (input: Omit<Parameters<BaseFn>[0], 'knownVersion'>, context: Parameters<BaseFn>[1]) =>
+      base.mutationFn!({ ...input, knownVersion: versionToSend(heldVersion, updatedAt()) }, context),
+    onSuccess: (res, input) => {
+      const step = heartbeatStep(res, input.at, heldVersion, updatedAt());
+      if (step.kind === 'forget') {
+        heldVersion = null;
+        return;
+      }
+      if (step.kind === 'replace') qc.setQueryData(key, step.status);
+      else qc.setQueryData(key, (prev) => (prev ? { ...prev, position: step.position } : prev));
+      heldVersion = step.version === null ? null : { version: step.version, updatedAt: updatedAt() };
+    },
   });
 }
 

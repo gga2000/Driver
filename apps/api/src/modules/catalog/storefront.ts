@@ -174,6 +174,8 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     modifierGroups: groups,
     serves: servesOf(item.servesMin, item.servesMax),
     labels: (item.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+    // «جهّز محلك»: a library photo is shown as «صورة توضيحية» until the kitchen's own photo replaces it.
+    ...(item.photoLibrary && item.photoUrl ? { photoIllustrative: true } : {}),
   };
 }
 

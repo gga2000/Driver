@@ -242,3 +242,44 @@ export function cachedIdentityRepository(inner: IdentityRepository, cache: AuthC
     },
   });
 }
+
+/**
+ * Speed x4, privacy part (Ali, 8 Oct 22:07: "Log once per 30 s"): a person reading their own
+ * profile (`identity.me`, every home open) writes one private-data access-log row per session per
+ * window instead of one per call. Staff reads and reads of someone else's data always write their
+ * row. A row counts only once its transaction commits, so a rolled-back read never hides the next.
+ * `VAULT_SELF_LOG_WINDOW_SEC=0` writes every read again; anything above 30 is capped at 30.
+ */
+export function selfReadLogWindowMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env['VAULT_SELF_LOG_WINDOW_SEC'];
+  const sec = raw === undefined || raw === '' ? AUTH_CACHE_MAX_TTL_SEC : Number(raw);
+  if (!Number.isFinite(sec) || sec <= 0) return 0;
+  return Math.min(sec, AUTH_CACHE_MAX_TTL_SEC) * 1000;
+}
+
+export class SelfReadLogWindow {
+  private readonly written = new Map<string, number>();
+
+  constructor(
+    private readonly clock: Clock,
+    readonly windowMs: number,
+  ) {}
+
+  /** Whether this own read needs its row: the first in the window for this session and these fields. */
+  due(key: string): boolean {
+    if (this.windowMs <= 0) return true;
+    const at = this.written.get(key);
+    return at === undefined || this.clock.now().getTime() - at >= this.windowMs;
+  }
+
+  /** Records a committed row. */
+  wrote(key: string): void {
+    if (this.windowMs <= 0) return;
+    this.written.delete(key);
+    if (this.written.size >= MAX_ENTRIES) {
+      const oldest = this.written.keys().next();
+      if (!oldest.done) this.written.delete(oldest.value);
+    }
+    this.written.set(key, this.clock.now().getTime());
+  }
+}

@@ -44,6 +44,7 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'safety_incident',
   'khat_sweep_alert',
   'intercity_pin_alert',
+  'intercity_ops_departure',
   'ride_start_code_alert',
   'support_case',
   'support_queue',

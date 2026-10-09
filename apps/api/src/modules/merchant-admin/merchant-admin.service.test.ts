@@ -142,6 +142,18 @@ describe('merchantAdmin.menu', () => {
     const item = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تكة', priceIqd: 6000, categoryAr: 'مشويات' });
     const photo = await h.svc.menuReplacePhoto(h.owner, { merchantOrgId: h.orgId, itemId: item.id, uploadId: await upload(h.blobs, h.owner.personId) });
     expect(photo.photoUrl).toMatch(/\/files\/up_[0-9a-f]+\?exp=\d+&sig=/);
+    // p4: his own photo shows at once and waits for the team's same-day look.
+    expect(photo.photoReviewPending).toBe(true);
+    expect((await h.catalog.photoReviewQueue()).map((i) => i.id)).toEqual([item.id]);
+    expect((await h.svc.menuGet(h.staff, { merchantOrgId: h.orgId })).categories[0]!.items[0]!.photoReviewPending).toBe(true);
+    await h.catalog.markPhotoReviewed(item.id);
+    expect(await h.catalog.photoReviewQueue()).toEqual([]);
+    expect((await h.svc.menuGet(h.staff, { merchantOrgId: h.orgId })).categories[0]!.items[0]!.photoReviewPending).toBe(false);
+    // Driver's own photos (the menu photo service, the library) never wait.
+    await h.catalog.replacePhoto(h.orgId, item.id, 'upload:up_team');
+    expect(await h.catalog.photoReviewQueue()).toEqual([]);
+    await h.catalog.replacePhoto(h.orgId, item.id, 'upload:up_lib', undefined, 'tikka', true);
+    expect(await h.catalog.photoReviewQueue()).toEqual([]);
     await expect(h.svc.menuReplacePhoto(h.owner, { merchantOrgId: h.orgId, itemId: item.id, uploadId: 'up_nope' })).rejects.toMatchObject({ code: 'upload_invalid' });
 
     const mods = await h.svc.menuSetModifiers(h.owner, {
@@ -409,6 +421,8 @@ describe('merchantAdmin.insights', () => {
     expect(i.itemRatings).toEqual([{ itemId: kebab.id, nameAr: 'كباب', avg: 4, count: 2, reviews: [{ score: 3, note: 'بارد شوية', at }] }]);
     expect(i.peakHours[13]).toBe(2);
     expect(i.peakHours[20]).toBe(1);
+    // x6 «وضعك»: the customers' food score over the window, every rated order.
+    expect(i.foodRating).toEqual({ avg: 4, count: 2 });
     // The owner reads the same insights with the per-item sales.
     const mine = await h.svc.insights(h.owner, { merchantOrgId: h.orgId, days: 30 });
     expect(mine.bestSellers).toEqual([{ itemId: kebab.id, nameAr: 'كباب', qty: 2, orders: 2, salesIqd: 10000 }]);

@@ -6,7 +6,8 @@ import type { Actor } from './identity-io.js';
  *
  * Rows are opened by the server from domain events (an SOS, a trip nobody took, a shop that went
  * quiet, a late order, a courier who can't reach the door, an order on the stuck list, a courier over
- * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
+ * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert, a bad
+ * rating). A row closes by itself when the problem ends (the order
  * is delivered, someone took the trip, the SOS is resolved); otherwise a person closes it, always with
  * an outcome. Anyone on a desk can take a row (it is then theirs), hand it to someone, snooze it for a
  * few minutes or close it. The row keeps ids and short facts only; names are read from the vault when
@@ -14,12 +15,14 @@ import type { Actor } from './identity-io.js';
  */
 export const INBOX_KINDS = [
   'sos',
+  'safety_report',
   'no_driver',
   'store_silent',
   'late',
   'unreachable',
   'stuck',
   'cash_cap',
+  'low_rating',
   'sweep',
   'pin_alert',
   'approval',
@@ -30,15 +33,17 @@ export type InboxKind = z.infer<typeof InboxKind>;
 /** Most urgent first: the list sorts by this, then oldest first. */
 export const INBOX_PRIORITY: Record<InboxKind, number> = {
   sos: 0,
-  sweep: 1,
-  pin_alert: 2,
-  no_driver: 3,
-  unreachable: 4,
-  stuck: 5,
-  store_silent: 6,
-  late: 7,
-  cash_cap: 8,
-  approval: 9,
+  safety_report: 1,
+  sweep: 2,
+  pin_alert: 3,
+  no_driver: 4,
+  unreachable: 5,
+  stuck: 6,
+  store_silent: 7,
+  late: 8,
+  cash_cap: 9,
+  low_rating: 10,
+  approval: 11,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -50,17 +55,24 @@ export const InboxSubjectKind = z.enum([
   'sweep_alert',
   'pin_attempt',
   'courier',
+  'ticket',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 
 /** Rows a person can't close here: they close when the problem is closed where it lives (the SOS desk, the خطوط check). */
-export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'sweep'];
+export const INBOX_CLOSE_AT_SOURCE: readonly InboxKind[] = ['sos', 'safety_report', 'sweep'];
 
 /** Who reads the list, and who works it (finance reads only). */
 export const INBOX_READ_ROLES = ['admin', 'dispatcher', 'support', 'field_ops', 'finance'] as const;
 export const INBOX_WORK_ROLES = ['admin', 'dispatcher', 'support', 'field_ops'] as const;
 
 export const INBOX_RULES = {
+  /**
+   * A rating this low or lower (food or courier, 1–5) opens a case: staff hear the customer, the
+   * restaurant and the courier or driver before closing it, and close it with a note (Ali, 2026-10-08:
+   * every bad rating, not only repeats).
+   */
+  lowRatingMaxStars: 2,
   /** The snooze choices, minutes. */
   snoozeMinutes: [5, 15, 30, 60] as const,
   /** Closed rows stay visible under "done" this long. */

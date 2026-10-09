@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '@driver/contracts';
+import { MISSED_STATES } from './orders.repository.js';
 import { ordersHarness } from './test-harness.js';
 
 const DAY = 86_400_000;
@@ -60,5 +61,29 @@ describe('OrdersService.merchantOrders — bounded by the date range (backend re
     expect(scans).toEqual([]);
     // No per-order re-read (N+1): lines and participants come with the range read.
     expect(finds).toEqual([]);
+  });
+});
+
+describe('OrdersService.merchantMissedOrders — only the day’s misses (perf z5)', () => {
+  it('returns exactly the orders of the range that left without the kitchen’s answer, in the same order and view', async () => {
+    const h = ordersHarness('2026-10-03T09:00:00Z');
+    const place = () => h.orders.place('c1', { ...h.foodInput(), deliveryFeeIqd: undefined, serviceFeeIqd: undefined });
+    const accepted = await place();
+    await h.orders.merchantAccept('m1', { orderId: accepted.id, prepMinutes: 15 });
+    const refused = await place();
+    await h.orders.merchantReject('m1', { orderId: refused.id, reason: 'خلص' });
+    const cancelled = await place();
+    await h.orders.cancel('c1', { orderId: cancelled.id });
+    const first = await place();
+    const second = await place();
+    await h.advance(90_000); // nobody answered: both time out
+    const range = { from: new Date('2026-10-03T00:00:00Z'), to: new Date(h.clock.now().getTime() + 1) };
+    const all = await h.orders.merchantOrders('rest_1', range);
+    const missed = await h.orders.merchantMissedOrders('rest_1', range);
+    expect(missed.map((o) => o.id)).toEqual([first.id, second.id]);
+    expect(missed).toEqual(all.filter((o) => MISSED_STATES.some((m) => m.state === o.state && m.reason === o.cancellationReason)));
+    expect(missed.every((o) => o.state === 'merchant_rejected' && o.cancellationReason === 'merchant_timeout')).toBe(true);
+    // Half-open like merchantOrders: nothing placed at or after `to`.
+    expect(await h.orders.merchantMissedOrders('rest_1', { from: range.to, to: new Date(range.to.getTime() + DAY) })).toEqual([]);
   });
 });

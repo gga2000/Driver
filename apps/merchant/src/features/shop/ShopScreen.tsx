@@ -7,10 +7,13 @@ import { EntryTile } from '@/components/EntryTile';
 import { Loadable, type QueryState } from '@/components/Loadable';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { Page } from '@/components/Page';
-import { Panel } from '@/components/Panel';
+import { Meter, Panel, Tag } from '@/components/Panel';
+import { useSetup } from '@/features/setup/queries';
+import { SetupRing } from '@/features/setup/SetupRing';
 import { shiftLabel, stateLine } from '@/features/hours/logic';
 import { useStoreHours } from '@/features/hours/queries';
 import { useInsights } from '@/features/insights/queries';
+import { ratingText, STANDING_DAYS, STANDING_MIN_ORDERS, standingOf, type StandingRow } from '@/features/insights/standing';
 import { unregisterPush } from '@/features/notify/Push';
 import { closedToast, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
@@ -56,12 +59,18 @@ export function ShopScreen() {
   const orgId = store?.orgId ?? null;
   const status = useStoreStatus(orgId);
   const hours = useStoreHours(orgId);
-  const insights = useInsights(orgId, 30);
+  const insights = useInsights(orgId, STANDING_DAYS);
   const { setOpen } = useStoreSwitches();
   const now = useNow();
   const [closing, setClosing] = useState<'shutter' | 'other' | null>(null);
   const client = useApiClient();
   const s = status.data;
+  // «جهّز محلك» (s2): while the shop is being set up, a tile back to it on top, «ناقص» on the tiles
+  // still open, and the shutter goes up from setup's last step.
+  const setupLine = s?.setup ?? null;
+  const inSetup = !!setupLine && !setupLine.live;
+  const setup = useSetup(orgId, canSeeMoney && inSetup);
+  const missing = new Set<string>(setup.data && inSetup && !setup.data.pickup.set ? ['pickup-spot'] : []);
 
   const signOut = async () => {
     const refreshToken = session.getSnapshot().session?.refreshToken;
@@ -72,6 +81,10 @@ export function ShopScreen() {
   const fail = (err: unknown) => toast.show({ message: apiErrorMessage(err, t('merchant.common.error'), locale), tone: 'danger' });
   const reopen = async () => {
     if (!s) return;
+    if (setupLine && !setupLine.live) {
+      router.push(canSeeMoney && setupLine.left === 0 ? '/setup/open' : '/setup');
+      return;
+    }
     try {
       await setOpen.mutateAsync({ merchantOrgId: s.merchantOrgId, open: true });
       toast.show({ message: t('merchant.status.opened'), tone: 'success' });
@@ -115,6 +128,7 @@ export function ShopScreen() {
   );
   const side = (
     <View style={{ gap: theme.space[4] }}>
+      <StandingPanel query={insights} />
       <WeekPanel query={hours} dayMonth={(d) => dates.dayMonth(new Date(`${d}T12:00:00+03:00`))} />
       <WhyPanel query={insights} />
     </View>
@@ -122,6 +136,16 @@ export function ShopScreen() {
 
   return (
     <Page title={t('merchant.shop.title')} subtitle={store?.name} testID="more" maxWidth={1160}>
+      {inSetup && setupLine && canSeeMoney ? (
+        <EntryTile
+          testID="shop-setup"
+          icon="store"
+          title={t('merchant.setup.title')}
+          hint={setup.data ? t('merchant.setup.tile_hint', { percent: setupLine.percent, minutes: setup.data.progress.minutesLeft }) : t('merchant.setup.tile_hint_short', { percent: setupLine.percent })}
+          onPress={() => router.push('/setup')}
+          trailing={<SetupRing percent={setupLine.percent} size={52} label={t('merchant.setup.ring_label', { percent: setupLine.percent })} />}
+        />
+      ) : null}
       <View testID="shop" style={{ flexDirection: wide ? 'row' : 'column', gap: theme.space[4], alignItems: wide ? 'flex-start' : 'stretch' }}>
         <View style={wide ? { flex: 1.15 } : undefined}>{front}</View>
         <View style={wide ? { flex: 1 } : undefined}>{side}</View>
@@ -131,7 +155,7 @@ export function ShopScreen() {
           .filter((x) => !x.owner || canSeeMoney)
           .map((x) => (
             <View key={x.id} style={cell}>
-              <EntryTile testID={`more-${x.id}`} icon={x.icon} title={x.title} hint={x.hint} onPress={() => router.push(x.href)} />
+              <EntryTile testID={`more-${x.id}`} icon={x.icon} title={x.title} hint={x.hint} onPress={() => router.push(x.href)} trailing={missing.has(x.id) ? <Tag testID={`missing-${x.id}`} label={t('merchant.setup.missing')} tone="accent" /> : undefined} />
             </View>
           ))}
       </View>
@@ -350,6 +374,84 @@ function WhyPanel({ query }: { query: QueryState<MerchantInsights> }) {
             </View>
           </View>
         )}
+      </Loadable>
+    </Panel>
+  );
+}
+
+const STANDING_TONE = {
+  good: { fg: 'successText', bar: 'success' },
+  watch: { fg: 'warningText', bar: 'warning' },
+  bad: { fg: 'dangerText', bar: 'danger' },
+  none: { fg: 'textMuted', bar: 'border' },
+} as const;
+
+const STANDING_ICON: Record<StandingRow['key'], MIconName> = { on_time: 'clock', accepted: 'check', rating: 'star' };
+
+/**
+ * «وضعك» (Ali 2026-10-08, x6): the honest standing in place of «الرفض ينزّل ترتيبك» — on time, accepted
+ * and the food score over the last 30 days, each a real number in a plain sentence. Owner and staff.
+ */
+function StandingPanel({ query }: { query: QueryState<MerchantInsights> }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Panel title={t('merchant.standing.title')} caption={t('merchant.standing.caption')} icon="chart" testID="shop-standing">
+      <Loadable query={query} compact stale={false} skeleton={<Skeleton height={168} />} failed={t('merchant.standing.failed')} testID="shop-standing">
+        {(data) => {
+          const st = standingOf(data);
+          if (st.state === 'empty')
+            return (
+              <View testID="standing-empty" style={{ gap: theme.space[1] }}>
+                <Text variant="bodyStrong">{t('merchant.standing.empty')}</Text>
+                <Text variant="footnote" color="textMuted" tabular>
+                  {t('merchant.standing.empty_hint', { count: STANDING_MIN_ORDERS, have: st.offered })}
+                </Text>
+              </View>
+            );
+          return (
+            <View style={{ gap: theme.space[3] }}>
+              {st.rows.map((r) => {
+                const tone = STANDING_TONE[r.tone];
+                const big = r.value === null ? '—' : r.key === 'rating' ? ratingText(r.value) : `${r.value}%`;
+                const line =
+                  r.key === 'on_time'
+                    ? r.value === null
+                      ? t('merchant.standing.on_time_none')
+                      : t('merchant.standing.on_time_line', { percent: r.value })
+                    : r.key === 'accepted'
+                      ? t('merchant.standing.accepted_line', { percent: r.value ?? 0, count: r.count })
+                      : r.value === null
+                        ? t('merchant.standing.rating_none')
+                        : t('merchant.standing.rating_line', { rating: ratingText(r.value), count: r.count });
+                return (
+                  <View key={r.key} testID={`standing-${r.key}`} style={{ gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+                      <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: COUNTER.sand }}>
+                        <MIcon name={STANDING_ICON[r.key]} size={18} color={COUNTER.date} strokeWidth={2} />
+                      </View>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text variant="label" color="textMuted">
+                          {t(`merchant.standing.${r.key}_label` as TKey)}
+                        </Text>
+                        <Text variant="body" tabular>
+                          {line}
+                        </Text>
+                      </View>
+                      <Text weight={700} tabular color={tone.fg} style={{ fontSize: 24, lineHeight: 32 }}>
+                        {big}
+                      </Text>
+                    </View>
+                    <Meter value={r.fill} color={theme.colors[tone.bar]} height={8} />
+                  </View>
+                );
+              })}
+              <Text variant="footnote" color="textMuted">
+                {t('merchant.standing.honest')}
+              </Text>
+            </View>
+          );
+        }}
       </Loadable>
     </Panel>
   );

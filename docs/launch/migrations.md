@@ -25,12 +25,13 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009120000 | request_offer_wait_terms | trips thread | private car round 2 step 1 (reserved) |
 | 20261010092000 | on_call | lane E | #14 (merged) |
 | 20261010100000 | inbox | lane E | #14 (merged) |
-| 20261010101000 | driver_running_balance | lane A | speed fix v2 PR (reserved) |
 | 20261010130000 | fleet_planned_vehicle | partner app thread | #15 (merged) |
-| 20261010131000 | gift_recipient_vault | lane A | #29 |
+| 20261010131000 | gift_recipient_vault | lane A | #29 (merged) |
 | 20261010132000 | seat_taxi_hold | taxi thread (W11) | #31 |
 | 20261010230000 | store_closed_until | merchant | #19 |
 | 20261010240000 | console_watch | lane E | #37 |
+| 20261010260000 | merchant_setup (+ shop rules columns) | merchant | setup PR |
+| 20261010270000 | driver_running_balance | lane A | speed PR |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, `20261010140000`)
 and #38 (lane B, `20261010220000`). Those two re-stamp to the next free timestamp when they land, and

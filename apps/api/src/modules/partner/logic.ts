@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { CAP_WARN_SHARE, climateShiftAt } from '@driver/contracts';
 import { nearestLandmark, STOP_LANDMARK_MAX_KM } from '../../shared/landmarks.js';
 import type {
@@ -235,4 +236,43 @@ const CLIMATE_VEHICLES: ReadonlySet<VehicleClass> = new Set(['car', 'suv', 'van'
 export function offerClimate(vertical: Vertical, vehicle: VehicleClass | null, at: Date): ClimateFeature | null {
   if (vertical !== 'taxi' || !vehicle || !CLIMATE_VEHICLES.has(vehicle)) return null;
   return climateShiftAt(at)?.feature ?? null;
+}
+
+/**
+ * Perf o4: what the heartbeat compares to tell the app "nothing changed" without building the whole
+ * status. All of it is read by the beat itself or by one keyed read (his trips, his open offer): the
+ * gate, his roles and vehicle, his presence (city, zone, vehicle, tier, since when), his cash and cap,
+ * his trips, the ringing offer and the climate question. Not in it: his position (the app sent it, and
+ * a moving courier would change it every beat), the city's demand hint and today's earnings — those
+ * reach the app through `partner.status` (the live channel re-reads it on a cash or earnings event,
+ * and polls when the channel is down), as they did before.
+ */
+export interface PartnerWorkState {
+  roles: readonly string[];
+  registered: string | null;
+  gate: PartnerOnlineGate | null;
+  presence: { cityId: string; zoneId: string | null; vehicle: string; tier: string; onlineSince?: number | undefined } | null;
+  cap: { tier: string; owedIqd: number; capIqd: number; capRemainingIqd: number; overCap: boolean; cashIqd: number };
+  tripIds: readonly string[];
+  offerId: string | null;
+  climateCheck: { shiftId: string; feature: string; climate: string; working: boolean | null; endsAt: Date } | null;
+}
+
+/** Perf o4: the opaque version of a work state (16 url-safe characters); equal states, equal versions. */
+export function workStateVersion(w: PartnerWorkState): string {
+  const p = w.presence;
+  const c = w.cap;
+  const k = w.climateCheck;
+  // Fixed key order, so the same state always hashes the same.
+  const canonical = [
+    [...w.roles].sort(),
+    w.registered,
+    w.gate ? [w.gate.canGoOnline, w.gate.reasons.map((r) => r.code)] : null,
+    p ? [p.cityId, p.zoneId, p.vehicle, p.tier, p.onlineSince ?? null] : null,
+    [c.tier, c.owedIqd, c.capIqd, c.capRemainingIqd, c.overCap, c.cashIqd],
+    [...w.tripIds],
+    w.offerId,
+    k ? [k.shiftId, k.feature, k.climate, k.working, k.endsAt.getTime()] : null,
+  ];
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('base64url').slice(0, 16);
 }
