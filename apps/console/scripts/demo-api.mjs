@@ -683,10 +683,10 @@ const trips = get(TripsService);
     const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
     await phones.cancel(actor(zainab), { orderId: off.orderId });
     // On his way: عباس in a white Kia took أم علي's taxi at the mosque gate.
-    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة ٢', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
+    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة 2', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
     await takeBy(abbas, coming.orderId, { vehicleClass: 'car', plate: '23456 واسط', label: 'كيا سيراتو · أبيض' });
     // Searching: just booked, nobody took it yet.
-    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة ١', 'tuktuk');
+    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة 1', 'tuktuk');
   }
 }
 

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import type { IntercityDirection } from '@driver/contracts';
+import type { IntercityDirection, IntercityNetwork } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
+import { publicPlaceName } from './logic';
 
 /**
  * الرجعة, driver side (`routes.driver.*`, `routes.requestBoard.*`). The garage board polls every 10 s,
@@ -16,7 +17,19 @@ export const DEPARTURE_POLL_MS = 5_000;
 export function useNetwork() {
   const api = useApi();
   const signedIn = useSignedIn();
-  return useQuery({ ...api.routes.network.queryOptions(), enabled: signedIn, staleTime: 10 * 60_000 });
+  return useQuery({ ...api.routes.network.queryOptions(), enabled: signedIn, staleTime: 10 * 60_000, select: publicNetwork });
+}
+
+/** Drivers never see the "(مسودة)" marker on an unverified garage, meeting point or checkpoint. */
+function publicNetwork(n: IntercityNetwork): IntercityNetwork {
+  return {
+    garages: n.garages.map((g) => ({ ...g, nameAr: publicPlaceName(g.nameAr) })),
+    corridors: n.corridors.map((c) => ({
+      ...c,
+      meetingPoints: c.meetingPoints.map((p) => ({ ...p, nameAr: publicPlaceName(p.nameAr) })),
+      checkpoints: c.checkpoints.map((p) => ({ ...p, nameAr: publicPlaceName(p.nameAr) })),
+    })),
+  };
 }
 
 export function useMyDepartures() {

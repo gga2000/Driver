@@ -103,7 +103,7 @@ export function routesHarness(
 
   const at = (minutesFromNow: number) => new Date(clock.now().getTime() + minutesFromNow * 60_000);
 
-  /** Driver `d1` announces from البوابة ١ to Baghdad, leaving in 2 h (latest +30 min), a saloon. */
+  /** Driver `d1` announces from البوابة 1 to Baghdad, leaving in 2 h (latest +30 min), a saloon. */
   function announce(over: Partial<AnnounceInput> & { driverId?: string } = {}) {
     const { driverId = 'd1', ...rest } = over;
     return departures.announce(
