@@ -36,7 +36,7 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
  * overlay (drawn from the same values) never drifts from the tiles, including during follow
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, onFail }: BaseMapProps & { onFail: () => void }) {
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onFail }: BaseMapProps & { onFail: () => void }) {
   const api = useApi();
   const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zonesRef = useRef(zonesQuery.data);
@@ -61,7 +61,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         if (cancelled || !container.current) return;
         ensureMaplibreCss();
         // Golden hour when its files are set up; the original map otherwise and as the fallback.
-        let light = golden?.resolveLight().light;
+        let light = golden?.resolveLight(alwaysDay ? { light: 'day' } : {}).light;
         const goldenStyle = () =>
           golden!.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: light! }).style as unknown as StyleSpecification;
         let onGolden = !!golden;
@@ -103,6 +103,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
             },
           });
           lightTimer = setInterval(() => {
+            if (alwaysDay) return;
             const next = golden.resolveLight().light;
             if (!onGolden || next === light) return;
             light = next;
