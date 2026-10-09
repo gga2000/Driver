@@ -2959,6 +2959,28 @@ model DriverCheckIn {
   @@schema("public")
 }
 
+/// Staff paused a courier or driver while a report is looked into (r6, Ali 2026-10-08): he can't go
+/// online until a person lifts it. One open row (lifted_at null) per person; notes are staff words.
+model DriverPause {
+  id          String    @id @default(cuid())
+  personId    String    @map("person_id")
+  /// safety_report | other
+  reason      String
+  ticketId    String?   @map("ticket_id")
+  note        String
+  pausedAt    DateTime  @map("paused_at")
+  pausedById  String    @map("paused_by_id")
+  liftedAt    DateTime? @map("lifted_at")
+  liftedById  String?   @map("lifted_by_id")
+  liftNote    String?   @map("lift_note")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([personId, liftedAt])
+  @@map("driver_pauses")
+  @@schema("public")
+}
+
 /// A child reported absent for one خطوط run (edge-case §5): the child's stops on that trip are skipped.
 model KhatAbsence {
   id             String   @id @default(cuid())

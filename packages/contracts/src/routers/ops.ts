@@ -24,6 +24,7 @@ import {
   OpsMenuPhotoRef,
   ScheduleMenuPhotosInput,
 } from '../menu-photos-io.js';
+import { DISH_PHOTO_REVIEW_ROLES, DishPhotoQueueInput, DishPhotoRow, KeepDishPhotoInput, KeepDishPhotoResult, TakeDownDishPhotoInput, TakeDownDishPhotoResult } from '../dish-photos-io.js';
 import { ConsolePickupSpotView, MerchantOrgInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -84,6 +85,25 @@ export const opsPickupSpotsRouter = router({
     .mutation(({ ctx, input }) => ctx.pickupSpots.set(ctx.actor, input)),
 });
 
+/**
+ * `ops.dishPhotos.*` — p4 same-day look (Console › الموافقات): dish photos shops put up themselves,
+ * oldest first; «تمام» keeps one, «انزّلها» takes a bad one down with a reason (both audited).
+ */
+export const opsDishPhotosRouter = router({
+  queue: protectedProcedure(DISH_PHOTO_REVIEW_ROLES)
+    .input(DishPhotoQueueInput)
+    .output(z.array(DishPhotoRow))
+    .query(({ ctx, input }) => ctx.dishPhotos.queue(ctx.actor, input)),
+  keep: protectedProcedure(DISH_PHOTO_REVIEW_ROLES)
+    .input(KeepDishPhotoInput)
+    .output(KeepDishPhotoResult)
+    .mutation(({ ctx, input }) => ctx.dishPhotos.keep(ctx.actor, input)),
+  takeDown: protectedProcedure(DISH_PHOTO_REVIEW_ROLES)
+    .input(TakeDownDishPhotoInput)
+    .output(TakeDownDishPhotoResult)
+    .mutation(({ ctx, input }) => ctx.dishPhotos.takeDown(ctx.actor, input)),
+});
+
 /** `ops.*` — Ops mode in the Partner app for field staff. */
 export const opsRouter = router({
   addLandmarkPhoto: protectedProcedure(FIELD_OPS_ROLES)
@@ -131,6 +151,8 @@ export const opsRouter = router({
   controls: opsControlsRouter,
   /** Menu photo service (maps k3): field ops shoot dishes for restaurants. */
   menuPhotos: opsMenuPhotosRouter,
+  /** Dish photos shops put up themselves, for the same-day look (p4). */
+  dishPhotos: opsDishPhotosRouter,
   /** Zone outlines drawn on a real map (Console › المناطق; admin / field ops to change). */
   zones: opsZonesRouter,
   /** Stores' pickup spots set from the Console (field ops, admin). */
