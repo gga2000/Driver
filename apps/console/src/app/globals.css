@@ -332,6 +332,10 @@ select {
   background: rgb(var(--c-surface)) !important;
   color: rgb(var(--c-muted));
 }
+/* The Golden hour map's credit is plain text, not a link: keep it readable in the dark theme too. */
+.maplibregl-ctrl-attrib-inner {
+  color: rgb(var(--c-muted));
+}
 .maplibregl-ctrl-attrib a,
 .maplibregl-ctrl-attrib-inner > a {
   color: rgb(var(--c-text)) !important;

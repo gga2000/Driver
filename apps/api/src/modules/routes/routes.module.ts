@@ -12,7 +12,7 @@ import { TripChatSubjects } from './trip-chat.subjects.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
 import { DeparturesService } from './departures.service.js';
-import { DEPARTURES_AUDIT, DeparturesStaffService, GARAGE_WATCH_RULES, garageWatchRulesFromEnv } from './departures.staff.js';
+import { DEPARTURES_AUDIT, DeparturesStaffService, GARAGE_BOARD, GARAGE_BOARD_PORT, GARAGE_WATCH_RULES, garageWatchRulesFromEnv, type GarageBoardPort } from './departures.staff.js';
 import { EventsServiceAdapter, ROUTES_EVENTS } from './events.adapter.js';
 import { INTERCITY_NETWORK, INTERCITY_RULES } from './intercity.config.js';
 import { TrailCheckpointWaiver } from './late-meter.js';
@@ -107,6 +107,20 @@ import { RoutesWriter } from './writer.js';
     // W3 / NTF-14: the Console's way out of a dead departure; the auto-cancel switch is off by default.
     { provide: GARAGE_WATCH_RULES, useFactory: () => garageWatchRulesFromEnv() },
     { provide: DEPARTURES_AUDIT, useExisting: AuditLogService },
+    // Lane E's Today rows for late cars: `departure.overdue` / `_cleared` marks on their own board.
+    {
+      provide: GARAGE_BOARD_PORT,
+      useFactory: (events: EventsService): GarageBoardPort => ({
+        marks: async () =>
+          (await events.forAggregate(GARAGE_BOARD.name, GARAGE_BOARD.id)).map((e) => ({ type: e.type, departureId: String(e.payload['departureId']), occurredAt: e.occurredAt, payload: e.payload })),
+        emit: async (event) => void (await events.emit(undefined, event, GARAGE_BOARD)),
+        lastActor: async (departureId, since) => {
+          const after = (await events.forAggregate('departure', departureId, { from: since })).filter((e) => e.actorId);
+          return after.at(-1)?.actorId ?? 'system';
+        },
+      }),
+      inject: [EventsService],
+    },
     DeparturesStaffService,
   ],
   exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler, TripChatSubjects],
