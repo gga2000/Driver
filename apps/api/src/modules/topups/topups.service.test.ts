@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
+import type { AuditLogService } from '../controls/index.js';
 import { FakeClock } from '../../shared/clock.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { Accounts } from '../ledger/accounts.js';
@@ -30,6 +31,8 @@ function harness(outcomes?: { agentCashAccounts: boolean }) {
   const ledger = new LedgerService(ledgerRepo, ev.uow);
   const repo = new InMemoryTopUpsRepository();
   const carrying = new Set<string>(); // `${courierId}|${customerId}`
+  const staff = new Set<string>(['ops_1', 'ops_2']);
+  const audits: Array<{ action: string; actorId: string; subjectId: string; detail?: Record<string, unknown> }> = [];
   const svc = new TopUpService(
     repo,
     ledger,
@@ -37,11 +40,12 @@ function harness(outcomes?: { agentCashAccounts: boolean }) {
     ev.uow,
     clock,
     { carriesOrderOf: async (k, c) => carrying.has(`${k}|${c}`) },
-    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي أحمد', phoneMasked: '0770 ••• 4567' }])) },
+    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي أحمد', phoneMasked: '0770 ••• 4567' }])), isStaff: async (id) => staff.has(id) },
     outcomes,
+    { record: async (r: (typeof audits)[number]) => (audits.push(r), r) } as unknown as AuditLogService,
   );
   const balance = async (id = 'c1') => (await ledger.balance(Accounts.customer(id))).amount;
-  return { clock, ev, ledger, repo, svc, carrying, balance };
+  return { clock, ev, ledger, repo, svc, carrying, balance, audits };
 }
 
 describe('wallet top-up with cash — request', () => {
@@ -145,6 +149,34 @@ describe('wallet top-up with cash — confirmation', () => {
     expect(done).not.toHaveProperty('walletBalanceIqd');
     expect(await h.balance()).toBe(15_000);
     expect((await h.ledger.balance(Accounts.cash('k1'))).amount).toBe(-15_000);
+  });
+});
+
+describe('wallet top-up with cash — staff accounts', () => {
+  it('field ops cannot confirm a top-up on his own wallet or on another staff wallet; nothing is credited', async () => {
+    const h = harness();
+    const own = await h.svc.request(agent, { amountIqd: 100_000 });
+    expect(await code(h.svc.confirm(agent, { code: own.code, amountIqd: 100_000 }, 'ops_agent'))).toBe('staff_own_account');
+    const colleague: Actor = { personId: 'ops_2', sessionId: 's4' };
+    expect(await code(h.svc.confirm(colleague, { code: own.code, amountIqd: 100_000 }, 'ops_agent'))).toBe('staff_own_account');
+    expect(await h.balance('ops_1')).toBe(0);
+    expect((await h.repo.get(own.topUpId))?.state).toBe('pending');
+    // A courier never confirms his own either.
+    const mine = await h.svc.request(courier, { amountIqd: 10_000 });
+    h.carrying.add('k1|k1');
+    expect(await code(h.svc.confirm(courier, { code: mine.code, amountIqd: 10_000 }, 'courier'))).toBe('staff_own_account');
+    expect(h.audits).toEqual([]);
+  });
+
+  it('every field ops confirmation writes a console audit row; a courier confirmation does not (it is not a Console action)', async () => {
+    const h = harness();
+    const r = await h.svc.request(customer, { amountIqd: 25_000 });
+    await h.svc.confirm(agent, { code: r.code, amountIqd: 25_000 }, 'ops_agent');
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'wallet.topup_confirm', actorId: 'ops_1', subjectId: r.topUpId, detail: expect.objectContaining({ customerId: 'c1', amountIqd: 25_000 }) })]);
+    const c = await h.svc.request({ personId: 'c2', sessionId: 's5' }, { amountIqd: 10_000 });
+    h.carrying.add('k1|c2');
+    await h.svc.confirm(courier, { code: c.code, amountIqd: 10_000 }, 'courier');
+    expect(h.audits).toHaveLength(1);
   });
 });
 

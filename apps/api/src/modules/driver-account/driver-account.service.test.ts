@@ -347,7 +347,7 @@ describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
     const ops = await h.person('07700000022', ['support']);
     const customer = await h.person('07700000023');
     await expect(h.service.pause(ops, { personId: customer.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'invalid_input' });
-    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'staff_own_account' });
 
     const paused = await h.service.pause(ops, { personId: d.personId, reason: 'safety_report', ticketId: 'tk_1', note: 'بلاغ سياقة خطرة، ننتظر نسمع منه' });
     expect(paused.active).toMatchObject({ reason: 'safety_report', ticketId: 'tk_1', pausedById: ops.personId });
@@ -365,6 +365,19 @@ describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
     await expect(h.service.liftPause(ops, { personId: d.personId, note: 'مرة ثانية' })).rejects.toMatchObject({ code: 'invalid_input' });
     expect(h.audits.map((a) => a.action)).toEqual(['driver.pause', 'driver.lift_pause']);
     expect((await h.ev.events.forAggregate('person', d.personId)).map((e) => e.type).filter((t) => t.includes('paused'))).toEqual(['driver.paused', 'driver.unpaused']);
+  });
+});
+
+describe('driverAccount staff pause: never on himself', () => {
+  it('a staff member who also drives cannot lift his own pause; a colleague can', async () => {
+    const h = setup();
+    const both = await h.person('07700000026', ['field_ops', 'courier']);
+    const ops = await h.person('07700000027', ['support']);
+    await h.service.pause(ops, { personId: both.personId, reason: 'safety_report', note: 'بلاغ سياقة خطرة' });
+    await expect(h.service.liftPause(both, { personId: both.personId, note: 'رجعت' })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await h.service.pauseStatus(ops, { personId: both.personId })).active).not.toBeNull();
+    expect(h.audits.map((a) => a.action)).toEqual(['driver.pause']);
+    expect((await h.service.liftPause(ops, { personId: both.personId, note: 'سمعنا منه' })).active).toBeNull();
   });
 });
 
