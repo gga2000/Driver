@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import net from 'node:net';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import { DriverError, REQUEST_LIMITS, type RequestCall } from '@driver/contracts';
-import { FakeClock } from '../shared/clock.js';
-import { InMemoryWindowCounter, type WindowCounter } from '../shared/window-counter.js';
+import { FakeClock, SystemClock } from '../shared/clock.js';
+import { InMemoryWindowCounter, RedisWindowCounter, requestPathRedis, type WindowCounter } from '../shared/window-counter.js';
 import { RequestLimits, ipModeFromEnv } from './request-limits.js';
 
 const L = REQUEST_LIMITS;
@@ -127,5 +129,33 @@ describe('request limits (SCALE-20)', () => {
     const staff = await calls(limits, call('s1'), L.staffReadsPerPerson + L.staffWritesPerPerson + 1);
     expect(staff.slice(0, -1).every((r) => r === 'ok')).toBe(true);
     expect(staff.at(-1)).toBe('rate_limited');
+  });
+});
+
+describe('request limits while Redis does not answer (OPS2-02)', () => {
+  it('a counter whose Redis never answers lets the call through within 200 ms, then skips counting for 5 s', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    // Accepts the connection and never replies: a Redis that is restarting, loading or unreachable.
+    const silent = net.createServer(() => undefined);
+    await new Promise<void>((ok) => silent.listen(0, '127.0.0.1', ok));
+    const redis = requestPathRedis(`redis://127.0.0.1:${(silent.address() as net.AddressInfo).port}`);
+    redis.on('error', () => undefined);
+    const counter = new RedisWindowCounter(redis, new SystemClock());
+    const tally = vi.spyOn(counter, 'tally');
+    const limits = new RequestLimits(counter, 'enforce');
+    try {
+      let t = Date.now();
+      await limits.check(person('p1'));
+      expect(Date.now() - t).toBeLessThan(200);
+      expect(tally).toHaveBeenCalledTimes(1);
+      t = Date.now();
+      await limits.check(person('p2'));
+      expect(Date.now() - t).toBeLessThan(20);
+      expect(tally).toHaveBeenCalledTimes(1); // not asked again inside the 5 s
+    } finally {
+      redis.disconnect();
+      silent.close();
+      vi.restoreAllMocks();
+    }
   });
 });
