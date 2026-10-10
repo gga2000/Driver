@@ -1,14 +1,43 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { AppState, Linking, Platform } from 'react-native';
 import { useApiClient } from '@/lib/api';
 import { pushDevice } from '@/lib/push';
 import { useSignedIn } from '@/lib/session';
 import { storage } from '@/lib/storage';
-import { deepLinkPath, PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
+import { deepLinkPath, PREPROMPT_KEY, pushHealthOf, shouldShowPrePrompt, type PushHealth } from './prompt';
 
 let registeredToken: string | null = null;
 const listeners = new Set<() => void>();
+
+let health: PushHealth = 'unknown';
+const healthListeners = new Set<() => void>();
+function setHealth(next: PushHealth) {
+  if (next === health) return;
+  health = next;
+  for (const l of healthListeners) l();
+}
+
+/** MER-12: this device's push state, for the board's «الإشعارات طافية» chip. */
+export function usePushHealth(): PushHealth {
+  return useSyncExternalStore(
+    (l) => {
+      healthListeners.add(l);
+      return () => {
+        healthListeners.delete(l);
+      };
+    },
+    () => health,
+    () => health,
+  );
+}
+
+/** The chip's tap: notifications refused → the phone's settings for this app; no token → try again. */
+export function fixPush(): void {
+  if (health === 'off') void Linking.openSettings().catch(() => undefined);
+  else for (const l of listeners) l();
+}
 
 /**
  * Root hook (signed in): Android channels (new orders ring loud on `offers` with `offer.wav`), this
@@ -23,14 +52,28 @@ export function usePushRegistration(): void {
     let cancelled = false;
     const register = async () => {
       await pushDevice.setupChannels().catch(() => undefined);
+      const permission = await pushDevice.permission().catch(() => 'undetermined' as const);
       const tok = await pushDevice.token().catch(() => null);
-      if (!tok || cancelled) return;
-      await client.notify.registerDevice.mutate({ token: tok.token, kind: tok.kind, app: 'merchant', platform: tok.platform, appVersion: Constants.expoConfig?.version ?? undefined }).catch(() => undefined);
-      registeredToken = tok.token;
+      if (cancelled) return;
+      const web = Platform.OS === 'web';
+      if (!tok) {
+        setHealth(pushHealthOf({ web, permission, registered: false }));
+        return;
+      }
+      const ok = await client.notify.registerDevice
+        .mutate({ token: tok.token, kind: tok.kind, app: 'merchant', platform: tok.platform, appVersion: Constants.expoConfig?.version ?? undefined })
+        .then(() => true, () => false);
+      if (cancelled) return;
+      if (ok) registeredToken = tok.token;
+      setHealth(pushHealthOf({ web, permission, registered: ok }));
     };
     void register();
     const again = () => void register();
     listeners.add(again);
+    // Back from the phone's settings (or a long time away): check again, so the chip goes once fixed.
+    const appState = AppState.addEventListener('change', (st) => {
+      if (st === 'active') again();
+    });
     const offReceive = pushDevice.onReceive((data) => {
       if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: false }).catch(() => undefined);
     });
@@ -42,6 +85,7 @@ export function usePushRegistration(): void {
     return () => {
       cancelled = true;
       listeners.delete(again);
+      appState.remove();
       offReceive();
       offOpen();
     };

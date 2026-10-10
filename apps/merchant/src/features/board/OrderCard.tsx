@@ -367,6 +367,11 @@ export function OrderCard(props: OrderCardProps) {
   const { wide, width } = useLayout();
   /** Three board columns under 1000 px leave a card ~190 px inside: the ticket number steps down. */
   const tight = wide && width < 1000;
+  /**
+   * MER-13: three columns under 1100 px (the 1024×768 iPad) leave a ticket ~250 px inside: a rush row's
+   * button drops under the number, and a new ticket's «اقبل» gets its own line above «ارفض».
+   */
+  const narrow = wide && width < 1100;
   const numberLabel = t('merchant.card.number', { number: order.number });
   const numberType = theme.type[tight ? 'amount' : 'numeralSm'];
   // h3: a ticket re-draws on its own when its numbers change: every 10 s («من 4 د», the prep bar),
@@ -396,28 +401,34 @@ export function OrderCard(props: OrderCardProps) {
       <StatusPill tone="success" icon="check" label={timing.minutes < 1 ? t('merchant.card.ready_now') : t('merchant.card.ready_since', { minutes: timing.minutes })} />
     ) : null;
 
+  const rejectButton = (size: 'md' | 'lg', fill: boolean) => (
+    <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} {...(fill ? { fullWidth: true } : { style: { flex: 1 } })} />
+  );
   const acceptButtons = (size: 'md' | 'lg') => (
-    <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-      <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} style={{ flex: 1 }} />
-      {onAcceptNow && oneTapMinutes !== undefined ? (
-        <>
-          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
-          <Pressable
-            testID={`accept-more-${order.number}`}
-            accessibilityRole="button"
-            accessibilityLabel={t('merchant.accept.more')}
-            onPress={() => {
-              theme.haptic('light');
-              onAccept();
-            }}
-            style={({ pressed }) => ({ width: size === 'lg' ? 56 : 48, height: size === 'lg' ? 56 : 48, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
-          >
-            <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
-          </Pressable>
-        </>
-      ) : (
-        <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size={size} haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
-      )}
+    <View style={{ gap: theme.space[2] }}>
+      <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
+        {narrow ? null : rejectButton(size, false)}
+        {onAcceptNow && oneTapMinutes !== undefined ? (
+          <>
+            <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+            <Pressable
+              testID={`accept-more-${order.number}`}
+              accessibilityRole="button"
+              accessibilityLabel={t('merchant.accept.more')}
+              onPress={() => {
+                theme.haptic('light');
+                onAccept();
+              }}
+              style={({ pressed }) => ({ width: size === 'lg' ? 56 : 48, height: size === 'lg' ? 56 : 48, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
+            >
+              <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
+            </Pressable>
+          </>
+        ) : (
+          <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size={size} haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
+        )}
+      </View>
+      {narrow ? rejectButton(size, true) : null}
     </View>
   );
 
@@ -443,6 +454,14 @@ export function OrderCard(props: OrderCardProps) {
   if (row && isNew) {
     // Phone «هسة» (o2): one line per order waiting behind the first; tap brings it to the top.
     const dishes = dishLine(order, 2);
+    const action =
+      rowAction && !order.partial ? (
+        needsReading(order) ? (
+          <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} fullWidth={narrow} />
+        ) : onAcceptNow && oneTapMinutes !== undefined ? (
+          <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} fullWidth={narrow} />
+        ) : null
+      ) : null;
     return (
       <Animated.View testID={`order-${order.number}`} style={[{ position: 'relative' }, breath]}>
         <Pressable
@@ -451,9 +470,10 @@ export function OrderCard(props: OrderCardProps) {
           accessibilityRole="button"
           accessibilityLabel={t('merchant.board.row_a11y', { number: order.number, count: order.itemCount })}
           style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space[3],
+            // MER-13: on a narrow column the button goes under the number, never over it.
+            flexDirection: narrow && action ? 'column' : 'row',
+            alignItems: narrow && action ? 'stretch' : 'center',
+            gap: narrow && action ? theme.space[2] : theme.space[3],
             minHeight: 64,
             paddingHorizontal: theme.space[3],
             paddingVertical: theme.space[2],
@@ -464,33 +484,28 @@ export function OrderCard(props: OrderCardProps) {
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          {order.acceptBy && !order.partial && !noRing ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
-          ) : (
-            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
-              <MIcon name="hourglass" size={18} color="warningText" />
-            </View>
-          )}
-          <View style={{ flex: 1, gap: 2 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-              <Text tabular style={[theme.face('display'), { fontSize: 20, lineHeight: 28, color: COUNTER.date }]}>
-                {t('merchant.card.number', { number: order.number })}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], flexGrow: 1, flexShrink: 1 }}>
+            {order.acceptBy && !order.partial && !noRing ? (
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
+            ) : (
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
+                <MIcon name="hourglass" size={18} color="warningText" />
+              </View>
+            )}
+            <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+                <Text tabular style={[theme.face('display'), { fontSize: 20, lineHeight: 28, color: COUNTER.date }]}>
+                  {t('merchant.card.number', { number: order.number })}
+                </Text>
+                {allergy ? <MIcon name="alert" size={18} color="dangerText" strokeWidth={2.4} /> : null}
+              </View>
+              <Text variant="footnote" color="textMuted" numberOfLines={1}>
+                {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
               </Text>
-              {allergy ? <MIcon name="alert" size={18} color="dangerText" strokeWidth={2.4} /> : null}
             </View>
-            <Text variant="footnote" color="textMuted" numberOfLines={1}>
-              {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
-            </Text>
+            {rowAction ? null : <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />}
           </View>
-          {rowAction && !order.partial ? (
-            needsReading(order) ? (
-              <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} />
-            ) : onAcceptNow && oneTapMinutes !== undefined ? (
-              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size="md" haptic="success" loading={busyAccept} onPress={onAcceptNow} />
-            ) : null
-          ) : (
-            <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />
-          )}
+          {action}
         </Pressable>
       </Animated.View>
     );
