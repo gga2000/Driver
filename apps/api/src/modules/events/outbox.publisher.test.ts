@@ -49,6 +49,27 @@ describe('OutboxPublisher — sync mode (no Redis)', () => {
     expect(seen).toEqual(['order.placed', 'order.offered_to_merchant']);
   });
 
+  it('drain() waits for a drain already running (the interval or another commit) instead of returning at once', async () => {
+    const h = synced();
+    const seen: string[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    h.events.subscribe('test:slow', ['order.placed'], async (e) => {
+      seen.push(e.orderId!);
+      await gate;
+    });
+    const first = h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' }); // its drain holds at o1
+    while (!seen.includes('o1')) await new Promise((r) => setTimeout(r, 0));
+    let returned = false;
+    const drained = h.events.drain().then(() => (returned = true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(returned).toBe(false);
+    open();
+    await drained;
+    await first;
+    expect(await h.events.pendingOutbox()).toBe(0);
+  });
+
   it('rows with no subscriber are published', async () => {
     const h = synced();
     await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
