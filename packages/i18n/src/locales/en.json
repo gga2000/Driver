@@ -3139,6 +3139,8 @@
   "home.fee_all_free": "Free delivery from every kitchen",
   "home.kitchen_stars_a11y": "Rated {n} of 5",
   "home.all_kitchens": "All kitchens",
+  "home.map_box_title": "Aziziyah's restaurants on the map",
+  "home.map_box_line": "Every restaurant is a little 3D shop. Tap one to see it up close.",
   "home.all_kitchens_a11y": "All kitchens, {count}",
   "home.soon_line": "Coming soon",
   "home.bye": "Enjoy your meal",

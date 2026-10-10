@@ -5,6 +5,7 @@ import Animated, { Extrapolation, interpolate, useAnimatedStyle, useSharedValue 
 import type { CatalogSearchDish, LaunchService } from '@driver/contracts';
 import { agoText, Icon, MAX_CONTENT_WIDTH, SearchField, Text, useLoadTimeout, useNetwork, useNow, useTheme } from '@driver/ui';
 import { secondsSince } from '@driver/contracts/net-client';
+import { SectionHeader } from '@/components/SectionHeader';
 import { Screen } from '@/components/Screen';
 import { cartMerchantOf, itemCount, itemsTotal, ME } from '@/features/food/cart';
 import { cartStore, useCart } from '@/features/food/cart-store';
@@ -39,7 +40,8 @@ import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
-import { KitchenNote, KitchenRows, KitchenRowsSkeleton, KitchensHeader, NoteMark } from '@/features/home/KitchenRows';
+import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
+import { MapBox, mapBoxNight } from '@/features/home/MapBox';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { lastReorderable } from '@/features/orders/history';
@@ -204,10 +206,6 @@ export default function Home() {
     else setSoon(id);
   };
 
-  // «الخريطة» (Ali 2026-10-09): every restaurant on the map, where the map is set up (web for now; the
-  // phones get it with the native map). Shown over the kitchens whenever there are any to show.
-  const toMap = GOLDEN_MAP ? () => router.push('/restaurant-map') : undefined;
-
   const onRefresh = async () => {
     setRefreshing(true);
     // The full glass steams for a moment even when the answer comes back at once, so the pull reads.
@@ -273,10 +271,10 @@ export default function Home() {
         {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات». */}
         <View testID="home-food" style={{ gap: theme.space[3] }}>
           {open.length > 0 ? (
-            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} onMap={toMap} />
+            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} />
           ) : (
             <>
-              <KitchensHeader title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} onMap={night.first ? toMap : undefined} />
+              <SectionHeader big title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} />
               {loading ? (
                 <KitchenRowsSkeleton />
               ) : failed && !list ? (
@@ -296,6 +294,10 @@ export default function Home() {
             </>
           )}
         </View>
+
+        {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
+            now; the phones get it with the native map) and there are kitchens to show on it. */}
+        {GOLDEN_MAP && list && list.length > 0 ? <MapBox night={mapBoxNight(dp.hour)} /> : null}
 
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
         {list?.some((r) => !!r.deal) ? (

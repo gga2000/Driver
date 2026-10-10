@@ -3139,6 +3139,8 @@
   "home.fee_all_free": "التوصيل مجاني من كل المحلات",
   "home.kitchen_stars_a11y": "تقييمه {n} من 5",
   "home.all_kitchens": "كل المحلات",
+  "home.map_box_title": "مطاعم العزيزية على الخريطة",
+  "home.map_box_line": "كل مطعم محل صغير بالـ3D، دوس عليه وشوفه من قريب",
   "home.all_kitchens_a11y": "كل المحلات، {count}",
   "home.soon_line": "جاي قريب",
   "home.bye": "بالعافية",
