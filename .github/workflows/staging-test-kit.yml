@@ -1,0 +1,72 @@
+# Driver (درايفر) — STAGING ONLY: make the staging test numbers a restaurant owner, a courier + taxi
+# driver and a courier + tuktuk driver, so one person can try every side of an order and a ride
+# (docs/launch/staging-test-kit.md, scripts/staging/test-kit.mjs).
+#
+# Run by hand: Actions → Staging test kit → Run workflow (Ali approves it like every staging run).
+# Each number must have signed in once first. `undo` takes back exactly what the kit gave.
+# It only reads the staging environment's DIRECT_URL and only touches numbers in the test range.
+name: Staging test kit
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: give the roles, or take them back
+        type: choice
+        options: [give, undo]
+        default: give
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  kit:
+    name: staging test kit (${{ inputs.action }})
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+    steps:
+      # Same guard as Staging setup: this job may only ever touch the staging database.
+      - name: Staging never reaches production
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [ -n "$DIRECT_URL" ] || fail "secret DIRECT_URL is not set on the staging environment"
+          [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref)"
+          [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database"
+
+      - uses: actions/checkout@v4
+
+      - name: Supabase CA certificate (secret, else the public root CA in deploy/supabase/)
+        env:
+          CA_SECRET: ${{ secrets.DATABASE_CA_CERT }}
+        run: |
+          if [ -n "$CA_SECRET" ]; then pem="$CA_SECRET"; else pem=$(cat deploy/supabase/prod-ca-2021.crt); fi
+          { echo 'DATABASE_CA_CERT<<CA_EOF'; echo "$pem"; echo 'CA_EOF'; } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global corepack@latest && corepack enable
+      - name: Install (db package only)
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter=driver --filter=@driver/db...
+
+      - name: Test kit
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          KIT_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+        run: node scripts/staging/test-kit.mjs ${{ inputs.action == 'undo' && '--undo' || '' }}
