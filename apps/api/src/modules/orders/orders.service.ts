@@ -232,6 +232,11 @@ type PlaceInput = z.input<typeof PlaceOrderInput>;
 /** Orders one ticket-number search reads before it pages (two busy days of a city fit easily). */
 export const TICKET_SCAN_LIMIT = 5_000;
 
+/** An order-number search with no `from` looks back to the start of yesterday (Baghdad). */
+function ticketWindowStart(now: Date): Date {
+  return new Date(startOfLocalDay(now).getTime() - 86_400_000);
+}
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -1594,10 +1599,12 @@ export class OrdersService implements OnModuleInit {
   }
 
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
-  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined }): Promise<OrderSearchPage> {
-    const { cursor, late, ...filter } = input;
+  async search(
+    input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined; alsoOrdererIds?: readonly string[] | undefined },
+  ): Promise<OrderSearchPage> {
+    const { cursor, late, alsoOrdererIds, ...filter } = input;
     const ticket = filter.text ? parseOrderTicket(filter.text) : null;
-    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late);
+    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late, alsoOrdererIds);
     if (late) return this.searchLate(filter, cursor);
     const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
     const page = rows.slice(0, input.limit);
@@ -1613,14 +1620,37 @@ export class OrdersService implements OnModuleInit {
    * Console shows each with its time and restaurant). Other filters still apply. Pages by the same
    * keyset cursor; a scan that hit its bound continues from where it stopped.
    */
-  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined, late?: boolean): Promise<OrderSearchPage> {
+  private async searchTicket(
+    ticket: string,
+    filter: Omit<OrderSearchFilter, 'after'>,
+    cursor: string | undefined,
+    late?: boolean,
+    alsoOrdererIds?: readonly string[],
+  ): Promise<OrderSearchPage> {
     const now = this.clock.now();
-    const from = filter.from ?? new Date(startOfLocalDay(now).getTime() - 86_400_000);
+    const from = filter.from ?? ticketWindowStart(now);
+    const also = new Set(alsoOrdererIds);
     const scanned = await this.repo.search({ ...filter, from, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
-    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket && (!late || isLate(o, now)));
+    const hits = scanned.filter((o) => (orderTicketNumber(o.id) === ticket || also.has(o.ordererId)) && (!late || isLate(o, now)));
     const page = hits.slice(0, filter.limit);
     const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };
+  }
+
+  /** Where an order-number search with no `from` starts: the start of yesterday (Baghdad). */
+  ticketWindowFrom(): Date {
+    return ticketWindowStart(this.clock.now());
+  }
+
+  /**
+   * v7: who ordered in the city over the filter's window — the people a phone-tail or name search
+   * looks among. The same bounded scan as an order number; `recent` defaults the window to today
+   * and yesterday (Baghdad) like `searchTicket`, else an open window is the newest scan's worth.
+   */
+  async ordererIdsIn(filter: Omit<OrderSearchFilter, 'after' | 'limit' | 'text' | 'ordererIds'>, recent: boolean): Promise<string[]> {
+    const from = filter.from ?? (recent ? ticketWindowStart(this.clock.now()) : undefined);
+    const rows = await this.repo.search({ ...filter, from, limit: TICKET_SCAN_LIMIT });
+    return [...new Set(rows.map((o) => o.ordererId))];
   }
 
   /**

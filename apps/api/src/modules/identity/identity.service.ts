@@ -545,6 +545,28 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * Console order search by the last four digits a caller reads out (Yes-list v7): which of
+   * `personIds` have a phone ending in `tail`. One read of the people and one of the vault rows; a
+   * log row (`phone_e164`, the staff member as accessor, `purpose`) for each person returned, since
+   * the search tells staff whose number ends that way. The number itself never leaves identity.
+   */
+  async matchPhoneTails(personIds: readonly string[], tail: string, accessorId: string, purpose: string): Promise<string[]> {
+    const ids = [...new Set(personIds)];
+    if (ids.length === 0 || !/^\d{4}$/.test(tail)) return [];
+    return this.uow.run(async (tx) => {
+      const live = (await this.repo.findPeopleByIds(ids, tx)).filter((p) => !p.deletedAt).map((p) => p.id);
+      if (live.length === 0) return [];
+      const hits = new Set((await this.repo.readIdentities(live, tx)).filter((i) => i.phoneE164.endsWith(tail)).map((i) => i.personId));
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        [...hits].filter((id) => id !== accessorId).map((personId) => ({ personId, accessorId, purpose, fieldsRead: ['phone_e164'], now })),
+        tx,
+      );
+      return ids.filter((id) => hits.has(id));
+    });
+  }
+
+  /**
    * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
    * the public side records just that the profile changed, never the values.
    */

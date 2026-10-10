@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Actor, ConsolePickupSpotView, MerchantOrgInput, PickupSpotView, PickupSpotsOpsPort, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '@driver/contracts';
+import { CatalogService } from '../catalog/index.js';
 import { AuditLogService } from '../controls/index.js';
 import { MerchantService } from '../merchant/index.js';
 import { OrgsService } from '../orgs/index.js';
@@ -20,16 +21,34 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
     private readonly merchant: MerchantService,
     private readonly orgs: OrgsService,
     private readonly audits: AuditLogService,
+    private readonly catalog: CatalogService,
   ) {}
 
-  /** The city's restaurants and grocers by name, with how far their spot is set (one org read). */
+  /**
+   * The city's restaurants and grocers by name, with how far their spot is set and what is still
+   * missing for k6 «للتكملة»: the shop photo and dishes without a picture (one org read, one
+   * storefront read, one menu read per store).
+   */
   async stores(_actor: Actor, input: PickupStoresInput): Promise<PickupStoreRow[]> {
-    const rows: PickupStoreRow[] = [];
-    for (const org of await this.orgs.inCity(input.cityId)) {
-      if (org.type !== 'restaurant' && org.type !== 'grocer') continue;
-      const spot = org.merchant?.pickupSpot ?? null;
-      rows.push({ merchantOrgId: org.id, name: org.name, type: org.type, note: spot?.note ?? null, photos: spot?.photoRefs.length ?? 0, updatedAt: spot?.updatedAt ?? null });
-    }
+    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => o.type === 'restaurant' || o.type === 'grocer');
+    const fronts = new Map((await this.catalog.storefronts(input.cityId)).map((f) => [f.orgId, f]));
+    const rows = await Promise.all(
+      orgs.map(async (org): Promise<PickupStoreRow> => {
+        const spot = org.merchant?.pickupSpot ?? null;
+        const menu = await this.catalog.menu(org.id);
+        return {
+          merchantOrgId: org.id,
+          name: org.name,
+          type: org.type as PickupStoreRow['type'],
+          note: spot?.note ?? null,
+          photos: spot?.photoRefs.length ?? 0,
+          updatedAt: spot?.updatedAt ?? null,
+          shopPhoto: Boolean(fronts.get(org.id)?.photoUrl),
+          dishes: menu.length,
+          dishesNoPhoto: menu.filter((i) => !i.photoUrl && !i.photoLibrary).length,
+        };
+      }),
+    );
     return rows.sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.merchantOrgId.localeCompare(b.merchantOrgId));
   }
 

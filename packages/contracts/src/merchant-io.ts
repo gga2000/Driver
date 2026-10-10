@@ -429,6 +429,11 @@ export const PickupStoreRow = z.object({
   note: z.string().nullable(),
   photos: z.number().int().min(0).max(PICKUP_SPOT_RULES.maxPhotos),
   updatedAt: z.coerce.date().nullable(),
+  /** k6 «للتكملة»: the storefront has its shop photo (customers see it on the card). */
+  shopPhoto: z.boolean(),
+  /** Dishes on the menu, and how many show no picture at all (neither the kitchen's nor a library one). */
+  dishes: z.number().int().min(0),
+  dishesNoPhoto: z.number().int().min(0),
 });
 export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 

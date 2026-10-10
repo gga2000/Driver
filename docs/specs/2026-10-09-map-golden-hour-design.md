@@ -143,3 +143,21 @@ from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-desig
   - Fewer at night, none in alleys.
   - `moving: false` on slow phones and with reduce-motion gives a still scene.
 - **For the screen owner:** read the roads with `querySourceFeatures(GOLDEN_SOURCE, { sourceLayer: 'roads' })` on `moveend`. Feed `lifeFrame()` to a GeoJSON source each animation frame while the map is at street zoom, and stop the loop below it or when the screen is hidden.
+
+## Landmarks in 3D (Ali, 2026-10-09: "not real spot, make good looking design for each")
+
+The main mosque, the hospital and the three town garages stand up as detailed models, built in metres by
+`tools/map-tiles/landmarks.py` and shipped in the tiles' `landmarks` layer (`lm`, `part`, `hm`, `base`). The style
+colours each part per light (`GoldenPalette.landmark`) and raises them at `LANDMARK_RISE` (z14.6), before the houses,
+so they guide the eye from further out; the Console and cheap phones draw their plan flat.
+
+- **Main mosque**: walled courtyard with palms and a fountain, prayer hall with an arcade, a tall iwan with a gold-tiled
+  arch, a gilded dome on its drum with four small domes, two banded minarets with a call balcony. Floodlit at night.
+- **Hospital**: white L-shaped blocks with floor bands, a red crescent on a white roof disc, an entrance canopy with two
+  ambulances and a red sign, parking and palms along the fence.
+- **Garages**: a paved yard, two long corrugated canopies on steel posts over rows of minibuses, a gate frame with a
+  saffron sign board, a ticket booth, benches with people waiting, taxis at the kerb.
+
+Spots are design spots (empty lots beside a main road, off the river), not surveyed ones; the houses Overture has on a
+lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
+demo spots; moving them onto the models belongs to the garage data owner.

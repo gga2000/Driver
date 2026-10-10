@@ -2,13 +2,13 @@
 
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { AZIZIYAH_ZONES, OrderType as OrderTypeEnum, parseOrderTicket, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
+import { AZIZIYAH_ZONES, classifyOrderQuery, OrderType as OrderTypeEnum, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
 import { formatIqd } from '@/lib/format';
 import { orderTypeLabel, paymentLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS, useMerchants } from '@/lib/live';
-import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
+import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, ORDER_VIEWS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
 import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/periods';
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
@@ -67,7 +67,9 @@ export function OrdersPage() {
   const [filter, setFilter] = useState<ListFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<ListSort | null>(null);
   const q = useDeferredValue(filter.q);
-  const ticket = parseOrderTicket(q);
+  // An order number, the last 4 phone digits or a whole number ignore the period (v7); a name keeps it.
+  const query = classifyOrderQuery(q);
+  const lookup = query && (query.kind === 'ticket' || query.kind === 'tail' || query.kind === 'phone') ? query : null;
   const set = (patch: Partial<ListFilter>) => setFilter((f) => ({ ...f, ...patch }));
 
   // The view, period and filters live in the link, so a teammate opening it sees the same list.
@@ -105,7 +107,7 @@ export function OrdersPage() {
   };
 
   const dayKey = now.toISOString().slice(0, 13);
-  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(ticket), PAGE), [filter, q, ticket, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(lookup), PAGE), [filter, q, lookup, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const orders = useInfiniteQuery(
     trpc.orders.search.infiniteQueryOptions(input, {
       enabled: signedIn,
@@ -131,7 +133,7 @@ export function OrdersPage() {
       }
     return out;
   }, [orders.data]);
-  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' ? 'late' : 'newest');
+  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' || filter.view === 'waiting' ? 'late' : 'newest');
   const rows = useMemo(() => sortSummaries(loaded, effectiveSort), [loaded, effectiveSort]);
   // One batched name read for the page (K-01): customers and restaurants.
   useNames({ people: rows.map((o) => o.ordererId), orgs: rows.flatMap((o) => (o.merchantOrgId ? [o.merchantOrgId] : [])) });
@@ -233,15 +235,17 @@ export function OrdersPage() {
   const empty =
     filter.view === 'late'
       ? { title: t('console.orders_empty_late'), hint: t('console.orders_empty_late_hint') }
-      : {
-          title: t('console.orders_empty'),
-          hint: t('console.orders_empty_hint'),
-          action: filtersOn ? (
-            <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
-              {t('console.orders_filter_clear')}
-            </Button>
-          ) : undefined,
-        };
+      : filter.view === 'waiting'
+        ? { title: t('console.orders_empty_waiting'), hint: t('console.orders_empty_waiting_hint') }
+        : {
+            title: t('console.orders_empty'),
+            hint: t('console.orders_empty_hint'),
+            action: filtersOn ? (
+              <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
+                {t('console.orders_filter_clear')}
+              </Button>
+            ) : undefined,
+          };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -272,7 +276,7 @@ export function OrdersPage() {
                   ),
               }))}
             />
-            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || filter.view === 'late'} />
+            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(lookup) || ORDER_VIEWS[filter.view].now} />
           </div>
 
           <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
@@ -280,11 +284,19 @@ export function OrdersPage() {
           </FilterBar>
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">
-            {ticket ? (
-              <p role="status">{t('console.orders_ticket_hint', { ticket: `⁦#${ticket}⁩` })}</p>
+            {lookup ? (
+              <p role="status">
+                {lookup.kind === 'phone'
+                  ? t('console.orders_phone_hint')
+                  : lookup.kind === 'tail'
+                    ? t('console.orders_tail_hint', { tail: `⁦${lookup.tail}⁩` })
+                    : lookup.tail
+                      ? t('console.orders_ticket_tail_hint', { ticket: `⁦#${lookup.ticket}⁩`, tail: `⁦${lookup.tail}⁩` })
+                      : t('console.orders_ticket_hint', { ticket: `⁦#${lookup.ticket}⁩` })}
+              </p>
             ) : (
               <p>
-                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : rangeWords(filter.period, now)}</span>
+                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : filter.view === 'waiting' ? t('console.orders_waiting_now') : rangeWords(filter.period, now)}</span>
                 {orders.isSuccess ? (
                   <span className="num">
                     {' · '}

@@ -54,7 +54,24 @@ export interface GoldenPalette {
   bank: string;
   kerb: string;
   marking: string;
+  /** The 3D landmarks (main mosque, hospital, garages): one colour per `part` in the tiles' `landmarks` layer. */
+  landmark: Record<LandmarkPart, string>;
 }
+
+/** The parts a landmark is built from (tools/map-tiles/landmarks.py). */
+export const LANDMARK_PARTS = [
+  'pave', 'stone', 'trim', 'shade', 'dome', 'gold', 'brick', 'water', 'trunk', 'crown', 'person', 'robe', 'skin', 'white',
+  'band', 'tank', 'red', 'steel', 'glass', 'car', 'car2', 'yard', 'canopy', 'sign', 'bus', 'bus2',
+] as const;
+export type LandmarkPart = (typeof LANDMARK_PARTS)[number];
+
+// stone and plaster in the sun, a gilded dome, a white hospital with the red crescent, rust-red garage canopies
+const LANDMARK_DAY: Record<LandmarkPart, string> = {
+  pave: '#F3E4C8', stone: '#EBD3A6', trim: '#F7E6C4', shade: '#9A6B3E', dome: '#D9A23A', gold: '#C98E2A', brick: '#D7AE78',
+  water: '#8C9A5A', trunk: '#6E4A2A', crown: '#5F6B2E', person: '#FFFDF6', robe: '#2B2622', skin: '#C08F63', white: '#FBF8F1',
+  band: '#D9CBB3', tank: '#FFFDF7', red: '#C8352B', steel: '#5A4636', glass: '#3B3A38', car: '#E2DFD8', car2: '#8E2F22',
+  yard: '#E2CDA6', canopy: '#B8653A', sign: '#E08A1E', bus: '#FBF8F1', bus2: '#EADCC0',
+};
 
 const DAY: GoldenPalette = {
   land: '#F3E2C2', urban: '#EBD3A8', farm: '#EDE3B9', palm: '#E2DDA8', palmCrown: '#B4B071',
@@ -69,6 +86,7 @@ const DAY: GoldenPalette = {
   roofTones: ['#FBEBCF', '#F6E6CC', '#F2D9AE', '#FCF1DC', '#EFCF9E', '#F3DFC0'],
   litRoof: null, windowGlow: null,
   yard: '#F2DDB2', green: '#CFCF95', bank: '#B8A06C', kerb: '#FFFDF7', marking: '#DDBC88',
+  landmark: LANDMARK_DAY,
 };
 
 const GOLDEN: GoldenPalette = {
@@ -84,6 +102,7 @@ const GOLDEN: GoldenPalette = {
   sky: { sky: '#F1C47E', horizon: '#F9DFB4', fog: '#F4DFBC' },
   roofTones: ['#F9D9A0', '#F4E2C0', '#ECC68C', '#FBEAD0', '#E6B97E', '#EBD2AA'],
   yard: '#F0D6A2', green: '#C7C789', bank: '#B39760', marking: '#D7B47E',
+  landmark: { ...LANDMARK_DAY, stone: '#ECCB94', trim: '#F7DFB2', pave: '#F2DDB8', dome: '#E0A535', brick: '#DCA765', yard: '#E3C795' },
 };
 
 /** The five palettes. `golden` is the look Ali picked; `day` is the same town under a high sun. */
@@ -103,6 +122,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     light: { color: '#FFD9B8', intensity: 0.28 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
     roofTones: ['#DDB898', '#D9BFA4', '#D2A884', '#E4C6A8', '#CC9F7A', '#D8B392'],
+    landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#DDB78F', white: '#F2E2D2', bus: '#F2E2D2' },
   },
   night: {
     land: '#1D1712', urban: '#201913', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
@@ -117,5 +137,12 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     roofTones: ['#2A2018', '#2E231A', '#33271D', '#271D16', '#2C2219', '#30261E'],
     litRoof: '#55381F', windowGlow: '#FFB04A',
     yard: '#2C2318', green: '#232615', bank: '#3A3020', kerb: '#6E5C48', marking: '#8A7356',
+    // floodlit at night: the mosque and the hospital glow warm, the garage canopies stay lit for the late cars
+    landmark: {
+      pave: '#7A5F40', stone: '#D9B27A', trim: '#E8C58C', shade: '#3A2616', dome: '#E6A53C', gold: '#F0B850', brick: '#C2955C',
+      water: '#4A5034', trunk: '#2E2015', crown: '#3E4526', person: '#BFB3A0', robe: '#151210', skin: '#7A5A3C', white: '#E9DFCC',
+      band: '#B8A68A', tank: '#8A7A64', red: '#B2302A', steel: '#2A2018', glass: '#1A1714', car: '#6E655A', car2: '#4A1F18',
+      yard: '#3A2E20', canopy: '#8A4C2C', sign: '#E08A1E', bus: '#B8AE9E', bus2: '#9E9282',
+    },
   },
 };
