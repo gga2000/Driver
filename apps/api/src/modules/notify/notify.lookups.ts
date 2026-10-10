@@ -11,6 +11,8 @@ export interface OrderFacts {
   riderId?: string | null;
   /** How it is paid (`cash` | `wallet` | `prepaid`); absent = unknown, read as cash. */
   paymentMethod?: string;
+  /** Offered to the kitchen and not answered yet (no accept, reject or partial accept). */
+  waitingForKitchen?: boolean;
 }
 
 export interface BookingFacts {

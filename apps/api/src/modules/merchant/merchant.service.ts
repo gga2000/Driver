@@ -200,8 +200,10 @@ export class MerchantService implements MerchantPort {
   async board(actor: Actor, input: MerchantOrgInput): Promise<MerchantBoard> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
-    const kitchen = (await this.stores.merchantSettings(org.id)).location?.pin ?? null;
+    const settings = await this.stores.merchantSettings(org.id);
+    const kitchen = settings.location?.pin ?? null;
     const live = await this.orders.listActive({ merchantOrgId: org.id });
+    const closedAt = live.some((o) => o.state === 'placed' && o.merchantOfferedAt) ? await this.closedAt(org, settings, now) : undefined;
     const itemIds = [...new Set(live.flatMap((o) => o.lines.map((l) => l.catalogItemId)).filter((id): id is string => id !== null))];
     const names = itemIds.length > 0 ? await this.catalog.itemNames(org.id, itemIds) : new Map<string, string>();
     const kinds = itemIds.length > 0 && this.catalog.itemKinds ? await this.catalog.itemKinds(org.id, itemIds) : new Map<string, DishKind>();
@@ -213,11 +215,26 @@ export class MerchantService implements MerchantPort {
         this.logger.error(`board courier lookup failed for order ${order.id}: ${err instanceof Error ? err.message : String(err)}`);
         return courierView(order.id, { trip: null, firstName: null, vehicleClass: null, etaMinutes: null, plate: null });
       });
-      const card = toBoardOrder({ order, itemNames: names, itemKinds: kinds, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
+      const card = toBoardOrder({ order, itemNames: names, itemKinds: kinds, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now, closedAt });
       if (card) cards.push(card);
     }
     const missed = await this.missedToday(org, now);
     return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}) };
+  }
+
+  /**
+   * Whether the store was closed at a past moment, for the alarm's quiet rule (m6a): closed by hand
+   * since then, or outside its hours / on a holiday then. A hand close after that moment means the
+   * order was already waiting when the owner closed, so it counts as offered while open.
+   */
+  private async closedAt(org: Org, s: MerchantSettings, now: Date): Promise<(at: Date) => boolean> {
+    const hand = closedNow(s.closed, now);
+    const { windows: weekly } = await this.weeklyHours(org.id, s);
+    return (at) => {
+      if (hand) return hand.at.getTime() <= at.getTime();
+      if (s.setup && weekly.length === 0) return true;
+      return !scheduleState(at, weekly, s.holidays ?? [], DEFAULT_TIMEZONE).inHours;
+    };
   }
 
   /** Orders that left today without the kitchen's answer (M-01): they never vanish silently. */

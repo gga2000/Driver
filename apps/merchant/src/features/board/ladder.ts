@@ -1,3 +1,5 @@
+import type { BoardOrder } from '@driver/contracts';
+
 /**
  * The new-order alarm ladder (UI/UX audit M-02, signature S-M1), free of React and audio so the
  * timing is unit-tested. A kitchen needs escalation, not a metronome — three even steps across the
@@ -46,6 +48,18 @@ export interface RingCandidate {
   id: string;
   number: string;
   acceptByMs: number | null;
+  /** Offered while the store was already closed (a pre-order for opening time): rings anyway. */
+  offeredWhileClosed?: boolean;
+}
+
+/**
+ * New orders that should ring: offered to the kitchen (a 90-s window) and not a partial accept, which
+ * waits for the customer. An order with no window yet (a pre-order not offered) can't be accepted.
+ */
+export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
+  return orders
+    .filter((o) => o.column === 'new' && o.partial === null && o.acceptBy !== null)
+    .map((o) => ({ id: o.id, number: o.number, acceptByMs: o.acceptBy ? o.acceptBy.getTime() : null, offeredWhileClosed: o.offeredWhileClosed === true }));
 }
 
 export interface AlarmPlan {
@@ -62,7 +76,9 @@ export interface AlarmPlan {
   /**
    * Orders still waiting while the store is closed (m6a): shown on the board, quietly, never rung.
    * Closing is the owner saying the day is over; the board must not keep ringing behind the
-   * end-of-day card. The kitchen can still accept or reject them until the 90-s window ends.
+   * end-of-day card. The kitchen can still accept or reject them until the 90-s window ends. Only
+   * orders offered before the store closed: one offered while it was closed (a pre-order for opening
+   * time, sent prep + lead before it) rings as usual.
    */
   closed: string[];
 }
@@ -81,7 +97,7 @@ export function alarmQuiet(status: { closed: unknown; schedule?: { inHours: bool
  * What should ring now. `snoozedUntil` maps an order to the end of its snooze; `handling` holds
  * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes, except in
  * the last 30 s, MER-09: a sheet left open must not let the order run out in silence).
- * `storeClosed`: nothing rings; waiting orders are listed under `closed` instead (m6a).
+ * `storeClosed`: orders offered before the close don't ring; they are listed under `closed` (m6a).
  */
 export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: ReadonlyMap<string, number>, handling: ReadonlySet<string>, now: number, storeClosed = false): AlarmPlan {
   const ringing: string[] = [];
@@ -95,7 +111,7 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
     const msLeft = c.acceptByMs === null ? null : c.acceptByMs - now;
     if (handling.has(c.id) && (msLeft === null || msLeft > SNOOZE_FLOOR_MS)) continue;
     if (mostUrgent === null || (msLeft !== null && (mostUrgent.msLeft === null || msLeft < mostUrgent.msLeft))) mostUrgent = { id: c.id, number: c.number, msLeft };
-    if (storeClosed) {
+    if (storeClosed && !c.offeredWhileClosed) {
       closed.push(c.id);
       continue;
     }
