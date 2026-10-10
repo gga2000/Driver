@@ -25,6 +25,14 @@ export const STAGE_VOLUME: Record<AlarmStage, number> = { calm: 0.75, urgent: 0.
 export const SNOOZE_MS = 30_000;
 /** A snoozed order rings again once this little time is left, snooze or not: the steady bell is never snoozed. */
 export const SNOOZE_FLOOR_MS = LADDER.finalAtMs;
+/**
+ * MER-07: an order this far past its answer time was already turned down by the server (the tablet was
+ * offline when it happened): it stops ringing and its card says «فات الوقت» until the board catches up.
+ */
+export const EXPIRED_GRACE_MS = 5_000;
+export function answerTimeOver(acceptByMs: number | null, now: number): boolean {
+  return acceptByMs !== null && acceptByMs - now < -EXPIRED_GRACE_MS;
+}
 
 const RANK: Record<AlarmStage, number> = { calm: 0, urgent: 1, final: 2 };
 
@@ -99,6 +107,7 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
   let snoozeEndsAt: number | null = null;
   for (const c of candidates) {
     if (handling.has(c.id)) continue;
+    if (answerTimeOver(c.acceptByMs, now)) continue;
     const msLeft = c.acceptByMs === null ? null : c.acceptByMs - now;
     if (mostUrgent === null || (msLeft !== null && (mostUrgent.msLeft === null || msLeft < mostUrgent.msLeft))) mostUrgent = { id: c.id, number: c.number, msLeft };
     if (storeClosed && !c.offeredWhileClosed) {

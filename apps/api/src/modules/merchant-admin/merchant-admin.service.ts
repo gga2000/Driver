@@ -101,6 +101,10 @@ export class MerchantAdminService implements MerchantAdminPort {
     throw new DriverError('forbidden');
   }
 
+  /**
+   * Owner-only (MER-06): prices, new dishes, options, sections and menu imports. Staff keep the
+   * kitchen's daily switches (available, sold out today) and photo requests.
+   */
   private async owner(actor: Actor, merchantOrgId: string): Promise<void> {
     if ((await this.roleAt(actor, merchantOrgId)) !== 'merchant_owner') throw new DriverError('forbidden');
   }
@@ -221,7 +225,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuUpdatePrice(actor: Actor, input: { merchantOrgId: string; itemId: string; priceIqd: number }): Promise<{ item: AdminMenuItem; history: PriceChange[] }> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
       const before = await this.catalog.adminItem(input.merchantOrgId, input.itemId, tx);
       const { item, changed } = await this.catalog.updatePrice(input.merchantOrgId, input.itemId, input.priceIqd, actor.personId, tx);
@@ -252,7 +256,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
       // The customer labels and the ticket kind share one column: a save that names one keeps the other.
       const stored = input.labels !== undefined || input.kind !== undefined
@@ -292,7 +296,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuUpsertCategory(actor: Actor, input: UpsertCategoryInput): Promise<AdminMenu> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.upsertCategory(input.merchantOrgId, input, tx);
       await this.events.emit(
@@ -305,7 +309,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuReorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.reorderCategories(input.merchantOrgId, input.order, tx);
       await this.events.emit(
@@ -318,7 +322,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx));
   }
 
@@ -338,7 +342,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuImportFromPhotos(actor: Actor, input: { merchantOrgId: string; uploadIds: string[] }): Promise<MenuImportJob> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     for (const id of input.uploadIds) await this.assertUpload(actor.personId, id);
     return this.uow.run(async (tx) => {
       const job = await this.catalog.createImportJob(input.merchantOrgId, input.uploadIds, actor.personId, tx);
@@ -353,7 +357,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuApplyImport(actor: Actor, input: { merchantOrgId: string; jobId: string; items: Array<{ nameAr: string; priceIqd: number; categoryAr?: string | null | undefined; description?: string | null | undefined; sourceUploadId?: string | null | undefined }> }): Promise<MenuImportJob> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
       const job = await this.catalog.applyImport(input.merchantOrgId, input.jobId, input.items, actor.personId, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'menu.imported', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, jobId: job.id, items: job.appliedCount } }, { name: 'org', id: input.merchantOrgId });
