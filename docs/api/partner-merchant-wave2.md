@@ -208,7 +208,10 @@ Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the c
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`.
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
+prices, dishes, options, sections and imports (MER-06: `menu.updatePrice`, `menu.upsertItem`, `menu.setModifiers`,
+`menu.upsertCategory`, `menu.reorderCategories`, `menu.importFromPhotos`, `menu.applyImport`). Staff keep the daily
+switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replacePhoto`).
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
@@ -383,7 +386,7 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   version: the app keeps the position it sent, and `partner.status` (re-read on live events and by its
   poll) brings the rest.
 - **Lighter heartbeat** (speed x2): the app's own reads (`partner.goOnline`, `partner.status`) keep his
-  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`; the tier reads his whole event history),
+  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`),
   while his cash and earnings are read on every beat, so what he holds is never stale. Dispatch's
   over-cap check and the money desk always work the limit out fresh. His ringing offer is found from
   his own open offers (one indexed read of `dispatch_offers` by driver and state) instead of reading

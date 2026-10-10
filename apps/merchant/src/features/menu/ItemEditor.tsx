@@ -12,6 +12,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
+import { InfoStrip } from '../board/Banners';
 import { guessedKind, lineLook } from '../board/kind';
 import { Glyph } from './Glyph';
 import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
@@ -71,7 +72,8 @@ export function ItemEditor() {
   const params = useLocalSearchParams<{ id?: string; category?: string; photo?: string }>();
   // p1: opened from a tray's «ماكو صورة · دوس وصوّر»: the photo panel leads.
   const forPhoto = params.photo === '1';
-  const { store } = useCurrentStore();
+  // MER-06: prices, dishes, options and sections are the owner's; staff keep the photo and the daily switches.
+  const { store, canSeeMoney: owner } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const menu = useMenu(storeId);
   const actions = useMenuActions(storeId);
@@ -381,13 +383,13 @@ export function ItemEditor() {
   const pricePanel = item ? (
     <Panel testID="price-panel">
       <PanelTitle glyph="cash" title={t('merchant.item.price')} />
-      {soldByControl}
-      {tierList ?? (
+      {owner ? soldByControl : null}
+      {(owner ? tierList : null) ?? (
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[3] }}>
           <Text variant="amount" tabular style={{ flex: 1 }}>
             {iqd(item.priceIqd, { locale })}
           </Text>
-          <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} />
+          {owner ? <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} /> : null}
         </View>
       )}
       <Pressable testID="price-history" accessibilityRole="button" onPress={() => setHistoryOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], opacity: pressed ? 0.7 : 1 })}>
@@ -599,6 +601,24 @@ export function ItemEditor() {
 
   const title = isNew ? t('merchant.item.new_title') : (item?.nameAr ?? t('merchant.item.title'));
   const subtitle = isNew ? (form.categoryAr ? t('merchant.item.new_in', { section: form.categoryAr }) : undefined) : (item?.categoryAr ?? t('merchant.menu.no_section'));
+
+  const ownerNote = <InfoStrip tone="neutral" icon="lock" testID="item-owner-only" text={t('merchant.item.owner_only')} />;
+  if (!owner) {
+    return (
+      <Page title={title} subtitle={subtitle} back testID="item-editor" maxWidth={760}>
+        {ownerNote}
+        {isNew ? null : (
+          <>
+            {photoPanel}
+            {pricePanel}
+            {availabilityPanel}
+          </>
+        )}
+        {item ? <HistorySheet visible={historyOpen} name={item.nameAr} history={history.data} loading={history.isLoading} onClose={() => setHistoryOpen(false)} /> : null}
+        <LibrarySheet visible={libraryOpen} name={form.nameAr} section={form.categoryAr || null} busy={uploading} onClose={() => setLibraryOpen(false)} onPick={(src) => void pickFromLibrary(src)} />
+      </Page>
+    );
+  }
 
   return (
     <Page title={title} subtitle={subtitle} back testID="item-editor" maxWidth={wide ? 1120 : 760}>

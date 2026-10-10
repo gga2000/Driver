@@ -132,9 +132,12 @@ export const OrderSearchInput = z.object({
   /** Only active orders behind their promise (the lateness rule of the orders module). */
   late: z.boolean().optional(),
   /**
-   * Matches order, orderer or merchant id, or the note (case-insensitive substring). An order
-   * number — "1284", "#1284" or "١٢٨٤" (see `parseOrderTicket`) — instead finds every order with
-   * that ticket number; without `from` it looks back over today and yesterday (Baghdad).
+   * Read by `classifyOrderQuery`. An order number — "1284", "#1284" or "١٢٨٤" — finds every order
+   * with that ticket number, and four bare digits also every order whose customer's phone ends in
+   * them; without `from` both look back over today and yesterday (Baghdad). A whole phone number
+   * finds that customer's orders (any date unless `from`/`to`), a name (Arabic letters) the orders
+   * whose customer's display name matches. Anything else matches order, orderer or merchant id, or
+   * the note (case-insensitive substring). Phone and name reads are logged vault reads.
    */
   text: z.string().trim().max(100).optional(),
   /** Placed at or after (inclusive). */
@@ -419,7 +422,8 @@ export interface ConsolePort {
   driverPositions(cityId: string): Promise<DriverPositions>;
   /** `accessorId` (the staff member) is logged for the vault reads of a name search. */
   driversList(input: z.infer<typeof DriversListInput>, accessorId?: string): Promise<DriversPage>;
-  searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage>;
+  /** `accessorId`: the staff member, logged as the reader when a phone or name search reads the vault. */
+  searchOrders(input: z.infer<typeof OrderSearchInput>, accessorId: string): Promise<OrderSearchPage>;
   orderEvents(orderId: string): Promise<EventLogEntry[]>;
   /** Every ledger line carrying this order id, in time order (the money story on the order page). */
   orderLedger(orderId: string): Promise<OrderLedgerLine[]>;

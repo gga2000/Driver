@@ -6,3 +6,5 @@ export * from './fallback.js';
 export * from './routes.js';
 export * from './tracking.js';
 export * from './life.js';
+export * from './restaurants.js';
+export * from './restaurant-tour.js';

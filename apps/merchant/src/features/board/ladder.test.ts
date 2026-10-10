@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alarmAction, alarmPlan, alarmQuiet, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
+import { alarmAction, alarmPlan, alarmQuiet, answerTimeOver, EXPIRED_GRACE_MS, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
 
 const T0 = 1_790_000_000_000;
 const order = (id: string, acceptInMs: number | null, now = T0): RingCandidate => ({ id, number: id.replace('o', '1'), acceptByMs: acceptInMs === null ? null : now + acceptInMs });
@@ -63,6 +63,15 @@ describe('alarm ladder (M-02)', () => {
     expect(alarmAction(null, 0, T0, true)).toEqual({ kind: 'silent' });
   });
 
+  it('an order more than 5 s past its answer time stops ringing (MER-07: the server already turned it down)', () => {
+    const plan = alarmPlan([order('o1', -EXPIRED_GRACE_MS - 1), order('o2', -2_000), order('o3', 60_000)], new Map(), new Set(), T0);
+    expect(plan.ringing).toEqual(['o2', 'o3']);
+    expect(plan.mostUrgent?.id).toBe('o2');
+    expect(answerTimeOver(T0 - EXPIRED_GRACE_MS - 1, T0)).toBe(true);
+    expect(answerTimeOver(T0 - EXPIRED_GRACE_MS, T0)).toBe(false);
+    expect(answerTimeOver(null, T0)).toBe(false);
+  });
+
   it('the most urgent order sets the stage for the whole board', () => {
     const plan = alarmPlan([order('o1', 80_000), order('o2', 45_000), order('o3', 70_000)], new Map(), new Set(), T0);
     expect(plan.ringing).toEqual(['o1', 'o2', 'o3']);
@@ -71,9 +80,15 @@ describe('alarm ladder (M-02)', () => {
   });
 
   it('an open accept/reject sheet keeps that order quiet', () => {
-    const plan = alarmPlan([order('o1', 80_000), order('o2', 25_000)], new Map(), new Set(['o2']), T0);
+    const plan = alarmPlan([order('o1', 80_000), order('o2', 45_000)], new Map(), new Set(['o2']), T0);
     expect(plan.ringing).toEqual(['o1']);
     expect(plan.stage).toBe('calm');
+  });
+
+  it('…except in its last 30 s: an open sheet never lets the order run out in silence (MER-09)', () => {
+    const plan = alarmPlan([order('o1', 80_000), order('o2', SNOOZE_FLOOR_MS)], new Map(), new Set(['o2']), T0);
+    expect(plan.ringing).toEqual(['o1', 'o2']);
+    expect(plan.stage).toBe('final');
   });
 });
 

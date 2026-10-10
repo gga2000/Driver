@@ -253,13 +253,14 @@ export class DriverAccountService implements DriverAccountPort {
     const now = this.clock.now();
     // His finished trips of the window (completed, or cancelled after accepting): a trip accepted in
     // the window ends in it too. `forDriver` would give only the unfinished ones.
-    const [events, trips, ratings, cash] = await Promise.all([
-      this.events.forActor(driverId),
+    const [events, firstEventAt, trips, ratings, cash] = await Promise.all([
+      this.events.forActor(driverId, { from: new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS) }),
+      this.events.firstActivityOf(driverId),
       this.trips.endedForDriver(driverId, new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS)),
       deliveryRatings({ trips: this.trips, orders: this.orders }, driverId, now),
       this.ledger.driverLedger({ driverId, from: new Date(now.getTime() - 15 * DAY_MS) }).then((v) => v.cash.lines),
     ]);
-    const firstActiveAt = events.length > 0 ? new Date(Math.min(...events.map((e) => e.occurredAt.getTime()))) : now;
+    const firstActiveAt = firstEventAt ?? now;
     const dayNumber = Math.floor((now.getTime() - firstActiveAt.getTime()) / DAY_MS) + 1;
     const visibleFrom = new Date(firstActiveAt.getTime() + OBSERVATION_DAYS * DAY_MS);
     const observation = dayNumber <= OBSERVATION_DAYS;
