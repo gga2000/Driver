@@ -507,7 +507,13 @@ describe('SMS twin still wanted', () => {
   it('a new-order text only while the order still waits for the kitchen; other messages always', async () => {
     expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_wait' })).toBe(true);
     expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_done' })).toBe(false);
-    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'gone' })).toBe(false);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'gone' })).toBe(true);
     expect(await twinStillWanted(L, { template: 'order_accepted', orderId: 'ord_done' })).toBe(true);
+  });
+  it('fails safe: an order that cannot be read (null or a failed lookup) still gets its text', async () => {
+    expect(await twinStillWanted({ order: async () => null }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    expect(await twinStillWanted({ order: async () => Promise.reject(new Error('db down')) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    // A lookup that does not say (an older binding without the field) is not "answered" either.
+    expect(await twinStillWanted({ order: async (id) => ({ id, type: 'food', customerId: 'c', merchantOrgId: 'm', totalIqd: 0, itemCount: 1 }) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
   });
 });
