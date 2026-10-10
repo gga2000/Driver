@@ -1364,6 +1364,8 @@
   "push.partner_substitute.body": "{route} · {date} · {amount} IQD",
   "push.merchant_new_order.title": "New order!",
   "push.merchant_new_order.body": "#{id} · {items} · accept within 90s",
+  "push.merchant_order_cancelled.title": "Order #{id} was cancelled",
+  "push.merchant_order_cancelled.body": "Stop preparing it: the order was cancelled after you accepted it",
   "push.merchant_courier_waiting.title": "Courier waiting",
   "push.merchant_courier_waiting.body": "Is #{id} ready? Waiting is charged to you",
   "push.safety_deviation.title": "Everything OK?",

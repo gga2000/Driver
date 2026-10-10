@@ -225,6 +225,34 @@ export const MissedSummary = z.object({
 });
 export type MissedSummary = z.infer<typeof MissedSummary>;
 
+/**
+ * States in which the kitchen has said yes and still holds the order (cooking, or bagged on the pass).
+ * An order cancelled from one of these is one the kitchen must be told about: it may be cooking it.
+ */
+export const KITCHEN_HELD_STATES = ['merchant_accepted', 'preparing', 'ready'] as const satisfies readonly OrderState[];
+export function kitchenHeld(state: unknown): boolean {
+  return typeof state === 'string' && (KITCHEN_HELD_STATES as readonly string[]).includes(state);
+}
+
+/** How long a cancelled-after-accept order stays on the board as a red card (unless dismissed sooner). */
+export const CANCELLED_CARD_MIN = 15;
+
+/**
+ * An order the kitchen had accepted and that was then cancelled (by the customer, or by us), in the
+ * last `CANCELLED_CARD_MIN` minutes: the board shows it as a red card «انلغى، لا تكمل» until the
+ * kitchen taps it away, so it never just vanishes while the grill is going.
+ */
+export const CancelledOrder = z.object({
+  orderId: z.string(),
+  number: z.string(),
+  /** It was already marked ready (bagged on the pass) when it was cancelled; otherwise it was cooking. */
+  wasReady: z.boolean(),
+  cancelledAt: z.coerce.date(),
+  itemCount: z.number().int(),
+  totalIqd: Iqd,
+});
+export type CancelledOrder = z.infer<typeof CancelledOrder>;
+
 export const MerchantBoard = z.object({
   merchantOrgId: z.string(),
   /** Server time, so card timers don't drift with the tablet's clock. */
@@ -233,6 +261,8 @@ export const MerchantBoard = z.object({
   orders: z.array(BoardOrder),
   /** Orders missed today (M-01): they never vanish silently. */
   missed: MissedSummary.optional(),
+  /** Accepted orders cancelled in the last 15 minutes, newest first; absent on an older API. */
+  cancelled: z.array(CancelledOrder).optional(),
 });
 export type MerchantBoard = z.infer<typeof MerchantBoard>;
 
