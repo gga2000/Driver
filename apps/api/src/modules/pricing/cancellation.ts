@@ -35,7 +35,7 @@ export interface TripCancellationSubject {
   /** Who is cancelling. */
   by: 'customer' | 'driver';
   acceptedAt: Date | null;
-  /** First pickup arrival (driver at the rider). */
+  /** First pickup arrival inside the pickup's geofence (driver at the rider); a far "وصلت" tap is not one. */
   arrivedPickupAt: Date | null;
   fareIqd: number;
 }
@@ -110,7 +110,8 @@ function tripFee(t: TripCancellationSubject, at: Date, r: CancellationRules): Ca
   const terminal: readonly TripState[] = ['completed', 'driver_cancelled', 'customer_cancelled', 'platform_cancelled', 'failed'];
   if (terminal.includes(t.state)) return notAllowed();
   const accepted = t.acceptedAt !== null && !['created', 'offered', 'declined', 'timed_out'].includes(t.state);
-  const arrived = t.arrivedPickupAt !== null || ['arrived_pickup', 'in_transit', 'arrived_dropoff'].includes(t.state);
+  // `arrived_pickup` alone is not enough: a "وصلت" tapped far from the rider moves the trip there too.
+  const arrived = t.arrivedPickupAt !== null || ['in_transit', 'arrived_dropoff'].includes(t.state);
 
   if (t.by === 'driver') {
     if (!accepted) return free('قبل القبول', 'Before acceptance');

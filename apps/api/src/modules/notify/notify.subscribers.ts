@@ -122,6 +122,8 @@ export const NOTIFY_EVENT_TYPES = [
   ...BOOKED_RIDE_EVENTS,
   // W3 staff way-out: staff ended the order, a complaint's outcome, a free cancel when we failed, food lost.
   ...STAFF_OUTCOME_EVENTS,
+  // The desk took a job off its driver before pickup: he hears it, so he stops driving to it.
+  'trip.cancelled',
 ] as const;
 
 export interface NotifySubscriberDeps {
@@ -377,6 +379,14 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const [courier, eta] = await Promise.all([L.firstName(e.actorId, 'notify_order_picked_up'), L.deliveryEta ? L.deliveryEta(order.id, e.occurredAt) : null]);
       const params = { courier: courier ?? 'الدليفري', orderId: order.id, ...(eta ? { time: localTime(eta) } : {}) };
       return [{ ...base, template: eta ? 'order_picked_up' : 'order_on_the_way', to: order.customerId, orderId: order.id, params, data: { orderId: order.id } }];
+    }
+    case 'trip.cancelled': {
+      // Only a person on the desk cancelling for the platform (not the trip emptied by an order's own
+      // cancel, not the system releasing him at a silent kitchen, which the merchant's money covers).
+      const courierId = str(p['courierId']);
+      if (p['by'] !== 'platform' || !courierId || e.actorId === 'system' || p['reason'] === 'all_orders_detached') return [];
+      const orderId = Array.isArray(p['orderIds']) ? str(p['orderIds'][0]) : null;
+      return [{ ...base, template: 'partner_job_taken_off', to: courierId, params: { id: orderId ? orderTicketNumber(orderId) : '' }, data: { tripId: e.tripId ?? '' } }];
     }
     case 'trip.unreachable_started':
     case 'trip.unreachable_escalated': {

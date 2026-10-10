@@ -90,6 +90,12 @@ describe('cancellationFee — rides (spec §4)', () => {
     expect(arrived.amountIqd).toBe(1000);
   });
 
+  it('customer: a "وصلت" tapped outside the pickup geofence is not an arrival (no arrival time = the en-route rule)', () => {
+    const far = cancellationFee(ride({ state: 'arrived_pickup', acceptedAt: T0, arrivedPickupAt: null }), sec(61));
+    expect(far).toMatchObject({ amountIqd: 500, reason_ar: 'السايق تحرك عليك' });
+    expect(cancellationFee(ride({ state: 'arrived_pickup', acceptedAt: T0, arrivedPickupAt: null }), sec(30)).free).toBe(true);
+  });
+
   it('customer cannot cancel mid-ride (completes instead)', () => {
     expect(cancellationFee(ride({ state: 'in_transit', acceptedAt: T0, arrivedPickupAt: sec(1) }), sec(300)).allowed).toBe(false);
   });

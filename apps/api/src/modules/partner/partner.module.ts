@@ -78,6 +78,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
             return { online: found.online, mine: found.mine.map(record), open: found.open.map(record) };
           },
           answerBookedJob: (id, tripId, answer) => dispatch.answerBookedJob(id, tripId, answer),
+          retryUnassigned: (cityId) => dispatch.retryUnassigned(cityId),
           waitingZones: async (cityId) => {
             try {
               return (await dispatch.board(cityId)).cards.filter((c) => WAITING_STATUSES.has(c.status)).map((c) => c.zoneId);

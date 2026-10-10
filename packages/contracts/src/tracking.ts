@@ -79,6 +79,8 @@ export const TrackStop = z.object({
   /** My drop-off: the server's first "almost there" fix; a ride's pickup: when the driver was a minute away (d3). Null otherwise. */
   courierNearAt: z.coerce.date().nullable().default(null),
   arrivedAt: z.coerce.date().nullable(),
+  /** His "وصلت" was tapped outside the stop's geofence: the rider is told the driver says he arrived, not that he did. Absent = no. */
+  arrivedOutsideGeofence: z.boolean().optional(),
   completedAt: z.coerce.date().nullable(),
 });
 export type TrackStop = z.infer<typeof TrackStop>;
