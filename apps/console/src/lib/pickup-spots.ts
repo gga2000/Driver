@@ -32,6 +32,23 @@ export function missingCount(rows: readonly Pick<PickupStoreRow, 'note' | 'photo
   return rows.filter((r) => !r.note && r.photos === 0).length;
 }
 
+/** k6 «للتكملة»: what a store still lacks, in the order field ops usually fix it. */
+export type StoreGap = 'shop_photo' | 'spot' | 'menu' | 'dish_photos';
+
+export function storeGaps(r: Pick<PickupStoreRow, 'note' | 'photos' | 'shopPhoto' | 'dishes' | 'dishesNoPhoto'>): StoreGap[] {
+  const gaps: StoreGap[] = [];
+  if (!r.shopPhoto) gaps.push('shop_photo');
+  if (!r.note && r.photos === 0) gaps.push('spot');
+  if (r.dishes === 0) gaps.push('menu');
+  else if (r.dishesNoPhoto > 0) gaps.push('dish_photos');
+  return gaps;
+}
+
+/** The stores with something left to finish, most missing first, then by name (the list's order). */
+export function toFinish<T extends Parameters<typeof storeGaps>[0]>(rows: readonly T[]): T[] {
+  return rows.filter((r) => storeGaps(r).length > 0).sort((a, b) => storeGaps(b).length - storeGaps(a).length);
+}
+
 export type PhotoProblem = 'type' | 'size';
 
 /** A picked file the API will take (JPEG, PNG or WebP up to PHOTO_MAX_BYTES), or why not. */

@@ -306,7 +306,7 @@ customer's door rule). Gone once he picked up.
 
 | Procedure | Roles | Input | Output |
 |---|---|---|---|
-| `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt}` by name |
+| `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt, shopPhoto, dishes, dishesNoPhoto}` by name (k6: `shopPhoto` = the storefront has a photo; `dishesNoPhoto` = menu items with neither the kitchen's photo nor a library one) |
 | `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null` |
 | `ops.pickupSpots.set` | same | `SetPickupSpotInput` (the owner's input) | `ConsolePickupSpotView` |
 
