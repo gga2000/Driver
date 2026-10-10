@@ -113,11 +113,13 @@ describe('today and prep', () => {
 });
 
 describe('online gate', () => {
-  const r = (code: 'checkin_required' | 'checkin_locked' | 'document_expired') => ({ code, message_ar: '…' });
+  const r = (code: 'checkin_required' | 'checkin_locked' | 'document_expired' | 'document_missing') => ({ code, message_ar: '…' });
   it('names the worst reason as the error code', () => {
     expect(gateErrorCode([r('checkin_required')])).toBe('online_checkin_required');
     expect(gateErrorCode([r('checkin_required'), r('document_expired')])).toBe('online_document_expired');
     expect(gateErrorCode([r('document_expired'), r('checkin_locked')])).toBe('checkin_locked');
+    expect(gateErrorCode([r('checkin_required'), r('document_missing')])).toBe('online_document_missing');
+    expect(gateErrorCode([r('document_missing'), r('document_expired')])).toBe('online_document_expired');
   });
   it('lets only a missing check-in through as a heartbeat of someone already online', () => {
     const night = new Date('2026-10-02T22:00:00Z'); // 01:00 Baghdad

@@ -147,8 +147,9 @@ export default async function run(s) {
 
   // ── rookie: home gate, month-one scorecard, the check-in flow ──────────
   const rk = await s.signIn(PHONES.rookie);
-  await rk.wait('gate-banner-checkin');
-  await rk.shot('home-checkin-needed', { settle: 1800 });
+  // His ID back is under review and his photo is missing: the papers gate comes before the check-in.
+  await rk.wait('gate-banner-missing');
+  await rk.shot('home-papers-missing', { settle: 1800 });
   await rk.goto('/scorecard');
   await rk.wait('score-observation');
   await rk.shot('scorecard-month-one', { full: true, settle: 1500 });

@@ -303,13 +303,11 @@ export class DriverAccountService implements DriverAccountPort {
     const current = await this.repo.currentDocuments([driverId]);
     const docs = latestPerKind(current);
     const roles = await this.identity.activeRoles(driverId);
-    const required: DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo'];
-    if (roles.some((r) => CAR_ROLES.includes(r))) required.push('licence', 'vehicle_registration');
     const views = docs.map((d) => documentView(d, now));
     return {
       driverId,
       documents: views,
-      missing: required.filter((k) => !docs.some((d) => d.kind === k)),
+      missing: missingDocuments(requiredDocuments(roles), current),
       // An approved document stays current until its renewal is approved, so a pending upload never
       // lifts an expiry (review 2026-10-04 #18).
       blocksOnline: expiredDocuments(current, now).length > 0,
@@ -541,13 +539,16 @@ export class DriverAccountService implements DriverAccountPort {
 
   /** What the Partner shell (and `partner` presence) checks before going online. */
   async onlineGateFor(personId: string): Promise<OnlineGate> {
-    const [checkIn, current] = await Promise.all([this.checkInStatusFor(personId), this.repo.currentDocuments([personId])]);
+    const [checkIn, current, roles] = await Promise.all([this.checkInStatusFor(personId), this.repo.currentDocuments([personId]), this.identity.activeRoles(personId)]);
     const reasons: OnlineGate['reasons'] = [];
     // A staff pause (r6) comes first: nothing he does in the app lifts it, ops does.
     if (await this.repo.activePause(personId)) reasons.push({ code: 'staff_paused', message_ar: 'وقّفنا حسابك مؤقتاً لحد ما نراجع بلاغ. فريق العمليات راح يتواصل وياك' });
     if (checkIn.lockedOut) reasons.push({ code: 'checkin_locked', message_ar: 'فشل التحقق مرتين اليوم. فريق العمليات راح يتواصل وياك' });
     else if (checkIn.required && !checkIn.verifiedToday) reasons.push({ code: 'checkin_required', message_ar: 'سوّي التحقق اليومي بالسيلفي قبل ما تشتغل' });
     for (const d of expiredDocuments(current, this.clock.now())) reasons.push({ code: 'document_expired', message_ar: `${DOCUMENT_KIND_AR[d.kind]} منتهية. جدّدها حتى تشتغل` });
+    // Every paper his driving roles need must be on file and approved: never uploaded, rejected or
+    // still under review keeps him offline (an expired one is the reason above).
+    for (const kind of missingDocuments(requiredDocuments(roles), current)) reasons.push({ code: 'document_missing', message_ar: `${DOCUMENT_KIND_AR[kind]} ناقصة أو ما انقبلت بعد. ارفعها ونراجعها حتى تشتغل` });
     return { canGoOnline: reasons.length === 0, reasons, checkIn };
   }
 
@@ -778,6 +779,23 @@ export class DriverAccountService implements DriverAccountPort {
 }
 
 /** Current documents past their expiry, one per kind (an expired approved one blocks until its renewal is approved). */
+/** The papers a person's driving roles need: ID and photo for all, licence and registration for car roles; none for back office. */
+export function requiredDocuments(roles: readonly RoleKind[]): DriverDocumentKind[] {
+  if (!roles.some((r) => DRIVING_ROLES.includes(r))) return [];
+  const required: DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo'];
+  if (roles.some((r) => CAR_ROLES.includes(r))) required.push('licence', 'vehicle_registration');
+  return required;
+}
+
+/**
+ * Required kinds with no approved document in the current set. An approved one stays current until
+ * its renewal is approved, so a renewal under review never counts as missing; an expired approved
+ * one is not missing either (it is `document_expired`).
+ */
+function missingDocuments(required: readonly DriverDocumentKind[], current: readonly DocumentRecord[]): DriverDocumentKind[] {
+  return required.filter((k) => !current.some((d) => d.kind === k && d.status === 'approved'));
+}
+
 function expiredDocuments(current: readonly DocumentRecord[], now: Date): DocumentRecord[] {
   const byKind = new Map<string, DocumentRecord>();
   for (const d of current) if (documentStatus(d, now) === 'expired' && !byKind.has(d.kind)) byKind.set(d.kind, d);

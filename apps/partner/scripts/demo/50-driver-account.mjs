@@ -4,10 +4,10 @@
 //                               guarantee top-ups only while MoneyRules.guarantee.enabled — off since 2026-10-06 —, cash orders paid to restaurants and settled daily);
 //                               today ≈ 72 % of his 75,000 cap; scorecard day 65, bronze, 2 nudges
 //   who=tuktuk   0770 111 0002  checked in; rides with the platform take; licence expiring in 12 days,
-//                               registration rejected (reason), insurance under review
+//                               registration renewal rejected (reason; the approved one is still in force), insurance under review
 //   who=intercity / khat         checked in, papers approved (so their flows can go online)
-//   who=rookie   0770 111 0041  حسين علي, courier, day 9: no check-in yet (home banner, blocked switch),
-//                               observation scorecard, ID back under review, photo missing
+//   who=rookie   0770 111 0041  حسين علي, courier, day 9: ID back under review, photo missing → papers not
+//                               complete (home banner, blocked switch); no check-in yet; observation scorecard
 //   who=locked   0770 111 0042  ياسر محمد, courier: two failed check-ins today → locked out
 //   who=lapsed   0770 111 0043  أحمد ستار, tuktuk driver: licence expired 3 days ago → offline
 //
@@ -115,6 +115,8 @@ export default async function register(demo) {
   for (const [kind, o] of CAR) await paper(khat, kind, o);
   for (const [kind, o] of ID) await paper(tuktuk, kind, o);
   await paper(tuktuk, 'licence', { days: 12 });
+  // His registration is approved; the renewal he sent was refused (the approved one stays in force, so he can work).
+  await paper(tuktuk, 'vehicle_registration', { days: 40 });
   await paper(tuktuk, 'vehicle_registration', { reject: 'صورة السنوية مقصوصة ورقم الشاصي مو واضح. صوّرها كاملة بضوء النهار' });
   await paper(tuktuk, 'insurance', { pending: true });
   await paper(rookie, 'national_id_front', { days: 1200 });

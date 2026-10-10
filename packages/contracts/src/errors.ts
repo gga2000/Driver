@@ -63,6 +63,7 @@ export const ERROR_TABLE = {
   // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
   online_checkin_required: { retryHint: 'never', status: 'FORBIDDEN' },
   online_document_expired: { retryHint: 'never', status: 'FORBIDDEN' },
+  online_document_missing: { retryHint: 'never', status: 'FORBIDDEN' },
   // partner.goOnline: the vehicle is the registered one, and it has to fit his roles (backend review 2026-10-04 #20)
   vehicle_not_registered: { retryHint: 'support', status: 'FORBIDDEN' },
   khat_not_child_stop: { retryHint: 'never', status: 'BAD_REQUEST' },
