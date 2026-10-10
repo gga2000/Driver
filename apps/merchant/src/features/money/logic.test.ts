@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MerchantDispute, StatementOrderLine } from '@driver/contracts';
 import { hour12, hourPeriod, localDayKey, localParts, relativeDay, startOfLocalWeek } from '@/lib/calendar';
-import { balanceState, beforeFirstOrder, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor, weekLines } from './logic';
+import { balanceState, beforeFirstOrder, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, receiveAmount, receiveCodeReady, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor, weekLines } from './logic';
 
 const H = 3_600_000;
 
@@ -199,5 +199,22 @@ describe('d19 · the week in sentences', () => {
     expect(w.lines.map((l) => l.text)).toEqual(['merchant.week.opening_owe', 'merchant.week.net_zero', 'merchant.week.settled_zero', 'merchant.week.adjust_minus', 'merchant.week.closing_owe']);
     expect(w.lines.every((l) => l.amountIqd >= 0)).toBe(true);
     expect(weekLines({ openingIqd: 0, closingIqd: 0, totals: { ...totals, netIqd: 5_000, settledIqd: 5_000, adjustmentsIqd: 0 } }).lines.map((l) => l.text)).toEqual(['merchant.week.opening_zero', 'merchant.week.net', 'merchant.week.settled', 'merchant.week.closing_zero']);
+  });
+});
+
+describe('«استلمت منه» · taking cash from a courier at the counter', () => {
+  it('starts from what he holds, never more; Arabic digits and separators are read', () => {
+    expect(receiveAmount('12,750', 12_750)).toEqual({ amountIqd: 12_750, problem: null });
+    expect(receiveAmount('١٠٠٠٠', 12_750)).toEqual({ amountIqd: 10_000, problem: null });
+    expect(receiveAmount('13000', 12_750)).toEqual({ amountIqd: 13_000, problem: 'too_much' });
+    expect(receiveAmount('', 12_750).problem).toBe('empty');
+    expect(receiveAmount('0', 12_750).problem).toBe('empty');
+    expect(receiveAmount('12a', 12_750).problem).toBe('empty');
+  });
+
+  it('needs his 4-digit code', () => {
+    expect(receiveCodeReady('0427')).toBe(true);
+    expect(receiveCodeReady('042')).toBe(false);
+    expect(receiveCodeReady('04271')).toBe(false);
   });
 });
