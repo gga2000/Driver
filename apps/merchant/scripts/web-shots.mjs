@@ -11,7 +11,7 @@
 // default-exports `{ name, viewports?: ['tablet', 'phone'], async run(h) }` and writes
 // `<viewport>-<name>-<shot>.png` through `h.shot('<shot>')`. Filters:
 //   SHOTS=board,menu        only these shot files (default: all)
-//   VIEWPORTS=tablet        only these sizes (tablet 1280×800, phone 390×844; default both)
+//   VIEWPORTS=tablet        only these sizes (tablet 1280×800, phone 390×844, ipad 1024×768; default tablet,phone)
 // Each viewport runs in a fresh browser context (empty storage). `h` is documented in makeHelpers().
 // Exits non-zero on console errors or a missing screen.
 import { createServer } from 'node:http';
@@ -29,6 +29,8 @@ if (!existsSync(join(dist, 'index.html'))) throw new Error(`No web export at ${d
 export const VIEWPORTS = {
   tablet: { width: 1280, height: 800, deviceScaleFactor: 1.5 },
   phone: { width: 390, height: 844, deviceScaleFactor: 2 },
+  // MER-13: the most common iPad in landscape; only lists that name it run here.
+  ipad: { width: 1024, height: 768, deviceScaleFactor: 2 },
 };
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.ttf': 'font/ttf', '.ico': 'image/x-icon' };

@@ -1,3 +1,4 @@
+import type { PrinterSnapshot } from './types';
 import type { BoardLine, BoardOrder } from '@driver/contracts';
 import type { PrintDoc, PrintJob } from './doc';
 import type { PrintCtx } from './context';
@@ -79,6 +80,30 @@ export function autoPrintWhen(o: BoardOrder, now: number): { kind: 'now' } | { k
     if (start > now) return { kind: 'at', at: start };
   }
   return { kind: 'now' };
+}
+
+/**
+ * MER-11: a device with no real printer to send to (the browser, or a tablet whose printer is not set
+ * up yet) shows the ticket on screen instead of failing with «ما طبعت» after every accept.
+ */
+export function printsOnScreen(snap: PrinterSnapshot): boolean {
+  return snap.kind === 'preview' || snap.connection === 'not_set_up';
+}
+
+/** How far back the counter's printer catches up on orders other devices accepted. */
+export const CATCH_UP_MS = 10 * 60_000;
+
+/**
+ * MER-11: the device with the connected printer prints every newly accepted order, whichever phone or
+ * tablet accepted it (the owner at home, a second tablet). Only orders accepted in the last
+ * `CATCH_UP_MS` that this device never printed, and only when they are ready to cook (`autoPrintWhen`).
+ */
+export function catchUpDue(o: BoardOrder, now: number, facts: { printerReady: boolean; printedBefore: boolean }): boolean {
+  if (!facts.printerReady || facts.printedBefore) return false;
+  if (o.column !== 'preparing' || !o.acceptedAt) return false;
+  const age = now - o.acceptedAt.getTime();
+  if (age < 0 || age > CATCH_UP_MS) return false;
+  return autoPrintWhen(o, now).kind === 'now';
 }
 
 export { snapLines };
