@@ -563,7 +563,7 @@ export class DriverAccountService implements DriverAccountPort {
    * only; pausing someone already paused changes nothing. Nobody pauses himself.
    */
   async pause(actor: Actor, input: PauseDriverInput): Promise<DriverPauseView> {
-    if (input.personId === actor.personId) throw new DriverError('forbidden');
+    if (input.personId === actor.personId) throw new DriverError('staff_own_account');
     if (!(await this.identity.rosterEntry(input.personId, PARTNER_DRIVING_ROLES))) throw new DriverError('invalid_input');
     const now = this.clock.now();
     const pause = await this.uow
@@ -591,7 +591,9 @@ export class DriverAccountService implements DriverAccountPort {
     return this.pauseView(input.personId, pause);
   }
 
+  /** Lifting is someone else's call too: a staff member who also drives never lifts his own pause. */
   async liftPause(actor: Actor, input: LiftDriverPauseInput): Promise<DriverPauseView> {
+    if (input.personId === actor.personId) throw new DriverError('staff_own_account');
     const now = this.clock.now();
     await this.uow.run(async (tx) => {
       const open = await this.repo.activePause(input.personId, tx);

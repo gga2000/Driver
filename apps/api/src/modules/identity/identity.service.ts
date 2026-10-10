@@ -1174,7 +1174,11 @@ export class IdentityService implements IdentityPort {
     return this.stagingTest !== null && isStagingTestNumber(e164);
   }
 
-  private async holdsStaffRole(personId: string, tx?: Tx): Promise<boolean> {
+  /**
+   * Whether the person holds a staff role (frozen grants count too). Money that staff move (a cash
+   * top-up confirmed, a support refund) never lands on a staff account.
+   */
+  async holdsStaffRole(personId: string, tx?: Tx): Promise<boolean> {
     return (await this.repo.rolesOf(personId, tx)).some((r) => STAFF_ROLES.includes(r.kind));
   }
 
