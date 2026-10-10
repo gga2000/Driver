@@ -684,7 +684,7 @@ export function Board() {
           onEnableSound={() => void soundOn()}
           compact={!wide}
           summary={summary}
-          storeClosed={plan.closed.length > 0}
+          storeClosed={plan.closed.length > 0 && plan.ringing.length === 0}
           featured={next ? { order: next, oneTapMinutes: oneTap.shown, busy: acceptingId === next.id, onAccept: () => void onAcceptNow(next), onOpen: () => setDetailId(next.id) } : null}
           acceptAll={all.targets.length > 0 ? { count: all.targets.length, minutes: oneTap.shown, busy: acceptingAll, onPress: () => void onAcceptAll(all.targets, all.skipped) } : null}
         />
