@@ -12,7 +12,7 @@ import { iqd } from '@/lib/money';
 import { usePrefs } from '@/lib/prefs';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
-import { LADDER, stageFor } from './ladder';
+import { answerTimeOver, LADDER, stageFor } from './ladder';
 import { useServerSelect, useServerTime } from './clock';
 import { PickupCode } from './PickupCode';
 import { Glyph } from '../menu/Glyph';
@@ -401,36 +401,40 @@ export function OrderCard(props: OrderCardProps) {
       <StatusPill tone="success" icon="check" label={timing.minutes < 1 ? t('merchant.card.ready_now') : t('merchant.card.ready_since', { minutes: timing.minutes })} />
     ) : null;
 
+  const timeOver = isNew && !order.partial && answerTimeOver(acceptBy, now);
   const rejectButton = (size: 'md' | 'lg', fill: boolean) => (
     <Button testID={`reject-${order.number}`} label={t('merchant.reject')} variant="secondary" size={size} onPress={onReject} {...(fill ? { fullWidth: true } : { style: { flex: 1 } })} />
   );
-  const acceptButtons = (size: 'md' | 'lg') => (
-    <View style={{ gap: theme.space[2] }}>
-      <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
-        {narrow ? null : rejectButton(size, false)}
-        {onAcceptNow && oneTapMinutes !== undefined ? (
-          <>
-            <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
-            <Pressable
-              testID={`accept-more-${order.number}`}
-              accessibilityRole="button"
-              accessibilityLabel={t('merchant.accept.more')}
-              onPress={() => {
-                theme.haptic('light');
-                onAccept();
-              }}
-              style={({ pressed }) => ({ width: size === 'lg' ? 56 : 48, height: size === 'lg' ? 56 : 48, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
-            >
-              <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
-            </Pressable>
-          </>
-        ) : (
-          <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size={size} haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
-        )}
+  const acceptButtons = (size: 'md' | 'lg') =>
+    timeOver ? (
+      <StatusPill tone="neutral" icon="clock" testID={`time-over-${order.number}`} label={t('merchant.card.time_over')} />
+    ) : (
+      <View style={{ gap: theme.space[2] }}>
+        <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'center' }}>
+          {narrow ? null : rejectButton(size, false)}
+          {onAcceptNow && oneTapMinutes !== undefined ? (
+            <>
+              <Button testID={`accept-${order.number}`} label={t('merchant.accept.one_tap_full', { minutes: oneTapMinutes })} size={size} haptic="success" loading={busyAccept} onPress={onAcceptNow} style={{ flex: 2 }} />
+              <Pressable
+                testID={`accept-more-${order.number}`}
+                accessibilityRole="button"
+                accessibilityLabel={t('merchant.accept.more')}
+                onPress={() => {
+                  theme.haptic('light');
+                  onAccept();
+                }}
+                style={({ pressed }) => ({ width: size === 'lg' ? 56 : 48, height: size === 'lg' ? 56 : 48, borderRadius: theme.radius.lg, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
+              >
+                <Icon name="chevron-down" size={22} color="text" strokeWidth={2} />
+              </Pressable>
+            </>
+          ) : (
+            <Button testID={`accept-${order.number}`} label={t('merchant.accept')} size={size} haptic="medium" onPress={onAccept} style={{ flex: 2 }} />
+          )}
+        </View>
+        {narrow ? rejectButton(size, true) : null}
       </View>
-      {narrow ? rejectButton(size, true) : null}
-    </View>
-  );
+    );
 
   const ringFrame = isNew ? (
     <Animated.View
@@ -455,7 +459,7 @@ export function OrderCard(props: OrderCardProps) {
     // Phone «هسة» (o2): one line per order waiting behind the first; tap brings it to the top.
     const dishes = dishLine(order, 2);
     const action =
-      rowAction && !order.partial ? (
+      rowAction && !order.partial && !timeOver ? (
         needsReading(order) ? (
           <Button testID={`row-open-${order.number}`} label={t('merchant.rush.row_open')} variant="secondary" size="md" onPress={onAccept} fullWidth={narrow} />
         ) : onAcceptNow && oneTapMinutes !== undefined ? (

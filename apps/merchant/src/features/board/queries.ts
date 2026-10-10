@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import type { MerchantBoard } from '@driver/contracts';
 import { useNetwork } from '@driver/ui';
@@ -11,7 +11,7 @@ import { serverClock } from './clock';
 import { isPractice, practice, usePractice } from './practice';
 import { applyRadar } from './radar';
 import { readyQueue, useReadyQueue, withQueuedReady } from './ready-queue';
-import { beatLog } from './shop-load';
+import { beatLog, boardSeesOrders } from './shop-load';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
@@ -152,14 +152,22 @@ export function useOnline(): boolean {
  * restarts from there), and every answered beat goes in the beat log, which tells the board how long
  * the shop was paused while the app was away.
  */
-export function useHeartbeat(merchantOrgId: string | null): void {
+export function useHeartbeat(merchantOrgId: string | null, boardOkAt: number): void {
   const client = useApiClient();
   const signedIn = useSignedIn();
+  // MER-04: the heartbeat keeps the shop open for customers, so it only goes while the board itself
+  // loads; a kitchen that can't see its orders lets the shop pause (h5) instead of taking new ones.
+  const boardAt = useRef(boardOkAt);
+  boardAt.current = boardOkAt;
+  const skipped = useRef(false);
+  const beatRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!signedIn || !merchantOrgId) return;
     let alive = true;
     void beatLog.load(merchantOrgId);
     const beat = () => {
+      skipped.current = !boardSeesOrders(boardAt.current, Date.now());
+      if (skipped.current) return;
       client.orders.merchant.heartbeat
         .mutate({ merchantOrgId })
         .then(() => {
@@ -184,13 +192,20 @@ export function useHeartbeat(merchantOrgId: string | null): void {
       clearInterval(id);
       id = setInterval(beat, HEARTBEAT_MS);
     });
+    beatRef.current = beat;
     return () => {
       alive = false;
+      beatRef.current = null;
       clearInterval(id);
       sub.remove();
     };
   }, [client, signedIn, merchantOrgId]);
+  // A beat held back for a board that didn't load goes out the moment the board loads again.
+  useEffect(() => {
+    if (skipped.current && boardOkAt > 0) beatRef.current?.();
+  }, [boardOkAt]);
 }
+
 
 /** `orders.merchant.remakeRule` (c6): whether «سوّيناه من جديد» may show, and from when after «جاهز». */
 export function useRemakeRule(enabled: boolean) {
