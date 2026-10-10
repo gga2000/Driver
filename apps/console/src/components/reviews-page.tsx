@@ -24,7 +24,7 @@ export function ReviewsPage() {
   const signedIn = useSignedIn();
   const [filter, setFilter] = useState<ReviewFilter>('all');
   return (
-    <div className="mx-auto max-w-[920px]">
+    <div className="max-w-[920px]">
       <PageHeader title={t('console.reviews.title')} subtitle={t('console.reviews.subtitle')} />
       {!signedIn ? (
         <NeedLogin />

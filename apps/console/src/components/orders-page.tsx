@@ -192,6 +192,7 @@ export function OrdersPage() {
     {
       key: 'merchant',
       header: t('console.col_merchant'),
+      hideOnPhone: true,
       cell: (o) => (o.merchantOrgId ? <OrgName id={o.merchantOrgId} copy={false} className="block max-w-[8rem] truncate" /> : <span className="text-faint">—</span>),
     },
     {
@@ -209,7 +210,7 @@ export function OrdersPage() {
         </span>
       ),
     },
-    { key: 'placed', header: t('console.col_placed'), width: '6rem', cell: (o) => (
+    { key: 'placed', header: t('console.col_placed'), width: '6rem', hideOnPhone: true, cell: (o) => (
         // Older days stack the date over the clock; a clock never splits.
         <span className="num flex flex-col text-muted">
           {stamp(o.placedAt, now).split(' · ').map((part) => (

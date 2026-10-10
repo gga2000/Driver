@@ -31,7 +31,7 @@ const LINK_ALLOWED = { cat: AUDIT_CATEGORIES };
 export function AuditPage() {
   const signedIn = useSignedIn();
   return (
-    <div className="mx-auto max-w-[980px]">
+    <div className="max-w-[980px]">
       <PageHeader title={t('console.audit.title')} subtitle={t('console.audit.subtitle')} />
       {!signedIn ? <NeedLogin /> : <Audit />}
     </div>
