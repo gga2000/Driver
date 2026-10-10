@@ -13,9 +13,11 @@ describe('saved views and filters → orders.search', () => {
     expect(listInput('aziziyah', { ...EMPTY_FILTER, view: 'disputes' }, NOW, false).states).toEqual(['disputed', 'refunded']);
   });
 
-  it('the late view and an order number ignore the period', () => {
+  it('the late and waiting views and an order number ignore the period', () => {
     const late = listInput('aziziyah', { ...EMPTY_FILTER, view: 'late', period: { preset: 'yesterday' } }, NOW, false);
     expect(late).toEqual({ cityId: 'aziziyah', limit: 50, late: true });
+    const waiting = listInput('aziziyah', { ...EMPTY_FILTER, view: 'waiting', period: { preset: 'yesterday' } }, NOW, false);
+    expect(waiting).toEqual({ cityId: 'aziziyah', limit: 50, states: ['ready'] });
     const ticket = listInput('aziziyah', { ...EMPTY_FILTER, q: '#1284' }, NOW, true);
     expect(ticket).toEqual({ cityId: 'aziziyah', limit: 50, text: '#1284' });
   });

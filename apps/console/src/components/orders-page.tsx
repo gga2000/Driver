@@ -8,7 +8,7 @@ import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'reac
 import { formatIqd } from '@/lib/format';
 import { orderTypeLabel, paymentLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS, useMerchants } from '@/lib/live';
-import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
+import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, ORDER_VIEWS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
 import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/periods';
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
@@ -131,7 +131,7 @@ export function OrdersPage() {
       }
     return out;
   }, [orders.data]);
-  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' ? 'late' : 'newest');
+  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' || filter.view === 'waiting' ? 'late' : 'newest');
   const rows = useMemo(() => sortSummaries(loaded, effectiveSort), [loaded, effectiveSort]);
   // One batched name read for the page (K-01): customers and restaurants.
   useNames({ people: rows.map((o) => o.ordererId), orgs: rows.flatMap((o) => (o.merchantOrgId ? [o.merchantOrgId] : [])) });
@@ -233,15 +233,17 @@ export function OrdersPage() {
   const empty =
     filter.view === 'late'
       ? { title: t('console.orders_empty_late'), hint: t('console.orders_empty_late_hint') }
-      : {
-          title: t('console.orders_empty'),
-          hint: t('console.orders_empty_hint'),
-          action: filtersOn ? (
-            <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
-              {t('console.orders_filter_clear')}
-            </Button>
-          ) : undefined,
-        };
+      : filter.view === 'waiting'
+        ? { title: t('console.orders_empty_waiting'), hint: t('console.orders_empty_waiting_hint') }
+        : {
+            title: t('console.orders_empty'),
+            hint: t('console.orders_empty_hint'),
+            action: filtersOn ? (
+              <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
+                {t('console.orders_filter_clear')}
+              </Button>
+            ) : undefined,
+          };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -272,7 +274,7 @@ export function OrdersPage() {
                   ),
               }))}
             />
-            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || filter.view === 'late'} />
+            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || ORDER_VIEWS[filter.view].now} />
           </div>
 
           <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
@@ -284,7 +286,7 @@ export function OrdersPage() {
               <p role="status">{t('console.orders_ticket_hint', { ticket: `⁦#${ticket}⁩` })}</p>
             ) : (
               <p>
-                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : rangeWords(filter.period, now)}</span>
+                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : filter.view === 'waiting' ? t('console.orders_waiting_now') : rangeWords(filter.period, now)}</span>
                 {orders.isSuccess ? (
                   <span className="num">
                     {' · '}
