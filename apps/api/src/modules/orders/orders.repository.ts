@@ -419,14 +419,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
       if (order.clientRequestId && isUniqueViolation(err)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId, err);
       throw err;
     }
+    // SCALE-24: participants and lines go in one statement each. `find` reads them back by `created_at`,
+    // so each row gets the order's time plus its position in ms: the order they were given in is kept.
+    const base = row.createdAt.getTime();
     const byRef = new Map<string, string>();
-    for (const p of participants) {
-      const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
-      byRef.set(p.ref, created.id);
+    if (participants.length > 0) {
+      const created = await db.participant.createManyAndReturn({
+        data: participants.map((p, i) => ({ orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note, createdAt: new Date(base + i) })),
+        select: { id: true, createdAt: true },
+      });
+      const ids = [...created].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((c) => c.id);
+      participants.forEach((p, i) => byRef.set(p.ref, ids[i]!));
     }
-    for (const l of lines) {
-      await db.orderLine.create({
-        data: {
+    if (lines.length > 0) {
+      await db.orderLine.createMany({
+        data: lines.map((l, i) => ({
           orderId: row.id,
           catalogItemId: l.catalogItemId,
           freeText: l.freeText,
@@ -436,7 +443,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
-        },
+          createdAt: new Date(base + i),
+        })),
       });
     }
     return (await this.find(row.id, tx))!;

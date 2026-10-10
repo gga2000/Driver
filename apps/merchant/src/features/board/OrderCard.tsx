@@ -15,6 +15,8 @@ import type { AlarmStage } from './ladder';
 import { LADDER, stageFor } from './ladder';
 import { useServerSelect, useServerTime } from './clock';
 import { PickupCode } from './PickupCode';
+import { Glyph } from '../menu/Glyph';
+import { lineLook, packApart, type LineLook } from './kind';
 import { canExtendPrep, cardTiming, courierLine, dishLine, hasAllergy, needsReading, prepLeft, tickKey } from './logic';
 
 export interface OrderCardProps {
@@ -101,14 +103,49 @@ export function KitchenNote({ note, testID }: { note: string; testID?: string })
   );
 }
 
-/** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip. */
+/** j6 / k4: a drink's or a sweet's mark after the dish name, in its kind's colour (hot / cold for drinks). */
+function KindMark({ look }: { look: LineLook }) {
+  const t = useT();
+  if (look.kind === 'kitchen') return null;
+  const drink = look.kind === 'drink';
+  const fg = drink ? COUNTER.kindDrink : COUNTER.kindSweet;
+  const word = look.temp === 'cold' ? t('merchant.display.cold') : look.temp === 'hot' ? t('merchant.display.hot') : t('merchant.board.kind_sweet');
+  return (
+    <View testID={`kind-${look.kind}${look.temp ? `-${look.temp}` : ''}`} style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 3, height: 22, paddingHorizontal: 7, borderRadius: 11, backgroundColor: drink ? COUNTER.kindDrinkWash : COUNTER.kindSweetWash }}>
+      {look.temp ? <Glyph name={look.temp === 'cold' ? 'snow' : 'steam'} size={12} color={fg} strokeWidth={2.2} /> : null}
+      <Text variant="caption" weight={700} style={{ color: fg }}>
+        {word}
+      </Text>
+    </View>
+  );
+}
+
+/** k4: an order with cold and hot things says so once, under its lines: the cold goes in its own bag. */
+function PackApart({ order }: { order: BoardOrder }) {
+  const theme = useTheme();
+  const t = useT();
+  const pack = packApart(order.groups.flatMap((g) => g.lines));
+  if (!pack) return null;
+  return (
+    <View testID="pack-apart" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], borderRadius: theme.radius.md, backgroundColor: COUNTER.kindDrinkWash, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2] }}>
+      <Glyph name="snow" size={16} color={COUNTER.kindDrink} strokeWidth={2.2} />
+      <Text variant="label" weight={700} style={{ flex: 1, color: COUNTER.kindDrink }}>
+        {t('merchant.board.pack_apart', { cold: pack.cold })}
+      </Text>
+    </View>
+  );
+}
+
+/** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip; drinks and sweets wear their kind's edge (j6). */
 function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   const struck = out || done === true;
   const type = useTicketType();
+  const look = lineLook(name);
+  const edge = look.kind === 'drink' ? COUNTER.kindDrink : look.kind === 'sweet' ? COUNTER.kindSweet : 'transparent';
   const body = (
-    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1 }}>
+    <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1, borderStartWidth: 4, borderStartColor: edge, paddingStart: theme.space[2] }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
         <Text variant="title" tabular style={[theme.face('display'), { minWidth: 30, color: COUNTER.qty }, type(18, 30)]}>
           {`${qty}×`}
@@ -116,6 +153,7 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
         <Text variant="bodyStrong" weight={700} style={[{ flex: 1, fontSize: 17, lineHeight: 26, textDecorationLine: struck ? 'line-through' : 'none' }, type(17, 26)]}>
           {name}
         </Text>
+        <KindMark look={look} />
         {out ? <StatusPill label={t('merchant.card.unavailable')} tone="danger" size="sm" /> : null}
         {onTick ? (
           // d22: the box says what it is for — «خلصت» — on a pill, filled green once ticked.
@@ -131,7 +169,13 @@ function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: 
       </View>
       {modifiers.length > 0 ? (
         <Text variant="footnote" color="textMuted" style={[{ paddingStart: 38 }, type(13, 22)]}>
-          {modifiers.join(' · ')}
+          {modifiers.map((m, i) => (
+            // k5: how sweet is the one choice the cup can't show afterwards, so it reads bold in the drink's colour.
+            <Text key={`${i}-${m}`} variant="footnote" weight={/سكر|شكر|sugar/i.test(m) ? 700 : 400} style={[{ color: /سكر|شكر|sugar/i.test(m) ? COUNTER.kindDrink : theme.colors.textMuted }, type(13, 22)]}>
+              {i > 0 ? ' · ' : ''}
+              {m}
+            </Text>
+          ))}
         </Text>
       ) : null}
       {note ? (
@@ -231,6 +275,7 @@ export function OrderItems({ order, maxLines = 99, ticks }: { order: BoardOrder;
   return (
     <View style={{ gap: theme.space[3] }}>
       {blocks}
+      <PackApart order={order} />
       {hidden > 0 ? (
         <Text variant="footnote" weight={700} style={{ color: COUNTER.qty }}>
           {t('merchant.card.more_items', { count: hidden })}

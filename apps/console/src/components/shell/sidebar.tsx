@@ -12,6 +12,7 @@ import { setNavSettingsOpen, setSidebarCollapsed, useNavSettingsOpen, useSidebar
 import { useSignedIn } from '@/lib/session';
 import {
   cx,
+  IconApp,
   IconApprovals,
   IconButton,
   IconCash,
@@ -28,6 +29,7 @@ import {
   IconPricing,
   IconSidebar,
   IconSupport,
+  IconNote,
   IconSystem,
   IconWall,
   IconSiren,
@@ -47,6 +49,7 @@ const SupportViewsNav = dynamic(() => import('./support-views-nav').then((m) => 
 
 export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   today: IconInbox,
+  glance: IconApp,
   map: IconMap,
   dispatch: IconDispatch,
   orders: IconOrders,
@@ -65,6 +68,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   oncall: IconBell,
   garage: IconGarage,
   system: IconSystem,
+  audit: IconNote,
 };
 
 /**

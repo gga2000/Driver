@@ -13,8 +13,11 @@ export interface LedgerEventDelegate {
   findMany(args: {
     where?: Record<string, unknown>;
     orderBy?: { occurredAt: 'asc' | 'desc' };
+    take?: number;
   }): Promise<Array<LedgerRow & { id: string; recordedAt: Date }>>;
   findUnique(args: { where: { idempotencyKey: string } }): Promise<(LedgerRow & { id: string; recordedAt: Date }) | null>;
+  /** SCALE-16: a sum in the database. Absent (bare test delegates): sums load the lines instead. */
+  aggregate?(args: { where: Record<string, unknown>; _sum: { amountIqd: true }; _count: { _all: true } }): Promise<{ _sum: { amountIqd: number | null }; _count: { _all: number } }>;
 }
 
 interface LedgerRow {
@@ -51,8 +54,10 @@ export interface RawSqlRunner extends RawSqlClient {
 export class PrismaLedgerBalanceStore {
   constructor(private readonly db: RawSqlRunner) {}
 
-  async find(accountId: string): Promise<RunningBalance | undefined> {
-    const rows = await this.db.$queryRaw<Array<{ amount: number; events: number }>>`
+  /** Inside `tx` when given, so lines the same transaction already posted count. */
+  async find(accountId: string, tx?: Tx): Promise<RunningBalance | undefined> {
+    const db = (tx as unknown as RawSqlClient | undefined)?.$queryRaw ? (tx as unknown as RawSqlClient) : this.db;
+    const rows = await db.$queryRaw<Array<{ amount: number; events: number }>>`
       SELECT "amount_iqd" AS amount, "events" FROM "public"."ledger_balances" WHERE "account_id" = ${accountId}`;
     return rows[0] ? { amount: rows[0].amount, events: rows[0].events } : undefined;
   }
@@ -94,9 +99,9 @@ export class PrismaLedgerRepository implements LedgerRepository {
     private readonly balances?: PrismaLedgerBalanceStore,
   ) {}
 
-  async runningBalance(accountId: string): Promise<RunningBalance | undefined> {
+  async runningBalance(accountId: string, tx?: Tx): Promise<RunningBalance | undefined> {
     if (!this.balances || !isProjectedAccount(accountId)) return undefined;
-    return (await this.balances.find(accountId)) ?? { amount: 0, events: 0 };
+    return (await this.balances.find(accountId, tx)) ?? { amount: 0, events: 0 };
   }
 
   async runningBalances(): Promise<Map<string, RunningBalance> | undefined> {
@@ -147,6 +152,50 @@ export class PrismaLedgerRepository implements LedgerRepository {
       orderBy: { occurredAt: 'asc' },
     });
     return rows.map(fromRow);
+  }
+
+  async sumFor(accountId: string, before?: Date, tx?: Tx): Promise<RunningBalance> {
+    const db = this.db(tx);
+    if (!db.aggregate) {
+      const events = (await this.byAccount(accountId, tx)).filter((e) => !before || e.occurredAt < before);
+      let amount = 0;
+      for (const e of events) amount += (e.toAccount === accountId ? e.amount : 0) - (e.fromAccount === accountId ? e.amount : 0);
+      return { amount, events: events.length };
+    }
+    // Two index-backed sums ((to_account, occurred_at) and (from_account, occurred_at)); a line never
+    // has the same account on both sides (LedgerService refuses it), so the counts simply add.
+    const at = before ? { occurredAt: { lt: before } } : {};
+    const [inc, out] = await Promise.all([
+      db.aggregate({ where: { toAccount: accountId, ...at }, _sum: { amountIqd: true }, _count: { _all: true } }),
+      db.aggregate({ where: { fromAccount: accountId, ...at }, _sum: { amountIqd: true }, _count: { _all: true } }),
+    ]);
+    return { amount: (inc._sum.amountIqd ?? 0) - (out._sum.amountIqd ?? 0), events: inc._count._all + out._count._all };
+  }
+
+  async byAccountWhere(accountId: string, where: { types?: readonly LedgerEvent['type'][]; since?: Date }): Promise<LedgerEvent[]> {
+    const rows = await this.delegate.findMany({
+      where: {
+        OR: [{ fromAccount: accountId }, { toAccount: accountId }],
+        ...(where.types ? { type: { in: [...where.types] } } : {}),
+        ...(where.since ? { occurredAt: { gte: where.since } } : {}),
+      },
+      orderBy: { occurredAt: 'asc' },
+    });
+    return rows.map(fromRow);
+  }
+
+  async byAccountPage(accountId: string, page: { before?: Date | undefined; take: number }): Promise<{ events: LedgerEvent[]; complete: boolean }> {
+    const either = { OR: [{ fromAccount: accountId }, { toAccount: accountId }] };
+    const rows = await this.delegate.findMany({ where: { ...either, ...(page.before ? { occurredAt: { lt: page.before } } : {}) }, orderBy: { occurredAt: 'desc' }, take: page.take + 1 });
+    if (rows.length <= page.take) return { events: rows.reverse().map(fromRow), complete: true };
+    // One more than asked came back, so something older exists. Keep the newest `take`, then add every
+    // line at the oldest kept timestamp (the page's floor) the limit may have cut.
+    const kept = rows.slice(0, page.take);
+    const floor = kept[kept.length - 1]!.occurredAt;
+    const seen = new Set(kept.map((r) => r.id));
+    const ties = (await this.delegate.findMany({ where: { ...either, occurredAt: floor } })).filter((r) => !seen.has(r.id));
+    const all = [...kept, ...ties].map(fromRow).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+    return { events: all, complete: false };
   }
 
   async byTrip(tripId: string): Promise<LedgerEvent[]> {

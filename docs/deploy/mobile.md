@@ -79,6 +79,34 @@ react-native-worklets), new architecture only. They moved from SDK 52 one major 
 
 Set `version` to `1.0.0` in each `app.json` before the first store build.
 
+## Test APKs from GitHub (no computer needed)
+
+The **Android test apps** workflow (`.github/workflows/android-test-apps.yml`) builds the `preview` APK of
+one or all three apps on Expo's servers, pointed at the **staging** server (it refuses any other), so the
+staging test numbers (0770 000 0100–0199, «عبّيه») sign in. One-time setup, by the person who owns the
+Expo account:
+
+1. Make a free Expo account at <https://expo.dev/signup> (the map's native build uses the same one).
+2. expo.dev → avatar → **Account settings → Access tokens → Create token** (name it `github`).
+3. **Paste the token only into GitHub, never into a chat.** GitHub → the repository → Settings →
+   Environments → **staging** → Environment secrets → Add secret: name `EXPO_TOKEN`, value the token.
+
+Then: GitHub → Actions → **Android test apps** → Run workflow (all, or one app). Each run:
+
+- creates the app's project on expo.dev the first time (`eas init`) and links it after that; the
+  project id stays in the run's copy of `app.json` (nothing is committed);
+- sets `EXPO_PUBLIC_API_URL` (and `EXPO_PUBLIC_SHARE_BASE_URL` for the customer app, plus the map
+  URLs when `DATABASE_REF` is set) on the project's **preview** environment on expo.dev;
+- starts the build without waiting; the run's summary links each build's page on expo.dev. When the
+  build is done (15–30 minutes, longer when the free queue is busy) the page shows **Install** and a
+  QR code. Open it on the Android phone, allow "install unknown apps" once, install. Share the same link
+  with testers on WhatsApp.
+
+The first build of each app makes its Android signing key, kept by EAS. Each app's
+`eas-build-post-install` script builds the workspace packages (`dist/`) on Expo's server before the app
+is bundled. The free Expo plan includes a monthly number of Android builds; one run of "all" uses three.
+These APKs get no push notifications until each app has its Firebase file (`google-services.json`).
+
 ## Over-the-air updates (EAS Update)
 
 JavaScript-only changes (screens, text, logic) can reach installed apps without a store review:

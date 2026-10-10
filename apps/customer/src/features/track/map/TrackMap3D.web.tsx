@@ -19,13 +19,15 @@ import { useRoadGlide } from './useRoadGlide';
 type Golden = typeof import('@driver/map/golden');
 type Pt = [number, number];
 
-const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit' } as const;
+const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 'track-life' } as const;
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The route redraws at most this often while the courier glides (the marker itself moves every frame). */
 const ROUTE_REDRAW_MS = 250;
 const PIN = 40;
 const PHOTO = 38;
 const RING_W = 3;
+/** Street life moves at about 30 frames a second (smooth enough for small cars, half the work). */
+const LIFE_FRAME_MS = 33;
 
 export interface TrackMap3DProps {
   view: OrderTracking;
@@ -169,9 +171,14 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           m.addSource(SRC.route, { type: 'geojson', data: EMPTY, lineMetrics: true });
           m.addSource(SRC.glow, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.lit, { type: 'geojson', data: EMPTY });
+          m.addSource(SRC.life, { type: 'geojson', data: EMPTY });
           const before = m.getLayer(golden.GOLDEN_FIRST_LABEL) ? golden.GOLDEN_FIRST_LABEL : undefined;
+          // Street life under the route and pins (spec "Street life"; only from LIFE_MINZOOM).
+          for (const layer of golden.goldenLifeLayers({ source: SRC.life })) m.addLayer(layer as never, before);
           for (const layer of golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit })) m.addLayer(layer as never, before);
           paint();
+          // The roads arrive with the tiles: build the street scene once they are in.
+          m.once('idle', rebuildLife);
         });
         m.once('load', () => {
           frame(false);
@@ -179,6 +186,22 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         });
         // The town's houses arrive with the tiles: light the right one once they are in.
         m.once('idle', () => paint());
+        // Street life (Ali picked "moving"): the scene is rebuilt from the roads on screen each time the
+        // camera settles; cars and people stand still with reduce motion (low-data mode keeps the flat map).
+        let scene: ReturnType<Golden['streetLife']> | null = null;
+        let lastLife = 0;
+        const rebuildLife = () => {
+          const src = m.getSource<GeoJSONSource>(SRC.life);
+          if (!src) return;
+          if (m.getZoom() < golden.LIFE_MINZOOM - 0.3) {
+            scene = null;
+            src.setData(EMPTY);
+            return;
+          }
+          scene = golden.streetLife(roadsOnScreen(m, golden), { seed: 7, light: lightRef.current!, moving: !live.current.reduce });
+          src.setData(golden.lifeFrame(scene, performance.now() / 1000) as never);
+        };
+        m.on('moveend', rebuildLife);
         m.on('movestart', (e) => {
           if ((e as { originalEvent?: unknown }).originalEvent) setFollow(false);
         });
@@ -221,6 +244,10 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
             lastRoute = now;
             lastAt = at;
             paint();
+          }
+          if (scene?.moving && now - lastLife > LIFE_FRAME_MS) {
+            lastLife = now;
+            m.getSource<GeoJSONSource>(SRC.life)?.setData(golden.lifeFrame(scene, now / 1000) as never);
           }
           raf = requestAnimationFrame(tick);
         };
@@ -354,6 +381,18 @@ function Teardrop({ fill, halo, children }: { fill: string; halo: string; childr
 }
 
 /** The houses of our map around the screen, for lighting the one under a pin. */
+/** The streets on screen as street life wants them (`roads` tile layer, one entry per line). */
+function roadsOnScreen(m: MlMap, golden: Golden): Parameters<Golden['streetLife']>[0] {
+  const out: { cls: string; coords: Pt[] }[] = [];
+  for (const f of m.querySourceFeatures(golden.GOLDEN_SOURCE, { sourceLayer: 'roads' })) {
+    const cls = String(f.properties?.cls ?? '');
+    const g = f.geometry;
+    if (g.type === 'LineString') out.push({ cls, coords: g.coordinates as Pt[] });
+    else if (g.type === 'MultiLineString') for (const line of g.coordinates) out.push({ cls, coords: line as Pt[] });
+  }
+  return out;
+}
+
 function housesNear(m: MlMap, golden: Golden | null): { ring: Pt[]; hm: number }[] {
   if (!golden) return [];
   const out: { ring: Pt[]; hm: number }[] = [];

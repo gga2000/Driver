@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { QuoteComponent } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type QuoteComponent } from '@driver/contracts';
+import { takeOf } from '../ledger/postings.js';
 import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, nearestLandmark, offerClimate, rideTake, startOfLocalDay, todayFromLines } from './logic.js';
 
 const food = (deliveryFeeIqd: number, tipIqd = 0) => ({ type: 'food' as const, deliveryFeeIqd, tipIqd, totalIqd: 15_000 + deliveryFeeIqd + tipIqd });
@@ -25,6 +26,19 @@ describe('buildPay', () => {
     ]);
     expect(pay.totalIqd).toBe(2_500);
     expect(pay.takePct).toBeNull();
+  });
+
+  it('a parcel shows its fare less the parcel take, as the ledger books it (fare 4,000 + tip 500 → 3,900)', () => {
+    const take = AZIZIYAH_MONEY_RULES.take.parcel;
+    const pay = buildPay({ vertical: 'parcel', orders: [{ type: 'parcel', deliveryFeeIqd: 4_000, tipIqd: 500, totalIqd: 4_500 }], batchedSecond: false, batchShare: 0.7, compensationIqd: 0, take });
+    expect(pay.components).toEqual([
+      { key: 'fare', amountIqd: 3_400 },
+      { key: 'tip', amountIqd: 500 },
+    ]);
+    expect(pay.totalIqd).toBe(3_900);
+    expect(pay.takePct).toBe(15);
+    // The ledger's driver credit for the same job: fare − take + tip.
+    expect(pay.totalIqd).toBe(4_000 - takeOf(4_000, take) + 500);
   });
 
   it('a batched second order pays 70 % of its fee as the batch bonus ("طلب ثاني على طريقك +700")', () => {

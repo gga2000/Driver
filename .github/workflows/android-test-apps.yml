@@ -1,0 +1,115 @@
+# Driver (درايفر) — Android test apps: an installable APK of the customer, partner and merchant apps,
+# pointed at the staging (test) server, built on Expo's servers (EAS Build, the `preview` profile).
+# docs/deploy/mobile.md "Test APKs from GitHub".
+#
+# Run by hand: Actions → Android test apps → Run workflow (pick all, or one app). It needs one secret
+# in the `staging` GitHub environment: EXPO_TOKEN, an access token of the Expo account
+# (expo.dev → Account settings → Access tokens). Everything else is done here:
+#   1. the app's project on expo.dev, created under that account the first time (eas init) and
+#      linked on later runs; the id lives only in this run's copy of app.json, nothing is committed;
+#   2. the staging addresses set on the project's `preview` environment on expo.dev (API, share
+#      links, the Aziziyah map), so the APK and later preview updates use the same server;
+#   3. the build started (Android signing key made and kept by EAS on the first build).
+# The run ends without waiting for Expo: the summary links each build's page on expo.dev, which shows
+# an Install button and a QR code once the build finishes. These APKs only ever talk to staging.
+name: Android test apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Which app
+        type: choice
+        options: [all, customer, partner, merchant]
+        default: all
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: pick apps
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      - id: pick
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          if [ "$APP" = all ]; then echo 'apps=["customer","partner","merchant"]' >> "$GITHUB_OUTPUT"
+          else echo "apps=[\"$APP\"]" >> "$GITHUB_OUTPUT"; fi
+
+  apk:
+    name: APK · ${{ matrix.app }}
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.apps) }}
+    env:
+      TURBO_TELEMETRY_DISABLED: '1'
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      API_URL: ${{ vars.API_PUBLIC_URL || 'https://driver-api-staging.fly.dev/trpc' }}
+      SHARE_URL: ${{ vars.SHARE_BASE_URL || 'https://driver-customer-iota.vercel.app' }}
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+      EAS_CLI: eas-cli@24.12.1
+    steps:
+      - name: Check the Expo token and the server address
+        run: |
+          fail() { echo "::error title=Android test apps::$1"; exit 1; }
+          [ -n "$EXPO_TOKEN" ] || fail "EXPO_TOKEN is not set in the staging environment (docs/deploy/mobile.md \"Test APKs from GitHub\")"
+          # Test APKs are handed around on WhatsApp: they must never reach the production server.
+          case "$API_URL" in *staging*) ;; *) fail "API address \"$API_URL\" is not the staging server" ;; esac
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global corepack@latest && corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile --filter=driver --filter=@driver/${{ matrix.app }}...
+      - name: Install the EAS command line
+        run: npm install --global "$EAS_CLI"
+      - name: Link the expo.dev project (created the first time)
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          # eas init can only write to a static app.json: step app.config.js aside while it runs.
+          mv app.config.js app.config.js.off
+          trap 'mv app.config.js.off app.config.js' EXIT
+          eas init --non-interactive --force
+          id=$(node -p "require('./app.json').expo.extra.eas.projectId")
+          # Over-the-air updates for this project (what `eas update:configure` would write).
+          node -e "const f='./app.json',fs=require('fs'),j=JSON.parse(fs.readFileSync(f,'utf8'));j.expo.updates={...j.expo.updates,url:'https://u.expo.dev/$id'};fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+          echo "project $(node -p "const e=require('./app.json').expo;e.owner+'/'+e.slug") ($id)"
+      - name: Set the staging addresses on expo.dev (preview environment)
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set_var() { eas env:create --environment preview --name "$1" --value "$2" --visibility plaintext --force --non-interactive > /dev/null && echo "$1 = $2"; }
+          set_var EXPO_PUBLIC_API_URL "$API_URL"
+          if [ "${{ matrix.app }}" = customer ]; then set_var EXPO_PUBLIC_SHARE_BASE_URL "$SHARE_URL"; fi
+          if [ -n "$DATABASE_REF" ]; then
+            pub="https://$DATABASE_REF.supabase.co/storage/v1/object/public/map"
+            set_var EXPO_PUBLIC_MAP_TILES_URL "$pub/wasit.pmtiles"
+            set_var EXPO_PUBLIC_MAP_GLYPHS_URL "$pub/fonts/{fontstack}/{range}.pbf"
+          fi
+      - name: Start the APK build on Expo
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          eas build --platform android --profile preview --non-interactive --no-wait --json > build.json
+          page=$(node -e "
+            const b=[].concat(require('./build.json'))[0], e=require('./app.json').expo;
+            console.log('https://expo.dev/accounts/'+e.owner+'/projects/'+e.slug+'/builds/'+b.id)")
+          echo "Build page: $page"
+          {
+            echo "### ${{ matrix.app }}"
+            echo "Building on Expo. When it finishes (usually 15–30 minutes), open this page on the phone and tap **Install**, or scan its QR code:"
+            echo
+            echo "$page"
+          } >> "$GITHUB_STEP_SUMMARY"
