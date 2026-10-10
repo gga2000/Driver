@@ -25,6 +25,9 @@ describe('l4: automatic busy', () => {
     expect(busyMinutesNow(20, autoBusy(15, true))).toBe(20);
     expect(busyMinutesNow(10, autoBusy(3, true))).toBe(10);
     expect(busyMinutesNow(0, autoBusy(3, false))).toBe(0);
+    // UNR-06: the owner's own busy minutes win over the automatic +10, never added to it.
+    expect(busyMinutesNow(20, autoBusy(15, false))).toBe(20);
+    expect(busyMinutesNow(5, autoBusy(40, false))).toBe(5);
   });
 });
 

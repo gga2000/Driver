@@ -599,8 +599,10 @@ export class MerchantService implements MerchantPort {
     let org: Org;
     try {
       org = await this.stores.get(merchantOrgId);
-    } catch {
-      throw new DriverError('org_not_found');
+    } catch (err) {
+      // DRL-08: only a missing org is `org_not_found`; a database that is down stays a retryable error.
+      if (err instanceof DriverError) throw new DriverError('org_not_found');
+      throw err;
     }
     if (org.type !== 'restaurant' && org.type !== 'grocer') throw new DriverError('org_not_found');
     return org;

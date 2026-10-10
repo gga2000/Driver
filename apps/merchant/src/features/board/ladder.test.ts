@@ -80,9 +80,15 @@ describe('alarm ladder (M-02)', () => {
   });
 
   it('an open accept/reject sheet keeps that order quiet', () => {
-    const plan = alarmPlan([order('o1', 80_000), order('o2', 25_000)], new Map(), new Set(['o2']), T0);
+    const plan = alarmPlan([order('o1', 80_000), order('o2', 45_000)], new Map(), new Set(['o2']), T0);
     expect(plan.ringing).toEqual(['o1']);
     expect(plan.stage).toBe('calm');
+  });
+
+  it('…except in its last 30 s: an open sheet never lets the order run out in silence (MER-09)', () => {
+    const plan = alarmPlan([order('o1', 80_000), order('o2', SNOOZE_FLOOR_MS)], new Map(), new Set(['o2']), T0);
+    expect(plan.ringing).toEqual(['o1', 'o2']);
+    expect(plan.stage).toBe('final');
   });
 });
 

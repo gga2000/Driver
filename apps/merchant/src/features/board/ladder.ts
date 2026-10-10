@@ -79,7 +79,8 @@ export function alarmQuiet(status: { closed: unknown; schedule?: { inHours: bool
 
 /**
  * What should ring now. `snoozedUntil` maps an order to the end of its snooze; `handling` holds
- * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes).
+ * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes, except in
+ * the last 30 s, MER-09: a sheet left open must not let the order run out in silence).
  * `storeClosed`: nothing rings; waiting orders are listed under `closed` instead (m6a).
  */
 export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: ReadonlyMap<string, number>, handling: ReadonlySet<string>, now: number, storeClosed = false): AlarmPlan {
@@ -90,9 +91,9 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
   let mostUrgent: AlarmPlan['mostUrgent'] = null;
   let snoozeEndsAt: number | null = null;
   for (const c of candidates) {
-    if (handling.has(c.id)) continue;
     if (answerTimeOver(c.acceptByMs, now)) continue;
     const msLeft = c.acceptByMs === null ? null : c.acceptByMs - now;
+    if (handling.has(c.id) && (msLeft === null || msLeft > SNOOZE_FLOOR_MS)) continue;
     if (mostUrgent === null || (msLeft !== null && (mostUrgent.msLeft === null || msLeft < mostUrgent.msLeft))) mostUrgent = { id: c.id, number: c.number, msLeft };
     if (storeClosed) {
       closed.push(c.id);
