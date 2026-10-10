@@ -77,7 +77,7 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** Refund limits (edge-case review 101, O.144–148; support spec §2 escalation to Ali above 25,000). */
 export const SUPPORT_LIMITS = {
-  /** Per support agent / dispatcher per local day; above it finance approves. */
+  /** Per support agent / dispatcher / finance per local day; above it a second OK (finance or admin). */
   agentDailyCapIqd: 10_000,
   /** Per customer per 30 days, all agents together (admin may override). */
   customerMonthlyCapIqd: 25_000,
@@ -394,6 +394,8 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
 
   async open(actor: Actor, input: z.output<typeof OpenTicketInput>): Promise<TicketSummary> {
     const order = input.orderId ? await this.orders.get(input.orderId) : null;
+    // A ticket on an order is that order's customer's: another person named on it is refused.
+    if (order && input.customerId && input.customerId !== order.ordererId) throw new DriverError('invalid_input');
     const courier = input.orderId ? await this.trips.courierOf(input.orderId).catch(() => null) : null;
     const ticket = await this.uow.run(async (tx) => {
       const t = await this.create(
@@ -636,14 +638,14 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const tier = await this.tierOf(actor.personId);
     const usedToday = (await this.repo.refundsBy(actor.personId, startOfLocalDay(now))).reduce((a, e) => a + (e.amountIqd ?? 0), 0);
     const customerUsed = ticket.customerId ? await this.customerCredits(ticket.customerId, now) : 0;
-    const agentLeft = tier === 'agent' ? Math.max(0, SUPPORT_LIMITS.agentDailyCapIqd - usedToday) : Number.MAX_SAFE_INTEGER;
+    const agentLeft = tier !== 'admin' ? Math.max(0, SUPPORT_LIMITS.agentDailyCapIqd - usedToday) : Number.MAX_SAFE_INTEGER;
     // What he may give without a second OK (admins too above 25,000 once the queue is there).
     const singleLeft = tier === 'admin' && !this.approvals ? Number.MAX_SAFE_INTEGER : SUPPORT_LIMITS.escalateAboveIqd;
     const customerLeft = tier === 'admin' ? Number.MAX_SAFE_INTEGER : Math.max(0, SUPPORT_LIMITS.customerMonthlyCapIqd - customerUsed);
     const orderLeft = order ? Math.max(0, order.totalIqd - (await this.refundedOnOrder(order.id))) : Number.MAX_SAFE_INTEGER;
     const available = ticket.customerId ? Math.min(agentLeft, singleLeft, customerLeft, orderLeft) : 0;
     return {
-      agentDailyCapIqd: tier === 'agent' ? SUPPORT_LIMITS.agentDailyCapIqd : 0,
+      agentDailyCapIqd: tier !== 'admin' ? SUPPORT_LIMITS.agentDailyCapIqd : 0,
       agentUsedTodayIqd: usedToday,
       customerMonthlyCapIqd: SUPPORT_LIMITS.customerMonthlyCapIqd,
       customerUsedMonthIqd: customerUsed,
@@ -664,7 +666,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     return tickets.reduce((a, t) => a + t.refundedIqd, 0);
   }
 
-  /** admin = the escalation owner (no caps); finance = no daily agent cap; everyone else an agent. */
+  /** admin = the escalation owner (no caps); finance = the agent's daily cap, may give the second OK; everyone else an agent. */
   private async tierOf(personId: string): Promise<'admin' | 'finance' | 'agent'> {
     if (await this.identity.hasRole(personId, 'admin')) return 'admin';
     if (await this.identity.hasRole(personId, 'finance')) return 'finance';
@@ -807,6 +809,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     if (!ticket.customerId) throw new DriverError('refund_no_customer');
     const customerId = ticket.customerId;
     const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
+    await this.assertRefundable(actor.personId, ticket, customerId, order, input.faultParty);
     const tier = await this.tierOf(actor.personId);
     // Without the second-OK queue an admin may go above 25,000 alone and everyone else is refused.
     if (!this.approvals && tier !== 'admin' && input.amountIqd > SUPPORT_LIMITS.escalateAboveIqd) throw new DriverError('refund_needs_escalation');
@@ -829,12 +832,24 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   }
 
   /**
+   * Who may get a refund, checked when it is given and again when a second OK posts it: never the
+   * staff member giving it nor any staff account; on an order, only that order's customer; and the
+   * courier or the kitchen pays only when the ticket's fault was put on them first (with its note).
+   */
+  private async assertRefundable(actorId: string, ticket: TicketRecord, customerId: string, order: Order | null, faultParty: FaultParty): Promise<void> {
+    if (customerId === actorId || (await this.identity.holdsStaffRole(customerId))) throw new DriverError('staff_own_account');
+    if (order && order.ordererId !== customerId) throw new DriverError('invalid_input');
+    if ((faultParty === 'courier' || faultParty === 'merchant') && (!order || ticket.faultParty !== faultParty)) throw new DriverError('refund_fault_not_attributed');
+  }
+
+  /**
    * Which limit this refund goes over, if any: one refund above 25,000 (everyone, admins too, once the
-   * second-OK queue is there), the agent's 10,000 a day, the customer's 25,000 a month (not for admin).
+   * second-OK queue is there), the 10,000 a day of an agent or finance, the customer's 25,000 a month
+   * (not for admin).
    */
   private async limitHit(personId: string, tier: 'admin' | 'finance' | 'agent', customerId: string, amountIqd: number, now: Date, tx: Tx): Promise<RefundApprovalLimit | null> {
     if (this.approvals && amountIqd > SUPPORT_LIMITS.escalateAboveIqd) return 'per_refund';
-    if (tier === 'agent') {
+    if (tier !== 'admin') {
       const used = (await this.repo.refundsBy(personId, startOfLocalDay(now), tx)).reduce((a, e) => a + (e.amountIqd ?? 0), 0);
       if (used + amountIqd > SUPPORT_LIMITS.agentDailyCapIqd) return 'agent_daily';
     }
@@ -875,6 +890,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     if (!ticket.customerId) throw new DriverError('refund_no_customer');
     const p = row.payload as { method: 'wallet' | 'points'; faultParty: FaultParty; note: string | null; idempotencyKey: string };
     const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
+    await this.assertRefundable(row.requestedBy, ticket, ticket.customerId, order, p.faultParty);
     await this.repo.lockCustomer(ticket.customerId, tx);
     if (await this.repo.entryByKey(`refund:${p.idempotencyKey}`, tx)) return;
     if (order && (await this.refundedOnOrder(order.id, tx)) + row.amountIqd > order.totalIqd) throw new DriverError('refund_exceeds_order');
