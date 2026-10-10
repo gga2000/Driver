@@ -7,6 +7,7 @@ import {
   type ConsoleNames,
   type ConsoleNamesInput,
   type ConsolePort,
+  classifyOrderQuery,
   type DriverPin,
   type DriverPositions,
   type DriverRosterRow,
@@ -46,6 +47,8 @@ export const RECENT_FAILED_OUTBOX = 20;
 export const CONSOLE_NAMES_PURPOSE = 'console_names';
 /** Vault-access purpose of the drivers list's name search. */
 export const CONSOLE_DRIVER_SEARCH_PURPOSE = 'console_driver_search';
+/** Vault-access purpose of the orders search by phone tail or customer name (Yes-list v7). */
+export const CONSOLE_ORDER_SEARCH_PURPOSE = 'console_order_search';
 /**
  * A name, tier or documents filter reads the whole roster (a town's drivers, a few hundred at most)
  * and pages the matches in memory; this bounds that read.
@@ -243,8 +246,34 @@ export class ConsoleReadService implements ConsolePort {
 
   // ───────────────────────── orders ─────────────────────────
 
-  searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage> {
-    return this.orders.search(input);
+  /**
+   * Orders history. Support also finds a caller's order the way the caller can say it (v7): the
+   * last four digits of the phone (alongside the order number they also are), the whole number, or
+   * the customer's name. The tail and the name are matched by identity among the window's orderers
+   * (a logged vault read, the staff member as accessor); a whole number is a hash lookup.
+   */
+  async searchOrders(input: z.infer<typeof OrderSearchInput>, accessorId: string): Promise<OrderSearchPage> {
+    const q = input.text ? classifyOrderQuery(input.text) : null;
+    if (!q || q.kind === 'text') return this.orders.search(input);
+    const rest = { ...input, text: undefined };
+    if (q.kind === 'phone') {
+      const personId = await this.identity.personIdByPhone(q.phone).catch(() => null);
+      return personId ? this.orders.search({ ...rest, ordererIds: [personId] }) : { rows: [], nextCursor: null };
+    }
+    const { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to } = input;
+    const window = { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to };
+    const tail = q.kind === 'ticket' ? q.tail : q.kind === 'tail' ? q.tail : null;
+    const among = q.kind === 'ticket' && !tail ? [] : await this.orders.ordererIdsIn(window, q.kind !== 'name');
+    const hits =
+      q.kind === 'name'
+        ? await this.identity.matchDisplayNames(among, q.name, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+        : tail
+          ? await this.identity.matchPhoneTails(among, tail, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+          : [];
+    if (q.kind === 'ticket') return this.orders.search({ ...input, alsoOrdererIds: hits });
+    if (q.kind === 'tail') return this.orders.search({ ...rest, from: rest.from ?? this.orders.ticketWindowFrom(), ordererIds: hits });
+    // A name nobody matches may still be a word in a note.
+    return hits.length > 0 ? this.orders.search({ ...rest, ordererIds: hits }) : this.orders.search(input);
   }
 
   async orderEvents(orderId: string): Promise<EventLogEntry[]> {
