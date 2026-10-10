@@ -15,7 +15,7 @@ each piece: [supabase.md](supabase.md), [hosting.md](hosting.md), [web.md](web.m
 | Seed | `pnpm db:seed` (demo restaurant + demo dispatcher +9647700000001) | setup script with `--dev-seed`; load-test data from `scripts/load/` | setup script, production profile + your admin phone |
 | SMS | `fake` (codes in the terminal) | `fake` | `fake` until the provider exists, then `gateway` |
 | Photos | memory / `UPLOADS_DIR` | Supabase Storage of the staging project | Supabase Storage `uploads` |
-| Web apps | `pnpm --filter @driver/customer web` | Pages preview branches | Cloudflare Pages `driver-customer`, `driver-merchant` |
+| Web apps | `pnpm --filter @driver/customer web` | Pages preview branches | Vercel `driver-customer`, `driver-merchant`, deployed by the Deploy workflow ([vercel.md](vercel.md)) |
 | Mobile | Expo Go / dev build | EAS `preview` profile (APK) + channel `preview` | EAS `production` profile + channel `production` |
 | Secrets | `.env` (dummies) | Fly secrets of the staging app, GitHub environment `staging` | Fly secrets, GitHub secrets |
 | Logs | terminal, pretty | Fly, JSON | Fly, JSON (+ Sentry) |
@@ -33,14 +33,19 @@ git checkout main && git pull
 git tag v1.0.3 && git push origin v1.0.3
 ```
 
-GitHub → Actions → **Deploy** runs: **plan** (what is configured) → **migrate** (`prisma migrate
+GitHub → Actions → **Deploy** runs: **checks** (the tagged commit's `ci` and `e2e-postgres` checks
+passed; anything else — failed, still running, never ran — refuses the deploy) → **plan** (what is configured) → **migrate** (`prisma migrate
 deploy` over `DIRECT_URL`, then `driver_harden()` and the checklist) → **API** (Fly builds the image
 and starts a new machine; it takes traffic only after `/trpc/health.live` passes; the old one drains
-and stops) → smoke test (`health.live` answers, `health.ready` shows `db: ok`; Redis down is only a warning) → **Console** and **web apps**. A red step stops the
+and stops) → smoke test (`health.live` answers, `health.ready` shows `db: ok`; Redis down is only a warning) → **Console** and **web apps** (the Vercel
+sites through their deploy hooks; they never deploy on a plain push to `main`). A red step stops the
 ones after it. By hand: Actions → Deploy → Run workflow (target: all / api / web / console /
 migrate-only).
 
-Before tagging: CI green on `main`; if the release has a migration, read it (anything that drops or
+Before tagging: CI green on `main` (the Deploy run checks it again and refuses otherwise). An urgent fix
+whose CI cannot pass in time: Run workflow with **urgent** ticked; the run summary records who skipped
+the checks. Tag the newest commit on `main`: the Vercel deploy hooks build `main`'s newest commit, so
+the web step refuses an older one; if the release has a migration, read it (anything that drops or
 rewrites a column needs a backup first: Actions → Backup → Run workflow).
 
 Mobile releases are separate (store review): [mobile.md](mobile.md). JavaScript-only fixes can go out
@@ -62,7 +67,9 @@ from" the old tag; migrations already applied are skipped.)
 so the previous API version keeps working on the newer schema. If a migration itself is wrong, write a
 new migration that fixes it and deploy that.
 
-**Web apps**: Cloudflare → the Pages project → Deployments → the previous one → **Rollback**.
+**Web apps** (customer, restaurant): Vercel → the project (`driver-customer` / `driver-merchant`) →
+Deployments → the previous production deployment → **Instant Rollback** (takes seconds, no rebuild).
+The next Deploy run promotes the new one again.
 **Console**: like the API (`fly releases --config deploy/fly/console.toml`).
 **OTA update**: `cd apps/<app> && eas update:roll-back-to-embedded --channel production` (or republish the
 previous update group from expo.dev). Publish a new OTA update only with
@@ -109,10 +116,25 @@ tokens, and remove them from Supabase, Fly, Cloudflare, Expo and GitHub.
   (Cloudflare R2: free egress, $0.015/GB; secrets `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
   `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`). The repository is public, so no copy is
   kept as a GitHub artifact (anyone signed in could download it); on a private repository the variable
-  `BACKUP_KEEP_ARTIFACT=true` adds a 14-day one. Set secrets `DIRECT_URL` (already there),
-  `BACKUP_PASSPHRASE` and the bucket ones; run it once by hand to see it work. Once production exists
-  (the variable `API_PUBLIC_URL` is set), a missing secret turns the nightly run **red** instead of
+  `BACKUP_KEEP_ARTIFACT=true` adds a 14-day one. Once production exists (the variable `API_PUBLIC_URL`
+  is set on the `backup` environment), a missing secret turns the nightly run **red** instead of
   skipping, so a night without a backup is never silent (SEC-13).
+
+  The job reads only its own GitHub environment **`backup`** (the production deploy secrets live on
+  `production` and are not visible to it). Ali sets it up once: Settings → Environments → **New
+  environment** `backup` — no required reviewers (the nightly run must never wait for an approval),
+  deployment branches: `main` only. On it add:
+
+  | Kind | Name | What |
+  | --- | --- | --- |
+  | Secret | `DIRECT_URL` | connection string of a **read-only** database role (Supabase → SQL: a role with `SELECT` on `public` and `identity_vault`), not the migration one |
+  | Secret | `BACKUP_PASSPHRASE` | long random; also in your password manager — without it no backup opens |
+  | Secret | `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | the bucket (e.g. Cloudflare R2) and a key that can only write to it |
+  | Secret | `BACKUP_HEARTBEAT_URL` | Better Stack → Heartbeats → new, period 24 h, grace 2 h (alerts when no ping for 26 h); optional but recommended |
+  | Variable | `API_PUBLIC_URL` | the production API address, the same value as on `production` (turns "skipped" into "red") |
+
+  Then Actions → Backup → Run workflow once, download the file from the bucket and restore it locally
+  once (below), so the first green run is known to be a real backup.
 - **PITR**: off at launch (≈$100/month). Turn it on once a lost hour of orders would cost more.
 - **Redis** holds only queues and caches; it is rebuilt from the database. Its AOF survives restarts.
 

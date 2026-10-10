@@ -4,15 +4,19 @@
 # independent copy you own: `pg_dump` of our two schemas (public, identity_vault), encrypted with your
 # passphrase, kept 14 days as a workflow artifact and — when the BACKUP_S3_* secrets are set — copied
 # to an S3-compatible bucket you control (Cloudflare R2 recommended: no egress fees).
-# Until production exists it skips with a notice. Once it does (the repository variable API_PUBLIC_URL
-# is set, as the Deploy workflow needs), missing secrets fail the run red (SEC-13).
+# Until production exists it skips with a notice. Once it does (the variable API_PUBLIC_URL is set on
+# the `backup` environment), missing secrets fail the run red (SEC-13).
 # The repository is public, so by default the encrypted dump is not kept as a workflow artifact (anyone
 # signed in to GitHub could download it): it goes to the bucket, which is then required. On a private
 # repository, the variable BACKUP_KEEP_ARTIFACT=true keeps a 14-day copy in GitHub as well.
 #
-# Secrets: DIRECT_URL (same as deploy), BACKUP_PASSPHRASE (long random; keep it in your password
-# manager — without it a backup cannot be opened), optional BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET,
-# BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY.
+# Everything comes from its own GitHub environment `backup` (no required reviewers, so a deploy approval
+# rule never blocks the nightly run; the production deploy secrets stay on `production`, never at
+# repository level). Names and where each comes from: docs/deploy/runbook.md, "Backups".
+# Secrets: DIRECT_URL (a read-only database role's connection string), BACKUP_PASSPHRASE (long random;
+# keep it in your password manager — without it a backup cannot be opened), BACKUP_S3_ENDPOINT,
+# BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY, optional BACKUP_HEARTBEAT_URL
+# (a Better Stack heartbeat that alerts when no ping arrives for 26 h). Variable: API_PUBLIC_URL.
 name: Backup
 
 on:
@@ -35,6 +39,7 @@ defaults:
 jobs:
   dump:
     runs-on: ubuntu-latest
+    environment: backup
     timeout-minutes: 30
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
@@ -44,6 +49,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
+      HEARTBEAT_URL: ${{ secrets.BACKUP_HEARTBEAT_URL }}
       PRODUCTION_LIVE: ${{ vars.API_PUBLIC_URL != '' }}
       # Only a private repository may keep the encrypted dump as an artifact: set the variable then.
       KEEP_ARTIFACT: ${{ vars.BACKUP_KEEP_ARTIFACT == 'true' }}
@@ -101,3 +107,9 @@ jobs:
         run: |
           aws s3 cp "$FILE" "s3://${S3_BUCKET}/driver/$(date -u +%Y/%m)/$FILE" --endpoint-url "$S3_ENDPOINT"
           aws s3 cp "$FILE.sha256" "s3://${S3_BUCKET}/driver/$(date -u +%Y/%m)/$FILE.sha256" --endpoint-url "$S3_ENDPOINT"
+
+      # Last: a ping only after a backup was really made, so a silent night (skipped, failed, or the
+      # schedule itself stopped) alerts from outside GitHub.
+      - name: Heartbeat (a backup was made)
+        if: steps.cfg.outputs.run == 'true' && env.HEARTBEAT_URL != ''
+        run: curl -fsS -m 10 --retry 3 -o /dev/null "$HEARTBEAT_URL"

@@ -4,7 +4,7 @@
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "buildCommand": "bash scripts/vercel-build.sh",
   "outputDirectory": "dist-web",
-  "git": { "deploymentEnabled": { "**": false, "main": true } },
+  "git": { "deploymentEnabled": false },
   "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = main ]; then exit 1; else exit 0; fi",
   "cleanUrls": false,
   "trailingSlash": false,

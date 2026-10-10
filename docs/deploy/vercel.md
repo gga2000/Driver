@@ -10,9 +10,19 @@ Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays
 - Project environment variable `EXPO_PUBLIC_API_URL` = the **staging** API
   (`https://driver-api-staging.fly.dev/trpc`) until launch. It is baked in at build time: change it,
   then redeploy. `EXPO_PUBLIC_SHARE_BASE_URL` defaults to the project's own address.
-- Only `main` deploys. `git.deploymentEnabled` in vercel.json stops every other branch from even creating a
-  deployment (the free plan allows 100 deployments a day, and ignored builds still count), and the
-  project setting "preview deployments disabled" covers branches cut before that line existed.
+- No push deploys. `git.deploymentEnabled: false` in vercel.json means a merge to `main` (or any other
+  branch) creates no deployment, so the websites never ship ahead of the API they call. A release
+  deploys them from the **Deploy** workflow (`.github/workflows/deploy.yml`, job `web-vercel`), after
+  the API passed its smoke test, by calling each project's **deploy hook**; the hook builds the newest
+  commit of `main`, so the job refuses any other commit. The project setting "preview deployments
+  disabled" stays on.
+- Deploy hooks (Ali, once per project): Vercel → the project → Settings → Git → **Deploy Hooks** →
+  name `release`, branch `main` → Create. Copy the URL straight into GitHub → Settings → Environments
+  → `production` → Add secret: `VERCEL_DEPLOY_HOOK_CUSTOMER` (customer project) and
+  `VERCEL_DEPLOY_HOOK_MERCHANT` (restaurant project). The URL is a secret: anyone who has it can start a
+  build. Without them the Deploy run skips the websites with a notice.
+- Roll back: Vercel → the project → Deployments → the previous production one → **Instant Rollback**
+  ([runbook.md](runbook.md)).
 - Deep links (`/share/<token>`, `/order/<id>`) fall back to `index.html`; `/i/<code>` gets
   `invite.html` (the WhatsApp preview card). Headers match the Cloudflare `_headers`.
 - Plan: the free Hobby plan is for non-commercial use. Move to Pro before real customers order.
