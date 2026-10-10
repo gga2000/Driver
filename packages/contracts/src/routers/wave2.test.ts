@@ -155,6 +155,18 @@ describe('wave-2 routers: role gates reach the right port', () => {
     expect([...calls, ...ops.calls, ...reviewer.calls]).toEqual([]);
   });
 
+  it('PRV-08: staff.myInvites and staff.respondInvite need only a sign-in (the invitee holds no merchant role yet)', async () => {
+    expect(await codeOf(caller(null).call.merchantAdmin.staff.myInvites())).toBe('UNAUTHORIZED');
+    expect(await codeOf(caller(null).call.merchantAdmin.staff.respondInvite({ ...M, accept: true }))).toBe('UNAUTHORIZED');
+    const someone = caller(['customer']);
+    expect(await codeOf(someone.call.merchantAdmin.staff.myInvites())).toBe('NOT_FOUND');
+    expect(await codeOf(someone.call.merchantAdmin.staff.respondInvite({ ...M, accept: false }))).toBe('NOT_FOUND');
+    const noRoles = caller([]);
+    expect(await codeOf(noRoles.call.merchantAdmin.staff.myInvites())).toBe('NOT_FOUND');
+    expect(await codeOf(noRoles.call.merchantAdmin.staff.respondInvite({ merchantOrgId: '', accept: true }))).toBe('BAD_REQUEST');
+    expect([...someone.calls, ...noRoles.calls]).toEqual(['merchantAdmin.staffMyInvites', 'merchantAdmin.staffRespondInvite', 'merchantAdmin.staffMyInvites']);
+  });
+
   it('customerZones defaults to the last 30 days', async () => {
     const { call, inputs } = caller(['merchant_staff']);
     await codeOf(call.merchant.customerZones(M));

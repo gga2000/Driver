@@ -20,7 +20,7 @@ describe('staff', () => {
     expect(roleKey('merchant_owner')).toBe('merchant.staff.role_owner');
   });
 
-  it('a waiting invite reads "دعوة مرسلة إلى 0770 ••• 1234" and can be resent after the cooldown', () => {
+  it('a waiting invite reads "دعوة مرسلة إلى 0770 ••• 1234، ننتظره يقبل" and can be resent after the cooldown', () => {
     const now = Date.parse('2026-10-04T10:00:00Z');
     const invite = m('p', 'merchant_staff', {
       name: null,
@@ -30,7 +30,7 @@ describe('staff', () => {
       resendAfter: new Date(now + 4.2 * 60_000),
     });
     expect(translate('merchant.staff.invite_to', { phone: invitePhone(invite)! }, 'ar-IQ')).toBe(
-      'دعوة مرسلة إلى \u20660770\u00A0•••\u00A01234\u2069',
+      'دعوة مرسلة إلى \u20660770\u00A0•••\u00A01234\u2069، ننتظره يقبل',
     );
     expect(invitePhone({ phoneHint: null, phoneMasked: '+96477*****34' })).toBe(
       '\u2066077•\u00A0•••\u00A0••34\u2069',
