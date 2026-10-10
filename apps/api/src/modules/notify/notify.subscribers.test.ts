@@ -52,6 +52,11 @@ describe('notify subscribers: events → notifications', () => {
       { template: 'merchant_new_order', to: 'staff', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
       { template: 'merchant_new_order', to: 'owner', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
     ]);
+    // MER-05: the push says which store, so a tap on a device that works for two opens the right board.
+    expect((await requestsFor(event('order.offered_to_merchant', { merchantOrgId: 'org_k' }, { orderId: 'ord_1' }), d)).map((r) => r.data)).toEqual([
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
+    ]);
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ord_1' }))).toEqual([]);

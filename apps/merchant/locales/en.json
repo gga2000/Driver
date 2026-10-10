@@ -1921,5 +1921,6 @@
   "merchant.push.off_chip": "Notifications off: no ring outside the app",
   "merchant.push.failed_chip": "Notifications not working: tap to retry",
   "merchant.card.time_over": "Too late to accept, it was cancelled",
-  "merchant.item.owner_only": "Prices, dishes and options are changed by the owner. You can mark a dish sold out today, turn it off or change its photo."
+  "merchant.item.owner_only": "Prices, dishes and options are changed by the owner. You can mark a dish sold out today, turn it off or change its photo.",
+  "merchant.stores.ring_note": "The new-order sound rings only for the store open now. Notifications arrive from all your stores, and tapping one opens its store."
 }

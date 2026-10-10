@@ -3,10 +3,11 @@ import { router } from 'expo-router';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState, Linking, Platform } from 'react-native';
 import { useApiClient } from '@/lib/api';
+import { prefs } from '@/lib/prefs';
 import { pushDevice } from '@/lib/push';
 import { useSignedIn } from '@/lib/session';
 import { storage } from '@/lib/storage';
-import { deepLinkPath, PREPROMPT_KEY, pushHealthOf, shouldShowPrePrompt, type PushHealth } from './prompt';
+import { deepLinkPath, PREPROMPT_KEY, pushHealthOf, shouldShowPrePrompt, storeFromPush, type PushHealth } from './prompt';
 
 let registeredToken: string | null = null;
 const listeners = new Set<() => void>();
@@ -79,6 +80,11 @@ export function usePushRegistration(): void {
     });
     const offOpen = pushDevice.onOpen((data) => {
       if (typeof data.deliveryId === 'string') void client.notify.ack.mutate({ deliveryId: data.deliveryId, opened: true }).catch(() => undefined);
+      const other = storeFromPush(data, prefs.getSnapshot().storeId);
+      if (other) {
+        void prefs.setStore(other).then(() => router.navigate('/'));
+        return;
+      }
       const path = deepLinkPath(data.deepLink);
       if (path) router.navigate(path as never);
     });

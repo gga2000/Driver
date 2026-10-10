@@ -83,6 +83,7 @@ function fakePort(): ConsolePort {
     orderEvents: vi.fn(async () => [event]),
     orderLedger: vi.fn(async () => [{ id: 'l1', at: AT, type: 'merchant_payable', label_ar: 'مستحق المطعم', amountIqd: 12_000, fromAccount: 'platform', toAccount: 'merchant_cash:org_1', memo: null }]),
     tripEvents: vi.fn(async () => [event]),
+    customerHistory: vi.fn(async () => ({ recentOrders: [summary], credits: { from: AT, totalIqd: 1_000, lines: [{ id: 'l2', at: AT, type: 'refund' as const, label_ar: 'استرجاع', amountIqd: 1_000, orderId: null }] } })),
     rightNow: vi.fn(async (cityId: string) => ({
       cityId,
       at: AT,
@@ -188,12 +189,22 @@ describe('console read procedures: shapes', () => {
   it('orders.search coerces dates, defaults the limit and rejects bad states', async () => {
     const { call, port } = caller(['finance']);
     const res = await call.orders.search({ cityId: 'aziziyah', states: ['delivered'], from: '2026-10-01T00:00:00Z' as unknown as Date, text: '  kebab ' });
-    expect(port.searchOrders).toHaveBeenCalledWith({ cityId: 'aziziyah', states: ['delivered'], from: new Date('2026-10-01T00:00:00Z'), text: 'kebab', limit: 50 });
+    expect(port.searchOrders).toHaveBeenCalledWith({ cityId: 'aziziyah', states: ['delivered'], from: new Date('2026-10-01T00:00:00Z'), text: 'kebab', limit: 50 }, 'p_staff');
     expect(res).toEqual({ rows: [summary], nextCursor: 'c1' });
     expect(await codeOf(call.orders.search({ cityId: 'aziziyah', states: ['teleported' as never] }))).toBe('BAD_REQUEST');
     await call.orders.search({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: ' zakur ', late: true });
-    expect(port.searchOrders).toHaveBeenLastCalledWith({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: 'zakur', late: true, limit: 50 });
+    expect(port.searchOrders).toHaveBeenLastCalledWith({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: 'zakur', late: true, limit: 50 }, 'p_staff');
     expect(await codeOf(call.orders.search({ cityId: 'aziziyah', paymentMethod: 'card' as never }))).toBe('BAD_REQUEST');
+  });
+
+  it('console.customerHistory: support may read it, the city defaults, a customer id is required', async () => {
+    const { call, port } = caller(['support']);
+    const h = await call.console.customerHistory({ customerId: 'p_cust' });
+    expect(port.customerHistory).toHaveBeenCalledWith({ cityId: 'aziziyah', customerId: 'p_cust' });
+    expect(h.recentOrders).toHaveLength(1);
+    expect(h.credits.totalIqd).toBe(1_000);
+    expect(await codeOf(call.console.customerHistory({ customerId: '' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(caller(['field_ops']).call.console.customerHistory({ customerId: 'p_cust' }))).toBe('FORBIDDEN');
   });
 
   it('orders.ledger returns the order lines with dates', async () => {
