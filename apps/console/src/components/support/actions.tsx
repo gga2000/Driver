@@ -5,6 +5,7 @@ import type { FaultParty, TicketCase } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useEffect, useId, useState } from 'react';
 import { refundChips } from '@/lib/control-room';
+import { needsSecondOk } from '@/lib/refund-approvals';
 import { formatIqd, formatMoney } from '@/lib/format';
 import { errorText } from '@/lib/network';
 import { useTRPC } from '@/lib/trpc';
@@ -91,7 +92,7 @@ function RefundDialog({
   useEffect(() => {
     if (!open) return;
     setAmount(
-      prefill?.amountIqd && prefill.amountIqd <= lim.availableIqd ? String(prefill.amountIqd) : '',
+      prefill?.amountIqd ? String(prefill.amountIqd) : '',
     );
     setFault(
       prefill?.fault ??
@@ -107,8 +108,12 @@ function RefundDialog({
     trpc.support.refund.mutationOptions({
       onSuccess: (res, vars) => {
         setCase(res);
+        // Over a limit nothing posts: it waits for finance or an admin (Ali, 2026-10-08).
+        const waits = res.pendingApproval && res.pendingApproval.id !== data.pendingApproval?.id;
         toast({
-          title: t('console.sup_refund_done', { amount: formatIqd(vars.amountIqd) }),
+          title: t(waits ? 'console.sup_refund_waits' : 'console.sup_refund_done', {
+            amount: formatIqd(vars.amountIqd),
+          }),
           tone: 'ok',
         });
         onClose();
@@ -116,9 +121,10 @@ function RefundDialog({
     }),
   );
   const n = Number(amount);
-  const valid = Number.isInteger(n) && n >= 250 && n % 250 === 0 && n <= lim.availableIqd;
+  const valid = Number.isInteger(n) && n >= 250 && n % 250 === 0 && n <= 500_000;
+  const over = valid && needsSecondOk(n, lim.availableIqd);
   const party = method === 'points' ? 'platform' : fault;
-  const chips = refundChips(lim.availableIqd);
+  const chips = refundChips(Number.MAX_SAFE_INTEGER);
   return (
     <Dialog
       open={open}
@@ -150,9 +156,11 @@ function RefundDialog({
               })
             }
           >
-            {valid
-              ? t('console.sup_refund_send', { amount: formatMoney(n) })
-              : t('console.sup_refund_pick')}
+            {!valid
+              ? t('console.sup_refund_pick')
+              : over
+                ? t('console.sup_refund_ask', { amount: formatMoney(n) })
+                : t('console.sup_refund_send', { amount: formatMoney(n) })}
           </Button>
         </>
       }
@@ -167,12 +175,14 @@ function RefundDialog({
                 type="button"
                 data-refund-chip
                 aria-pressed={n === v}
+                title={needsSecondOk(v, lim.availableIqd) ? t('console.sup_refund_chip_ok') : undefined}
                 onClick={() => setAmount(String(v))}
                 className={cx(
                   'num h-10 min-w-[84px] rounded-md border px-3 text-[15px] font-semibold transition-colors',
                   n === v
                     ? 'border-accent bg-accent-tint text-text'
                     : 'border-line bg-surface text-text hover:border-line-strong hover:bg-surface-2',
+                  needsSecondOk(v, lim.availableIqd) && n !== v && 'border-dashed text-muted',
                 )}
               >
                 {formatIqd(v)}
@@ -196,10 +206,19 @@ function RefundDialog({
           </div>
           {amount !== '' && !valid ? (
             <p className="mt-1.5 text-xs text-bad">
-              {t('console.sup_refund_invalid', { amount: formatIqd(lim.availableIqd) })}
+              {t('console.sup_refund_invalid_step')}
             </p>
           ) : null}
-          {n > lim.cashAboveIqd ? (
+          {over ? (
+            <p
+              data-testid="refund-over-limit"
+              className="mt-2 flex items-start gap-2 rounded-md bg-warn-tint px-3 py-2 text-dense text-text"
+            >
+              <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
+              {t('console.sup_refund_over', { amount: formatIqd(lim.availableIqd) })}
+            </p>
+          ) : null}
+          {valid && n > lim.cashAboveIqd ? (
             <p className="mt-2 flex items-start gap-2 rounded-md bg-warn-tint px-3 py-2 text-dense text-text">
               <IconAlert size={16} className="mt-0.5 shrink-0 text-warn" />
               {t('console.sup_cash_hint')}
@@ -258,7 +277,9 @@ function RefundDialog({
 
         {valid ? (
           <p className="text-sm text-text">
-            {method === 'points'
+            {over
+              ? t('console.sup_refund_summary_wait', { amount: formatIqd(n) })
+              : method === 'points'
               ? t('console.sup_refund_summary_points', { amount: formatIqd(n) })
               : t('console.sup_refund_summary_wallet', {
                   amount: formatIqd(n),

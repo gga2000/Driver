@@ -75,6 +75,12 @@ export const AdminMenuItem = z.object({
    * it the same day; true while it waits for that look («ينتظر المراجعة»). Absent = false.
    */
   photoReviewPending: z.boolean().optional(),
+  /**
+   * p4: Driver's team took the shop's photo down (`catalog.photo_taken_down`, last 14 days) and the dish
+   * has no photo since. `reason` is `blurry` | `wrong_dish` | `people` | `other` (an unknown one reads
+   * as `other`). Absent or null = nothing to tell.
+   */
+  photoTakenDown: z.object({ reason: z.string(), at: z.coerce.date() }).nullable().optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 
@@ -497,6 +503,12 @@ export const MerchantInsights = z.object({
    * null with no ratings. Absent on an older API.
    */
   foodRating: z.object({ avg: z.number().nullable(), count: z.number().int() }).optional(),
+  /**
+   * m4 (Ali, 2026-10-09 "yes build them"): dishes that ran out («خلص اليوم») on 3 or more days of the
+   * window, most days first (at most 3), with the usual Baghdad time they ran out (minutes since
+   * midnight, the median), so the kitchen can prepare more. Absent on an older API.
+   */
+  soldOutHabits: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), days: z.number().int(), usualMinute: z.number().int().min(0).max(1439) })).optional(),
 });
 export type MerchantInsights = z.infer<typeof MerchantInsights>;
 

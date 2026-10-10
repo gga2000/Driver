@@ -3,7 +3,7 @@
 //
 //   who=intercity  0770 111 0003  مصطفى جاسم
 //
-//   Run A  van (7) · كراج البوابة ١ → بغداد · announced time 12 min ago, boarding; selfie done, he is
+//   Run A  van (7) · كراج البوابة 1 → بغداد · announced time 12 min ago, boarding; selfie done, he is
 //          checked in at the garage. Seats: front زهراء (checked in), middle-left حسين (prepaid, late:
 //          the meter runs), middle-middle free, middle-right a walk-up, rear-left+middle مريم's family
 //          (door pickup, accepted), rear-right أحمد (cash, past his 3-minute grace: no-show allowed).
@@ -11,12 +11,12 @@
 //          waiting for his answer), علي (on-the-way: جسر ديالى), ياسر holding back-middle. Step 4 prices:
 //          نور agreed her spot on the road (2,000) and her door (free); سارة asks about her spot;
 //          هدى has his 3,000 for her door and hasn't answered.
-//   Demand from Aziziyah: 12 seats in the next-hour window, 5 in the one after, 2 at البوابة ٢ later;
+//   Demand from Aziziyah: 12 seats in the next-hour window, 5 in the one after, 2 at البوابة 2 later;
 //          3 seats from Baghdad tonight.
 //   Request board: a family to الحلة (private car), a ziyara to النجف tomorrow, a stranded rider at
 //          her seat price, and a ride to الصويرة where the rider already picked his offer.
 //
-//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, waitRides, fetchRide, cashRide, posts, pins }
+//   POST /demo/intercity/seed?who=intercity   → { runA, runB, rideId, waitRides, fetchRide, cashRide, sharedRide, posts, pins }
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
 import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
@@ -182,7 +182,7 @@ export default async function register(demo) {
     await rpc.postDemand(actor('poster8'), { corridorId: 'aziziyah_kut', direction: 'from_aziziyah', windowStart: hourFromNow(1), windowEnd: hourFromNow(2), seats: 2, travellingAs: 'nisa', pickup: { kind: 'garage' } });
 
     // ── Request board.
-    const hilla = await postRequest(actor('sara'), { from: { label: 'كراج البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الحلة' }, when: new Date(now + 180 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', note: 'عدنا جنطتين كبار وعربانة طفل' });
+    const hilla = await postRequest(actor('sara'), { from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الحلة' }, when: new Date(now + 180 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', note: 'عدنا جنطتين كبار وعربانة طفل' });
     // p1/p2: six finished Najaf trips (there and back, 4 hours' wait) give that trip a usual range.
     for (const [i, price] of [50_000, 55_000, 55_000, 58_000, 60_000, 65_000].entries()) {
       const done = await postRequest(actor(`poster${i}`), { from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: new Date(now + 20 * MIN), seats: 3, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4 } });
@@ -191,10 +191,10 @@ export default async function register(demo) {
       await rpc.requestCompleted(driver, { postId: done.id });
     }
     const najaf = await postRequest(actor('huda'), { from: { label: 'العزيزية، حي الهاشمي' }, to: { label: 'النجف', placeId: 'najaf' }, when: new Date(hourFromNow(30).getTime()), seats: 4, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4 } });
-    const stranded = await postRequest(actor('batool'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'بغداد، كراج النهضة' }, when: new Date(now + 45 * MIN), seats: 1, privateCar: true, travellingAs: 'nisa' });
+    const stranded = await postRequest(actor('batool'), { from: { label: 'كراج البوابة 2', garageId: 'mp_garage_bab2' }, to: { label: 'بغداد، كراج النهضة' }, when: new Date(now + 45 * MIN), seats: 1, privateCar: true, travellingAs: 'nisa' });
     const sr = await repo.getRequest(stranded.id);
     await repo.saveRequest({ ...sr, origin: 'stranded', priceCapIqd: 10_000 });
-    const suwaira = await postRequest(actor('rusul'), { from: { label: 'كراج البوابة ٢', garageId: 'mp_garage_bab2' }, to: { label: 'الصويرة' }, when: new Date(now + 40 * MIN), seats: 2, privateCar: true, travellingAs: 'nisa' });
+    const suwaira = await postRequest(actor('rusul'), { from: { label: 'كراج البوابة 2', garageId: 'mp_garage_bab2' }, to: { label: 'الصويرة' }, when: new Date(now + 40 * MIN), seats: 2, privateCar: true, travellingAs: 'nisa' });
     const offered = await rpc.offerOnRequest(driver, { postId: suwaira.id, priceIqd: 25_000 });
     await rpc.pickOffer(actor('rusul'), { postId: suwaira.id, offerId: offered.offers[0].id });
     // w2: two «يستناك وترجع» rides to Karbala picked by this driver: one he just reached (the start
@@ -225,17 +225,32 @@ export default async function register(demo) {
     const kufaOffer = (await rpc.offerOnRequest(driver, { postId: kufa.id, priceIqd: 45_000 })).offers.at(-1);
     await say(actor('ali'), { subject: 'request', id: kufa.id, with: driver.personId }, 'عندي جهال وياي، السيارة بيها تبريد؟');
     await rpc.askCash(actor('ali'), { postId: kufa.id, offerId: kufaOffer.id });
-    const kut = await postRequest(actor('yasir'), { from: { label: 'كراج البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت، المستشفى' }, when: new Date(now + 50 * MIN), seats: 1, privateCar: true, travellingAs: 'rijal' });
+    const kut = await postRequest(actor('yasir'), { from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت، المستشفى' }, when: new Date(now + 50 * MIN), seats: 1, privateCar: true, travellingAs: 'rijal' });
     const kutOffer = (await rpc.offerOnRequest(driver, { postId: kut.id, priceIqd: 20_000 })).offers.at(-1);
     await rpc.askCash(actor('yasir'), { postId: kut.id, offerId: kutOffer.id });
     await rpc.answerCash(driver, { postId: kut.id, offerId: kutOffer.id, accept: true });
     await rpc.pickOffer(actor('yasir'), { postId: kut.id, offerId: kutOffer.id, cash: true });
+    // Way C (Ali 2026-10-09), the sharing switch on for this demo only: زهراء booked a car to Baghdad
+    // for 4 and shared it; مريم and نور each paid a place in the app. He is at her door: مريم said
+    // «صعدت», نور hasn't yet (her phone is the one he can confirm for).
+    board.moneyRules = { ...board.moneyRules, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+    const shared = await postRequest(actor('zahraa'), { from: { label: 'العزيزية، حي الزهراء' }, to: { label: 'بغداد، الكرادة' }, when: new Date(now + 180 * MIN), seats: 4, privateCar: true, travellingAs: 'aila' });
+    const sharedOffer = (await rpc.offerOnRequest(driver, { postId: shared.id, priceIqd: 110_000 })).offers.at(-1);
+    await rpc.pickOffer(actor('zahraa'), { postId: shared.id, offerId: sharedOffer.id });
+    const shareCode = (await rpc.openShare(actor('zahraa'), { postId: shared.id, bookerPlaces: 2 })).share.path.split('/').at(-1);
+    await rpc.joinShare(actor('maryam'), { code: shareCode, places: 1 });
+    await rpc.joinShare(actor('noor'), { code: shareCode, places: 1 });
+    const sharedRec = await repo.getRequest(shared.id);
+    await repo.saveRequest({ ...sharedRec, when: new Date(Math.ceil((now + 5 * MIN) / (5 * MIN)) * 5 * MIN) });
+    const DOOR = { lat: 32.9105, lng: 45.0611 };
+    await rpc.requestArrived(driver, { postId: shared.id, ...DOOR });
+    await rpc.shareBoard(actor('maryam'), { code: shareCode, ...DOOR });
 
     state.runA = a.id;
     state.runB = b.id;
     state.pins = { hussein: hussein.pin, maryam: maryam.pin, ahmed: ahmed.pin };
     state.bookings = { hussein: hussein.id, maryam: maryam.id, ahmed: ahmed.id };
-    return { riders: { sara: people.sara, huda: people.huda }, runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, fetchRide: fetchPost.id, cashRide: kut.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id, cashAsk: kufa.id }, pins: state.pins, bookings: state.bookings };
+    return { riders: { sara: people.sara, huda: people.huda }, runA: a.id, runB: b.id, rideId: suwaira.id, waitRides: { ready: waitReady, waiting }, fetchRide: fetchPost.id, cashRide: kut.id, sharedRide: shared.id, posts: { hilla: hilla.id, najaf: najaf.id, stranded: stranded.id, cashAsk: kufa.id }, pins: state.pins, bookings: state.bookings };
   }
 
   await seed({ who: 'intercity' });

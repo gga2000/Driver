@@ -6,12 +6,15 @@ import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { clampPrep, committedPrep, defaultPrepChoice, kitchenNotes, partialValid, PREP_MAX, prepMin, prepOptions } from './logic';
+import { useMenuActions } from '@/features/menu/queries';
+import { clampPrep, committedPrep, defaultPrepChoice, dishesOut, kitchenNotes, partialValid, PREP_MAX, prepMin, prepOptions } from './logic';
 import { KitchenNote, PaymentPill } from './OrderCard';
 import { useOrderActions } from './queries';
 
 export interface AcceptSheetProps {
   order: BoardOrder | null;
+  /** The store, for taking a dish that ran out off the menu (m5). */
+  storeId: string | null;
   onClose: () => void;
   /** The busy minutes in force (+10 or +20, r5); 0 when busy mode is off. */
   busyMinutes: number;
@@ -28,24 +31,29 @@ export interface AcceptSheetProps {
 /**
  * Accept with a prep time (10 / 15 / 25 / custom; 3 / 5 / 8 for a juice bar or café). Busy mode adds
  * its +10 or +20 and says so. "صنف خلص؟" turns
- * the sheet into partial accept: tick what's out and the customer gets 60 s to approve the rest.
+ * the sheet into partial accept: tick what's out and the customer gets 60 s to approve the rest. The
+ * dishes ticked as out come off the menu for the rest of the day too (m5, on unless the kitchen unticks
+ * it), so the next customer can't order them; they come back by themselves tomorrow.
  */
-export function AcceptSheet({ order, onClose, busyMinutes, prepKind, usualPrepMinutes, clock, onAccepted, startPartial = false }: AcceptSheetProps) {
+export function AcceptSheet({ order, storeId, onClose, busyMinutes, prepKind, usualPrepMinutes, clock, onAccepted, startPartial = false }: AcceptSheetProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const toast = useCounterToast();
   const { accept } = useOrderActions();
+  const { soldOutToday } = useMenuActions(storeId);
   const [choice, setChoice] = useState<number | 'custom'>(defaultPrepChoice(usualPrepMinutes, prepKind));
   const [custom, setCustom] = useState(prepKind === 'drinks' ? 10 : 30);
   const [partial, setPartial] = useState(false);
   const [missing, setMissing] = useState<Set<string>>(new Set());
+  const [stopToday, setStopToday] = useState(true);
 
   useEffect(() => {
     if (!order) return;
     setChoice(defaultPrepChoice(usualPrepMinutes, prepKind));
     setPartial(startPartial);
     setMissing(new Set());
+    setStopToday(true);
     accept.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id]);
@@ -56,11 +64,24 @@ export function AcceptSheet({ order, onClose, busyMinutes, prepKind, usualPrepMi
   const lines = order.groups.flatMap((g) => g.lines.filter((l) => l.availability === 'available').map((l) => ({ ...l, who: g })));
   const lineIds = lines.map((l) => l.lineId);
   const canPartial = partialValid(missing, lineIds);
+  // A practice order's dishes are pretend: nothing on the real menu changes.
+  const outDishes = order.id.startsWith('practice-') ? [] : dishesOut(lines, missing);
+  const names = outDishes.map((d) => d.name).join(t('merchant.stop_today.join'));
+
+  /** m5: after the order went to the customer, the ticked dishes come off the menu for today. */
+  const stopDishes = async () => {
+    if (!storeId) return false;
+    const done = await Promise.allSettled(outDishes.map((d) => soldOutToday.mutateAsync({ merchantOrgId: storeId, itemId: d.id })));
+    return done.every((r) => r.status === 'fulfilled');
+  };
 
   const submit = async () => {
     try {
       await accept.mutateAsync({ orderId: order.id, prepMinutes: picked, unavailableLineIds: partial ? [...missing] : [] });
-      if (partial) toast.show({ message: t('merchant.accept.sent_partial'), tone: 'neutral', icon: 'clock' });
+      if (partial && stopToday && outDishes.length > 0) {
+        const ok = await stopDishes();
+        toast.show(ok ? { message: t('merchant.stop_today.done', { names }), tone: 'neutral', icon: 'clock' } : { message: t('merchant.stop_today.failed'), tone: 'danger' });
+      } else if (partial) toast.show({ message: t('merchant.accept.sent_partial'), tone: 'neutral', icon: 'clock' });
       else {
         toast.show({ message: t('merchant.accept.done', { minutes: total }), tone: 'success' });
         onAccepted(order, total);
@@ -233,6 +254,28 @@ export function AcceptSheet({ order, onClose, busyMinutes, prepKind, usualPrepMi
               );
             })}
           </View>
+          {outDishes.length > 0 && canPartial ? (
+            <Pressable
+              testID="accept-stop-today"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: stopToday }}
+              onPress={() => {
+                theme.haptic('selection');
+                setStopToday(!stopToday);
+              }}
+              style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3], minHeight: 44, paddingVertical: theme.space[2] }}
+            >
+              <View style={{ marginTop: 2, width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: stopToday ? theme.colors.text : theme.colors.borderStrong, backgroundColor: stopToday ? theme.colors.text : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                {stopToday ? <MIcon name="check" size={16} color="surface" strokeWidth={3} /> : null}
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="bodyStrong">{outDishes.length === 1 ? t('merchant.stop_today.one', { dish: outDishes[0]!.name }) : t('merchant.stop_today.many')}</Text>
+                <Text variant="footnote" color="textMuted">
+                  {outDishes.length === 1 ? t('merchant.stop_today.hint_one') : t('merchant.stop_today.hint_many', { names })}
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
           {missing.size > 0 && missing.size >= lineIds.length ? (
             <Text variant="footnote" color="dangerText">
               {t('merchant.accept.all_missing')}

@@ -8,6 +8,13 @@ Nothing here moves money.
 The customer's orders, newest first, at most `ORDER_HISTORY_LIMIT` (50): as orderer or participant,
 the same set `orders.mine` returns. Each row is `OrderHistoryRow`:
 
+Both reads are bounded (FOOD-04): the newest ids are picked in the database by `(placed_at, id)`, and
+those orders load with their lines and participants in one batched read, never a read per order.
+`orders.mine` returns the newest `MY_ORDERS_LIMIT` (100). That is enough for the live pill, the active
+ride, the rider picker and saved people, and a running order is always among them. The wallet, points
+and referral checks read only the orderer's open orders or a count.
+
+
 | Field | What |
 |---|---|
 | `order` | the full `Order` (lines, totals, state, rating) |

@@ -52,7 +52,7 @@ export interface PayInput {
   batchShare: number;
   /** +500 re-broadcast compensation on this offer (edge-case §6). */
   compensationIqd: number;
-  /** Ride take rule (tuktuk / car); ignored for deliveries, which pass through in full. */
+  /** Take rule (tuktuk / car / parcel); ignored for food, grocery and errand fees, which pass through in full. */
   take: TakeRule | null;
 }
 
@@ -80,7 +80,7 @@ export function rideTake(fareIqd: number, take: TakeRule): number {
 /**
  * What the driver earns on a job, every component named (money & ops §2 and §3):
  * deliveries pass the fee through (night/rain/door split out of it), a batched second order pays
- * 70 % of its fee as "batch_bonus", rides pay the fare minus the open take; tips and the
+ * 70 % of its fee as "batch_bonus", rides and parcels pay the fare minus the open take; tips and the
  * re-broadcast compensation are their own lines.
  */
 export function buildPay(input: PayInput): PartnerPay {
@@ -88,7 +88,8 @@ export function buildPay(input: PayInput): PartnerPay {
   const ride = RIDE_VERTICALS.has(input.vertical);
   let takePct: number | null = null;
   for (const o of input.orders) {
-    if (ride || o.type === 'ride') {
+    // A parcel is paid like a ride: its fare (total less tip) less the parcel take, as the ledger books it.
+    if (ride || o.type === 'ride' || o.type === 'parcel') {
       const fare = Math.max(0, o.totalIqd - o.tipIqd);
       const take = input.take ? rideTake(fare, input.take) : 0;
       takePct = input.take ? Math.round(input.take.rate * 100) : null;

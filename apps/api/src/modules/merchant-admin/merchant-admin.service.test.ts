@@ -170,6 +170,34 @@ describe('merchantAdmin.menu', () => {
     await expect(h.svc.menuUpdatePrice(h.owner, { merchantOrgId: h.orgId, itemId: other.id, priceIqd: 2000 })).rejects.toMatchObject({ code: 'menu_item_not_found' });
   });
 
+  it('p4: tells the owner why the team took a dish photo down, until a new photo goes up or 14 days pass', async () => {
+    const h = await setup('2026-10-03T12:00:00Z');
+    const tikka = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تكة', priceIqd: 6000 });
+    const salad = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'زلاطة', priceIqd: 1500 });
+    const takeDown = (itemId: string, reason: string) =>
+      h.ev.events.emit(undefined, { actorId: 'staff_1', type: 'catalog.photo_taken_down', occurredAt: h.clock.now(), payload: { merchantOrgId: h.orgId, itemId, reason, at: h.clock.now() } }, { name: 'org', id: h.orgId });
+    const item = async (id: string) => (await h.svc.menuGet(h.owner, { merchantOrgId: h.orgId })).categories.flatMap((c) => c.items).find((i) => i.id === id)!;
+
+    expect((await item(tikka.id)).photoTakenDown).toBeNull();
+    await takeDown(tikka.id, 'people');
+    h.clock.set('2026-10-03T12:05:00Z');
+    await takeDown(tikka.id, 'blurry');
+    // Another store's take-down never shows here.
+    await h.ev.events.emit(undefined, { actorId: 'staff_1', type: 'catalog.photo_taken_down', occurredAt: h.clock.now(), payload: { merchantOrgId: 'org_other', itemId: salad.id, reason: 'people' } }, { name: 'org', id: 'org_other' });
+    expect((await item(tikka.id)).photoTakenDown).toEqual({ reason: 'blurry', at: new Date('2026-10-03T12:05:00Z') });
+    expect((await item(salad.id)).photoTakenDown).toBeNull();
+
+    // A new photo ends the notice.
+    await h.svc.menuReplacePhoto(h.owner, { merchantOrgId: h.orgId, itemId: tikka.id, uploadId: await upload(h.blobs, h.owner.personId) });
+    expect((await item(tikka.id)).photoTakenDown).toBeNull();
+
+    // So do 14 days.
+    await takeDown(salad.id, 'wrong_dish');
+    expect((await item(salad.id)).photoTakenDown?.reason).toBe('wrong_dish');
+    h.clock.set('2026-10-17T12:06:00Z');
+    expect((await item(salad.id)).photoTakenDown).toBeNull();
+  });
+
   it('reorders sections for the customer menu, keeping item order inside each and the unnamed one last', async () => {
     const h = await setup();
     const add = (nameAr: string, categoryAr?: string) => h.svc.menuUpsertItem(h.staff, { merchantOrgId: h.orgId, nameAr, priceIqd: 1000, ...(categoryAr ? { categoryAr } : {}) });
@@ -442,6 +470,25 @@ describe('merchantAdmin.insights', () => {
     expect(staff.itemRatings.map((r) => [r.nameAr, r.avg])).toEqual([['مشويات', 4]]);
     const owner = await h.svc.insights(h.owner, { merchantOrgId: h.orgId, days: 7 });
     expect(owner.bestSellers.map((b) => [b.nameAr, b.salesIqd])).toEqual([['مشويات', 12000], ['چاي', 2000]]);
+  });
+});
+
+describe('merchantAdmin.insights sold-out habits (m4)', () => {
+  it('names a dish that ran out on 3+ days with its usual time; one-offs and hand turn-offs do not count', async () => {
+    const h = await setup('2026-10-03T13:00:00Z');
+    const kubba = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'كبة', priceIqd: 1000 });
+    const tea = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'چاي', priceIqd: 500 });
+    const out = (itemId: string, at: string, until: string | null) =>
+      h.ev.events.emit(undefined, { type: 'item.sold_out', actorId: 'p_owner', occurredAt: new Date(at), payload: { merchantOrgId: h.orgId, itemId, until } }, { name: 'org', id: h.orgId });
+    await out(kubba.id, '2026-10-01T16:00:00Z', '2026-10-01T21:00:00Z'); // 19:00 Baghdad
+    await out(kubba.id, '2026-10-01T18:00:00Z', '2026-10-01T21:00:00Z'); // same day again: the first one counts
+    await out(kubba.id, '2026-10-02T17:00:00Z', '2026-10-02T21:00:00Z'); // 20:00
+    await out(kubba.id, '2026-10-03T09:00:00Z', '2026-10-03T21:00:00Z'); // 12:00
+    await out(tea.id, '2026-10-01T16:00:00Z', '2026-10-01T21:00:00Z');
+    await out(tea.id, '2026-10-02T16:00:00Z', '2026-10-02T21:00:00Z');
+    await out(tea.id, '2026-10-03T08:00:00Z', null); // turned off by hand, not run out
+    const i = await h.svc.insights(h.staff, { merchantOrgId: h.orgId, days: 7 });
+    expect(i.soldOutHabits).toEqual([{ itemId: kubba.id, nameAr: 'كبة', days: 3, usualMinute: 19 * 60 }]);
   });
 });
 

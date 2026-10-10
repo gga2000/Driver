@@ -1,4 +1,4 @@
-import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestShareMemberState, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestShareBoardedBy, type RequestShareMemberState, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
 import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -363,8 +363,10 @@ export class PrismaRoutesRepository implements RoutesRepository {
           state: m.state,
           joinedAt: m.joinedAt,
           closedAt: m.closedAt,
+          boardedAt: m.boardedAt,
+          boardedBy: m.boardedBy,
         },
-        update: { state: m.state, closedAt: m.closedAt },
+        update: { state: m.state, closedAt: m.closedAt, boardedAt: m.boardedAt, boardedBy: m.boardedBy },
       });
     }
   }
@@ -770,6 +772,8 @@ function toRequest(r: RequestRow): RequestRecord {
               state: m.state as RequestShareMemberState,
               joinedAt: m.joinedAt,
               closedAt: m.closedAt,
+              boardedAt: m.boardedAt,
+              boardedBy: m.boardedBy as RequestShareBoardedBy | null,
             })),
           }
         : null,

@@ -47,7 +47,7 @@ export const HOME_CITY = 'aziziyah';
 export const PRIMARY_CORRIDOR = 'aziziyah_baghdad';
 export const DEFAULT_DIRECTION: IntercityDirection = 'to_aziziyah';
 
-/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة ١، البوابة ٢، السوق in Aziziyah). */
+/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة 1، البوابة 2، السوق in Aziziyah). */
 export const GARAGE_ORDER = ['mp_garage_nahdha', 'mp_garage_bab1', 'mp_garage_bab2', 'mp_garage_souq', 'mp_garage_kut'] as const;
 
 export interface LatLngLike {

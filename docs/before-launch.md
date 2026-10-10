@@ -55,11 +55,16 @@ we can't open to the public without it.
 | Phones show a simple zone sketch, not a real street map (the web version has the real map) | Yes | maps spec §2 |
 | The driver app's location with the app closed: built 2026-10-07 (Android foreground service + background task), **not yet tried on a real phone**; Google Play needs the background-location declaration (disclosure screen + short video) | Yes | `apps/partner/README.md` "Known gaps" |
 | Live updates on phones tested on web only, not on a device | Probably | `docs/api/live.md` |
+| Push notifications on Android phones: each app needs its Firebase project file (`google-services.json`, `android.googleServicesFile`) and the server `FCM_*` settings; until then the test APKs get no pushes | Yes | `docs/deploy/mobile.md` "Test APKs from GitHub" |
 | The food screens (/food street, the four door pages, the night look) checked on the web only: on a real phone, check the photo sizes and crops, the hero's settle-in, scrolling smoothness and that dish photos from the server load and stay cached (Ali 2026-10-08: "have in the to do later") | Probably | `apps/customer/src/features/food-landing/`, `apps/customer/src/features/doors/` |
 | Selfie check and face match accept any photo; menu import from a photo is a stub | Probably | `docs/api/partner-merchant-wave2.md` |
 | Receipt printer (Bluetooth) and the restaurant's camera for evidence photos | Probably | `apps/merchant/README.md` |
 | School-run (خطوط) daily runs aren't created automatically from a subscription | Probably | `docs/api/partner-merchant-wave2.md` |
 | AI first-line support from the support spec isn't built | Probably (it's on the launch checklist) | `docs/specs/2026-10-02-notifications-and-support.md` |
+| Courier app (Driver Partner) on a real phone: everything from the 2026-10-09 check-up (one money card at the door, readiness line, night panels, one keypad, back button, ص/م times) was checked on the web only. Needs a test build (`docs/deploy/mobile.md`) and a courier trying a full shift (Ali 2026-10-09: "add to the to do later file") | Yes | `apps/partner/README.md` |
+| The gold evening map on the courier and customer phones: works on the web; phones wait for the Expo account (§2) | Probably | `docs/specs/2026-10-09-map-golden-hour-design.md` |
+| The courier's «اتصال · قريباً» button stays until calls are built (§1 "Phone calls"; Ali 2026-10-09 said keep it) | No | `apps/partner/app/job.tsx` |
+| The shift guarantee (G-91) is built but switched off (`MoneyRules.guarantee.enabled = false`); Ali decides whether to pay it, the amount for 9–11 h shifts, couriers only, and a minimum online time | No | `docs/api/shift-guarantee.md` |
 | Launch content: 50+ landmarks and meeting points with photos, canned support replies, a full dress rehearsal, kill switches tested | Yes | launch playbook §7 |
 
 ## 4. Parents' WhatsApp messages (خطوط), notes for when we build it
@@ -115,7 +120,7 @@ agreed and only wait for their day; the platform work restarts from here.
 | When | What | Who | Details |
 |---|---|---|---|
 | Before 2 Nov | Upgrade Supabase to Pro (Ali said yes on 2026-10-08) | Ali | `docs/deploy/supabase.md` |
-| Before 9 Nov | Type the test sign-in code `STAGING_TEST_OTP` into GitHub → Settings → Environments → staging (only there, never in chat) | Ali | `docs/deploy/staging.md` |
+| Done 9 Oct | Test sign-in code `STAGING_TEST_OTP` set by Ali in GitHub (staging); test numbers 0770 000 0100–0199 sign in on the customer website | Ali | `docs/api/staging-test-numbers.md` |
 | 9 Nov | The big load test on the test server (bigger test server approved), results in `docs/launch/load-YYYY-MM-DD.md` | platform | `docs/launch/load-test.md` |
 | Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
 | 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
@@ -152,6 +157,9 @@ Still to build:
 
 - When the shared-car boarding change (trips, slot 490000) is on `main`: a push to a friend when the driver
   confirms they got in, «السايق أكد إنك صعدت».
+- A test restaurant owner on the test server: make one test number (e.g. 0770 000 0150) the owner of a
+  seeded restaurant, so the restaurant website can be tried with a test number too (today a test number
+  signs in there but owns no restaurant). Not built; offered 9 Oct.
 - The WhatsApp sign-in template is called `driver_otp` in one place and `otp_login` in another: settle on
   one name before submitting templates to Meta.
 - OTPIQ, after Ali signs up: ask for the sender name **Driver** (row in section 2).

@@ -3,7 +3,7 @@ import { rajaaHomeDirection } from './rajaa-direction';
 
 const garages = [
   { id: 'mp_garage_nahdha', cityId: 'baghdad', nameAr: 'كراج النهضة', lat: 33.35, lng: 44.43 },
-  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة ١', lat: 32.9032, lng: 45.0578 },
+  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة 1', lat: 32.9032, lng: 45.0578 },
 ];
 
 describe('الرجعة home card direction (h10, D-09)', () => {

@@ -284,7 +284,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     const r = await requests.post(
       ids.r1,
       PostRequestInput.parse({
-        from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' },
+        from: { label: 'البوابة 1', garageId: 'mp_garage_bab1' },
         to: { label: 'الصويرة' },
         when: at(200),
         seats: 2,
@@ -416,7 +416,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
   it('step 4b: the «احجز وادفع كاش» ask, the answer and a cash pick survive the round-trip', async () => {
     requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
     try {
-      const r = await requests.post(ids.r2, PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(500), seats: 1, travellingAs: 'aila' }));
+      const r = await requests.post(ids.r2, PostRequestInput.parse({ from: { label: 'البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(500), seats: 1, travellingAs: 'aila' }));
       const o = (await requests.offer(ids.driver, r.id, 20_000)).offers.at(-1)!;
       wallet.set(ids.r2, 0);
       await requests.askCash(ids.r2, r.id, o.id);
@@ -451,7 +451,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     sharing.moneyRules = { ...AZIZIYAH_MONEY_RULES, requestSharing: { enabled: true, closeBeforeMin: 120 } };
     const r = await sharing.post(
       ids.r1,
-      PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'بغداد' }, when: at(600), seats: 4, travellingAs: 'aila' }),
+      PostRequestInput.parse({ from: { label: 'البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'بغداد' }, when: at(600), seats: 4, travellingAs: 'aila' }),
     );
     const offered = await sharing.offer(ids.driver, r.id, 110_000);
     wallet.set(ids.r1, 100_000);
@@ -469,7 +469,19 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     await sharing.leaveShare(ids.r2, code);
     expect((await repo.getRequest(r.id))?.share?.members[0]).toMatchObject({ state: 'left' });
     expect(await walletHolds(repo, ids.r2)).toBe(before);
-    await sharing.cancel(ids.r1, r.id);
+    // Way C: who got in, and who said so, round-trip (and clear on «ما صعدت»).
+    await sharing.joinShare(ids.r2, code, 1);
+    await sharing.arrived(ids.driver, r.id, { lat: 32.9032, lng: 45.0578 });
+    await sharing.boardShare(ids.r2, code, { lat: 32.9033, lng: 45.0578 });
+    const boarded = (await repo.getRequest(r.id))?.share?.members.find((m) => m.state === 'joined');
+    expect(boarded).toMatchObject({ boardedBy: 'self' });
+    expect(boarded?.boardedAt).toBeInstanceOf(Date);
+    // As if the driver had confirmed him: «ما صعدت» clears it.
+    const rec = (await repo.getRequest(r.id))!;
+    rec.share!.members.find((m) => m.id === boarded!.id)!.boardedBy = 'driver';
+    await repo.saveRequest(rec);
+    await sharing.denyShareBoard(ids.r2, code);
+    expect((await repo.getRequest(r.id))?.share?.members.find((m) => m.id === boarded!.id)).toMatchObject({ boardedAt: null, boardedBy: null });
   });
 
   it('a driver opening the request while the rider picks never reopens it (two writers, one database)', async () => {
@@ -485,7 +497,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     const otherMachine = new RequestBoardService(slow, events, wallet, clock, new RoutesWriter(uow, slow), INTERCITY_NETWORK, INTERCITY_RULES, randomIds);
     const r = await requests.post(
       ids.r2,
-      PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(300), seats: 1, travellingAs: 'aila' }),
+      PostRequestInput.parse({ from: { label: 'البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الكوت' }, when: at(300), seats: 1, travellingAs: 'aila' }),
     );
     const offered = await requests.offer(ids.driver, r.id, 20_000);
     wallet.set(ids.r2, 100_000);
@@ -519,7 +531,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
         refs: [e.tripId, e.orderId, e.departureId],
       }));
     const trip = async (rider: string, minutes: number, price: number) => {
-      const r = await requests.post(rider, PostRequestInput.parse({ from: { label: 'البوابة ١', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: at(minutes), seats: 1, travellingAs: 'aila' }));
+      const r = await requests.post(rider, PostRequestInput.parse({ from: { label: 'البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: at(minutes), seats: 1, travellingAs: 'aila' }));
       const o = (await requests.offer(ids.driver, r.id, price)).offers.at(-1)!;
       wallet.set(rider, 100_000);
       await requests.pick(rider, r.id, o.id);

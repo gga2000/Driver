@@ -97,7 +97,7 @@ export function useJobQueueRunner(enabled: boolean) {
       if (!alive || !queue.items().length || getNetwork().getSnapshot().state !== 'online') return;
       const res = await queue.flush();
       if (!alive) return;
-      if (res.rejected.length) toast.show({ message: t('partner.queue_rejected'), tone: 'danger' });
+      if (res.rejected.length) toast.show({ message: t('partner.queue_rejected_v2'), tone: 'danger' });
       else if (res.sent.length && !res.stalled) toast.show({ message: t('partner.queue_sent'), tone: 'success', icon: 'check' });
       if (res.sent.length || res.rejected.length) {
         await Promise.all([

@@ -13,6 +13,7 @@ import { useCompliments } from './queries';
 import {
   bestBucket,
   breakdownRows,
+  cashCarriedIqd,
   cashTruth,
   clockTime,
   componentLabel,
@@ -128,7 +129,9 @@ export function EarningsHero({
   const jobs = view?.totals.jobs ?? 0;
   // This week's tile only on the day view (the week view already is the week).
   const week = period === 'day' && best && best.week.jobs > 0 ? best.week : null;
-  const bestDay = best?.bestDay ?? null;
+  // «أحسن يوم» covers the last 4 weeks, not the shown period: only on the day view, where it
+  // can't be mistaken for the week's or month's own best day (the chart names that one).
+  const bestDay = period === 'day' ? (best?.bestDay ?? null) : null;
   return (
     <View
       testID="earnings-hero"
@@ -168,7 +171,7 @@ export function EarningsHero({
         <View testID="earnings-mybest" style={{ flexDirection: 'row', gap: theme.space[2] }}>
           {week ? <MiniStat testID="earnings-week-so-far" label={t('partner.e5_week_so_far')} amount={week.netIqd} sub={t(jobsKey(week.jobs), { n: week.jobs })} /> : null}
           {bestDay ? (
-            <MiniStat testID="earnings-best-day" star label={t('partner.e5_best_day')} amount={bestDay.netIqd} sub={`${weekdayName(bestDay.at, t)} ${dayMonth(bestDay.at, t)}`} />
+            <MiniStat testID="earnings-best-day" star label={t('partner.best_day_4w')} amount={bestDay.netIqd} sub={`${weekdayName(bestDay.at, t)} ${dayMonth(bestDay.at, t)}`} />
           ) : null}
         </View>
       ) : null}
@@ -405,6 +408,8 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
   const truth = cashTruth({ owedIqd: cap.owedIqd, heldIqd: cash.heldIqd, capIqd: cap.capIqd, overCap: cap.overCap });
   const next = nextTierCap(cap);
   const urgent = truth.tone !== 'success';
+  // The period's rows add up to what he holds: what he already held before the period comes first.
+  const carried = cashCarriedIqd(cash);
   return (
     <Card testID="cash-cap-card" elevation={1} padding={5} style={urgent ? { borderWidth: 1.5, borderColor: withAlpha(theme.colors[truth.tone], 0.45) } : undefined}>
       <View style={{ gap: theme.space[4] }}>
@@ -420,9 +425,12 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
                 {`${t('partner.cash_period_title')} · ${rangeLabel}`}
               </Text>
             ) : null}
+            {carried !== 0 ? <CashRow label={t('partner.cash_carried')} amount={carried} /> : null}
             <CashRow label={t('partner.cash_collected_period')} amount={cash.collectedIqd} />
             <CashRow label={t('partner.cash_to_merchants')} amount={-cash.toMerchantsIqd} />
             <CashRow label={t('partner.cash_settled')} amount={-cash.settledIqd} />
+            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+            <CashRow label={t('partner.cash_held_total')} amount={cash.heldIqd} strong />
           </View>
         ) : null}
         <Button testID="handover-cta" label={t('partner.handover_cta')} icon="wallet" variant={urgent ? 'primary' : 'secondary'} fullWidth onPress={onHandover} />
@@ -436,13 +444,13 @@ export function CashCapCard({ view, onHandover, period, rangeLabel }: { view: Ea
   );
 }
 
-function CashRow({ label, amount }: { label: string; amount: number }) {
+function CashRow({ label, amount, strong }: { label: string; amount: number; strong?: boolean }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-      <Text variant="footnote" color="textMuted">
+      <Text variant="footnote" color={strong ? 'text' : 'textMuted'} weight={strong ? 600 : undefined}>
         {label}
       </Text>
-      <Text variant="footnote" weight={600} tabular>
+      <Text variant="footnote" weight={strong ? 700 : 600} tabular>
         {amountParam(amount)}
       </Text>
     </View>
@@ -585,7 +593,7 @@ function TipWords({ tipIqd, words }: { tipIqd: number; words: readonly Complimen
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, minHeight: 22, borderRadius: 11, backgroundColor: theme.colors.successTint }}>
           <Icon name="heart" size={11} color="successText" filled fillColor="successText" />
           <Text variant="caption" weight={700} color="successText" tabular style={{ lineHeight: 18 }}>
-            {t('partner.e5_tip', { amount: amountParam(tipIqd) })}
+            {t('partner.e5_tip_v2', { amount: amountParam(tipIqd) })}
           </Text>
         </View>
       ) : null}

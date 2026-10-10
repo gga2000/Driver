@@ -139,17 +139,35 @@ export function Thumb({ url, size = 64, dim, radius, id }: { url: string | null;
  * drawn plate (it read as a brown blob, and as if it were his photo). `compact` (thumbnails under
  * 96 px) keeps only the camera. The customer app still shows its drawing until a photo arrives.
  */
-export function NoPhotoTile({ compact = false, room = 0, testID }: { compact?: boolean; /** Space kept free at the bottom (the «صوّرها» button sits there). */ room?: number; testID?: string }) {
+export function NoPhotoTile({
+  compact = false,
+  room = 0,
+  down,
+  testID,
+}: {
+  compact?: boolean;
+  /** Space kept free at the bottom (the «صوّرها» button sits there). */
+  room?: number;
+  /** p4: Driver's team took his photo down — «نزّلنا صورتها», and the whole reason for screen readers. */
+  down?: { label: string; a11y: string };
+  testID?: string;
+}) {
   const theme = useTheme();
   const t = useT();
+  const ink = down ? COUNTER.late : COUNTER.date;
   return (
-    <View testID={testID} accessible={!compact} accessibilityLabel={compact ? undefined : t('merchant.display.no_photo_tile')} style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', gap: theme.space[1], paddingBottom: room, backgroundColor: COUNTER.sand, borderWidth: compact ? 0 : 1.5, borderStyle: 'dashed', borderColor: COUNTER.dateEdge, borderRadius: compact ? 0 : theme.radius.lg }}>
+    <View
+      testID={testID}
+      accessible={!compact || !!down}
+      accessibilityLabel={down ? down.a11y : compact ? undefined : t('merchant.display.no_photo_tile')}
+      style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', gap: theme.space[1], paddingBottom: room, paddingHorizontal: theme.space[2], backgroundColor: down ? COUNTER.lateWash : COUNTER.sand, borderWidth: compact ? 0 : 1.5, borderStyle: 'dashed', borderColor: down ? ink : COUNTER.dateEdge, borderRadius: compact ? 0 : theme.radius.lg }}
+    >
       <View style={{ width: compact ? 26 : 40, height: compact ? 26 : 40, borderRadius: compact ? 13 : 20, backgroundColor: COUNTER.paper, alignItems: 'center', justifyContent: 'center' }}>
-        <Glyph name="camera" size={compact ? 15 : 20} color={COUNTER.date} strokeWidth={2} />
+        <Glyph name="camera" size={compact ? 15 : 20} color={ink} strokeWidth={2} />
       </View>
       {compact ? null : (
-        <Text weight={700} style={{ color: COUNTER.date, fontSize: 13, lineHeight: 19 }}>
-          {t('merchant.display.no_photo_tile')}
+        <Text weight={700} align="center" numberOfLines={2} style={{ color: ink, fontSize: 13, lineHeight: 19 }}>
+          {down ? down.label : t('merchant.display.no_photo_tile')}
         </Text>
       )}
     </View>

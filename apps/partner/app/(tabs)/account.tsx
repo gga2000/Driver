@@ -168,7 +168,7 @@ export default function Account() {
             <ListRow
               testID="hub-vehicle-features"
               leading={vehicle?.vehicleClass === 'tuktuk' ? 'tuktuk' : 'car'}
-              title={t('partner.features_title')}
+              title={t(vehicle?.vehicleClass === 'tuktuk' ? 'partner.features_title_tuktuk' : 'partner.features_title')}
               subtitle={
                 features.confirmed.length > 0
                   ? t('partner.features_row_seen', { names: features.confirmed.map((f) => t(featureKey(f))).join('، ') })

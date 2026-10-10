@@ -1,4 +1,4 @@
-import { RideCargo, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
+import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -190,6 +190,8 @@ export interface OrdersRepository {
   updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null>;
   updateLine(id: string, patch: { substitution: LineUnavailability | null }, tx?: Tx): Promise<OrderLineRecord>;
   findMany(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderRecord[]>;
+  /** SCALE-12: the same orders as `findMany`, with their lines and participants, in one batched read. */
+  findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]>;
   /**
    * One merchant's orders placed in `[from, to)`, with their lines and participants, oldest first
    * (placedAt, id) — one bounded read on `(merchant_org_id, placed_at)` (review 2026-10-04 #11).
@@ -210,6 +212,15 @@ export interface OrdersRepository {
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
   /**
+   * FOOD-04: the same orders with their lines and participants, newest first (placedAt, id), at most
+   * `limit` of them when given: one id read on the two indexes and one batched load, never a read per order.
+   */
+  aggregatesForPerson(personId: string, opts?: { limit?: number }, tx?: Tx): Promise<OrderAggregate[]>;
+  /** FOOD-04: the orders `ordererId` placed that are not finished yet (the few that hold wallet money or points). */
+  openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /** FOOD-04: how many orders `ordererId` placed, optionally only of one type and some states, leaving one order out. */
+  countPlacedBy(ordererId: string, filter?: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string }, tx?: Tx): Promise<number>;
+  /**
    * Joy w4: a household's orders placed in `[from, to)` — on its wallet, or «للسفرة» orders of the
    * given members — oldest first. One bounded read on `(household_org_id, placed_at)` plus the members'
    * `(orderer_id, placed_at)`.
@@ -221,8 +232,11 @@ export interface OrdersRepository {
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
   countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
-  /** Rate the courier: stores the order's one courier rating (unique per order; a second insert throws). */
-  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord>;
+  /**
+   * Rate the courier: stores the order's one courier rating. Unique per order: when the order already
+   * has one (a concurrent second rating, waiting on the first) nothing is written and it returns null.
+   */
+  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null>;
   courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null>;
   /** A driver's newest courier ratings (ratedAt descending), at most `limit`. */
   courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]>;
@@ -405,14 +419,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
       if (order.clientRequestId && isUniqueViolation(err)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId, err);
       throw err;
     }
+    // SCALE-24: participants and lines go in one statement each. `find` reads them back by `created_at`,
+    // so each row gets the order's time plus its position in ms: the order they were given in is kept.
+    const base = row.createdAt.getTime();
     const byRef = new Map<string, string>();
-    for (const p of participants) {
-      const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
-      byRef.set(p.ref, created.id);
+    if (participants.length > 0) {
+      const created = await db.participant.createManyAndReturn({
+        data: participants.map((p, i) => ({ orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note, createdAt: new Date(base + i) })),
+        select: { id: true, createdAt: true },
+      });
+      const ids = [...created].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((c) => c.id);
+      participants.forEach((p, i) => byRef.set(p.ref, ids[i]!));
     }
-    for (const l of lines) {
-      await db.orderLine.create({
-        data: {
+    if (lines.length > 0) {
+      await db.orderLine.createMany({
+        data: lines.map((l, i) => ({
           orderId: row.id,
           catalogItemId: l.catalogItemId,
           freeText: l.freeText,
@@ -422,7 +443,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
-        },
+          createdAt: new Date(base + i),
+        })),
       });
     }
     return (await this.find(row.id, tx))!;
@@ -464,6 +486,19 @@ export class PrismaOrdersRepository implements OrdersRepository {
       orderBy: { placedAt: 'asc' },
     });
     return rows.map(orderFromRow);
+  }
+
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: {
+        ...(filter.cityId ? { cityId: filter.cityId } : {}),
+        ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}),
+        ...(filter.states ? { state: { in: [...filter.states] } } : {}),
+      },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { placedAt: 'asc' },
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
   }
 
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
@@ -527,6 +562,38 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}, tx?: Tx): Promise<OrderAggregate[]> {
+    // The same UNION as `forPerson` (each half on its own index); the newest `limit` ids are picked by
+    // `(placed_at, id)` before any row leaves the database, then all of them load in one batched read.
+    const limit = opts.limit ?? null;
+    const ids = await this.db(tx).$queryRaw<Array<{ id: string }>>`
+      SELECT o."id" FROM "public"."orders" o
+      WHERE o."id" IN (
+        SELECT "id" FROM "public"."orders" WHERE "orderer_id" = ${personId}
+        UNION
+        SELECT "order_id" FROM "public"."participants" WHERE "person_id" = ${personId})
+      ORDER BY o."placed_at" DESC, o."id" DESC
+      LIMIT ${limit}`;
+    if (ids.length === 0) return [];
+    const rows = await this.db(tx).order.findMany({
+      where: { id: { in: ids.map((r) => r.id) } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]> {
+    const rows = await this.db(tx).order.findMany({ where: { ordererId, state: { notIn: [...TERMINAL_ORDER_STATES] } }, orderBy: [{ placedAt: 'desc' }, { id: 'desc' }] });
+    return rows.map(orderFromRow);
+  }
+
+  countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}, tx?: Tx): Promise<number> {
+    return this.db(tx).order.count({
+      where: { ordererId, ...(filter.type ? { type: filter.type } : {}), ...(filter.states ? { state: { in: [...filter.states] } } : {}), ...(filter.exceptId ? { id: { not: filter.exceptId } } : {}) },
+    });
+  }
+
   async search(f: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]> {
     const and: Prisma.OrderWhereInput[] = [{ cityId: f.cityId }];
     if (f.states && f.states.length > 0) and.push({ state: { in: [...f.states] } });
@@ -548,8 +615,12 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return this.db(tx).order.count({ where: { cityId, placedAt: { gte: since } } });
   }
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord> {
-    return courierRatingFrom(await this.db(tx).courierRating.create({ data: { ...row, reasons: [...row.reasons] } }));
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null> {
+    // ON CONFLICT DO NOTHING: the loser of a double tap is told, not left with a failed query (RDB-04).
+    const { count } = await this.db(tx).courierRating.createMany({ data: [{ ...row, reasons: [...row.reasons] }], skipDuplicates: true });
+    if (count === 0) return null;
+    const r = await this.db(tx).courierRating.findUnique({ where: { orderId: row.orderId } });
+    return r ? courierRatingFrom(r) : null;
   }
 
   async courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null> {
@@ -671,6 +742,10 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .map((o) => ({ ...o }));
   }
 
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }): Promise<OrderAggregate[]> {
+    return Promise.all((await this.findMany(filter)).map(async (o) => (await this.find(o.id))!));
+  }
+
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
     const out: OrderAggregate[] = [];
     for (const o of this.orders.values()) {
@@ -714,6 +789,20 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .map((o) => ({ ...o }));
   }
 
+  async openPlacedBy(ordererId: string): Promise<OrderRecord[]> {
+    return (await this.forPerson(ordererId)).filter((o) => o.ordererId === ordererId && !TERMINAL_ORDER_STATES.includes(o.state));
+  }
+
+  async countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}): Promise<number> {
+    return [...this.orders.values()].filter((o) => o.ordererId === ordererId && (!filter.type || o.type === filter.type) && (!filter.states || filter.states.includes(o.state)) && o.id !== filter.exceptId).length;
+  }
+
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}): Promise<OrderAggregate[]> {
+    const mine = await this.forPerson(personId);
+    const picked = opts.limit === undefined ? mine : mine.slice(0, opts.limit);
+    return Promise.all(picked.map(async (o) => (await this.find(o.id))!));
+  }
+
   async forPerson(personId: string): Promise<OrderRecord[]> {
     const viaParticipant = new Set(this.participants.filter((p) => p.personId === personId).map((p) => p.orderId));
     return [...this.orders.values()]
@@ -745,8 +834,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   readonly courierRatings = new Map<string, CourierRatingRecord>();
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord> {
-    if (this.courierRatings.has(row.orderId)) throw new Error('unique violation: courier_ratings.order_id');
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord | null> {
+    if (this.courierRatings.has(row.orderId)) return null;
     const rec = { ...row, reasons: [...row.reasons], id: `cr_${this.courierRatings.size + 1}` };
     this.courierRatings.set(row.orderId, rec);
     return { ...rec, reasons: [...rec.reasons] };

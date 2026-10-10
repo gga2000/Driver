@@ -75,6 +75,8 @@ export const BoardLine = z.object({
   unitPriceIqd: Iqd,
   totalIqd: Iqd,
   availability: z.enum(['available', 'unavailable', 'removed']),
+  /** The dish on the menu (null for a free-text line), so the kitchen can stop it for the day from the ticket (m5). */
+  menuItemId: z.string().nullable().optional(),
 });
 export type BoardLine = z.infer<typeof BoardLine>;
 

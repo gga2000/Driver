@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "eas-build-post-install": "cd ../.. && pnpm turbo run build --filter=@driver/customer^...",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

@@ -333,7 +333,7 @@ export class OrdersService implements OnModuleInit {
 
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
-    return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
+    return this.repo.countPlacedBy(personId);
   }
 
   /** Partner redesign o10: rides the orderer of `orderId` finished before it (a count only); null when unknown. */
@@ -342,7 +342,7 @@ export class OrdersService implements OnModuleInit {
     // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
     if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
     const order = agg.order;
-    return (await this.repo.forPerson(order.ordererId)).filter((o) => o.id !== orderId && o.ordererId === order.ordererId && o.type === 'ride' && o.state === 'completed').length;
+    return this.repo.countPlacedBy(order.ordererId, { type: 'ride', states: ['completed'], exceptId: orderId });
   }
 
   onModuleInit(): void {
@@ -402,7 +402,11 @@ export class OrdersService implements OnModuleInit {
 
   /** `carried`: a ride switched to the other vehicle keeps the rider it was booked for (J-D7 × c9). */
   private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>, carried: { rider?: ResolvedRider } = {}): Promise<Order> {
-    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.cityId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.cityId, raw.dropoff) };
+    // SCALE-24: independent reads run together and are answered in their old order (`later`), so the
+    // same check still refuses first.
+    const pickupLink = later(this.placeLink(ordererId, raw.cityId, raw.pickup));
+    const dropoffLink = later(this.placeLink(ordererId, raw.cityId, raw.dropoff));
+    const input = { ...raw, pickup: await pickupLink(), dropoff: await dropoffLink() };
     const now = this.clock.now();
     // c9/s3: a ride for someone else is a ride, with one rider (the legacy `participants` rider or this, not both).
     if (input.rider || carried.rider) {
@@ -434,8 +438,15 @@ export class OrdersService implements OnModuleInit {
     // W-02: the points value the checkout showed; a different figure (balance spent elsewhere) is a refresh.
     assertExpected(input.pointsIqd, p.pointsIqd);
     const total = p.totalIqd;
+    // SCALE-24: the reads below (and the promise's routing call) start together; each is still checked
+    // in its old place. All are reads: one an earlier check refuses is simply dropped.
+    const debtRead = later(this.debtToCollect(ordererId, input, Boolean(merchantType)));
+    const riskRead = later(input.paymentMethod === 'cash' ? this.cashRisk.newCustomerCash(ordererId, total) : Promise.resolve(null));
+    const memberRead = later(input.householdOrgId ? this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : Promise.resolve(null));
+    const availableRead = later(input.paymentMethod === 'wallet' && this.wallet && total > 0 ? this.walletAvailable(ordererId, input.householdOrgId ?? null) : Promise.resolve(null));
+    const promisedRead = later(this.lockPromisedRide(input, profile?.location?.pin ?? null, caps?.minVehicleClass ?? null, now));
     // M-3: the owed fees this order collects, as the checkout showed them (a change is a refresh).
-    const debt = await this.debtToCollect(ordererId, input, Boolean(merchantType));
+    const debt = await debtRead();
     if (input.debtCollectIqd !== undefined && input.debtCollectIqd !== debt) throw new DriverError('price_changed');
     // "الخردة علينا": the note he says he will pay with is a hint for the courier, checked on the
     // server's own cash due (≥ total + owed fees, ≤ that + 50,000, in 250s) and only on a cash order.
@@ -447,24 +458,22 @@ export class OrdersService implements OnModuleInit {
     if (giftCode) throw new DriverError(giftCode);
     // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
     // on the server-computed total.
-    const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
+    const risk = await riskRead();
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
     // Joy w4: the household wallet — only its payers and orderers, kitchen and shop orders only. Whether
     // the payer is asked is decided inside the transaction below, under the member's lock.
-    const member = input.householdOrgId ? await this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : null;
+    const member = await memberRead();
     const spendKey = input.householdOrgId ? householdSpendKey(input.householdOrgId, ordererId) : null;
     // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders
     // (and, on his own wallet, everything else held on it). Checked again inside the transaction
     // below under his wallet lock (SEC-07); this early answer spares the routing call.
     const spendsOwnWallet = input.paymentMethod === 'wallet' && !input.householdOrgId && total > 0;
-    if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
-      const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
-      if (available < total) throw new DriverError('wallet_insufficient');
-    }
+    const available = await availableRead();
+    if (available !== null && available < total) throw new DriverError('wallet_insufficient');
 
     // The honest-delay promise's ride, locked now (Ali, 2026-10-07): read before the transaction, it is
     // a routing call and a cached read of the learned corrections, never a write.
-    const promisedRideMin = await this.lockPromisedRide(input, profile?.location?.pin ?? null, caps?.minVehicleClass ?? null, now);
+    const promisedRideMin = await promisedRead();
 
     const write = () =>
       this.uow.run(async (tx) => {
@@ -780,20 +789,18 @@ export class OrdersService implements OnModuleInit {
    */
   /** What his open orders on his own wallet will still take at close (the tip after rating can't spend it). */
   async openWalletHoldIqd(customerId: string): Promise<number> {
-    const mine = await this.repo.forPerson(customerId);
-    return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
+    const open = await this.repo.openPlacedBy(customerId);
+    return open.filter((o) => o.paymentMethod === 'wallet' && !o.householdOrgId).reduce((a, o) => a + o.totalIqd, 0);
   }
 
   private async walletAvailable(customerId: string, householdId: string | null, tx?: Tx): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
     const [balance, mine, elsewhere] = await Promise.all([
       this.wallet.balanceIqd({ customerId, householdId }),
-      this.repo.forPerson(customerId),
+      this.repo.openPlacedBy(customerId),
       householdId === null && this.wallet.heldElsewhere ? this.wallet.heldElsewhere(customerId, tx) : Promise.resolve(0),
     ]);
-    const held = mine
-      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
-      .reduce((a, o) => a + o.totalIqd, 0);
+    const held = mine.filter((o) => o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId).reduce((a, o) => a + o.totalIqd, 0);
     return balance - held - elsewhere;
   }
 
@@ -804,8 +811,8 @@ export class OrdersService implements OnModuleInit {
    */
   private async pointsOffer(customerId: string, fees: ServerFees, discount: OrderDiscount | null, priceIqd: number): Promise<{ balance: number; usable: number; valueIqd: number } | null> {
     if (!this.wallet?.pointsBalance) return null;
-    const [balance, mine] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.forPerson(customerId)]);
-    const held = mine.filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
+    const [balance, open] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.openPlacedBy(customerId)]);
+    const held = open.reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
     const available = Math.max(0, balance - held);
     const deliveryDeal = discount?.meta.funder === 'merchant' && discount.meta.target === 'delivery' ? discount.amountIqd : 0;
     const usable = redeemablePoints({ availablePoints: available, serviceFeeIqd: fees.serviceFeeIqd, deliveryFeeIqd: fees.deliveryFeeIqd - deliveryDeal, priceIqd }, ORDERS_RULES.pointValueIqd);
@@ -1287,7 +1294,7 @@ export class OrdersService implements OnModuleInit {
 
   /**
    * The courier/driver who carried the order gets the delivery score as his own rating row (unique per
-   * order: a concurrent second rating fails the insert and its transaction). No driver ever took it
+   * order: a concurrent second rating writes nothing and rolls its transaction back). No driver ever took it
    * (a pickup that never left) → nothing to record.
    */
   private async recordCourierRating(order: OrderRecord, rating: OrderRating, tx: Tx): Promise<void> {
@@ -1295,10 +1302,12 @@ export class OrdersService implements OnModuleInit {
     const carrier = await this.trips.courierOf(order.id);
     if (!carrier) return;
     if (await this.repo.courierRatingOf(order.id, tx)) return;
-    await this.repo.addCourierRating(
+    const added = await this.repo.addCourierRating(
       { orderId: order.id, tripId: carrier.tripId, driverId: carrier.courierId, customerId: order.ordererId, score: rating.delivery, reasons: [...(rating.courierReasons ?? [])], ratedAt: rating.ratedAt },
       tx,
     );
+    // A concurrent rating stored it first: roll this one back; `rate` answers with the winner's order.
+    if (!added) throw new DriverError('order_state_conflict');
   }
 
   /**
@@ -1474,13 +1483,17 @@ export class OrdersService implements OnModuleInit {
 
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
     // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
-    const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
-    return Promise.all(live.map((o) => this.view(o.id)));
+    // SCALE-12: one batched read with lines and participants, not a read per order.
+    const live = await this.repo.findManyAggregates({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
+    return live.map(toOrderView);
   }
 
-  async listForPerson(personId: string): Promise<Order[]> {
-    const orders = await this.repo.forPerson(personId);
-    return Promise.all(orders.map((o) => this.view(o.id)));
+  /**
+   * The orders a person placed or takes part in, newest first; at most `limit` (all when omitted).
+   * FOOD-04: two reads whatever the history's length, never a read per order.
+   */
+  async listForPerson(personId: string, opts: { limit?: number } = {}): Promise<Order[]> {
+    return (await this.repo.aggregatesForPerson(personId, opts)).map(toOrderView);
   }
 
   /**
@@ -1700,13 +1713,9 @@ export class OrdersService implements OnModuleInit {
 
   /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
   async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
-    const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
-    const out: OrderAggregate[] = [];
-    for (const o of mine.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))) {
-      const agg = await this.repo.find(o.id);
-      if (agg) out.push(agg);
-    }
-    return out;
+    // FOOD-04: one batched read with the lines, not a read per order.
+    const mine = (await this.repo.aggregatesForPerson(personId)).filter(({ order: o }) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
+    return mine.reverse();
   }
 
   // ───────────────────────── timers ─────────────────────────
@@ -2597,4 +2606,21 @@ export function latePromiseOf(
   if (type !== 'food' && type !== 'grocery_catalog') return null;
   const terms = latePromiseTerms({ deliveryFeeIqd, discount: discount ? { target: discount.meta.target, amountIqd: discount.amountIqd } : null });
   return terms ? { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, ...terms } : null;
+}
+
+/**
+ * SCALE-24: starts a read now and hands back a function that answers it later, throwing its error
+ * only when asked, so reads can run together while their checks keep their order (and a read nobody
+ * asks for never becomes an unhandled rejection).
+ */
+export function later<T>(promise: Promise<T>): () => Promise<T> {
+  const settled = promise.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  return async () => {
+    const r = await settled;
+    if (!r.ok) throw r.error;
+    return r.value;
+  };
 }

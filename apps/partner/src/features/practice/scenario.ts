@@ -55,6 +55,8 @@ const DESTINATION = { lat: 32.9005, lng: 45.0465 };
 /** Food: a 14,000 دينار cash order, the customer pays with 20,000 (the change helper's lesson). */
 export const PRACTICE_FOOD = { payIqd: 3_000, collectIqd: 14_000, tenderIqd: 20_000, pickupCode: '4417' } as const;
 const RIDE_FARE: Record<'taxi' | 'tuktuk', number> = { taxi: 5_000, tuktuk: 2_500 };
+/** The share a practice ride slip shows (the demo's ride share; pretend money, nothing is charged). */
+const PRACTICE_RIDE_TAKE_PCT = 10;
 
 export function newPractice(kind: PracticeKind, now: number): PracticeState {
   return { kind, stage: 'idle', round: 0, offer: null, job: null, startedAt: now, finishedAt: null, learned: { acceptedInSec: null, cashIqd: null, paidWithIqd: null, photo: false } };
@@ -62,7 +64,9 @@ export function newPractice(kind: PracticeKind, now: number): PracticeState {
 
 function pay(kind: PracticeKind): PartnerOffer['pay'] {
   if (kind === 'food') return { totalIqd: PRACTICE_FOOD.payIqd, components: [{ key: 'delivery', amountIqd: PRACTICE_FOOD.payIqd }], takePct: null };
-  return { totalIqd: RIDE_FARE[kind], components: [{ key: 'fare', amountIqd: RIDE_FARE[kind] }], takePct: null };
+  // Check-up item 6: like a real ride slip, his pay after Driver's share (2,500 fare → 2,250), the rider pays the whole fare.
+  const net = RIDE_FARE[kind] - Math.round((RIDE_FARE[kind] * PRACTICE_RIDE_TAKE_PCT) / 100);
+  return { totalIqd: net, components: [{ key: 'fare', amountIqd: net }], takePct: PRACTICE_RIDE_TAKE_PCT };
 }
 
 /** The slip rings: a fresh pretend offer with the real ring time. */

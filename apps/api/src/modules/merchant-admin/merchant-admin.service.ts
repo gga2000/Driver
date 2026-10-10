@@ -49,7 +49,7 @@ import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
 import { activityActorIds, activityEntries, composeActivity, ITEM_ACTIVITY_TYPES, ORDER_ACTIVITY_TYPES, type ActivityNames } from './activity.js';
 import { composeDaySummary, summaryDay } from './day-summary.js';
-import { composeInsights, defaultOutcome, disputeKindOf, staffInsights } from './insights.js';
+import { composeInsights, defaultOutcome, disputeKindOf, soldOutHabits, staffInsights } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
 
@@ -57,6 +57,11 @@ const DAY_MS = 86_400_000;
 /** The feed also reads orders placed this long before the day starts (a late order readied after midnight). */
 const ACTIVITY_ORDER_LEAD_MS = 6 * 3_600_000;
 const STAFF_KINDS: readonly MerchantStaffRole[] = ['merchant_owner', 'merchant_staff'];
+/** p4: the event Driver's team records when it takes a shop's dish photo down (ops `dishPhotos.takeDown`). */
+export const PHOTO_TAKEN_DOWN_EVENT = 'catalog.photo_taken_down';
+/** p4: how long the menu keeps telling the owner why a photo came down (while the dish has none). */
+export const PHOTO_TAKEDOWN_NOTICE_DAYS = 14;
+type PhotoTakenDown = { reason: string; at: Date };
 /** Disputes the merchant still sees (domain §9: customers dispute until close, support after). */
 export const DISPUTE_LOOKBACK_DAYS = 30;
 /** The merchant answers a dispute within this; after it the default outcome stands. */
@@ -118,7 +123,7 @@ export class MerchantAdminService implements MerchantAdminPort {
     return itemPhotoUrl(this.blobs, stored);
   }
 
-  private itemView(i: CatalogItemRecord): AdminMenuItem {
+  private itemView(i: CatalogItemRecord, takenDown?: ReadonlyMap<string, PhotoTakenDown>): AdminMenuItem {
     const now = this.clock.now();
     return {
       id: i.id,
@@ -147,15 +152,29 @@ export class MerchantAdminService implements MerchantAdminPort {
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
       photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
       photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
+      ...(takenDown ? { photoTakenDown: i.photoUrl ? null : (takenDown.get(i.id) ?? null) } : {}),
     };
   }
 
+  /** p4: the store's photo take-downs of the last 14 days, the latest per dish. */
+  private async photoTakeDowns(merchantOrgId: string): Promise<Map<string, PhotoTakenDown>> {
+    const from = new Date(this.clock.now().getTime() - PHOTO_TAKEDOWN_NOTICE_DAYS * 86_400_000);
+    const events = await this.events.forAggregate('org', merchantOrgId, { from, types: [PHOTO_TAKEN_DOWN_EVENT] });
+    const out = new Map<string, PhotoTakenDown>();
+    for (const e of events) {
+      const p = e.payload as { itemId?: unknown; reason?: unknown };
+      if (typeof p.itemId !== 'string') continue;
+      out.set(p.itemId, { reason: typeof p.reason === 'string' ? p.reason : 'other', at: e.occurredAt });
+    }
+    return out;
+  }
+
   private async menuView(merchantOrgId: string): Promise<AdminMenu> {
-    const items = await this.catalog.adminMenu(merchantOrgId);
+    const [items, takenDown] = await Promise.all([this.catalog.adminMenu(merchantOrgId), this.photoTakeDowns(merchantOrgId)]);
     const sections = new Map<string | null, AdminMenuItem[]>();
     for (const i of items) {
       const list = sections.get(i.categoryAr) ?? [];
-      list.push(this.itemView(i));
+      list.push(this.itemView(i, takenDown));
       sections.set(i.categoryAr, list);
     }
     // Named sections in first-item order, the unnamed one last (as the customer menu shows them).
@@ -516,8 +535,14 @@ export class MerchantAdminService implements MerchantAdminPort {
     const role = await this.roleAt(actor, input.merchantOrgId);
     const to = this.clock.now();
     const from = new Date(to.getTime() - input.days * DAY_MS);
-    const [orders, menu] = await Promise.all([this.orders.merchantOrders(input.merchantOrgId, { from, to: new Date(to.getTime() + 1) }), this.catalog.adminMenu(input.merchantOrgId)]);
-    const insights = composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])) });
+    const [orders, menu, soldOut] = await Promise.all([
+      this.orders.merchantOrders(input.merchantOrgId, { from, to: new Date(to.getTime() + 1) }),
+      this.catalog.adminMenu(input.merchantOrgId),
+      // m4: the store's sold-out events over the window (indexed aggregate + occurred_at).
+      this.events.forAggregate('org', input.merchantOrgId, { from, to: new Date(to.getTime() + 1), types: ['item.sold_out'] }),
+    ]);
+    const itemNames = new Map(menu.map((i) => [i.id, i.nameAr]));
+    const insights = { ...composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames }), soldOutHabits: soldOutHabits(soldOut, itemNames) };
     // Review 2026-10-04 #10: money views are owner-only. Staff keep prep honesty, rejections, ratings,
     // peaks and what sells — ranked by quantity, without what each item brought in.
     return role === 'merchant_owner' ? insights : staffInsights(insights);

@@ -76,6 +76,20 @@ describe('wallet top-up with cash — request', () => {
   });
 });
 
+describe('THIN-13: parallel requests', () => {
+  it('taps at the same moment leave one live code and never pass the daily limit', async () => {
+    const h = harness();
+    const amounts = [50_000, 60_000, 70_000, 80_000, 90_000];
+    await Promise.all(amounts.map((amountIqd) => code(h.svc.request(customer, { amountIqd }))));
+    const today = await h.repo.ofCustomer('c1', new Date(0));
+    expect(today.filter((r) => r.state === 'pending')).toHaveLength(1);
+    // Each later request replaced the one before, so only the live code counts toward the 200,000.
+    const status = await h.svc.status(customer, {});
+    expect(status?.state).toBe('pending');
+    expect(200_000 - (status?.dailyRemainingIqd ?? 0)).toBe(status?.amountIqd);
+  });
+});
+
 describe('wallet top-up with cash — confirmation', () => {
   it('an ops agent confirms once: the wallet is credited from bank (company holds the cash) and reads as a top-up line', async () => {
     const h = harness();
@@ -126,7 +140,10 @@ describe('wallet top-up with cash — confirmation', () => {
     expect(await code(h.svc.lookup(courier, { code: r.code }, 'courier'))).toBe('topup_courier_not_assigned');
     expect(await code(h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier'))).toBe('topup_courier_not_assigned');
     h.carrying.add('k1|c1');
-    expect(await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier')).toMatchObject({ channel: 'courier', walletBalanceIqd: 15_000 });
+    const done = await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier');
+    expect(done).toMatchObject({ channel: 'courier' });
+    expect(done).not.toHaveProperty('walletBalanceIqd');
+    expect(await h.balance()).toBe(15_000);
     expect((await h.ledger.balance(Accounts.cash('k1'))).amount).toBe(-15_000);
   });
 });

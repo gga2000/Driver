@@ -43,6 +43,17 @@ export interface GoldenPalette {
   riverHalo: string;
   light: { color: string; intensity: number };
   sky: { sky: string; horizon: string; fog: string };
+  /** Six real roof finishes (plaster, yellow brick, cream, ochre…); each house carries `tone` 0–5. */
+  roofTones: readonly [string, string, string, string, string, string];
+  /** Night only: the roof colour of a house with its lights on, and the warm light it spills on the street. */
+  litRoof: string | null;
+  windowGlow: string | null;
+  /** School yards, and parks and pitches; the mud bank along the Tigris; the kerb and centre line of main streets. */
+  yard: string;
+  green: string;
+  bank: string;
+  kerb: string;
+  marking: string;
 }
 
 const DAY: GoldenPalette = {
@@ -55,6 +66,9 @@ const DAY: GoldenPalette = {
   label: '#4A321D', labelHalo: '#FBF1DE', area: '#8D6A45', river: '#F4EED2', riverHalo: '#5E6533',
   light: { color: '#FFFFFF', intensity: 0.2 },
   sky: { sky: '#F6D9A6', horizon: '#FBEBD0', fog: '#F6E7CB' },
+  roofTones: ['#FBEBCF', '#F6E6CC', '#F2D9AE', '#FCF1DC', '#EFCF9E', '#F3DFC0'],
+  litRoof: null, windowGlow: null,
+  yard: '#F2DDB2', green: '#CFCF95', bank: '#B8A06C', kerb: '#FFFDF7', marking: '#DDBC88',
 };
 
 const GOLDEN: GoldenPalette = {
@@ -68,6 +82,8 @@ const GOLDEN: GoldenPalette = {
   label: '#462D17', labelHalo: '#F8EAD2', area: '#87633D', river: '#F4EBCB',
   light: { color: '#FFF1D6', intensity: 0.24 },
   sky: { sky: '#F1C47E', horizon: '#F9DFB4', fog: '#F4DFBC' },
+  roofTones: ['#F9D9A0', '#F4E2C0', '#ECC68C', '#FBEAD0', '#E6B97E', '#EBD2AA'],
+  yard: '#F0D6A2', green: '#C7C789', bank: '#B39760', marking: '#D7B47E',
 };
 
 /** The five palettes. `golden` is the look Ali picked; `day` is the same town under a high sun. */
@@ -86,6 +102,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     glint: '#F2B870', glintOpacity: 0.9,
     light: { color: '#FFD9B8', intensity: 0.28 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
+    roofTones: ['#DDB898', '#D9BFA4', '#D2A884', '#E4C6A8', '#CC9F7A', '#D8B392'],
   },
   night: {
     land: '#1D1712', urban: '#201913', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
@@ -96,6 +113,9 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     roof: '#2A2018', wall: '#231A13', mosque: '#58422B', tankWhite: '#7A6852', tankBlack: '#6B5A48',
     label: '#F2E0C3', labelHalo: '#22180F', area: '#BFA27C', river: '#C9CC9C', riverHalo: '#1E2114',
     light: { color: '#FFE0B0', intensity: 0.12 },
-    sky: { sky: '#1A120B', horizon: '#3A2614', fog: '#22180F' },
+    sky: { sky: '#1E140C', horizon: '#4A2E16', fog: '#24190F' },
+    roofTones: ['#2A2018', '#2E231A', '#33271D', '#271D16', '#2C2219', '#30261E'],
+    litRoof: '#55381F', windowGlow: '#FFB04A',
+    yard: '#2C2318', green: '#232615', bank: '#3A3020', kerb: '#6E5C48', marking: '#8A7356',
   },
 };

@@ -20,6 +20,10 @@ const TEXT_PAIRS: [fg: keyof typeof COUNTER, bg: keyof typeof COUNTER, use: stri
   ['date', 'laneNew', 'lane title'],
   ['date', 'laneCooking', 'lane title'],
   ['date', 'laneReady', 'lane title'],
+  ['kindDrink', 'kindDrinkWash', 'a drink\'s mark on a ticket'],
+  ['kindSweet', 'kindSweetWash', 'a sweet\'s mark on a ticket'],
+  ['kindDrink', 'paper', 'a drink\'s mark on the paper'],
+  ['kindSweet', 'paper', 'a sweet\'s mark on the paper'],
 ];
 
 describe('counter colours', () => {

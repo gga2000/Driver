@@ -136,3 +136,8 @@ export function bestSellerRows(list: MerchantInsights['bestSellers'], mode: Best
   const max = Math.max(0, ...sorted.map(value));
   return sorted.map((b, i) => ({ itemId: b.itemId, nameAr: b.nameAr, qty: b.qty, salesIqd: b.salesIqd, rank: i + 1, share: max > 0 ? value(b) / max : 0 }));
 }
+
+/** m4: a Baghdad clock time (minutes since midnight) as an instant whose city clock reads it, for clock12. */
+export function cityMinute(minute: number): Date {
+  return new Date(Date.UTC(2026, 0, 1) + (minute - 180) * 60_000);
+}
