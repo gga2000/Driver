@@ -80,6 +80,16 @@ and the customer's dish cards. Drinks wear a cardamom-olive edge and a «ساخ�
 rose edge and «حلو», the kitchen's food no edge (`apps/merchant/src/features/board/kind.ts`). An
 order with both cold and hot things says once under its lines «البارد بكيس وحده، بعيد عن الساخن».
 
+**The owner's own kind (Ali, 2026-10-09 "go ahead").** When the name reads wrong (e.g. «سحلب» reads as
+food), the dish editor's «نوعه بتذكرة المطبخ» lets the owner pick أكل / مشروب ساخن / مشروب بارد / حلو,
+or «تلقائي: …» to go back to the guess. It is saved as `kind:<value>` in the dish's `labels` column
+(no migration; `kindOfLabels` / `withKind` in `@driver/contracts`), so a save that names only the
+customer labels keeps the kind and the other way round. `merchantAdmin.menu` returns it as `kind`,
+`menuUpsertItem` takes `kind` (null = back to the guess, absent = keep), and the board's lines carry it
+as `BoardLine.kind`, which wins over the name for the edge, the mark, the bag note and the sugar button.
+Customers never see it (their labels are `DISH_LABELS` only); the customer dish card still reads its
+hot/cold from the name.
+
 ## k5 — the sugar choice
 
 A drink's editor offers «أضف اختيار السكر»: a ready options group «السكر» (one pick required, all
