@@ -135,8 +135,14 @@ dispatcher's "سكّر التنبيه" + reason ─► closed_at / closed_by_id 
                          audit khat.sweep_close + khat.sweep_alert_closed; the row leaves the strip
 ```
 
-The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
-(`khat.child_tapped_out`, `khat.absence_reported`), one job id per run end; the check re-reads the
+A child still on board is caught too: from the first tap-in, while a tapped-in child has no tap-out,
+the timer is armed for the run's last planned drop-off (its window end) + `sweepAlertAfterMin`. If a
+child is still tapped in then, the same alert is raised (`khat.sweep_missed` `reason:
+child_still_on_board`, `runEndedAt` = the planned drop-off), so a driver who parks and never ends the
+run still pages the desk; the normal case carries `reason: sweep_missed`.
+
+The timer is armed by `tapIn` / `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
+(`khat.child_tapped_in`, `khat.child_tapped_out`, `khat.absence_reported`), one job id per due time; the check re-reads the
 run, so a redelivery or a second instance changes nothing (unique `trip_id`). The queue is BullMQ
 with `REDIS_URL` (survives restarts), otherwise in process (polled once a second). Runs where no
 child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006150000_khat_sweep_alerts`.
