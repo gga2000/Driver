@@ -39,7 +39,8 @@ export interface SimSnapshot {
   handovers: HandoverRecord[];
   /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
   doorCash?: DoorCashRecord[];
-  merchants: Array<{ merchantId: string; balanceIqd: number }>;
+  /** `holders`: couriers the merchant's live balance says hold its cash (absent in hand-built snapshots). */
+  merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
   /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
@@ -336,6 +337,21 @@ export const INVARIANTS: readonly Definition[] = [
         if (paidLedger !== paidSim) bad.push(`${m.merchantId}: ledger shows ${paidLedger} paid by couriers, hand-overs confirmed ${paidSim}`);
       }
       return { checked: s.merchants.length, bad };
+    },
+  },
+  {
+    name: 'merchant_cash_held_within_courier_cash',
+    description: 'Σ of restaurants’ cash shown as held by a courier ≤ the cash he still holds (hand-ins to the company and to restaurants come off it)',
+    run: (s) => {
+      const bad: string[] = [];
+      const shown = new Map<string, number>();
+      for (const m of s.merchants) for (const h of m.holders ?? []) shown.set(h.courierId, (shown.get(h.courierId) ?? 0) + h.amountIqd);
+      for (const [courierId, amount] of shown) {
+        const acct = `cash:${courierId}`;
+        const held = Math.max(0, sum(s.ledger, (e) => e.fromAccount === acct) - sum(s.ledger, (e) => e.toAccount === acct));
+        if (amount > held) bad.push(`${courierId}: restaurants show ${amount} with him, he holds ${held}`);
+      }
+      return { checked: shown.size, bad };
     },
   },
   {

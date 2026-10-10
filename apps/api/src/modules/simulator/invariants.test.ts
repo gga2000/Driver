@@ -94,3 +94,17 @@ describe('booked_ride_waits_for_its_search (step 4, c10)', () => {
     expect(r.examples[0]).toMatch(/r1: 1 offer\(s\) from 2026-10-06T10:20:00.000Z, search starts 2026-10-06T10:30:00.000Z/);
   });
 });
+
+describe('merchant_cash_held_within_courier_cash', () => {
+  const line = (type: LedgerEvent['type'], amount: number, fromAccount: string, toAccount: string): LedgerEvent => ({ id: `le_${type}_${amount}_${fromAccount}`, kind: 'money', type, amount, currency: 'IQD', fromAccount, toAccount, occurredAt: AT, recordedAt: AT });
+  const check = (s: SimSnapshot) => checkInvariants(s).find((r) => r.name === 'merchant_cash_held_within_courier_cash')!;
+
+  it('passes while the restaurants show no more with a courier than he holds, fails once they do', () => {
+    // He collected 16,500 and handed 15,500 in to the company: he holds 1,000.
+    const ledger = [line('cash_collected', 16_500, 'cash:k1', 'customer:c1'), line('driver_settlement', 15_500, 'bank', 'cash:k1')];
+    const ok = { ...snapshot([], ledger), merchants: [{ merchantId: 'm1', balanceIqd: 12_750, holders: [{ courierId: 'k1', amountIqd: 1_000 }] }] };
+    expect(check(ok)).toMatchObject({ checked: 1, violations: 0 });
+    const stale = { ...snapshot([], ledger), merchants: [{ merchantId: 'm1', balanceIqd: 12_750, holders: [{ courierId: 'k1', amountIqd: 12_750 }] }] };
+    expect(check(stale)).toMatchObject({ violations: 1 });
+  });
+});
