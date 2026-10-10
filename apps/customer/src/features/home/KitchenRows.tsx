@@ -30,13 +30,15 @@ const OVERLAP = 12;
  * page, flat like the cards above (no boxes, no shadow): a photo (its own, else one of its kind, else
  * its warm drawing), the name, its rating («جديد» before real ratings) and minutes. The delivery fee is
  * said once over the list when every kitchen charges the same; a row says its own only when they
- * differ. «كل المحلات» opens the rest, in a box of its own under the rows.
+ * differ. «كل المحلات» opens the rest, in a box of its own under the rows. Where the map is set up,
+ * «الخريطة» sits across from the title and the fee line moves under it.
  */
 export function KitchenRows({
   title,
   kitchens,
   count,
   showing = [],
+  onMap,
   testID = 'rail-open',
 }: {
   title: string;
@@ -44,6 +46,8 @@ export function KitchenRows({
   count: string;
   /** The stand-in photos' kinds already on the page (the hour's dishes): rows pick others. */
   showing?: readonly Motif[];
+  /** Opens every restaurant on the map; none where the map isn't set up (phones for now). */
+  onMap?: (() => void) | undefined;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -64,16 +68,12 @@ export function KitchenRows({
   );
   return (
     <View testID={testID} style={{ gap: theme.space[2] }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: theme.space[3], minHeight: 36 }}>
-        <Text variant="section" face="display" accessibilityRole="header">
-          {title}
-        </Text>
-        {fee !== null ? (
-          <Text testID={`${testID}-fee`} variant="footnote" color="textMuted" tabular>
-            {fee <= 0 ? t('home.fee_all_free') : t('home.fee_all', { amount: amountParam(fee) })}
-          </Text>
-        ) : null}
-      </View>
+      <KitchensHeader
+        title={title}
+        onMap={onMap}
+        fee={fee === null ? null : fee <= 0 ? t('home.fee_all_free') : t('home.fee_all', { amount: amountParam(fee) })}
+        feeTestID={`${testID}-fee`}
+      />
       <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }}>
         {shown.map((r, i) => (
           <KitchenRow key={r.id} r={r} motif={motifs[i]!} photo={photos[i] ?? null} ownFee={fee === null} testID={`restaurant-${r.id}`} />
@@ -81,6 +81,89 @@ export function KitchenRows({
       </View>
       {kitchens.length > HOME_KITCHENS ? <AllKitchens count={count} faces={faces} testID={`${testID}-all`} /> : null}
     </View>
+  );
+}
+
+/**
+ * The kitchens' title: «مفتوح هسة» (or «يفتح الصبح» at night) with the shared fee across from it, as
+ * concept C has it. With the map, «الخريطة» takes that place and the fee goes on a line under the title.
+ */
+export function KitchensHeader({ title, fee = null, feeTestID, onMap }: { title: string; fee?: string | null; feeTestID?: string; onMap?: (() => void) | undefined }) {
+  const theme = useTheme();
+  const feeLine = fee !== null ? (
+    <Text testID={feeTestID} variant="footnote" color="textMuted" tabular>
+      {fee}
+    </Text>
+  ) : null;
+  if (!onMap) {
+    return (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: theme.space[3], minHeight: 36 }}>
+        <Text variant="section" face="display" accessibilityRole="header">
+          {title}
+        </Text>
+        {feeLine}
+      </View>
+    );
+  }
+  return (
+    <View style={{ gap: theme.space[1] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3], minHeight: 36 }}>
+        <Text variant="section" face="display" accessibilityRole="header" style={{ flexShrink: 1 }}>
+          {title}
+        </Text>
+        <MapButton onPress={onMap} />
+      </View>
+      {feeLine}
+    </View>
+  );
+}
+
+/**
+ * «الخريطة» (Ali 2026-10-09: "a button for map view" from home): a Soft Tint pill in the food card's
+ * colours with a saffron pin; it opens مطاعم العزيزية on the map. It sinks a little under the finger,
+ * like «كل المحلات».
+ */
+function MapButton({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const card = theme.services.food.card;
+  const p = useSharedValue(0);
+  const sink = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * p.value }] }));
+  return (
+    <Animated.View style={sink}>
+      <Pressable
+        testID="home-map"
+        accessibilityRole="button"
+        accessibilityLabel={`${t('restaurant_map.open_map')}، ${t('restaurant_map.title')}`}
+        onPress={() => {
+          theme.haptic('selection');
+          onPress();
+        }}
+        onPressIn={() => {
+          if (!theme.reduceMotion) p.value = withSpring(1, theme.motion.spring.press);
+        }}
+        onPressOut={() => {
+          p.value = withSpring(0, theme.motion.spring.select);
+        }}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[2],
+          minHeight: theme.hitTarget,
+          paddingStart: theme.space[3],
+          paddingEnd: theme.space[4],
+          borderRadius: theme.radius.pill,
+          backgroundColor: card.bg,
+          borderWidth: 1,
+          borderColor: withAlpha(card.on, 0.07),
+        }}
+      >
+        <Icon name="map-pin" size={18} color={card.dot} strokeWidth={2.25} />
+        <Text variant="label" weight={700} color={card.on}>
+          {t('restaurant_map.open_map')}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
