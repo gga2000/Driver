@@ -75,7 +75,7 @@ export interface SweepCheckJob {
 
 /** The job's name on `khat.timers`. */
 export const SWEEP_CHECK_JOB = 'khat.sweepCheck';
-/** Outbox subscriber that arms the sweep timer for runs settled outside `khat.tapOut` / `reportAbsence`. */
+/** Outbox subscriber that arms the sweep timer for taps and runs settled outside `khat.tap*` / `reportAbsence`. */
 export const SWEEP_TIMER_SUBSCRIBER = 'khat:sweep-timer';
 /** Raised once per run when the sweep is late: the notify subscriber pushes the driver's reminder. */
 export const SWEEP_MISSED_EVENT = 'khat.sweep_missed';
@@ -110,6 +110,34 @@ export function runEndedAt(trip: Trip, absences: readonly AbsenceRecord[]): Date
   const at = trip.stops.filter((s) => s.childRef).map((s) => (s.childTapOutAt ?? s.completedAt ?? s.skippedAt)?.getTime() ?? 0);
   const ms = Math.max(...at);
   return ms > 0 ? new Date(ms) : null;
+}
+
+/**
+ * Children tapped in whose drop-off has no tap-out (and was not completed): as far as the run knows
+ * they are still in the car.
+ */
+export function childrenOnBoard(trip: Trip): string[] {
+  const dropped = new Set(trip.stops.filter((s) => s.type === 'dropoff' && s.childRef && (s.childTapOutAt || s.state === 'completed')).map((s) => s.childRef!));
+  return [...new Set(trip.stops.filter((s) => s.type === 'pickup' && s.childRef && s.childTapInAt).map((s) => s.childRef!))].filter((c) => !dropped.has(c));
+}
+
+/** When the run's last child drop-off was planned to be over (its window end, else start); null without a plan. */
+export function plannedEndAt(trip: Trip): Date | null {
+  const ends = trip.stops.filter((s) => s.type === 'dropoff' && s.childRef).map((s) => (s.windowEnd ?? s.windowStart)?.getTime() ?? 0);
+  const ms = Math.max(0, ...ends);
+  return ms > 0 ? new Date(ms) : null;
+}
+
+/**
+ * What the sweep check counts from: when the run's last child stop settled; while a tapped-in child
+ * has no tap-out, the run's last planned drop-off, so a driver who parks and never ends the run is
+ * still caught. `onBoard` says which case it is.
+ */
+function sweepBase(trip: Trip, absences: readonly AbsenceRecord[]): { at: Date; onBoard: boolean } | null {
+  const ended = runEndedAt(trip, absences);
+  if (ended) return { at: ended, onBoard: false };
+  const planned = childrenOnBoard(trip).length > 0 ? plannedEndAt(trip) : null;
+  return planned ? { at: planned, onBoard: true } : null;
 }
 
 /** The latest school tap-out on the run and that stop's zone. */
@@ -247,14 +275,14 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
   /**
    * The sweep timer (Ali, 2026-10-06): the queue runs `checkSweep` when a run's grace is over. Taps
    * and absences through this service arm it directly; the outbox subscriber arms it for anything
-   * that settles a run another way (a stop completed through trips, a redelivered event).
+   * that taps or settles a run another way (a stop completed through trips, a redelivered event).
    */
   onModuleInit(): void {
     this.queue?.process(async (job) => {
       if (job.name === SWEEP_CHECK_JOB) await this.checkSweep(job.data.tripId);
     });
     this.offs.push(
-      this.events.subscribe(SWEEP_TIMER_SUBSCRIBER, ['khat.child_tapped_out', 'khat.absence_reported'], async (e) => {
+      this.events.subscribe(SWEEP_TIMER_SUBSCRIBER, ['khat.child_tapped_in', 'khat.child_tapped_out', 'khat.absence_reported'], async (e) => {
         if (e.tripId) await this.armSweepTimer(e.tripId);
       }),
     );
@@ -335,30 +363,34 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
   // ───────────────────────── the late sweep (Ali, 2026-10-06) ─────────────────────────
 
   /**
-   * Schedules the run's sweep check for `sweepAlertAfterMin` after its last child stop settled.
-   * Idempotent (one job id per run end); a no-op while a child stop is open or once swept.
+   * Schedules the run's sweep check for `sweepAlertAfterMin` after its last child stop settled, or,
+   * from the first tap-in while a child is still on board, after the run's last planned drop-off.
+   * Idempotent (one job id per due time); a no-op without a child on board or once swept.
    */
   async armSweepTimer(tripId: string): Promise<void> {
     if (!this.queue) return;
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat') return;
-    const endedAt = runEndedAt(trip, await this.repo.absencesForTrips([trip.id]));
-    if (!endedAt || (await this.emptyCarCheckedAt(trip.id))) return;
-    const dueAt = endedAt.getTime() + this.config.sweepAlertAfterMin * 60_000;
+    const base = sweepBase(trip, await this.repo.absencesForTrips([trip.id]));
+    if (!base || (await this.emptyCarCheckedAt(trip.id))) return;
+    const dueAt = base.at.getTime() + this.config.sweepAlertAfterMin * 60_000;
     await this.queue.add(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
   }
 
   /**
    * The timer's check: the run ended `sweepAlertAfterMin` ago and the driver has not confirmed the
    * car is empty → one `khat_sweep_alerts` row (the Console strip) and `khat.sweep_missed` (the
-   * driver's reminder push), once per run. Runs where no child ever got in are left alone.
+   * driver's reminder push), once per run. The same alert (reason `child_still_on_board`) when a
+   * child is still tapped in `sweepAlertAfterMin` after the run's last planned drop-off. Runs where
+   * no child ever got in are left alone.
    */
   async checkSweep(tripId: string): Promise<SweepCheckOutcome> {
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat' || !trip.courierId || DONE_TRIP_STATES.has(trip.state)) return 'not_applicable';
     const absences = await this.repo.absencesForTrips([trip.id]);
-    const endedAt = runEndedAt(trip, absences);
-    if (!endedAt || !trip.stops.some((s) => s.childTapInAt)) return 'not_applicable';
+    const base = sweepBase(trip, absences);
+    if (!base || !trip.stops.some((s) => s.childTapInAt)) return 'not_applicable';
+    const endedAt = base.at;
     if (await this.emptyCarCheckedAt(trip.id)) return 'swept';
     const now = this.clock.now();
     if (now.getTime() < endedAt.getTime() + this.config.sweepAlertAfterMin * 60_000) {
@@ -383,7 +415,16 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
           occurredAt: now,
           tripId: trip.id,
           idempotencyKey: `khat:sweep_missed:${trip.id}`,
-          payload: { alertId: alert.id, tripId: trip.id, driverId, cityId: trip.cityId, runEndedAt: endedAt.toISOString(), lastDropAt: drop.at?.toISOString() ?? null, afterMin: this.config.sweepAlertAfterMin },
+          payload: {
+            alertId: alert.id,
+            tripId: trip.id,
+            driverId,
+            cityId: trip.cityId,
+            reason: base.onBoard ? 'child_still_on_board' : 'sweep_missed',
+            runEndedAt: endedAt.toISOString(),
+            lastDropAt: drop.at?.toISOString() ?? null,
+            afterMin: this.config.sweepAlertAfterMin,
+          },
         },
         { name: 'trip', id: trip.id },
       );
@@ -576,7 +617,8 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
       await this.trips.arrive(trip.id, stop.id, actor.personId, { ...stamp, ...(input.pin ? { pin: input.pin } : {}), ...(input.idempotencyKey ? { idempotencyKey: `${input.idempotencyKey}:arrive` } : {}) });
     }
     const after = await this.trips.completeStop(trip.id, stop.id, actor.personId, { handover: { childTap: tap }, ...stamp, ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}) });
-    if (tap === 'out') await this.armSweepTimerSafely(trip.id);
+    // From the first tap-in the run is watched: a child still tapped in after the plan alerts ops.
+    await this.armSweepTimerSafely(trip.id);
     return this.view(actor, after);
   }
 
