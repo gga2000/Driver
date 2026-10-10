@@ -41,6 +41,7 @@ export * from './routes-io.js';
 export * from './vehicle-models.js';
 export * from './deals.js';
 export * from './catalog-io.js';
+export * from './dish-kind.js';
 export * from './habits-io.js';
 export * from './ride-habits-io.js';
 export * from './phone-booking-io.js';

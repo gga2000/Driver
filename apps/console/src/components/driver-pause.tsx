@@ -13,6 +13,7 @@ import { PersonName } from './named';
 import { Button, Chip, cx, Dialog, Field, IconLock, Textarea, useToast } from './ui';
 
 const PAUSERS = ['admin', 'dispatcher', 'support', 'field_ops'] as const;
+const UNDO_MS = 10_000;
 
 /**
  * Pause a courier or driver while a report is looked into (r6, Ali 2026-10-08), or lift it. Paused,
@@ -47,8 +48,24 @@ export function DriverPause({
     void qc.invalidateQueries({ queryKey: trpc.driverAccount.pauseStatus.queryKey({ personId }) });
   };
   const onError = (e: unknown) => toast({ title: errorText(e as { message?: string }), tone: 'bad' });
-  const pause = useMutation(trpc.driverAccount.pause.mutationOptions({ onSuccess: () => done(t('console.pause_done')), onError }));
   const lift = useMutation(trpc.driverAccount.liftPause.mutationOptions({ onSuccess: () => done(t('console.pause_lifted')), onError }));
+  // o8: a pause can be taken back for 10 s; the undo is a lift with its own note, so both stay audited.
+  const pause = useMutation(
+    trpc.driverAccount.pause.mutationOptions({
+      onSuccess: () => {
+        setOpen(false);
+        setNote('');
+        void qc.invalidateQueries({ queryKey: trpc.driverAccount.pauseStatus.queryKey({ personId }) });
+        toast({
+          title: t('console.pause_done'),
+          tone: 'ok',
+          durationMs: UNDO_MS,
+          action: { label: t('console.undo'), onClick: () => lift.mutate({ personId, note: t('console.pause_undo_note') }) },
+        });
+      },
+      onError,
+    }),
+  );
 
   if (!can || !status.data) return null;
   const active = status.data.active;

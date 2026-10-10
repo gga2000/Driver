@@ -29,6 +29,7 @@ import { useSignedIn } from '@/lib/session';
 import { useLinkedFilters } from '@/lib/url-state';
 import { useTRPC } from '@/lib/trpc';
 import { CopyLinkButton } from './copy-link';
+import { HandoverCard, HandoverWriteButton } from './handover';
 import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
@@ -78,7 +79,9 @@ export function TodayPage() {
   const signedIn = useSignedIn();
   return (
     <div className="mx-auto max-w-[1180px]">
-      <PageHeader title={t('console.today.title')} subtitle={t('console.today.subtitle')} />
+      <PageHeader title={t('console.today.title')} subtitle={t('console.today.subtitle')}>
+        {signedIn ? <HandoverWriteButton /> : null}
+      </PageHeader>
       {!signedIn ? <NeedLogin /> : <Today />}
     </div>
   );
@@ -122,6 +125,7 @@ function Today() {
     <div className="space-y-5">
       <Pulse counts={c} />
       <NobodyOnCall />
+      <HandoverCard />
       <section
         className="rounded-lg border border-line bg-surface shadow-card"
         data-testid="today-list"

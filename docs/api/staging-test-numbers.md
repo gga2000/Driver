@@ -33,7 +33,7 @@ The boot also stops when the code is malformed or easy.
   fine for made-up test accounts, and the reason they can never be staff.
 - **Other codes** (guardian consent, a phone change) for a test number are the same fixed code, so
   guardian and phone-change flows can be tried on staging.
-- **Customer and partner roles** work as usual (a courier test account is granted in the Console).
+- **Customer and partner roles** work as usual. No screen grants a partner or restaurant role yet: on staging, **Actions → Staging test kit** makes 0770 000 0150 a restaurant owner and 0151/0152 courier + driver (`docs/launch/staging-test-kit.md`).
 - **Never staff.** Granting a Console role (`field_ops`, `dispatcher`, `support`, `finance`,
   `admin`) to a test number is refused (`forbidden`); a test number that holds one anyway (a seed, a
   direct write) is refused at sign-in (`forbidden`); staff can't move their account onto a test number.

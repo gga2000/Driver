@@ -3,6 +3,7 @@ import {
   DELIVERY_AREA_CACHE_MS,
   DRINKS_DEFAULT_PREP_MIN,
   DriverError,
+  type DishKind,
   doorsOfTags,
   prepKindOf,
   daysFromWindows,
@@ -84,6 +85,8 @@ export interface MerchantStoresPort {
 }
 export interface MerchantCatalogPort {
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
+  /** k4/j6: the owner's ticket kinds for these dishes (only the ones he set). */
+  itemKinds?(orgId: string, itemIds: readonly string[]): Promise<Map<string, DishKind>>;
   /** The customer storefront's weekly hours (the onboarding seed); null when the store has none. */
   storefrontHours?(orgId: string): Promise<WeeklyWindow[] | null>;
   /** The customer storefront's tags (what it sells, for shops from before «شنو تبيع؟»); null without one. */
@@ -200,10 +203,11 @@ export class MerchantService implements MerchantPort {
     const live = await this.orders.listActive({ merchantOrgId: org.id });
     const itemIds = [...new Set(live.flatMap((o) => o.lines.map((l) => l.catalogItemId)).filter((id): id is string => id !== null))];
     const names = itemIds.length > 0 ? await this.catalog.itemNames(org.id, itemIds) : new Map<string, string>();
+    const kinds = itemIds.length > 0 && this.catalog.itemKinds ? await this.catalog.itemKinds(org.id, itemIds) : new Map<string, DishKind>();
     const cards: BoardOrder[] = [];
     for (const order of live) {
       const courier = await this.courierOf(order, kitchen, actor.personId);
-      const card = toBoardOrder({ order, itemNames: names, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
+      const card = toBoardOrder({ order, itemNames: names, itemKinds: kinds, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
       if (card) cards.push(card);
     }
     const missed = await this.missedToday(org, now);

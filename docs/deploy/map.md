@@ -27,7 +27,8 @@ use it; Supabase Pro (approved for launch) raises both.
     only into GitHub, never into chat.
 - **App builds**: the apps read the URLs at build time.
   - Customer, partner and merchant: `EXPO_PUBLIC_MAP_TILES_URL` and `EXPO_PUBLIC_MAP_GLYPHS_URL`.
-  - Console: `NEXT_PUBLIC_MAP_TILES_URL` and `NEXT_PUBLIC_MAP_GLYPHS_URL`.
+  - Console: `NEXT_PUBLIC_MAP_TILES_URL` and `NEXT_PUBLIC_MAP_GLYPHS_URL`. The Console on Fly gets them from the
+    Deploy workflow, built from the environment's `DATABASE_REF`; nothing to set by hand.
   - The web builds on Vercel need the same variables set there.
   - Until they are set, the apps keep the OSM raster fallback.
 

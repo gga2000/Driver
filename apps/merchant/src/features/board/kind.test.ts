@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { lineLook, packApart } from './kind';
+import { guessedKind, lineLook, packApart } from './kind';
 
 // The dish rules are pure; only their picture module pulls React Native, so stand it in for Node.
 vi.mock('../../../../../packages/ui/src/art/dishes', () => ({ DISH_LOOKS: 3 }));
@@ -34,5 +34,28 @@ describe('packApart (k4)', () => {
 
   it('skips lines that will not go in the bag', () => {
     expect(packApart([{ name: 'لفة كباب', qty: 1 }, { name: 'عصير', qty: 1, availability: 'unavailable' }])).toBeNull();
+  });
+});
+
+describe("the owner's own kind wins over the name (k4/j6 override)", () => {
+  it('marks what the owner said, whatever the name guesses', () => {
+    expect(lineLook('شي جديد', undefined, 'cold_drink')).toEqual({ kind: 'drink', temp: 'cold' });
+    expect(lineLook('عصير برتقال', undefined, 'food')).toEqual({ kind: 'kitchen', temp: null });
+    expect(lineLook('شي جديد', undefined, 'sweet')).toEqual({ kind: 'sweet', temp: null });
+    expect(lineLook('لفة كباب', undefined, null)).toEqual({ kind: 'kitchen', temp: null });
+  });
+
+  it('packs by the owner kind too', () => {
+    expect(packApart([{ name: 'لفة كباب', qty: 1 }, { name: 'شي جديد', qty: 2, kind: 'cold_drink' }])).toEqual({ cold: 2, hot: 1 });
+    expect(packApart([{ name: 'لفة كباب', qty: 1 }, { name: 'بيبسي', qty: 1, kind: 'hot_drink' }])).toBeNull();
+  });
+});
+
+describe('guessedKind (the editor’s «تلقائي»)', () => {
+  it('names what the ticket would show without the owner', () => {
+    expect(guessedKind('چاي')).toBe('hot_drink');
+    expect(guessedKind('عصير رمان')).toBe('cold_drink');
+    expect(guessedKind('بقلاوة')).toBe('sweet');
+    expect(guessedKind('لفة كباب')).toBe('food');
   });
 });

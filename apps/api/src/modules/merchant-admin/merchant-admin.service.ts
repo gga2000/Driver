@@ -37,7 +37,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, itemPhotoUrl, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -150,6 +150,7 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      kind: kindOfLabels(i.labels),
       photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
       photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
       ...(takenDown ? { photoTakenDown: i.photoUrl ? null : (takenDown.get(i.id) ?? null) } : {}),
@@ -253,6 +254,13 @@ export class MerchantAdminService implements MerchantAdminPort {
   async menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
+      // The customer labels and the ticket kind share one column: a save that names one keeps the other.
+      const stored = input.labels !== undefined || input.kind !== undefined
+        ? input.itemId ? ((await this.catalog.adminItem(input.merchantOrgId, input.itemId, tx)).labels ?? []) : []
+        : null;
+      const labels = stored === null
+        ? undefined
+        : withKind(input.labels ?? stored.filter((l) => (DISH_LABELS as readonly string[]).includes(l)), input.kind !== undefined ? input.kind : kindOfLabels(stored));
       const { item, created } = await this.catalog.upsertItem(
         input.merchantOrgId,
         {
@@ -268,7 +276,7 @@ export class MerchantAdminService implements MerchantAdminPort {
             ...(input.available !== undefined ? { available: input.available } : {}),
             ...(input.servesMin !== undefined ? { servesMin: input.servesMin } : {}),
             ...(input.servesMax !== undefined ? { servesMax: input.servesMax } : {}),
-            ...(input.labels !== undefined ? { labels: [...input.labels] } : {}),
+            ...(labels !== undefined ? { labels } : {}),
           },
         },
         actor.personId,
