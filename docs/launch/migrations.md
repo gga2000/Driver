@@ -42,6 +42,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010470000 | driver_pauses | lane E | #144, merged |
 | 20261010490000 | share_boarding | trips thread | shared car way C, who got in (#170, merged) |
 | 20261010500000 | refund_approvals | lane A | second OK on big refunds |
+| 20261010510000 | handover_notes | lane E | shift handover note on Today (h5) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6
