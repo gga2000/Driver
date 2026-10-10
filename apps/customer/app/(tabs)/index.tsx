@@ -39,6 +39,7 @@ import { SimpleHomeRedirect } from '@/features/simple/SimpleHome';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
+import { RESTAURANT_MAP } from '@/features/restaurant-map/RestaurantMap';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
 import { QuietEnd } from '@/features/home/QuietEnd';
@@ -269,7 +270,7 @@ export default function Home() {
         {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات». */}
         <View testID="home-food" style={{ gap: theme.space[3] }}>
           {open.length > 0 ? (
-            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} />
+            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} onMap={RESTAURANT_MAP ? () => router.push('/restaurant-map') : undefined} />
           ) : (
             <>
               <SectionHeader big title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} />
