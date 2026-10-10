@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   DELIVERY_AREA_CACHE_MS,
   DRINKS_DEFAULT_PREP_MIN,
@@ -160,6 +160,7 @@ const DAY_MS = 86_400_000;
  */
 @Injectable()
 export class MerchantService implements MerchantPort {
+  private readonly logger = new Logger(MerchantService.name);
   /** Courier first names per trip and reader: a board polled every few seconds logs one vault read per trip. */
   private readonly names = new Map<string, string | null>();
   /** Delivery maps per store, with when they were priced (DELIVERY_AREA_CACHE_MS, same Baghdad hour). */
@@ -206,7 +207,12 @@ export class MerchantService implements MerchantPort {
     const kinds = itemIds.length > 0 && this.catalog.itemKinds ? await this.catalog.itemKinds(org.id, itemIds) : new Map<string, DishKind>();
     const cards: BoardOrder[] = [];
     for (const order of live) {
-      const courier = await this.courierOf(order, kitchen, actor.personId);
+      // MER-04: one order whose courier lookup throws must not blank the whole board; its card goes
+      // out without courier details and the error is logged.
+      const courier = await this.courierOf(order, kitchen, actor.personId).catch((err: unknown) => {
+        this.logger.error(`board courier lookup failed for order ${order.id}: ${err instanceof Error ? err.message : String(err)}`);
+        return courierView(order.id, { trip: null, firstName: null, vehicleClass: null, etaMinutes: null, plate: null });
+      });
       const card = toBoardOrder({ order, itemNames: names, itemKinds: kinds, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
       if (card) cards.push(card);
     }

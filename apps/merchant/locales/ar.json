@@ -1917,5 +1917,7 @@
   "merchant.item.kind_food": "أكل",
   "merchant.item.kind_hot_drink": "مشروب ساخن",
   "merchant.item.kind_cold_drink": "مشروب بارد",
-  "merchant.item.kind_sweet": "حلو"
+  "merchant.item.kind_sweet": "حلو",
+  "merchant.card.time_over": "فات وقت القبول، انلغى",
+  "merchant.item.owner_only": "الأسعار والأصناف والإضافات يغيّرها صاحب المحل. تگدر تخلّص الصنف اليوم أو تطفيه أو تبدّل صورته."
 }

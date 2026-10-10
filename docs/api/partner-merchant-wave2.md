@@ -208,7 +208,10 @@ Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the c
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`.
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
+prices, dishes, options, sections and imports (MER-06: `menu.updatePrice`, `menu.upsertItem`, `menu.setModifiers`,
+`menu.upsertCategory`, `menu.reorderCategories`, `menu.importFromPhotos`, `menu.applyImport`). Staff keep the daily
+switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replacePhoto`).
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|

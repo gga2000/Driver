@@ -54,7 +54,7 @@ import { passFirst, passState, waitingAtPass } from './pass';
 import { isPractice, practice, usePractice } from './practice';
 import { useServerTime } from './clock';
 import { useBoard, useOnline, useOrderActions, useRemake, useRemakeRule } from './queries';
-import { autoBusy, busyMinutesNow, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders, type RemakeOutcome } from './shop-load';
+import { autoBusy, boardSeesOrders, busyMinutesNow, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders, type RemakeOutcome } from './shop-load';
 import { AutoBusyStrip, PauseStrip, RemakeSheet, usePauseView } from './ShopLoadParts';
 import { readyQueue, useReadyQueue } from './ready-queue';
 import { RejectSheet } from './RejectSheet';
@@ -100,7 +100,7 @@ function EmptyColumn({ column }: { column: BoardColumn }) {
   );
 }
 
-function ColumnHeader({ column, count }: { column: BoardColumn; count: number }) {
+function ColumnHeader({ column, count }: { column: BoardColumn; /** null: the board isn't loading (MER-04), so no «0». */ count: number | null }) {
   const theme = useTheme();
   const t = useT();
   // One job per colour: the new lane's count is dark saffron, the cooking lane's date brown, ready green.
@@ -111,11 +111,13 @@ function ColumnHeader({ column, count }: { column: BoardColumn; count: number })
       <Text variant="title" style={[theme.face('display'), { color: COUNTER.date }]}>
         {t(COLUMN_LABEL[column])}
       </Text>
-      <View style={{ minWidth: 30, height: 28, paddingHorizontal: 8, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: quiet ? theme.colors.surfaceSunken : badge }}>
-        <Text variant="label" tabular style={[theme.face('display'), { color: quiet ? theme.colors.textMuted : COUNTER.onDate }]}>
-          {String(count)}
-        </Text>
-      </View>
+      {count === null ? null : (
+        <View style={{ minWidth: 30, height: 28, paddingHorizontal: 8, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: quiet ? theme.colors.surfaceSunken : badge }}>
+          <Text variant="label" tabular style={[theme.face('display'), { color: quiet ? theme.colors.textMuted : COUNTER.onDate }]}>
+            {String(count)}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -601,6 +603,8 @@ export function Board() {
   const loading = !board.data && board.isPending;
   // The first read failed: say so with a retry, and never show "no new orders" for a board we can't see.
   const failed = !board.data && board.isError;
+  // MER-04: the board stopped loading a while ago (the heartbeat now lets the shop pause): say so too.
+  const stale = !!board.data && board.isError && !boardSeesOrders(board.dataUpdatedAt, Date.now());
   const skeleton = (
     <View style={{ gap: theme.space[3] }}>
       <Skeleton height={220} radius={20} />
@@ -706,7 +710,7 @@ export function Board() {
       ) : offHours ? (
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
-      {failed ? <InfoStrip tone="danger" testID="board-error" text={t('merchant.board.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void board.refetch(), testID: 'board-error-retry' }} /> : null}
+      {failed || stale ? <InfoStrip tone="danger" testID="board-error" text={t('merchant.board.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void board.refetch(), testID: 'board-error-retry' }} /> : null}
       {push.visible ? (
         <InfoStrip
           tone="neutral"
@@ -762,7 +766,7 @@ export function Board() {
               }}
             >
               <View style={{ paddingHorizontal: theme.space[1] }}>
-                <ColumnHeader column={c} count={cols[c].length} />
+                <ColumnHeader column={c} count={failed || loading ? null : cols[c].length} />
               </View>
               {c === 'preparing' ? <CookingTotals totals={totals} /> : null}
               <ScrollView
@@ -783,7 +787,7 @@ export function Board() {
               value={segment}
               onChange={setSegment}
               accessibilityLabel={t('merchant.nav.orders')}
-              options={COLUMNS.map((c) => ({ value: c, label: `${t(COLUMN_LABEL[c])} · ${cols[c].length}` }))}
+              options={COLUMNS.map((c) => ({ value: c, label: failed || loading ? t(COLUMN_LABEL[c]) : `${t(COLUMN_LABEL[c])} · ${cols[c].length}` }))}
             />
           </View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: theme.space[5], padding: theme.space[4], paddingBottom: theme.space[10] }}>
