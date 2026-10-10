@@ -33,7 +33,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { nearestLandmark } from '../../shared/landmarks.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
-import { AuditLogService } from '../controls/index.js';
+import { AuditLogService, ControlsService } from '../controls/index.js';
 import { DispatchService } from '../dispatch/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, shortDisplayName } from '../identity/index.js';
@@ -220,6 +220,8 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     @Optional() private readonly audits?: AuditLogService,
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
+    /** Launch scope: خطوط takes no new pickups or absences until the city lists it. Absent in narrow harnesses. */
+    @Optional() private readonly controls?: ControlsService,
   ) {}
 
   /**
@@ -588,7 +590,10 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     return { callId, mode: session.mode, dial: session.dial, counterpart: 'customer', expiresAt: session.expiresAt };
   }
 
-  tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip> {
+  async tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip> {
+    // Only new boardings stop while خطوط is not launched: tap-outs, the empty-car check and calls
+    // always work, so a child already in the car is never stuck in it.
+    this.controls?.assertLaunched((await this.ownRun(actor, input.tripId)).cityId, 'khat');
     return this.tap(actor, input, 'in');
   }
 
@@ -635,6 +640,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    */
   async reportAbsence(actor: Actor, input: ReportAbsenceInput): Promise<AbsenceView> {
     const trip = await this.ownRun(actor, input.tripId);
+    this.controls?.assertLaunched(trip.cityId, 'khat');
     const stops = trip.stops.filter((s) => s.childRef === input.childRef);
     if (stops.length === 0) throw new DriverError('khat_child_not_on_trip');
     const existing = await this.repo.absence(trip.id, input.childRef);

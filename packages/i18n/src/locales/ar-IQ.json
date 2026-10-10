@@ -1841,6 +1841,7 @@
   "console.ctl_refusal_zone": "ما نگدر نخدم منطقة {name} هسة. جرّب بعدين",
   "console.ctl_refusal_restaurant": "{name} موقّف الطلبات مؤقتاً. جرّب مطعم ثاني",
   "console.ctl_refusal_corridor": "حجز {name} موقّف مؤقتاً",
+  "console.ctl_refusal_not_launched": "خدمة {name} بعدها ما انفتحت. نبلشها قريب",
   "console.ctl_cap_title": "سقف طلبات {name}",
   "console.ctl_cap_now": "هسة {n} طلب نشط",
   "console.ctl_cap_max": "أعلى عدد طلبات نشطة بنفس الوقت",

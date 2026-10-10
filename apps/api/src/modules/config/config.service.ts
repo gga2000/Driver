@@ -25,6 +25,26 @@ export class ConfigService {
     return [...this.cities.keys()];
   }
 
+  /** The services open in this city (`launchedVerticals`, else every priced one); none for an unknown city. */
+  launchedVerticals(cityId: string): Vertical[] {
+    const c = this.city(cityId);
+    if (!c) return [];
+    return [...(c.launchedVerticals ?? c.verticals.map((v) => v.vertical))];
+  }
+
+  isLaunched(cityId: string, vertical: Vertical): boolean {
+    return this.launchedVerticals(cityId).includes(vertical);
+  }
+
+  /**
+   * Demo APIs and end-to-end tests only: open more (or fewer) services than the city file, so every
+   * screen stays reachable in the studio. Production never calls it.
+   */
+  setLaunchedVerticals(cityId: string, verticals: readonly Vertical[]): void {
+    const c = this.city(cityId);
+    if (c) this.cities.set(cityId, { ...c, launchedVerticals: [...verticals] });
+  }
+
   dispatchFor(cityId: string, vertical: Vertical): DispatchConfig | undefined {
     return this.city(cityId)?.dispatch[vertical];
   }

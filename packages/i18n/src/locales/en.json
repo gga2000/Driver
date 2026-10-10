@@ -1841,6 +1841,7 @@
   "console.ctl_refusal_zone": "We can't serve {name} right now. Try again later",
   "console.ctl_refusal_restaurant": "{name} has paused orders. Try another restaurant",
   "console.ctl_refusal_corridor": "Booking on {name} is paused",
+  "console.ctl_refusal_not_launched": "{name} hasn't opened yet. Coming soon",
   "console.ctl_cap_title": "Order cap for {name}",
   "console.ctl_cap_now": "{n} active orders now",
   "console.ctl_cap_max": "Most active orders at once",
