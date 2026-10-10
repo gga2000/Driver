@@ -8849,5 +8849,8 @@
   "console.glance.sos_holder": "ماسك الطوارئ: {name} لحد {time}",
   "console.glance.top": "أهم المشاكل المفتوحة هسة",
   "console.glance.none_open": "ماكو مشاكل مفتوحة.",
-  "console.glance.open_today": "افتح صفحة اليوم"
+  "console.glance.open_today": "افتح صفحة اليوم",
+  "console.undo": "تراجع",
+  "console.pause_undo_note": "تراجعت عن الإيقاف خلال ثواني",
+  "console.ctl_undo_reason": "تراجعت عن الإيقاف خلال ثواني"
 }

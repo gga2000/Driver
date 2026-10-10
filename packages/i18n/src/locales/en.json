@@ -8849,5 +8849,8 @@
   "console.glance.sos_holder": "SOS: {name} until {time}",
   "console.glance.top": "Most urgent open problems",
   "console.glance.none_open": "No open problems.",
-  "console.glance.open_today": "Open Today"
+  "console.glance.open_today": "Open Today",
+  "console.undo": "Undo",
+  "console.pause_undo_note": "Took the pause back within seconds",
+  "console.ctl_undo_reason": "Took the stop back within seconds"
 }
