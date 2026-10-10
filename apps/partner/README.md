@@ -166,9 +166,9 @@ he is online or on a job (expo-keep-awake). "جرّب صوت الطلب" is in �
 
 Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 14,000 · 6 طلبات today,
 68,500 cash held ≈ 73 % of his cap, two months of history, scorecard day 65), tuktuk `0770 111 0002`
-(rides with the take; licence expiring, registration rejected), intercity `0770 111 0003`, khat
-`0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (no check-in
-yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
+(rides with the take; licence expiring, registration renewal rejected), intercity `0770 111 0003`, khat
+`0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (papers not
+complete so he can't go online, no check-in yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
 Everyone else is checked in for today. `POST /demo/account/fail-next-checkin?who=…` fails his next selfie.
 Main photos (صورتك الرئيسية, `/photo`, docs/api/driver-photos.md): every driver has an approved drawn
 portrait; courier's new one «تنتظر الموافقة», tuktuk's «مرفوضة» with a reason, rookie none.

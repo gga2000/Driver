@@ -6,6 +6,7 @@ import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { createApp } from './bootstrap.js';
 import { CatalogService, seedStorefronts } from './modules/catalog/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
+import { DriverAccountService } from './modules/driver-account/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { OrdersService } from './modules/orders/index.js';
 import { OrgsService } from './modules/orgs/index.js';
@@ -60,13 +61,26 @@ describe('partner API (e2e)', () => {
     const off = await courier.client.partner.status.query();
     expect(off).toMatchObject({ online: false, canDrive: true, modes: ['courier'], activeTripId: null, offerId: null, today: { earningsIqd: 0, jobs: 0 } });
 
-    // The online gate (scoring §2): no daily selfie check-in yet → refused with a typed code.
-    expect(off.gate).toMatchObject({ canGoOnline: false, reasons: [{ code: 'checkin_required' }] });
+    const photo = async () => {
+      const ticket = await courier.client.places.photoUpload.mutate({ contentType: 'image/jpeg', sizeBytes: JPEG.length });
+      expect((await fetch(new URL(ticket.uploadUrl, origin), { method: 'PUT', headers: ticket.headers, body: JPEG })).status).toBe(200);
+      return ticket.uploadId;
+    };
+
+    // The online gate: his ID and photo are not approved yet → refused with a typed code.
+    expect(off.gate?.canGoOnline).toBe(false);
+    expect(off.gate?.reasons.map((r) => r.code)).toEqual(['checkin_required', 'document_missing', 'document_missing', 'document_missing']);
+    expect(await errCode(courier.client.partner.goOnline.mutate({ at: STREET_30, vehicleClass: 'bike' }))).toBe('online_document_missing');
+    for (const kind of ['national_id_front', 'national_id_back', 'photo'] as const) {
+      const doc = await courier.client.driverAccount.uploadDocument.mutate({ kind, uploadId: await photo() });
+      await app.get(DriverAccountService).reviewDocument({ personId: 'system:e2e-ops', sessionId: 'e2e' }, { documentId: doc.id, decision: 'approve' });
+    }
+
+    // Scoring §2: no daily selfie check-in yet → refused with a typed code.
+    expect((await courier.client.partner.status.query()).gate).toMatchObject({ canGoOnline: false, reasons: [{ code: 'checkin_required' }] });
     expect(await errCode(courier.client.partner.goOnline.mutate({ at: STREET_30, vehicleClass: 'bike' }))).toBe('online_checkin_required');
     const challenge = await courier.client.driverAccount.checkInChallenge.mutate();
-    const ticket = await courier.client.places.photoUpload.mutate({ contentType: 'image/jpeg', sizeBytes: JPEG.length });
-    expect((await fetch(new URL(ticket.uploadUrl, origin), { method: 'PUT', headers: ticket.headers, body: JPEG })).status).toBe(200);
-    expect(await courier.client.driverAccount.submitCheckIn.mutate({ challengeId: challenge.challengeId, uploadId: ticket.uploadId })).toMatchObject({ result: 'passed', verifiedToday: true });
+    expect(await courier.client.driverAccount.submitCheckIn.mutate({ challengeId: challenge.challengeId, uploadId: await photo() })).toMatchObject({ result: 'passed', verifiedToday: true });
     expect((await courier.client.partner.status.query()).gate).toEqual({ canGoOnline: true, reasons: [] });
 
     const on = await courier.client.partner.goOnline.mutate({ at: STREET_30, vehicleClass: 'bike' });

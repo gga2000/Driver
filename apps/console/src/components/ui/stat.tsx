@@ -44,7 +44,7 @@ export function Stat({
       <dt className="truncate text-dense text-muted">{label}</dt>
       <dd className="mt-1 flex items-end justify-between gap-3">
         <span
-          className={cx('num text-[26px] font-semibold leading-9 tracking-[-0.01em]', VALUE[tone])}
+          className={cx('num whitespace-nowrap text-[26px] font-semibold leading-9 tracking-[-0.01em]', VALUE[tone])}
         >
           {value}
         </span>
@@ -135,11 +135,13 @@ export function Sparkline({
 }
 
 /** Tiles in one row that share a frame (fewer boxes than a grid of cards). */
-export function StatStrip({ children, className }: { children: ReactNode; className?: string }) {
+export function StatStrip({ children, className, money = false }: { children: ReactNode; className?: string; money?: boolean }) {
   return (
     <dl
       className={cx(
-        'grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]',
+        // Amounts with «دينار» need a wider tile, so a phone shows them one per row instead of breaking the unit off.
+        'grid gap-3',
+        money ? '[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]' : '[grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]',
         className,
       )}
     >

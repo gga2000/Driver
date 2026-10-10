@@ -115,6 +115,11 @@ export class NotifyEngine {
      * with offers off; offers wait from 20 minutes before iftar until after it (J6).
      */
     private readonly promoHold: (at: Date) => Promise<PromoHold | null> = async () => null,
+    /**
+     * Whether a message's SMS twin still means something when it is due (`twinStillWanted` in the
+     * subscribers): a new-order text for an order the kitchen already answered does not.
+     */
+    private readonly twinWanted: (row: DeliveryRecord) => Promise<boolean> = async () => true,
   ) {}
 
   // ───────────────────────── routing ─────────────────────────
@@ -405,9 +410,11 @@ export class NotifyEngine {
     const now = this.clock.now();
     const prefs = await this.preferencesOf(first.personId);
     const pref = preferenceFor(def.category, 'sms');
-    const allowed = ALWAYS_TWIN.has(def.category) || pref === null || prefs[pref];
+    const wanted = await this.twinWanted(first);
+    const allowed = wanted && (ALWAYS_TWIN.has(def.category) || pref === null || prefs[pref]);
+    const reason = allowed ? null : wanted ? `preference:${pref}` : 'no_longer_needed';
     const [created] = await this.repo.insertDeliveries(
-      [{ dedupeKey, eventId: first.eventId, template: first.template, personId: first.personId, orderId: first.orderId, channel: 'sms', status: allowed ? 'queued' : 'suppressed', reason: allowed ? null : `preference:${pref}`, twin: true, payload: { ...first.payload }, notBefore: null }],
+      [{ dedupeKey, eventId: first.eventId, template: first.template, personId: first.personId, orderId: first.orderId, channel: 'sms', status: allowed ? 'queued' : 'suppressed', reason, twin: true, payload: { ...first.payload }, notBefore: null }],
       now,
     );
     if (created?.status === 'queued') await this.enqueue({ kind: 'send', deliveryId: created.id }, jobKey('send', created.id, 0));

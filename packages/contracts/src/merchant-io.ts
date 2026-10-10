@@ -153,6 +153,12 @@ export const BoardOrder = z.object({
   offeredAt: z.coerce.date().nullable(),
   /** End of the 90-s acceptance window (new orders only; null for auto-accepted or not yet offered). */
   acceptBy: z.coerce.date().nullable(),
+  /**
+   * Offered while the store was already closed (out of hours, or closed by hand before the offer): a
+   * pre-order for opening time. It rings even though the store is closed — the quiet rule (m6a) is
+   * only for orders that were waiting when the store closed. Absent on an older API = false.
+   */
+  offeredWhileClosed: z.boolean().optional(),
   acceptedAt: z.coerce.date().nullable(),
   promisedReadyAt: z.coerce.date().nullable(),
   readyAt: z.coerce.date().nullable(),

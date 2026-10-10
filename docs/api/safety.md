@@ -36,7 +36,7 @@ from where the car last was when the person is in it.
 
 | Procedure | Who | Notes |
 |---|---|---|
-| `safety.sos` | any session | `{subject: {kind: trip\|order\|departure\|booking\|request, id}, position, category?, pressedAt?, clientId}`. The caller must be a party of a trip that is going or ended < 30 min ago (`sos_not_party`, `sos_trip_over`). Same `clientId` → same incident; a second hold while one is open joins it. 5 new incidents per person per hour (`sos_rate_limited`). |
+| `safety.sos` | any session | `{subject: {kind: trip\|order\|departure\|booking\|request, id}, position, category?, pressedAt?, clientId}`. The caller must be a party of a trip that is going or ended < 30 min ago (`sos_not_party`, `sos_trip_over`): its driver, the customer who booked it, the person riding a ride booked for someone else, a الرجعة rider with a live seat, or on a private-car request the rider, a friend holding or having paid a place on the shared car, or the person fetched («جيب واحد»); all but the driver raise it as `customer`. Same `clientId` → same incident; a second hold while one is open joins it. 5 new incidents per person per hour (`sos_rate_limited`). |
 | `safety.cancel` | the person | Inside 10 s only (`sos_cancel_window_passed`). Logged as a false alarm, never erased; the contact is not messaged. |
 | `safety.status` | the person | By id, or the person's open incident (the screen restores the lit button). |
 | `safety.position` | the person | One fix; ignored once the incident is closed. |

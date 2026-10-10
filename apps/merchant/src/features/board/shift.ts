@@ -19,9 +19,13 @@ export interface ShiftResult {
   wake: WakeState;
 }
 
-/** Local day (Asia/Baghdad) as YYYY-MM-DD. */
+/**
+ * The kitchen's business day (Asia/Baghdad) as YYYY-MM-DD. MER-15: it turns at 05:00, like the day
+ * summary, so «ابدأ الشغل» never comes back over the board at midnight in the middle of a late service.
+ */
+export const DAY_TURNS_AT_HOUR = 5;
 export function baghdadDay(now: number): string {
-  return new Date(now + 3 * 3_600_000).toISOString().slice(0, 10);
+  return new Date(now + (3 - DAY_TURNS_AT_HOUR) * 3_600_000).toISOString().slice(0, 10);
 }
 
 /** The gate shows until the shift was started today. */

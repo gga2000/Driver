@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AuditLogService } from '../controls/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { HandoverCodes } from '../driver-account/index.js';
 import { createInMemoryEvents } from '../events/index.js';
@@ -31,9 +32,11 @@ async function setup() {
   const orgs = new OrgsService(undefined, clock);
   const repo = new InMemoryOpsRepository();
   const places = new PlacesService();
-  const ops = new OpsService(repo, accounts, lh.merchantCash, lh.caps, lh.ledger, orgs, id.service, ev.events, blobs, ev.uow, clock, places);
+  const audits: Array<{ action: string; actorId: string; subjectId: string; detail?: Record<string, unknown> }> = [];
+  const auditLog = { record: async (r: (typeof audits)[number]) => (audits.push(r), r) } as unknown as AuditLogService;
+  const ops = new OpsService(repo, accounts, lh.merchantCash, lh.caps, lh.ledger, orgs, id.service, ev.events, blobs, ev.uow, clock, places, undefined, undefined, auditLog);
   const staff = (await id.login('07700000001')).actor;
-  return { id, clock, lh, ev, blobs, codes, accounts, orgs, repo, ops, staff, places };
+  return { id, clock, lh, ev, blobs, codes, accounts, orgs, repo, ops, staff, places, audits };
 }
 
 describe('ops.recordCashReceipt on the Console round (S-K5)', () => {
@@ -45,6 +48,25 @@ describe('ops.recordCashReceipt on the Console round (S-K5)', () => {
     const from = new Date(h.clock.now().getTime() - 3_600_000);
     const got = roundCollections(await h.lh.ledger.eventsOfTypes(['driver_settlement'], from, new Date(h.clock.now().getTime() + 1)));
     expect(got.get('k1')).toMatchObject({ amountIqd: 10000, reference: r.reference });
+  });
+});
+
+describe('ops.recordCashReceipt: staff never take in their own cash', () => {
+  it('a field ops person who also delivers cannot record a receipt for himself, even with his own code', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: h.staff.personId }));
+    const before = await h.lh.caps.status(h.staff.personId);
+    const code = h.codes.code(h.staff.personId, h.clock.now()).code;
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: h.staff.personId, amountIqd: 1000, code })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await h.lh.caps.status(h.staff.personId)).cashIqd).toBe(before.cashIqd);
+    expect(h.audits).toEqual([]);
+  });
+
+  it('every receipt writes a console audit row naming who took it', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const r = await h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: h.codes.code('k1', h.clock.now()).code });
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'cash.receipt', actorId: h.staff.personId, subjectId: 'k1', detail: expect.objectContaining({ amountIqd: 1000, reference: r.reference }) })]);
   });
 });
 

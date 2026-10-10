@@ -31,7 +31,8 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   const insets = useSafeAreaInsets();
   const prefs = usePrefs();
   const { wide } = useLayout();
-  useHeartbeat(storeId);
+  const board = useBoard(storeId);
+  useHeartbeat(storeId, board.dataUpdatedAt);
   usePrinterSync(storeId);
   // y6: «صار جاهز» taps kept offline go out as soon as the net is back.
   useReadyQueueFlush(storeId);
@@ -43,7 +44,6 @@ export function MerchantRuntime({ storeId, onBoard, bottomBar }: { storeId: stri
   }, []);
   // The store's live channel: a new order rings the moment the server offers it to the kitchen.
   useLiveMerchantBoard(storeId, (orderId) => alarm.ringNow(orderId, prefs.soundOn));
-  const board = useBoard(storeId);
   const offset = board.offset;
   const clock = useCallback(() => Date.now() + offset, [offset]);
   // The alarm ladder runs here, so it rings (and escalates) on every screen, not only the board.

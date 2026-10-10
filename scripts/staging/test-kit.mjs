@@ -12,6 +12,10 @@
 //   0770 000 0151  courier + taxi driver, a white Hyundai Elantra (food and taxi offers)
 //   0770 000 0152  courier + tuktuk driver, a Bajaj tuktuk (food, errands, parcels and tuktuk offers)
 //
+// The two driving numbers also get their papers marked approved (ID front and back, photo, licence,
+// registration), which every courier or driver needs to go online. Those rows have no picture behind
+// them: the Console shows them as approved papers with nothing to open.
+//
 // Each number must have signed in once first (the person row is made at sign-in with the API's phone
 // pepper, which only the API holds); a number that hasn't is listed and skipped. Idempotent: run it again
 // any time. `--undo` revokes exactly what the kit grants and parks its two vehicles.
@@ -48,6 +52,9 @@ export const KIT = [
 export function inTestRange(e164) {
   return /^\+96477000001\d\d$/.test(e164);
 }
+
+/** Papers a driver needs to go online (driver-account requiredDocuments: ID + photo, plus licence and registration for car roles). */
+const DRIVER_PAPERS = ['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration'];
 
 const newId = () => `kit${randomBytes(11).toString('hex')}`;
 
@@ -90,6 +97,34 @@ async function revoke(db, personId, { kind, orgId }) {
     [personId, kind, orgId],
   );
   return r.rowCount > 0 ? 'revoked' : 'none';
+}
+
+/** Approved papers for a driving number; only adds a kind with no current approved paper. */
+async function givePapers(db, personId) {
+  let added = 0;
+  for (const kind of DRIVER_PAPERS) {
+    const have = await db.query(
+      `SELECT 1 FROM public.driver_documents WHERE person_id = $1 AND kind = $2::"public"."DriverDocumentKind" AND status = 'approved' AND superseded_at IS NULL`,
+      [personId, kind],
+    );
+    if (have.rows.length > 0) continue;
+    await db.query(
+      `INSERT INTO public.driver_documents (id, person_id, kind, status, submitted_at, reviewed_at, created_at, updated_at)
+       VALUES ($1, $2, $3::"public"."DriverDocumentKind", 'approved', now(), now(), now(), now())`,
+      [newId(), personId, kind],
+    );
+    added += 1;
+  }
+  return added === 0 ? 'papers: already' : `papers: ${added} approved`;
+}
+
+/** Undo: retires only the papers the kit made (ids start with "kit"); his own uploads stay. */
+async function takePapers(db, personId) {
+  const r = await db.query(
+    `UPDATE public.driver_documents SET superseded_at = now(), updated_at = now() WHERE person_id = $1 AND id LIKE 'kit%' AND superseded_at IS NULL`,
+    [personId],
+  );
+  return `papers: ${r.rowCount} retired`;
 }
 
 async function main() {
@@ -137,6 +172,7 @@ async function main() {
           done.push(`${role.kind}${role.orgId ? ` @ ${role.orgId.replace('org_aziziyah_', '')}` : ''}: ${what}`);
         }
         if (k.vehicle) {
+          done.push(undo ? await takePapers(db, personId) : await givePapers(db, personId));
           const v = k.vehicle;
           if (undo) {
             await db.query('UPDATE public.vehicles SET active = false, active_driver_id = NULL, updated_at = now() WHERE plate = $1', [v.plate]);

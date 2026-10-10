@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { serverClock } from './clock';
+import { acceptWindow, serverClock } from './clock';
 
 describe('serverClock (h3: one shared clock)', () => {
   afterEach(() => {
@@ -36,5 +36,17 @@ describe('serverClock (h3: one shared clock)', () => {
     serverClock.setOffset(2_000);
     expect(a).toHaveBeenCalledTimes(1);
     stop();
+  });
+});
+
+describe('acceptWindow (FLW-14)', () => {
+  it('follows the server and ignores nonsense', () => {
+    acceptWindow.setSec(120);
+    expect(acceptWindow.ms()).toBe(120_000);
+    acceptWindow.setSec(0);
+    acceptWindow.setSec(Number.NaN);
+    expect(acceptWindow.ms()).toBe(120_000);
+    acceptWindow.setSec(90);
+    expect(acceptWindow.ms()).toBe(90_000);
   });
 });
