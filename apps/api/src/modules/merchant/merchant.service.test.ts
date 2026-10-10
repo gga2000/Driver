@@ -198,6 +198,26 @@ describe('MerchantService — board', () => {
     expect(board.missed?.orders[0]).toMatchObject({ orderId: placed.id, reason: 'merchant_timeout', scored: true, missedAt: h.clock.now() });
   });
 
+  it('a card says whether it was offered while the store was already closed (the alarm rings those, m6a)', async () => {
+    const { h, orgs, svc, staff, khalid } = await setup();
+    // Saturday 12:30–23:00; the harness starts at 12:00, before opening.
+    await orgs.setMerchantSettings(khalid.id, { openingHours: [{ dow: 6, start: '12:30', end: '23:00' }] });
+    const place = () => h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const flag = async (id: string) => (await svc.board(staff, { merchantOrgId: khalid.id })).orders.find((o) => o.id === id)?.offeredWhileClosed;
+    const early = await place();
+    expect(await flag(early.id)).toBe(true);
+    await h.advance(31 * MIN);
+    const open = await place();
+    expect(await flag(open.id)).toBe(false);
+    // Closed by hand after the offer: it was waiting at close, so it stays quiet; one offered after the close rings.
+    await h.advance(10_000);
+    await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'power_cut' });
+    await h.advance(10_000);
+    const late = await place();
+    expect(await flag(open.id)).toBe(false);
+    expect(await flag(late.id)).toBe(true);
+  });
+
   it('the "+5 د" shows on the card once used', async () => {
     const { h, svc, staff, khalid } = await setup();
     const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
