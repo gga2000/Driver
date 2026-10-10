@@ -6,6 +6,8 @@ import {
   type Actor,
   type AuditEntry,
   type AuditInput,
+  type AuditPage,
+  type AuditPageInput,
   type BannerInput,
   type BannerSeverity,
   type ControlsPort,
@@ -453,6 +455,10 @@ export class ControlsService implements ControlsPort {
 
   audit(input: z.output<typeof AuditInput>): Promise<AuditEntry[]> {
     return this.audits.list({ cityId: input.cityId, subjectKind: input.subjectKind, limit: input.limit });
+  }
+
+  auditPage(input: z.output<typeof AuditPageInput>): Promise<AuditPage> {
+    return this.audits.page(input);
   }
 
   // ───────────────────────── screen switches (W6) ─────────────────────────

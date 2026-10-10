@@ -133,6 +133,28 @@ export const AuditInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
 });
 
+/** v10: the audit page's chips; which actions each holds is the server's (`modules/controls/audit.ts`). */
+export const AUDIT_CATEGORIES = ['money', 'approvals', 'pauses', 'safety', 'orders', 'settings'] as const;
+export const AuditCategory = z.enum(AUDIT_CATEGORIES);
+export type AuditCategory = z.infer<typeof AuditCategory>;
+export const AUDIT_PAGE_SIZE = 50;
+
+/** One page of the audit log, newest first; `cursor` is the previous page's `nextCursor`. */
+export const AuditPageInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  category: AuditCategory.optional(),
+  cursor: z.string().max(120).optional(),
+  limit: z.number().int().min(1).max(100).default(AUDIT_PAGE_SIZE),
+});
+export type AuditPageInput = z.input<typeof AuditPageInput>;
+export const AuditPage = z.object({
+  rows: z.array(AuditEntry),
+  /** Every row the chip matches, not only this page. */
+  total: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
+});
+export type AuditPage = z.infer<typeof AuditPage>;
+
 // ───────────────────────── status banner ─────────────────────────
 
 export const BannerSeverity = z.enum(['info', 'warning', 'critical']);
@@ -613,6 +635,7 @@ export interface ControlsPort {
   setSwitch(actor: Actor, input: z.output<typeof SetKillSwitchInput>): Promise<KillSwitchView>;
   setCapacity(actor: Actor, input: z.output<typeof SetZoneCapacityInput>): Promise<ZoneCapacityView>;
   audit(input: z.output<typeof AuditInput>): Promise<AuditEntry[]>;
+  auditPage(input: z.output<typeof AuditPageInput>): Promise<AuditPage>;
   banner(input: BannerInput): Promise<PublicBanner | null>;
   banners(): Promise<SystemBannerView[]>;
   setBanner(actor: Actor, input: z.output<typeof SetBannerInput>): Promise<SystemBannerView>;

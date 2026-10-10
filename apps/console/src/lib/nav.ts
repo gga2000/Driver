@@ -36,7 +36,8 @@ export type IconName =
   | 'phone'
   | 'oncall'
   | 'garage'
-  | 'system';
+  | 'system'
+  | 'audit';
 
 export interface NavItem {
   href: string;
@@ -125,6 +126,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { href: '/on-call', key: 'console.nav_on_call', icon: 'oncall', roles: ON_CALL_READ_ROLES, jump: 'n' },
       { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
       { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
+      // v10 / p2: who did what in the Console; the money chip is why finance reads it too.
+      { href: '/audit', key: 'console.nav_audit', icon: 'audit', roles: ['admin', 'finance'], jump: 'l' },
     ],
   },
 ];
