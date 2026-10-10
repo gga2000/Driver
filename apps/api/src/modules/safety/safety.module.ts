@@ -14,7 +14,7 @@ import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '
 import { TripsModule, TripsService } from '../trips/index.js';
 import { InMemorySafetyRepository, PrismaSafetyRepository, SAFETY_REPOSITORY, type SafetyRepository } from './safety.repository.js';
 import { SAFETY_CALLS, SAFETY_CONFIG, SAFETY_SOURCES, SafetyService, type SafetyCallPort, type SafetyConfig } from './safety.service.js';
-import type { SafetySources } from './safety.subjects.js';
+import { rideRiderOf, requestPassengers, type SafetySources } from './safety.subjects.js';
 
 async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
   try {
@@ -54,7 +54,11 @@ function envInt(name: string, fallback: number): number {
     {
       provide: SAFETY_SOURCES,
       useFactory: (orders: OrdersService, trips: TripsService, departures: DeparturesService, requests: RequestBoardService, vehicles: CourierVehicleDirectory): SafetySources => ({
-        order: (id) => orNull(() => orders.get(id)),
+        order: (id) =>
+          orNull(async () => {
+            const o = await orders.get(id);
+            return { ...o, riderId: rideRiderOf(o.participants) };
+          }),
         courierOf: (orderId) => orNull(() => trips.courierOf(orderId)),
         trip: (id) => orNull(() => trips.get(id)),
         departure: (id) =>
@@ -84,7 +88,7 @@ function envInt(name: string, fallback: number): number {
             const r = await requests.get(id);
             if (!r) return null;
             const picked = r.offers.find((o) => o.id === r.pickedOfferId) ?? null;
-            return { id: r.id, riderId: r.riderId, cityId: r.cityId, state: r.state, pickedDriverId: picked?.driverId ?? null, from: r.from.label, to: r.to.label, closedAt: r.closedAt };
+            return { id: r.id, riderId: r.riderId, cityId: r.cityId, state: r.state, pickedDriverId: picked?.driverId ?? null, passengerIds: requestPassengers(r), from: r.from.label, to: r.to.label, closedAt: r.closedAt };
           }),
         vehicle: (courierId, vehicleId) => orNull(async () => await vehicles.forCourier(courierId, vehicleId)),
         tripFix: (tripId) =>
