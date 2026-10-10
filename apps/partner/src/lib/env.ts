@@ -4,3 +4,6 @@
  * production anyway.
  */
 export const DEV_TOOLS: boolean = (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.EXPO_PUBLIC_DEV_TOOLS === '1';
+
+/** The Console, where staff answer safety alerts (the staff-alert screen opens it); `EXPO_PUBLIC_CONSOLE_URL` at build time. */
+export const CONSOLE_URL: string = process.env.EXPO_PUBLIC_CONSOLE_URL || 'https://console.driver.iq';

@@ -89,7 +89,7 @@ describe('the alarm away from the Console tab', () => {
   });
 
   it('flashes the tab title every other second', () => {
-    expect(titleFrame('الكونسول', 2, 0)).toBe('(2) طوارئ! افتح الكونسول');
+    expect(titleFrame('الكونسول', 2, 0)).toBe('(2) طوارئ · افتح الكونسول');
     expect(titleFrame('الكونسول', 2, 1)).toBe('الكونسول');
   });
 });

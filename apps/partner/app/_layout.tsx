@@ -138,6 +138,7 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="not-partner" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="staff-alert" options={{ headerShown: false }} />
         <Stack.Screen name="offer" options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false, animation: 'fade_from_bottom' }} />
         <Stack.Screen name="job" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="practice" options={{ headerShown: false, gestureEnabled: false }} />

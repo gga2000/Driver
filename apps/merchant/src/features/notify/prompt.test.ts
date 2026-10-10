@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boardCalmForPrompt, deepLinkPath, PREPROMPT_SNOOZE_MS, pushHealthOf, shouldShowPrePrompt, storeFromPush } from './prompt';
+import { boardCalmForPrompt, consoleAlertUrl, deepLinkPath, PREPROMPT_SNOOZE_MS, pushHealthOf, shouldShowPrePrompt, staffAlertPath, storeFromPush } from './prompt';
 
 const DAY = 86_400_000;
 
@@ -46,5 +46,21 @@ describe('storeFromPush (MER-05)', () => {
     expect(storeFromPush({}, 'org-a')).toBeNull();
     expect(storeFromPush({ merchantOrgId: 42 }, 'org-a')).toBeNull();
     expect(storeFromPush({ merchantOrgId: 'org-b' }, null)).toBe('org-b');
+  });
+});
+
+describe('staff safety alerts (SOS, sweep, Console watch)', () => {
+  it('opens the staff-alert screen for driver://safety links, with the incident when there is one', () => {
+    expect(deepLinkPath('driver://safety/sos_123')).toBe('/staff-alert?incident=sos_123');
+    expect(deepLinkPath('driver://safety')).toBe('/staff-alert');
+    expect(staffAlertPath('driver://safety/')).toBe('/staff-alert');
+    expect(staffAlertPath('driver://safetyx')).toBeNull();
+    expect(staffAlertPath('driver://order/1')).toBeNull();
+    expect(staffAlertPath(undefined)).toBeNull();
+  });
+
+  it('points at the incident in the Console, or the safety desk', () => {
+    expect(consoleAlertUrl('https://console.driver.iq/', 'sos_123')).toBe('https://console.driver.iq/safety/sos_123');
+    expect(consoleAlertUrl('https://console.driver.iq', null)).toBe('https://console.driver.iq/safety');
   });
 });

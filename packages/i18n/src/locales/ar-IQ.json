@@ -8927,7 +8927,7 @@
   "console.alarm.enable_hint": "حتى يرن الإنذار ويوصلك تنبيه حتى لو الصفحة بالخلفية",
   "console.alarm.sos_title": "طوارئ: محد استلمها",
   "console.alarm.sos_body": "{name} ({role}) · {what}",
-  "console.alarm.title_flash": "({count}) طوارئ! افتح الكونسول",
+  "console.alarm.title_flash": "({count}) طوارئ · افتح الكونسول",
   "partner.staff_alert_title": "تنبيه طوارئ للموظفين",
   "partner.staff_alert_body": "هذا التنبيه يُستلم من الكونسول. افتحه هسة حتى تشوف التفاصيل وتستلمه.",
   "partner.staff_alert_open": "افتح بالكونسول",

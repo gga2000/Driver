@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deepLinkPath, isOfferPush, PREPROMPT_SNOOZE_MS, shouldShowPrePrompt } from './prompt';
+import { consoleAlertUrl, deepLinkPath, isOfferPush, PREPROMPT_SNOOZE_MS, shouldShowPrePrompt, staffAlertPath } from './prompt';
 
 describe('partner notification pre-prompt', () => {
   it('asks while undetermined; "later" waits a day', () => {
@@ -22,5 +22,21 @@ describe('isOfferPush (speed audit, day one)', () => {
     expect(isOfferPush({ template: 'other', deepLink: 'driver-partner://offer' })).toBe(true);
     expect(isOfferPush({ template: 'chat_message', deepLink: 'driver-partner://chat/t1' })).toBe(false);
     expect(isOfferPush({})).toBe(false);
+  });
+});
+
+describe('staff safety alerts (SOS, sweep, Console watch)', () => {
+  it('opens the staff-alert screen for driver://safety links, with the incident when there is one', () => {
+    expect(deepLinkPath('driver://safety/sos_123')).toBe('/staff-alert?incident=sos_123');
+    expect(deepLinkPath('driver://safety')).toBe('/staff-alert');
+    expect(staffAlertPath('driver://safety/')).toBe('/staff-alert');
+    expect(staffAlertPath('driver://safetyx')).toBeNull();
+    expect(staffAlertPath('driver://order/1')).toBeNull();
+    expect(staffAlertPath(undefined)).toBeNull();
+  });
+
+  it('points at the incident in the Console, or the safety desk', () => {
+    expect(consoleAlertUrl('https://console.driver.iq/', 'sos_123')).toBe('https://console.driver.iq/safety/sos_123');
+    expect(consoleAlertUrl('https://console.driver.iq', null)).toBe('https://console.driver.iq/safety');
   });
 });

@@ -22,6 +22,8 @@ export function boardCalmForPrompt(s: { waiting: number; sheetOpen: boolean; shi
 
 /** `driver-merchant://order/ord_1` → `/order/ord_1`; the board has no order route, so orders open the board. */
 export function deepLinkPath(link: unknown, scheme = DEEP_LINK_SCHEME): string | null {
+  const staff = staffAlertPath(link);
+  if (staff) return staff;
   if (typeof link !== 'string' || !link.startsWith(`${scheme}://`)) return null;
   const rest = link.slice(scheme.length + 3).replace(/\/+$/, '');
   if (rest === '' || rest.startsWith('order/')) return '/';
@@ -48,4 +50,22 @@ export function pushHealthOf(s: { web: boolean; permission: PushPermission; regi
   if (s.web || s.permission === 'undetermined') return 'unknown';
   if (s.permission === 'denied') return 'off';
   return s.registered ? 'ok' : 'failed';
+}
+
+/**
+ * Staff safety alerts (SOS, the خطوط sweep, the Console watching itself) are sent to staff on any app
+ * as `driver://safety[/{incidentId}]`. They are answered in the Console, so the tap opens the
+ * staff-alert screen, which opens the alert there.
+ */
+export function staffAlertPath(link: unknown): string | null {
+  if (typeof link !== 'string') return null;
+  const m = /^driver:\/\/safety(?:\/([^/?#]+))?\/?$/.exec(link);
+  if (!m) return null;
+  return m[1] ? `/staff-alert?incident=${encodeURIComponent(m[1])}` : '/staff-alert';
+}
+
+/** The Console page for a staff alert: the incident when there is one, else the safety desk. */
+export function consoleAlertUrl(base: string, incident: string | null | undefined): string {
+  const root = base.replace(/\/+$/, '');
+  return incident ? `${root}/safety/${encodeURIComponent(incident)}` : `${root}/safety`;
 }

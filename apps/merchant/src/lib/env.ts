@@ -10,3 +10,6 @@ export const DEV_TOOLS: boolean = (typeof __DEV__ !== 'undefined' && __DEV__) ||
  * EXPO_PUBLIC_SUPPORT_PHONE at build time.
  */
 export const SUPPORT_PHONE: string = process.env.EXPO_PUBLIC_SUPPORT_PHONE || '+9647800000000';
+
+/** The Console, where staff answer safety alerts (the staff-alert screen opens it); `EXPO_PUBLIC_CONSOLE_URL` at build time. */
+export const CONSOLE_URL: string = process.env.EXPO_PUBLIC_CONSOLE_URL || 'https://console.driver.iq';
