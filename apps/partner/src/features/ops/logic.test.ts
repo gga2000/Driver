@@ -16,6 +16,7 @@ import {
   photosKey,
   pressKey,
   quickAmounts,
+  receiptDue,
   stepReady,
   zoneOptions,
   canHandOver,
@@ -61,6 +62,14 @@ describe('amounts', () => {
     expect(quickAmounts(45_000)).toEqual([45_000, 25_000, 10_000]);
     expect(quickAmounts(120_000)).toEqual([120_000, 100_000, 50_000]);
     expect(quickAmounts(8_000)).toEqual([8_000]);
+  });
+
+  it('the receipt takes what he owes the company, never more than he holds; his own pay stays with him', () => {
+    expect(receiptDue({ heldIqd: 87_510, owedIqd: 7_950 })).toBe(7_950);
+    expect(receiptDue({ heldIqd: 10_000, owedIqd: 15_000 })).toBe(10_000);
+    expect(receiptDue({ heldIqd: 16_500, owedIqd: 0 })).toBe(0);
+    expect(amountProblem(87_510, receiptDue({ heldIqd: 87_510, owedIqd: 7_950 }))).toBe('over');
+    expect(quickAmounts(receiptDue({ heldIqd: 87_510, owedIqd: 7_950 }))[0]).toBe(7_950);
   });
 });
 

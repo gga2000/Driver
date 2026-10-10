@@ -196,14 +196,14 @@ Roles: `field_ops`, `admin`.
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
 | `addLandmarkPhoto` | mutation | `{target {kind: place\|meeting_point\|landmark, id}, uploadId, caption?, localNames[] (≤ 5)}` | `{photoId, target, state: 'proposed', addedAt}` (`landmark.proposed`; Console approves) |
-| `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt) |
+| `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — at most what he owes the company (`owedIqd`) and never more than he holds: the rest of his cash is his own pay. Posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt). The cash he hands in no longer counts as a restaurant's cash he holds (`ledger.merchantBalance` holders) |
 | `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin?}, menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
 | `myTasks` | query | `{cityId?}` | `[{taskId, kind: cash_collection\|merchant_followup\|landmark_photo\|document_check, title_ar, refId, amountIqd, dueAt, state, computed}]` — computed `cash:<driverId>` tasks for couriers owing ≥ 50 % of their cap (or over it) |
 | `completeTask` | mutation | `{taskId, note?}` | `OpsTask` (stored tasks only) |
 | `cashHolders` | query | `{cityId?}` | `[{courierId, name, phoneMasked, heldIqd, owedIqd, capIqd, tier, overCap}]` — couriers holding customers' cash, over-cap then most owed first; names are vault reads (purpose `ops_cash_round`) |
 | `landmarks` | query | `{cityId = 'aziziyah', zoneKey?}` | `[{placeId, name, zoneKey, pin, photos}]` — landmark places (fewest photos first); `photos` counts the place's photos plus ops proposals still pending. A new landmark is proposed with `addLandmarkPhoto` target `{kind: 'landmark', id: 'new:<zoneKey>'}` and its name first in `localNames` |
 
-Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the courier today), `cash_receipt_exceeds_held`, `task_not_found`, `upload_invalid`.
+Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the courier today), `cash_receipt_exceeds_held`, `cash_receipt_exceeds_owed`, `task_not_found`, `upload_invalid`.
 
 ## `merchantAdmin.*` — Merchant app wave 2
 

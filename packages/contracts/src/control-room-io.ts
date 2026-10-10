@@ -535,6 +535,8 @@ export const RoundStop = z.object({
       name: z.string().nullable(),
       /** Still in his hand. */
       heldIqd: Iqd,
+      /** What the round takes from him now: what he owes the company, never more than he holds (the rest is his own pay). */
+      dueIqd: Iqd,
       overCap: z.boolean(),
       /** What field ops took from him on tonight's round (sum), the last time and reference; null = not yet. */
       collected: RoundCollection.nullable().optional(),
