@@ -115,6 +115,15 @@ describe('merchant board — cards', () => {
     expect(toBoardOrder({ order: order({ heldForPayer: false }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).not.toBeNull();
   });
 
+  it('a pre-order stays off the board until it is offered, then shows with its 90-s countdown', () => {
+    const booked = order({ scheduledFor: min(24 * 60), merchantOfferedAt: null });
+    expect(toBoardOrder({ order: booked, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).toBeNull();
+    const offeredAt = min(24 * 60 - 30);
+    const card = toBoardOrder({ order: { ...booked, merchantOfferedAt: offeredAt }, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: offeredAt })!;
+    expect(card).toMatchObject({ column: 'new', offeredAt });
+    expect(card.acceptBy).toEqual(new Date(offeredAt.getTime() + 90_000));
+  });
+
   it('a new order carries the 90-s deadline, cash to collect and the item count', () => {
     const card = toBoardOrder({ order: order(), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })!;
     expect(card).toMatchObject({ column: 'new', collectCashIqd: 15500, itemCount: 3, note: 'دگ الجرس مرتين', late: false, prepMinutes: null });
