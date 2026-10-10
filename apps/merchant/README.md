@@ -158,6 +158,9 @@ that just timed out (the "طلبات فاتتك" strip, the "فاتك اليوم
 minute, one group order with an allergy and a courier note). Shots: `SHOTS=rush`. The board opens
 behind the "يلا نبدأ الشغل" gate: `web-shots.mjs` taps "ابدأ الشغل" after sign-in (`signIn(phone, {
 keepGate: true })` keeps it for a shot).
+Pre-orders (`scripts/demo/preorder.mjs`): `POST /demo/preorder/place` clears the new column and books a
+pre-order for tomorrow 14:00 (off the board until offered); `POST /demo/preorder/offer?id=…` offers it to
+the kitchen now, as its timer would (it rings with its 90-s countdown). Shots: `SHOTS=preorder`.
 
 Shop picks from the server (`docs/api/shop-load.md`, `scripts/demo/shop-load.mjs`, shots `SHOTS=shop-server`):
 `POST /demo/shop/crowd?count=12` accepts 12 more orders (15+ waiting → «زحمة تلقائية», `count=0`
