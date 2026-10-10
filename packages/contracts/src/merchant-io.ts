@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { ZoneTier } from './city-config.js';
 import { Iqd, LatLng } from './common.js';
-import { DishKind } from './catalog-io.js';
+import { DishKind } from './dish-kind.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';

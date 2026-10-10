@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_ZONES } from './aziziyah-zones.js';
-import { deliveryFeesOf, kindOfLabels, RestaurantCard, withKind } from './catalog-io.js';
+import { deliveryFeesOf, RestaurantCard } from './catalog-io.js';
 import type { QuoteComponent } from './pricing.js';
 import { AZIZIYAH_RESTAURANTS, seedItemId } from './seeds/aziziyah-restaurants.js';
 
@@ -69,15 +69,5 @@ describe('launch restaurants seed', () => {
       busy: false,
     });
     expect(card.open).toBe(false);
-  });
-});
-
-describe('ticket kind in the labels column (k4/j6 override)', () => {
-  it('reads, sets and clears the kind without touching the customer labels', () => {
-    expect(kindOfLabels(['spicy'])).toBeNull();
-    expect(kindOfLabels(['spicy', 'kind:cold_drink'])).toBe('cold_drink');
-    expect(kindOfLabels(['kind:nonsense'])).toBeNull();
-    expect(withKind(['spicy', 'kind:food'], 'sweet')).toEqual(['spicy', 'kind:sweet']);
-    expect(withKind(['new', 'kind:food'], null)).toEqual(['new']);
   });
 });

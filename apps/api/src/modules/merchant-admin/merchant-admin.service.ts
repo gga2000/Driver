@@ -2,8 +2,6 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   type ActivityTodayInput,
   DISH_LABELS,
-  kindOfLabels,
-  withKind,
   type DishLabel,
   AZIZIYAH_MONEY_RULES,
   DriverError,
@@ -39,7 +37,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, itemPhotoUrl, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';

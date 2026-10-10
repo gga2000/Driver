@@ -1,8 +1,8 @@
 import { RoutingModule } from '../routing/index.js';
-import { kindOfLabels, type DishKind } from '@driver/contracts';
+import type { DishKind } from '@driver/contracts';
 import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { CatalogModule, CatalogService, kindOfLabels } from '../catalog/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';

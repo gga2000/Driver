@@ -5,7 +5,8 @@ import { SettlementRequestReason } from './ledger-io.js';
 import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
-import { DISH_LABELS, DishKind, DishLabel } from './catalog-io.js';
+import { DISH_LABELS, DishLabel } from './catalog-io.js';
+import { DishKind } from './dish-kind.js';
 import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
