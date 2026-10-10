@@ -8,7 +8,7 @@ import { previewQueue } from '@/print/preview-queue';
 import type { PrintJob } from '@/print/doc';
 import { printJournal } from '@/print/journal';
 import { snapLines } from '@/print/kitchen';
-import { autoPrintWhen, planChangeJob, planOrderJob } from '@/print/plan';
+import { autoPrintWhen, catchUpDue, planChangeJob, planOrderJob, printsOnScreen } from '@/print/plan';
 import { printSettings, usePrintSettings, type PrintSettings } from '@/print/settings';
 import type { PrinterSnapshot } from '@/print/types';
 import type { PrintCtx } from '@/print/context';
@@ -84,7 +84,7 @@ export function usePrintOrder(store: StorePrint) {
   return useCallback(
     async (o: BoardOrder, opts: { auto?: boolean } = {}) => {
       const job = jobFor(o);
-      if (printer.kind === 'preview') {
+      if (printsOnScreen(printer.getSnapshot())) {
         if (opts.auto) toast.show({ message: t('merchant.printer.chip_preview'), tone: 'neutral', icon: 'receipt', action: { label: t('merchant.detail.receipt'), onPress: () => previewQueue.show(job) } });
         else {
           printJournal.printed(o.id, snapLines(o), Date.now());
@@ -106,6 +106,8 @@ export function usePrintOrder(store: StorePrint) {
 
 /** Orders accepted on this device that still have to print by themselves (module-level: survives re-renders). */
 const waiting = new Map<string, { told: 'none' | 'partial' | 'scheduled' }>();
+/** Orders this device already took for printing this session (the journal keeps only the last few). */
+const takenHere = new Set<string>();
 
 /** After an accept on this device: print once the order is really ready to cook (see `autoPrintWhen`). */
 export function queueAutoPrint(orderId: string) {
@@ -125,6 +127,8 @@ export function useAutoPrint(orders: readonly BoardOrder[], store: StorePrint, e
   const toast = useCounterToast();
   const t = useT();
   const busy = useRef(false);
+  const snap = usePrinterSnapshot();
+  const printerReady = snap.kind !== 'preview' && snap.connection === 'connected';
   useEffect(() => {
     if (!enabled || busy.current) return;
     const due: BoardOrder[] = [];
@@ -135,6 +139,7 @@ export function useAutoPrint(orders: readonly BoardOrder[], store: StorePrint, e
         const when = autoPrintWhen(o, now);
         if (when.kind === 'now') {
           waiting.delete(o.id);
+          takenHere.add(o.id);
           due.push(o);
         } else if (when.kind === 'wait' && o.partial && w.told !== 'partial') {
           w.told = 'partial';
@@ -146,6 +151,12 @@ export function useAutoPrint(orders: readonly BoardOrder[], store: StorePrint, e
         continue;
       }
       const rec = printJournal.get(o.id);
+      // MER-11: the counter's printer also prints what other devices accepted.
+      if (catchUpDue(o, now, { printerReady, printedBefore: !!rec || takenHere.has(o.id) })) {
+        takenHere.add(o.id);
+        due.push(o);
+        continue;
+      }
       if (!rec || o.column === 'ready' || o.partial) continue;
       const job = planChangeJob(o, rec.lines, ctx(), settings);
       if (job) {
@@ -160,7 +171,7 @@ export function useAutoPrint(orders: readonly BoardOrder[], store: StorePrint, e
     void (async () => {
       for (const o of due) await print(o, { auto: true });
       for (const job of changes) {
-        if (printer.kind === 'preview') toast.show({ message: t('merchant.ticket.change'), tone: 'neutral', icon: 'receipt', action: { label: t('merchant.detail.receipt'), onPress: () => previewQueue.show(job) } });
+        if (printsOnScreen(printer.getSnapshot())) toast.show({ message: t('merchant.ticket.change'), tone: 'neutral', icon: 'receipt', action: { label: t('merchant.detail.receipt'), onPress: () => previewQueue.show(job) } });
         else await printer.print(job).then(
           () => toast.show({ message: t('merchant.printer.printed_change'), tone: 'success' }),
           () => toast.show({ message: t('merchant.printer.failed'), tone: 'danger', action: { label: t('merchant.detail.receipt'), onPress: () => previewQueue.show(job) } }),
@@ -168,7 +179,7 @@ export function useAutoPrint(orders: readonly BoardOrder[], store: StorePrint, e
       }
       busy.current = false;
     })();
-  }, [orders, enabled, now, print, ctx, settings, toast, t]);
+  }, [orders, enabled, now, print, ctx, settings, toast, t, printerReady]);
 }
 
 /** Reports a real printer's connection changes to the server (the board marker and dispatch read it). */

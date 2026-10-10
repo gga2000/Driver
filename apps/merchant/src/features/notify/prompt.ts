@@ -27,3 +27,16 @@ export function deepLinkPath(link: unknown, scheme = DEEP_LINK_SCHEME): string |
   if (rest === '' || rest.startsWith('order/')) return '/';
   return `/${rest}`;
 }
+
+/**
+ * MER-12: whether this device can ring for a new order with the app closed. `off` = the kitchen said
+ * no to notifications; `failed` = allowed but this install has no push token registered. The browser
+ * build has no pushes at all, and «undetermined» belongs to the pre-prompt strip: both are `unknown`.
+ */
+export type PushHealth = 'ok' | 'off' | 'failed' | 'unknown';
+
+export function pushHealthOf(s: { web: boolean; permission: PushPermission; registered: boolean }): PushHealth {
+  if (s.web || s.permission === 'undetermined') return 'unknown';
+  if (s.permission === 'denied') return 'off';
+  return s.registered ? 'ok' : 'failed';
+}

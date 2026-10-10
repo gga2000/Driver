@@ -1917,5 +1917,7 @@
   "merchant.item.kind_food": "أكل",
   "merchant.item.kind_hot_drink": "مشروب ساخن",
   "merchant.item.kind_cold_drink": "مشروب بارد",
-  "merchant.item.kind_sweet": "حلو"
+  "merchant.item.kind_sweet": "حلو",
+  "merchant.push.off_chip": "الإشعارات طافية: ما يرن إذا طلعت",
+  "merchant.push.failed_chip": "الإشعارات ما اشتغلت: اضغط وجرّب"
 }

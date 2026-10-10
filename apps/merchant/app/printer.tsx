@@ -12,7 +12,7 @@ import { useCurrentStore, useStoreStatus } from '@/features/store/queries';
 import { useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { previewQueue } from '@/print/preview-queue';
-import { planOrderJob } from '@/print/plan';
+import { planOrderJob, printsOnScreen } from '@/print/plan';
 import { PRINTER_DOTS, paperSpec, type PrinterDots } from '@/print/paper';
 import { sampleCafeOrder, sampleOrder } from '@/print/sample';
 import { cupsOn, ITEMS_PER_BAG_CHOICES, printSettings, usePrintSettings } from '@/print/settings';
@@ -102,7 +102,7 @@ export default function PrinterScreen() {
   const calibrate = () => {
     const doc = buildCalibration({ ...ctx(), paper: paperSpec(576) });
     const job = { orderId: 'calibration', number: '', docs: [doc], beep: false, cut: settings.cut };
-    if (printer.kind === 'preview') previewQueue.show(job);
+    if (printsOnScreen(printer.getSnapshot())) previewQueue.show(job);
     else printer.print(job).catch(() => toast.show({ message: t('merchant.printer.failed'), tone: 'danger' }));
   };
   const widths = PRINTER_DOTS.map((d, i) => ({ value: String(d) as `${PrinterDots}`, label: t(`merchant.printer.width_${d}`), detail: t('merchant.printer.width_n', { n: i + 1 }) }));
