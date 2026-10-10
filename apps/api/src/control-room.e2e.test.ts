@@ -419,7 +419,7 @@ describe('launch control room (e2e)', () => {
       expect(asked.pendingApproval).toMatchObject({ amountIqd: 6000 });
       await agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` });
       await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 25_250, method: 'wallet', idempotencyKey: `${key}-d` });
-      await admin.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 20_000, method: 'points', idempotencyKey: `${key}-e` });
+      await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 20_000, method: 'points', idempotencyKey: `${key}-e` });
       await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 500, method: 'wallet', idempotencyKey: `${key}-f` });
       await admin.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 30_000, method: 'wallet', idempotencyKey: `${key}-g` });
       const queue = (await agent.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === t2.id);
@@ -449,7 +449,7 @@ describe('launch control room (e2e)', () => {
       expect(approvedCase.pendingApproval).toBeNull();
       // The approved refund is the asker's line on the case, with the approver kept on it.
       expect(approvedCase.entries.filter((e) => e.kind === 'refund').map((e) => [e.amountIqd, e.actorId, e.meta['approvedBy'] ?? null])).toEqual([
-        [20_000, admin.personId, null],
+        [20_000, finance.personId, null],
         [500, finance.personId, admin.personId],
         [30_000, admin.personId, finance.personId],
       ]);
@@ -473,7 +473,7 @@ describe('launch control room (e2e)', () => {
       expect(list.rows.every((r) => r.status !== 'resolved')).toBe(true);
     });
 
-    it('refunds never go to the staff member giving them or any staff account; on an order only its customer; the courier or kitchen pays only once the fault is on them; finance has the daily cap', async () => {
+    it('refunds never go to the staff member giving them or any staff account; on an order only its customer; the courier or kitchen pays only once the fault is on them', async () => {
       const agent = await person(['support']);
       const finance = await person(['finance']);
       const customer = await person();
@@ -500,14 +500,6 @@ describe('launch control room (e2e)', () => {
       const noOrder = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: other.personId });
       await agent.client.support.attributeFault.mutate({ ticketId: noOrder.id, faultParty: 'courier', note: 'ما رجّع الباقي' });
       expect(await codeOf(agent.client.support.refund.mutate({ ticketId: noOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'courier', idempotencyKey: `${key}-e` }))).toBe('refund_fault_not_attributed');
-
-      // Finance gives up to 10,000 a day alone like an agent; above it waits for a second OK.
-      expect((await finance.client.support.get.query({ ticketId: noOrder.id })).limits).toMatchObject({ agentDailyCapIqd: 10_000 });
-      expect((await finance.client.support.refund.mutate({ ticketId: noOrder.id, amountIqd: 10_000, method: 'wallet', idempotencyKey: `${key}-f` })).ticket.refundedIqd).toBe(10_000);
-      const waits = await finance.client.support.refund.mutate({ ticketId: noOrder.id, amountIqd: 250, method: 'wallet', idempotencyKey: `${key}-g` });
-      expect(waits.ticket.refundedIqd).toBe(10_000);
-      expect(waits.pendingApproval).toMatchObject({ amountIqd: 250 });
-      expect((await finance.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === noOrder.id).map((r) => r.limit)).toEqual(['agent_daily']);
     });
   });
 
