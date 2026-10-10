@@ -297,7 +297,9 @@ export default function Home() {
 
         {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
             now; the phones get it with the native map) and there are kitchens to show on it. */}
-        {GOLDEN_MAP && list && list.length > 0 ? <MapBox night={mapBoxNight(dp.hour)} /> : null}
+        {GOLDEN_MAP && list && list.length > 0 ? (
+          <MapBox night={mapBoxNight(dp.hour)} fact={open.length > 0 ? t('home.food_open', { n: open.length }) : t('home.rail_opening')} scrollY={scrollY} />
+        ) : null}
 
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
         {list?.some((r) => !!r.deal) ? (
