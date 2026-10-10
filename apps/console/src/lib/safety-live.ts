@@ -132,3 +132,26 @@ export function useSafetyAlarm(ringing: boolean): { blocked: boolean } {
   }, [ringing]);
   return { blocked: blocked && ringing };
 }
+
+/**
+ * Whether the alarm can sound yet, and `unlock` for the «شغّل صوت الإنذار» button (a click is the
+ * gesture the browser needs; after a reload it is needed again).
+ */
+export function useAlarmSound(): { blocked: boolean; unlock: () => Promise<void> } {
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    const c = audio();
+    if (!c) return;
+    const sync = () => setBlocked(c.state !== 'running');
+    sync();
+    c.addEventListener('statechange', sync);
+    return () => c.removeEventListener('statechange', sync);
+  }, []);
+  const unlock = async () => {
+    const c = audio();
+    if (!c) return;
+    await c.resume().catch(() => undefined);
+    setBlocked(c.state !== 'running');
+  };
+  return { blocked, unlock };
+}

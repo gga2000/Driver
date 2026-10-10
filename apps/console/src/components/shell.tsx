@@ -8,6 +8,7 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
+import { AlarmGate } from './safety/alarm-gate';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
@@ -84,6 +85,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <SafetyBanner />
           {/* خطوط: a run ended and nobody confirmed the car is empty (partner S-6, Ali 2026-10-06). */}
           <SweepAlertStrip />
+          {/* The same alerts as a desktop notification and a flashing title when the tab is away. */}
+          <AlarmGate />
           {/* S-K1: cards waiting for a dispatcher, seen from every page. */}
           <GlobalTriageStrip />
           {/* The Console watching itself: live updates down on this screen for a minute (E1 step 3). */}

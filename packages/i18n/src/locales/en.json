@@ -8922,5 +8922,14 @@
   "console.glance.open_today": "Open Today",
   "console.undo": "Undo",
   "console.pause_undo_note": "Took the pause back within seconds",
-  "console.ctl_undo_reason": "Took the stop back within seconds"
+  "console.ctl_undo_reason": "Took the stop back within seconds",
+  "console.alarm.enable": "Turn on the alarm sound",
+  "console.alarm.enable_hint": "So the alarm rings and alerts reach you even when this page is in the background",
+  "console.alarm.sos_title": "SOS: nobody has taken it",
+  "console.alarm.sos_body": "{name} ({role}) · {what}",
+  "console.alarm.title_flash": "({count}) SOS! Open the Console",
+  "partner.staff_alert_title": "Staff emergency alert",
+  "partner.staff_alert_body": "This alert is handled in the Console. Open it now to see the details and take it.",
+  "partner.staff_alert_open": "Open in the Console",
+  "partner.staff_alert_back": "Back"
 }
