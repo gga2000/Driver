@@ -65,7 +65,7 @@ import { foodScheduleProblem } from './orders.config.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
-import type { CancellationSubject } from '../pricing/index.js';
+import { arrivalCountsForFees, type CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
@@ -2161,8 +2161,8 @@ export class OrdersService implements OnModuleInit {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {
-      // Only an arrival inside the pickup's geofence counts (a far tap is the driver's word, not the fact).
-      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && s.arrivedAt && !s.arrivedOutsideGeofence)?.arrivedAt ?? null;
+      // Only an arrival near the pickup counts (`arrivalCountsForFees`; a far tap is the driver's word, not the fact).
+      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && arrivalCountsForFees(s))?.arrivedAt ?? null;
       return { fee: this.pricing.cancellationFee({ kind: 'trip', by: 'customer', state: trip.state, acceptedAt: trip.acceptedAt, arrivedPickupAt, fareIqd: order.totalIqd }, now, order.cityId), trip };
     }
     const fee = this.pricing.cancellationFee(

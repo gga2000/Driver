@@ -265,9 +265,12 @@ How each one is detected:
   the job to free drivers who have not declined it. A driver coming online or finishing a job tries
   again at once. Held (suggest-only) jobs are never offered by themselves.
 - **Late-cancel fee after "arrival".** The rider's after-arrival fee (and the driver's
-  after-arrival credit) count only a «وصلت» tapped inside the pickup's 60 m geofence. A far tap
-  keeps the en-route rule. The rider's tracking then says «السايق يگول وصل»
-  (`TrackStop.arrivedOutsideGeofence`). No amount changed.
+  after-arrival credit) count only a «وصلت» tapped near the pickup: within `FEE_ARRIVAL_RADIUS_M`
+  (150 m by default, a money-rule number pending Ali's confirmation, in `pricing/cancellation.ts`),
+  or within 60 m plus the tap's GPS accuracy (at most 90 m). A farther tap keeps the en-route rule,
+  and only then does the rider's tracking say «السايق يگول وصل» (`TrackStop.arrivalClaimedOnly`),
+  so the line and the fee never disagree. The 60 m `arrivedOutsideGeofence` flag on the stop is
+  unchanged and still feeds ops and the ETA learner. No amount changed.
 
 ## Other server changes in W3
 

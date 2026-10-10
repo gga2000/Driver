@@ -24,6 +24,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { arrivalCountsForFees } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
 import { assessFix } from './position-guard.js';
@@ -1097,8 +1098,8 @@ export class TripsService implements OnModuleInit {
     for (const s of stops) if (!isStopFinished(s.state)) await this.repo.updateStop(s.id, { state: 'skipped', skippedAt: now, skipReason: `cancelled:${reason}` }, now, tx);
     const links = (await this.repo.linksOf(trip.id, tx)).filter((l) => l.detachedAt === null);
     for (const l of links) await this.repo.detach(l.id, { at: now, reason: `trip_${to}`, changedBy: personOrNull(actorId) }, tx);
-    // A pickup "arrival" tapped outside its geofence is only his word: the fees count arrivals at the pickup.
-    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && s.arrivedAt && !s.arrivedOutsideGeofence).map((s) => s.arrivedAt!.getTime());
+    // A pickup "arrival" tapped far from it is only his word: the fees (and the M-15 credit) count arrivals near the pickup.
+    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && arrivalCountsForFees(s)).map((s) => s.arrivedAt!.getTime());
     const pickedUpOrderIds = [...new Set(stops.filter((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed' && s.orderId).map((s) => s.orderId!))];
     await this.move(trip, to, actorId, tx, { cancelledAt: now, cancellationReason: reason, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, {
       by: to === 'driver_cancelled' ? 'driver' : to === 'customer_cancelled' ? 'customer' : 'platform',
@@ -1224,6 +1225,7 @@ function toStopView(s: StopRecord): Stop {
     arrivedAt: s.arrivedAt,
     arrivedOutsideGeofence: s.arrivedOutsideGeofence,
     arrivalDistanceM: s.arrivalDistanceM,
+    arrivalAccuracyM: s.arrivalAccuracyM,
     completedAt: s.completedAt,
     skippedAt: s.skippedAt,
     skipReason: s.skipReason,

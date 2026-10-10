@@ -311,7 +311,7 @@ describe('status → timeline', () => {
   it('rides: a "وصلت" tapped far from the pickup reads as the driver saying so', () => {
     const arrivedFar = (outside: boolean) => {
       const tr = trip('arrived_pickup');
-      tr.stops[0] = { ...tr.stops[0]!, state: 'arrived', arrivedAt: T0, arrivedOutsideGeofence: outside };
+      tr.stops[0] = { ...tr.stops[0]!, state: 'arrived', arrivedAt: T0, arrivalClaimedOnly: outside };
       return view({ type: 'ride', merchantOrgId: null, state: 'matched' }, { merchant: null, trip: tr, courier });
     };
     expect(statusLine(arrivedFar(true), t)).toBe(t('trip.status.arrived_pickup_claimed'));

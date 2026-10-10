@@ -16,6 +16,7 @@ import { ORDERS_QUEUE, OrdersService, type OrderTimerJob } from './modules/order
 import { OrgsService } from './modules/orgs/index.js';
 import { TrackingService } from './modules/tracking/index.js';
 import { TripsRpc, TripsService } from './modules/trips/index.js';
+import { offsetNorth } from './modules/trips/geofence.js';
 import { CLOCK, FakeClock } from './shared/clock.js';
 import type { InMemoryQueue } from './shared/queue.js';
 
@@ -184,7 +185,7 @@ describe('dispatch recovery', () => {
     clock.advance(61_000);
     expect(await orders.cancellationPreview(r.o.id)).toMatchObject({ amountIqd: 500, reason_ar: 'السايق تحرك عليك' });
     const tracked = await app.get(TrackingService).track({ personId: r.cust } as Actor, { orderId: r.o.id });
-    expect(tracked.trip!.stops.find((x) => x.type === 'pickup')).toMatchObject({ arrivedOutsideGeofence: true });
+    expect(tracked.trip!.stops.find((x) => x.type === 'pickup')).toMatchObject({ arrivalClaimedOnly: true });
     await orders.cancel(r.cust, { orderId: r.o.id });
     await tick(40_000);
     expect(await bal(Accounts.customer(r.cust))).toBe(-500);
@@ -197,6 +198,34 @@ describe('dispatch recovery', () => {
     await trips.arrive(r.trip.id, r.pickup.id, r.driver, { pin: KITCHEN });
     clock.advance(61_000);
     expect(await orders.cancellationPreview(r.o.id)).toMatchObject({ amountIqd: 1000, reason_ar: 'السايق وصل يمك' });
+  });
+
+  it.each([
+    { m: 90, acc: undefined, fee: 1000 },
+    { m: 100, acc: 50, fee: 1000 },
+    { m: 400, acc: undefined, fee: 500 },
+  ])('a "وصلت" $m m from the rider (accuracy $acc): the rider\'s late cancel costs $fee, and the tracking agrees', async ({ m, acc, fee }) => {
+    const { orders, trips } = s();
+    const r = await rideMatched();
+    const a = await trips.arrive(r.trip.id, r.pickup.id, r.driver, { pin: offsetNorth(KITCHEN, m), accuracyM: acc });
+    // The 60 m flag for ops and the ETA is unchanged.
+    expect(a.stops.find((x) => x.id === r.pickup.id)!.arrivedOutsideGeofence).toBe(true);
+    clock.advance(61_000);
+    expect(await orders.cancellationPreview(r.o.id)).toMatchObject({ amountIqd: fee });
+    const tracked = await app.get(TrackingService).track({ personId: r.cust } as Actor, { orderId: r.o.id });
+    expect(tracked.trip!.stops.find((x) => x.type === 'pickup')!.arrivalClaimedOnly).toBe(fee !== 1000);
+  });
+
+  it.each([
+    { m: 90, credit: 500 },
+    { m: 400, credit: 0 },
+  ])('a driver who cancels after a "وصلت" $m m from the rider credits him $credit', async ({ m, credit }) => {
+    const { trips } = s();
+    const r = await rideMatched();
+    await trips.arrive(r.trip.id, r.pickup.id, r.driver, { pin: offsetNorth(KITCHEN, m) });
+    await trips.cancel(r.trip.id, 'driver', r.driver, 'rider_no_show');
+    await tick(2_000, 1_000);
+    expect(await bal(Accounts.customer(r.cust))).toBe(credit);
   });
 
   it('a courier released by a silent kitchen is replaced: once the food is ready a courier is offered it', async () => {
