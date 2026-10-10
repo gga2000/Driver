@@ -18,6 +18,7 @@ const GARAGE: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 export type IconName =
   | 'today'
+  | 'glance'
   | 'map'
   | 'dispatch'
   | 'orders'
@@ -35,7 +36,8 @@ export type IconName =
   | 'phone'
   | 'oncall'
   | 'garage'
-  | 'system';
+  | 'system'
+  | 'audit';
 
 export interface NavItem {
   href: string;
@@ -66,6 +68,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // E1 (CON-12): the home page, one row per problem with its owner.
       { href: '/', key: 'console.nav_today', icon: 'today', roles: INBOX_READ_ROLES, jump: 't' },
       { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
+      // h8: today on one phone screen, read only, for a check from home at night.
+      { href: '/glance', key: 'console.nav_glance', icon: 'glance', roles: READ, jump: 'h' },
     ],
   },
   {
@@ -122,6 +126,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { href: '/on-call', key: 'console.nav_on_call', icon: 'oncall', roles: ON_CALL_READ_ROLES, jump: 'n' },
       { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
       { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
+      // v10 / p2: who did what in the Console; the money chip is why finance reads it too.
+      { href: '/audit', key: 'console.nav_audit', icon: 'audit', roles: ['admin', 'finance'], jump: 'l' },
     ],
   },
 ];
