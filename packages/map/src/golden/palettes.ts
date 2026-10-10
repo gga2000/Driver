@@ -62,15 +62,20 @@ export interface GoldenPalette {
 export const LANDMARK_PARTS = [
   'pave', 'stone', 'trim', 'shade', 'dome', 'gold', 'brick', 'water', 'trunk', 'crown', 'person', 'robe', 'skin', 'white',
   'band', 'tank', 'red', 'steel', 'glass', 'car', 'car2', 'yard', 'canopy', 'sign', 'bus', 'bus2',
+  // the garage terminal (Ali's pick, 2026-10-10): fins and roofs, their saffron light edge, the glass hall, the
+  // destination colours, and `pool`, the light on the ground at night (drawn see-through by its own layer)
+  'roof', 'led', 'hall', 'column', 'planter', 'paint', 'dest1', 'dest2', 'dest3', 'taxiband', 'kiosk', 'pool',
 ] as const;
 export type LandmarkPart = (typeof LANDMARK_PARTS)[number];
 
-// stone and plaster in the sun, a gilded dome, a white hospital with the red crescent, rust-red garage canopies
+// stone and plaster in the sun, a gilded dome, a white hospital with the red crescent, the white garage terminals
 const LANDMARK_DAY: Record<LandmarkPart, string> = {
   pave: '#F3E4C8', stone: '#EBD3A6', trim: '#F7E6C4', shade: '#9A6B3E', dome: '#D9A23A', gold: '#C98E2A', brick: '#D7AE78',
   water: '#8C9A5A', trunk: '#6E4A2A', crown: '#5F6B2E', person: '#FFFDF6', robe: '#2B2622', skin: '#C08F63', white: '#FBF8F1',
   band: '#D9CBB3', tank: '#FFFDF7', red: '#C8352B', steel: '#5A4636', glass: '#3B3A38', car: '#E2DFD8', car2: '#8E2F22',
-  yard: '#E2CDA6', canopy: '#B8653A', sign: '#E08A1E', bus: '#FBF8F1', bus2: '#EADCC0',
+  yard: '#CDBB98', canopy: '#B8653A', sign: '#E08A1E', bus: '#FBF8F1', bus2: '#EADCC0',
+  roof: '#FFFDF7', led: '#E08A1E', hall: '#5A4A3A', column: '#F2EADA', planter: '#B8653A', paint: '#FBF5E6',
+  dest1: '#E08A1E', dest2: '#8E2F22', dest3: '#6E7A3A', taxiband: '#E08A1E', kiosk: '#E08A1E', pool: '#FFB04A',
 };
 
 const DAY: GoldenPalette = {
@@ -102,7 +107,7 @@ const GOLDEN: GoldenPalette = {
   sky: { sky: '#F1C47E', horizon: '#F9DFB4', fog: '#F4DFBC' },
   roofTones: ['#F9D9A0', '#F4E2C0', '#ECC68C', '#FBEAD0', '#E6B97E', '#EBD2AA'],
   yard: '#F0D6A2', green: '#C7C789', bank: '#B39760', marking: '#D7B47E',
-  landmark: { ...LANDMARK_DAY, stone: '#ECCB94', trim: '#F7DFB2', pave: '#F2DDB8', dome: '#E0A535', brick: '#DCA765', yard: '#E3C795' },
+  landmark: { ...LANDMARK_DAY, stone: '#ECCB94', trim: '#F7DFB2', pave: '#F2DDB8', dome: '#E0A535', brick: '#DCA765', yard: '#D2BC94' },
 };
 
 /** The five palettes. `golden` is the look Ali picked; `day` is the same town under a high sun. */
@@ -122,7 +127,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     light: { color: '#FFD9B8', intensity: 0.28 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
     roofTones: ['#DDB898', '#D9BFA4', '#D2A884', '#E4C6A8', '#CC9F7A', '#D8B392'],
-    landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#DDB78F', white: '#F2E2D2', bus: '#F2E2D2' },
+    landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#C9B08E', white: '#F2E2D2', bus: '#F2E2D2' },
   },
   night: {
     land: '#1D1712', urban: '#201913', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
@@ -137,12 +142,15 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     roofTones: ['#2A2018', '#2E231A', '#33271D', '#271D16', '#2C2219', '#30261E'],
     litRoof: '#55381F', windowGlow: '#FFB04A',
     yard: '#2C2318', green: '#232615', bank: '#3A3020', kerb: '#6E5C48', marking: '#8A7356',
-    // floodlit at night: the mosque and the hospital glow warm, the garage canopies stay lit for the late cars
+    // floodlit at night: the mosque and the hospital glow warm; the garages' fins light up in saffron lines, the hall
+    // and the tea kiosk glow, and light pools on the ground under them
     landmark: {
       pave: '#7A5F40', stone: '#D9B27A', trim: '#E8C58C', shade: '#3A2616', dome: '#E6A53C', gold: '#F0B850', brick: '#C2955C',
       water: '#4A5034', trunk: '#2E2015', crown: '#3E4526', person: '#BFB3A0', robe: '#151210', skin: '#7A5A3C', white: '#E9DFCC',
       band: '#B8A68A', tank: '#8A7A64', red: '#B2302A', steel: '#2A2018', glass: '#1A1714', car: '#6E655A', car2: '#4A1F18',
-      yard: '#3A2E20', canopy: '#8A4C2C', sign: '#E08A1E', bus: '#B8AE9E', bus2: '#9E9282',
+      yard: '#2E271E', canopy: '#8A4C2C', sign: '#E08A1E', bus: '#B8AE9E', bus2: '#9E9282',
+      roof: '#6A6052', led: '#FFC66E', hall: '#FFC66E', column: '#5E554A', planter: '#5A3020', paint: '#7A6A52',
+      dest1: '#FFB04A', dest2: '#E0604A', dest3: '#B8C46A', taxiband: '#C8781A', kiosk: '#FFB04A', pool: '#FFB04A',
     },
   },
 };
