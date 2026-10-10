@@ -148,7 +148,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
       travellingAs: 'rijal',
     });
     await departures.selfie(ids.driver, dep.id, 'blob/1');
-    await departures.driverPosition(ids.driver, dep.id, { lat: 32.9032, lng: 45.0578 });
+    await departures.driverPosition(ids.driver, dep.id, { lat: 32.90508, lng: 45.05884 });
 
     const back = await repo.getDeparture(dep.id);
     expect(back).toMatchObject({
@@ -197,7 +197,7 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     for (const seatId of ['front', 'back_middle', 'back_right'] as const) await departures.markWalkUp(ids.d2, dep.id, { seatId, travellingAs: 'rijal' });
     await departures.selfie(ids.d2, dep.id, 'blob/2');
     clock.advanceMinutes(30);
-    await departures.driverPosition(ids.d2, dep.id, { lat: 32.9032, lng: 45.0578 });
+    await departures.driverPosition(ids.d2, dep.id, { lat: 32.90508, lng: 45.05884 });
     await departures.checkIn(ids.d2, dep.id, booked.pin);
     clock.advanceMinutes(10);
     await departures.depart(ids.d2, dep.id);
@@ -471,8 +471,8 @@ describe.skipIf(!url)('routes on Postgres (needs DATABASE_URL)', () => {
     expect(await walletHolds(repo, ids.r2)).toBe(before);
     // Way C: who got in, and who said so, round-trip (and clear on «ما صعدت»).
     await sharing.joinShare(ids.r2, code, 1);
-    await sharing.arrived(ids.driver, r.id, { lat: 32.9032, lng: 45.0578 });
-    await sharing.boardShare(ids.r2, code, { lat: 32.9033, lng: 45.0578 });
+    await sharing.arrived(ids.driver, r.id, { lat: 32.90508, lng: 45.05884 });
+    await sharing.boardShare(ids.r2, code, { lat: 32.90518, lng: 45.05884 });
     const boarded = (await repo.getRequest(r.id))?.share?.members.find((m) => m.state === 'joined');
     expect(boarded).toMatchObject({ boardedBy: 'self' });
     expect(boarded?.boardedAt).toBeInstanceOf(Date);

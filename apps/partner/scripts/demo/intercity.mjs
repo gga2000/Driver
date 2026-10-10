@@ -20,7 +20,7 @@
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
 import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
-const BAB1 = { lat: 32.9032, lng: 45.0578 };
+const BAB1 = { lat: 32.90508, lng: 45.05884 };
 const HASHIMI_DOOR = { lat: 32.8968, lng: 45.0662 };
 const BAGHDAD_DOOR = { lat: 33.3195, lng: 44.4302 };
 // Step 4: spots on the Baghdad road (outside both garages' door areas) and a door in Aziziyah.
