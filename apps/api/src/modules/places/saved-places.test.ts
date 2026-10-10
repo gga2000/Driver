@@ -146,8 +146,7 @@ describe('SavedPlacesService — landmark address (maps program a2)', () => {
     const near = await h.service.landmarksNear('aziziyah', STREET_30);
     expect(near.map((l) => [l.id, l.distanceM])).toEqual([
       ['lm_mp_shari_30', 73],
-      ['lm_garage_bab2', 144],
-      ['lm_garage_souq', 425],
+      ['lm_garage_bab2', 164],
     ]);
     expect(near[0]).toMatchObject({ name_ar: 'تقاطع شارع 30', kind: 'meeting_point', zoneId: 'street_30' });
     expect(await h.service.landmarksNear('aziziyah', ZAKUR)).toEqual([]);
@@ -193,7 +192,7 @@ describe('SavedPlacesService — landmark address (maps program a2)', () => {
     const h = harness();
     const BAKERY_PIN = { lat: STREET_30.lat + 0.001, lng: STREET_30.lng }; // ~111 m north
     h.learned.push({ id: 'pl_bakery', cityId: 'aziziyah', pin: BAKERY_PIN, name: 'فرن أبو علي', photos: [], confidence: 0.9, sharedWith: [], landmark: true });
-    expect((await h.service.landmarksNear('aziziyah', STREET_30)).map((l) => l.id)).toEqual(['lm_mp_shari_30', 'pl_bakery', 'lm_garage_bab2', 'lm_garage_souq']);
+    expect((await h.service.landmarksNear('aziziyah', STREET_30)).map((l) => l.id)).toEqual(['lm_mp_shari_30', 'pl_bakery', 'lm_garage_bab2']);
     const home = await h.service.save('cust_a', { ...h.base, label: 'home', name: 'البيت', pin: STREET_30, landmarkId: 'pl_bakery' });
     expect(home.landmark).toEqual({ id: 'pl_bakery', name_ar: 'فرن أبو علي', name_en: 'فرن أبو علي' });
     h.learned.length = 0;

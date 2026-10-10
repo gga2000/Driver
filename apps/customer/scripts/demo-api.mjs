@@ -1105,7 +1105,7 @@ const rajaa = await (async () => {
         await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
         for (const seatId of ['front', 'back_left', 'back_middle']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
         await deps.depart(driverId, dep.id);
-        const bab1 = { lat: 32.9032, lng: 45.0578 };
+        const bab1 = { lat: 32.90508, lng: 45.05884 };
         const nahdha = { lat: 33.3344, lng: 44.4165 };
         await deps.driverPosition(driverId, dep.id, { lat: bab1.lat + (nahdha.lat - bab1.lat) * 0.12, lng: bab1.lng + (nahdha.lng - bab1.lng) * 0.12 });
       }

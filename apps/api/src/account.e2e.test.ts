@@ -85,7 +85,7 @@ describe('customer account API (e2e)', () => {
     const first = await anon().places.landmarkFeed.query({});
     expect(first.changed).toBe(true);
     const items = first.changed ? first.landmarks : [];
-    expect(items.find((l) => l.id === 'lm_garage_bab1')).toEqual({ id: 'lm_garage_bab1', name_ar: 'كراج البوابة 1', category: 'garage', pin: { lat: 32.9032, lng: 45.0578 }, photoUrl: null });
+    expect(items.find((l) => l.id === 'lm_garage_bab1')).toEqual({ id: 'lm_garage_bab1', name_ar: 'كراج البوابة 1', category: 'garage', pin: { lat: 32.90508, lng: 45.05884 }, photoUrl: null });
     expect(items.map((l) => l.name_ar)).not.toContain('بيت علي');
     expect(await anon().places.landmarkFeed.query({ etag: first.etag })).toEqual({ changed: false, etag: first.etag, maxAgeS: first.maxAgeS });
   });
