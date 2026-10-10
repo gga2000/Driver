@@ -212,7 +212,8 @@ export interface IdentityRepository {
    * `expectRefreshHash` and it is not revoked; `null` when another rotation got there first.
    */
   rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord | null>;
-  revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<number>;
+  /** Ends every live session of a person; the ids it ended. */
+  revokeSessionsOf(personId: string, now: Date, tx?: Tx): Promise<string[]>;
   /** Per person, the latest session start or refresh (the app in use); absent = no session ever. */
   lastSessionAtOf(personIds: readonly string[], tx?: Tx): Promise<Record<string, Date>>;
 
@@ -561,8 +562,12 @@ export class PrismaIdentityRepository implements IdentityRepository {
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
-    const res = await this.db(tx).session.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: now } });
-    return res.count;
+    const db = this.db(tx);
+    const live = await db.session.findMany({ where: { personId, revokedAt: null }, select: { id: true } });
+    if (live.length === 0) return [];
+    const ids = live.map((s) => s.id);
+    await db.session.updateMany({ where: { id: { in: ids }, revokedAt: null }, data: { revokedAt: now } });
+    return ids;
   }
 
   async latestOtp(phoneHash: string, purpose: OtpPurpose, tx?: Tx) {

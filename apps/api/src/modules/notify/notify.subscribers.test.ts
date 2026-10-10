@@ -522,3 +522,19 @@ describe('SMS twin still wanted', () => {
     expect(await twinStillWanted({ order: async (id) => ({ id, type: 'food', customerId: 'c', merchantOrgId: 'm', totalIqd: 0, itemCount: 1 }) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
   });
 });
+
+describe('staff.new_device', () => {
+  it('pushes every admin the event names, never the staff member himself', async () => {
+    const h = notifyHarness();
+    const d = { ...deps(h), lookups: { ...lookups, firstName: async (id: string) => (id === 'p_zainab' ? 'زينب' : null) } };
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    expect(NOTIFY_EVENT_TYPES).toContain('staff.new_device');
+    expect(await one(event('staff.new_device', { personId: 'p_zainab', platform: 'web', adminIds: ['p_ali', 'p_zainab'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'زينب', device: 'متصفح جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'android', adminIds: ['p_ali'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'موظف', device: 'موبايل جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'web', adminIds: [] }))).toEqual([]);
+  });
+});

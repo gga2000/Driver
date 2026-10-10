@@ -158,6 +158,7 @@ export const NotifyTemplateId = z.enum([
   'sos_desk_ring',
   'console_unwatched_alert',
   'console_live_down_alert',
+  'staff_new_device',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -779,6 +780,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.driver.iq']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // A staff account signed in from a device never seen on it: every admin, push only, at any hour.
+  staff_new_device: {
+    id: 'staff_new_device',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
