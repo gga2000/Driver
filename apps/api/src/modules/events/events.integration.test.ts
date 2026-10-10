@@ -48,17 +48,20 @@ describe.skipIf(!url)('events outbox on Postgres (needs DATABASE_URL)', () => {
         throw new Error('rollback');
       }),
     ).rejects.toThrow('rollback');
-    expect(await a.events.forOrder(agg.id)).toEqual([]);
+    expect(await a.events.forAggregate(agg.name, agg.id)).toEqual([]);
 
     const key = `${tag}:k1`;
     const first = await uow.run((tx) => a.events.emit(tx, { type: 'order.placed', actorId: 'system:test', occurredAt: clock.now(), orderId: agg.id, idempotencyKey: key, location: { lat: 32.91, lng: 45.06 } }, agg));
     const again = await uow.run((tx) => a.events.emit(tx, { type: 'order.placed', actorId: 'system:test', occurredAt: clock.now(), orderId: agg.id, idempotencyKey: key }, agg));
     expect(again.id).toBe(first.id);
-    const stored = await a.events.forOrder(agg.id);
+    const stored = await a.events.forAggregate(agg.name, agg.id);
     expect(stored.map((e) => e.id)).toEqual([first.id]);
     expect(stored[0]).toMatchObject({ actorId: 'system:test', orderId: agg.id, location: { lat: 32.91, lng: 45.06 } });
     const row = await prisma.prisma.event.findUnique({ where: { id: first.id } });
     expect(row).toMatchObject({ actorId: null, orderId: null, idempotencyKey: key }); // FKs only when they resolve
+    // The order and actor keys read the indexed columns: an id that is not a row is found by aggregate only.
+    expect(await a.events.forOrder(agg.id)).toEqual([]);
+    expect(await a.events.forActor('system:test')).not.toContainEqual(expect.objectContaining({ id: first.id }));
   });
 
   it('two publishers draining at once never deliver the same row twice', async () => {
