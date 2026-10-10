@@ -86,5 +86,8 @@ describe('placing', () => {
     expect(restaurantKindOf(['شاي'])).toBe('cafe');
     expect(restaurantKindOf(['تمن ومرق'])).toBe('home');
     expect(restaurantKindOf(['بيتزا'])).toBe('restaurant');
+    // «rice» is not «ice»: the breakfast house stays a house, not a sweets shop.
+    expect(restaurantKindOf(['باچة · ريوگ', 'breakfast', 'pacha', 'rice', 'stew'])).toBe('home');
+    expect(restaurantKindOf(['ice cream'])).toBe('sweets');
   });
 });

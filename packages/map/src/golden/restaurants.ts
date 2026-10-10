@@ -683,14 +683,16 @@ export function faceRoad(at: LngLat, roads: readonly { cls: string; coords: LngL
 /** Picks the model from the shop's food tags (Arabic or English), e.g. «مشويات» → grill. */
 export function restaurantKindOf(tags: readonly string[]): RestaurantKind {
   const t = tags.join(' ').toLowerCase();
-  const has = (...w: string[]) => w.some((x) => t.includes(x));
+  const words = new Set(t.split(/[^\p{L}\p{N}]+/u));
+  // Arabic by stem (it takes «ال» and joined letters), English only as whole words («rice» is not «ice»).
+  const has = (...w: string[]) => w.some((x) => (/^[a-z ]+$/.test(x) ? words.has(x) : t.includes(x)));
   if (has('مشويات', 'كباب', 'تكة', 'كص', 'grill', 'kebab')) return 'grill';
   if (has('شاورما', 'فلافل', 'shawarma', 'falafel')) return 'shawarma';
   if (has('فرن', 'صمون', 'خبز', 'معجنات', 'bakery', 'bread')) return 'bakery';
   if (has('حلويات', 'كنافة', 'بقلاوة', 'آيس', 'sweets', 'dessert', 'ice')) return 'sweets';
   if (has('عصير', 'juice')) return 'juice';
   if (has('قهوة', 'شاي', 'كافيه', 'coffee', 'tea', 'cafe')) return 'cafe';
-  if (has('أكل بيت', 'تمن', 'مرق', 'home')) return 'home';
+  if (has('أكل بيت', 'تمن', 'مرق', 'باچة', 'باجة', 'home')) return 'home';
   return 'restaurant';
 }
 
