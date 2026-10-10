@@ -212,7 +212,7 @@ function FeaturedOrder({ f, t, locale }: { f: NonNullable<NewOrderBannerProps['f
         </Text>
         <View style={{ width: 1, alignSelf: 'stretch', backgroundColor: theme.colors.border }} />
         <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ flex: 1, color: theme.colors.text }}>
-          {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('،  ') + (dishes.more > 0 ? `  ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
+          {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join(t('merchant.list_joiner')) + (dishes.more > 0 ? `  ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
         </Text>
         {allergy ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, height: 30, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.danger }}>
@@ -312,8 +312,8 @@ export function missedText(t: ReturnType<typeof useT>, missed: readonly MissedOr
       ? t('merchant.missed.partial', { number: first.number })
       : `${t('merchant.missed.one', { number: first.number })}${first.scored ? '' : ` · ${t('merchant.missed.not_scored')}`}`
     : timeouts.length === 0
-      ? t('merchant.missed.partial_many', { numbers: missed.map((m) => orderNo(m.number)).join('، ') })
+      ? t('merchant.missed.partial_many', { numbers: missed.map((m) => orderNo(m.number)).join(t('merchant.list_joiner')) })
       : missed.length === 2
-        ? t('merchant.missed.two', { numbers: missed.map((m) => orderNo(m.number)).join('، ') })
-        : t('merchant.missed.many', { count: missed.length, numbers: missed.slice(0, 4).map((m) => orderNo(m.number)).join('، ') + (missed.length > 4 ? '…' : '') });
+        ? t('merchant.missed.two', { numbers: missed.map((m) => orderNo(m.number)).join(t('merchant.list_joiner')) })
+        : t('merchant.missed.many', { count: missed.length, numbers: missed.slice(0, 4).map((m) => orderNo(m.number)).join(t('merchant.list_joiner')) + (missed.length > 4 ? '…' : '') });
 }

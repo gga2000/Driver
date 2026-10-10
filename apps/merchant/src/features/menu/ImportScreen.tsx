@@ -321,7 +321,7 @@ export function ImportScreen() {
         </Pressable>
         {sections.length > 0 ? (
           <Text variant="caption" color="textMuted">
-            {t('merchant.import.sections_hint', { sections: sections.slice(0, 6).join('، ') })}
+            {t('merchant.import.sections_hint', { sections: sections.slice(0, 6).join(t('merchant.list_joiner')) })}
           </Text>
         ) : null}
       </View>
