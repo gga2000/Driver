@@ -175,8 +175,13 @@ export default async function run(s) {
   await rk.wait('checkin-passed');
   await rk.shot('checkin-passed', { settle: 1100 });
   await rk.byTestId('checkin-done').click();
-  await rk.wait('online-switch');
-  await rk.shot('home-unlocked', { settle: 1500 });
+  // Checked in, but his papers are still not complete: the switch stays locked and opens the papers page.
+  await rk.wait('gate-banner-missing');
+  await rk.wait('online-switch-blocked');
+  await rk.shot('home-checked-in-papers-missing', { settle: 1500 });
+  await rk.byTestId('online-switch-blocked').click();
+  await rk.wait('docs-summary-action');
+  await rk.shot('documents-papers-missing', { settle: 900 });
   await rk.close();
 
   // ── locked out, and an expired licence ─────────────────────────────────
