@@ -53,8 +53,8 @@ export interface SeedMeetingPoint {
 /** 4 intercity garages (150 m late-meter geofence) + 6 neighbourhood street-pickup points. */
 export const MEETING_POINTS: SeedMeetingPoint[] = [
   // garages
-  { key: 'garage_bab1', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'كراج البوابة 1', nameEn: 'Gate 1 garage', lat: 32.91575, lng: 45.0405, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
-  { key: 'garage_bab2', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'كراج البوابة 2', nameEn: 'Gate 2 garage', lat: 32.9155, lng: 45.0641, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'garage_bab1', cityId: 'aziziyah', zoneKey: 'hawas_bridge', nameAr: 'كراج البوابة 1', nameEn: 'Gate 1 garage', lat: 32.91575, lng: 45.0405, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'garage_bab2', cityId: 'aziziyah', zoneKey: 'fidaa', nameAr: 'كراج البوابة 2', nameEn: 'Gate 2 garage', lat: 32.9155, lng: 45.0641, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
   { key: 'garage_souq', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'كراج السوق', nameEn: 'Souq garage', lat: 32.9021, lng: 45.0666, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
   { key: 'garage_nahdha', cityId: 'baghdad', nameAr: 'كراج النهضة', nameEn: 'Al-Nahdha garage', lat: 33.3344, lng: 44.4165, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
   // street-pickup meeting points

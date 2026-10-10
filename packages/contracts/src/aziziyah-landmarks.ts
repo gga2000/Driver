@@ -19,8 +19,8 @@ export interface AziziyahLandmarkSeed {
 }
 
 export const AZIZIYAH_LANDMARKS: readonly AziziyahLandmarkSeed[] = [
-  { key: 'garage_bab1', name_ar: 'كراج البوابة 1', name_en: 'Gate 1 garage', zoneId: 'centre', lat: 32.91575, lng: 45.0405, kind: 'garage', aliases_ar: ['كراج بغداد'] },
-  { key: 'garage_bab2', name_ar: 'كراج البوابة 2', name_en: 'Gate 2 garage', zoneId: 'street_30', lat: 32.9155, lng: 45.0641, kind: 'garage', aliases_ar: ['كراج الكوت'] },
+  { key: 'garage_bab1', name_ar: 'كراج البوابة 1', name_en: 'Gate 1 garage', zoneId: 'hawas_bridge', lat: 32.91575, lng: 45.0405, kind: 'garage', aliases_ar: ['كراج بغداد'] },
+  { key: 'garage_bab2', name_ar: 'كراج البوابة 2', name_en: 'Gate 2 garage', zoneId: 'fidaa', lat: 32.9155, lng: 45.0641, kind: 'garage', aliases_ar: ['كراج الكوت'] },
   { key: 'garage_souq', name_ar: 'كراج السوق', name_en: 'Souq garage', zoneId: 'centre', lat: 32.9021, lng: 45.0666, kind: 'garage', aliases_ar: ['السوق'] },
   { key: 'mp_jami_kabir', name_ar: 'باب الجامع الكبير', name_en: 'Grand Mosque gate', zoneId: 'centre', lat: 32.9045, lng: 45.0595, kind: 'meeting_point', aliases_ar: ['الجامع الكبير', 'جامع'] },
   { key: 'mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', name_en: 'Al-Shasha park', zoneId: 'mahdood_1', lat: 32.9122, lng: 45.0552, kind: 'meeting_point', aliases_ar: ['الحديقة', 'متنزه'] },
