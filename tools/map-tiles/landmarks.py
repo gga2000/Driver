@@ -2,8 +2,8 @@
 # good looking design for each"). Each model is drawn in metres around its site, the front facing the main road it
 # sits on, and comes out as small extruded parts, each with a `part` the style colours by light.
 #
-# Sites are design spots, not surveyed ones: an empty lot beside a main road, off the river, near where the place is
-# believed to be (picked with the buildings and water data). Move them when field ops pins the real ones.
+# The mosque and hospital are design spots, not surveyed ones: an empty lot beside a main road, off the river, near
+# where the place is believed to be. The garages are at Ali's real spots (2026-10-10).
 import math
 import shapely, shapely.affinity as af, shapely.geometry as sg
 
@@ -11,9 +11,11 @@ SITES = {
     # key: (lng, lat of the lot centre, road angle in degrees, side of the road), sizes are the model's own
     'mosque': (45.05873, 32.90695, -112, 1),
     'hospital': (45.06723, 32.90885, -37, 1),
-    'garage_bab1': (45.05884, 32.90508, 68, 1),
-    'garage_bab2': (45.06523, 32.90977, -24, 1),
-    'garage_souq': (45.05680, 32.90570, 157, 1),
+    # The garages where they really are (Ali's Google Maps pins, 2026-10-10, matched to our tiles within ~30 m); each lot
+    # is nudged off the streets round it (≤ 22 m) and sized to fit between them (GARAGE_SIZE).
+    'garage_bab1': (45.04035, 32.91590, -8, 1),   # north of the Kut road at الشارع الجديد, west of the canal
+    'garage_bab2': (45.06407, 32.91543, 168, 1),  # south of the Kut road, east of شارع الخليج العربي
+    'garage_souq': (45.06648, 32.90227, -24, 1),  # north of الشارع الجديد, ~200 m NW of the bridge road
 }
 
 
@@ -158,44 +160,55 @@ def hospital():
     return m
 
 
-def garage(seed=0):
+def garage(seed=0, W=80, D=48):
+    """A town garage: yard, gate and sign, two rows of canopy bays with minibuses. W and D fit the real lot."""
     m = Model()
-    W, D = 80, 48
-    outer = _box(-W / 2, -D / 2, W / 2, D / 2)
+    hw = W / 2
+    outer = _box(-hw, -D / 2, hw, D / 2)
     m.add(outer, 'yard', 0, 0.08)
     # a low wall round three sides, the road side open
-    back = outer.difference(outer.buffer(-0.5, join_style='mitre')).difference(_box(-W / 2 + 0.6, -D / 2 - 1, W / 2 - 0.6, -D / 2 + 0.6))
+    back = outer.difference(outer.buffer(-0.5, join_style='mitre')).difference(_box(-hw + 0.6, -D / 2 - 1, hw - 0.6, -D / 2 + 0.6))
     m.add(back, 'stone', 0, 2)
     # the gate frame at the front with its sign board
     for x in (-14, 14):
         m.add(_box(x - 0.8, -D / 2 - 0.8, x + 0.8, -D / 2 + 0.8), 'steel', 0, 7.5)
     m.add(_box(-14.8, -D / 2 - 0.4, 14.8, -D / 2 + 0.4), 'steel', 6.6, 7.5)
     m.add(_box(-9, -D / 2 - 0.5, 9, -D / 2 + 0.5), 'sign', 7.5, 9.6)
-    # the long steel canopy over the bays, posts every 9 m, and minibuses lined under it
-    for row, y in enumerate((4, 16)):
+    # the long steel canopy over the bays, posts every 9-11 m, and minibuses lined under it
+    cw = hw - 6
+    for row, y in enumerate((D / 2 - 20, D / 2 - 8)):
         for k in range(8):                                                       # corrugated sheets with gaps of light
-            m.add(_box(-34, y - 5 + k * 1.28, 34, y - 5 + k * 1.28 + 0.9), 'canopy', 5.0, 5.4)
-        m.add(_box(-34.2, y - 5.2, 34.2, y - 4.6), 'steel', 4.7, 5.5)
-        for x in range(-33, 34, 11):
+            m.add(_box(-cw, y - 5 + k * 1.28, cw, y - 5 + k * 1.28 + 0.9), 'canopy', 5.0, 5.4)
+        m.add(_box(-cw - 0.2, y - 5.2, cw + 0.2, y - 4.6), 'steel', 4.7, 5.5)
+        for x in range(-int(cw) + 1, int(cw), 11):
             m.add(_box(x - 0.25, y - 4.6, x + 0.25, y - 4.1), 'steel', 0, 5.0)
             m.add(_box(x - 0.25, y + 4.1, x + 0.25, y + 4.6), 'steel', 0, 5.0)
-        for i, x in enumerate(range(-30, 31, 5)):
+        for i, x in enumerate(range(-int(cw) + 4, int(cw) - 2, 5)):
             if (i * 7 + row * 3 + seed) % 5 == 0: continue
             m.vehicle(x, y, 6.0, 2.2, 'bus' if (i + row) % 4 else 'bus2', h=2.5, along=False)
-    # ticket booth and benches, people waiting
-    m.add(_box(24, -14, 30, -9), 'white', 0, 3.2)
-    m.add(_box(23.6, -14.4, 30.4, -8.6), 'canopy', 3.2, 3.6)
+    # ticket booth and benches, people waiting (in front of the bays, behind the gate)
+    f = -D / 2
+    m.add(_box(hw - 16, f + 10, hw - 10, f + 15), 'white', 0, 3.2)
+    m.add(_box(hw - 16.4, f + 9.6, hw - 9.6, f + 15.4), 'canopy', 3.2, 3.6)
     for x in (-20, -10, 0, 10):
-        m.add(_box(x - 2, -6.2, x + 2, -5.6), 'steel', 0.4, 0.9)
-    for i, (x, y) in enumerate(((-19, -7.2), (-17.5, -6.8), (-9, -7.4), (1, -7.0), (2.5, -7.6), (11, -7.1), (26, -16), (-5, -12), (5, -15))):
-        m.person(x, y, 'robe' if i % 3 else 'person')
+        if -hw + 2 < x - 2 and x + 2 < hw - 17: m.add(_box(x - 2, f + 17.8, x + 2, f + 18.4), 'steel', 0.4, 0.9)
+    for i, (x, y) in enumerate(((-19, 16.8), (-17.5, 17.2), (-9, 16.6), (1, 17.0), (2.5, 16.4), (11, 16.9), (hw - 14, 8), (-5, 12), (5, 9))):
+        if abs(x) < hw - 1: m.person(x, f + y, 'robe' if i % 3 else 'person')
     # a couple of taxis waiting at the kerb
-    for x in (-28, -22, 30):
-        m.vehicle(x, -18, 4.5, 1.8, 'car', h=1.5)
+    for x in (-hw + 12, -hw + 18, hw - 10):
+        m.vehicle(x, f + 6, 4.5, 1.8, 'car', h=1.5)
     return m
 
 
-MODELS = {'mosque': mosque, 'hospital': hospital, 'garage_bab1': lambda: garage(0), 'garage_bab2': lambda: garage(2), 'garage_souq': lambda: garage(4)}
+# Lot size (along the road, away from it), metres: what fits between the streets at each real garage.
+GARAGE_SIZE = {'garage_bab1': (70, 44), 'garage_bab2': (70, 44), 'garage_souq': (80, 48)}
+MODELS = {
+    'mosque': mosque,
+    'hospital': hospital,
+    'garage_bab1': lambda: garage(0, *GARAGE_SIZE['garage_bab1']),
+    'garage_bab2': lambda: garage(2, *GARAGE_SIZE['garage_bab2']),
+    'garage_souq': lambda: garage(4, *GARAGE_SIZE['garage_souq']),
+}
 
 
 def landmark_parts(mx, my):
