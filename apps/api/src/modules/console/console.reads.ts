@@ -8,6 +8,7 @@ import {
   type ConsoleNamesInput,
   type ConsolePort,
   classifyOrderQuery,
+  DriverError,
   type CustomerHistory,
   type CustomerHistoryInput,
   type DriverPin,
@@ -265,7 +266,11 @@ export class ConsoleReadService implements ConsolePort {
     if (!q || q.kind === 'text') return this.orders.search(input);
     const rest = { ...input, text: undefined };
     if (q.kind === 'phone') {
-      const personId = await this.identity.personIdByPhone(q.phone).catch(() => null);
+      // Only a number that is not an Iraqi mobile means "no orders"; a real failure stays an error.
+      const personId = await this.identity.personIdByPhone(q.phone).catch((e: unknown) => {
+        if (e instanceof DriverError && e.code === 'phone_invalid') return null;
+        throw e;
+      });
       return personId ? this.orders.search({ ...rest, ordererIds: [personId] }) : { rows: [], nextCursor: null };
     }
     const { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to } = input;

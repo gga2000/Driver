@@ -98,9 +98,14 @@ to `--orders`. `--allow-delivered` also uses delivered orders not yet closed (lo
 About 49,500 orders take roughly 1.5 GB, more than Supabase's free 500 MB: staging needs Pro for this.
 
 First finding (2026-10-08, locally with 2,000 copied orders): an event lookup by courier scanned the whole
-events table on every dispatch cash-cap check (home p95 1.3 s against 0.8 s). The fix is the events index
-change (migration `20261010290000_events_lookup_refs`); with it, home p95 was about 0.3–0.6 s and no query
-took over 25 ms.
+events table on every dispatch cash-cap check (home p95 1.3 s against 0.8 s). The migration named for it then
+(`20261010290000_events_lookup_refs`) never landed. The fix that did (2026-10-10): migration
+`20261010520000_outbox_event_id_index` indexes `outbox(event_id)`, the person/order/trip reads use only the
+indexed `actor_id`/`order_id`/`trip_id` columns (no `payload->>` fallback), and the cash-cap tier reads his
+first event, his last 14 days of scored events and his completed trips up to 100, never his whole history.
+On a local Postgres 16 with 400,000 events (about a month at 400 orders a day): an order's events 189 → 1.3 ms,
+a trip's 441 → 1.1 ms, one courier's tier 795 → 5.5 ms, a dispatch pass over 30 couriers 15.6–22.4 s → about
+0.27 s. `events-reads.integration.test.ts` fails if any of these reads goes back to a sequential scan.
 
 ## Still to come
 

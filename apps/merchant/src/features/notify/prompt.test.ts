@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boardCalmForPrompt, deepLinkPath, PREPROMPT_SNOOZE_MS, shouldShowPrePrompt } from './prompt';
+import { boardCalmForPrompt, deepLinkPath, PREPROMPT_SNOOZE_MS, pushHealthOf, shouldShowPrePrompt } from './prompt';
 
 const DAY = 86_400_000;
 
@@ -26,5 +26,15 @@ describe('merchant notification pre-prompt', () => {
     expect(deepLinkPath('driver-merchant://order/ord_1')).toBe('/');
     expect(deepLinkPath('driver-merchant://money')).toBe('/money');
     expect(deepLinkPath('driver://order/ord_1')).toBeNull();
+  });
+});
+
+describe('pushHealthOf (MER-12)', () => {
+  it('flags a device that cannot ring with the app closed', () => {
+    expect(pushHealthOf({ web: false, permission: 'denied', registered: false })).toBe('off');
+    expect(pushHealthOf({ web: false, permission: 'granted', registered: false })).toBe('failed');
+    expect(pushHealthOf({ web: false, permission: 'granted', registered: true })).toBe('ok');
+    expect(pushHealthOf({ web: false, permission: 'undetermined', registered: false })).toBe('unknown');
+    expect(pushHealthOf({ web: true, permission: 'denied', registered: false })).toBe('unknown');
   });
 });
