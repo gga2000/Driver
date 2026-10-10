@@ -57,6 +57,7 @@ const viewports = (process.env.VIEWPORTS ?? 'tablet,phone').split(',').map((s) =
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
 const errors = [];
+const allowedConsole = [];
 
 /**
  * `h` for shot files:
@@ -70,6 +71,7 @@ const errors = [];
  *                                   "ابدأ الشغل" (unless keepGate, to shoot the gate)
  *   startShift()                    taps "ابدأ الشغل" if the gate is up (after a reload)
  *   goto(path)                      client-side route change (keeps the session)
+ *   allowConsole(re)                console errors matching `re` don't fail the run (a shot that fails requests on purpose)
  */
 function makeHelpers(page, viewport, list) {
   const byTestId = (id) => page.locator(`[data-testid="${id}"]`).first();
@@ -134,7 +136,8 @@ function makeHelpers(page, viewport, list) {
     }, path);
     await settle(400);
   };
-  return { page, viewport, origin, apiBase, byTestId, settle, shot, demoPost, signIn, startShift, goto };
+  const allowConsole = (re) => void allowedConsole.push(re);
+  return { page, viewport, origin, apiBase, byTestId, settle, shot, demoPost, signIn, startShift, goto, allowConsole };
 }
 
 try {
@@ -144,6 +147,7 @@ try {
     const page = await context.newPage();
     page.on('console', (m) => {
       const text = m.text();
+      if (m.type() === 'error' && allowedConsole.some((re) => re.test(text))) return;
       if (m.type() === 'error' && !/findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_INTERNET_DISCONNECTED|AudioContext|status of 412/.test(text)) errors.push(`[${viewport}] ${text}`);
     });
     // The street map's Arabic shaping plugin comes from unpkg, which a sandbox without internet can't reach.

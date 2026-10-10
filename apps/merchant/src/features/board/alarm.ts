@@ -33,8 +33,9 @@ const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
 };
+// MER-10: on the web the sound can also go off again (a suspended tab), so this follows every change.
 onUnlock(() => {
-  soundReady = true;
+  soundReady = canPlay();
   emit();
 });
 

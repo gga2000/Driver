@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alarmAction, alarmPlan, alarmQuiet, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
+import { alarmAction, alarmPlan, alarmQuiet, answerTimeOver, EXPIRED_GRACE_MS, LADDER, snooze, SNOOZE_FLOOR_MS, SNOOZE_MS, stageFor, STAGE_REPEAT_MS, STAGE_VOLUME, type AlarmStage, type RingCandidate } from './ladder';
 
 const T0 = 1_790_000_000_000;
 const order = (id: string, acceptInMs: number | null, now = T0): RingCandidate => ({ id, number: id.replace('o', '1'), acceptByMs: acceptInMs === null ? null : now + acceptInMs });
@@ -61,6 +61,15 @@ describe('alarm ladder (M-02)', () => {
     expect(chimes).toEqual([]);
     expect(loopStartedAt).toBeNull();
     expect(alarmAction(null, 0, T0, true)).toEqual({ kind: 'silent' });
+  });
+
+  it('an order more than 5 s past its answer time stops ringing (MER-07: the server already turned it down)', () => {
+    const plan = alarmPlan([order('o1', -EXPIRED_GRACE_MS - 1), order('o2', -2_000), order('o3', 60_000)], new Map(), new Set(), T0);
+    expect(plan.ringing).toEqual(['o2', 'o3']);
+    expect(plan.mostUrgent?.id).toBe('o2');
+    expect(answerTimeOver(T0 - EXPIRED_GRACE_MS - 1, T0)).toBe(true);
+    expect(answerTimeOver(T0 - EXPIRED_GRACE_MS, T0)).toBe(false);
+    expect(answerTimeOver(null, T0)).toBe(false);
   });
 
   it('the most urgent order sets the stage for the whole board', () => {

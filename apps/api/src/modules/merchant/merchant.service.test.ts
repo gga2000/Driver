@@ -121,6 +121,22 @@ describe('MerchantService — stores and scope', () => {
 });
 
 describe('MerchantService — board', () => {
+  it('one card whose courier lookup throws still comes out, without courier details (MER-04)', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const a = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const b = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    await h.orders.merchantAccept('s1', { orderId: a.id, prepMinutes: 15 });
+    const real = h.trips.activeForOrder.bind(h.trips);
+    const spy = vi.spyOn(h.trips, 'activeForOrder').mockImplementation(async (orderId: string) => {
+      if (orderId === a.id) throw new Error('lookup down');
+      return real(orderId);
+    });
+    const board = await svc.board(staff, { merchantOrgId: khalid.id });
+    spy.mockRestore();
+    expect(board.orders.map((o) => o.id).sort()).toEqual([a.id, b.id].sort());
+    expect(board.orders.find((o) => o.id === a.id)).toMatchObject({ column: 'preparing', courier: { state: 'none', firstName: null } });
+  });
+
   it('shows a new group order with people, notes, deadline; then preparing with courier state', async () => {
     const { h, svc, staff, khalid, nameReads } = await setup();
     const placed = await h.orders.place(
