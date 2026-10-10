@@ -97,10 +97,13 @@ Then: GitHub → Actions → **Android test apps** → Run workflow (all, or one
   project id stays in the run's copy of `app.json` (nothing is committed);
 - sets `EXPO_PUBLIC_API_URL` (and `EXPO_PUBLIC_SHARE_BASE_URL` for the customer app, plus the map
   URLs when `DATABASE_REF` is set) on the project's **preview** environment on expo.dev;
-- starts the build without waiting; the run's summary links each build's page on expo.dev. When the
-  build is done (15–30 minutes, longer when the free queue is busy) the page shows **Install** and a
-  QR code. Open it on the Android phone, allow "install unknown apps" once, install. Share the same link
-  with testers on WhatsApp.
+- starts the build and waits for Expo (15–30 minutes, longer when the free queue is busy). A green job's
+  summary links the build page on expo.dev, which shows **Install** and a QR code: open it on the
+  Android phone, allow "install unknown apps" once, install. Share the same link with testers on
+  WhatsApp. A red job shows Expo's error and the end of its build log
+  (`scripts/deploy/eas-build-report.mjs`), so nobody has to copy it from expo.dev.
+- To see how an earlier build ended without building again (each build counts against the free
+  plan), run it with **build_id** set to that build's id and **app** set to its app.
 
 The first build of each app makes its Android signing key, kept by EAS. Each app's
 `eas-build-post-install` script builds the workspace packages (`dist/`) on Expo's server before the app

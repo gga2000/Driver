@@ -155,9 +155,13 @@ so they guide the eye from further out; the Console and cheap phones draw their 
   arch, a gilded dome on its drum with four small domes, two banded minarets with a call balcony. Floodlit at night.
 - **Hospital**: white L-shaped blocks with floor bands, a red crescent on a white roof disc, an entrance canopy with two
   ambulances and a red sign, parking and palms along the fence.
-- **Garages**: a paved yard, two long corrugated canopies on steel posts over rows of minibuses, a gate frame with a
-  saffron sign board, a ticket booth, benches with people waiting, taxis at the kerb.
+- **Garages** (the new terminal, Ali's pick of three looks on 2026-10-10): a wave of white fins over two rows of bays,
+  each fin edged in saffron that lights up at night (`led`), a middle island with palms and benches where people wait,
+  H-1 minibuses, GMCs and Coasters with bags on their racks, a glass waiting hall (`hall`, glowing at night), a tea
+  kiosk with chairs, a totem in the destination colours (`dest1..3`) and taxis at the kerb. At night `pool` parts throw
+  warm light on the ground through their own see-through layer (`golden-landmark-pools`); they are never solid.
 
-Spots are design spots (empty lots beside a main road, off the river), not surveyed ones; the houses Overture has on a
-lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
+The mosque and hospital spots are design spots (empty lots beside a main road, off the river), not surveyed ones; the
+garages stand at Ali's real spots (2026-10-10), each lot sized to fit between its streets (`GARAGE_SIZE`). The houses
+Overture has on a lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
 demo spots; moving them onto the models belongs to the garage data owner.

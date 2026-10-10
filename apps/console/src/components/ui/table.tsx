@@ -59,6 +59,8 @@ export interface Column<T> {
   numeric?: boolean;
   width?: string;
   className?: string;
+  /** Secondary columns a phone drops so the row fits without sideways scrolling. */
+  hideOnPhone?: boolean;
 }
 
 /** Class strings for tables written by hand (same look as DataTable). */
@@ -168,7 +170,7 @@ export function DataTable<T>({
                 key={c.key}
                 scope="col"
                 style={c.width ? { width: c.width } : undefined}
-                className={cx(thCls, c.numeric && 'text-end')}
+                className={cx(thCls, c.numeric && 'text-end', c.hideOnPhone && 'max-sm:hidden')}
               >
                 {c.header}
               </th>
@@ -181,7 +183,7 @@ export function DataTable<T>({
                 <tr key={`sk-${i}`}>
                   {selectable ? <td className={tdCls} /> : null}
                   {columns.map((c, j) => (
-                    <td key={c.key} className={tdCls}>
+                    <td key={c.key} className={cx(tdCls, c.hideOnPhone && 'max-sm:hidden')}>
                       <Skeleton
                         className={cx(
                           'h-3.5',
@@ -229,7 +231,7 @@ export function DataTable<T>({
                       {columns.map((c) => (
                         <td
                           key={c.key}
-                          className={cx(tdCls, c.numeric && 'num text-end', c.className)}
+                          className={cx(tdCls, c.numeric && 'num text-end', c.hideOnPhone && 'max-sm:hidden', c.className)}
                         >
                           {c.cell(row)}
                         </td>

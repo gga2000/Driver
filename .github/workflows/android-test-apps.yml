@@ -10,8 +10,9 @@
 #   2. the staging addresses set on the project's `preview` environment on expo.dev (API, share
 #      links, the Aziziyah map), so the APK and later preview updates use the same server;
 #   3. the build started (Android signing key made and kept by EAS on the first build).
-# The run ends without waiting for Expo: the summary links each build's page on expo.dev, which shows
-# an Install button and a QR code once the build finishes. These APKs only ever talk to staging.
+# Each job then waits for Expo and ends green with the build page (Install button + QR code) in the
+# summary, or red with Expo's error and the end of its log. To read how an earlier build ended without
+# building again, run it with that build's id (and its app). These APKs only ever talk to staging.
 name: Android test apps
 
 on:
@@ -22,6 +23,10 @@ on:
         type: choice
         options: [all, customer, partner, merchant]
         default: all
+      build_id:
+        description: Only show how this Expo build ended (its id, from the build page); builds nothing
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -49,7 +54,7 @@ jobs:
     needs: plan
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 30
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +93,14 @@ jobs:
           # Over-the-air updates for this project (what `eas update:configure` would write).
           node -e "const f='./app.json',fs=require('fs'),j=JSON.parse(fs.readFileSync(f,'utf8'));j.expo.updates={...j.expo.updates,url:'https://u.expo.dev/$id'};fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
           echo "project $(node -p "const e=require('./app.json').expo;e.owner+'/'+e.slug") ($id)"
+      - name: Show how the Expo build ended
+        if: inputs.build_id != ''
+        working-directory: apps/${{ matrix.app }}
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+        run: node ../../scripts/deploy/eas-build-report.mjs "$BUILD_ID"
       - name: Set the staging addresses on expo.dev (preview environment)
+        if: inputs.build_id == ''
         working-directory: apps/${{ matrix.app }}
         run: |
           set_var() { eas env:create --environment preview --name "$1" --value "$2" --visibility plaintext --force --non-interactive > /dev/null && echo "$1 = $2"; }
@@ -100,16 +112,33 @@ jobs:
             set_var EXPO_PUBLIC_MAP_GLYPHS_URL "$pub/fonts/{fontstack}/{range}.pbf"
           fi
       - name: Start the APK build on Expo
+        id: build
+        if: inputs.build_id == ''
         working-directory: apps/${{ matrix.app }}
         run: |
           eas build --platform android --profile preview --non-interactive --no-wait --json > build.json
-          page=$(node -e "
-            const b=[].concat(require('./build.json'))[0], e=require('./app.json').expo;
-            console.log('https://expo.dev/accounts/'+e.owner+'/projects/'+e.slug+'/builds/'+b.id)")
+          id=$(node -p "[].concat(require('./build.json'))[0].id")
+          page=$(node -p "const e=require('./app.json').expo;'https://expo.dev/accounts/'+e.owner+'/projects/'+e.slug+'/builds/$id'")
+          echo "id=$id" >> "$GITHUB_OUTPUT"
           echo "Build page: $page"
           {
             echo "### ${{ matrix.app }}"
-            echo "Building on Expo. When it finishes (usually 15–30 minutes), open this page on the phone and tap **Install**, or scan its QR code:"
+            echo "Open this page on the phone and tap **Install** (or scan its QR code) once this job is green:"
             echo
             echo "$page"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Wait for Expo, then show how the build ended
+        if: inputs.build_id == ''
+        working-directory: apps/${{ matrix.app }}
+        env:
+          BUILD_ID: ${{ steps.build.outputs.id }}
+        run: |
+          # Free accounts wait in Expo's queue; the job stays open until the build ends so a
+          # failure shows here, with the end of Expo's log, instead of only on expo.dev.
+          while :; do
+            status=$(eas build:view "$BUILD_ID" --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).status))")
+            case "$status" in FINISHED|ERRORED|CANCELED) break ;; esac
+            echo "$(date -u +%H:%M) $status"
+            sleep 60
+          done
+          node ../../scripts/deploy/eas-build-report.mjs "$BUILD_ID"

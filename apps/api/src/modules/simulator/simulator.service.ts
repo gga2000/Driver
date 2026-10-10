@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { SimulatorStartInput, SimulatorStatus } from '@driver/contracts';
+import { DriverError, type SimulatorStartInput, type SimulatorStatus } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, FakeClock, type Clock } from '../../shared/clock.js';
+import { deployEnvironmentFromEnv } from '../config/index.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { DISPATCH_QUEUE, DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
@@ -173,7 +174,17 @@ export class SimulatorService implements OnModuleDestroy {
 
   // ───────────────────────── live (Console) ─────────────────────────
 
+  /**
+   * The live run signs fake people in through the real identity service and puts them into real
+   * dispatch, so it runs locally and on staging only, never on production (an unset
+   * DEPLOY_ENVIRONMENT counts as production).
+   */
+  private liveAllowed(): boolean {
+    return deployEnvironmentFromEnv() !== 'production';
+  }
+
   async start(input: LiveStartInput): Promise<z.input<typeof SimulatorStatus>> {
+    if (!this.liveAllowed()) throw new DriverError('dev_only');
     if (this.live) return this.status();
     const speed = input.speed ?? DEFAULT_LIVE_SPEED;
     const seed = input.seed ?? 1;
@@ -247,7 +258,7 @@ export class SimulatorService implements OnModuleDestroy {
     const run = this.live;
     const r = this.lastReport;
     return {
-      available: true,
+      available: this.liveAllowed(),
       running: run !== null,
       startedAt: run?.startedAt ?? null,
       drivers: run?.sim.drivers.length ?? 0,

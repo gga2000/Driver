@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import { decodeRajaaPassPush } from '@driver/contracts';
-import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
+import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor, twinStillWanted } from './notify.subscribers.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -51,6 +51,11 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.offered_to_merchant', { merchantOrgId: 'org_k' }, { orderId: 'ord_1' }))).toEqual([
       { template: 'merchant_new_order', to: 'staff', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
       { template: 'merchant_new_order', to: 'owner', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
+    ]);
+    // MER-05: the push says which store, so a tap on a device that works for two opens the right board.
+    expect((await requestsFor(event('order.offered_to_merchant', { merchantOrgId: 'org_k' }, { orderId: 'ord_1' }), d)).map((r) => r.data)).toEqual([
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
     ]);
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
@@ -506,5 +511,21 @@ describe('W3 staff outcomes → the customer', () => {
     expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
     // The state change behind a staff cancel sends nothing of its own: one message, not two.
     expect(await one(event('order.cancelled', { cancelledState: 'platform_cancelled', by: 'platform', reason: 'staff_cancelled' }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+});
+
+describe('SMS twin still wanted', () => {
+  const L = { order: async (id: string) => (id === 'ord_wait' || id === 'ord_done' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 0, itemCount: 1, waitingForKitchen: id === 'ord_wait' } : null) };
+  it('a new-order text only while the order still waits for the kitchen; other messages always', async () => {
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_wait' })).toBe(true);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_done' })).toBe(false);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'gone' })).toBe(true);
+    expect(await twinStillWanted(L, { template: 'order_accepted', orderId: 'ord_done' })).toBe(true);
+  });
+  it('fails safe: an order that cannot be read (null or a failed lookup) still gets its text', async () => {
+    expect(await twinStillWanted({ order: async () => null }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    expect(await twinStillWanted({ order: async () => Promise.reject(new Error('db down')) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    // A lookup that does not say (an older binding without the field) is not "answered" either.
+    expect(await twinStillWanted({ order: async (id) => ({ id, type: 'food', customerId: 'c', merchantOrgId: 'm', totalIqd: 0, itemCount: 1 }) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
   });
 });

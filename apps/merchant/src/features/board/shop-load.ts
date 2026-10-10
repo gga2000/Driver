@@ -54,6 +54,15 @@ export function busyMinutesNow(manualMinutes: number, auto: AutoBusy): number {
 // ───────────────────────── h5: paused while the app is away ─────────────────────────
 
 /** Whole minutes customers saw the shop closed when the app came back after `prevOkAt` (null: never paused). */
+/**
+ * MER-04: the heartbeat only goes while the board itself loads (a last good read at most 90 s old), so a
+ * kitchen that can't see its orders lets h5 pause the shop instead of taking new ones blind.
+ */
+export const BOARD_FRESH_MS = 90_000;
+export function boardSeesOrders(boardOkAt: number, now: number): boolean {
+  return boardOkAt > 0 && now - boardOkAt <= BOARD_FRESH_MS;
+}
+
 export function pausedMinutes(prevOkAt: number | null, now: number): number | null {
   if (prevOkAt === null) return null;
   const off = now - prevOkAt;

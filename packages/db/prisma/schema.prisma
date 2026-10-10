@@ -2780,6 +2780,8 @@ model Outbox {
 
   @@index([status, nextAttemptAt, createdAt])
   @@index([aggregate, aggregateId])
+  /// Event-history reads join each event to its outbox row.
+  @@index([eventId])
   @@map("outbox")
   @@schema("public")
 }

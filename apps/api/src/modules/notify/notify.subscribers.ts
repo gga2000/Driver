@@ -30,6 +30,19 @@ export function missingItemsAr(names: readonly string[], count: number): string 
  */
 export const NOTIFY_SUBSCRIBER = 'notify:deliveries';
 
+/**
+ * Whether a message's SMS twin is still worth sending when it falls due (the engine's `twinWanted`).
+ * «طلب جديد! اقبله خلال 90 ثانية» only while the order still waits for the kitchen: once anyone at
+ * the store accepted or rejected it, or it timed out or was cancelled, the text would be wrong. Fails
+ * safe: when the order can't be read, the text still goes; it is dropped only for an order known to
+ * be answered.
+ */
+export async function twinStillWanted(L: Pick<NotifyLookups, 'order'>, row: { template: string; orderId: string | null }): Promise<boolean> {
+  if (row.template !== 'merchant_new_order' || !row.orderId) return true;
+  const order = await L.order(row.orderId).catch(() => null);
+  return order?.waitingForKitchen !== false;
+}
+
 /** Review #28: what a booked ride's pre-assignment tells the rider and the drivers (`bookedRideRequests`). */
 export const BOOKED_RIDE_EVENTS = [
   'dispatch.booked_offered',
@@ -440,7 +453,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const orgId = str(p['merchantOrgId']) ?? order?.merchantOrgId ?? null;
       if (!order || !orgId) return [];
       const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
-      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id } }));
+      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
     }
     case 'order.delivered': {
       const order = e.orderId ? await L.order(e.orderId) : null;

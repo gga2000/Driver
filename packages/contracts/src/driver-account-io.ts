@@ -181,7 +181,7 @@ export const DocumentsView = z.object({
   driverId: z.string(),
   /** Latest submission per kind. */
   documents: z.array(DriverDocumentView),
-  /** Kinds his roles need that were never submitted (licence and registration only for car/van drivers). */
+  /** Kinds his roles need with no approved document yet: never sent, rejected or under review (licence and registration only for car/van drivers). Any keeps him offline. */
   missing: z.array(DriverDocumentKind),
   /** Expired → offline (scoring §2). */
   blocksOnline: z.boolean(),
@@ -287,7 +287,7 @@ export type CheckInResult = z.infer<typeof CheckInResult>;
 /** Whether he may go online now, and why not. The Partner shell calls it before `partner` presence. */
 export const OnlineGate = z.object({
   canGoOnline: z.boolean(),
-  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'staff_paused']), message_ar: z.string() })),
+  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'document_missing', 'staff_paused']), message_ar: z.string() })),
   checkIn: CheckInStatus,
 });
 export type OnlineGate = z.infer<typeof OnlineGate>;

@@ -2,6 +2,8 @@ import type { RoleKind } from '../auth.js';
 import {
   ConsoleNames,
   ConsoleNamesInput,
+  CustomerHistory,
+  CustomerHistoryInput,
   DriversListInput,
   DriversPage,
   MerchantList,
@@ -30,6 +32,11 @@ export const consoleRouter = router({
     .input(ConsoleNamesInput)
     .output(ConsoleNames)
     .query(({ ctx, input }) => ctx.console.names(input, ctx.actor.personId)),
+  /** s5: the support card's last orders and this month's credits of one customer. */
+  customerHistory: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(CustomerHistoryInput)
+    .output(CustomerHistory)
+    .query(({ ctx, input }) => ctx.console.customerHistory(input)),
 });
 
 /** `drivers.list`: everyone with a driving role, joined with presence and scorecard tier. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AZIZIYAH_MONEY_RULES, type Actor, type MoneyRules, type Order, type RoleKind, type Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type Actor, type DriverDocumentKind, type MoneyRules, type Order, type RoleKind, type Trip } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { EventsShiftActivity } from '../ledger/index.js';
@@ -12,7 +12,7 @@ import { DevBlobStore, type BlobStore } from '../places/index.js';
 import { InMemorySupportRepository, SupportService } from '../support/index.js';
 import type { TripsService } from '../trips/index.js';
 import { InMemoryDriverAccountRepository } from './driver-account.repository.js';
-import { DriverAccountService } from './driver-account.service.js';
+import { DriverAccountService, requiredDocuments } from './driver-account.service.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const DAY = 86_400_000;
@@ -76,7 +76,15 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
     return actor;
   }
-  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
+  /** Uploads and approves the papers his roles need (ID, photo; licence and registration for car roles). */
+  async function papers(actor: Actor, kinds?: readonly DriverDocumentKind[]): Promise<void> {
+    const reviewer = { personId: 'field-ops-reviewer', sessionId: 's' } as Actor;
+    for (const kind of kinds ?? requiredDocuments(await id.service.activeRoles(actor.personId))) {
+      const doc = await service.uploadDocument(actor, { kind, uploadId: await storedUpload(blobs, actor.personId) });
+      await service.reviewDocument(reviewer, { documentId: doc.id, decision: 'approve', expiresAt: new Date(clock.now().getTime() + 400 * DAY) });
+    }
+  }
+  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, papers, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
 describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
@@ -260,7 +268,8 @@ describe('driverAccount.documents', () => {
     expect(JSON.stringify(h.repo.documents.get(doc.id))).not.toContain(up);
 
     const view = await h.service.documents(d, {});
-    expect(view.missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'vehicle_registration']);
+    // Under review is not approved yet: the licence still counts as missing.
+    expect(view.missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration']);
 
     const ops = await h.person('07700000009', ['field_ops']);
     const approved = await h.service.reviewDocument(ops, { documentId: doc.id, decision: 'approve', expiresAt: new Date(h.clock.now().getTime() + 10 * DAY) });
@@ -285,6 +294,42 @@ describe('driverAccount.documents', () => {
     expect((await h.service.documents(d, {})).blocksOnline).toBe(false);
   });
 
+  it('keeps him offline until every paper his roles need is approved: never sent, rejected or under review all count as missing', async () => {
+    const h = setup();
+    const d = await h.person('07700000031', ['khat_driver']);
+    const ops = await h.person('07700000032', ['field_ops']);
+    const missing = async () => (await h.service.onlineGate(d)).reasons.filter((r) => r.code === 'document_missing').length;
+    // Nothing on file: all five papers a car role needs.
+    expect(await missing()).toBe(5);
+    expect((await h.service.documents(d, {})).missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration']);
+    // A rejected licence is not a licence on file.
+    const licence = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    await h.service.reviewDocument(ops, { documentId: licence.id, decision: 'reject', reason: 'الصورة مو واضحة' });
+    await h.papers(d, ['national_id_front', 'national_id_back', 'photo', 'vehicle_registration']);
+    const ch = await h.service.checkInChallenge(d);
+    await h.service.submitCheckIn(d, { challengeId: ch.challengeId, uploadId: await h.upload(d.personId) });
+    const gate = await h.service.onlineGate(d);
+    expect(gate.canGoOnline).toBe(false);
+    expect(gate.reasons).toEqual([{ code: 'document_missing', message_ar: expect.stringContaining('إجازة السوق') }]);
+    expect((await h.service.documents(d, {})).missing).toEqual(['licence']);
+    // Re-sent and under review: still not approved.
+    const again = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    expect((await h.service.onlineGate(d)).canGoOnline).toBe(false);
+    await h.service.reviewDocument(ops, { documentId: again.id, decision: 'approve', expiresAt: new Date(h.clock.now().getTime() + 400 * DAY) });
+    expect(await h.service.onlineGate(d)).toMatchObject({ canGoOnline: true, reasons: [] });
+    expect((await h.service.documents(d, {})).missing).toEqual([]);
+  });
+
+  it('a courier needs his ID and photo, not a licence; a renewal under review keeps the approved paper in force', async () => {
+    const h = setup();
+    const d = await h.person('07700000033', ['courier']);
+    expect((await h.service.onlineGate(d)).reasons.filter((r) => r.code === 'document_missing')).toHaveLength(3);
+    await h.papers(d);
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
+    await h.service.uploadDocument(d, { kind: 'photo', uploadId: await h.upload(d.personId) });
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
+  });
+
   it('refuses an upload that is not his or not stored, and a rejection without a reason never reaches the service', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
@@ -302,7 +347,7 @@ describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
     const ops = await h.person('07700000022', ['support']);
     const customer = await h.person('07700000023');
     await expect(h.service.pause(ops, { personId: customer.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'invalid_input' });
-    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'staff_own_account' });
 
     const paused = await h.service.pause(ops, { personId: d.personId, reason: 'safety_report', ticketId: 'tk_1', note: 'بلاغ سياقة خطرة، ننتظر نسمع منه' });
     expect(paused.active).toMatchObject({ reason: 'safety_report', ticketId: 'tk_1', pausedById: ops.personId });
@@ -320,6 +365,19 @@ describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
     await expect(h.service.liftPause(ops, { personId: d.personId, note: 'مرة ثانية' })).rejects.toMatchObject({ code: 'invalid_input' });
     expect(h.audits.map((a) => a.action)).toEqual(['driver.pause', 'driver.lift_pause']);
     expect((await h.ev.events.forAggregate('person', d.personId)).map((e) => e.type).filter((t) => t.includes('paused'))).toEqual(['driver.paused', 'driver.unpaused']);
+  });
+});
+
+describe('driverAccount staff pause: never on himself', () => {
+  it('a staff member who also drives cannot lift his own pause; a colleague can', async () => {
+    const h = setup();
+    const both = await h.person('07700000026', ['field_ops', 'courier']);
+    const ops = await h.person('07700000027', ['support']);
+    await h.service.pause(ops, { personId: both.personId, reason: 'safety_report', note: 'بلاغ سياقة خطرة' });
+    await expect(h.service.liftPause(both, { personId: both.personId, note: 'رجعت' })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await h.service.pauseStatus(ops, { personId: both.personId })).active).not.toBeNull();
+    expect(h.audits.map((a) => a.action)).toEqual(['driver.pause']);
+    expect((await h.service.liftPause(ops, { personId: both.personId, note: 'سمعنا منه' })).active).toBeNull();
   });
 });
 
@@ -346,6 +404,7 @@ describe('driverAccount daily check-in', () => {
   it('passes with a stored selfie inside the 2-minute challenge and unlocks going online', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
+    await h.papers(d);
     expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
     const ch = await h.service.checkInChallenge(d);
     expect(ch.gesture_ar.length).toBeGreaterThan(2);
@@ -362,6 +421,7 @@ describe('driverAccount daily check-in', () => {
   it('two failures lock him out for the day with an ops alert; an expired challenge is refused', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
+    await h.papers(d);
     const stale = await h.service.checkInChallenge(d);
     h.clock.advance(3 * 60_000);
     await expect(h.service.submitCheckIn(d, { challengeId: stale.challengeId, uploadId: await h.upload(d.personId) })).rejects.toMatchObject({ code: 'checkin_challenge_invalid' });

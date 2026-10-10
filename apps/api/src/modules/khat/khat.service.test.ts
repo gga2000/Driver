@@ -278,7 +278,7 @@ describe('khat sweep alert', () => {
     expect(await h.advance(1_000)).toBe(1);
     const [ev] = await h.missed();
     // The event carries the driver: the notify subscriber turns it into his reminder push.
-    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, runEndedAt: lastDrop.toISOString(), afterMin: KHAT_RULES.sweepAlertAfterMin });
+    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, reason: 'sweep_missed', runEndedAt: lastDrop.toISOString(), afterMin: KHAT_RULES.sweepAlertAfterMin });
     const alerts = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ tripId: h.trip.id, driver: { personId: h.driver.personId }, childrenTotal: 2, lastDropAt: lastDrop, lastDropZone: 'centre', runEndedAt: lastDrop, raisedAt: h.t.clock.now(), confirmedAt: null, confirmedLateMin: null });
@@ -288,6 +288,36 @@ describe('khat sweep alert', () => {
     expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.dispatcher.personId && l.purpose === 'khat_sweep_alert')).toBe(true);
     // Another city's desk sees nothing.
     expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'kut' })).toEqual([]);
+  });
+
+  it('a child tapped in and never tapped out alerts ops after the last planned drop-off, though the run never ends', async () => {
+    const h = await sweepSetup();
+    const [p1, p2, d1] = h.trip.stops;
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p2!.id, pin: PINS.home2 });
+    await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school });
+    // علي is still tapped in. The last drop-off was planned to end 35 minutes after the start (setup).
+    const plannedEnd = h.trip.stops[3]!.windowEnd!;
+    await h.advance(plannedEnd.getTime() - h.t.clock.now().getTime() + AFTER - 1_000);
+    expect(await h.missed()).toEqual([]);
+    await h.advance(1_000);
+    const [ev] = await h.missed();
+    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, reason: 'child_still_on_board', runEndedAt: plannedEnd.toISOString() });
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toEqual([expect.objectContaining({ tripId: h.trip.id, runEndedAt: plannedEnd, confirmedAt: null })]);
+    expect(await h.paged(h.dispatcher.personId)).not.toEqual([]);
+    // Three hours on, still one alert.
+    await h.advance(3 * 60 * MIN);
+    expect(await h.khat.checkSweep(h.trip.id)).toBe('already');
+    expect(await h.missed()).toHaveLength(1);
+  });
+
+  it('no alert from the plan when every tapped-in child got out (the run-end timer takes over)', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    await h.advance(2 * MIN);
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    await h.advance(3 * 60 * MIN);
+    expect(await h.missed()).toEqual([]);
   });
 
   it('keeps a finished run on today\'s list until the car is checked (app restart, reminder push)', async () => {
