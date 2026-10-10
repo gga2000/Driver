@@ -2942,7 +2942,7 @@
   "console.sup_mode_note": "Internal note",
   "console.sup_note_placeholder": "For the team only; the customer won't see it",
   "console.sup_canned_btn": "Canned replies",
-  "console.sup_canned_search": "Search canned replies…",
+  "console.sup_canned_search": "Search replies, or press its number…",
   "console.sup_canned_empty": "No canned reply by that name",
   "console.sup_canned_refund": "+ refund {amount}",
   "console.sup_canned_action_refund": "+ refund",
