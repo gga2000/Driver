@@ -21,7 +21,7 @@ procedure that needs it refuses with `money_rule_off`. Shown in Arabic as «هذ
 |---|---|---|---|---|
 | `orders.cashStanding` | query | any signed-in | none | `CashStanding` |
 | `orders.ops.stuck` | query | dispatcher, support, finance, admin | `StuckOrdersInput` | `StuckOrder[]` |
-| `orders.ops.switches` | query | dispatcher, support, finance, admin | — | `StaffOpsSwitches`: `disputeOutcomes` (allowed list, `void` always in it), `agentLimitIqd`, `courierLostRefund`, `courierLostCharge`, `freeCancel`, `cookedFoodPayer`, `remakePay`. Read-only, no audit row; the Console greys out an action whose switch is off ("waits on Ali") before staff click. |
+| `orders.ops.switches` | query | dispatcher, support, finance, admin | — | `StaffOpsSwitches`: `disputeOutcomes` (allowed list, `void` and `stands` always in it), `agentLimitIqd`, `courierLostRefund`, `courierLostCharge`, `freeCancel`, `cookedFoodPayer`, `remakePay`. Read-only, no audit row; the Console greys out an action whose switch is off ("waits on Ali") before staff click. |
 | `orders.ops.cancel` | mutation | dispatcher, support, admin | `StaffCancelOrderInput` | `StaffActionResult` |
 | `orders.ops.markDelivered` | mutation | dispatcher, support, admin | `StaffMarkDeliveredInput` | `StaffActionResult` |
 | `orders.ops.close` | mutation | dispatcher, support, admin | `StaffCloseOrderInput` | `StaffActionResult` |
@@ -73,9 +73,10 @@ What each procedure does:
   paid the kitchen for that food: the order must be `refunded` and the group
   `order:<id>:courier_lost:kitchen` must exist (so `COURIER_LOST_REFUND` was on); otherwise
   `order_state_conflict`. Both are read inside the posting's transaction.
-- **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`, except `void`, which moves
-  no money and so needs no switch (it is the only way out of a `courier_lost` dispute while
-  `COURIER_LOST_REFUND` is off). It acts once per dispute; a second call returns `changed: false`. A refund above `agentLimitIqd` (25,000) posts
+- **`resolveDispute`**: needs the chosen outcome in `DISPUTE_OUTCOMES`, except `void` and `stands`,
+  which move no money beyond the normal sale and so need no switch (`void` is the only way out of a
+  `courier_lost` dispute while `COURIER_LOST_REFUND` is off; `stands` is "complaint rejected" on a
+  delivered order). It acts once per dispute; a second call returns `changed: false`. A refund above `agentLimitIqd` (25,000) posts
   nothing: it waits for a second staff member's OK, admins included (`pendingApprovalId` on the
   result, the order stays disputed; [refund-approvals.md](refund-approvals.md)). A refund is never more than what was paid, less earlier refunds. The
   party at fault pays: courier `driver:<id>`, merchant `merchant_cash:<org>`, otherwise `platform`.

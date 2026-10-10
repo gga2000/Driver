@@ -19,7 +19,7 @@ export interface OrderOutcomeRules {
   disputes: {
     /**
      * The outcomes staff may apply (`DISPUTE_OUTCOMES`). Empty = `orders.ops.resolveDispute` is refused
-     * with `money_rule_off`, except `void`, which moves no money and is always allowed. Recommended: all of them (env `DISPUTE_OUTCOMES=stands,refund_full,…` or `all`).
+     * with `money_rule_off`, except `void` and `stands`, which move no money beyond the normal sale and are always allowed. Recommended: all of them (env `DISPUTE_OUTCOMES=stands,refund_full,…` or `all`).
      */
     outcomes: readonly DisputeOutcome[];
     /** A refund above this needs the escalation owner (admin); support decides up to it (recommended 25,000). */
