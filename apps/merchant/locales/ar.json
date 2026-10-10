@@ -1911,6 +1911,13 @@
   "merchant.insights.sold_out_days_few": "خلص بـ{count} أيام",
   "merchant.insights.sold_out_at": "عادةً حوالي {time}",
   "merchant.insights.sold_out_days_one": "خلص بيوم واحد",
+  "merchant.item.kind": "نوعه بتذكرة المطبخ",
+  "merchant.item.kind_hint": "نعرفه من اسم الصنف. إذا طلع غلط، اختار الصح.",
+  "merchant.item.kind_auto": "تلقائي: {guess}",
+  "merchant.item.kind_food": "أكل",
+  "merchant.item.kind_hot_drink": "مشروب ساخن",
+  "merchant.item.kind_cold_drink": "مشروب بارد",
+  "merchant.item.kind_sweet": "حلو",
   "merchant.push.off_chip": "الإشعارات طافية: ما يرن إذا طلعت",
   "merchant.push.failed_chip": "الإشعارات ما اشتغلت: اضغط وجرّب"
 }

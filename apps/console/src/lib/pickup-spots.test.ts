@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PHOTO_MAX_BYTES, type PhotoUploadTicket } from '@driver/contracts';
-import { filterStores, missingCount, photoProblem, uploadPhoto } from './pickup-spots';
+import { filterStores, missingCount, photoProblem, storeGaps, toFinish, uploadPhoto } from './pickup-spots';
 
 const rows = [
   { name: 'مطعم خالد', note: 'الشباك اليسار', photos: 1 },
@@ -21,6 +21,19 @@ describe('Console › المطاعم store list', () => {
 
   it('counts the stores with nothing set (a photo alone is set)', () => {
     expect(missingCount(rows)).toBe(2);
+  });
+
+  it('k6: names what each store still lacks and lists the most unfinished first', () => {
+    const full = { note: 'الشباك', photos: 1, shopPhoto: true, dishes: 12, dishesNoPhoto: 0 };
+    expect(storeGaps(full)).toEqual([]);
+    expect(storeGaps({ ...full, shopPhoto: false, dishesNoPhoto: 3 })).toEqual(['shop_photo', 'dish_photos']);
+    expect(storeGaps({ note: null, photos: 0, shopPhoto: false, dishes: 0, dishesNoPhoto: 0 })).toEqual(['shop_photo', 'spot', 'menu']);
+    const list = [
+      { name: 'أ', ...full },
+      { name: 'ب', ...full, dishesNoPhoto: 2 },
+      { name: 'ج', note: null, photos: 0, shopPhoto: false, dishes: 0, dishesNoPhoto: 0 },
+    ];
+    expect(toFinish(list).map((r) => r.name)).toEqual(['ج', 'ب']);
   });
 });
 

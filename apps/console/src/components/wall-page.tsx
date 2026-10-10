@@ -17,7 +17,8 @@ const POLL_MS = 30_000;
 
 /**
  * The week-one metrics wall (launch playbook §6) for the TV in the ops room, read from 3–5 m: full
- * bleed over the shell, dark by default (`?theme=light` for a bright room), six tiles against the
+ * bleed over the shell, date brown by default like the sidebar island (l5; `?theme=light` for a
+ * bright room), six tiles against the
  * playbook targets (status in words and an icon, a bullet bar to the target), orders per day against
  * the 30-a-day target, and a red line across the top when the screen stops updating (S-K6).
  * `?tv=1` hides the way back to the console and fits the whole wall in one screen: 1920×1080 (the TV)
@@ -33,7 +34,7 @@ export function WallPage() {
     setOpts({ tv: q.get('tv') === '1', light: q.get('theme') === 'light' });
   }, []);
   return (
-    <div data-theme={opts.light ? 'light' : 'dark'} className="fixed inset-0 z-40 overflow-y-auto bg-canvas text-text">
+    <div {...(opts.light ? { 'data-theme': 'light' } : { 'data-ink': 'date' })} className="fixed inset-0 z-40 overflow-y-auto bg-canvas text-text">
       {!signedIn && (
         <div className="p-8">
           <NeedLogin />
@@ -44,7 +45,7 @@ export function WallPage() {
           <QueryError error={wall.error} onRetry={() => void wall.refetch()} />
         </div>
       )}
-      {wall.data && <Wall data={wall.data} updatedAt={wall.dataUpdatedAt} tv={opts.tv} />}
+      {wall.data && <Wall data={wall.data} updatedAt={wall.dataUpdatedAt} tv={opts.tv} light={opts.light} />}
     </div>
   );
 }
@@ -59,7 +60,10 @@ function useClock(ms = 1000) {
   return now;
 }
 
-export function Wall({ data, updatedAt = 0, tv = false }: { data: LaunchMetricsView; updatedAt?: number; tv?: boolean }) {
+/** Tiles and the chart sit one step above the canvas: white on cream, or lifted date brown (l5). */
+const panelBg = (light: boolean) => (light ? 'bg-surface' : 'bg-surface-2');
+
+export function Wall({ data, updatedAt = 0, tv = false, light = false }: { data: LaunchMetricsView; updatedAt?: number; tv?: boolean; light?: boolean }) {
   const now = useClock();
   const met = data.metrics.filter((m) => m.ok === true).length;
   // S-K6: the one tile worth a look pulses once a minute (the minute is its key, so it replays).
@@ -117,11 +121,11 @@ export function Wall({ data, updatedAt = 0, tv = false }: { data: LaunchMetricsV
 
         <ul className={cx('grid flex-1', tv ? TV.tiles : 'grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3 xl:grid-rows-2')}>
           {data.metrics.map((m) => (
-            <MetricTile key={m.key} m={m} pulseKey={m.key === urgent ? minute : null} tv={tv} />
+            <MetricTile key={m.key} m={m} pulseKey={m.key === urgent ? minute : null} tv={tv} light={light} />
           ))}
         </ul>
 
-        <OrdersByDay days={data.ordersByDay} tv={tv} />
+        <OrdersByDay days={data.ordersByDay} tv={tv} light={light} />
       </div>
     </div>
   );
@@ -156,14 +160,14 @@ const STATUS = {
   pending: { icon: IconClock, word: 'console.wall_pending', pill: 'bg-surface-3 text-muted', value: 'text-muted', bar: 'bg-line-strong', edge: 'border-line' },
 } as const satisfies Record<'ok' | 'bad' | 'pending', { icon: unknown; word: MessageKey; pill: string; value: string; bar: string; edge: string }>;
 
-function MetricTile({ m, pulseKey = null, tv = false }: { m: LaunchMetric; pulseKey?: number | null; tv?: boolean }) {
+function MetricTile({ m, pulseKey = null, tv = false, light = false }: { m: LaunchMetric; pulseKey?: number | null; tv?: boolean; light?: boolean }) {
   const tone = metricTone(m);
   const s = STATUS[tone];
   const Icon = s.icon;
   const b = bullet(m.key, m.value);
   const trend = wallTrend(m);
   return (
-    <li className={cx('relative flex flex-col rounded-xl border-2 bg-surface', tv ? TV.tile : 'px-7 py-5', s.edge)} data-urgent={pulseKey !== null || undefined}>
+    <li className={cx('relative flex flex-col rounded-xl border-2', panelBg(light), tv ? TV.tile : 'px-7 py-5', s.edge)} data-urgent={pulseKey !== null || undefined}>
       {/* S-K6: once a minute, one ring swells out of the most urgent off-target tile (none with reduce motion). */}
       {pulseKey !== null ? <span key={pulseKey} aria-hidden className="wall-pulse pointer-events-none absolute -inset-[2px] rounded-xl" /> : null}
       <div className="flex items-start justify-between gap-4">
@@ -204,13 +208,13 @@ function MetricTile({ m, pulseKey = null, tv = false }: { m: LaunchMetric; pulse
 }
 
 /** Orders per day: today in the brand orange, the days before in quiet ink, the 30-a-day line across. */
-function OrdersByDay({ days, tv = false }: { days: LaunchMetricsView['ordersByDay']; tv?: boolean }) {
+function OrdersByDay({ days, tv = false, light = false }: { days: LaunchMetricsView['ordersByDay']; tv?: boolean; light?: boolean }) {
   const TARGET = 30;
   const max = Math.max(TARGET * 1.2, ...days.map((d) => d.orders));
   const bars = dayBars([...days, { orders: max }]).slice(0, days.length);
   const targetPct = (TARGET / max) * 100;
   return (
-    <section aria-labelledby="wall-orders" className={cx('shrink-0 rounded-xl border-2 border-line bg-surface', tv ? TV.chart : 'px-8 py-4')}>
+    <section aria-labelledby="wall-orders" className={cx('shrink-0 rounded-xl border-2 border-line', panelBg(light), tv ? TV.chart : 'px-8 py-4')}>
       <div className={cx('flex items-baseline justify-between gap-4', tv ? 'mb-[0.6vh]' : 'mb-3')}>
         <h2 id="wall-orders" className={cx('font-semibold', tv ? TV.tileTitle : 'text-[28px]')}>
           {t('console.wall_orders_by_day')}
@@ -229,7 +233,7 @@ function OrdersByDay({ days, tv = false }: { days: LaunchMetricsView['ordersByDa
               <li key={d.date} className="relative flex h-full flex-1 items-end justify-center">
                 <span className={cx('w-full max-w-[160px] rounded-t-md', today ? 'bg-accent' : 'bg-line-strong')} style={{ height: `${h}%` }} />
                 <span
-                  className={cx('absolute start-1/2 z-[1] translate-x-1/2 rounded-md bg-surface px-2 text-center font-bold', today ? (tv ? TV.todayNum : 'text-[34px] leading-10') : tv ? TV.dayNum : 'text-2xl leading-8', today ? 'text-text' : 'text-muted')}
+                  className={cx('absolute start-1/2 z-[1] translate-x-1/2 rounded-md px-2', panelBg(light), 'text-center font-bold', today ? (tv ? TV.todayNum : 'text-[34px] leading-10') : tv ? TV.dayNum : 'text-2xl leading-8', today ? 'text-text' : 'text-muted')}
                   style={{ bottom: `calc(${h}% + 6px)` }}
                 >
                   {d.orders}

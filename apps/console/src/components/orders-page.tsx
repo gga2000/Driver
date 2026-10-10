@@ -8,7 +8,7 @@ import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'reac
 import { formatIqd } from '@/lib/format';
 import { orderTypeLabel, paymentLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS, useMerchants } from '@/lib/live';
-import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
+import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, ORDER_VIEWS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
 import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/periods';
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
@@ -131,7 +131,7 @@ export function OrdersPage() {
       }
     return out;
   }, [orders.data]);
-  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' ? 'late' : 'newest');
+  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' || filter.view === 'waiting' ? 'late' : 'newest');
   const rows = useMemo(() => sortSummaries(loaded, effectiveSort), [loaded, effectiveSort]);
   // One batched name read for the page (K-01): customers and restaurants.
   useNames({ people: rows.map((o) => o.ordererId), orgs: rows.flatMap((o) => (o.merchantOrgId ? [o.merchantOrgId] : [])) });
@@ -142,9 +142,9 @@ export function OrdersPage() {
     {
       key: 'order',
       header: t('console.col_order'),
-      width: '9.5rem',
+      width: '6.5rem',
       cell: (o) => (
-        <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
+        <span className="flex flex-col whitespace-nowrap">
           <OrderRef id={o.id} strong />
           <span className="text-xs text-muted">{orderTypeLabel(o.type)}</span>
         </span>
@@ -153,7 +153,7 @@ export function OrdersPage() {
     {
       key: 'state',
       header: t('console.col_state'),
-      width: '9rem',
+      width: '8.5rem',
       cell: (o) => <OrderStatus state={o.state} />,
     },
     {
@@ -172,7 +172,7 @@ export function OrdersPage() {
           </span>
         </button>
       ),
-      width: '7rem',
+      width: '6rem',
       cell: (o) =>
         o.lateMin !== null ? (
           <span className="num inline-flex items-center gap-1 whitespace-nowrap font-semibold text-bad" title={t('console.orders_late_by', { time: compactDuration(o.lateMin * 60_000) })}>
@@ -190,28 +190,60 @@ export function OrdersPage() {
     {
       key: 'merchant',
       header: t('console.col_merchant'),
-      cell: (o) => (o.merchantOrgId ? <OrgName id={o.merchantOrgId} copy={false} /> : <span className="text-faint">—</span>),
+      cell: (o) => (o.merchantOrgId ? <OrgName id={o.merchantOrgId} copy={false} className="block max-w-[8rem] truncate" /> : <span className="text-faint">—</span>),
     },
-    { key: 'customer', header: t('console.col_customer'), cell: (o) => <PersonName id={o.ordererId} copy={false} /> },
-    { key: 'zone', header: t('console.col_zone'), cell: (o) => (o.zoneKey ? <span className="block max-w-[11rem] truncate text-muted" title={zoneName(o.zoneKey)}>{zoneName(o.zoneKey)}</span> : <span className="text-faint">—</span>) },
-    { key: 'payment', header: t('console.col_payment'), width: '6rem', cell: (o) => <span className="text-muted">{paymentLabel(o.paymentMethod)}</span> },
-    { key: 'placed', header: t('console.col_placed'), width: '10rem', cell: (o) => <span className="num whitespace-nowrap text-muted">{stamp(o.placedAt, now)}</span> },
-    { key: 'total', header: <span className="whitespace-nowrap">{t('console.col_total_iqd')}</span>, numeric: true, width: '8rem', cell: (o) => <span className="font-medium">{formatIqd(o.totalIqd)}</span> },
+    {
+      // o6: the zone rides under the customer, the payment under the total (nine columns down to seven).
+      key: 'customer',
+      header: t('console.col_customer'),
+      cell: (o) => (
+        <span className="flex min-w-0 flex-col">
+          <PersonName id={o.ordererId} copy={false} />
+          {o.zoneKey ? (
+            <span className="block max-w-[8rem] truncate text-xs text-muted" title={zoneName(o.zoneKey)}>
+              {zoneName(o.zoneKey)}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    { key: 'placed', header: t('console.col_placed'), width: '6rem', cell: (o) => (
+        // Older days stack the date over the clock; a clock never splits.
+        <span className="num flex flex-col text-muted">
+          {stamp(o.placedAt, now).split(' · ').map((part) => (
+            <span key={part} className="whitespace-nowrap">{part}</span>
+          ))}
+        </span>
+      ) },
+    {
+      key: 'total',
+      header: <span className="whitespace-nowrap">{t('console.col_total_iqd')}</span>,
+      numeric: true,
+      width: '7rem',
+      cell: (o) => (
+        <span className="flex flex-col items-end">
+          <span className="font-medium">{formatIqd(o.totalIqd)}</span>
+          <span className="text-xs text-muted">{paymentLabel(o.paymentMethod)}</span>
+        </span>
+      ),
+    },
   ];
 
   const filtersOn = activeFilterCount(filter);
   const empty =
     filter.view === 'late'
       ? { title: t('console.orders_empty_late'), hint: t('console.orders_empty_late_hint') }
-      : {
-          title: t('console.orders_empty'),
-          hint: t('console.orders_empty_hint'),
-          action: filtersOn ? (
-            <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
-              {t('console.orders_filter_clear')}
-            </Button>
-          ) : undefined,
-        };
+      : filter.view === 'waiting'
+        ? { title: t('console.orders_empty_waiting'), hint: t('console.orders_empty_waiting_hint') }
+        : {
+            title: t('console.orders_empty'),
+            hint: t('console.orders_empty_hint'),
+            action: filtersOn ? (
+              <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
+                {t('console.orders_filter_clear')}
+              </Button>
+            ) : undefined,
+          };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -242,7 +274,7 @@ export function OrdersPage() {
                   ),
               }))}
             />
-            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || filter.view === 'late'} />
+            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || ORDER_VIEWS[filter.view].now} />
           </div>
 
           <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
@@ -254,7 +286,7 @@ export function OrdersPage() {
               <p role="status">{t('console.orders_ticket_hint', { ticket: `⁦#${ticket}⁩` })}</p>
             ) : (
               <p>
-                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : rangeWords(filter.period, now)}</span>
+                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : filter.view === 'waiting' ? t('console.orders_waiting_now') : rangeWords(filter.period, now)}</span>
                 {orders.isSuccess ? (
                   <span className="num">
                     {' · '}

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import type { BoardGroup, BoardOrder } from '@driver/contracts';
+import type { BoardGroup, BoardOrder, DishKind } from '@driver/contracts';
 import { Button, CountdownRing, Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { COUNTER } from '@/lib/counter';
@@ -137,12 +137,12 @@ function PackApart({ order }: { order: BoardOrder }) {
 }
 
 /** Kitchen-ticket line: big quantity, the dish, modifiers muted, the note bold on a warm strip; drinks and sweets wear their kind's edge (j6). */
-function Line({ qty, name, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
+function Line({ qty, name, kind, modifiers, note, out, done, onTick, testID }: { qty: number; name: string; kind?: DishKind | null; modifiers: string[]; note: string | null; out: boolean; done?: boolean; onTick?: () => void; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   const struck = out || done === true;
   const type = useTicketType();
-  const look = lineLook(name);
+  const look = lineLook(name, undefined, kind);
   const edge = look.kind === 'drink' ? COUNTER.kindDrink : look.kind === 'sweet' ? COUNTER.kindSweet : 'transparent';
   const body = (
     <View style={{ gap: 2, opacity: out ? 0.5 : done ? 0.45 : 1, borderStartWidth: 4, borderStartColor: edge, paddingStart: theme.space[2] }}>
@@ -260,6 +260,7 @@ export function OrderItems({ order, maxLines = 99, ticks }: { order: BoardOrder;
               key={l.lineId}
               qty={l.qty}
               name={l.name}
+              kind={l.kind ?? null}
               modifiers={l.modifiers}
               note={l.note}
               out={l.availability === 'unavailable'}

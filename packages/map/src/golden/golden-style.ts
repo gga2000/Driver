@@ -1,6 +1,6 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
-import { GOLDEN_PALETTES, type GoldenPalette } from './palettes.js';
+import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
 import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
 
@@ -84,6 +84,9 @@ export function shadowOffset(sun: SunPosition, heightM: number, z: number): [num
   const px = lengthM / metresPerPx;
   return [Math.round(Math.sin(away) * px * 10) / 10, Math.round(-Math.cos(away) * px * 10) / 10];
 }
+
+/** Zoom where the landmarks (main mosque, hospital, garages) stand up: before the houses, so they guide the eye. */
+export const LANDMARK_RISE = 14.6;
 
 function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt?: number): LayerSpecification[] {
   const rich = mode === 'customer' || mode === 'courier';
@@ -174,6 +177,12 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
   const finish = ['match', ['%', ['coalesce', ['get', 'tone'], 0], 6], 0, t[0], 1, t[1], 2, t[2], 3, t[3], 4, t[4], t[5]];
   const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
   const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
+  const lm = { ...src, 'source-layer': 'landmarks' } as const;
+  const landmarkColor = ['match', ['get', 'part'], ...LANDMARK_PARTS.flatMap((k) => [k, p.landmark[k]]), p.landmark.stone] as never;
+  if (!rich) {
+    // flat screens (Console, cheap phones): the landmark's plan seen from above
+    L.push({ id: 'golden-landmarks', type: 'fill', ...lm, minzoom: 14, paint: { 'fill-color': landmarkColor } });
+  }
   L.push({
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
@@ -214,6 +223,16 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     L.push({
       id: 'golden-roof-huts', type: 'fill-extrusion', ...bld, minzoom: rise + 0.6, filter: kindIn('hut'),
       paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-vertical-gradient': true, 'fill-extrusion-opacity': fade(rise + 0.6, 0, rise + 1, 1) },
+    });
+    // the landmarks (main mosque, hospital, garages) stand up before the houses, so they guide the eye from further out
+    L.push({
+      id: 'golden-landmarks-3d', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE,
+      paint: {
+        'fill-extrusion-color': landmarkColor,
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], LANDMARK_RISE, 0, LANDMARK_RISE + 0.6, ['get', 'hm']] as never,
+        'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], LANDMARK_RISE, 0, LANDMARK_RISE + 0.6, ['get', 'base']] as never,
+        'fill-extrusion-vertical-gradient': true,
+      },
     });
     L.push({
       id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB', 'dish'),

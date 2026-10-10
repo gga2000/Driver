@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Image } from 'expo-image';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
-import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
+import { DISH_KINDS, DISH_LABELS, type AdminMenuItem, type DishKind, type DishLabel } from '@driver/contracts';
 import { Button, ChipGroup, EmptyState, SegmentedControl, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { LoadPending } from '@/components/Loadable';
@@ -12,6 +12,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
+import { guessedKind, lineLook } from '../board/kind';
 import { Glyph } from './Glyph';
 import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
 import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, sugarGroup, toDraftGroups, wantsSugar, type DraftGroup } from './logic';
@@ -23,7 +24,7 @@ import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKi
 import { COUNTER } from '@/lib/counter';
 import { useMenu, useMenuActions, usePhotoUpload, usePriceHistory } from './queries';
 import { color } from '@driver/design-tokens';
-import { motifForDish, temperatureOf } from '@driver/ui/dishes';
+import { motifForDish } from '@driver/ui/dishes';
 
 interface Basics {
   nameAr: string;
@@ -34,6 +35,14 @@ interface Basics {
   price: string;
   /** The kitchen's labels shown to customers (joy o8): «حار», «جديد», «للعائلة». */
   labels: DishLabel[];
+  /** The ticket kind the owner set (k4/j6); null = the app guesses it from the name. */
+  kind: DishKind | null;
+}
+
+/** A drink's hot or cold, by the owner's kind when he set one (so «سحلب» marked a hot drink gets the sugar button). */
+function drinkTemp(name: string, section: string | undefined, kind: DishKind | null): 'hot' | 'cold' | null {
+  const look = lineLook(name, section, kind);
+  return look.kind === 'drink' ? look.temp : null;
 }
 
 function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
@@ -45,6 +54,7 @@ function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
     prepTimeMin: item?.prepTimeMin ?? 15,
     price: item ? String(item.priceIqd) : '',
     labels: [...(item?.labels ?? [])],
+    kind: item?.kind ?? null,
   };
 }
 
@@ -158,6 +168,7 @@ export function ItemEditor() {
           sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr),
           prepTimeMin: form.prepTimeMin,
           labels: form.labels,
+          kind: form.kind,
         });
         if (groups.length > 0) await actions.setModifiers.mutateAsync({ merchantOrgId: storeId, itemId: created.id, groups: fromDraftGroups(groups) });
         if (photo) {
@@ -181,6 +192,7 @@ export function ItemEditor() {
         ...(moved ? { sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr) } : {}),
         prepTimeMin: form.prepTimeMin,
         labels: form.labels,
+        kind: form.kind,
       });
       toast.show({ message: t('merchant.item.saved'), tone: 'success' });
     } catch (err) {
@@ -477,6 +489,28 @@ export function ItemEditor() {
           accessibilityLabel={t('merchant.item.labels')}
         />
       </View>
+      <View style={{ gap: theme.space[2] }} testID="item-kind">
+        <View style={{ gap: 2 }}>
+          <Text variant="label">{t('merchant.item.kind')}</Text>
+          <Text variant="caption" color="textMuted">
+            {t('merchant.item.kind_hint')}
+          </Text>
+        </View>
+        <ChipGroup
+          mode="single"
+          required
+          items={[
+            { id: 'auto', label: t('merchant.item.kind_auto', { guess: t(`merchant.item.kind_${guessedKind(form.nameAr, form.categoryAr)}`) }) },
+            ...DISH_KINDS.map((k) => ({ id: k, label: t(`merchant.item.kind_${k}`) })),
+          ]}
+          value={[form.kind ?? 'auto']}
+          onChange={(next) => {
+            const k = next[0];
+            set('kind', k && (DISH_KINDS as readonly string[]).includes(k) ? (k as DishKind) : null);
+          }}
+          accessibilityLabel={t('merchant.item.kind')}
+        />
+      </View>
       <TextField testID="item-name-en" label={t('merchant.item.name_en')} placeholder="Tikka wrap" value={form.nameEn} onChangeText={(v) => set('nameEn', v)} maxLength={80} autoCapitalize="words" />
     </Panel>
   );
@@ -536,7 +570,7 @@ export function ItemEditor() {
           onPress={() => setGroupEdit({ group: { key: draftKey('g'), nameAr: '', required: false, minSelect: 0, maxSelect: 1, modifiers: [{ key: draftKey('m'), nameAr: '', price: '0', available: true }] }, isNew: true })}
         />
         {/* k5: a drink gets the ready sugar choice in one tap; the sheet opens filled, the owner saves or edits it. */}
-        {wantsSugar(motifForDish(form.nameAr, form.categoryAr || undefined), temperatureOf(form.nameAr, form.categoryAr || undefined), groups) ? (
+        {wantsSugar(motifForDish(form.nameAr, form.categoryAr || undefined), drinkTemp(form.nameAr, form.categoryAr || undefined, form.kind), groups) ? (
           <Button
             testID="group-add-sugar"
             size="sm"

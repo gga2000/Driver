@@ -137,6 +137,18 @@ describe('merchantAdmin.menu', () => {
     expect(off.onSale).toBe(false);
   });
 
+  it("keeps the owner's ticket kind and the customer labels apart in one column (k4/j6 override)", async () => {
+    const h = await setup();
+    const base = { merchantOrgId: h.orgId, nameAr: 'آيس كريم', priceIqd: 1500 };
+    const item = await h.svc.menuUpsertItem(h.owner, { ...base, labels: ['new'], kind: 'cold_drink' });
+    expect(item).toMatchObject({ labels: ['new'], kind: 'cold_drink' });
+    // A save that names only the labels keeps the kind, and one that names only the kind keeps the labels.
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, labels: ['family'] })).toMatchObject({ labels: ['family'], kind: 'cold_drink' });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, kind: 'sweet' })).toMatchObject({ labels: ['family'], kind: 'sweet' });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, kind: null })).toMatchObject({ labels: ['family'], kind: null });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id })).toMatchObject({ labels: ['family'], kind: null });
+  });
+
   it('replaces photos from uploads, sets modifiers, renames sections and refuses other merchants’ items', async () => {
     const h = await setup();
     const item = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تكة', priceIqd: 6000, categoryAr: 'مشويات' });

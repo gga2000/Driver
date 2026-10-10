@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { PrismaConsoleWatchRepository } from './console-watch.repository.js';
+import { PrismaHandoverRepository } from './handover.repository.js';
 import { PrismaOnCallRepository } from './on-call.repository.js';
 
 const url = process.env['DATABASE_URL'];
@@ -10,6 +11,7 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
   const prisma = new PrismaService(url);
   const repo = new PrismaOnCallRepository(prisma);
   const watch = new PrismaConsoleWatchRepository(prisma);
+  const handovers = new PrismaHandoverRepository(prisma);
   const alerts: string[] = [];
 
   afterAll(async () => {
@@ -21,6 +23,8 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
       .$executeRaw`DELETE FROM "public"."console_presence" WHERE "city_id" = ${CITY}`;
     await prisma.prisma
       .$executeRaw`DELETE FROM "public"."console_watch_alerts" WHERE "city_id" = ${CITY}`;
+    await prisma.prisma
+      .$executeRaw`DELETE FROM "public"."handover_notes" WHERE "city_id" = ${CITY}`;
     await prisma.onModuleDestroy();
   });
 
@@ -195,5 +199,19 @@ describe.skipIf(!url)('on call on Postgres (needs DATABASE_URL)', () => {
 
     expect(await watch.dropBefore(s(61))).toBeGreaterThanOrEqual(2);
     expect(await watch.lastSeen(CITY)).toBeNull();
+  });
+
+  it('keeps the shift handover note and who read it (a second tap is a no-op)', async () => {
+    const t = new Date('2026-10-09T05:00:00Z');
+    const old = await handovers.add({ cityId: CITY, authorId: 'p_noor', body: 'قديمة' }, t);
+    const note = await handovers.add({ cityId: CITY, authorId: 'p_omar', body: 'الطابعة عاطلة' }, new Date(t.getTime() + 60_000));
+    expect((await handovers.latest(CITY, t))?.id).toBe(note.id);
+    expect(await handovers.latest(CITY, new Date(t.getTime() + 120_000))).toBeNull();
+    await handovers.ack(note.id, 'p_ali', t);
+    await handovers.ack(note.id, 'p_ali', t);
+    await handovers.ack(note.id, 'p_omar', t);
+    expect((await handovers.find(note.id))?.ackedBy.sort()).toEqual(['p_ali', 'p_omar']);
+    expect((await handovers.find(old.id))?.ackedBy).toEqual([]);
+    expect(await handovers.find('hnd_missing')).toBeNull();
   });
 });
