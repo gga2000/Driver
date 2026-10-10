@@ -266,6 +266,27 @@ export const DATE_PAIRS: ReadonlyArray<{ fg: ConsoleRole; bg: ConsoleRole; min: 
   { fg: 'on-accent', bg: 'accent', min: 4.5, use: 'brand mark ink' },
 ];
 
+/**
+ * l5: the metrics wall in date brown (dark rooms, the TV): the panel is the date canvas, tiles and the
+ * chart sit one step up on `surface-2`. What it draws, checked against `datePalette` like the sidebar.
+ */
+export const WALL_PAIRS: ReadonlyArray<{ fg: ConsoleRole; bg: ConsoleRole; min: 3 | 4.5; use: string }> = [
+  { fg: 'text', bg: 'canvas', min: 4.5, use: 'title, clock' },
+  { fg: 'muted', bg: 'canvas', min: 4.5, use: 'kicker, updated line' },
+  { fg: 'text', bg: 'surface-2', min: 4.5, use: 'tile title, value, target' },
+  { fg: 'muted', bg: 'surface-2', min: 4.5, use: 'target label, hint, day labels' },
+  { fg: 'ok', bg: 'surface-2', min: 4.5, use: 'trend better than yesterday' },
+  { fg: 'bad', bg: 'surface-2', min: 4.5, use: 'value off target, trend worse' },
+  { fg: 'ok', bg: 'ok-tint', min: 4.5, use: 'on-target pill' },
+  { fg: 'bad', bg: 'bad-tint', min: 4.5, use: 'off-target pill' },
+  { fg: 'muted', bg: 'surface-3', min: 4.5, use: 'pending pill' },
+  { fg: 'ok-solid', bg: 'surface-2', min: 3, use: 'bullet bar, on-target edge' },
+  { fg: 'bad-solid', bg: 'surface-2', min: 3, use: 'bullet bar, off-target edge' },
+  { fg: 'accent', bg: 'surface-2', min: 3, use: "today's bar" },
+  { fg: 'line-strong', bg: 'surface-2', min: 3, use: 'earlier days’ bars' },
+  { fg: 'on-bad', bg: 'bad-solid', min: 4.5, use: 'stale banner' },
+];
+
 function channels(hex: string): string {
   return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(' ');
 }
