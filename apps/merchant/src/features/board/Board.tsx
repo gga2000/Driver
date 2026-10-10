@@ -39,6 +39,8 @@ import { shouldLand } from '@/features/setup/logic';
 import { setupSession, useSetupActions } from '@/features/setup/queries';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { AcceptSheet } from './AcceptSheet';
+import { CancelledCards } from './CancelledCards';
+import { visibleCancelled } from './cancelled';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
@@ -61,7 +63,7 @@ import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
 import { ShiftGate } from './ShiftGate';
 import { shiftGateNeeded, startShift, useShift } from './shift';
-import { useMissedSeen } from './useMissed';
+import { useCancelledSeen, useMissedSeen } from './useMissed';
 import { useTicks } from './useTicks';
 
 const EMPTY_ICON: Record<BoardColumn, MIconName> = { new: 'bell', preparing: 'flame', ready: 'bag' };
@@ -214,6 +216,7 @@ export function Board() {
   const printStore: StorePrint = useMemo(() => ({ orgId: storeId, name: store?.name ?? '', prepKind: status.data?.prepKind }), [storeId, store?.name, status.data?.prepKind]);
   const print = usePrintOrder(printStore);
   const { seen, markSeen } = useMissedSeen();
+  const cancelledSeen = useCancelledSeen();
   const ticks = useTicks();
 
   const [segment, setSegment] = useState<BoardColumn>('new');
@@ -343,6 +346,7 @@ export function Board() {
   const soundOff = !prefs.soundOn || !soundReady;
   const missed = board.data?.missed;
   const missedNew = missed ? unseenMissed(missed.orders, seen) : [];
+  const cancelledCards = visibleCancelled(board.data?.cancelled, cancelledSeen.seen);
   const nudge = missed ? missNudge(missed.orders, seen, now) : false;
   const sheetOpen = acceptId !== null || rejectId !== null || detailId !== null || sheet !== null;
   /** Closing «طلبات فاتتك» counts as «تمام» for the ones it showed (the strip it replaced did the same). */
@@ -746,6 +750,9 @@ export function Board() {
           secondary={{ label: t('merchant.photo_down.ok'), testID: 'photo-down-ok', onPress: () => markPhotoSeen(photoDowns.map((n) => n.key)) }}
         />
       ) : null}
+
+      {/* An accepted order that was cancelled: a red card until tapped, so nobody keeps cooking it. */}
+      <CancelledCards cards={cancelledCards} wide={wide} onDismiss={(id) => cancelledSeen.markSeen([id])} />
 
       {wide ? (dayCard ?? dayLine) : null}
 

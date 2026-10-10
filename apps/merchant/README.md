@@ -161,6 +161,9 @@ keepGate: true })` keeps it for a shot).
 Pre-orders (`scripts/demo/preorder.mjs`): `POST /demo/preorder/place` clears the new column and books a
 pre-order for tomorrow 14:00 (off the board until offered); `POST /demo/preorder/offer?id=…` offers it to
 the kitchen now, as its timer would (it rings with its 90-s countdown). Shots: `SHOTS=preorder`.
+Cancelled after accepting (`scripts/demo/cancelled.mjs`): `POST /demo/cancelled/one?ready=0|1` has the
+customer cancel one of Khalid's cooking (or ready) orders; the board shows it as a red «انلغى، لا تكمل»
+card for 15 minutes, one tap hides it on that device. Shots: `SHOTS=cancelled`.
 
 Shop picks from the server (`docs/api/shop-load.md`, `scripts/demo/shop-load.mjs`, shots `SHOTS=shop-server`):
 `POST /demo/shop/crowd?count=12` accepts 12 more orders (15+ waiting → «زحمة تلقائية», `count=0`
