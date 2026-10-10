@@ -178,10 +178,12 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
   const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
   const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
   const lm = { ...src, 'source-layer': 'landmarks' } as const;
+  // `pool` parts are light on the ground: never solid, drawn see-through at night by their own layer
+  const solidPart = ['!=', ['get', 'part'], 'pool'] as never;
   const landmarkColor = ['match', ['get', 'part'], ...LANDMARK_PARTS.flatMap((k) => [k, p.landmark[k]]), p.landmark.stone] as never;
   if (!rich) {
     // flat screens (Console, cheap phones): the landmark's plan seen from above
-    L.push({ id: 'golden-landmarks', type: 'fill', ...lm, minzoom: 14, paint: { 'fill-color': landmarkColor } });
+    L.push({ id: 'golden-landmarks', type: 'fill', ...lm, minzoom: 14, filter: solidPart, paint: { 'fill-color': landmarkColor } });
   }
   L.push({
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
@@ -226,7 +228,7 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     });
     // the landmarks (main mosque, hospital, garages) stand up before the houses, so they guide the eye from further out
     L.push({
-      id: 'golden-landmarks-3d', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE,
+      id: 'golden-landmarks-3d', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE, filter: solidPart,
       paint: {
         'fill-extrusion-color': landmarkColor,
         'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], LANDMARK_RISE, 0, LANDMARK_RISE + 0.6, ['get', 'hm']] as never,
@@ -234,6 +236,13 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    if (p.windowGlow) {
+      // at night the garages throw warm light on the ground under their fins, hall and kiosk
+      L.push({
+        id: 'golden-landmark-pools', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE + 0.6, filter: ['==', ['get', 'part'], 'pool'] as never,
+        paint: { 'fill-extrusion-color': p.landmark.pool, 'fill-extrusion-base': 0.07, 'fill-extrusion-height': 0.09, 'fill-extrusion-opacity': 0.3 },
+      });
+    }
     L.push({
       id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB', 'dish'),
       paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-opacity': fade(17.5, 0, 17.9, 0.85) },
