@@ -36,6 +36,8 @@ export const GATED_PATHS = [
   [/^(scripts\/ci\/review-gate\.mjs|scripts\/ci\/freeze\.json|\.github\/workflows\/review-gate\.yml)$/, 'the review gate itself'],
   // The e2e ratchet: adding a flow here would let a broken money/sign-in flow pass e2e-postgres.
   [/^scripts\/e2e\/known-failures\.json$/, 'e2e known-failures list'],
+  // The release path: which checks a deploy needs, the order it ships in, the nightly backup.
+  [/^\.github\/workflows\/(deploy|ci|backup)\.yml$/, 'release workflows'],
 ];
 
 /** An added line importing the ledger module (API modules only reach it through its index). */
@@ -43,15 +45,18 @@ const ADDS_LEDGER_IMPORT = /^\+(?!\+\+).*from\s+['"][./]*(?:modules\/)?ledger\/i
 
 /**
  * Changed files that fall under a gated path, with the reason. `patches` (file → unified diff, as the
- * GitHub API returns it) also catches an API file anywhere that starts using the ledger.
+ * GitHub API returns it) also catches an API file anywhere that starts using the ledger. GitHub leaves
+ * the diff out of a very large file; an API file without one cannot be checked, so it is gated.
  */
-export function gatedFiles(files, patches = {}) {
+export function gatedFiles(files, patches) {
   const out = [];
   for (const file of files) {
     const hit = GATED_PATHS.find(([re]) => re.test(file));
     if (hit) out.push({ file, reason: hit[1] });
-    else if (file.startsWith('apps/api/src/') && ADDS_LEDGER_IMPORT.test(patches[file] ?? '')) {
-      out.push({ file, reason: 'starts using the ledger' });
+    else if (patches && file.startsWith('apps/api/src/')) {
+      const patch = patches[file];
+      if (!patch) out.push({ file, reason: 'API file whose diff GitHub left out (too large to check for a ledger import)' });
+      else if (ADDS_LEDGER_IMPORT.test(patch)) out.push({ file, reason: 'starts using the ledger' });
     }
   }
   return out;
@@ -102,7 +107,7 @@ export function freezeViolations(commits, time) {
  * input: { files: string[], patches?: {[file]: diff}, labels: string[], headSha, commits: {sha, message, date}[], prNumber, freezeConfig }
  * returns { ok: boolean, lines: string[] } — lines explain the verdict in plain words.
  */
-export function decide({ files, patches = {}, labels, headSha, commits, prNumber, freezeConfig = {} }) {
+export function decide({ files, patches, labels, headSha, commits, prNumber, freezeConfig = {} }) {
   const lines = [];
   let ok = true;
 
@@ -196,7 +201,8 @@ async function main() {
 
   const { ok, lines } = decide({
     files: files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename])),
-    patches: Object.fromEntries(files.map((f) => [f.filename, f.patch ?? ''])),
+    // A rename's old name carries the same diff, so it is not mistaken for a left-out one.
+    patches: Object.fromEntries(files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean).map((name) => [name, f.patch ?? '']))),
     labels: labels.map((l) => l.name),
     headSha: pr.head.sha,
     commits: commits.map((c) => ({ sha: c.sha, message: c.commit.message, date: c.commit.author?.date ?? c.commit.committer?.date })),

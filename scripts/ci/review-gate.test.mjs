@@ -129,3 +129,19 @@ test('a file anywhere in the API that starts using the ledger needs a review', (
   // Only API source counts.
   assert.deepEqual(gatedFiles(['apps/console/x.ts'], { 'apps/console/x.ts': adds }), []);
 });
+
+test('an API file whose diff GitHub left out (too large) needs a review, since it cannot be read', () => {
+  const big = 'apps/api/src/modules/catalog/catalog.service.ts';
+  assert.equal(gatedFiles([big], { [big]: '' }).length, 1);
+  assert.match(gatedFiles([big], { [big]: '' })[0].reason, /too large/);
+  assert.equal(gatedFiles([big], {}).length, 1);
+  // Outside the API a missing diff changes nothing; without any diffs at all (unit callers) nothing extra.
+  assert.deepEqual(gatedFiles(['apps/console/x.ts'], { 'apps/console/x.ts': '' }), []);
+  assert.deepEqual(gatedFiles([big]), []);
+});
+
+test('the release workflows need a review', () => {
+  const files = ['.github/workflows/deploy.yml', '.github/workflows/ci.yml', '.github/workflows/backup.yml'];
+  assert.equal(gatedFiles(files).length, 3);
+  assert.deepEqual(gatedFiles(['.github/workflows/web-smoke.yml']), []);
+});

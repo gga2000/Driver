@@ -345,6 +345,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
+          # A merge landing in the seconds between this check and the hook call would still be built; accepted.
           main=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
           [ "$main" = "$GITHUB_SHA" ] || {
             echo "::error title=web (Vercel)::${GITHUB_SHA::7} is not the newest commit on main (${main::7}); a deploy hook would build ${main::7}. Tag main's newest commit, or deploy target web from main."
