@@ -13,7 +13,7 @@ import { usePrefs } from '@/lib/prefs';
 import { clock12, secondsLeft } from '@/lib/time';
 import type { AlarmStage } from './ladder';
 import { answerTimeOver, LADDER, stageFor } from './ladder';
-import { useServerSelect, useServerTime } from './clock';
+import { acceptWindow, useServerSelect, useServerTime } from './clock';
 import { PickupCode } from './PickupCode';
 import { Glyph } from '../menu/Glyph';
 import { lineLook, packApart, type LineLook } from './kind';
@@ -471,8 +471,9 @@ export function OrderCard(props: OrderCardProps) {
         <Pressable
           testID={`row-${order.number}`}
           onPress={onExpand ?? onOpen}
-          accessibilityRole="button"
-          accessibilityLabel={t('merchant.board.row_a11y', { number: order.number, count: order.itemCount })}
+          // AXC-02: the row holds its own buttons, so it is not one button for a screen reader; its
+          // number block below is the «open» target instead.
+          accessible={false}
           style={({ pressed }) => ({
             // MER-13: on a narrow column the button goes under the number, never over it.
             flexDirection: narrow && action ? 'column' : 'row',
@@ -488,9 +489,14 @@ export function OrderCard(props: OrderCardProps) {
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], flexGrow: 1, flexShrink: 1 }}>
+          <Pressable
+            onPress={onExpand ?? onOpen}
+            accessibilityRole="button"
+            accessibilityLabel={t('merchant.board.row_a11y', { number: order.number, count: order.itemCount })}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], flexGrow: 1, flexShrink: 1 }}
+          >
             {order.acceptBy && !order.partial && !noRing ? (
-              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - acceptWindow.ms()} durationMs={acceptWindow.ms()} urgentMs={LADDER.finalAtMs} clock={clock} size={40} strokeWidth={4} testID={`ring-${order.number}`} />
             ) : (
               <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.warningTint, alignItems: 'center', justifyContent: 'center' }}>
                 <MIcon name="hourglass" size={18} color="warningText" />
@@ -504,11 +510,11 @@ export function OrderCard(props: OrderCardProps) {
                 {allergy ? <MIcon name="alert" size={18} color="dangerText" strokeWidth={2.4} /> : null}
               </View>
               <Text variant="footnote" color="textMuted" numberOfLines={1}>
-                {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join('، ') + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
+                {dishes.shown.map((d) => `${d.qty}× ${d.name}`).join(t('merchant.list_joiner')) + (dishes.more > 0 ? ` ${t('merchant.card.more_items', { count: dishes.more })}` : '')}
               </Text>
             </View>
             {rowAction ? null : <Icon name="chevron-forward" size={20} color="textMuted" strokeWidth={2} />}
-          </View>
+          </Pressable>
           {action}
         </Pressable>
       </Animated.View>
@@ -523,8 +529,7 @@ export function OrderCard(props: OrderCardProps) {
         <Pressable
           testID={`compact-${order.number}`}
           onPress={onExpand ?? onOpen}
-          accessibilityRole="button"
-          accessibilityLabel={t('merchant.rush.expand_a11y', { number: order.number })}
+          accessible={false}
           style={({ pressed }) => ({
             backgroundColor: COUNTER.paper,
             borderRadius: theme.radius.xl,
@@ -535,9 +540,14 @@ export function OrderCard(props: OrderCardProps) {
             opacity: pressed ? 0.96 : 1,
           })}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+          <Pressable
+            onPress={onExpand ?? onOpen}
+            accessibilityRole="button"
+            accessibilityLabel={t('merchant.rush.expand_a11y', { number: order.number })}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}
+          >
             {order.acceptBy && !order.partial && !noRing ? (
-              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
+              <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - acceptWindow.ms()} durationMs={acceptWindow.ms()} urgentMs={LADDER.finalAtMs} clock={clock} size={48} strokeWidth={5} testID={`ring-${order.number}`} />
             ) : null}
             <View style={{ flex: 1 }}>
               <Text tabular style={[theme.face('display'), { fontSize: 24, lineHeight: 32, color: COUNTER.date }]}>
@@ -548,7 +558,7 @@ export function OrderCard(props: OrderCardProps) {
               </Text>
             </View>
             <Icon name="chevron-down" size={20} color="textMuted" strokeWidth={2} />
-          </View>
+          </Pressable>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             {allergy ? <AllergyPill testID={`allergy-${order.number}`} /> : null}
             <PaymentPill order={order} />
@@ -568,8 +578,8 @@ export function OrderCard(props: OrderCardProps) {
       {ringFrame}
       <Pressable
         onPress={onOpen}
-        accessibilityRole="button"
-        accessibilityLabel={t('merchant.detail.title', { number: order.number })}
+        // AXC-02: the ticket holds its own buttons; the header is the screen reader's «open» button.
+        accessible={false}
         style={({ pressed }) => ({
           // Paper ticket (redesign step 1): cream paper, a torn top edge, square top corners. A late
           // order turns red all over (tint + thick outline), not just its pill.
@@ -596,7 +606,12 @@ export function OrderCard(props: OrderCardProps) {
             in one piece): its block is never narrower than the number, and when the time pill does not
             fit beside it, the pill wraps under it. On a narrow tablet board (three columns under
             1000 px) the number steps down a size. */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', columnGap: theme.space[3], rowGap: theme.space[2] }}>
+        <Pressable
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={t('merchant.detail.title', { number: order.number })}
+          style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', columnGap: theme.space[3], rowGap: theme.space[2] }}
+        >
           <View testID={`card-number-${order.number}`} style={{ flex: 1, minWidth: numberMinWidth(numberLabel, numberType.size), gap: 2 }}>
             <Text variant={tight ? 'amount' : 'numeralSm'} tabular numberOfLines={1} style={[theme.face('display'), { letterSpacing: 0.5, color: COUNTER.date }]}>
               {numberLabel}
@@ -612,11 +627,11 @@ export function OrderCard(props: OrderCardProps) {
             </Text>
           </View>
           {isNew && order.acceptBy && !order.partial && !noRing ? (
-            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
+            <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - acceptWindow.ms()} durationMs={acceptWindow.ms()} urgentMs={LADDER.finalAtMs} clock={clock} size={72} strokeWidth={6} testID={`ring-${order.number}`} />
           ) : (
             timingPill
           )}
-        </View>
+        </Pressable>
         {drain ? <PrepBar fraction={drain.fraction} late={drain.late} testID={`prep-bar-${order.number}`} /> : null}
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
