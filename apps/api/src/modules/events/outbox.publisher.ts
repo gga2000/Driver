@@ -127,6 +127,17 @@ export class OutboxPublisher {
   }
 
   /**
+   * For tests and the simulator: waits out a drain already running (the interval's, or a commit's
+   * poke, which `drainUntilIdle` would return 0 for at once), then drains until nothing is due, so
+   * every row due when it was called has been delivered when it resolves. Never call it from inside a
+   * subscriber: it would wait on the drain running that subscriber.
+   */
+  async drainAll(): Promise<number> {
+    while (this.draining) await this.draining.catch(() => 0);
+    return this.drainUntilIdle();
+  }
+
+  /**
    * Drains until nothing is due. Re-entrant calls (a subscriber's own commit poking while this
    * drain runs) return at once and the running loop picks their rows up; awaiting the running
    * drain from inside it would deadlock.

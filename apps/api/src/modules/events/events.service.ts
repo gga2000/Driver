@@ -151,9 +151,12 @@ export class EventsService {
     }));
   }
 
-  /** Drains everything due now (tests, the simulator, a Console "drain" button). */
+  /**
+   * Drains everything due now (tests, the simulator, a Console "drain" button), waiting for a drain
+   * already running to finish first, so a caller never sees an event its commit wrote still undelivered.
+   */
   drain(): Promise<number> {
-    return this.publisher.drainUntilIdle();
+    return this.publisher.drainAll();
   }
 
   // ───────────────────────── internals ─────────────────────────
