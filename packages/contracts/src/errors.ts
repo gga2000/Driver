@@ -323,6 +323,8 @@ export const ERROR_TABLE = {
   override_reason_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   // ledger (M2 Step 6)
   payout_exceeds_balance: { retryHint: 'never', status: 'CONFLICT' },
+  // finance.payDriver: more than the platform owes him right now
+  payout_exceeds_due: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },

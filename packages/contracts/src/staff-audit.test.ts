@@ -13,6 +13,9 @@ const STAFF: ReadonlySet<RoleKind> = new Set(['admin', 'dispatcher', 'support', 
 
 const AUDITED = [
   'finance.exportSettlement',
+  'finance.payMerchant',
+  'finance.payDriver',
+  'finance.adjust',
   'ops.controls.setSwitch',
   'ops.controls.setScreen',
   'ops.controls.setCapacity',

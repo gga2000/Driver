@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   type ActivityTodayInput,
@@ -41,8 +42,9 @@ import { CatalogService, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDa
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
-import { Accounts, LedgerFacade, LedgerService } from '../ledger/index.js';
+import { Accounts, LedgerFacade, LedgerService, MerchantCashService } from '../ledger/index.js';
 import { MerchantService } from '../merchant/index.js';
+import { OpsService } from '../ops/index.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
@@ -90,6 +92,8 @@ export class MerchantAdminService implements MerchantAdminPort {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() private readonly merchant?: MerchantService,
+    @Optional() private readonly ops?: OpsService,
+    @Optional() private readonly merchantCash?: MerchantCashService,
   ) {}
 
   // ───────────────────────── access ─────────────────────────
@@ -508,6 +512,23 @@ export class MerchantAdminService implements MerchantAdminPort {
       if (d) out.push(d);
     }
     return out.sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+  }
+
+  /**
+   * The restaurant takes its cash from a courier on its own tablet (decisions §3: confirmed by the
+   * tablet, with both sides' confirmation — the owner types what he counted, the courier reads his
+   * daily hand-over code). Never more than that courier holds for it; a mismatch opens an incident and
+   * posts nothing. A retry of the same sheet posts once.
+   */
+  async moneyReceiveCourierCash(actor: Actor, input: { merchantOrgId: string; courierId: string; amountIqd: number; code: string; idempotencyKey: string }): Promise<MerchantCashAccount> {
+    await this.owner(actor, input.merchantOrgId);
+    if (!this.ops || !this.merchantCash) throw new DriverError('forbidden');
+    const handoverId = `mt_${createHash('sha256').update(`${input.merchantOrgId}:${input.idempotencyKey}`).digest('hex').slice(0, 24)}`;
+    if (!(await this.ledger.hasGroup(`handover:${handoverId}`))) {
+      await this.ops.verifyCourierCode(actor, input.courierId, input.code);
+      await this.merchantCash.confirmHandover({ handoverId, courierId: input.courierId, merchantId: input.merchantOrgId, amountIqd: input.amountIqd, merchantConfirmedIqd: input.amountIqd, tabletTap: true });
+    }
+    return this.moneyCash(actor, { merchantOrgId: input.merchantOrgId });
   }
 
   async moneyRespondDispute(actor: Actor, input: { merchantOrgId: string; orderId: string; decision: 'accept_default' | 'contest'; note?: string | undefined; evidenceUploadIds: string[] }): Promise<MerchantDispute> {

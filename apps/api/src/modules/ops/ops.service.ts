@@ -148,7 +148,7 @@ export class OpsService implements OpsPort, OnModuleInit {
       if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return this.receiptView(prior);
       if (prior) throw new DriverError('invalid_input');
     }
-    await this.checkHandoverCode(actor, input.courierId, input.code);
+    await this.verifyCourierCode(actor, input.courierId, input.code);
     // One courier's receipts are serialised (in process, and across instances by an advisory lock in
     // the transaction): the held-cash check, the reference sequence and the posting see each other.
     const receipt = await this.cashLock.run(input.courierId, () => this.uow.run(async (tx) => {
@@ -190,9 +190,10 @@ export class OpsService implements OpsPort, OnModuleInit {
    * The courier's 4-digit daily code is his confirmation of the hand-over; 10,000 values are quick to
    * walk, so after `HANDOVER_CODE_MAX_FAILURES` wrong codes for one courier in a local day the code is
    * locked until local midnight (and ops is alerted). Counted on the shared window counter (Redis
-   * with REDIS_URL), so the limit holds behind several API instances.
+   * with REDIS_URL), so the limit holds behind several API instances. A restaurant taking a courier's
+   * cash on its tablet checks the same code under the same lock (`merchantAdmin.money.receiveCourierCash`).
    */
-  private async checkHandoverCode(actor: Actor, courierId: string, code: string): Promise<void> {
+  async verifyCourierCode(actor: Actor, courierId: string, code: string): Promise<void> {
     const now = this.clock.now();
     const key = `${courierId}:${localDateKey(now)}`;
     // The counter is shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); the

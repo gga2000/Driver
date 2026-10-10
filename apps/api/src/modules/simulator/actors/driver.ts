@@ -449,4 +449,10 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
     d.seq += 1;
     await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: after.owedIqd, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
   }
+  // G-86: once the company owes him more than the payout line, finance pays him (ZainCash).
+  const owedToHim = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
+  if (owedToHim && owedToHim.payoutDueIqd > 0) {
+    d.seq += 1;
+    await ctx.call('finance.pay_driver', () => ctx.s.merchantCash.recordDriverPayout({ driverId: d.personId, amountIqd: owedToHim.payoutDueIqd, channel: 'zaincash', reference: `PO-${d.def.key}-${d.seq}` }));
+  }
 }

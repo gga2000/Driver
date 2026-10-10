@@ -218,3 +218,29 @@ describe('payouts never exceed what the merchant is owed (backend review 2026-10
     expect(h.incidents.opened().map((i) => i.kind)).toEqual(['merchant_handover_discrepancy']);
   });
 });
+
+describe('company → driver payouts (G-86)', () => {
+  it('pays what the platform owes him, never more; a retried reference posts once', async () => {
+    const h = ledgerHarness();
+    // A wallet-paid job: he holds no cash and the platform owes him his fee and tip.
+    await h.ledger.record({ type: 'tip', amount: 30_000, fromAccount: 'customer:c1', toAccount: 'driver:k1', occurredAt: minutes(0), idempotencyKey: 'pay:k1' });
+    await expect(h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 30_250, channel: 'zaincash', reference: 'D-PAY-0' })).rejects.toMatchObject({ code: 'payout_exceeds_due' });
+    expect(await h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-1' })).toBe(10_000);
+    expect(await h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-1' })).toBe(10_000);
+    expect((await h.ledger.balance('driver:k1')).amount).toBe(10_000);
+    // Cash he holds counts against it: with 16,500 of customers' cash in hand the platform owes him nothing.
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(1) }));
+    await expect(h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 1_000, channel: 'zaincash', reference: 'D-PAY-2' })).rejects.toMatchObject({ code: 'payout_exceeds_due' });
+  });
+
+  it('two payouts at once cannot together pay more than is owed', async () => {
+    const h = ledgerHarness();
+    await h.ledger.record({ type: 'tip', amount: 30_000, fromAccount: 'customer:c1', toAccount: 'driver:k1', occurredAt: minutes(0), idempotencyKey: 'pay:k1' });
+    const results = await Promise.allSettled([
+      h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-A' }),
+      h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'bank', reference: 'D-PAY-B' }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await h.ledger.balance('driver:k1')).amount).toBe(10_000);
+  });
+});

@@ -19,6 +19,7 @@ import { ApprovalsService } from './approvals.service.js';
 import { ControlRoomService } from './control-room.service.js';
 import { CASH_ROUND_FROM_HOUR, cashRoundFromHourEnv, FinanceDeskService } from './finance.service.js';
 import { LaunchMetricsService } from './metrics.service.js';
+import { MoneyOutService } from './money-out.service.js';
 
 /**
  * Launch-week control room: the approvals queue, the nightly cash desk and the metrics wall. Owns no
@@ -48,6 +49,7 @@ import { LaunchMetricsService } from './metrics.service.js';
     ApprovalsService,
     FinanceDeskService,
     LaunchMetricsService,
+    MoneyOutService,
     ControlRoomService,
     // Env CASH_ROUND_FROM_HOUR (0–23, default 18): where tonight's round starts counting receipts.
     { provide: CASH_ROUND_FROM_HOUR, useFactory: () => cashRoundFromHourEnv(process.env['CASH_ROUND_FROM_HOUR']) },

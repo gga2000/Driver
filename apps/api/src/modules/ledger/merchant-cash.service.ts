@@ -114,6 +114,8 @@ export class MerchantCashService {
    * every "how much is owed" check sees the movement before it.
    */
   private readonly merchantLock: DistributedKeyedLock;
+  /** One payout to a driver at a time (same as the merchant lock, keyed by the driver). */
+  private readonly driverLock: DistributedKeyedLock;
 
   constructor(
     private readonly ledger: LedgerService,
@@ -125,6 +127,7 @@ export class MerchantCashService {
     @Optional() @Inject(UnitOfWork) private readonly uow?: UnitOfWork,
   ) {
     this.merchantLock = new DistributedKeyedLock(uow, 'ledger.merchant_cash');
+    this.driverLock = new DistributedKeyedLock(uow, 'ledger.driver_payout');
   }
 
   private run<T>(fn: (tx: Tx | undefined) => Promise<T>): Promise<T> {
@@ -371,6 +374,32 @@ export class MerchantCashService {
       await this.ledger.recordAll(postSettlement({ kind: 'driver_settlement', ...input, occurredAt: at }), tx);
       return (await this.ledger.balance(Accounts.cash(input.driverId))).amount;
     });
+  }
+
+  /**
+   * Company → driver payout (G-86): what the platform owes him beyond the cash he holds, paid by
+   * ZainCash, at an agent, by the ops round or bank, under a settlement reference. Never more than it
+   * owes him right now (`payout_exceeds_due`); checked and posted under his lock, so two payouts at
+   * once cannot overpay. A retry of a reference already posted posts nothing. Returns what the
+   * platform still owes him after.
+   */
+  async recordDriverPayout(input: { driverId: string; amountIqd: number; channel: SettlementChannel; reference: string }): Promise<number> {
+    if (input.amountIqd <= 0) throw new DriverError('settlement_nothing_due');
+    const at = this.clock.now();
+    const group = postSettlement({ kind: 'driver_payout', ...input, occurredAt: at });
+    const due = async () => {
+      const [earnings, cash] = await Promise.all([this.ledger.balance(Accounts.driver(input.driverId)), this.ledger.balance(Accounts.cash(input.driverId))]);
+      return earnings.amount + cash.amount;
+    };
+    return this.driverLock.run(input.driverId, (held) =>
+      this.inTx(held, async (tx) => {
+        if ((await this.ledger.eventsForGroups([group.id])).length > 0) return Math.max(0, await due());
+        const before = await due();
+        if (input.amountIqd > before) throw new DriverError('payout_exceeds_due');
+        await this.ledger.recordAll(group, tx);
+        return before - input.amountIqd;
+      }),
+    );
   }
 
   /**
