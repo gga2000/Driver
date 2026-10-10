@@ -1,13 +1,103 @@
-import type { BaseMapProps } from './types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { runOnJS, useAnimatedReaction, useSharedValue } from 'react-native-reanimated';
+import type { CameraRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
+import * as golden from '@driver/map/golden';
+import { MAP_COLORS_LIGHT } from '@driver/map';
+import { useLiteMode } from '@driver/ui';
+import { LIGHT_CHECK_MS } from './golden-setup';
+import { LandmarkLayer } from './LandmarkLayer';
+import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { SvgBase } from './SvgBase';
+import type { BaseMapProps } from './types';
+import { ZoneLayer } from './ZoneLayer';
 
 /**
- * Native base map. TODO(native-map): swap in `@maplibre/maplibre-react-native` (MapView + the
- * `@driver/map` light style, camera from `cam`) once the app ships as a dev-client build — it cannot
- * run in Expo Go or be built offline here. The overlay (courier, route, pins) is renderer-agnostic.
+ * Phones: the Golden hour map through MapLibre Native when the build has it and the map's files are
+ * set up; else (Expo Go, low-data mode, the map failing) the drawn town. The overlay (courier, route,
+ * pins) is drawn by the screen from the same camera values either way.
  */
 export function BaseMap(props: BaseMapProps) {
-  return <SvgBase {...props} />;
+  const [failed, setFailed] = useState(false);
+  const lite = useLiteMode();
+  if (failed || lite || !nativeGolden()) return <SvgBase {...props} />;
+  return <NativeBase {...props} onFail={() => setFailed(true)} />;
 }
 
-export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'svg';
+export const BASE_MAP_KIND: 'svg' | 'maplibre' = nativeGolden() ? 'maplibre' : 'svg';
+
+/**
+ * The camera lives in the shared values (`cam`): when they move (a follow animation, a recentre) the
+ * map jumps to them; while the person drags or pinches the map leads and writes them instead, so the
+ * overlay drawn from the same values stays on the streets.
+ */
+function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onFail }: BaseMapProps & { onFail: () => void }) {
+  const ml = nativeMapLibre()!;
+  const camera = useRef<CameraRef>(null);
+  const driving = useRef(false);
+  const labels = useSharedValue(1);
+  const [light, setLight] = useState(() => golden.resolveLight(alwaysDay ? { light: 'day' } : {}).light);
+  const style = useMemo(() => nativeGoldenStyle(golden, light), [light]);
+  const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
+
+  // The light changes a few times a day; the pin pickers stay on the day map.
+  useEffect(() => {
+    if (alwaysDay) return;
+    const id = setInterval(() => setLight(golden.resolveLight().light), LIGHT_CHECK_MS);
+    return () => clearInterval(id);
+  }, [alwaysDay]);
+
+  const jump = (lng: number, lat: number, zoom: number) => {
+    if (!driving.current) camera.current?.jumpTo({ center: [lng, lat], zoom });
+  };
+  useAnimatedReaction(
+    () => [cam.lng.value, cam.lat.value, cam.zoom.value] as const,
+    (now, before) => {
+      if (before && now[0] === before[0] && now[1] === before[1] && now[2] === before[2]) return;
+      runOnJS(jump)(now[0], now[1], now[2]);
+    },
+  );
+
+  const follow = (e: { nativeEvent: ViewStateChangeEvent }) => {
+    const v = e.nativeEvent;
+    if (!v.userInteraction) return;
+    if (!driving.current) {
+      driving.current = true;
+      labels.value = 0;
+      onUserGestureStart();
+    }
+    cam.lng.value = v.center[0];
+    cam.lat.value = v.center[1];
+    cam.zoom.value = v.zoom;
+  };
+  const settle = (e: { nativeEvent: ViewStateChangeEvent }) => {
+    if (!driving.current) return;
+    driving.current = false;
+    labels.value = 1;
+    const v = e.nativeEvent;
+    onUserCamera({ lng: v.center[0], lat: v.center[1], zoom: v.zoom });
+  };
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
+      <ml.Map
+        style={StyleSheet.absoluteFill}
+        mapStyle={style}
+        attribution={false}
+        logo={false}
+        compass={false}
+        touchRotate={false}
+        touchPitch={false}
+        onRegionIsChanging={follow}
+        onRegionDidChange={settle}
+        onDidFailLoadingMap={onFail}
+      >
+        <ml.Camera ref={camera} initialViewState={{ center: [cam.lng.value, cam.lat.value], zoom: cam.zoom.value }} />
+        <ml.Images images={images} />
+      </ml.Map>
+      {/* Neighbourhood names and landmarks over the tiles and under every pin the screen draws, as on the web. */}
+      <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
+      <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
+    </View>
+  );
+}

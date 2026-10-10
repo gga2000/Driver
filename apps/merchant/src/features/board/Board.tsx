@@ -131,7 +131,7 @@ function CookingTotals({ totals }: { totals: readonly CookingTotal[] }) {
   const t = useT();
   if (totals.length === 0) return null;
   return (
-    <View testID="cooking-totals" accessibilityLabel={t('merchant.board.totals_a11y', { list: totals.map((x) => `${x.qty} ${x.name}`).join('، ') })} style={{ backgroundColor: COUNTER.date, borderRadius: theme.radius.lg, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 6, marginBottom: theme.space[2] }}>
+    <View testID="cooking-totals" accessibilityLabel={t('merchant.board.totals_a11y', { list: totals.map((x) => `${x.qty} ${x.name}`).join(t('merchant.list_joiner')) })} style={{ backgroundColor: COUNTER.date, borderRadius: theme.radius.lg, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 6, marginBottom: theme.space[2] }}>
       <Text variant="caption" weight={700} style={{ color: COUNTER.onDateMuted }}>
         {t('merchant.board.totals_title')}
       </Text>

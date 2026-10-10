@@ -772,8 +772,8 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   /**
-   * The invite link goes out (WhatsApp, outbox `merchant.staff_invite_sent`): the store's name and the
-   * app link, to the invited number. No name read: the notifier resolves the number in the vault.
+   * Records the invite (outbox `merchant.staff_invite_sent`). Nothing is sent to the invited number yet
+   * (no subscriber): the owner tells them to install the app and sign in with that number (NTF2-05).
    */
   private async sendInvite(
     actor: Actor,
