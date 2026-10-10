@@ -17,7 +17,7 @@ import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
 import { InMemorySafetyRepository } from './safety.repository.js';
 import type { OnCallPort } from './on-call.js';
 import { SafetyService } from './safety.service.js';
-import type { SafetySources } from './safety.subjects.js';
+import { requestPassengers, rideRiderOf, type SafetySources } from './safety.subjects.js';
 
 const RIDER: Actor = { personId: 'p_rider', sessionId: 's-rider' };
 const DRIVER: Actor = { personId: 'p_driver', sessionId: 's-driver' };
@@ -83,16 +83,19 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
   const staff = new StaffNames(identity, clock);
   const calls: Array<{ calleeId: string; callerId: string }> = [];
 
-  const order: Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> = {
+  const order: Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> & { riderId: string | null } = {
     id: 'ord_ride_1',
     cityId: 'aziziyah',
     type: 'ride',
     state: 'matched',
     ordererId: RIDER.personId,
+    riderId: null,
     deliveredAt: null,
     closedAt: null,
     cancelledAt: null,
   };
+  // A private-car request (Baghdad/Kut) picked by the driver; `passengerIds` are the others in the car.
+  const request = { id: 'rq_1', riderId: RIDER.personId, cityId: 'aziziyah', state: 'matched', pickedDriverId: DRIVER.personId, passengerIds: [] as string[], from: 'العزيزية', to: 'بغداد', closedAt: null };
   const trip: Pick<Trip, 'id' | 'cityId' | 'vertical' | 'state' | 'courierId' | 'vehicleId' | 'completedAt' | 'cancelledAt' | 'stops'> = {
     id: 'trp_1',
     cityId: 'aziziyah',
@@ -111,7 +114,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
     departure: async () => null,
     riders: async () => [],
     booking: async () => null,
-    request: async () => null,
+    request: async (id) => (id === request.id ? { ...request, passengerIds: [...request.passengerIds] } : null),
     vehicle: async () => ({ plate: '12345 واسط', label: 'تكتك باجاج' }),
     tripFix: async (id) => (id === trip.id ? { lat: 32.8995, lng: 45.0702, at: new Date('2026-10-05T17:59:50Z') } : null),
   };
@@ -142,7 +145,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
     if (ms > 0) clock.advance(ms);
     await queue.drain();
   };
-  return { svc, clock, ev, vault, published, controls, calls, order, trip, raise, deliveries, run, whatsapp, sms, notify };
+  return { svc, clock, ev, vault, published, controls, calls, order, trip, request, raise, deliveries, run, whatsapp, sms, notify };
 }
 
 describe('SafetyService — raising an SOS', () => {
@@ -188,6 +191,43 @@ describe('SafetyService — raising an SOS', () => {
     const c = await h.svc.get(HAIDER, { id: v.incidentId });
     expect(c).toMatchObject({ raiser: { role: 'driver', personId: 'p_driver' }, counterpart: { personId: 'p_rider', role: 'customer' }, lastPosition: { lat: 32.8995, lng: 45.0702, accuracyM: null }, contact: { set: false, status: 'none' } });
     expect(c.timeline.map((e) => e.kind)).toContain('contact');
+  });
+
+  it('the person riding a ride booked for someone else can raise it, on the order and on the trip', async () => {
+    const h = harness();
+    const BOOKER: Actor = { personId: 'p_booker', sessionId: 's-b' };
+    h.order.ordererId = BOOKER.personId;
+    h.order.riderId = RIDER.personId;
+    const byOrder = await h.raise(RIDER, 'rider-press-1');
+    expect(await h.svc.get(HAIDER, { id: byOrder.incidentId })).toMatchObject({ raiser: { role: 'customer', personId: RIDER.personId }, counterpart: { personId: DRIVER.personId, role: 'driver' } });
+    // By the trip (a fresh trip, her open incident aside): she is in the car, so without GPS it starts from the car's last fix.
+    const h2 = harness();
+    h2.order.ordererId = BOOKER.personId;
+    h2.order.riderId = RIDER.personId;
+    const byTrip = await h2.svc.sos(RIDER, { subject: { kind: 'trip', id: h2.trip.id }, position: null, clientId: 'rider-press-2' });
+    expect(await h2.svc.get(HAIDER, { id: byTrip.incidentId })).toMatchObject({ raiser: { role: 'customer' }, counterpart: { personId: DRIVER.personId }, lastPosition: { lat: 32.8995, lng: 45.0702 } });
+    // The booker still can; a stranger still cannot.
+    await expect(h.raise(BOOKER, 'booker-press-1')).resolves.toMatchObject({ state: 'open' });
+    await expect(h.raise(STRANGER, 'stranger-press-1')).rejects.toMatchObject({ code: 'sos_not_party' });
+  });
+
+  it('a friend with a place on a shared private car, or the person fetched for the rider, can raise it on the request', async () => {
+    const h = harness();
+    const FRIEND: Actor = { personId: 'p_friend', sessionId: 's-f' };
+    const subject = { kind: 'request' as const, id: h.request.id };
+    await expect(h.svc.sos(FRIEND, { subject, position: POS, clientId: 'friend-press-1' })).rejects.toMatchObject({ code: 'sos_not_party' });
+    h.request.passengerIds.push(FRIEND.personId);
+    const v = await h.svc.sos(FRIEND, { subject, position: POS, clientId: 'friend-press-2' });
+    expect(await h.svc.get(HAIDER, { id: v.incidentId })).toMatchObject({ raiser: { role: 'customer', personId: FRIEND.personId }, counterpart: { personId: DRIVER.personId, role: 'driver' } });
+    await expect(h.svc.sos(STRANGER, { subject, position: POS, clientId: 'stranger-press-2' })).rejects.toMatchObject({ code: 'sos_not_party' });
+  });
+
+  it('reads the rider of a ride for someone else and the others in a private car from their records', () => {
+    expect(rideRiderOf([{ role: 'orderer', personId: 'p_booker' }, { role: 'rider', personId: RIDER.personId }])).toBe(RIDER.personId);
+    expect(rideRiderOf([{ role: 'orderer', personId: 'p_booker' }])).toBeNull();
+    const share = { members: [{ personId: 'p_joined', state: 'joined' }, { personId: 'p_paid', state: 'paid' }, { personId: 'p_left', state: 'left' }] };
+    expect(requestPassengers({ riderId: RIDER.personId, fetchPersonId: 'p_fetched', share })).toEqual(['p_joined', 'p_paid', 'p_fetched']);
+    expect(requestPassengers({ riderId: RIDER.personId, fetchPersonId: null, share: null })).toEqual([]);
   });
 
   it('refuses a stranger, an unknown trip and a trip that ended long ago', async () => {

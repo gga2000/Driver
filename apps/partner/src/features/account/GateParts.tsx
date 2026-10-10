@@ -8,25 +8,27 @@ import { useT } from '@/lib/i18n';
 import { Glyph } from './Glyph';
 import type { GateKind } from './logic';
 
-const ROUTE: Record<GateKind, '/checkin' | '/documents' | '/paused'> = { paused: '/paused', checkin: '/checkin', locked: '/checkin', document: '/documents' };
+const ROUTE: Record<GateKind, '/checkin' | '/documents' | '/paused'> = { paused: '/paused', checkin: '/checkin', locked: '/checkin', document: '/documents', missing: '/documents' };
 
 const BANNER: Record<GateKind, [MessageKey, MessageKey]> = {
   paused: ['partner.gate_paused_banner', 'partner.gate_paused_banner_sub'],
   checkin: ['partner.gate_checkin_banner', 'partner.gate_checkin_banner_sub'],
   locked: ['partner.gate_locked_banner', 'partner.gate_locked_banner_sub'],
   document: ['partner.gate_doc_banner', 'partner.gate_doc_banner_sub'],
+  missing: ['partner.gate_missing_banner', 'partner.gate_missing_banner_sub'],
 };
 const SWITCH: Record<GateKind, MessageKey> = {
   paused: 'partner.switch_blocked_paused',
   checkin: 'partner.switch_blocked_checkin',
   locked: 'partner.switch_blocked_locked',
   document: 'partner.switch_blocked_doc',
+  missing: 'partner.switch_blocked_missing',
 };
-const GLYPH = { paused: 'alert', checkin: 'face', locked: 'lock', document: 'id-card' } as const;
+const GLYPH = { paused: 'alert', checkin: 'face', locked: 'lock', document: 'id-card', missing: 'id-card' } as const;
 
 /**
- * Home banner while the online gate is closed: "سوّي التسجيل اليومي" (accent), the day's lock-out or an
- * expired document (danger). One tap to the screen that fixes it.
+ * Home banner while the online gate is closed: "سوّي التسجيل اليومي" or papers not complete yet (accent),
+ * the day's lock-out or an expired document (danger). One tap to the screen that fixes it.
  */
 export function GateBanner({ kind }: { kind: GateKind }) {
   const theme = useTheme();

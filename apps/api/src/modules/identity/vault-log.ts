@@ -38,6 +38,7 @@ export const CONSOLE_ORDER_RECIPIENT_PURPOSE = 'console_order_recipient';
 export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'console_names',
   'console_driver_search',
+  'console_order_search',
   'console_staff',
   'document_review',
   'safety_desk',

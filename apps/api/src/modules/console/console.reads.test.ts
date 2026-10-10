@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConsoleNamesInput, DriversListInput, OrderSearchInput } from '@driver/contracts';
+import { ConsoleNamesInput, DriversListInput, OrderSearchInput, orderTicketNumber } from '@driver/contracts';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { FleetService, InMemoryFleetRepository } from '../fleet/index.js';
@@ -11,7 +11,7 @@ import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
 import type { SimulatorService } from '../simulator/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
-import { CONSOLE_DRIVER_SEARCH_PURPOSE, CONSOLE_NAMES_PURPOSE, ConsoleReadService } from './console.reads.js';
+import { CONSOLE_DRIVER_SEARCH_PURPOSE, CONSOLE_NAMES_PURPOSE, CONSOLE_ORDER_SEARCH_PURPOSE, ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
 
 const START = '2026-10-03T09:00:00Z';
@@ -181,7 +181,7 @@ describe('ConsoleReadService', () => {
   it('searchOrders and the event logs come from orders and events; quarantined replays stay marked', async () => {
     const w = await world();
     const placed = await w.o.orders.place('c1', w.o.foodInput());
-    const page = await w.reads.searchOrders(OrderSearchInput.parse({ cityId: 'aziziyah' }));
+    const page = await w.reads.searchOrders(OrderSearchInput.parse({ cityId: 'aziziyah' }), 'p_staff');
     expect(page.rows.map((r) => r.id)).toEqual([placed.id]);
 
     w.ev.events.useTripOrderLookup({ detachedAt: async () => new Date('2026-10-03T08:59:00Z') });
@@ -190,6 +190,68 @@ describe('ConsoleReadService', () => {
     expect(e).toMatchObject({ type: 'stop.completed', aggregate: 'trip', aggregateId: 'trp_9', quarantined: true, quarantineReason: 'late_replay', flagged: false });
     expect((await w.reads.tripEvents('trp_9')).map((x) => x.id)).toEqual([e!.id]);
     expect(await w.reads.orderEvents('unknown')).toEqual([]);
+  });
+
+  it('searchOrders finds a caller by the last 4 phone digits, the whole number or the name (v7), logging what it reads', async () => {
+    const w = await world();
+    await w.id.service.updateProfile({ personId: w.people['cust']!, sessionId: 's' }, { name: 'زينب علي' });
+    await w.id.service.updateProfile({ personId: w.people['busy']!, sessionId: 's' }, { name: 'حيدر كاظم' });
+    const zainab = await w.o.orders.place(w.people['cust']!, w.o.foodInput());
+    const haider = await w.o.orders.place(w.people['busy']!, w.o.foodInput());
+    // Someone whose phone ends in Haider's order number: four digits find both.
+    const ticket = orderTicketNumber(haider.id);
+    const { personId: twin } = await w.id.login(`0771000${ticket}`);
+    const twinOrder = await w.o.orders.place(twin, w.o.foodInput());
+    const find = async (text: string) => (await w.reads.searchOrders(OrderSearchInput.parse({ cityId: 'aziziyah', text }), 'p_staff')).rows.map((r) => r.id).sort();
+    w.id.repo.accessLogs.length = 0;
+
+    expect(await find('0005')).toEqual([zainab.id]);
+    expect(w.id.repo.accessLogs.map((l) => [l.personId, l.accessorId, l.purpose, l.fieldsRead])).toEqual([[w.people['cust'], 'p_staff', CONSOLE_ORDER_SEARCH_PURPOSE, ['phone_e164']]]);
+    expect(await find(ticket)).toEqual([haider.id, twinOrder.id].sort());
+    expect(await find(`#${ticket}`)).toEqual([haider.id]);
+    expect(await find('9999')).toEqual(orderTicketNumber(zainab.id) === '9999' ? [zainab.id] : []);
+
+    // A whole number is a hash lookup: no vault read.
+    w.id.repo.accessLogs.length = 0;
+    expect(await find('0771 234 0005')).toEqual([zainab.id]);
+    expect(await find('0771 234 9999')).toEqual([]);
+    expect(await find('0123 456 7890')).toEqual([]);
+    expect(w.id.repo.accessLogs).toEqual([]);
+
+    // A name matches the display name ("زينب ع."), logged per person found; no match falls back to the note search.
+    expect(await find('زينب')).toEqual([zainab.id]);
+    expect(w.id.repo.accessLogs.map((l) => [l.personId, l.purpose, l.fieldsRead])).toEqual([[w.people['cust'], CONSOLE_ORDER_SEARCH_PURPOSE, ['name']]]);
+    expect(await find('حيدر ك')).toEqual([haider.id]);
+    expect(await find('سجاد')).toEqual([]);
+  });
+
+  it("customerHistory (s5): the customer's last orders and this month's credits, nothing else", async () => {
+    const w = await world();
+    const cust = w.people['cust']!;
+    const placed: Array<{ id: string }> = [];
+    for (let i = 0; i < 6; i += 1) {
+      w.o.clock.advanceMinutes(1);
+      placed.push(await w.o.orders.place(cust, w.o.foodInput()));
+    }
+    await w.o.orders.place('someone_else', w.o.foodInput());
+    const record = (type: 'refund' | 'credit_issued' | 'late_penalty_rider_credit' | 'cash_change_to_wallet', amount: number, at: string, to = `customer:${cust}`) =>
+      w.l.ledger.record({ type, amount, fromAccount: 'platform', toAccount: to, occurredAt: new Date(at), orderId: placed[0]!.id, idempotencyKey: `${type}:${at}:${to}` });
+    await record('late_penalty_rider_credit', 1_000, '2026-10-02T10:00:00Z');
+    await record('refund', 3_500, '2026-10-03T08:00:00Z');
+    await record('credit_issued', 2_000, '2026-09-29T10:00:00Z'); // last month (Baghdad)
+    await record('cash_change_to_wallet', 750, '2026-10-03T08:10:00Z'); // his own change, not a credit
+    await record('refund', 9_000, '2026-10-03T08:20:00Z', 'customer:someone_else');
+
+    const h = await w.reads.customerHistory({ cityId: 'aziziyah', customerId: cust });
+    expect(h.recentOrders.map((o) => o.id)).toEqual(placed.slice(1).reverse().map((o) => o.id));
+    expect(h.credits.from).toEqual(new Date('2026-09-30T21:00:00Z'));
+    expect(h.credits.totalIqd).toBe(4_500);
+    expect(h.credits.lines.map((l) => [l.type, l.amountIqd, l.orderId])).toEqual([
+      ['refund', 3_500, placed[0]!.id],
+      ['late_penalty_rider_credit', 1_000, placed[0]!.id],
+    ]);
+    expect(h.credits.lines.every((l) => l.label_ar.length > 0)).toBe(true);
+    expect(await w.reads.customerHistory({ cityId: 'aziziyah', customerId: 'nobody' })).toEqual({ recentOrders: [], credits: { from: h.credits.from, totalIqd: 0, lines: [] } });
   });
 
   it('rightNow: orders, drivers, time-to-accept, cash in the field and outbox health', async () => {

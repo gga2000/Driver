@@ -430,7 +430,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const orgId = str(p['merchantOrgId']) ?? order?.merchantOrgId ?? null;
       if (!order || !orgId) return [];
       const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
-      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id } }));
+      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
     }
     case 'order.delivered': {
       const order = e.orderId ? await L.order(e.orderId) : null;

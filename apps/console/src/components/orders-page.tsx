@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { AZIZIYAH_ZONES, OrderType as OrderTypeEnum, parseOrderTicket, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
+import { AZIZIYAH_ZONES, classifyOrderQuery, OrderType as OrderTypeEnum, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
 import { formatIqd } from '@/lib/format';
@@ -67,7 +67,9 @@ export function OrdersPage() {
   const [filter, setFilter] = useState<ListFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<ListSort | null>(null);
   const q = useDeferredValue(filter.q);
-  const ticket = parseOrderTicket(q);
+  // An order number, the last 4 phone digits or a whole number ignore the period (v7); a name keeps it.
+  const query = classifyOrderQuery(q);
+  const lookup = query && (query.kind === 'ticket' || query.kind === 'tail' || query.kind === 'phone') ? query : null;
   const set = (patch: Partial<ListFilter>) => setFilter((f) => ({ ...f, ...patch }));
 
   // The view, period and filters live in the link, so a teammate opening it sees the same list.
@@ -105,7 +107,7 @@ export function OrdersPage() {
   };
 
   const dayKey = now.toISOString().slice(0, 13);
-  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(ticket), PAGE), [filter, q, ticket, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(lookup), PAGE), [filter, q, lookup, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const orders = useInfiniteQuery(
     trpc.orders.search.infiniteQueryOptions(input, {
       enabled: signedIn,
@@ -274,7 +276,7 @@ export function OrdersPage() {
                   ),
               }))}
             />
-            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || ORDER_VIEWS[filter.view].now} />
+            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(lookup) || ORDER_VIEWS[filter.view].now} />
           </div>
 
           <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
@@ -282,8 +284,16 @@ export function OrdersPage() {
           </FilterBar>
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">
-            {ticket ? (
-              <p role="status">{t('console.orders_ticket_hint', { ticket: `⁦#${ticket}⁩` })}</p>
+            {lookup ? (
+              <p role="status">
+                {lookup.kind === 'phone'
+                  ? t('console.orders_phone_hint')
+                  : lookup.kind === 'tail'
+                    ? t('console.orders_tail_hint', { tail: `⁦${lookup.tail}⁩` })
+                    : lookup.tail
+                      ? t('console.orders_ticket_tail_hint', { ticket: `⁦#${lookup.ticket}⁩`, tail: `⁦${lookup.tail}⁩` })
+                      : t('console.orders_ticket_hint', { ticket: `⁦#${lookup.ticket}⁩` })}
+              </p>
             ) : (
               <p>
                 <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : filter.view === 'waiting' ? t('console.orders_waiting_now') : rangeWords(filter.period, now)}</span>

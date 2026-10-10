@@ -123,7 +123,9 @@ function RefundDialog({
   const n = Number(amount);
   const valid = Number.isInteger(n) && n >= 250 && n % 250 === 0 && n <= 500_000;
   const over = valid && needsSecondOk(n, lim.availableIqd);
-  const party = method === 'points' ? 'platform' : fault;
+  // The courier or the kitchen pays only once the fault on this order is recorded against them.
+  const canFund = (f: Funder) => f === 'platform' || (method === 'wallet' && !!data.ticket.orderId && data.ticket.faultParty === f);
+  const party = canFund(fault) ? fault : 'platform';
   const chips = refundChips(Number.MAX_SAFE_INTEGER);
   return (
     <Dialog
@@ -248,9 +250,12 @@ function RefundDialog({
               options={FUNDERS.map((f) => ({
                 value: f,
                 label: t(`console.sup_fault_${f}` as MessageKey),
-                disabled: method === 'points' && f !== 'platform',
+                disabled: !canFund(f),
               }))}
             />
+            {method === 'wallet' && FUNDERS.some((f) => !canFund(f)) ? (
+              <p className="mt-1.5 text-xs text-muted">{t('console.sup_funded_needs_fault')}</p>
+            ) : null}
           </div>
         </div>
 

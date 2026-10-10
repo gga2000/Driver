@@ -14,6 +14,9 @@ describe.skipIf(!url)('ledger_events reads by order and by trip (needs DATABASE_
   const plan = (column: 'order_id' | 'trip_id') =>
     prisma.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+      // Once other suites have filled ledger_events the planner may prefer a bitmap scan plus a sort;
+      // what this guards is that the index alone can serve the rows in time order.
+      await tx.$executeRawUnsafe('SET LOCAL enable_bitmapscan = off');
       const rows = await tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
         `EXPLAIN SELECT * FROM "public"."ledger_events" WHERE "${column}" = 'x' ORDER BY "occurred_at"`,
       );

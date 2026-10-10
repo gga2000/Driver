@@ -7,7 +7,12 @@ import {
   type ConsoleNames,
   type ConsoleNamesInput,
   type ConsolePort,
+  classifyOrderQuery,
+  DriverError,
+  type CustomerHistory,
+  type CustomerHistoryInput,
   type DriverPin,
+  type LedgerEventType,
   type DriverPositions,
   type DriverRosterRow,
   type DriversListInput,
@@ -27,6 +32,7 @@ import { TripsService } from '../trips/index.js';
 import { replayMarks, thinPoints, trailPurged } from './replay.js';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { startOfLocalMonth } from '../../shared/local-time.js';
 import { CatalogService } from '../catalog/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { DriverAccountService } from '../driver-account/index.js';
@@ -46,6 +52,12 @@ export const RECENT_FAILED_OUTBOX = 20;
 export const CONSOLE_NAMES_PURPOSE = 'console_names';
 /** Vault-access purpose of the drivers list's name search. */
 export const CONSOLE_DRIVER_SEARCH_PURPOSE = 'console_driver_search';
+/** The support card's last orders (s5). */
+export const CUSTOMER_RECENT_ORDERS = 5;
+/** What the company gave a customer into their wallet (s5): refunds, credits, late-promise and rounding credits. */
+export const CUSTOMER_CREDIT_TYPES: ReadonlySet<LedgerEventType> = new Set(['refund', 'credit_issued', 'late_penalty_rider_credit', 'cash_rounding_credit']);
+/** Vault-access purpose of the orders search by phone tail or customer name (Yes-list v7). */
+export const CONSOLE_ORDER_SEARCH_PURPOSE = 'console_order_search';
 /**
  * A name, tier or documents filter reads the whole roster (a town's drivers, a few hundred at most)
  * and pages the matches in memory; this bounds that read.
@@ -243,8 +255,60 @@ export class ConsoleReadService implements ConsolePort {
 
   // ───────────────────────── orders ─────────────────────────
 
-  searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage> {
-    return this.orders.search(input);
+  /**
+   * Orders history. Support also finds a caller's order the way the caller can say it (v7): the
+   * last four digits of the phone (alongside the order number they also are), the whole number, or
+   * the customer's name. The tail and the name are matched by identity among the window's orderers
+   * (a logged vault read, the staff member as accessor); a whole number is a hash lookup.
+   */
+  async searchOrders(input: z.infer<typeof OrderSearchInput>, accessorId: string): Promise<OrderSearchPage> {
+    const q = input.text ? classifyOrderQuery(input.text) : null;
+    if (!q || q.kind === 'text') return this.orders.search(input);
+    const rest = { ...input, text: undefined };
+    if (q.kind === 'phone') {
+      // Only a number that is not an Iraqi mobile means "no orders"; a real failure stays an error.
+      const personId = await this.identity.personIdByPhone(q.phone).catch((e: unknown) => {
+        if (e instanceof DriverError && e.code === 'phone_invalid') return null;
+        throw e;
+      });
+      return personId ? this.orders.search({ ...rest, ordererIds: [personId] }) : { rows: [], nextCursor: null };
+    }
+    const { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to } = input;
+    const window = { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to };
+    const tail = q.kind === 'ticket' ? q.tail : q.kind === 'tail' ? q.tail : null;
+    const among = q.kind === 'ticket' && !tail ? [] : await this.orders.ordererIdsIn(window, q.kind !== 'name');
+    const hits =
+      q.kind === 'name'
+        ? await this.identity.matchDisplayNames(among, q.name, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+        : tail
+          ? await this.identity.matchPhoneTails(among, tail, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+          : [];
+    if (q.kind === 'ticket') return this.orders.search({ ...input, alsoOrdererIds: hits });
+    if (q.kind === 'tail') return this.orders.search({ ...rest, from: rest.from ?? this.orders.ticketWindowFrom(), ordererIds: hits });
+    // A name nobody matches may still be a word in a note.
+    return hits.length > 0 ? this.orders.search({ ...rest, ordererIds: hits }) : this.orders.search(input);
+  }
+
+  /**
+   * s5: the support card's history of one customer — their last orders (any state, newest first)
+   * and the credits that reached their wallet this month (Baghdad). Pseudonymous: ids and amounts.
+   */
+  async customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory> {
+    const from = startOfLocalMonth(this.clock.now());
+    const account = `customer:${input.customerId}`;
+    const [orders, lines] = await Promise.all([
+      this.orders.search({ cityId: input.cityId, ordererIds: [input.customerId], limit: CUSTOMER_RECENT_ORDERS }),
+      this.ledger.eventsSince(account, from),
+    ]);
+    const credits = lines.filter((e) => e.kind === 'money' && e.toAccount === account && CUSTOMER_CREDIT_TYPES.has(e.type)).reverse();
+    return {
+      recentOrders: orders.rows,
+      credits: {
+        from,
+        totalIqd: credits.reduce((a, e) => a + e.amount, 0),
+        lines: credits.slice(0, CUSTOMER_RECENT_ORDERS).map((e) => ({ id: e.id, at: e.occurredAt, type: e.type, label_ar: ledgerLineLabel(e.type, 'ar-IQ'), amountIqd: e.amount, orderId: e.orderId ?? null })),
+      },
+    };
   }
 
   async orderEvents(orderId: string): Promise<EventLogEntry[]> {
