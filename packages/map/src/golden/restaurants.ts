@@ -15,11 +15,14 @@ import { TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
  * - juice: a small kiosk walled in fruit crates;
  * - restaurant: a big two-storey family restaurant.
  * All share the Iraqi street details: a full-width لافتة in the kind's colour, roller-shutter drums, a dark
- * base, a coloured cornice, off-white tanks on stands, AC boxes, white plastic chairs, a delivery bike.
+ * base, a coloured cornice, off-white tanks on stands, AC boxes, white plastic chairs on terrazzo under
+ * parasols in the shop's colours, a delivery bike. (Ali, 2026-10-10, "a mix of them": these street shops,
+ * with the first look's parasols and bulbs, and light tubes in the shop's colour at night.)
  *
  * Three zoom tiers keep it calm: far away (below z17) a sign pylon in saffron finds the shop among the
  * houses; up close the chairs, bulbs, bike and wares appear. The chosen shop lights up: its interior
- * glows, a fanous hangs from its sign and a pool of light spreads on the street. At night every shop is lit.
+ * glows, light tubes trace its edges, a fanous hangs from its sign and a pool of light spreads on the
+ * street. At night every shop is lit and traced in its tubes.
  *
  * Models are built in metres in a local frame: x runs along the shop front, y goes back from the street
  * (the front is y = 0, the pavement is y < 0), then turned to face the street (`facing`, the compass
@@ -42,10 +45,7 @@ export interface RestaurantSceneOptions {
   /** The sun the map was built for; the shops cast their shadows away from it. */
   sun?: SunPosition;
   selectedId?: string | null;
-  /** 'neon' outlines each shop in light tubes of its colour (concept B). */
-  look?: RestaurantLook;
 }
-export type RestaurantLook = 'street' | 'neon';
 
 /** Restaurants rise a little after the houses, when a shop front is big enough to read. */
 export const RESTAURANT_MINZOOM = 15.6;
@@ -229,6 +229,7 @@ function building({ b, night, r }: Ctx, open: { depth: number; top: number; wind
       const x = -hw + (b.w / n) * (i + 0.5);
       p.push(box(x - 0.7, x + 0.7, y0 - 0.06, y0, 4.9, 6.5, night && r() < 0.35 ? 'windowDark' : 'window'));
       p.push(box(x - 0.85, x + 0.85, y0 - 0.2, y0, 4.78, 4.9, 'wall2'));
+      if (i === n - 1) p.push(box(x + 0.9, x + 1.6, y0 - 0.5, y0, 5.4, 5.95, 'ac'));
     }
   }
   return p;
@@ -271,10 +272,18 @@ function shopFront({ b, lit, r }: Ctx, opts: { glassTo?: number } = {}): Piece[]
   return p;
 }
 
-/** Plastic tables and chairs on the pavement (up close only). */
-function seating(xs: number[], y = -3.4): Piece[] {
+/** Plastic tables and chairs on the pavement, on terrazzo squares, under parasols in the shop's colours (up close only). */
+function seating(xs: number[], y = -3.4, parasols = true): Piece[] {
   const p: Piece[] = [];
   for (const tx of xs) {
+    for (const [dx, dy] of [[-1.1, -1.1], [0, 0], [-1.1, 0], [0, -1.1]] as const) {
+      if ((dx === 0) !== (dy === 0)) continue;
+      p.push(box(tx + dx, tx + dx + 1.1, y + dy, y + dy + 1.1, 0.12, 0.13, 'wall2'));
+    }
+    if (parasols) {
+      p.push(cyl(tx, y, 0.04, 0.7, 2.35, 'steel', 6));
+      p.push(cyl(tx, y, 1.15, 2.2, 2.3, 'awningA', 12), cyl(tx, y, 0.75, 2.3, 2.42, 'awningB', 12), cyl(tx, y, 0.3, 2.42, 2.52, 'awningA', 10));
+    }
     p.push(box(tx - 0.42, tx + 0.42, y - 0.42, y + 0.42, 0.62, 0.7, 'table'), box(tx - 0.36, tx + 0.36, y - 0.36, y + 0.36, 0.12, 0.62, 'table'));
     for (const [dx, dy] of [[0.75, 0], [-0.75, 0], [0, 0.75], [0, -0.75]] as const) {
       const cx = tx + dx, cy = y + dy;
@@ -358,7 +367,7 @@ function grill(c: Ctx): Piece[] {
   p.push(soft(cyl(cx + 0.1, cy + 0.2, 0.45, c.b.h + 4.8, c.b.h + 5.6, 'smoke', 12)));
   p.push(soft(cyl(cx + 0.5, cy + 0.8, 0.75, c.b.h + 6.0, c.b.h + 7.0, 'smoke', 12)));
   p.push(soft(cyl(cx + 1.1, cy + 1.6, 1.05, c.b.h + 7.4, c.b.h + 8.4, 'smoke', 14)));
-  return [...p, ...seating([1.2, 3.4]), ...bulbs(hw, 4.4), ...bike(-hw + 1.6)];
+  return [...p, ...seating([1.2, 3.4], -3.4, false), ...bulbs(hw, 4.4), ...bike(-hw + 1.6)];
 }
 
 function bakery(c: Ctx): Piece[] {
@@ -482,12 +491,12 @@ function restaurant(c: Ctx): Piece[] {
   p.push(box(-2.0, 2.0, -1.2, 0, 4.55, 4.72, 'wall2'), box(-2.0, 2.0, -1.2, -1.12, 5.5, 5.58, 'frame'));
   for (let x = -1.95; x <= 1.96; x += 0.33) p.push(box(x - 0.025, x + 0.025, -1.18, -1.13, 4.72, 5.5, 'frame'));
   for (const x of [-hw + 0.5, hw - 0.5]) p.push(cyl(x, -0.8, 0.32, 0.12, 0.65, 'pot', 10), cyl(x, -0.8, 0.45, 0.65, 1.3, 'plant', 10));
-  return [...p, ...seating([-2.5, 0.5, 3.5]), ...bulbs(hw, 4.4), ...bike(-hw + 1.8)];
+  return [...p, ...seating([-2.6, 0.4, 3.4]), ...bulbs(hw, 4.4), ...bike(-hw + 1.8)];
 }
 
 const KIND_MODEL: Record<RestaurantKind, (c: Ctx) => Piece[]> = { grill, bakery, shawarma, sweets, home, cafe, juice, restaurant };
 
-/** Light tubes along the roof edges, the corners and round the sign. */
+/** Light tubes in the shop's colour along the roof edges, the corners and round the sign: at night, and on the chosen shop. */
 function neon(b: Body, s0: number): Piece[] {
   const hw = b.w / 2, y0 = b.back, y1 = b.back + b.d, z = b.h + 0.9, t = 0.09;
   const p = [
@@ -502,12 +511,12 @@ function neon(b: Body, s0: number): Piece[] {
 }
 
 /** Every piece of one restaurant's model, in local metres. */
-export function restaurantModel(kind: RestaurantKind, opts: { selected?: boolean; night?: boolean; seed?: number; look?: RestaurantLook } = {}): Piece[] {
+export function restaurantModel(kind: RestaurantKind, opts: { selected?: boolean; night?: boolean; seed?: number } = {}): Piece[] {
   const b = BODY[kind];
   const c: Ctx = { b, lit: Boolean(opts.selected || opts.night), night: Boolean(opts.night), r: rng(opts.seed ?? 1) };
   const signZ = kind === 'home' ? 2.9 : kind === 'sweets' ? 7.9 : 4.58;
   const s0 = kind === 'home' ? 0 : kind === 'sweets' ? 6.2 : 3.2;
-  return [...KIND_MODEL[kind](c), ...pylon(b.w / 2), ...(opts.selected ? lantern(b.w / 2, signZ) : []), ...(opts.look === 'neon' ? neon(b, s0) : [])];
+  return [...KIND_MODEL[kind](c), ...pylon(b.w / 2), ...(opts.selected ? lantern(b.w / 2, signZ) : []), ...(opts.night || opts.selected ? neon(b, s0) : [])];
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -583,7 +592,7 @@ export function restaurantScene(list: readonly MapRestaurant[], opts: Restaurant
     const kind = shop.kind ?? 'restaurant';
     const selected = shop.id === opts.selectedId;
     const facing = shop.facing ?? 180;
-    for (const piece of restaurantModel(kind, { selected, night, seed: hash(shop.id), look: opts.look })) {
+    for (const piece of restaurantModel(kind, { selected, night, seed: hash(shop.id) })) {
       const f: Feature<Polygon> = {
         type: 'Feature',
         properties: { id: shop.id, c: restaurantColour(piece.part, kind, light), h: piece.top * SCALE, b: piece.base * SCALE, t: piece.tier ?? 0 },
