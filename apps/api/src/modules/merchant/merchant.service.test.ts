@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import { CUSTOMER_ZONE_MIN_ORDERS, DELIVERY_AREA_CACHE_MS, DriverError, MerchantAcceptInput, SetBusyInput, type RoleKind } from '@driver/contracts';
 import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
@@ -90,6 +90,15 @@ function testArea(): MerchantAreaPort & { zoneReads: number; paused: Set<string>
 }
 
 describe('MerchantService — stores and scope', () => {
+  it('a database that is down stays a retryable error, never «restaurant not found» (DRL-08)', async () => {
+    const { svc, orgs, staff, khalid } = await setup();
+    const spy = vi.spyOn(orgs, 'get').mockRejectedValueOnce(new Error('connection refused'));
+    await expect(svc.board(staff, { merchantOrgId: khalid.id })).rejects.toThrow('connection refused');
+    spy.mockRejectedValueOnce(new DriverError('org_not_found'));
+    expect(await code(svc.board(staff, { merchantOrgId: khalid.id }))).toBe('org_not_found');
+    spy.mockRestore();
+  });
+
   it('lists the restaurants a person works at, owner wins over staff; nothing for a customer', async () => {
     const { svc, staff, owner, khalid, other } = await setup();
     expect(await svc.myStores(staff)).toEqual([{ orgId: khalid.id, name: 'مطعم خالد', type: 'restaurant', cityId: 'aziziyah', role: 'staff' }]);

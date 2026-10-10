@@ -1919,5 +1919,6 @@
   "merchant.item.kind_cold_drink": "مشروب بارد",
   "merchant.item.kind_sweet": "حلو",
   "merchant.push.off_chip": "الإشعارات طافية: ما يرن إذا طلعت",
-  "merchant.push.failed_chip": "الإشعارات ما اشتغلت: اضغط وجرّب"
+  "merchant.push.failed_chip": "الإشعارات ما اشتغلت: اضغط وجرّب",
+  "merchant.stores.ring_note": "صوت الطلبات الجديدة يرن للمحل المفتوح هسة بس. التنبيهات توصل من كل محلاتك، والضغط عليها يفتح محلها."
 }

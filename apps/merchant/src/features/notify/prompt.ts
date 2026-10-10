@@ -29,6 +29,15 @@ export function deepLinkPath(link: unknown, scheme = DEEP_LINK_SCHEME): string |
 }
 
 /**
+ * MER-05: a new-order push names the store it is for. When that is not the store open on this
+ * device (staff working two stores), the tap switches to it first, so the order is on the board.
+ */
+export function storeFromPush(data: { merchantOrgId?: unknown }, current: string | null): string | null {
+  const id = data.merchantOrgId;
+  return typeof id === 'string' && id !== '' && id !== current ? id : null;
+}
+
+/**
  * MER-12: whether this device can ring for a new order with the app closed. `off` = the kitchen said
  * no to notifications; `failed` = allowed but this install has no push token registered. The browser
  * build has no pushes at all, and «undetermined» belongs to the pre-prompt strip: both are `unknown`.

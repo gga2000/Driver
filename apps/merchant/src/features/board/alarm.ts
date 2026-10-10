@@ -179,14 +179,17 @@ export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soun
   clockRef.current = clock;
   candidates = orders ? ringCandidates(orders) : [];
   storeClosed = closed;
+  // PERF-07: the 250-ms tick only runs while a new order is waiting; an empty board draws nothing.
+  const waiting = candidates.length > 0;
   // Re-armed when the store closes or opens: closing silences at once, opening rings straight away.
   useEffect(() => {
     tick(clockRef.current(), soundOn);
+    if (!waiting) return quiet;
     const id = setInterval(() => tick(clockRef.current(), soundOn), ALARM_TICK_MS);
     return () => {
       clearInterval(id);
       quiet();
     };
-  }, [soundOn, closed]);
+  }, [soundOn, closed, waiting]);
   return useAlarmPlan();
 }

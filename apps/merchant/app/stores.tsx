@@ -54,6 +54,14 @@ export default function Stores() {
             </Pressable>
           );
         })}
+        {stores.length > 1 ? (
+          <View testID="stores-ring-note" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingHorizontal: theme.space[2] }}>
+            <MIcon name="bell" size={18} color="textMuted" />
+            <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+              {t('merchant.stores.ring_note')}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Page>
   );
