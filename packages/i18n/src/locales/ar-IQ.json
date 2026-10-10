@@ -2942,7 +2942,7 @@
   "console.sup_mode_note": "ملاحظة داخلية",
   "console.sup_note_placeholder": "ملاحظة للفريق بس، الزبون ما يشوفها",
   "console.sup_canned_btn": "ردود جاهزة",
-  "console.sup_canned_search": "دوّر برد جاهز…",
+  "console.sup_canned_search": "دوّر برد جاهز، أو اضغط رقمه…",
   "console.sup_canned_empty": "ماكو رد جاهز بهالاسم",
   "console.sup_canned_refund": "+ تعويض {amount}",
   "console.sup_canned_action_refund": "+ تعويض",
