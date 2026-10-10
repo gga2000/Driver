@@ -1910,5 +1910,7 @@
   "merchant.insights.sold_out_days": "خلص بـ{count} يوم",
   "merchant.insights.sold_out_days_few": "خلص بـ{count} أيام",
   "merchant.insights.sold_out_at": "عادةً حوالي {time}",
-  "merchant.insights.sold_out_days_one": "خلص بيوم واحد"
+  "merchant.insights.sold_out_days_one": "خلص بيوم واحد",
+  "merchant.push.off_chip": "الإشعارات طافية: ما يرن إذا طلعت",
+  "merchant.push.failed_chip": "الإشعارات ما اشتغلت: اضغط وجرّب"
 }

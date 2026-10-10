@@ -8,7 +8,7 @@ import { COMMANDS, jobBytes, rasterBytes, STRIP_ROWS, toBitmap } from './escpos'
 import { createPrintJournal, JOURNAL_KEEP } from './journal';
 import { buildChangeTicket, buildCupLabels, buildKitchenTicket, buildStationTickets, lineChanges, snapLines } from './kitchen';
 import { paperSpec } from './paper';
-import { autoPrintWhen, planOrderJob } from './plan';
+import { autoPrintWhen, CATCH_UP_MS, catchUpDue, planOrderJob, printsOnScreen } from './plan';
 import { toPlainText } from './plain';
 import { sampleCafeOrder, sampleOrder } from './sample';
 import { DEFAULT_PRINT_SETTINGS, parsePrintSettings } from './settings';
@@ -274,6 +274,28 @@ describe('what one order prints, and when', () => {
     const at = new Date(now + 2 * 3_600_000);
     expect(autoPrintWhen(order({ scheduledFor: at, promisedReadyAt: at, prepMinutes: 25 }), now)).toEqual({ kind: 'at', at: at.getTime() - 25 * 60_000 });
     expect(autoPrintWhen(order({ scheduledFor: new Date(now + 10 * 60_000), promisedReadyAt: null, prepMinutes: 25 }), now)).toEqual({ kind: 'now' });
+  });
+});
+
+describe('the counter printer and devices without one (MER-11)', () => {
+  it('shows the ticket on screen when there is no printer to send to', () => {
+    expect(printsOnScreen({ kind: 'preview', connection: 'connected', name: null })).toBe(true);
+    expect(printsOnScreen({ kind: 'bluetooth', connection: 'not_set_up', name: null })).toBe(true);
+    expect(printsOnScreen({ kind: 'bluetooth', connection: 'disconnected', name: 'XP-80' })).toBe(false);
+    expect(printsOnScreen({ kind: 'bluetooth', connection: 'connected', name: 'XP-80' })).toBe(false);
+  });
+
+  it('prints orders another device accepted, once, when recent and ready to cook', () => {
+    const now = NOW.getTime();
+    const accepted = order({ column: 'preparing', acceptedAt: new Date(now - 60_000) });
+    const ready = { printerReady: true, printedBefore: false };
+    expect(catchUpDue(accepted, now, ready)).toBe(true);
+    expect(catchUpDue(accepted, now, { ...ready, printedBefore: true })).toBe(false);
+    expect(catchUpDue(accepted, now, { ...ready, printerReady: false })).toBe(false);
+    expect(catchUpDue(order({ column: 'preparing', acceptedAt: new Date(now - CATCH_UP_MS - 1) }), now, ready)).toBe(false);
+    expect(catchUpDue(order({ column: 'new', acceptedAt: null }), now, ready)).toBe(false);
+    expect(catchUpDue(order({ column: 'ready', acceptedAt: new Date(now - 60_000) }), now, ready)).toBe(false);
+    expect(catchUpDue(order({ column: 'preparing', acceptedAt: new Date(now - 60_000), partial: { unavailableLineIds: ['s4'], deadline: NOW } }), now, ready)).toBe(false);
   });
 });
 

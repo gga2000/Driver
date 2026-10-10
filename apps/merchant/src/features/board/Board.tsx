@@ -21,7 +21,7 @@ import { prefs as prefsStore, usePrefs } from '@/lib/prefs';
 import { useSession } from '@/lib/session';
 import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
-import { usePushPrompt } from '@/features/notify/Push';
+import { fixPush, usePushHealth, usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
 import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, usePrintOrder, type StorePrint } from '@/features/print/runtime';
 import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
@@ -349,6 +349,7 @@ export function Board() {
     setSheet(null);
   };
   const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
+  const pushHealth = usePushHealth();
   // a7: a new order starts ringing → the sheets that only show things step aside (missed orders, the
   // cash, the phone's "…", the details of an order that isn't new), so nothing hides the ribbon. The
   // accept / reject sheets, and busy / close (decisions about the rush itself), stay.
@@ -619,6 +620,10 @@ export function Board() {
   // d04: the header's one alarm slot takes the first of these (most urgent first); the rest, the missed
   // orders and the printer wait in «…» with a dot.
   const alertList: (HeaderAlert | null)[] = [
+    // MER-12: a device that can't ring with the app closed says so until it's fixed.
+    !gateOpen && (pushHealth === 'off' || pushHealth === 'failed')
+      ? { key: 'push', testID: 'push-off-chip', icon: 'bell', tone: 'danger', dot: true, label: t(pushHealth === 'off' ? 'merchant.push.off_chip' : 'merchant.push.failed_chip'), onPress: fixPush }
+      : null,
     !gateOpen && soundOff ? { key: 'sound', testID: 'sound-off-chip', icon: 'volume-off', tone: 'danger', dot: true, label: t('merchant.sound.off_chip'), onPress: () => void soundOn() } : null,
     inSetup && setupLine ? { key: 'setup', testID: 'setup-chip', icon: 'store', tone: 'warning', label: t('merchant.setup.header_chip', { percent: setupLine.percent }), onPress: () => router.push(canSeeMoney ? '/setup' : '/more') } : null,
     // S-M4 on a phone: a courier at the pass is seen from any tab of the board, in the bar (o3).

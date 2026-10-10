@@ -1910,5 +1910,7 @@
   "merchant.insights.sold_out_days": "Ran out on {count} days",
   "merchant.insights.sold_out_days_few": "Ran out on {count} days",
   "merchant.insights.sold_out_at": "Usually around {time}",
-  "merchant.insights.sold_out_days_one": "Ran out on 1 day"
+  "merchant.insights.sold_out_days_one": "Ran out on 1 day",
+  "merchant.push.off_chip": "Notifications off: no ring outside the app",
+  "merchant.push.failed_chip": "Notifications not working: tap to retry"
 }
