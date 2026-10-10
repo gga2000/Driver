@@ -5,7 +5,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-na
 import { longRideForHotFood } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
 import type { ThemeColorKey } from '@driver/design-tokens';
-import { Button, CornerFill, Icon, PhotoImage, Skeleton, stageOf, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
+import { Button, Chip, CornerFill, Icon, PhotoImage, Skeleton, stageOf, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import { DealSticker } from '@/features/food/DealBadge';
 import { FoodArt, kitchenLook, motifForKitchen, type Motif } from '@/features/food/FoodArt';
 import { LongRide } from '@/features/food/RestaurantRow';
@@ -37,6 +37,7 @@ export function KitchenRows({
   kitchens,
   count,
   showing = [],
+  onMap,
   testID = 'rail-open',
 }: {
   title: string;
@@ -44,6 +45,8 @@ export function KitchenRows({
   count: string;
   /** The stand-in photos' kinds already on the page (the hour's dishes): rows pick others. */
   showing?: readonly Motif[];
+  /** «الخريطة»: the town's restaurants on the map (Ali 2026-10-10: "add it"); hidden where there is no map. */
+  onMap?: () => void;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -68,11 +71,14 @@ export function KitchenRows({
         <Text variant="section" face="display" accessibilityRole="header">
           {title}
         </Text>
-        {fee !== null ? (
-          <Text testID={`${testID}-fee`} variant="footnote" color="textMuted" tabular>
-            {fee <= 0 ? t('home.fee_all_free') : t('home.fee_all', { amount: amountParam(fee) })}
-          </Text>
-        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+          {fee !== null ? (
+            <Text testID={`${testID}-fee`} variant="footnote" color="textMuted" tabular>
+              {fee <= 0 ? t('home.fee_all_free') : t('home.fee_all', { amount: amountParam(fee) })}
+            </Text>
+          ) : null}
+          {onMap ? <Chip label={t('restaurant_map.open_map')} icon="map-pin" role="button" onPress={onMap} testID={`${testID}-map`} /> : null}
+        </View>
       </View>
       <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }}>
         {shown.map((r, i) => (
