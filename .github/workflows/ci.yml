@@ -10,9 +10,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push cancels an older run on a PR branch, never on main: every main commit keeps a finished
+# ci / e2e-postgres result, which the Deploy workflow requires before it ships that commit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read

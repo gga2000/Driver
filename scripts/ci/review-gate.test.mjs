@@ -98,3 +98,50 @@ test('the label wins over freeze.json, and a bad or missing time fails', () => {
 test('without the freeze label, commits are not checked', () => {
   assert.equal(decide({ ...base, commits: [commit('feat: anything', after)], freezeConfig: { 42: FREEZE } }).ok, true);
 });
+
+test('the money rules and the other modules that move money need a review', () => {
+  const gated = [
+    'packages/contracts/src/ledger-rules.ts',
+    'apps/api/src/modules/support/support.service.ts',
+    'apps/api/src/modules/ops/ops.service.ts',
+    'apps/api/src/modules/control-room/x.ts',
+    'apps/api/src/modules/tracking/late-promise.ts',
+    'apps/api/src/modules/merchant-admin/money.ts',
+    'apps/api/src/modules/pricing/x.ts',
+    'apps/api/src/modules/khat/x.ts',
+    'apps/api/src/modules/driver-account/x.ts',
+  ];
+  assert.equal(gatedFiles(gated).length, gated.length);
+  assert.deepEqual(gatedFiles(['packages/contracts/src/ledger-io.ts', 'apps/api/src/modules/pricingx/x.ts']), []);
+});
+
+test('a file anywhere in the API that starts using the ledger needs a review', () => {
+  const file = 'apps/api/src/modules/catalog/catalog.service.ts';
+  const adds = "@@ -1,3 +1,4 @@\n import { Injectable } from '@nestjs/common';\n+import { LedgerService } from '../ledger/index.js';\n";
+  const hit = gatedFiles([file], { [file]: adds });
+  assert.equal(hit.length, 1);
+  assert.match(hit[0].reason, /ledger/);
+  assert.equal(decide({ ...base, files: [file], patches: { [file]: adds } }).ok, false);
+  // Removing the import, or an unrelated change, does not.
+  const removes = "@@ -1,4 +1,3 @@\n-import { LedgerService } from '../ledger/index.js';\n";
+  assert.deepEqual(gatedFiles([file], { [file]: removes }), []);
+  assert.deepEqual(gatedFiles([file], { [file]: "+import { x } from '../zones/index.js';\n" }), []);
+  // Only API source counts.
+  assert.deepEqual(gatedFiles(['apps/console/x.ts'], { 'apps/console/x.ts': adds }), []);
+});
+
+test('an API file whose diff GitHub left out (too large) needs a review, since it cannot be read', () => {
+  const big = 'apps/api/src/modules/catalog/catalog.service.ts';
+  assert.equal(gatedFiles([big], { [big]: '' }).length, 1);
+  assert.match(gatedFiles([big], { [big]: '' })[0].reason, /too large/);
+  assert.equal(gatedFiles([big], {}).length, 1);
+  // Outside the API a missing diff changes nothing; without any diffs at all (unit callers) nothing extra.
+  assert.deepEqual(gatedFiles(['apps/console/x.ts'], { 'apps/console/x.ts': '' }), []);
+  assert.deepEqual(gatedFiles([big]), []);
+});
+
+test('the release workflows need a review', () => {
+  const files = ['.github/workflows/deploy.yml', '.github/workflows/ci.yml', '.github/workflows/backup.yml'];
+  assert.equal(gatedFiles(files).length, 3);
+  assert.deepEqual(gatedFiles(['.github/workflows/web-smoke.yml']), []);
+});

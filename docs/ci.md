@@ -259,8 +259,12 @@ A third required check, in its own workflow (`.github/workflows/review-gate.yml`
 `scripts/ci/review-gate.mjs`). Every thread pushes as the same GitHub user, so GitHub's own "approving
 review" can never come from a different person; this label stands in for it.
 
-- A PR that changes money modules (`apps/api/src/modules/{ledger,orders,routes,topups,referrals}`),
-  sign-in (`modules/identity`), any migration, `schema.prisma`, `modules/notify/providers` or
+- A PR that changes money modules (`apps/api/src/modules/{ledger,orders,routes,topups,referrals}`), the
+  money rules (`packages/contracts/src/ledger-rules.ts`), the modules that pay out, credit or price
+  (`modules/{support,ops,control-room,tracking,merchant-admin,pricing,khat,driver-account}`), any API
+  file whose diff adds an import of the ledger module (`ledger/index`; an API file whose diff GitHub
+  leaves out, because it is very large or a pure rename, is gated too), the release workflows
+  (`deploy.yml`, `ci.yml`, `backup.yml`), sign-in (`modules/identity`), any migration, `schema.prisma`, `modules/notify/providers` or
   `src/trpc/trpc.module.ts`, `scripts/e2e/known-failures.json` (or the gate's own files) needs a label **`reviewed:<head sha>`**: the full
   commit id of the PR's current head, or its first 7 or more characters.
 - **Only the reviewer thread sets that label**, after reviewing that exact commit; the author never

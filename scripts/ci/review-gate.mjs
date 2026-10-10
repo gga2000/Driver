@@ -2,7 +2,8 @@
 // review-gate: the required check that stands in for GitHub's "approving review" (every thread pushes
 // as the same GitHub user, so that rule could never be met). Plan §3.2 items 2–3; docs/ci.md.
 //
-// 1. A PR touching money, sign-in, vault, migrations, notify providers or trpc.module.ts passes only
+// 1. A PR touching money (the money rules, the modules that move money, or any API file that starts
+//    using the ledger), sign-in, vault, migrations, notify providers or trpc.module.ts passes only
 //    with a label `reviewed:<sha>` naming its CURRENT head commit (full sha, or a 7+ character
 //    prefix). Only the reviewer thread sets it, so a new push needs a new review.
 // 2. A PR labelled `freeze` passes only if every commit authored after the freeze time starts with
@@ -22,6 +23,10 @@ import { fileURLToPath } from 'node:url';
 /** Paths that need an independent review. Each entry: [regex, plain-words description]. */
 export const GATED_PATHS = [
   [/^apps\/api\/src\/modules\/(ledger|orders|routes|topups|referrals)\//, 'money modules'],
+  [/^packages\/contracts\/src\/ledger-rules\.ts$/, 'money rules'],
+  // Modules that pay out, refund, credit or price: support credits, ops cash, control-room actions, the
+  // late-promise credit, merchant payouts, pricing, khat subscriptions, driver earnings.
+  [/^apps\/api\/src\/modules\/(support|ops|control-room|tracking|merchant-admin|pricing|khat|driver-account)\//, 'modules that move money'],
   [/^apps\/api\/src\/modules\/identity\//, 'sign-in (identity module)'],
   [/^packages\/db\/prisma\/migrations\//, 'database migrations'],
   [/^packages\/db\/prisma\/schema\.prisma$/, 'database schema (vault and money)'],
@@ -31,14 +36,28 @@ export const GATED_PATHS = [
   [/^(scripts\/ci\/review-gate\.mjs|scripts\/ci\/freeze\.json|\.github\/workflows\/review-gate\.yml)$/, 'the review gate itself'],
   // The e2e ratchet: adding a flow here would let a broken money/sign-in flow pass e2e-postgres.
   [/^scripts\/e2e\/known-failures\.json$/, 'e2e known-failures list'],
+  // The release path: which checks a deploy needs, the order it ships in, the nightly backup.
+  [/^\.github\/workflows\/(deploy|ci|backup)\.yml$/, 'release workflows'],
 ];
 
-/** Changed files that fall under a gated path, with the reason. */
-export function gatedFiles(files) {
+/** An added line importing the ledger module (API modules only reach it through its index). */
+const ADDS_LEDGER_IMPORT = /^\+(?!\+\+).*from\s+['"][./]*(?:modules\/)?ledger\/index(?:\.js)?['"]/m;
+
+/**
+ * Changed files that fall under a gated path, with the reason. `patches` (file → unified diff, as the
+ * GitHub API returns it) also catches an API file anywhere that starts using the ledger. GitHub leaves
+ * the diff out of a very large file; an API file without one cannot be checked, so it is gated.
+ */
+export function gatedFiles(files, patches) {
   const out = [];
   for (const file of files) {
     const hit = GATED_PATHS.find(([re]) => re.test(file));
     if (hit) out.push({ file, reason: hit[1] });
+    else if (patches && file.startsWith('apps/api/src/')) {
+      const patch = patches[file];
+      if (!patch) out.push({ file, reason: 'API file whose diff GitHub left out (too large to check for a ledger import)' });
+      else if (ADDS_LEDGER_IMPORT.test(patch)) out.push({ file, reason: 'starts using the ledger' });
+    }
   }
   return out;
 }
@@ -85,14 +104,14 @@ export function freezeViolations(commits, time) {
 
 /**
  * The whole decision.
- * input: { files: string[], labels: string[], headSha, commits: {sha, message, date}[], prNumber, freezeConfig }
+ * input: { files: string[], patches?: {[file]: diff}, labels: string[], headSha, commits: {sha, message, date}[], prNumber, freezeConfig }
  * returns { ok: boolean, lines: string[] } — lines explain the verdict in plain words.
  */
-export function decide({ files, labels, headSha, commits, prNumber, freezeConfig = {} }) {
+export function decide({ files, patches, labels, headSha, commits, prNumber, freezeConfig = {} }) {
   const lines = [];
   let ok = true;
 
-  const gated = gatedFiles(files);
+  const gated = gatedFiles(files, patches);
   if (gated.length === 0) {
     lines.push('Review: no money, sign-in, vault, migration, notify-provider or trpc.module.ts file changed; no review label needed.');
   } else if (hasReviewLabel(labels, headSha)) {
@@ -182,6 +201,8 @@ async function main() {
 
   const { ok, lines } = decide({
     files: files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename])),
+    // A rename's old name carries the same diff, so it is not mistaken for a left-out one.
+    patches: Object.fromEntries(files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean).map((name) => [name, f.patch ?? '']))),
     labels: labels.map((l) => l.name),
     headSha: pr.head.sha,
     commits: commits.map((c) => ({ sha: c.sha, message: c.commit.message, date: c.commit.author?.date ?? c.commit.committer?.date })),

@@ -4,15 +4,19 @@
 # A tag always deploys production. By hand you pick the GitHub environment: `production` or `staging`
 # (docs/deploy/staging.md). Each environment holds its own secrets and variables below, so staging has
 # its own database, Fly apps and Pages projects and can never touch production's.
-# Order: migrate the database (DIRECT_URL) → deploy the API to Fly → smoke it → deploy the Console and
-# the web apps. Every part checks its own secrets first and SKIPS (green, with a notice) when they are
-# not configured yet, so this workflow is safe to merge before any account exists.
+# Order: the commit's ci and e2e-postgres checks must have passed → migrate the database (DIRECT_URL) →
+# deploy the API to Fly → smoke it → deploy the Console and the web apps. The websites never ship ahead of
+# the API: the Vercel projects do not deploy on a push to main (vercel.json), only from here.
+# Every part checks its own secrets first and SKIPS (green, with a notice) when they are not configured
+# yet, so this workflow is safe to merge before any account exists.
 #
 # Secrets (Settings → Secrets and variables → Actions → Secrets):
 #   DIRECT_URL              Supabase direct / session connection string (migrations) — docs/deploy/supabase.md
 #   DATABASE_CA_CERT        optional: Supabase's CA certificate (PEM) to verify TLS
 #   FLY_API_TOKEN           `flyctl tokens create deploy -a driver-api` (and console) — docs/deploy/hosting.md
 #   CLOUDFLARE_API_TOKEN    Pages "Edit" token; CLOUDFLARE_ACCOUNT_ID — docs/deploy/web.md
+#   VERCEL_DEPLOY_HOOK_CUSTOMER / VERCEL_DEPLOY_HOOK_MERCHANT   each Vercel project's deploy hook for the
+#                           branch main (unset: that site is skipped) — docs/deploy/vercel.md
 # Variables (same page → Variables; not secret):
 #   API_PUBLIC_URL          e.g. https://driver-api.fly.dev/trpc (what the web apps and the Console call)
 #   FLY_API_APP             default driver-api;  FLY_CONSOLE_APP  e.g. driver-console (unset: no Console deploy)
@@ -39,6 +43,10 @@ on:
         description: Skip database migrations (only when you know none are pending)
         type: boolean
         default: false
+      urgent:
+        description: Urgent fix — deploy even though ci / e2e-postgres did not pass on this commit (written to the run summary)
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-${{ inputs.environment || 'production' }}
@@ -56,8 +64,56 @@ defaults:
     shell: bash
 
 jobs:
+  # Only a commit that passed the two required checks ships. Main's CI is never cancelled by a newer push
+  # (ci.yml), so every main commit has a finished result; a run still going means "wait, then re-run".
+  checks:
+    name: checks (ci and e2e-postgres passed on this commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Urgent deploy (checks not required)
+        if: ${{ inputs.urgent }}
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "::warning title=Deploy::urgent — ${GITHUB_SHA::7} ships without requiring ci and e2e-postgres"
+          echo "### Urgent deploy: ${GITHUB_SHA::7} shipped without requiring ci and e2e-postgres (run by $ACTOR)" >> "$GITHUB_STEP_SUMMARY"
+      - name: ci and e2e-postgres succeeded on this exact commit
+        if: ${{ !inputs.urgent }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate \
+            --jq '.check_runs[] | {name, status, conclusion, started_at}')
+          bad=()
+          for name in ci e2e-postgres; do
+            # A re-run adds a new check run: the newest one counts.
+            latest=$(echo "$runs" | jq -rs --arg n "$name" \
+              '[.[] | select(.name == $n)] | sort_by(.started_at) | last | if . == null then "missing" else "\(.status)/\(.conclusion // "")" end')
+            case "$latest" in
+              completed/success) echo "$name: success" ;;
+              missing) bad+=("$name has no run on this commit") ;;
+              completed/*) bad+=("$name ${latest#completed/}") ;;
+              *) bad+=("$name is still running") ;;
+            esac
+          done
+          {
+            echo "### Required checks on ${SHA::7}"
+            if [ ${#bad[@]} -eq 0 ]; then echo "ci and e2e-postgres passed."; else printf -- '- %s\n' "${bad[@]}"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ ${#bad[@]} -gt 0 ]; then
+            echo "::error title=Deploy refused::${SHA::7}: ${bad[*]}. Deploy a commit whose CI is green (or wait and re-run); an urgent fix: Run workflow with 'urgent' (docs/deploy/runbook.md)."
+            exit 1
+          fi
+
   plan:
     name: plan (which parts are configured)
+    needs: checks
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'production' }}
     outputs:
@@ -65,6 +121,7 @@ jobs:
       api: ${{ steps.p.outputs.api }}
       web: ${{ steps.p.outputs.web }}
       console: ${{ steps.p.outputs.console }}
+      vercel: ${{ steps.p.outputs.vercel }}
       migrate: ${{ steps.p.outputs.migrate }}
     steps:
       # GitHub falls back to repository-level secrets and variables when an environment lacks one, so a
@@ -95,17 +152,19 @@ jobs:
           HAS_DB: ${{ secrets.DIRECT_URL != '' }}
           HAS_FLY: ${{ secrets.FLY_API_TOKEN != '' }}
           HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          HAS_VERCEL: ${{ secrets.VERCEL_DEPLOY_HOOK_CUSTOMER != '' || secrets.VERCEL_DEPLOY_HOOK_MERCHANT != '' }}
           API_URL: ${{ vars.API_PUBLIC_URL }}
           CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
         run: |
           want() { [ "$TARGET" = all ] || [ "$TARGET" = "$1" ]; }
-          migrate=false; api=false; web=false; console=false
+          migrate=false; api=false; web=false; vercel=false; console=false
           if [ "$HAS_DB" = true ] && [ "$SKIP_MIGRATE" != true ] && { want api || [ "$TARGET" = migrate-only ]; }; then migrate=true; fi
           if [ "$HAS_FLY" = true ] && want api; then api=true; fi
           if [ "$HAS_CF" = true ] && [ -n "$API_URL" ] && want web; then web=true; fi
+          if [ "$HAS_VERCEL" = true ] && want web; then vercel=true; fi
           if [ "$HAS_FLY" = true ] && [ -n "$CONSOLE_APP" ] && [ -n "$API_URL" ] && want console; then console=true; fi
           {
-            echo "db=$HAS_DB"; echo "migrate=$migrate"; echo "api=$api"; echo "web=$web"; echo "console=$console"
+            echo "db=$HAS_DB"; echo "migrate=$migrate"; echo "api=$api"; echo "web=$web"; echo "vercel=$vercel"; echo "console=$console"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Deploy plan (${{ inputs.environment || 'production' }}, target: $TARGET)"
@@ -114,9 +173,10 @@ jobs:
             echo "| migrate database | $migrate | $([ "$HAS_DB" = true ] || echo 'secret DIRECT_URL not set')$([ "$SKIP_MIGRATE" = true ] && echo 'skip_migrate chosen') |"
             echo "| API (Fly) | $api | $([ "$HAS_FLY" = true ] || echo 'secret FLY_API_TOKEN not set') |"
             echo "| web apps (Cloudflare Pages) | $web | $([ "$HAS_CF" = true ] || echo 'CLOUDFLARE_* secrets not set') $([ -n "$API_URL" ] || echo 'variable API_PUBLIC_URL not set') |"
+            echo "| web apps (Vercel deploy hooks) | $vercel | $([ "$HAS_VERCEL" = true ] || echo 'VERCEL_DEPLOY_HOOK_* secrets not set') |"
             echo "| Console (Fly) | $console | $([ -n "$CONSOLE_APP" ] || echo 'variable FLY_CONSOLE_APP not set') |"
           } >> "$GITHUB_STEP_SUMMARY"
-          [ "$HAS_DB$HAS_FLY$HAS_CF" = falsefalsefalse ] && echo "::notice title=Deploy::Nothing is configured yet — every part skipped (docs/deploy/runbook.md)." || true
+          [ "$HAS_DB$HAS_FLY$HAS_CF$HAS_VERCEL" = falsefalsefalsefalse ] && echo "::notice title=Deploy::Nothing is configured yet — every part skipped (docs/deploy/runbook.md)." || true
 
   migrate:
     name: migrate database (prisma migrate deploy + harden + verify)
@@ -157,7 +217,7 @@ jobs:
       APP: ${{ vars.FLY_API_APP || 'driver-api' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
       - name: Build the image (Fly remote builder) and deploy blue-green
         run: |
           flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --app "$APP" \
@@ -184,7 +244,8 @@ jobs:
   console:
     name: deploy Console (Fly)
     needs: [plan, api]
-    if: ${{ !cancelled() && needs.plan.outputs.console == 'true' && needs.api.result != 'failure' }}
+    # After the API: only when it deployed and passed its smoke, or when this run does not deploy it.
+    if: ${{ !cancelled() && needs.plan.outputs.console == 'true' && (needs.api.result == 'success' || (needs.api.result == 'skipped' && needs.plan.outputs.api != 'true')) }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
@@ -192,7 +253,7 @@ jobs:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
       - run: |
           flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
             --app "${{ vars.FLY_CONSOLE_APP }}" --remote-only \
@@ -209,7 +270,8 @@ jobs:
   web:
     name: deploy web (${{ matrix.app }})
     needs: [plan, api]
-    if: ${{ !cancelled() && needs.plan.outputs.web == 'true' && needs.api.result != 'failure' }}
+    # After the API: only when it deployed and passed its smoke, or when this run does not deploy it.
+    if: ${{ !cancelled() && needs.plan.outputs.web == 'true' && (needs.api.result == 'success' || (needs.api.result == 'skipped' && needs.plan.outputs.api != 'true')) }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
@@ -258,8 +320,42 @@ jobs:
         run: node scripts/deploy/prepare-web.mjs apps/${{ matrix.app }}/dist-web --api-url "$EXPO_PUBLIC_API_URL"
       - name: Upload to Cloudflare Pages
         if: env.PROJECT != ''
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy apps/${{ matrix.app }}/dist-web --project-name=${{ env.PROJECT }} --branch=main --commit-dirty=true
+
+  # The customer and restaurant websites on Vercel (docs/deploy/vercel.md). Their projects do not deploy on
+  # a push (vercel.json): this job asks Vercel to build them, after the API passed its smoke. A deploy hook
+  # builds the newest commit of main, so the job refuses any other commit rather than ship the wrong one.
+  web-vercel:
+    name: deploy web (Vercel)
+    needs: [plan, api]
+    if: ${{ !cancelled() && needs.plan.outputs.vercel == 'true' && (needs.api.result == 'success' || (needs.api.result == 'skipped' && needs.plan.outputs.api != 'true')) }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    timeout-minutes: 5
+    env:
+      HOOK_CUSTOMER: ${{ secrets.VERCEL_DEPLOY_HOOK_CUSTOMER }}
+      HOOK_MERCHANT: ${{ secrets.VERCEL_DEPLOY_HOOK_MERCHANT }}
+    steps:
+      - name: This commit is the newest on main (what a deploy hook builds)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # A merge landing in the seconds between this check and the hook call would still be built; accepted.
+          main=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+          [ "$main" = "$GITHUB_SHA" ] || {
+            echo "::error title=web (Vercel)::${GITHUB_SHA::7} is not the newest commit on main (${main::7}); a deploy hook would build ${main::7}. Tag main's newest commit, or deploy target web from main."
+            exit 1; }
+      - name: Trigger the deploy hooks
+        run: |
+          hook() {
+            if [ -z "$2" ]; then echo "::notice title=web $1::secret VERCEL_DEPLOY_HOOK_${1^^} not set — skipped"; return; fi
+            curl -fsS -X POST "$2" | jq -r --arg app "$1" '"\($app): Vercel build \(.job.state) (job \(.job.id))"'
+          }
+          hook customer "$HOOK_CUSTOMER"
+          hook merchant "$HOOK_MERCHANT"
+          echo "Vercel builds main ${GITHUB_SHA::7}; the Web live check runs on the new deployment (.github/workflows/web-smoke.yml)." >> "$GITHUB_STEP_SUMMARY"
