@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import { decodeRajaaPassPush } from '@driver/contracts';
-import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
+import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor, twinStillWanted } from './notify.subscribers.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -499,5 +499,15 @@ describe('W3 staff outcomes → the customer', () => {
     expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
     // The state change behind a staff cancel sends nothing of its own: one message, not two.
     expect(await one(event('order.cancelled', { cancelledState: 'platform_cancelled', by: 'platform', reason: 'staff_cancelled' }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+});
+
+describe('SMS twin still wanted', () => {
+  const L = { order: async (id: string) => (id === 'ord_wait' || id === 'ord_done' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 0, itemCount: 1, waitingForKitchen: id === 'ord_wait' } : null) };
+  it('a new-order text only while the order still waits for the kitchen; other messages always', async () => {
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_wait' })).toBe(true);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_done' })).toBe(false);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'gone' })).toBe(false);
+    expect(await twinStillWanted(L, { template: 'order_accepted', orderId: 'ord_done' })).toBe(true);
   });
 });
