@@ -4,11 +4,11 @@ import type { Clock } from './clock.js';
 
 /**
  * A Redis client for commands a request waits on (this counter, the auth cache drops): while Redis is
- * away a command fails within 100 ms (no offline queue, one retry, a command timeout) instead of
+ * away a command fails within 300 ms (no offline queue, one retry, a command timeout) instead of
  * waiting for a reconnect, and the caller carries on without it. Never for BullMQ workers.
  */
 export function requestPathRedis(url: string): Redis {
-  const client = new Redis(url, { enableOfflineQueue: false, maxRetriesPerRequest: 1, commandTimeout: 100 });
+  const client = new Redis(url, { enableOfflineQueue: false, maxRetriesPerRequest: 1, commandTimeout: 300 });
   client.on('error', () => undefined); // reconnect errors repeat every attempt; the callers log their own failures
   return client;
 }

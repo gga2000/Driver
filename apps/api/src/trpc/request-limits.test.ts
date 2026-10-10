@@ -133,7 +133,7 @@ describe('request limits (SCALE-20)', () => {
 });
 
 describe('request limits while Redis does not answer (OPS2-02)', () => {
-  it('a counter whose Redis never answers lets the call through within 200 ms, then skips counting for 5 s', async () => {
+  it('a counter whose Redis never answers lets the call through within 500 ms, then skips counting for 5 s', async () => {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     // Accepts the connection and never replies: a Redis that is restarting, loading or unreachable.
     const silent = net.createServer(() => undefined);
@@ -146,7 +146,7 @@ describe('request limits while Redis does not answer (OPS2-02)', () => {
     try {
       let t = Date.now();
       await limits.check(person('p1'));
-      expect(Date.now() - t).toBeLessThan(200);
+      expect(Date.now() - t).toBeLessThan(500);
       expect(tally).toHaveBeenCalledTimes(1);
       t = Date.now();
       await limits.check(person('p2'));
