@@ -50,6 +50,8 @@ export interface EventsRepository {
   /** Events in recording order. */
   find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]>;
   outboxStats(): Promise<OutboxStats>;
+  /** When the most overdue pending row became due (`next_attempt_at <= now`); null when none is due. */
+  oldestDueAt(now: Date): Promise<Date | null>;
   /** Oldest first, unless `newestFirst`; `limit` caps the rows read. */
   outbox(filter?: OutboxFilter): Promise<OutboxRecord[]>;
   /**
@@ -187,6 +189,13 @@ export class PrismaEventsRepository implements EventsRepository {
     const stats: OutboxStats = { pending: 0, published: 0, failed: 0 };
     for (const r of rows) stats[r.status] = r._count._all;
     return stats;
+  }
+
+  async oldestDueAt(now: Date): Promise<Date | null> {
+    const rows = await this.prisma.prisma.$queryRaw<Array<{ at: Date | null }>>`
+      SELECT min("next_attempt_at") AS "at" FROM "public"."outbox"
+      WHERE "status" = 'pending'::"public"."OutboxStatus" AND "next_attempt_at" <= ${ts(now)}`;
+    return rows[0]?.at ?? null;
   }
 
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {

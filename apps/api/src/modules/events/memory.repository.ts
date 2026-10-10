@@ -195,6 +195,12 @@ export class InMemoryEventsRepository implements EventsRepository {
     return { ...this.stats };
   }
 
+  async oldestDueAt(now: Date): Promise<Date | null> {
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (r.nextAttemptAt <= now && (!oldest || r.nextAttemptAt < oldest)) oldest = r.nextAttemptAt;
+    return oldest;
+  }
+
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
     const rows = this.rows.filter((r) => (!filter.status || r.status === filter.status) && (!filter.eventId || r.eventId === filter.eventId)).map((r) => ({ ...r }));
     if (filter.newestFirst) rows.reverse();
