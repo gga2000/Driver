@@ -14,7 +14,7 @@ const VIEW: ConsolePickupSpotView = {
   updatedAt: new Date('2026-10-07T09:00:00Z'),
   consoleEdit: null,
 };
-const ROW: PickupStoreRow = { merchantOrgId: 'org_k', name: 'مطعم خالد', type: 'restaurant', note: VIEW.note, photos: 1, updatedAt: VIEW.updatedAt };
+const ROW: PickupStoreRow = { merchantOrgId: 'org_k', name: 'مطعم خالد', type: 'restaurant', note: VIEW.note, photos: 1, updatedAt: VIEW.updatedAt, shopPhoto: true, dishes: 12, dishesNoPhoto: 2 };
 
 function caller(roles: readonly RoleKind[] | null) {
   const pickupSpots: PickupSpotsOpsPort = {
