@@ -30,6 +30,8 @@ import { statusTone } from './sla';
 
 // Loads only on a case with a refund waiting for a second OK (Console speed budget).
 const PendingRefundStrip = dynamic(() => import('../refund-approvals').then((m) => m.PendingRefundStrip));
+// The customer's last orders and credits (s5) load after the card (Console speed budget).
+const CustomerHistory = dynamic(() => import('./customer-history').then((m) => m.CustomerHistory));
 
 export type SupportAction = 'refund' | 'fault' | 'escalate' | 'resolve';
 
@@ -195,6 +197,7 @@ function CustomerSection({
             ))}
         </ul>
       )}
+      <CustomerHistory customerId={customer.customerId} />
     </Section>
   );
 }

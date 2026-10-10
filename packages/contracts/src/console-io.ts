@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CityId, Iqd, LatLng } from './common.js';
 import { Event } from './event.js';
 import { CapRole, SettlementMode } from './ledger-rules.js';
+import { LedgerEventType } from './ledger.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
 import { VehicleClass } from './trip.js';
 
@@ -177,6 +178,26 @@ export type OrderSummary = z.infer<typeof OrderSummary>;
 /** Newest first; `nextCursor` continues the same query. */
 export const OrderSearchPage = z.object({ rows: z.array(OrderSummary), nextCursor: z.string().nullable() });
 export type OrderSearchPage = z.infer<typeof OrderSearchPage>;
+
+// ───────────────────────── customer history (support card, Yes-list s5) ─────────────────────────
+
+export const CustomerHistoryInput = z.object({ cityId: CityId.default('aziziyah'), customerId: z.string().min(1).max(60) });
+
+/**
+ * The support card's history of one customer: the last orders they placed (newest first, any state)
+ * and the credits they received this month (Baghdad), each with what it was for. Read only.
+ */
+export const CustomerHistory = z.object({
+  recentOrders: z.array(OrderSummary),
+  credits: z.object({
+    /** Start of this month (Baghdad). */
+    from: z.coerce.date(),
+    totalIqd: Iqd,
+    /** Newest first, at most 5; `totalIqd` counts them all. */
+    lines: z.array(z.object({ id: z.string(), at: z.coerce.date(), type: LedgerEventType, label_ar: z.string(), amountIqd: Iqd, orderId: z.string().nullable() })),
+  }),
+});
+export type CustomerHistory = z.infer<typeof CustomerHistory>;
 
 // ───────────────────────── event logs (orders.events / trips.events) ─────────────────────────
 
@@ -431,6 +452,8 @@ export interface ConsolePort {
   /** The order's courier path and its moments (maps program o2). */
   orderReplay(orderId: string): Promise<OrderReplay>;
   rightNow(cityId: string): Promise<RightNow>;
+  /** s5: a customer's last orders and this month's credits, for the support card. */
+  customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory>;
   outbox(): Promise<OutboxView>;
   merchants(cityId: string): Promise<MerchantRow[]>;
   simulatorStatus(): Promise<z.input<typeof SimulatorStatus>>;
