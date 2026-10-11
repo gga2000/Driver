@@ -6,7 +6,8 @@ import type { SunriseKeyframe, SunriseTour } from '@driver/map/pieces';
  * «الشمس تطلع على العزيزية» (map idea N4, Ali 2026-10-11): after sign-up, once, the camera rises from the
  * Tigris over the town while the light warms from night to day, and lands over the person's own place.
  * The tour itself is the map package's `sunriseTour` (its keyframes and light steps); this file says
- * where it lands and eases the camera between its keyframes. Pure.
+ * where it lands and eases the camera between its keyframes: frame by frame on the web, as moves the map
+ * eases itself on phones. Pure.
  */
 
 export type LngLat = [number, number];
@@ -46,6 +47,21 @@ export function sunriseCameraAt(tour: SunriseTour, t: number): SunriseCamera {
     pitch: mix(a.pitch, b.pitch, f),
     bearing: mix(a.bearing, b.bearing, f),
   };
+}
+
+/** One camera move of the tour for a map that eases on its own (the phones): it starts `atMs` into the tour and takes `durationMs`. */
+export interface SunriseLeg {
+  atMs: number;
+  durationMs: number;
+  to: SunriseCamera;
+}
+
+/** The tour as one move per keyframe after the first, each eased in and out as `sunriseCameraAt` does (the phones hand each to the map). */
+export function sunriseLegs(tour: SunriseTour): SunriseLeg[] {
+  return tour.keyframes.slice(1).map((b, i) => {
+    const a = tour.keyframes[i]!;
+    return { atMs: a.atMs, durationMs: b.atMs - a.atMs, to: pick(b) };
+  });
 }
 
 /** The light `t` ms into the tour: the last step that has started (the first one before any). */

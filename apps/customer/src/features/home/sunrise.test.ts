@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { sunriseTour } from '@driver/map/pieces';
-import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLightAt, TOWN } from './sunrise';
+import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLegs, sunriseLightAt, TOWN } from './sunrise';
 
 describe('the sign-up sunrise (map idea N4)', () => {
   it('lands on the saved door, else the picked zone, else the town centre', () => {
@@ -40,5 +40,20 @@ describe('the sign-up sunrise (map idea N4)', () => {
     expect(sunriseLightAt(tour, 0)).toBe(steps[0]);
     for (const step of tour.lights) expect(sunriseLightAt(tour, step.atMs)).toBe(step.light);
     expect(sunriseEnd(tour).light).toBe('day');
+  });
+
+  it('on phones, the same flight as back-to-back moves the map eases itself, ending on the landing', () => {
+    const tour = sunriseTour(TOWN);
+    const legs = sunriseLegs(tour);
+    expect(legs).toHaveLength(tour.keyframes.length - 1);
+    expect(legs[0]!.atMs).toBe(0);
+    legs.forEach((leg, i) => {
+      // Each move starts as the one before it ends, at the keyframe the web passes at that moment.
+      if (i > 0) expect(leg.atMs).toBe(legs[i - 1]!.atMs + legs[i - 1]!.durationMs);
+      expect(leg.to).toEqual(sunriseCameraAt(tour, leg.atMs + leg.durationMs));
+    });
+    const last = legs[legs.length - 1]!;
+    expect(last.atMs + last.durationMs).toBe(tour.totalMs);
+    expect(last.to).toEqual(sunriseEnd(tour).camera);
   });
 });
