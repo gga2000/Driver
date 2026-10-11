@@ -2692,6 +2692,62 @@ const rajaa = await (async () => {
   });
 }
 
+// Food carts «عربانات» (2026-10-11): six Aziziyah carts (three open tonight around the souq garage,
+// Street 30 and the centre; two closed until their hour; one away till Ramadan).
+//   - POST /demo/carts?personId=…[&ticket=placed|ready]   follows كبدة أبو حيدر and عرانيس أبو سجاد;
+//     with ticket, a walk-over ticket at the liver cart (ready = the cart said «جاهزة»)
+//   - POST /demo/carts/open?key=corn|bagilla|zbeeb      the cart opens at its last spot (followers' «فتح» push)
+//   - POST /demo/carts/close?key=liver|falafel|tea      the cart closes
+{
+  const { FoodCartsService, FOOD_CARTS_REPOSITORY, seedDemoCarts, DEMO_CARTS } = await load('modules/food-carts/index.js');
+  const carts = app.get(FoodCartsService);
+  const cartsRepo = app.get(FOOD_CARTS_REPOSITORY);
+  const cartSeed = await seedDemoCarts(orgs, catalog, carts, { ownerId: 'demo-cart-owner' });
+  const cartOf = (key) => cartSeed.find((c) => c.key === key);
+  const cartActor = (personId) => ({ personId, sessionId: 'demo' });
+  const ownerOps = {
+    async open(key) {
+      const c = cartOf(key);
+      const d = DEMO_CARTS.find((x) => x.key === key);
+      const rec = await cartsRepo.get(c.cartId);
+      const spot = d.open ?? d.last ?? { lat: 32.905, lng: 45.06, label: 'ساحة المركز', facing: 180 };
+      return carts.openAt(rec, spot, null, 'demo-cart-owner');
+    },
+    async close(key) {
+      const c = cartOf(key);
+      await cartsRepo.update(c.cartId, { closedAt: new Date(), closesAt: null });
+      await orgs.setMerchantSettings(c.orgId, { closed: { reason: 'cart_closed', note: null, at: new Date() } });
+    },
+  };
+  app.use('/demo/carts', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/carts?personId=…' });
+      const key = url.searchParams.get('key');
+      if (url.pathname === '/open' || url.pathname === '/close') {
+        if (!key || !cartOf(key)) return json(res, 400, { error: `key=${cartSeed.map((c) => c.key).join('|')}` });
+        await ownerOps[url.pathname.slice(1)](key);
+        return json(res, 200, { ok: true, cartId: cartOf(key).cartId });
+      }
+      const personId = url.searchParams.get('personId');
+      if (!personId) return json(res, 400, { error: 'POST /demo/carts?personId=…' });
+      const a = cartActor(personId);
+      await carts.follow(a, { cartId: cartOf('liver').cartId, on: true });
+      await carts.follow(a, { cartId: cartOf('corn').cartId, on: true });
+      const ticket = url.searchParams.get('ticket');
+      let walkup = null;
+      if (ticket === 'placed' || ticket === 'ready') {
+        const liver = cartOf('liver');
+        walkup = await carts.placeWalkup(a, { cartId: liver.cartId, lines: [{ itemId: `${liver.orgId}_laffa`, qty: 2 }, { itemId: `${liver.orgId}_maalak`, qty: 1 }] });
+        if (ticket === 'ready') await cartsRepo.updateWalkup(walkup.id, ['placed'], { state: 'ready', readyAt: new Date() });
+      }
+      json(res, 200, { carts: cartSeed, walkupId: walkup?.id ?? null, code: walkup?.code ?? null });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
 await app.listen(PORT);
 console.log(`DEMO_API rajaa departures ${rajaa.departures.join(', ')}`);
 console.log(`DEMO_API ready http://127.0.0.1:${PORT}/trpc (${seeded.map((s) => `${s.seed.key}=${s.orgId}`).join(', ')})`);
