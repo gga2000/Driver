@@ -36,3 +36,24 @@ export function useStaffActions() {
     }),
   };
 }
+
+/**
+ * PRV-08: invites waiting for the signed-in person (any store; he may hold no role anywhere yet).
+ * Shown on the store picker and on the "not activated" gate.
+ */
+export function useMyInvites() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.merchantAdmin.staff.myInvites.queryOptions(), enabled: signedIn, staleTime: 30_000 });
+}
+
+/** Accept (joins the store with the invite's role) or decline; the stores and invites read again after. */
+export function useRespondInvite() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.merchantAdmin.staff.respondInvite.mutationOptions(),
+    onSuccess: (left) => qc.setQueryData(api.merchantAdmin.staff.myInvites.queryKey(), left),
+    onSettled: () => Promise.all([qc.invalidateQueries(api.merchant.myStores.pathFilter()), qc.invalidateQueries(api.merchantAdmin.staff.myInvites.pathFilter())]),
+  });
+}
