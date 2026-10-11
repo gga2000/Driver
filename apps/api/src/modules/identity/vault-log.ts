@@ -54,6 +54,7 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'ops_cash_round',
   'finance_cash_desk',
   'approvals_queue',
+  'account_close',
   CONSOLE_ORDER_RECIPIENT_PURPOSE,
 ]);
 

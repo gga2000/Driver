@@ -14,6 +14,7 @@ import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
+import type { StatsPort } from './stats-io.js';
 import type { PartnerPort } from './partner-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
@@ -36,6 +37,7 @@ import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
+import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
@@ -88,8 +90,8 @@ export interface AppContext {
   places: PlacesPort;
   /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
   wallet: WalletPort;
-  /** Joy w6 «شهرك»: the caller's month from orders, rides, الرجعة and the ledger (`modules/insights`). */
-  insights: InsightsPort;
+  /** Joy w6 «شهرك» and «دفترك ويا درايفر» (stats): the caller's own record from orders, rides, الرجعة and the ledger (`modules/insights`). */
+  insights: InsightsPort & StatsPort;
   /** Wallet top-up with cash: customer codes, ops-agent / courier confirmation (`modules/topups`). */
   topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
@@ -120,6 +122,8 @@ export interface AppContext {
   controlRoom: ControlRoomPort;
   /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
   support: SupportPort;
+  /** Console: an admin closes a partner's or merchant's account and erases his identity (`modules/control-room`). */
+  accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */

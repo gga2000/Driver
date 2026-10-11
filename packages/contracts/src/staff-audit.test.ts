@@ -71,6 +71,8 @@ const AUDITED = [
   // Cash staff take in: a courier's hand-in on the round, a customer's top-up at the counter.
   'ops.recordCashReceipt',
   'ops.confirmTopUp',
+  // Account close (docs/api/account-close.md): the audit row is written in the close's transaction.
+  'identity.closeAccount.close',
   // Admins cut a staff member off every device («الموظفين»).
   'identity.endAllSessions',
 ];

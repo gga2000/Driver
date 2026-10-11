@@ -150,7 +150,7 @@ run the checks, get the reviewer's `reviewed:<sha>` label and, for sign-in, Ali'
 | Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 420000; built on an older `main`, expect conflicts |
 | A household member must accept before joining a shared wallet (SEC-06) | `claude/lane-d-household` | Yes: no one may be added to a wallet without saying yes | slot 430000 |
 | Opening in waves: new customers wait in a queue until ops opens more places | `claude/lane-d-waves` | Probably | slot 440000; the store reviewer's account must skip the queue |
-| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears |
+| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears ; partners and merchants already ask from their apps and an admin closes them from the Console (`docs/api/account-close.md`), so its `work_role` blocker sends them there |
 | A test kitchen and test numbers for Apple and Google's reviewers | `claude/lane-d-store-review` | Yes for the store review | slot 460000; drop its copy of the staging test numbers (#133 already put them on `main`); it must never erase demo data |
 
 Still to build:

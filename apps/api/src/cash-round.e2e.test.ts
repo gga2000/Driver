@@ -111,6 +111,21 @@ describe('the 23:00 cash round on an evening clock', () => {
     expect(onRound(late, saif)).toMatchObject({ heldIqd: 0, collected: { amountIqd: 40_000 } });
   });
 
+  it('the round takes what he owes the company: his own pay stays in his hand and off the target', async () => {
+    const zaid = await courier('07720099013', 'زيد', 30_000);
+    // 6,000 of it is his own pay (the platform owes him his fee and tip).
+    await app.get(LedgerService).record({ type: 'tip', amount: 6_000, fromAccount: 'customer:c_e2e', toAccount: `driver:${zaid}`, occurredAt: new Date(clock.now().getTime() - 30 * 60_000), idempotencyKey: `e2e:pay:${zaid}` });
+    const before = await desk();
+    expect(onRound(before, zaid)).toMatchObject({ heldIqd: 30_000, dueIqd: 24_000, collected: null });
+    await expect(collect(zaid, 30_000)).rejects.toMatchObject({ code: 'cash_receipt_exceeds_owed' });
+    await later(5);
+    await collect(zaid, 24_000);
+    const after = await desk();
+    expect(onRound(after, zaid)).toMatchObject({ heldIqd: 6_000, dueIqd: 0, collected: { amountIqd: 24_000 } });
+    expect(after.round.totalIqd).toBe(before.round.totalIqd - 24_000);
+    expect(after.round.targetIqd).toBe(before.round.targetIqd);
+  });
+
   it('the round window start comes from CASH_ROUND_FROM_HOUR (0–23), else 18:00', () => {
     expect(cashRoundFromHourEnv(undefined)).toBe(18);
     expect(cashRoundFromHourEnv('')).toBe(18);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError } from '@driver/contracts';
+import { DriverError, type LedgerEvent } from '@driver/contracts';
 import type { Tx } from '@driver/db';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import { MerchantCashService } from './merchant-cash.service.js';
+import { MerchantCashService, attributeCourierCash } from './merchant-cash.service.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
 
 const t0 = new Date('2026-10-03T12:00:00Z');
@@ -95,6 +95,83 @@ describe('merchant cash account (decisions §3)', () => {
     expect((await h.caps.status('k1')).owedIqd).toBe(2750);
   });
 
+  it('a merchant with no PIN set accepts no PIN at all, only a tap on its own tablet', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1' }));
+    const base = { courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750 };
+    await expect(h.merchantCash.confirmHandover({ ...base, handoverId: 'h1', pin: '1234' })).rejects.toMatchObject({ code: 'handover_mismatch' });
+    await expect(h.merchantCash.confirmHandover({ ...base, handoverId: 'h2' })).rejects.toMatchObject({ code: 'handover_mismatch' });
+    expect((await h.merchantCash.balance('m1')).balanceIqd).toBe(12750);
+    expect(await h.merchantCash.confirmHandover({ ...base, handoverId: 'h3', tabletTap: true })).toEqual({ postedIqd: 12750, merchantBalanceIqd: 0 });
+  });
+
+  it('cash a courier hands in to the company is no longer shown as held by him for the merchant', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k2', occurredAt: minutes(1) }));
+    h.clock.set(minutes(2));
+    // Field ops take what k1 owes the company (15,500 of his 16,500; the 1,000 left is his pay).
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 15500, channel: 'ops_round', reference: 'D-OPS-1' });
+    const view = await h.merchantCash.balance('m1');
+    expect(view.balanceIqd).toBe(25500);
+    expect(view.holders).toEqual([{ courierId: 'k2', amountIqd: 12750 }]);
+    // «اطلب فلوسك» goes to the courier who still has it, not to k1.
+    expect((await h.merchantCash.requestSettlement('m1', 'owner1')).courierId).toBe('k2');
+    // k1 cannot hand the merchant cash the company already took.
+    await expect(h.merchantCash.confirmHandover({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true })).rejects.toMatchObject({ code: 'handover_mismatch' });
+  });
+
+  it('a partial hand-in pays the company its own part first, then comes off his restaurant cash', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    // He holds 16,500: 12,750 is the restaurant's, 1,000 his pay, 2,750 the company's own (fees, commission).
+    h.clock.set(minutes(1));
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 2750, channel: 'ops_round', reference: 'D-OPS-2a' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    // 10,000 more: all of it is restaurant cash now with the company.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 7250, channel: 'ops_round', reference: 'D-OPS-2' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 5500 }]);
+    // A later order is cash he collected after the hand-in: all of it is still with him.
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', occurredAt: minutes(2) }));
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 18250 }]);
+    expect(-(await h.caps.status('k1')).cashIqd).toBeGreaterThanOrEqual(18250);
+  });
+
+  it('cash collected before he last held nothing is no longer his: a new day starts from what he collects', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', merchantId: 'm1', occurredAt: minutes(0) }));
+    h.clock.set(minutes(1));
+    // Everything in his hand goes to the company (his pay included): he holds nothing.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 16500, channel: 'agent', reference: 'D-AG-1' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', merchantId: 'm2', occurredAt: minutes(60) }));
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    expect((await h.merchantCash.returnRoute('k1')).map((r) => [r.merchantId, r.amountIqd])).toEqual([['m2', 12750]]);
+  });
+
+  it('one hand-in is counted once across restaurants: a courier holding cash for two still holds the rest', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', merchantId: 'm1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', merchantId: 'm2', occurredAt: minutes(1) }));
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    h.clock.set(minutes(2));
+    // He hands in 12,750: the company's own 5,500 first, then 7,250 of m1's (the oldest) restaurant cash.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 12750, channel: 'ops_round', reference: 'D-OPS-3' });
+    const m1 = (await h.merchantCash.balance('m1')).holders;
+    const m2 = (await h.merchantCash.balance('m2')).holders;
+    expect(m1).toEqual([{ courierId: 'k1', amountIqd: 5500 }]);
+    expect(m2).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    // He still holds all of it (and his 2,000 pay), and can hand both restaurants what is theirs.
+    expect(-(await h.caps.status('k1')).cashIqd).toBe(5500 + 12750 + 2000);
+    expect((await h.merchantCash.returnRoute('k1')).map((r) => [r.merchantId, r.amountIqd])).toEqual([['m2', 12750], ['m1', 5500]]);
+    await h.merchantCash.confirmHandover({ handoverId: 'h-m2', courierId: 'k1', merchantId: 'm2', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true });
+    await h.merchantCash.confirmHandover({ handoverId: 'h-m1', courierId: 'k1', merchantId: 'm1', amountIqd: 5500, merchantConfirmedIqd: 5500, tabletTap: true });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([]);
+  });
+
   it('courier return route: merchants in a courier-settled mode he owes, largest first', async () => {
     const h = ledgerHarness();
     await h.merchantCash.configure('m2', { mode: 'on_demand' });
@@ -178,5 +255,30 @@ describe('payouts never exceed what the merchant is owed (backend review 2026-10
     // He collected 16,500 and handed 12,750 over once.
     expect((await h.caps.status('k1')).cashIqd).toBe(-3750);
     expect(h.incidents.opened().map((i) => i.kind)).toEqual(['merchant_handover_discrepancy']);
+  });
+});
+
+describe('lines at one instant replay in money order, not id order', () => {
+  it('a hand-over at the same instant as the orders it pays for still clears them, whatever the ids', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', merchantId: 'm1', courierId: 'k1', occurredAt: t0 }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', merchantId: 'm1', courierId: 'k1', occurredAt: t0 }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o3', merchantId: 'm2', courierId: 'k1', occurredAt: t0 }));
+    h.clock.set(t0);
+    await h.merchantCash.confirmHandover({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 25500, merchantConfirmedIqd: 25500, tabletTap: true });
+    // Every line at one instant (occurred and recorded), ids `le_<n>` as the in-memory store gives them.
+    const same = (e: LedgerEvent): LedgerEvent => ({ ...e, occurredAt: t0, recordedAt: t0 });
+    const m1 = (await h.ledger.eventsFor('merchant_cash:m1')).map(same);
+    const m2 = (await h.ledger.eventsFor('merchant_cash:m2')).map(same);
+    const groups = [...new Set([...m1, ...m2].map((e) => e.postingGroupId).filter((g): g is string => Boolean(g) && g!.startsWith('order')))];
+    const groupEvents = (await h.ledger.eventsForGroups(groups)).map(same);
+    const courier = [...(await h.ledger.eventsFor('cash:k1')), ...(await h.ledger.eventsFor('driver:k1'))].map(same);
+    const handover = m1.find((e) => e.type === 'merchant_paid_by_courier')!;
+    // The premise: well over 10 lines, and the hand-over's id sorts as text before an order line it pays for.
+    expect(new Set([...m1, ...m2, ...groupEvents, ...courier].map((e) => e.id)).size).toBeGreaterThan(10);
+    expect(m1.some((e) => e.type === 'merchant_payable' && handover.id.localeCompare(e.id) < 0)).toBe(true);
+    const out = attributeCourierCash({ merchantEvents: new Map([['m1', m1], ['m2', m2]]), groupEvents, courierEvents: new Map([['k1', courier]]) });
+    expect(out.get('m1')?.get('k1') ?? 0).toBe(0);
+    expect(out.get('m2')?.get('k1')).toBe(12750);
   });
 });

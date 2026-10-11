@@ -96,6 +96,8 @@ const PICKED_UP_STUCK_MIN = 60;
 const NOT_CLOSED_GRACE_MIN = 10;
 /** A complaint nobody answered for this long is overdue (the Console's red queue). */
 const DISPUTE_OVERDUE_H = 24;
+/** Dispute outcomes that move no money beyond the normal sale, so no switch gates them (see `resolveDispute`). */
+const ALWAYS_ALLOWED_OUTCOMES: ReadonlySet<DisputeOutcome> = new Set(['void', 'stands']);
 
 /** States an order can be stuck in (the stuck list reads only these). */
 const STUCK_WATCH_STATES: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up', 'delivered', 'matched', 'completed', 'disputed'];
@@ -252,7 +254,7 @@ export class OrdersStaffService implements PlatformFailurePort {
   switches(): StaffOpsSwitches {
     const r = this.rules;
     return {
-      disputeOutcomes: [...new Set([...r.disputes.outcomes, 'void' as const])],
+      disputeOutcomes: [...new Set([...r.disputes.outcomes, ...ALWAYS_ALLOWED_OUTCOMES])],
       agentLimitIqd: r.disputes.agentLimitIqd,
       courierLostRefund: r.courierLost.refund,
       courierLostCharge: r.courierLost.chargeCourier,
@@ -342,12 +344,13 @@ export class OrdersStaffService implements PlatformFailurePort {
    * or the platform — back to the payer's wallet; full ends in `refunded`), `redelivery` (closed;
    * support arranges the resend). On one that never reached him (unreachable at the door, courier
    * cancelled after pickup, courier lost): `void` — `refunded`, nothing charged, nobody paid.
-   * Each outcome needs its switch (`DISPUTE_OUTCOMES`), except `void`, which moves no money and is
-   * the only way out of a dispute that never reached the customer (courier lost with the switches
-   * off); a refund above the agent limit needs admin.
+   * Each outcome needs its switch (`DISPUTE_OUTCOMES`), except the two that move no money beyond the
+   * normal sale: `void` (the only way out of a dispute that never reached the customer, courier lost
+   * with the switches off) and `stands` (complaint rejected: the order closes as delivered). A refund
+   * above the agent limit needs admin.
    */
   async resolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult> {
-    if (input.outcome !== 'void' && !this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
+    if (!ALWAYS_ALLOWED_OUTCOMES.has(input.outcome) && !this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
     const order = await this.load(input.orderId);
     if (order.state !== 'disputed') {
       if ((order.state === 'closed' || order.state === 'refunded') && (await this.resolvedEvent(order.id))) return this.result(order, false, 0, null);

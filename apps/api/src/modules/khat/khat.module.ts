@@ -4,6 +4,7 @@ import { callBridgeFor } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
@@ -72,9 +73,16 @@ export class KhatModule implements OnModuleInit, OnModuleDestroy {
 
   private poller: NodeJS.Timeout | undefined;
 
-  constructor(@Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null) {}
+  constructor(
+    @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null,
+    private readonly khat: KhatService,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
+  ) {}
 
   onModuleInit(): void {
+    // FLW-22: the sweep check survives a lost Redis job or a failed run (the sweeper fires its durable copy).
+    this.khat.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {

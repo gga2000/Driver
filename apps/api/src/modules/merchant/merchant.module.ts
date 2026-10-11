@@ -54,6 +54,10 @@ import {
         grants: async (personId) => (await identity.me({ personId, sessionId: 'merchant:stores' })).roles,
         hasRole: (personId, kind, orgId) => identity.hasRole(personId, kind, orgId),
         courierFirstName: async (courierId, accessorId) => (await identity.courierCard(courierId, accessorId)).firstName,
+        courierCard: async (courierId, accessorId) => {
+          const { firstName, photoRef } = await identity.courierCard(courierId, accessorId);
+          return { firstName, photoRef };
+        },
         courierVehicle: async (courierId, vehicleId) => {
           const v = await vehicles.forCourier(courierId, vehicleId);
           return v ? { vehicleClass: v.vehicleClass, plate: v.plate } : null;

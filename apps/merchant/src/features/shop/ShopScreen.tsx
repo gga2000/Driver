@@ -164,6 +164,7 @@ export function ShopScreen() {
       <View style={{ gap: theme.space[3] }}>
         {stores.length > 1 ? <EntryTile icon="swap" title={t('merchant.more.switch_store')} hint={store?.name} onPress={() => router.push('/stores')} /> : null}
         <EntryTile icon="phone" title={t('merchant.more.support')} onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`)} />
+        <EntryTile testID="more-delete-account" icon="trash" title={t('merchant.delete.row')} hint={t('merchant.delete.row_hint')} onPress={() => router.push('/delete-account')} />
         <EntryTile testID="sign-out" icon="sign-out" title={t('merchant.more.sign_out')} tone="danger" onPress={() => void signOut()} trailing={<View />} />
       </View>
       <Text variant="caption" color="textMuted" align="center">

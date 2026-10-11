@@ -3,6 +3,7 @@ import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { InMemoryTimerStore, TimerSweeper } from '../../shared/timers/index.js';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
@@ -230,6 +231,13 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
+  // FLW-22: the durable copies of both modules' timers, as the modules bind them; `sweeper.sweep()` fires
+  // the overdue ones (a test drives it by hand: it never runs on its own here).
+  const timerStore = new InMemoryTimerStore();
+  const sweeper = new TimerSweeper(timerStore, clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
+  orders.bindDurableTimers(timerStore, sweeper);
+  trips.bindDurableTimers(timerStore, sweeper);
+
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
 
   /** Publishes pending trip events to orders (the outbox drain). */
@@ -302,5 +310,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     await deliver();
   }
 
-  return { clock, eta, uow, orgs, placeOwners, placeDoors, placeZones, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, eta, uow, orgs, placeOwners, placeDoors, placeZones, trips, tripsRepo, tripEvents, tripsQueue, timerStore, sweeper, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

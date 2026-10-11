@@ -117,6 +117,11 @@ export const BoardCourier = z.object({
   distanceM: z.number().int().min(0).nullable().optional(),
   /** Degrees clockwise from north, kitchen → courier, while `on_the_way`. */
   bearingDeg: z.number().min(0).max(360).nullable().optional(),
+  /**
+   * N16 (the tablet sees the courier coming): his approved main photo, a short-lived signed URL (absolute
+   * or relative to the API origin); absent when he has none.
+   */
+  photoUrl: z.string().nullable().optional(),
   /** His plate ("واسط 45678") so the counter can tell couriers apart; null when unknown. */
   plate: z.string().nullable().optional(),
   /**

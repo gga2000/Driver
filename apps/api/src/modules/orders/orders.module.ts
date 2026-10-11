@@ -1,9 +1,10 @@
 import { RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_HOME, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontHome, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
@@ -192,12 +193,16 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly staff: OrdersStaffService,
     private readonly eventsService: EventsService,
     private readonly walletHolds: WalletHolds,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   private unsubscribeFailure: (() => void) | undefined;
   private unregisterHolds: (() => void) | undefined;
 
   onModuleInit(): void {
+    // FLW-22: order timers survive a lost Redis job (the sweeper fires their durable copy).
+    this.orders.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     // SEC-07: open orders on his own wallet are a hold every other wallet spend (seat, deposit, tip) sees.
     this.unregisterHolds = this.walletHolds.register(ORDERS_WALLET_HOLDS, (customerId) => this.orders.openWalletHoldIqd(customerId));
     // The throttle and the console's zone gauges count active orders here (orders owns them).
