@@ -1,9 +1,11 @@
 /**
- * The one daily SMS count. Sign-in codes (identity's OTP guard) and notification texts (notify's SMS
- * twins and SMS-first messages) go out through the same SMS account, so both count every accepted
- * text in one rolling 24-hour window counter under `SMS_DAY_KEY` and share one budget
+ * The server's daily SMS count. Sign-in codes (identity's OTP guard) and notification texts (notify's
+ * SMS twins and SMS-first messages) go out through the same SMS account, so both count every accepted
+ * text in one rolling 24-hour window counter under `SMS_DAY_KEY`, measured against one budget
  * (`OTP_SMS_DAILY_BUDGET`). Ops hear at 50, 80 and 100 % of it once per level per window, whichever
- * side crossed the line (`smsBudgetAlertKey`).
+ * side crossed the line (`smsBudgetAlertKey`); the Console shows it; notify holds back its own backup
+ * texts past it. The OTP guard's throttle never reads it: sign-in codes keep their own count, so
+ * notification texts can never lock anyone out of signing in.
  */
 export const SMS_DAY_KEY = 'sms:day';
 export const SMS_DAY_MS = 86_400_000;

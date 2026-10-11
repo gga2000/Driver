@@ -22,7 +22,7 @@ signed-in flows.
 | Per device | 5 an hour | enforce | `OTP_RATE_LIMIT_PER_DEVICE_HOUR`, `OTP_GUARD_MODE_DEVICE` |
 | Per signed-in sender | 5 an hour, 20 a day | enforce | `OTP_RATE_LIMIT_PER_ACTOR_HOUR` / `_DAY`, `OTP_GUARD_MODE_ACTOR` |
 | Per client IP | 1,000 an hour | **alert only** | `OTP_RATE_LIMIT_PER_IP_HOUR`, `OTP_GUARD_MODE_IP` |
-| SMS budget (rolling 24 h) | 4,500 SMS (3 × expected day-one installs), sign-in codes and notification texts together | throttle | `OTP_SMS_DAILY_BUDGET`, `OTP_BUDGET_MODE` |
+| SMS budget (rolling 24 h) | 4,500 SMS (3 × expected day-one installs); the throttle counts sign-in codes only, the alerts count notification texts too | throttle | `OTP_SMS_DAILY_BUDGET`, `OTP_BUDGET_MODE` |
 | Spiking number block | 30 codes an hour to one 7-digit block | used once the budget is spent | `OTP_BLOCK_SPIKE_PER_HOUR` |
 | Hard SMS cap (rolling 24 h) | 3 × the SMS budget | new numbers get WhatsApp | `OTP_SMS_HARD_CAP_MULTIPLIER` (follows `OTP_BUDGET_MODE`) |
 
@@ -38,11 +38,14 @@ number.
 
 Sign-in codes and notification texts (SMS twins, texts to people who booked a ride by phone) go out
 through the same SMS account, so they share one rolling 24-hour count (`sms:day` in the shared window
-counter, `apps/api/src/shared/sms-budget.ts`) and one budget. The 50/80/100 % alerts below fire once
-per level a day, whichever side crossed the level (a notify alert carries `source: 'notify'`). Past
-100 % (in `throttle` mode) notify skips SMS twins that are not safety messages (delivery status
-`skipped`, reason `sms_budget`); safety twins and texts that are the only way to reach someone still
-go. The Console System page shows the count against the budget.
+counter, `apps/api/src/shared/sms-budget.ts`) measured against the budget. The 50/80/100 % alerts
+below fire on that count, once per level a day, whichever side crossed the level (a notify alert
+carries `source: 'notify'`). Past 100 % (in `throttle` mode) notify skips SMS twins that are not
+safety messages (delivery status `skipped`, reason `sms_budget`); safety twins and texts that are
+the only way to reach someone still go. The Console System page shows the count against the budget.
+
+The sign-in throttle (the steps below and the hard cap) counts **sign-in codes only**
+(`otp:guard:sms`), so notification texts can never hold back anyone's code.
 
 ## WhatsApp not set up
 

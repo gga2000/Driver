@@ -156,13 +156,28 @@ describe('OTP guard', () => {
     expect((await h.service.requestOtp({ phone: '07801111111', purpose: 'login' })).channel).toBe('sms');
   });
 
-  it('the budget counts every SMS of the day, notification texts included (one shared counter)', async () => {
+  it('the budget alerts count every SMS of the day, notification texts included (one shared counter)', async () => {
     const h = harness(undefined, { otpGuard: { smsDailyBudget: 4 } });
     // Two notification texts went out today (notify counts them under the same key).
     for (let i = 0; i < 2; i += 1) await h.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER);
     await h.service.requestOtp({ phone: '07812000000', purpose: 'login' });
     expect(h.otpAlerts.raised.filter((a) => a.rule === 'sms_budget')).toEqual([{ rule: 'sms_budget', level: 50, count: 2, limit: 4, mode: 'throttle' }]);
     expect(await h.counter.count(SMS_DAY_KEY, SMS_DAY_MS)).toBe(3);
+    // The sign-in throttle counts sign-in codes only.
+    expect(await h.counter.count('otp:guard:sms', SMS_DAY_MS)).toBe(1);
+  });
+
+  it('a budget full of notification texts never holds back a sign-in code, even with WhatsApp unset', async () => {
+    const h = harness(undefined, { otpGuard: { smsDailyBudget: 2, smsHardCapMultiplier: 2, blockSpikePerHour: 1 }, whatsappEnv: { NODE_ENV: 'production' } });
+    // Ten notification texts today: past the budget and past the hard cap, all of them notify's.
+    for (let i = 0; i < 10; i += 1) await h.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER);
+    // A new number (never signed in, no WhatsApp to fall back on) gets its code by SMS, and so does a
+    // second one in the same 7-digit block (the spike rule only counts once sign-ins spend the budget).
+    expect(await h.service.requestOtp({ phone: '07821234569', purpose: 'login' })).toMatchObject({ channel: 'sms', whatsapp: false });
+    expect((await h.service.requestOtp({ phone: '07821234568', purpose: 'login' })).channel).toBe('sms');
+    expect(h.sms.sentTo('+9647821234569')).toHaveLength(1);
+    // Ops still hear the account's whole day.
+    expect(h.otpAlerts.raised.filter((a) => a.rule === 'sms_budget').map((a) => (a as { level: number }).level)).toEqual([50, 80, 100]);
   });
 
   it('OTP_BUDGET_MODE=alert: the spent budget alerts but changes nothing', async () => {
