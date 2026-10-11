@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps } from '@maplibre/maplibre-react-native';
 import * as golden from '@driver/map/golden';
-import * as pieces from '@driver/map/pieces';
+import * as pieces from '@driver/map/pieces/garage-seats';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
-import { barLiftPx, garageCars, LOT_GLIDE_MS, lotCamera, seatBarPaint, spreadBays } from './garage-cars';
+import { barLiftPx, garageCars, LOT_GLIDE_MS, lotCamera, spreadBays } from './garage-cars';
 import type { GarageLotProps, LotCar } from './garage-lot-types';
 
 /** Whether this build can draw the garage (a phone build with the native map and our map's files). */
@@ -46,14 +46,7 @@ export function GarageLot({ lotKey, garageId, departures, labelOf, selectedId, o
   }, [light, lite]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   const seats = useMemo(() => pieces.garageSeatsGeoJSON(cars) as GeoJSON.FeatureCollection, [cars]);
-  // Over the garage's roof, not under it (see `seatBarPaint`).
-  const layers = useMemo(
-    () =>
-      pieces.garageSeatLayers({ source: SOURCE, light }).map((l) =>
-        l.type === 'fill-extrusion' ? { ...l, paint: { ...l.paint, 'fill-extrusion-base': seatBarPaint().base, 'fill-extrusion-height': seatBarPaint().height } } : l,
-      ),
-    [light],
-  );
+  const layers = useMemo(() => pieces.garageSeatLayers({ source: SOURCE, light }), [light]);
   const arrived = useRef(false);
   const live = useRef({ topInset, bottomInset, lite, reduce: theme.reduceMotion });
   live.current = { topInset, bottomInset, lite, reduce: theme.reduceMotion };

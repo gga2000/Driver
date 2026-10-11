@@ -57,16 +57,11 @@ export function spreadBays<B extends GarageBay>(bays: readonly B[], n: number): 
   return Array.from({ length: k }, (_, i) => bays[Math.round((i * (bays.length - 1)) / (k - 1))]!);
 }
 
-/**
- * The seat bars stand over the garage's wave roof: its fins run 4.4–8 m up and cover the bays, so a bar
- * at the map package's 3.6–4.3 m is hidden under them from every angle. The bars are raised to 8.8–9.8 m
- * here; `max` keeps the package's own heights once they are above the roof.
- */
-export const SEAT_FLOOR_M = 8.8;
-export const SEAT_TALL_M = 1;
+/** The top of a seat bar above the ground, as the map package draws it (8.8–10 m, over Gate 1's wave roof). */
+export const SEAT_TOP_M = 10;
 type Expr = readonly unknown[];
-const SEAT_BASE: Expr = ['max', ['get', 'base'], SEAT_FLOOR_M];
-const SEAT_TOP: Expr = ['max', ['get', 'hm'], SEAT_FLOOR_M + SEAT_TALL_M];
+const SEAT_BASE: Expr = ['get', 'base'];
+const SEAT_TOP: Expr = ['get', 'hm'];
 
 /**
  * `fill-extrusion-base` / `-height` for the seat bars. `rise` (0 → 1 + stagger·seats) grows each seat from
@@ -84,7 +79,7 @@ export function seatBarPaint(rise?: { t: number; stagger: number }): { base: Exp
  */
 export function barLiftPx(zoom: number, pitchDeg: number, lat: number): number {
   const metresPerPx = (78271.517 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
-  return ((SEAT_FLOOR_M + SEAT_TALL_M) / metresPerPx) * Math.sin((pitchDeg * Math.PI) / 180);
+  return (SEAT_TOP_M / metresPerPx) * Math.sin((pitchDeg * Math.PI) / 180);
 }
 
 export const LOT_PITCH = 55;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DepartureCard } from '@driver/contracts';
-import { barLiftPx, garageCars,garageKey, garageLot, LOT_PITCH, LOT_TURN, LOT_ZOOM, lotCamera, SEAT_FLOOR_M, SEAT_TALL_M, seatBarPaint, spreadBays, type GarageBay } from './garage-cars';
+import { barLiftPx, garageCars,garageKey, garageLot, LOT_PITCH, LOT_TURN, LOT_ZOOM, lotCamera, seatBarPaint, spreadBays, type GarageBay } from './garage-cars';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 11, 6) + min * 60_000);
 const dep = (id: string, garageId: string, departMin: number, seatsTotal: number, free: number) =>
@@ -48,10 +48,10 @@ describe('spreadBays', () => {
 });
 
 describe('seatBarPaint', () => {
-  it('stands the bars over the garage roof, keeping the map’s own heights when they are higher', () => {
+  it('stands the bars at the map’s own heights', () => {
     const { base, height } = seatBarPaint();
-    expect(base).toEqual(['max', ['get', 'base'], SEAT_FLOOR_M]);
-    expect(height).toEqual(['max', ['get', 'hm'], SEAT_FLOOR_M + SEAT_TALL_M]);
+    expect(base).toEqual(['get', 'base']);
+    expect(height).toEqual(['get', 'hm']);
   });
   it('rises each seat after the one before it', () => {
     const { height } = seatBarPaint({ t: 0.5, stagger: 0.1 });
@@ -65,7 +65,7 @@ describe('barLiftPx', () => {
     const a = barLiftPx(18, 55, 32.9);
     expect(barLiftPx(19, 55, 32.9)).toBeCloseTo(a * 2, 6);
     expect(barLiftPx(18, 60, 32.9)).toBeGreaterThan(a);
-    // ~9.8 m at zoom 19 (0.125 m/px) tilted 55° → ~64 px.
+    // ~10 m at zoom 19 (0.125 m/px) tilted 55° → ~66 px.
     expect(barLiftPx(19, 55, 32.9)).toBeGreaterThan(55);
     expect(barLiftPx(19, 55, 32.9)).toBeLessThan(75);
   });
