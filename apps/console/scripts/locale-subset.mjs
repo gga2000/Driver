@@ -55,19 +55,44 @@ export function pickMessages(messages, refs) {
   return Object.fromEntries(Object.entries(messages).filter(([key]) => keep(key)));
 }
 
+/** The Console's own code: its keys travel with the screens that name them (`scripts/words-loader.cjs`). */
+const OWN_ROOT = 'apps/console/src';
+/** Shared packages the Console bundles: their keys stay in the shared table every page loads. */
+const SHARED_ROOTS = ['packages/contracts/src', 'packages/map/src', 'packages/i18n/src'];
+
 /**
- * Writes the Console's Arabic subset and an empty English table under `outDir`; returns their paths.
- * `roots` are the source folders scanned: the Console's own code and the shared packages it bundles.
+ * Writes the Console's tables under `outDir` and returns their paths:
+ *  - `arPath`: the shared Arabic table every page loads, only the keys the shared packages name;
+ *  - `wordsPath`: every Arabic key the Console's own code names. A production build adds each screen's
+ *    keys to the shared table from that screen's own file (scripts/words-loader.cjs), so a page carries
+ *    the words of the screens it shows, not every Console page's (CON-13 follow-up, 2026-10-09);
+ *  - `enPath`: an empty English table (the Console is Arabic only).
  */
 export function writeConsoleLocales({ repoRoot, outDir }) {
-  const roots = ['apps/console/src', 'packages/contracts/src', 'packages/map/src', 'packages/i18n/src'].map((r) => path.join(repoRoot, r));
-  const refs = { exact: new Set(), prefixes: new Set() };
-  for (const root of roots) walk(root, refs);
   const ar = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages/i18n/src/locales/ar-IQ.json'), 'utf8'));
+  const shared = { exact: new Set(), prefixes: new Set() };
+  for (const root of SHARED_ROOTS) walk(path.join(repoRoot, root), shared);
+  const own = walk(path.join(repoRoot, OWN_ROOT), { exact: new Set(), prefixes: new Set() });
   fs.mkdirSync(outDir, { recursive: true });
   const arPath = path.join(outDir, 'ar-IQ.json');
+  const wordsPath = path.join(outDir, 'ar-IQ.words.json');
   const enPath = path.join(outDir, 'en.json');
-  fs.writeFileSync(arPath, JSON.stringify(pickMessages(ar, refs)));
+  fs.writeFileSync(arPath, JSON.stringify(pickMessages(ar, shared)));
+  fs.writeFileSync(wordsPath, JSON.stringify(pickMessages(ar, own)));
   fs.writeFileSync(enPath, '{}');
-  return { arPath, enPath };
+  return { arPath, wordsPath, enPath };
+}
+
+/**
+ * The statement a production build puts at the top of one Console source file: it adds the keys that file
+ * names (and that the shared table lacks) to the shared table, before anything in the file can call `t()`.
+ * Returns the source unchanged when the file names none. A `'use client'` / `'use server'` directive stays first.
+ */
+export function withOwnWords(source, { words, shared, tablePath }) {
+  const picked = pickMessages(words, keyRefs(source));
+  for (const key of Object.keys(picked)) if (key in shared) delete picked[key];
+  if (Object.keys(picked).length === 0) return source;
+  const line = `import __driverWords from ${JSON.stringify(tablePath)}; Object.assign(__driverWords, ${JSON.stringify(picked)});\n`;
+  const directive = /^(?:\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/))*\s*(['"])use (?:client|server)\1;?[^\n]*\n/.exec(source);
+  return directive ? source.slice(0, directive[0].length) + line + source.slice(directive[0].length) : line + source;
 }
