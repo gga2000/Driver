@@ -16,7 +16,15 @@ export interface CspOptions {
   mapUrls?: ReadonlyArray<string | undefined>;
   /** Crash reports' DSN (`NEXT_PUBLIC_SENTRY_DSN`), when set. */
   crashDsn?: string | undefined;
+  /**
+   * Where photo uploads go straight from the browser (`NEXT_PUBLIC_UPLOADS_ORIGIN`): the presigned
+   * Storage URL a ticket hands out (pickup-spot photos, `lib/pickup-spots.ts`).
+   */
+  uploadsOrigin?: string | undefined;
 }
+
+/** A deployed Console with no uploads origin set still reaches any Supabase Storage project. */
+export const UPLOADS_FALLBACK = 'https://*.storage.supabase.co';
 
 /** `https://host` of a URL (a `pmtiles://` prefix and `{z}` placeholders are fine); null when it isn't one. */
 function originOf(url: string | undefined): string | null {
@@ -36,17 +44,21 @@ function originOf(url: string | undefined): string | null {
  */
 const MAP_SCRIPTS = [RTL_TEXT_PLUGIN_URL];
 
-export function buildCsp({ nonce, apiUrl, dev, mapUrls = [], crashDsn }: CspOptions): string {
+export function buildCsp({ nonce, apiUrl, dev, mapUrls = [], crashDsn, uploadsOrigin }: CspOptions): string {
   let api = "'self'";
   try {
     api = new URL(apiUrl).origin;
   } catch {
     /* relative or missing: same origin */
   }
-  // What the page may send to: the API, the map's tiles, glyphs and RTL plugin hosts, and the crash
-  // reports. Never any https host: a script that got in must not be able to post a token anywhere.
+  // What the page may send to: the API, the map's tiles, glyphs and RTL plugin hosts, photo uploads
+  // and the crash reports. Never any https host: a script that got in must not be able to post a
+  // token anywhere. Uploads: the exact origin when set; a deployed build without it keeps working
+  // with Supabase Storage until it is set (`next dev` uploads through the local API).
+  const uploads = originOf(uploadsOrigin) ?? (dev ? null : UPLOADS_FALLBACK);
   const reach = [...OSM_RASTER_TILES, DEFAULT_GLYPHS, RTL_TEXT_PLUGIN_URL, ...mapUrls, crashDsn]
     .map(originOf)
+    .concat(uploads)
     .filter((o): o is string => o !== null);
   const directives: Record<string, string[]> = {
     'default-src': ["'self'"],

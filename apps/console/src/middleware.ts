@@ -14,6 +14,7 @@ export function middleware(request: NextRequest) {
     dev: process.env['NODE_ENV'] === 'development',
     mapUrls: [process.env['NEXT_PUBLIC_MAP_TILES_URL'], process.env['NEXT_PUBLIC_MAP_GLYPHS_URL']],
     crashDsn: process.env['NEXT_PUBLIC_SENTRY_DSN'],
+    uploadsOrigin: process.env['NEXT_PUBLIC_UPLOADS_ORIGIN'],
   });
   const headers = new Headers(request.headers);
   headers.set('x-nonce', nonce);
