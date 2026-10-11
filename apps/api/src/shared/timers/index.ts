@@ -12,3 +12,4 @@ export {
   type TimerStore,
 } from './timer.store.js';
 export { retryDelayMs, timerSweeperOptionsFromEnv, TimerSweeper, type SweepResult, type TimerSweeperOptions } from './timer.sweeper.js';
+export { DurableTimers, TIMER_SWEEP_GRACE_MS, type DurableTimerOptions } from './durable-timers.js';

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Actor } from './identity-io.js';
+import type { RequestDeletionInput, RequestDeletionOutput } from './account-close-io.js';
 import { CityId, Iqd } from './common.js';
 import { EventLogEntry } from './console-io.js';
 import { ChatThreadKind, ChatThreadView } from './chat-io.js';
@@ -10,7 +11,8 @@ import { ChatThreadKind, ChatThreadView } from './chat-io.js';
  * an order dispute opens one by itself. Served by `apps/api/src/modules/support`.
  */
 
-export const TicketKind = z.enum(['dispute', 'complaint', 'incident', 'question']);
+/** `deletion`: a partner or merchant asked to delete his account (`identity.requestDeletion`). */
+export const TicketKind = z.enum(['dispute', 'complaint', 'incident', 'question', 'deletion']);
 export type TicketKind = z.infer<typeof TicketKind>;
 
 export const TicketStatus = z.enum(['open', 'waiting', 'escalated', 'resolved']);
@@ -304,4 +306,6 @@ export interface SupportPort {
   declineRefund(actor: Actor, input: RefundApprovalDeclineInput): Promise<RefundApproval>;
   /** The requester takes it back. */
   cancelRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval>;
+  /** «احذف حسابي» from the partner or merchant app: one open `deletion` case per person. */
+  requestDeletion(actor: Actor, input: RequestDeletionInput): Promise<RequestDeletionOutput>;
 }

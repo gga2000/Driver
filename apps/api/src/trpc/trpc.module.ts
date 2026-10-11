@@ -29,7 +29,7 @@ import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
-import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
+import { AccountCloseService, ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { InsightsModule, InsightsService } from '../modules/insights/index.js';
@@ -99,6 +99,7 @@ export class TrpcService {
     private readonly notify: NotifyService,
     private readonly controls: ControlsService,
     private readonly controlRoom: ControlRoomService,
+    private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
     private readonly zoneChecks: ZoneChecksService,
@@ -184,6 +185,7 @@ export class TrpcService {
       notify: this.notify,
       controls: this.controls,
       controlRoom: this.controlRoom,
+      accountClose: this.accountClose,
       support: this.support,
       zones: this.zones,
       zoneChecks: this.zoneChecks,

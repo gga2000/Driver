@@ -526,6 +526,11 @@ export class DeparturesService {
     });
   }
 
+  /** How many of his departures have not finished yet (announced, boarding or on the road): the account close waits for them. */
+  async openForDriver(driverId: string): Promise<number> {
+    return (await this.repo.listDepartures({ driverId, states: ['scheduled', 'boarding', 'departed'] })).length;
+  }
+
   /**
    * PIN check-in; settles the rider's late meter if it ran (decisions §8). Every PIN typed here is
    * logged in the same write (`intercity_pin_attempts`, ids only; Ali 2026-10-06 safeguards): a

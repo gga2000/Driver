@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AccountCloseInput, AccountCloseView, CloseAccountInput, CloseAccountOutput, RequestDeletionInput, RequestDeletionOutput } from '../account-close-io.js';
 import { RoleGrant, TokenPair } from '../auth.js';
 import { DriverError } from '../errors.js';
 import {
@@ -68,6 +69,17 @@ export const identityRouter = router({
   changePhone: router({
     start: protectedProcedure().input(ChangePhoneStartInput).output(ChangePhoneStartOutput).mutation(({ ctx, input }) => ctx.identity.changePhoneStart(ctx.actor, input)),
     confirm: protectedProcedure().input(ChangePhoneConfirmInput).output(MeView).mutation(({ ctx, input }) => ctx.identity.changePhoneConfirm(ctx.actor, input)),
+  }),
+  /** «احذف حسابي» (partner and merchant apps): opens a support case of kind `deletion`; asking again returns the open one. */
+  requestDeletion: protectedProcedure().input(RequestDeletionInput).output(RequestDeletionOutput).mutation(({ ctx, input }) => ctx.support.requestDeletion(ctx.actor, input)),
+  /**
+   * Console, admin only (docs/api/account-close.md): what stands in the way of closing a partner's or
+   * merchant's account, and the close itself — refused while he holds cash, has a job open or money is
+   * unsettled; erases his identity and his document, selfie and photo files, keeps the ledger and trips.
+   */
+  closeAccount: router({
+    check: protectedProcedure(['admin']).input(AccountCloseInput).output(AccountCloseView).query(({ ctx, input }) => ctx.accountClose.check(ctx.actor, input)),
+    close: protectedProcedure(['admin']).input(CloseAccountInput).output(CloseAccountOutput).mutation(({ ctx, input }) => ctx.accountClose.close(ctx.actor, input)),
   }),
   /** خطوط: a guardian registers a child (name into the vault, opaque childRef back). */
   registerChild: protectedProcedure().input(RegisterChildInput).output(RegisterChildOutput).mutation(({ ctx, input }) => ctx.identity.registerChild(ctx.actor, input)),

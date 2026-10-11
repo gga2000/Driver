@@ -336,6 +336,9 @@ export const ERROR_TABLE = {
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
   // a payout or hand-over retried under the same key but with a different amount, channel or person
   idempotency_key_reused: { retryHint: 'never', status: 'CONFLICT' },
+  // account close (docs/api/account-close.md): something still stands in the way; not an account closed there
+  account_close_blocked: { retryHint: 'never', status: 'CONFLICT' },
+  account_close_not_work: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },

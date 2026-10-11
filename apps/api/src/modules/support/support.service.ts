@@ -7,6 +7,7 @@ import {
   DriverError,
   TERMINAL_ORDER_STATES,
   type Actor,
+  type RequestDeletionOutput,
   type CannedResponse,
   type ChatMessage,
   type ChatThreadKind,
@@ -96,6 +97,12 @@ const NAME_TTL_MS = 5 * 60_000;
 const ACTIVE: readonly TicketStatus[] = ['open', 'waiting', 'escalated'];
 /** Unresolved tickets read when listing trips whose trail must be kept (a busy week stays far below it). */
 const OPEN_INCIDENTS_SCAN = 1_000;
+
+/** One open account-deletion request per person (`requestDeletion`). */
+export function deletionKey(personId: string): string {
+  return `deletion:${personId}`;
+}
+const DELETION_SUBJECT_AR = 'طلب حذف الحساب';
 
 /** One pay objection per driver and job (`openDriverPayQuery`). */
 export function driverPayKey(driverId: string, jobKey: string): string {
@@ -456,6 +463,51 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       return { t, created: true };
     });
     return { ticketId: ticket.t.id, openedAt: ticket.t.openedAt, alreadyOpen: !ticket.created };
+  }
+
+  /**
+   * «احذف حسابي» from the partner or merchant app (docs/api/account-close.md): a `deletion` case with
+   * him on it, one per person — asking again while it is open returns it, after it was resolved
+   * reopens it. An admin closes the account from the case once nothing stands in the way.
+   */
+  async requestDeletion(actor: Actor, input: { note?: string | undefined }): Promise<RequestDeletionOutput> {
+    const sourceKey = deletionKey(actor.personId);
+    const note = input.note?.trim() ? `${DELETION_SUBJECT_AR}: ${input.note.trim()}` : DELETION_SUBJECT_AR;
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const prior = await this.repo.bySourceKey(sourceKey, tx);
+      if (prior && prior.status !== 'resolved') return { ticketId: prior.id, openedAt: prior.openedAt, alreadyOpen: true };
+      if (prior) {
+        await this.repo.addEntry({ ticketId: prior.id, actorId: actor.personId, kind: 'reopen', text: note, amountIqd: null, meta: {}, idempotencyKey: null, at: now }, tx);
+        await this.repo.update(prior.id, { status: 'open', resolvedAt: null, resolution: null, reopenCount: prior.reopenCount + 1, slaDueAt: slaDueAt(now), lastActivityAt: now }, tx);
+        return { ticketId: prior.id, openedAt: now, alreadyOpen: false };
+      }
+      const t = await this.create(
+        { cityId: 'aziziyah', kind: 'deletion', channel: 'in_app', subject: DELETION_SUBJECT_AR, note, orderId: null, tripId: null, customerId: actor.personId, openedById: actor.personId, sourceKey },
+        tx,
+      );
+      return { ticketId: t.id, openedAt: t.openedAt, alreadyOpen: false };
+    });
+  }
+
+  /** The open `deletion` case of this person (what the account close resolves); false for any other ticket. */
+  async deletionCaseOpen(ticketId: string, personId: string): Promise<boolean> {
+    const t = await this.repo.get(ticketId);
+    return t !== null && t.kind === 'deletion' && t.customerId === personId && t.status !== 'resolved';
+  }
+
+  /**
+   * The account close resolves his deletion case, in its transaction. No «هل انحلت مشكلتك؟» survey: the
+   * account it would go to no longer exists. The close writes the audit row.
+   */
+  async resolveDeletion(actor: Actor, input: { ticketId: string; personId: string; resolution: string }): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const t = await this.repo.get(input.ticketId, tx);
+      if (!t || t.kind !== 'deletion' || t.customerId !== input.personId || t.status === 'resolved') throw new DriverError('invalid_input');
+      const now = this.clock.now();
+      await this.repo.addEntry({ ticketId: t.id, actorId: actor.personId, kind: 'resolve', text: input.resolution, amountIqd: null, meta: {}, idempotencyKey: null, at: now }, tx);
+      await this.touch(t, actor, { status: 'resolved', resolvedAt: now, resolution: input.resolution, firstResponseAt: t.firstResponseAt ?? now }, tx);
+    });
   }
 
   /** Whether the driver already sent an objection for this job (the receipt says "وصل اعتراضك"). */
