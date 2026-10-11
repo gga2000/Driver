@@ -53,8 +53,9 @@ scripts/
   re-sends it every 30 s while the app is open (presence lives 90 s in the dispatch index).
 - **Offer** — `<OfferWatcher>` keeps the driver's `live.partner` stream open (SSE, `docs/api/live.md`):
   `partner.currentOffer` is re-read the moment the server offers him a job, and it pushes
-  `/offer` when one arrives (also while on a job: batch offers). The ring runs from the server's
-  `expiresAt`/`ringSec`; heavy haptic + chime on arrival and at 5 s; `dispatch.offerSeen` after 3 s
+  `/offer` when one arrives (also while on a job: batch offers), and again while it is unanswered (back
+  never closes it). The ring is `expiresAt - serverNow` counted from when the offer reached the phone
+  (a wrong phone clock still counts right; shots: `SHOTS=slip-clock`); heavy haptic + chime on arrival and at 5 s; `dispatch.offerSeen` after 3 s
   in the foreground; `dispatch.respond` answers (errors: `offer_taken`, `offer_expired`, `over_cap`).
 - **Job** — `partner.activeJob` (every 4 s) gives the stops with the current one; the button runs
   `trips.arrive` → `trips.completeStop` per stop. At a food dropoff the handover panel asks for the

@@ -228,6 +228,11 @@ export const PartnerOffer = z.object({
   wave: z.number().int(),
   sentAt: z.coerce.date(),
   expiresAt: z.coerce.date(),
+  /**
+   * The server's clock when it answered. The phone counts the ring as `expiresAt - serverNow` from when
+   * the answer arrived, so a phone whose clock is wrong still shows the right time left.
+   */
+  serverNow: z.coerce.date(),
   /** The full ring: 15 s food, 20 s rides (dispatch spec §3). */
   ringSec: z.number().int().min(1),
   /** Counted as seen (3 s in the foreground, edge-case §6). */

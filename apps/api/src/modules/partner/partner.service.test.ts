@@ -397,6 +397,8 @@ describe('PartnerService', () => {
       collectIqd: 15_500,
     });
     expect(offer!.tripKm).toBeGreaterThan(2);
+    // The phone counts the ring from the server's clock, not its own.
+    expect(offer!.serverNow).toEqual(NOW);
   });
 
   it('joy l9: a ride the rider booked asking for him says so — and nothing else about who', async () => {
