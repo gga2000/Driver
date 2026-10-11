@@ -179,6 +179,13 @@ describe('merchant board — courier state', () => {
     expect(courierView('ord_1', { trip: { state: 'in_transit', courierId: 'd1', stops: stops('completed') }, ...facts })).toMatchObject({ state: 'picked_up', pickupCode: null, distanceM: null });
   });
 
+  it('N16: his approved photo rides along once a courier is named; none without one', () => {
+    const facts = { firstName: 'حيدر', vehicleClass: 'bike' as const, etaMinutes: 2, photoUrl: '/media/p1?sig=x' };
+    expect(courierView('ord_1', { trip: { state: 'en_route_to_pickup', courierId: 'd1', stops: stops('pending') }, ...facts })).toMatchObject({ state: 'on_the_way', photoUrl: '/media/p1?sig=x' });
+    expect(courierView('ord_1', { trip: { state: 'offered', courierId: null, stops: [] }, ...facts })).not.toHaveProperty('photoUrl');
+    expect(courierView('ord_1', { trip: { state: 'en_route_to_pickup', courierId: 'd1', stops: stops('pending') }, ...facts, photoUrl: null })).not.toHaveProperty('photoUrl');
+  });
+
   it('radarOf: metres and direction from the kitchen, never coordinates', () => {
     const kitchen = { lat: 32.9085, lng: 45.0655 };
     const north = radarOf(kitchen, { lat: kitchen.lat + 0.009, lng: kitchen.lng });

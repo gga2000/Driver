@@ -102,6 +102,8 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
 export interface CourierFacts {
   trip: Pick<Trip, 'state' | 'courierId' | 'stops'> | null;
   firstName: string | null;
+  /** N16: his approved main photo, a signed URL; absent/null without one. */
+  photoUrl?: string | null;
   vehicleClass: BoardCourier['vehicleClass'];
   /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
   etaMinutes: number | null;
@@ -136,7 +138,7 @@ export function courierView(orderId: string, f: CourierFacts): BoardCourier {
   if (!t) return none;
   if (!t.courierId || t.state === 'created' || t.state === 'offered' || t.state === 'declined' || t.state === 'timed_out') return { ...none, state: 'searching' };
   const pickup = t.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
-  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null };
+  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null, ...(f.photoUrl ? { photoUrl: f.photoUrl } : {}) };
   if (pickup?.state === 'completed' || t.state === 'in_transit' || t.state === 'arrived_dropoff' || t.state === 'completed') {
     return { ...none, ...who, state: 'picked_up' };
   }

@@ -1936,5 +1936,11 @@
   "merchant.gate.invite_title": "A store has invited you",
   "merchant.gate.invite_body": "Accept it and you’ll see the store’s orders with this same number. If you don’t know the store, tap No thanks",
   "merchant.invites.strip_many": "You have {count} invites from other stores",
-  "merchant.invites.see": "See"
+  "merchant.invites.see": "See",
+  "merchant.courier_map.label": "Couriers coming to your shop, on the map",
+  "merchant.courier_map.coming": "Couriers coming: {count}",
+  "merchant.courier_map.pin": "{name} · {minutes} min",
+  "merchant.courier_map.pin_anon": "Courier · {minutes} min",
+  "merchant.courier_map.pin_no_eta": "{name} on the way",
+  "merchant.courier_map.shop": "Your shop"
 }
