@@ -36,6 +36,14 @@ neither). Up to 25,000 (`MoneyRules.adjustments.secondApproverAboveIqd`) it post
 person who holds finance at that moment approves it; it then posts once, in the decision's transaction.
 Finance and admin roles are read live at both steps.
 
+## Own accounts
+
+Nobody pays out to, or corrects, his own account: a finance person who also drives is paid by a
+colleague, nobody pays a shop he belongs to, a correction may not touch the writer's or the
+approver's own accounts (`driver:`, `cash:`, `customer:` with his id, or `merchant_cash:` /
+`household:` of an org he belongs to), and an owner who also delivers can't take his own hand-in on
+the tablet. Each is refused with `staff_own_account`; a refused second OK leaves the request pending.
+
 ## Screens
 
 - Console › المالية: «ادفع» on each restaurant the company owes, and the «تصحيح الدفتر» card.

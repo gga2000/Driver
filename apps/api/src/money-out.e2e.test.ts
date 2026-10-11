@@ -112,6 +112,28 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     expect((await app.get(LedgerService).balance('merchant_cash:m_fix')).amount).toBe(31_000);
   });
 
+  it('nobody pays out to, or corrects, his own account or a shop he belongs to', async () => {
+    const room = app.get(ControlRoomService);
+    const support = app.get(SupportService);
+    // A finance person who also delivers and owns a restaurant.
+    const self = { personId: await person('07700098021', 'حيدر', ['finance', 'courier']), sessionId: 'e2e' };
+    await app.get(LedgerService).record({ type: 'tip', amount: 5_000, fromAccount: 'customer:c_e2e_own', toAccount: `driver:${self.personId}`, occurredAt: clock.now(), idempotencyKey: `e2e:own:${self.personId}` });
+    await expect(room.payDriver(self, { cityId: 'aziziyah', driverId: self.personId, amountIqd: 5_000, channel: 'zaincash', idempotencyKey: 'pay-own-driver' })).rejects.toMatchObject({ code: 'staff_own_account' });
+    const org = await app.get(OrgsService).create({ type: 'restaurant', name: 'مطعم حيدر', cityId: 'aziziyah', ownerId: self.personId });
+    await app.get(PostingService).orderMoney(workedExample({ orderId: 'mo-own', merchantId: org.id, courierId: fin2.personId, occurredAt: clock.now() }));
+    await expect(room.payMerchant(self, { cityId: 'aziziyah', merchantId: org.id, amountIqd: 1_000, channel: 'zaincash', idempotencyKey: 'pay-own-shop' })).rejects.toMatchObject({ code: 'staff_own_account' });
+    const ticket = await support.open(fin1, { cityId: 'aziziyah', kind: 'question', channel: 'phone', subject: 'تصحيح' });
+    const base = { cityId: 'aziziyah', fromAccount: 'platform', reason: 'missed delivery fee', incidentId: ticket.id };
+    await expect(room.adjust(self, { ...base, toAccount: `driver:${self.personId}`, amountIqd: 1_000 })).rejects.toMatchObject({ code: 'staff_own_account' });
+    await expect(room.adjust(self, { ...base, toAccount: `merchant_cash:${org.id}`, amountIqd: 1_000 })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await app.get(LedgerService).balance(`driver:${self.personId}`)).amount).toBe(5_000);
+    // Nor gives the second OK on a correction to his own account: it stays pending.
+    const big = await room.adjust(fin1, { ...base, toAccount: `driver:${self.personId}`, amountIqd: 30_000 });
+    await expect(support.approveRefund(self, { id: big.approvalId! })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await app.get(LedgerService).balance(`driver:${self.personId}`)).amount).toBe(5_000);
+    expect((await support.refundApprovals(fin2, { state: 'pending' })).find((r) => r.id === big.approvalId)?.state).toBe('pending');
+  });
+
   it('a restaurant takes its cash from a courier on its tablet with his daily code; a retry posts once', async () => {
     const { orgId, owner } = await restaurant('07800098012');
     const courier = await person('07720098013', 'زيد', ['courier']);
@@ -128,6 +150,10 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     expect((await admin.moneyReceiveCourierCash(owner, input)).balanceIqd).toBe(0);
     expect((await app.get(LedgerService).eventsFor(`cash:${courier}`)).filter((e) => e.type === 'merchant_paid_by_courier')).toHaveLength(1);
     expect((await app.get(MerchantCashService).balance(orgId)).balanceIqd).toBe(0);
+    // An owner who also delivers can't take his own hand-in.
+    await app.get(IdentityService).grantRole(SYSTEM, { personId: owner.personId, kind: 'courier' });
+    const ownCode = (await app.get(DriverAccountService).handoverCode(owner)).code;
+    await expect(admin.moneyReceiveCourierCash(owner, { ...input, courierId: owner.personId, code: ownCode, idempotencyKey: 'tablet-sheet-own' })).rejects.toMatchObject({ code: 'staff_own_account' });
     // Staff and other people cannot take it in the owner's name.
     await expect(admin.moneyReceiveCourierCash({ personId: courier, sessionId: 'e2e' }, { ...input, idempotencyKey: 'tablet-sheet-2' })).rejects.toMatchObject({ code: 'forbidden' });
   });

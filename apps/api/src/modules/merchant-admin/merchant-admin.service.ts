@@ -527,6 +527,8 @@ export class MerchantAdminService implements MerchantAdminPort {
   async moneyReceiveCourierCash(actor: Actor, input: { merchantOrgId: string; courierId: string; amountIqd: number; code: string; idempotencyKey: string }): Promise<MerchantCashAccount> {
     await this.owner(actor, input.merchantOrgId);
     if (!this.ops || !this.merchantCash) throw new DriverError('forbidden');
+    // An owner who also delivers can't take his own hand-in: the cash goes to the shop through someone else.
+    if (input.courierId === actor.personId) throw new DriverError('staff_own_account');
     const handoverId = `mt_${createHash('sha256').update(`${input.merchantOrgId}:${input.idempotencyKey}`).digest('hex').slice(0, 24)}`;
     if (!(await this.ledger.hasGroup(`handover:${handoverId}`))) {
       await this.ops.verifyCourierCode(actor, input.courierId, input.code);

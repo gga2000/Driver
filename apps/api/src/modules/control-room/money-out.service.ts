@@ -52,6 +52,8 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   }
 
   async payMerchant(actor: Actor, input: z.output<typeof PayMerchantInput>): Promise<PayoutResult> {
+    // Nobody pays out to a shop he belongs to: a colleague does.
+    if (await this.memberOf(actor.personId, input.merchantId)) throw new DriverError('staff_own_account');
     const reference = settlementReference('M', input.merchantId, this.clock.now(), keySeq(input.idempotencyKey));
     const left = await this.merchantCash.recordPayout({ merchantId: input.merchantId, amountIqd: input.amountIqd, channel: input.channel, reference });
     const name = await this.orgs.get(input.merchantId).then((o) => o.name).catch(() => input.merchantId);
@@ -65,6 +67,8 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   }
 
   async payDriver(actor: Actor, input: z.output<typeof PayDriverInput>): Promise<PayoutResult> {
+    // A finance person who also drives is paid by a colleague.
+    if (input.driverId === actor.personId) throw new DriverError('staff_own_account');
     const reference = settlementReference('D', input.driverId, this.clock.now(), keySeq(input.idempotencyKey));
     const left = await this.merchantCash.recordDriverPayout({ driverId: input.driverId, amountIqd: input.amountIqd, channel: input.channel, reference });
     await this.uow.run((tx) =>
@@ -77,6 +81,8 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   }
 
   async adjust(actor: Actor, input: z.output<typeof AdjustInput>): Promise<AdjustResult> {
+    // A correction never touches an account of the person writing it (his own, or a shop he belongs to).
+    for (const account of [input.fromAccount, input.toAccount]) if (await this.ownsAccount(actor.personId, account)) throw new DriverError('staff_own_account');
     const roles = await this.identity.activeRoles(actor.personId);
     let approvalId: string | null = null;
     const park = async (adj: Adjustment): Promise<Adjustment> => {
@@ -107,8 +113,28 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   private async postApproved(row: RefundApprovalRecord, approverId: string, tx: Tx): Promise<void> {
     const p = row.payload as unknown as Omit<Adjustment, 'requestedAt'> & { requestedAt: string };
     if (!p.id || !p.fromAccount || !p.toAccount) throw new DriverError('approval_not_found');
+    await this.refuseOwn(approverId, p);
     const roles = await this.identity.activeRoles(approverId);
     await this.adjustments.approve({ personId: approverId, roles }, { ...p, requestedAt: new Date(p.requestedAt) }, tx);
+  }
+
+  private async memberOf(personId: string, orgId: string): Promise<boolean> {
+    const org = await this.orgs.get(orgId).catch(() => null);
+    return Boolean(org?.members.some((m) => m.personId === personId));
+  }
+
+  /** `driver:`, `cash:` and `customer:` accounts are a person's; `merchant_cash:` and `household:` an org's. */
+  private async ownsAccount(personId: string, account: string): Promise<boolean> {
+    const [kind, id] = account.split(':');
+    if (!id) return false;
+    if (kind === 'driver' || kind === 'cash' || kind === 'customer') return id === personId;
+    if (kind === 'merchant_cash' || kind === 'household') return this.memberOf(personId, id);
+    return false;
+  }
+
+  /** The second OK: the approver may not own an account the correction touches either. */
+  private async refuseOwn(approverId: string, p: { fromAccount: string; toAccount: string }): Promise<void> {
+    for (const account of [p.fromAccount, p.toAccount]) if (await this.ownsAccount(approverId, account)) throw new DriverError('staff_own_account');
   }
 
   private detail(adj: Adjustment): Record<string, unknown> {
