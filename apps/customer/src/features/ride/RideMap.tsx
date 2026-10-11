@@ -33,7 +33,7 @@ export function RideMap({
   nearby,
   frame,
   walk,
-  onRoads: _onRoads,
+  onRoads,
   testID,
 }: {
   pickup: LatLng;
@@ -54,7 +54,7 @@ export function RideMap({
    * «اوكف هنا» in place of the pickup pin. The camera keeps both ends in view.
    */
   walk?: { from: LatLng; to: LatLng; youLabel: string; stopLabel: string } | null;
-  /** The roads the map has drawn, each time it settles (the safe-stop finder reads them). Wired to BaseMap with the map's M2. */
+  /** The roads the map has drawn, each time it settles (the safe-stop finder reads them). */
   onRoads?: (roads: WalkRoad[]) => void;
   testID?: string;
 }) {
@@ -117,7 +117,7 @@ export function RideMap({
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} />
+          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(onRoads ? { onRoads } : {})} />
           {radar ? <RadarPulse cam={cam} size={sizeSV} at={pickup} testID="ride-radar" /> : null}
           {nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {dropoff ? <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={start} waypoints={waypoints} color={theme.colors.accent} /> : null}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { t } from '@driver/i18n';
+import { safeStopFor } from '@driver/map/pieces';
 import { fasterBy, isWalkStop, showWalkOffer, stopLatLng, walkMetres, walkMinutes, walkStopSpot, type SafeStop } from './walk-stop';
 
 const STOP: SafeStop = { stop: [45.0662, 32.9089], landmarkName: 'الجامع الكبير', walkM: 63 };
@@ -51,5 +52,20 @@ describe('walk to a safe stop (map idea N10)', () => {
     expect(t('ride.walk_faster', { n: 4 })).toBe('أسرع بـ 4 دقايق');
     expect(t('ride.walk_arrives', { n: 3 })).toBe('يوصلك بعد 3 دقايق.');
     expect(t('ride.walk_body', { place: 'الجامع الكبير' })).toBe('السايق يوكف هنا بأمان، قبال الجامع الكبير.');
+  });
+});
+
+describe('the map finds the stop (safeStopFor)', () => {
+  it('offers a stop on the main road for a pin in an alley, none for a pin on it', () => {
+    // A main road running east–west; the pin 0.0006° (~67 m) north of it, in an alley.
+    const roads = [
+      { cls: 'mid', coords: [[45.06, 32.908], [45.07, 32.908]] as [number, number][] },
+      { cls: 'alley', coords: [[45.065, 32.908], [45.065, 32.9086]] as [number, number][] },
+    ];
+    const stop = safeStopFor([45.065, 32.9086], roads, [{ name: 'الجامع الكبير', at: [45.0652, 32.9079] }]);
+    expect(stop).not.toBeNull();
+    expect(stop!.landmarkName).toBe('الجامع الكبير');
+    expect(walkMetres(stop!.walkM)).toBeGreaterThanOrEqual(60);
+    expect(safeStopFor([45.065, 32.90805], roads, [])).toBeNull();
   });
 });

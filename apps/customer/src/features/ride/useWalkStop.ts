@@ -1,16 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { LatLng } from '@driver/contracts';
+import { safeStopFor } from '@driver/map/pieces';
 import { useLandmarks } from '@/features/track/map/useLandmarks';
 import { DEV_TOOLS } from '@/lib/env';
 import type { SafeStop, WalkRoad } from './walk-stop';
-
-type FindStop = (pin: [number, number], roads: readonly WalkRoad[], landmarks: readonly { name: string; at: [number, number] }[]) => SafeStop | null;
-
-/**
- * The map's stop finder (`safeStopFor`, `@driver/map/golden`). Null until the map's M2 lands; until
- * then there is no stop outside the dev demo and the choose screen simply shows no offer.
- */
-const FIND: FindStop | null = null;
 
 /**
  * Dev only (`EXPO_PUBLIC_DEV_TOOLS`): a stop 60 m away for screenshots, with `?walk=demo` on the page
@@ -47,7 +40,7 @@ export function useWalkStop(pin: LatLng | null): { stop: SafeStop | null; onRoad
   const stop = useMemo(() => {
     if (lat === null || lng === null) return null;
     if (walkDemo()) return demoStop({ lat, lng }, landmarks);
-    return FIND && roads.length > 0 ? FIND([lng, lat], roads, landmarks) : null;
+    return roads.length > 0 ? safeStopFor([lng, lat], roads, landmarks) : null;
   }, [lat, lng, roads, landmarks]);
   const onRoads = useCallback((next: WalkRoad[]) => setRoads(next), []);
   return { stop, onRoads };

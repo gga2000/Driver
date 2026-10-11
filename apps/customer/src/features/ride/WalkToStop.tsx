@@ -5,14 +5,15 @@ import Svg, { Path } from 'react-native-svg';
 import type { LatLng } from '@driver/contracts';
 import { Button, Icon, IconButton, Text, useTheme, withAlpha } from '@driver/ui';
 import { color as palette } from '@driver/design-tokens';
+import { WALK_DRAW_MS, walkColours } from '@driver/map/pieces';
 import { project, type Size } from '@/features/track/geo';
 import type { CameraValues } from '@/features/track/map/types';
 import { useT } from '@/lib/i18n';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-/** The walk draws itself once, in a second and a half (map idea N10, `WALK_DRAW_MS`), then rests. */
-export const WALK_DRAW_MS = 1500;
+/** The map's walk colours: ink dots on a cream halo, readable on every light of the map. */
+const WALK = walkColours('day');
 
 interface LayerProps {
   cam: CameraValues;
@@ -43,8 +44,8 @@ export function WalkLine({ cam, size, from, to, testID }: LayerProps & { from: L
   return (
     <View testID={testID} pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Svg width="100%" height="100%">
-        <AnimatedPath animatedProps={props} stroke={palette.neutral[0]} strokeWidth={10} strokeLinecap="round" fill="none" strokeOpacity={0.85} />
-        <AnimatedPath animatedProps={props} stroke={theme.colors.text} strokeWidth={5} strokeLinecap="round" strokeDasharray="0.1 10" fill="none" />
+        <AnimatedPath animatedProps={props} stroke={WALK.halo} strokeWidth={10} strokeLinecap="round" fill="none" strokeOpacity={0.85} />
+        <AnimatedPath animatedProps={props} stroke={WALK.dot} strokeWidth={5} strokeLinecap="round" strokeDasharray="0.1 10" fill="none" />
       </Svg>
     </View>
   );
