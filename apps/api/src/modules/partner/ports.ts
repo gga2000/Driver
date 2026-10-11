@@ -87,6 +87,8 @@ export interface PartnerDeps {
     bookedJobs?(driverId: string, cityId: string): Promise<{ online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] }>;
     /** His answer on one (dispatch's rules: first confirm wins, fit, clash, start window). */
     answerBookedJob?(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void>;
+    /** He just came online: red jobs nobody took try again now. Absent in older fakes = nothing. */
+    retryUnassigned?(cityId: string): Promise<void>;
   };
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;

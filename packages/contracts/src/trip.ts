@@ -109,6 +109,8 @@ export const Stop = z.object({
   arrivedAt: z.coerce.date().nullable(),
   arrivedOutsideGeofence: z.boolean(),
   arrivalDistanceM: z.number().int().nullable(),
+  /** The accuracy (m) of the fix sent with the arrival tap; null without one. Absent on older views. */
+  arrivalAccuracyM: z.number().nonnegative().nullable().optional(),
   completedAt: z.coerce.date().nullable(),
   skippedAt: z.coerce.date().nullable(),
   skipReason: z.string().nullable(),

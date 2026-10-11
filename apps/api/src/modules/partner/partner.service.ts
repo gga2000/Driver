@@ -186,6 +186,8 @@ export class PartnerService implements PartnerPort {
       tier: cap.tier,
       verticals,
     });
+    // Just came online (not the 30-s beat): a job nobody took may be his now.
+    if (!present) await this.deps.dispatch.retryUnassigned?.(input.cityId);
     return { roles, registered, gate, presence, cap };
   }
 

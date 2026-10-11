@@ -31,6 +31,7 @@ import {
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { arrivalCountsForFees } from '../pricing/index.js';
 import { rideMilestones } from './ride-milestones.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
@@ -639,7 +640,7 @@ export class TrackingService implements TrackingPort {
   private tripView(trip: Trip, orderId: string): NonNullable<OrderTracking['trip']> {
     const stops: TrackStop[] = trip.stops.map((s) => {
       const mine = s.orderId === orderId;
-      return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, completedAt: s.completedAt };
+      return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, arrivalClaimedOnly: mine && s.arrivedAt !== null && !arrivalCountsForFees(s), completedAt: s.completedAt };
     });
     const myDrop = stops.find((s) => s.mine && s.type === 'dropoff');
     const dropsBeforeMine = myDrop ? stops.filter((s) => !s.mine && s.type === 'dropoff' && s.seq < myDrop.seq && s.state !== 'completed' && s.state !== 'skipped').length : 0;
