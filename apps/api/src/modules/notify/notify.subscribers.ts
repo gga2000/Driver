@@ -120,6 +120,8 @@ export const NOTIFY_EVENT_TYPES = [
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
   'session.signed_out',
+  // A staff account on a device it was never seen on: every admin hears of it.
+  'staff.new_device',
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
@@ -804,6 +806,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         params: { restaurant: str(p['restaurantName']) ?? '', dish: str(p['dishName']) ?? '', merchantOrgId },
         data: { merchantOrgId, itemId: str(p['itemId']) ?? '' },
       }));
+    }
+    case 'staff.new_device': {
+      // «جهاز جديد بحساب موظف»: each admin the event names; the staff member's first name (logged read).
+      const personId = str(p['personId']);
+      const ids = Array.isArray(p['adminIds']) ? p['adminIds'].filter((x): x is string => typeof x === 'string' && x !== personId) : [];
+      if (!personId || ids.length === 0) return [];
+      const name = (await L.firstName(personId, 'notify_staff_new_device')) ?? t('push.staff_new_device.someone');
+      const device = t(str(p['platform']) === 'web' ? 'push.staff_new_device.web' : 'push.staff_new_device.phone');
+      return ids.map((to) => ({ ...base, template: 'staff_new_device' as const, to, params: { name, device }, data: { personId } }));
     }
     case 'dispatch.zone_nudged': {
       // "Send drivers here" (maps program o5): one push per free driver around the busy zone.

@@ -42,6 +42,7 @@ import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
+import { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { AuditLogService, StaffNames } from './audit.js';
 import { CONTROLS_REPOSITORY, QUIET_DEFAULTS, targetOf, type BannerRecord, type ControlsRepository, type KillSwitchRecord, type QuietRecord, type ZoneCapacityRecord } from './controls.repository.js';
@@ -153,6 +154,7 @@ export class ControlsService implements ControlsPort {
     private readonly names: StaffNames,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly identity: IdentityService,
   ) {}
 
   /** The orders module binds its live count (it owns orders; controls cannot import it). */
@@ -640,6 +642,22 @@ export class ControlsService implements ControlsPort {
     });
     this.bannerCache = null;
     return this.bannerView(row, await this.names.of([row.setById]), now);
+  }
+
+  // ───────────────────────── staff ─────────────────────────
+
+  /**
+   * «طلّعه من كل الأجهزة» (Console «الموظفين», admins): every session of that person ends on every
+   * device, with its audit row in the same transaction. Identity owns the sessions; the trail is here.
+   */
+  async endAllSessions(actor: Actor, input: { personId: string }): Promise<{ ended: number }> {
+    if (input.personId === actor.personId) throw new DriverError('forbidden');
+    const name = (await this.names.of([input.personId], actor.personId))[input.personId] ?? input.personId;
+    return this.uow.run(async (tx) => {
+      const out = await this.identity.endAllSessions(actor, input.personId, 'admin');
+      await this.audits.record({ cityId: null, actorId: actor.personId, action: 'staff.end_sessions', subjectKind: 'person', subjectId: input.personId, summaryAr: `طلّع ${name} من كل الأجهزة (${out.ended})`, detail: { ended: out.ended } }, tx);
+      return out;
+    });
   }
 
   // ───────────────────────── quiet days and the season ─────────────────────────

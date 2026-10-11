@@ -135,6 +135,10 @@ export const LogoutInput = z.object({ refreshToken: z.string().min(16).optional(
 export const GrantRoleInput = z.object({ personId: z.string(), kind: RoleKind, orgId: z.string().optional() });
 export const RevokeRoleInput = GrantRoleInput;
 
+/** Admins: «طلّعه من كل الأجهزة», every session of one person, on every device. */
+export const EndAllSessionsInput = z.object({ personId: z.string().min(1) });
+export const EndAllSessionsOutput = z.object({ ended: z.number().int().nonnegative() });
+
 export const LinkGuardianInput = z.object({
   wardPhone: z.string().min(7).max(20).optional(),
   wardParticipantId: z.string().optional(),

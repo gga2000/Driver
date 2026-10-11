@@ -15,16 +15,23 @@ async function harness(start = '2026-10-04T09:00:00Z') {
   const clock = new FakeClock(start);
   const ev = createInMemoryEvents({ clock });
   const repo = new InMemoryControlsRepository();
-  const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : null])) } as unknown as IdentityService;
+  const ended: Array<{ personId: string; reason: string }> = [];
+  const identity = {
+    firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : id === 'p_zainab' ? 'زينب' : null])),
+    endAllSessions: async (_actor: Actor, personId: string, reason: string) => {
+      ended.push({ personId, reason });
+      return { ended: 2 };
+    },
+  } as unknown as IdentityService;
   const names = new StaffNames(identity, clock);
   const audits = new AuditLogService(repo, names, clock);
   const orgs = new OrgsService(ev.events, clock);
   const kitchen = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'p_owner' });
-  const svc = new ControlsService(repo, new ConfigService(), orgs, ev.events, audits, names, ev.uow, clock);
+  const svc = new ControlsService(repo, new ConfigService(), orgs, ev.events, audits, names, ev.uow, clock, identity);
   const counts = new Map<string, number>();
   svc.bindActiveOrders(async () => counts);
   svc.registerCorridors([{ id: 'aziziyah_kut', name_ar: 'العزيزية ⇄ الكوت' }]);
-  return { clock, ev, repo, svc, kitchen, counts };
+  return { clock, ev, repo, svc, kitchen, counts, ended };
 }
 
 const gate = (over: Partial<Parameters<ControlsService['assertOrderAllowed']>[0]> = {}) => ({
@@ -236,5 +243,21 @@ describe('screen switches (W6)', () => {
     // Screen rows never stop an order nor show on the kill-switch board.
     await expect(h.svc.assertOrderAllowed(gate())).resolves.toBeUndefined();
     expect((await h.svc.view('aziziyah')).switches).toEqual([]);
+  });
+});
+
+describe('staff: end every session', () => {
+  it('ends the person\'s sessions and writes the audit row', async () => {
+    const h = await harness();
+    expect(await h.svc.endAllSessions(ALI, { personId: 'p_zainab' })).toEqual({ ended: 2 });
+    expect(h.ended).toEqual([{ personId: 'p_zainab', reason: 'admin' }]);
+    const rows = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'person', limit: 5 });
+    expect(rows.map((r) => [r.action, r.subjectId, r.summary_ar])).toEqual([['staff.end_sessions', 'p_zainab', 'طلّع زينب من كل الأجهزة (2)']]);
+  });
+
+  it('an admin cannot cut himself off from here', async () => {
+    const h = await harness();
+    await expect(h.svc.endAllSessions(ALI, { personId: ALI.personId })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(h.ended).toEqual([]);
   });
 });

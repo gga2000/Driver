@@ -10,6 +10,7 @@ import {
   searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
   SHARED_PHONE_FORBIDDEN_ROLES,
+  STAFF_SESSION_MAX_SEC,
   type Actor,
   type ChangePhoneConfirmInput,
   type ChangePhoneStartInput,
@@ -170,7 +171,8 @@ export class IdentityService implements IdentityPort {
       const deviceId = input.device ? (await this.registerDevice(person.id, input.device, now, true, tx)).id : null;
       if (!isNew && this.isStagingTest(e164) && (await this.holdsStaffRole(person.id, tx))) throw new DriverError('forbidden');
       await this.markVerified(person.id, now, tx, isNew ? 'person.verified' : 'person.reverified', person.lastVerifiedAt === null);
-      const { tokens } = await this.sessions.open(person.id, deviceId, tx);
+      const staff = !isNew && (await this.holdsStaffRole(person.id, tx));
+      const { tokens } = await this.sessions.open(person.id, deviceId, tx, staff ? STAFF_SESSION_MAX_SEC : undefined);
       return { personId: person.id, isNew, tokens };
     });
   }
@@ -182,7 +184,19 @@ export class IdentityService implements IdentityPort {
     }
     const created = await this.repo.createDevice({ personId, fingerprint: device.fingerprint, platform: device.platform, appVersion: device.appVersion ?? null, verifiedAt: verified ? now : null, now }, tx);
     await this.events.emit(tx, { actorId: personId, type: 'device.registered', occurredAt: now, payload: { personId, deviceId: created.id, platform: device.platform, verified } }, { name: 'person', id: personId });
+    if (await this.holdsStaffRole(personId, tx)) await this.alertStaffDevice(personId, created.id, device.platform, now, tx);
     return created;
+  }
+
+  /**
+   * A staff member signed in from a device never seen on this account: every admin hears of it (the
+   * notify subscriber pushes `staff_new_device`), so a stranger on a staff account is noticed and
+   * can be cut off from the Console's «الموظفين» page.
+   */
+  private async alertStaffDevice(personId: string, deviceId: string, platform: string, now: Date, tx: Tx) {
+    const { people } = await this.repo.peopleWithRoles(['admin'], { limit: 50 }, tx);
+    const adminIds = people.filter(({ roles }) => roles.some((r) => r.kind === 'admin' && r.frozenAt === null)).map(({ person }) => person.id);
+    await this.events.emit(tx, { actorId: personId, type: 'staff.new_device', occurredAt: now, payload: { personId, deviceId, platform, adminIds } }, { name: 'person', id: personId });
   }
 
   /** Sets lastVerifiedAt, thaws frozen roles and emits person.verified (first time) or person.reverified. */
@@ -212,7 +226,9 @@ export class IdentityService implements IdentityPort {
         const d = await this.registerDevice(s.personId, device, now, false, tx);
         await this.freezeForReverification(s.personId, now, 'new_device', tx);
         return { deviceId: d.id };
-      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null));
+      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null),
+      // Staff sessions end 12 h after they opened, refreshes or not.
+      async (s) => ((await this.holdsStaffRole(s.personId, tx)) ? new Date(s.createdAt.getTime() + STAFF_SESSION_MAX_SEC * 1000) : null));
       await this.checkIdle(session.personId, now, tx);
       return tokens;
     });
@@ -224,6 +240,25 @@ export class IdentityService implements IdentityPort {
       if (refreshToken) await this.sessions.revokeByRefreshToken(refreshToken, tx);
       // Notify drops the push tokens this session registered (a signed-out phone gets nothing).
       await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: this.clock.now(), payload: { personId: actor.personId, sessionId: actor.sessionId } }, { name: 'person', id: actor.personId });
+    });
+  }
+
+  /**
+   * Ends every live session of a person on every device (their next call or refresh is refused, the
+   * auth cache drops them on every API machine) and drops each session's push tokens. Joins the
+   * caller's unit of work, so a role revoke or an audited admin action commits it with its own rows.
+   */
+  async endAllSessions(actor: Actor | { personId: string }, personId: string, reason: 'admin' | 'role_revoked'): Promise<{ ended: number }> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person) throw new DriverError('person_not_found');
+      const now = this.clock.now();
+      const ids = await this.repo.revokeSessionsOf(personId, now, tx);
+      for (const sessionId of ids) {
+        await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
+      await this.events.emit(tx, { actorId: actor.personId, type: 'session.all_ended', occurredAt: now, payload: { personId, endedBy: actor.personId, reason, sessions: ids.length } }, { name: 'person', id: personId });
+      return { ended: ids.length };
     });
   }
 
@@ -349,6 +384,9 @@ export class IdentityService implements IdentityPort {
       const now = this.clock.now();
       await this.repo.revokeRole(role.id, now, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'role.revoked', occurredAt: now, payload: { personId: input.personId, kind: input.kind, orgId, revokedBy: actor.personId } }, { name: 'person', id: input.personId });
+      // A staff role taken away ends every session the person has, in this same transaction: a device
+      // signed in before (a lost phone) can never pick the role up again when it is granted back.
+      if (STAFF_ROLES.includes(input.kind)) await this.endAllSessions(actor, input.personId, 'role_revoked');
     });
   }
 
