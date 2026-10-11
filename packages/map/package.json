@@ -43,6 +43,10 @@
     "./pieces/sunrise": {
       "types": "./dist/golden/sunrise.d.ts",
       "default": "./dist/golden/sunrise.js"
+    },
+    "./pieces/my-trips": {
+      "types": "./dist/golden/my-trips.d.ts",
+      "default": "./dist/golden/my-trips.js"
     }
   },
   "scripts": {

@@ -203,7 +203,7 @@ Overture has on a lot give way to the model. The garage pins the apps use (`GARA
 demo spots; moving them onto the models belongs to the garage data owner.
 
 ## Your trips map (stats «خريطتك», 2026-10-11)
-- `@driver/map/pieces`: `myTripsGeoJSON(trips, {labels, k?, pins?})`, `myTripsLayers({source, light})`, `myTripsBounds(trips)`,
+- `@driver/map/pieces/my-trips`: `myTripsGeoJSON(trips, {labels, k?, pins?})`, `myTripsLayers({source, light})`, `myTripsBounds(trips)`,
   `myTripWidth(count)`, `MY_TRIPS_DRAW_MS` (1200), `MY_TRIPS_PINS_MS` (300) and `MY_TRIPS_CAMERA` (pitch 40, bearing −12).
 - Soft arcs from each kitchen or pickup to where the trip ended (the server knows the ends, not the streets), coloured
   by service, three widths by count, on a cream under-stroke and a light cream fade over the town. Kitchens are saffron
