@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertBootConfig, bootConfigProblems, deployEnvironmentFromEnv } from './boot-check.js';
+import { assertBootConfig, bootConfigProblems, bootConfigWarnings, deployEnvironmentFromEnv } from './boot-check.js';
 
 const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
 const live = { ...base, SMS_PROVIDER: 'http' };
@@ -38,5 +38,16 @@ describe('boot configuration (SEC-16)', () => {
       expect((err as Error).message).not.toContain('987654');
     }
     expect(() => assertBootConfig(live)).not.toThrow();
+  });
+
+  it('warns when a job machine runs without the timer sweeper, on staging and production only', () => {
+    expect(bootConfigWarnings({})).toEqual([]);
+    expect(bootConfigWarnings({ ...live, TIMERS_SWEEPER: 'on' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'worker', TIMERS_SWEEPER: ' ON ' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'web' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live })).toEqual([expect.stringMatching(/TIMERS_SWEEPER is not on/)]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'worker', TIMERS_SWEEPER: 'off' })).toHaveLength(1);
+    expect(bootConfigWarnings({ ...base, DEPLOY_ENVIRONMENT: 'staging', DRIVER_ROLE: 'worker' })).toHaveLength(1);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'bogus' })).toHaveLength(1);
   });
 });
