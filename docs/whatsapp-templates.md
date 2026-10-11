@@ -66,7 +66,7 @@ English (`en`):
 Driver: Console live updates have been down for {{1}}; screens refresh slowly. Check the server: {{2}}
 ```
 
-Sample values for the submission: `{{1}}` = 1 دقيقة · `{{2}}` = https://console.driver.iq
+Sample values for the submission: `{{1}}` = 1 دقيقة · `{{2}}` = https://console.example.com
 
 ### `console_unwatched_alert`
 
@@ -85,7 +85,7 @@ English (`en`):
 Driver: for {{1}} no Console screen has been open, and you're on call. Open it or call the team: {{2}}
 ```
 
-Sample values for the submission: `{{1}}` = 5 دقيقة · `{{2}}` = https://console.driver.iq
+Sample values for the submission: `{{1}}` = 5 دقيقة · `{{2}}` = https://console.example.com
 
 ### `courier_arriving`
 
@@ -199,7 +199,7 @@ English (`en`):
 School run on Driver: {{1}} · run {{2}}: no empty-car check for {{3}}. Open the Console and call him: {{4}}
 ```
 
-Sample values for the submission: `{{1}}` = حيدر ك. · `{{2}}` = #4821 · `{{3}}` = 5 دقايق · `{{4}}` = https://console.driver.iq/safety
+Sample values for the submission: `{{1}}` = حيدر ك. · `{{2}}` = #4821 · `{{3}}` = 5 دقايق · `{{4}}` = https://console.example.com/safety
 
 ### `merchant_cash_handover`
 
@@ -313,7 +313,7 @@ English (`en`):
 SOS on Driver: {{1}} ({{2}}) pressed SOS · {{3}}. Open the Console and take it now: {{4}}
 ```
 
-Sample values for the submission: `{{1}}` = حيدر ك. · `{{2}}` = سايق · `{{3}}` = مشوار تكتك #1290 · `{{4}}` = https://console.driver.iq/safety/sos_123
+Sample values for the submission: `{{1}}` = حيدر ك. · `{{2}}` = سايق · `{{3}}` = مشوار تكتك #1290 · `{{4}}` = https://console.example.com/safety/sos_123
 
 ### `sos_emergency_contact`
 

@@ -139,6 +139,7 @@ fly secrets set --config deploy/fly/api.toml --stage \
   UPLOADS_SECRET="$(openssl rand -hex 32)" \
   SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
   SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
+  CONSOLE_BASE_URL='https://<the Console address the company owns>' \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
 
@@ -168,8 +169,10 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 
 **What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
 without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
-`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS and a `STAGING_TEST_OTP`; push other than Expo is
-refused where push is built (see `PUSH_PROVIDER` below).
+`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS, a `STAGING_TEST_OTP` and a missing
+`CONSOLE_BASE_URL` (staging only logs a warning for that one); push other than Expo is refused where
+push is built (see `PUSH_PROVIDER` below). A `CONSOLE_BASE_URL` that is set but is not a public https
+address (http, localhost, a private or `.internal` address) stops boot on staging and production alike.
 The log line lists every problem at once. A database or Redis that is configured but unreachable never
 stops boot: `health.ready` shows it, and `health.live` fails after 30 s without the database.
 
@@ -200,6 +203,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
 | `REQUEST_LIMIT_IP_MODE` | no | `alert` (default) until carrier traffic is understood; `enforce` limits guests per address ([request-limits.md](../api/request-limits.md)) |
 | `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
+| `CONSOLE_BASE_URL` | no | **required in production**: the Console address staff alerts link to (SOS, on-call, خطوط sweep, Console watch — WhatsApp, SMS twin), e.g. `https://driver-console.fly.dev` or later `https://console.<your-domain>`. Set it **only to an address the company owns**; there is deliberately no default. Must be public https. Unset (local, or staging with a warning): the messages carry no link, only the alert number and «افتح الكونسول من الكمبيوتر» |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
 | `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |
 | `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |

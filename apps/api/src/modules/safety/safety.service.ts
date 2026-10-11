@@ -33,6 +33,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
@@ -57,8 +58,8 @@ export interface SafetyConfig {
   secret: string;
   /** The public page the link opens (`<base><token>`). */
   linkBase: string;
-  /** The Console origin, for the dispatcher's WhatsApp ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The Console origin, for the dispatcher's WhatsApp ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
   /** In-process timers for the contact message (after the cancel window) and the 60-s escalation. */
   timers: boolean;
   /** The sweep that catches anything a timer missed (restarts, other instances); 0 = off. */
@@ -454,7 +455,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
       }
     }
     const name = (await this.identity.displayNamesFor([inc.raiserId], 'system:safety', 'sos_page'))[inc.raiserId]?.displayName ?? 'شخص';
-    const params = { name, role: ROLE_AR[inc.raiserRole], what: inc.subjectLabel, link: `${this.config.consoleBase.replace(/\/$/, '')}/safety/${inc.id}`, incidentId: inc.id };
+    const params = { name, role: ROLE_AR[inc.raiserRole], what: inc.subjectLabel, link: consoleLinkParam(this.config.consoleBase, `/safety/${inc.id}`, inc.id), incidentId: inc.id };
     for (const personId of to) {
       await this.notify.dispatch({ eventId: e.id, template: 'sos_dispatch_alert', to: personId, params, data: { incidentId: inc.id }, ...(inc.orderId ? { orderId: inc.orderId } : {}) }, tx);
     }

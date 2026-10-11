@@ -49,7 +49,8 @@ from where the car last was when the person is in it.
 
 Tables: `safety_incidents`, `safety_incident_entries` (timeline), `safety_incident_fixes` (trail);
 migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFETY_LINK_SECRET`,
-`CONSOLE_BASE_URL`, `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
+`CONSOLE_BASE_URL` (the dispatchers' link; no default: unset, the WhatsApp carries the alert number
+and «افتح الكونسول من الكمبيوتر» instead of a link), `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
 
 ## Emergency number (Ali, 2026-10-06)
 

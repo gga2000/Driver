@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { linkSecretFromEnv } from '../../shared/secrets.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { consoleBaseFromEnv } from '../../shared/console-link.js';
 import { DevCallBridge, isDevEnvironment, ProxyCallBridge } from '../chat/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
@@ -39,7 +40,7 @@ function envInt(name: string, fallback: number): number {
  * (development: the real number, logged; otherwise the platform's proxy number).
  *
  * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, default https://driver.iq/sos/),
- * CONSOLE_BASE_URL (dispatcher WhatsApp link), SAFETY_LINK_SECRET (required in production; elsewhere it falls
+ * CONSOLE_BASE_URL (dispatcher WhatsApp link; unset: no link, `shared/console-link.ts`), SAFETY_LINK_SECRET (required in production; elsewhere it falls
  * back to SHARE_LINK_SECRET / JWT_SECRET),
  * SAFETY_SWEEP_MS (default 5000; 0 turns the sweep off), SAFETY_TIMERS=0 turns the in-process timers off.
  */
@@ -120,7 +121,7 @@ function envInt(name: string, fallback: number): number {
         // SEC-15: production needs its own SAFETY_LINK_SECRET (not JWT_SECRET's, not SHARE_LINK_SECRET's).
         secret: linkSecretFromEnv(process.env, 'SAFETY_LINK_SECRET', { fallbacks: ['SHARE_LINK_SECRET', 'JWT_SECRET'], distinctFrom: ['SHARE_LINK_SECRET'] }),
         linkBase: process.env['SAFETY_LINK_BASE_URL'] ?? 'https://driver.iq/sos/',
-        consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
+        consoleBase: consoleBaseFromEnv(),
         timers: process.env['SAFETY_TIMERS'] !== '0',
         sweepMs: envInt('SAFETY_SWEEP_MS', 5_000),
       }),

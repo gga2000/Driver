@@ -81,6 +81,13 @@ Exact origins only: Vercel preview links are not on the list. After changing it,
 then Deploy → staging (the setting reaches the API with the deploy). Phones send no origin and are
 never affected.
 
+## The Console link in staff alerts
+
+`CONSOLE_BASE_URL` on the staging API is the address staff WhatsApp/SMS alerts link to. Set it to the
+staging Console the company owns (`https://<FLY_CONSOLE_APP>.fly.dev`); never another address. Without
+it staging still boots (a warning in the log) and the alerts carry the alert number with no link.
+Production refuses to boot without it ([hosting.md](hosting.md#environment-variables-of-the-api)).
+
 ## Test sign-in numbers on staging
 
 Staging sends no real SMS. For trying the apps there are staging test numbers (0770 000 0100–0199, never

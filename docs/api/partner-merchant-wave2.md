@@ -154,7 +154,7 @@ Console demo: `POST /demo/khat-sweep[?late=1]`.
 template `khat_sweep_dispatch_alert` (category safety, push + WhatsApp, the usual 60-s SMS twin, sent in
 quiet hours; no escalation). Params: the driver's short name (a logged vault read, `system:khat` /
 `khat_sweep_page`), the run's `#ticket`, the minutes since the run ended in their natural form via
-`t()`, and the Console link (`CONSOLE_BASE_URL` + `/safety`). Never a child's name. Once per alert: the
+`t()`, and the Console link (`CONSOLE_BASE_URL` + `/safety`; unset: the alert number, no link). Never a child's name. Once per alert: the
 event is once per run and notify dedupes event + person; nothing is sent when the driver confirmed, or
 a dispatcher closed it, before the outbox got there.
 

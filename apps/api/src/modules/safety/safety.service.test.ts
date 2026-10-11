@@ -28,7 +28,7 @@ const POS = { lat: 32.9095, lng: 45.0635, accuracyM: 12, at: new Date('2026-10-0
 const NAMES: Record<string, string> = { p_rider: 'زينب علي', p_driver: 'حيدر كاظم', p_haider: 'حيدر جاسم', p_ali: 'علي أحمد' };
 const PHONES: Record<string, string> = { p_rider: '+9647702223344', p_driver: '+9647701110002', p_haider: '+9647700000002', p_ali: '+9647700000001' };
 
-function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null } = {}) {
+function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null; consoleBase?: string | null } = {}) {
   const clock = new FakeClock('2026-10-05T18:00:00Z');
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -127,7 +127,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
         return { mode: 'proxy', dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     },
-    { secret: 'test-secret', linkBase: 'https://driver.iq/sos/', consoleBase: 'https://console.driver.iq', timers: false, sweepMs: 0 },
+    { secret: 'test-secret', linkBase: 'https://driver.iq/sos/', consoleBase: opts.consoleBase === undefined ? 'https://console.example.com' : opts.consoleBase, timers: false, sweepMs: 0 },
     bus,
     identity,
     notify,
@@ -173,6 +173,21 @@ describe('SafetyService — raising an SOS', () => {
     expect(c.timeline[1]!.data).toEqual({ count: '2', source: 'fallback_all_dispatchers' });
     expect(c).toMatchObject({ raiser: { role: 'customer', displayName: 'زينب ع.' }, counterpart: { personId: 'p_driver', role: 'driver' }, subject: { label: 'مشوار تكتك #' + c.subject.label.split('#')[1], vehicle: 'تكتك باجاج · 12345 واسط' } });
     expect(c.lastPosition).toMatchObject({ lat: POS.lat, lng: POS.lng, accuracyM: 12, deviceAt: POS.at });
+  });
+
+  it('links the dispatchers to the Console page only when the Console address is set', async () => {
+    const linked = harness();
+    const a = await linked.raise();
+    await linked.run();
+    const wa = (await linked.deliveries('p_haider')).find((d) => d.channel === 'whatsapp');
+    expect(wa?.payload.body).toContain(`https://console.example.com/safety/${a.incidentId}`);
+
+    const unset = harness({ consoleBase: null });
+    const b = await unset.raise();
+    await unset.run();
+    const body = (await unset.deliveries('p_haider')).find((d) => d.channel === 'whatsapp')?.payload.body ?? '';
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain(`رقم التنبيه: ${b.incidentId}، افتح الكونسول من الكمبيوتر`);
   });
 
   it('is idempotent: a retried press and a second hold return the same incident', async () => {
