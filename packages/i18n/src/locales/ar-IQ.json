@@ -9068,5 +9068,6 @@
   "home_food.reserved_added": "انضاف الحجز لسلتك",
   "home_food.clash_title": "نبدي سلة جديدة؟",
   "home_food.reserved_when": "محجوز: {day} {time}",
-  "home_food.reserved_passed": "هذا الوقت فات أو انحجز كله. ارجع لمطبخها واحجز وقت ثاني."
+  "home_food.reserved_passed": "هذا الوقت فات أو انحجز كله. ارجع لمطبخها واحجز وقت ثاني.",
+  "error.home_reservation_owed": "عليك مبلغ حجز ما استلمته. ينضاف لطلبك الكاش الجاي، أو ادفعه من المحفظة، وبعدها تگدر تحجز"
 }

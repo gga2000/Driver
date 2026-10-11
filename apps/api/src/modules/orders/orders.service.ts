@@ -435,7 +435,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
-    if (merchantType && input.merchantOrgId) await this.assertHomePlates(input.merchantOrgId, input.lines, input.scheduledFor ?? null, now);
+    if (merchantType && input.merchantOrgId) await this.assertHomePlates(ordererId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now);
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -834,8 +834,16 @@ export class OrdersService implements OnModuleInit {
    * أكل بيت: at a home kitchen, ready plates still free today and reserved plates within what she takes
    * at that pickup time (`homeOrderProblem`); other kitchens pass untouched.
    */
-  private async assertHomePlates(merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<void> {
+  /** A food order reserved at a home kitchen (أكل بيت), with the no-show rule bound. */
+  private async isHomeReservation(order: OrderRecord): Promise<boolean> {
+    if (order.type !== 'food' || !order.scheduledFor || !order.merchantOrgId || !this.platformFailure?.homeNoShow) return false;
+    return Boolean((await this.catalog.storefront?.(order.merchantOrgId))?.home);
+  }
+
+  private async assertHomePlates(ordererId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<void> {
     if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return;
+    // A reservation he never took is owed first (Ali, 2026-10-11): no new one until his wallet is back at 0.
+    if (scheduledFor && this.wallet && (await this.wallet.balanceIqd({ customerId: ordererId, householdId: null })) < 0) throw new DriverError('home_reservation_owed');
     const ids = [...new Set(lines.map((l) => l.catalogItemId).filter((id): id is string => Boolean(id)))];
     const items = new Map((await this.catalog.itemsOf(merchantOrgId, ids)).map((i) => [i.id, i]));
     const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now), now);
@@ -2132,6 +2140,12 @@ export class OrdersService implements OnModuleInit {
 
   private async unreachableDispute(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
     if (order.state !== 'picked_up' && order.state !== 'matched') return;
+    if (await this.isHomeReservation(order)) {
+      // أكل بيت: nothing to dispute — the cook is paid and he owes the dish (Ali, 2026-10-11).
+      const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd: order.itemsTotalIqd });
+      await this.platformFailure!.homeNoShow!(failed, tx);
+      return failed;
+    }
     // Domain §2/§9: food — the customer owes the cost; ride — the cancellation fee. Support may override.
     const defaultOutcome = order.type === 'ride' ? 'customer_owes_cancellation_fee' : 'customer_owes_cost';
     return this.move(order, 'disputed', SYSTEM, tx, {}, { kind: 'unreachable', openedBy: 'system', defaultOutcome, tripId: e.tripId, evidence: { ...e.payload, tripId: e.tripId } });

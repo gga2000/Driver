@@ -401,6 +401,8 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // أكل بيت: a reservation he never took at the door is owed before he reserves again (Ali, 2026-10-11).
+  home_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
   // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
   update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;

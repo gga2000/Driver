@@ -504,6 +504,37 @@ export class OrdersStaffService implements PlatformFailurePort {
     return order.itemsTotalIqd;
   }
 
+  /**
+   * أكل بيت no-show (Ali, 2026-10-11): a reserved home dish was cooked for him and he never took it at
+   * the door. Driver pays the cook the dish price in full, and the same amount goes on his wallet as
+   * owed — collected with his next cash order (M-3 «ينضاف لطلبك الجاي»); until it is paid he can't
+   * reserve again (`home_reservation_owed`). One idempotent group per order.
+   */
+  async homeNoShow(order: OrderRecord, tx: Tx): Promise<number> {
+    if (!order.merchantOrgId || order.itemsTotalIqd <= 0) return 0;
+    const groupId = `order:${order.id}:home_no_show`;
+    if (await this.ports.ledger.hasGroup(groupId, tx)) return 0;
+    const cook = `merchant_cash:${order.merchantOrgId}`;
+    const payer = payerAccount(order);
+    const amount = order.itemsTotalIqd;
+    // One line, as a cancellation fee is (postings.ts): Driver owes the cook now, he owes Driver.
+    await this.ports.ledger.recordAll(
+      {
+        id: groupId,
+        kind: 'money',
+        occurredAt: this.clock.now(),
+        refs: { orderId: order.id },
+        lines: [{ type: 'cancellation_fee', amount, fromAccount: payer, toAccount: cook, memo: 'home_no_show' }],
+        controls: [
+          { account: cook, net: amount },
+          { account: payer, net: -amount },
+        ],
+      },
+      tx,
+    );
+    return amount;
+  }
+
   // ───────────────────────── the stuck list and the watchdog ─────────────────────────
 
   /** NTF-10: every live order past its state's deadline, oldest first, with the actions that apply. */

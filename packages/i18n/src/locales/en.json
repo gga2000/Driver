@@ -9068,5 +9068,6 @@
   "home_food.reserved_added": "Reservation added to your cart",
   "home_food.clash_title": "Start a new cart?",
   "home_food.reserved_when": "Reserved: {day} {time}",
-  "home_food.reserved_passed": "That time has passed or filled up. Go back to her kitchen and reserve another time."
+  "home_food.reserved_passed": "That time has passed or filled up. Go back to her kitchen and reserve another time.",
+  "error.home_reservation_owed": "You owe for a reservation you didn't take. It's added to your next cash order, or pay it from your wallet, then you can reserve again"
 }
