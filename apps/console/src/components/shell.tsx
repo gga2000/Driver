@@ -8,6 +8,7 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
+import { SafetyAlarm } from './safety/alarm';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
@@ -16,8 +17,6 @@ import { cx, NetworkBanner, ToastProvider } from './ui';
 
 // Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
 const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
-// The away-from-tab alarm (desktop notification, title flash, sound button) loads after the page.
-const AlarmGate = dynamic(() => import('./safety/alarm-gate').then((m) => m.AlarmGate), { ssr: false });
 // The shortcuts list is opened on demand too.
 const ShortcutsSheet = dynamic(() => import('./shell/shortcuts').then((m) => m.ShortcutsSheet), { ssr: false });
 // Loaded after first paint: it draws nothing until live updates have been down a minute (speed budget).
@@ -87,7 +86,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {/* خطوط: a run ended and nobody confirmed the car is empty (partner S-6, Ali 2026-10-06). */}
           <SweepAlertStrip />
           {/* The same alerts as a desktop notification and a flashing title when the tab is away. */}
-          <AlarmGate />
+          <SafetyAlarm />
           {/* S-K1: cards waiting for a dispatcher, seen from every page. */}
           <GlobalTriageStrip />
           {/* The Console watching itself: live updates down on this screen for a minute (E1 step 3). */}

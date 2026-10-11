@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { KhatSweepAlert, SafetyIncidentSummary } from '@driver/contracts';
-import { askNotifyPermission, freshAlerts, notifyPermission, showSystemAlert, sosSystemAlerts, sweepSystemAlerts, titleFrame } from './alert-notify';
+import { sosSystemAlerts, sweepSystemAlerts } from './alert-notify';
+import { askNotifyPermission, freshAlerts, notifyPermission, showSystemAlert, titleFrame } from './alert-system';
 
 const sos = (id: string, state: SafetyIncidentSummary['state']): SafetyIncidentSummary =>
   ({ id, state, raisedAt: new Date(0), raiser: { personId: 'p', role: 'driver', displayName: 'حيدر ك.', phoneMasked: null }, subject: { label: 'مشوار تكتك #1290' } }) as SafetyIncidentSummary;

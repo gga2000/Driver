@@ -2,34 +2,27 @@
 
 import { t } from '@driver/i18n';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { askNotifyPermission, freshAlerts, notifyPermission, showSystemAlert, sosSystemAlerts, sweepSystemAlerts, titleFrame, type NotifyPermission } from '@/lib/alert-notify';
-import { useAlarmSound, useSafetyAlerts } from '@/lib/safety-live';
+import { useEffect, useRef, useState } from 'react';
+import type { SystemAlert } from '@/lib/alert-notify';
+import { askNotifyPermission, freshAlerts, notifyPermission, showSystemAlert, titleFrame, type NotifyPermission } from '@/lib/alert-system';
+import { alarmAudio } from '@/lib/safety-live';
 import { Button, IconVolume } from '../ui';
-import { useSweepAlerts } from './sweep-strip';
 
 /**
  * The alarm away from the tab (scoring & safety §3): an open SOS or خطوط sweep alert becomes a desktop
  * notification that stays until clicked and the tab title flashes while the tab is hidden, so a staff
  * member in another tab or app still sees it. After sign-in or a reload, one button «شغّل صوت الإنذار»
  * gives the browser the click it needs for the alarm sound and asks for notifications; it goes away
- * once both are settled. Only for the roles that answer alerts; it reads the same queries as the
- * banner and the strip (no extra requests).
+ * once both are settled. `urgent` comes from SafetyAlarm (./alarm.tsx), which loads this after the page.
  */
-export function AlarmGate() {
+export function AlarmGate({ urgent }: { urgent: readonly SystemAlert[] }) {
   const router = useRouter();
-  const sos = useSafetyAlerts();
-  const sweeps = useSweepAlerts();
   const sound = useAlarmSound();
   const [perm, setPerm] = useState<NotifyPermission>('unsupported');
   const [done, setDone] = useState(false);
   const seen = useRef(new Set<string>());
 
   useEffect(() => setPerm(notifyPermission()), []);
-
-  const sosRows = sos.rows;
-  const sweepRows = sweeps.rows;
-  const urgent = useMemo(() => [...sosSystemAlerts(sosRows), ...sweepSystemAlerts(sweepRows, Date.now())], [sosRows, sweepRows]);
 
   // A desktop notification for each alert this tab has not shown yet (once allowed, the ones already open too).
   useEffect(() => {
@@ -64,8 +57,7 @@ export function AlarmGate() {
     };
   }, [count]);
 
-  const allowed = sos.allowed || sweeps.allowed;
-  if (!allowed || done || (!sound.blocked && perm !== 'default')) return null;
+  if (done || (!sound.blocked && perm !== 'default')) return null;
 
   return (
     <div className="pointer-events-none fixed bottom-4 end-4 start-4 z-50 flex justify-end sm:start-auto" data-testid="alarm-gate">
@@ -87,4 +79,27 @@ export function AlarmGate() {
       </div>
     </div>
   );
+}
+
+/**
+ * Whether the alarm can sound yet, and `unlock` for the «شغّل صوت الإنذار» button (a click is the
+ * gesture the browser needs; after a reload it is needed again).
+ */
+function useAlarmSound(): { blocked: boolean; unlock: () => Promise<void> } {
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    const c = alarmAudio();
+    if (!c) return;
+    const sync = () => setBlocked(c.state !== 'running');
+    sync();
+    c.addEventListener('statechange', sync);
+    return () => c.removeEventListener('statechange', sync);
+  }, []);
+  const unlock = async () => {
+    const c = alarmAudio();
+    if (!c) return;
+    await c.resume().catch(() => undefined);
+    setBlocked(c.state !== 'running');
+  };
+  return { blocked, unlock };
 }
