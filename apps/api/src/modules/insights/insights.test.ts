@@ -131,6 +131,41 @@ describe('wallet.month (InsightsService)', () => {
   });
 });
 
+describe('wallet.stats (InsightsService): cached reads and roads', () => {
+  it('a second open within a minute re-reads nothing; a road between the same ends is asked for once', async () => {
+    const clock = new FakeClock('2026-10-07T09:00:00Z');
+    let orderReads = 0;
+    const roads: string[] = [];
+    const ride = (id: string, at: string) => ({ ...meal(id, 'x', at, []), type: 'ride' as const, merchantOrgId: null, scheduledFor: null, promisedReadyAt: null, promisedRideMin: null });
+    const stats: StatsSources = {
+      ordersEverBy: async () => {
+        orderReads += 1;
+        return [ride('r1', '2026-10-03T10:00:00Z'), ride('r2', '2026-10-04T10:00:00Z')];
+      },
+      rideOf: async () => ({ vertical: 'taxi', driverId: 'd1', acceptedAt: null, pickupArrivedAt: null, dropoffPlaceId: null, from: { lat: 32.9, lng: 45.06 }, to: { lat: 32.91, lng: 45.07 } }),
+      bookingsOf: async () => [],
+      placeNames: async () => new Map(),
+      homeOf: async () => null,
+      roadBetween: async (from, to) => {
+        roads.push(`${from.lat},${to.lat}`);
+        return null;
+      },
+      walletLines: () => [],
+      restaurantsInCity: async () => 3,
+    };
+    const svc = new InsightsService(sources({ eventsFor: async () => [] }), clock, stats);
+    const actor = { personId: 'me', sessionId: 's' };
+    const first = await svc.stats(actor, { period: 'month' });
+    expect(first.trips.traces).toEqual([{ service: 'taxi', from: { lat: 32.9, lng: 45.06 }, to: { lat: 32.91, lng: 45.07 }, count: 2 }]);
+    await svc.stats(actor, { period: 'month' });
+    expect(orderReads).toBe(1);
+    clock.set('2026-10-07T09:01:01Z');
+    await svc.stats(actor, { period: 'month' });
+    expect(orderReads).toBe(2);
+    expect(roads).toHaveLength(1);
+  });
+});
+
 describe('MonthCardJob (the once-a-month card)', () => {
   function job(at: string, people: string[]) {
     const emitted: Array<{ key: string | undefined; person: string }> = [];

@@ -86,6 +86,14 @@ const HOME_CITY = 'aziziyah';
 const MAP_MEALS = 200;
 /** «خريطتك» follows the streets for at most this many town traces (the most travelled first); the rest draw straight. */
 const MAP_ROADS = 40;
+/** The page is cached per person, period and month for this long; opening it again re-reads nothing. */
+const STATS_CACHE_MS = 60_000;
+const STATS_CACHE_MAX = 2_000;
+/** Roads between the same ends are remembered for a day. */
+const ROAD_CACHE_MS = 24 * 3_600_000;
+const ROAD_CACHE_MAX = 5_000;
+/** Reads (and road lookups) in flight at once for one page. */
+const READS_AT_ONCE = 8;
 
 /**
  * `wallet.month` (joy w6 «شهرك»): the caller's own month, counted here from real orders, rides,
@@ -99,6 +107,9 @@ export class InsightsService implements InsightsPort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(STATS_SOURCES) private readonly stats_: StatsSources,
   ) {}
+
+  private readonly statsCache = new Map<string, { until: number; view: Promise<StatsView> }>();
+  private readonly roadCache = new Map<string, { until: number; path: StatsPoint[] | null }>();
 
   async month(actor: Actor, raw: z.infer<typeof MonthInput>): Promise<MonthInsightsView> {
     const input = MonthInput.parse(raw);
@@ -145,8 +156,22 @@ export class InsightsService implements InsightsPort {
   async stats(actor: Actor, raw: z.input<typeof StatsInput>): Promise<StatsView> {
     const input = StatsInput.parse(raw);
     const now = this.clock.now();
+    const key = `${actor.personId}|${input.period}|${input.month ?? ''}`;
+    const hit = this.statsCache.get(key);
+    if (hit && hit.until > now.getTime()) return hit.view;
+    const view = this.computeStats(actor.personId, input, now);
+    this.statsCache.delete(key);
+    this.statsCache.set(key, { until: now.getTime() + STATS_CACHE_MS, view });
+    while (this.statsCache.size > STATS_CACHE_MAX) this.statsCache.delete(this.statsCache.keys().next().value!);
+    view.catch(() => {
+      if (this.statsCache.get(key)?.view === view) this.statsCache.delete(key);
+    });
+    return view;
+  }
+
+  /** The page's figures for one person, period and month (cached briefly by `stats`). */
+  private async computeStats(personId: string, input: z.output<typeof StatsInput>, now: Date): Promise<StatsView> {
     const current = baghdadMonth(now);
-    const personId = actor.personId;
     const [all, bookings, money, points, places, home] = await Promise.all([
       this.stats_.ordersEverBy(personId),
       this.stats_.bookingsOf(personId),
@@ -178,17 +203,10 @@ export class InsightsService implements InsightsPort {
     const orders = all.filter((o) => within(o.placedAt));
     const rideOrders = orders.filter(isRide);
     const chartOrders = all.filter((o) => months.includes(baghdadMonth(o.placedAt)));
-    const rides = new Map<string, StatsRide>();
-    for (const o of chartOrders.filter(isRide)) {
-      const r = await this.stats_.rideOf(o.id);
-      if (r) rides.set(o.id, r);
-    }
     const meals = orders.filter(isMeal);
     // «خريطتك» needs where each meal came from and went: the latest 200 meals of the period are plenty.
-    for (const o of [...meals].sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime()).slice(0, MAP_MEALS)) {
-      const r = await this.stats_.rideOf(o.id);
-      if (r) rides.set(o.id, r);
-    }
+    const mapMeals = [...meals].sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime()).slice(0, MAP_MEALS);
+    const rides = await this.ridesOf([...chartOrders.filter(isRide), ...mapMeals].map((o) => o.id));
     const fav = favourites(meals);
     const topKitchens = await Promise.all(fav.kitchens.slice(0, 5).map(async (k) => ({ name: await this.src.merchantName(k.merchantOrgId), orders: k.orders })));
     const topDishes: StatsView['food']['topDishes'] = [];
@@ -239,13 +257,42 @@ export class InsightsService implements InsightsPort {
    */
   private async withRoads(trips: StatsTrips): Promise<StatsTrips> {
     const town = trips.traces.filter((t) => t.service !== 'rajaa').sort((a, b) => b.count - a.count).slice(0, MAP_ROADS);
-    await Promise.all(
-      town.map(async (t) => {
-        const encoded = await this.stats_.roadBetween(t.from, t.to).catch(() => null);
-        const road = encoded ? decodeRoad(encoded) : null;
-        if (road) t.path = simplifyRoad(road);
-      }),
-    );
+    for (let i = 0; i < town.length; i += READS_AT_ONCE) {
+      await Promise.all(
+        town.slice(i, i + READS_AT_ONCE).map(async (t) => {
+          const path = await this.roadFor(t.from, t.to);
+          if (path) t.path = path;
+        }),
+      );
+    }
     return trips;
+  }
+
+  /** One trace's simplified road, remembered by its rounded ends (a road doesn't change from one open to the next). */
+  private async roadFor(from: StatsPoint, to: StatsPoint): Promise<StatsPoint[] | null> {
+    const key = `${from.lat.toFixed(4)},${from.lng.toFixed(4)}|${to.lat.toFixed(4)},${to.lng.toFixed(4)}`;
+    const now = this.clock.now().getTime();
+    const hit = this.roadCache.get(key);
+    if (hit && hit.until > now) return hit.path;
+    const encoded = await this.stats_.roadBetween(from, to).catch(() => undefined);
+    if (encoded === undefined) return null; // the router failed: draw straight now, ask again next time
+    const road = encoded ? decodeRoad(encoded) : null;
+    const path = road ? simplifyRoad(road) : null;
+    this.roadCache.delete(key);
+    this.roadCache.set(key, { until: now + ROAD_CACHE_MS, path });
+    while (this.roadCache.size > ROAD_CACHE_MAX) this.roadCache.delete(this.roadCache.keys().next().value!);
+    return path;
+  }
+
+  /** The trip behind each order, read a few at a time. */
+  private async ridesOf(orderIds: readonly string[]): Promise<Map<string, StatsRide>> {
+    const out = new Map<string, StatsRide>();
+    const ids = [...new Set(orderIds)];
+    for (let i = 0; i < ids.length; i += READS_AT_ONCE) {
+      const batch = ids.slice(i, i + READS_AT_ONCE);
+      const got = await Promise.all(batch.map((id) => this.stats_.rideOf(id)));
+      got.forEach((r, k) => r && out.set(batch[k]!, r));
+    }
+    return out;
   }
 }
