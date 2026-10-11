@@ -20,13 +20,24 @@ export interface GarageCar {
   taken: number;
 }
 
-/** Seat blocks: 0.9 m each with a small gap, floating 3.6–4.3 m up (over the roof racks), along the car. */
-const SEAT_M = 0.9;
+/**
+ * Seat blocks floating 8.8–10 m up, clear of the terminal's wave-roof fins (4.4–8 m at Gate 1), in two rows along the car
+ * so a car's bar reads at a glance from the garage camera (z18–19). Blocks are 1.8 m along and 1.2 m across; a long
+ * minibus shrinks its blocks so the bar stays within 9 m and never reaches the next row of cars. Two rows fit inside
+ * the 3.6 m between bays with a metre to spare, so neighbouring cars never merge into one band.
+ */
+const SEAT_M = 1.8;
+const ACROSS_M = 1.2;
 const GAP_M = 0.25;
-const BASE_M = 3.6;
-const TOP_M = 4.3;
+const ROW_GAP_M = 0.2;
+const MAX_SPAN_M = 9;
+const BASE_M = 8.8;
+const TOP_M = 10;
 
-/** One small block per seat over each car, `free` 1 or 0; feature ids are stable per car and seat for tap hit-tests. */
+/**
+ * One block per seat over each car, `free` 1 or 0, the taken seats first from the car's front; feature ids are stable per
+ * car and seat for tap hit-tests.
+ */
 export function garageSeatsGeoJSON(cars: readonly GarageCar[]) {
   const features = [];
   for (const c of cars) {
@@ -34,14 +45,17 @@ export function garageSeatsGeoJSON(cars: readonly GarageCar[]) {
     const taken = Math.max(0, Math.min(n, Math.round(c.taken)));
     const r = (c.bearing * Math.PI) / 180;
     const ux = Math.sin(r), uy = Math.cos(r);
-    const span = n * SEAT_M + (n - 1) * GAP_M;
+    const rows = n > 1 ? 2 : 1, cols = Math.ceil(n / rows);
+    const len = Math.min(SEAT_M, (MAX_SPAN_M - (cols - 1) * GAP_M) / Math.max(1, cols));
+    const span = cols * len + (cols - 1) * GAP_M;
     for (let i = 0; i < n; i++) {
-      const along = -span / 2 + SEAT_M / 2 + i * (SEAT_M + GAP_M);
-      const at = offsetMetres(c.at, ux * along, uy * along);
+      const along = -span / 2 + len / 2 + Math.floor(i / rows) * (len + GAP_M);
+      const across = rows === 1 ? 0 : (i % rows === 0 ? -1 : 1) * (ACROSS_M + ROW_GAP_M) / 2;
+      const at = offsetMetres(c.at, ux * along + uy * across, uy * along - ux * across);
       features.push({
         type: 'Feature' as const,
         properties: { car: c.id, seat: i, free: i >= taken ? 1 : 0, base: BASE_M, hm: TOP_M },
-        geometry: { type: 'Polygon' as const, coordinates: [boxRing(at, c.bearing, SEAT_M, SEAT_M * 0.8)] },
+        geometry: { type: 'Polygon' as const, coordinates: [boxRing(at, c.bearing, len, ACROSS_M)] },
       });
     }
   }
