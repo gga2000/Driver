@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertBootConfig, bootConfigProblems, deployEnvironmentFromEnv } from './boot-check.js';
+import { testLaunchedVerticals } from './config.service.js';
 
 const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
 const live = { ...base, SMS_PROVIDER: 'http' };
@@ -28,6 +29,16 @@ describe('boot configuration (SEC-16)', () => {
     expect(problems).toHaveLength(2);
     expect(problems.join(' ')).toMatch(/SMS_PROVIDER.*STAGING_TEST_OTP/);
     expect(bootConfigProblems({ ...base })).toHaveLength(1);
+  });
+
+  it('keeps the launch scope on every deployed server: the test override is local only', () => {
+    const open = { DRIVER_TEST_LAUNCHED_VERTICALS: 'food,taxi,tuktuk,intercity,khat' };
+    expect(bootConfigProblems({ ...live, ...open })).toEqual([expect.stringMatching(/DRIVER_TEST_LAUNCHED_VERTICALS is for local runs and CI only/)]);
+    expect(bootConfigProblems({ ...base, DEPLOY_ENVIRONMENT: 'staging', ...open })).toHaveLength(1);
+    expect(testLaunchedVerticals({ NODE_ENV: 'test', ...open })).toEqual(['food', 'taxi', 'tuktuk', 'intercity', 'khat']);
+    expect(testLaunchedVerticals({ ...live, ...open })).toBeNull();
+    expect(testLaunchedVerticals({ NODE_ENV: 'test' })).toBeNull();
+    expect(() => testLaunchedVerticals({ NODE_ENV: 'test', DRIVER_TEST_LAUNCHED_VERTICALS: 'food,boats' })).toThrow();
   });
 
   it('throws the whole list at once and never echoes a value', () => {

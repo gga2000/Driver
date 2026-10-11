@@ -145,6 +145,11 @@
   "merchant.missed.not_scored": "does not count (pause window)",
   "merchant.missed.ok": "OK",
   "merchant.missed.chip": "Missed today: {count}",
+  "merchant.cancelled.title": "#{number} cancelled, stop",
+  "merchant.cancelled.body_cooking": "Cancelled after you accepted it. Stop preparing it",
+  "merchant.cancelled.body_ready": "Cancelled while ready. Don't hand it to any courier",
+  "merchant.cancelled.dismiss": "OK",
+  "merchant.cancelled.hint": "Tap to hide it",
   "merchant.missed.nudge": "Turn on busy mode or close for a while?",
   "merchant.missed.busy": "Busy mode",
   "merchant.missed.close": "Close for a while",
@@ -1936,5 +1941,11 @@
   "merchant.gate.invite_title": "A store has invited you",
   "merchant.gate.invite_body": "Accept it and you’ll see the store’s orders with this same number. If you don’t know the store, tap No thanks",
   "merchant.invites.strip_many": "You have {count} invites from other stores",
-  "merchant.invites.see": "See"
+  "merchant.invites.see": "See",
+  "merchant.courier_map.label": "Couriers coming to your shop, on the map",
+  "merchant.courier_map.coming": "Couriers coming: {count}",
+  "merchant.courier_map.pin": "{name} · {minutes} min",
+  "merchant.courier_map.pin_anon": "Courier · {minutes} min",
+  "merchant.courier_map.pin_no_eta": "{name} on the way",
+  "merchant.courier_map.shop": "Your shop"
 }

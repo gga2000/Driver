@@ -182,6 +182,19 @@ for today (no delivered burst, success buzz or moment sounds). `POST /demo/night
 Metro caches inlined `EXPO_PUBLIC_*` values across checkouts: add `--clear` to the export when the
 API port changed (otherwise the bundle can still point at another demo API).
 
+## «وين الباص» (map idea N14, «بس بيتك والباص»)
+
+`docs/api/khat-guardian-map.md`. From أطفال الخطوط (`app/household/children.tsx`) each child has «وين
+الباص», which opens `app/household/bus/[childRef].tsx`: today's run on the Golden hour map with only the
+family's home, the school and the bus (`src/features/khat/`), read every 10 s. Other children's stops
+are blank dots spaced evenly on the client (the server sends no position for them). The sheet says
+where things stand in words, so without the map (or when it fails) the screen still answers.
+
+- Demo: after `POST /demo/account?personId=…`, `POST /demo/khat-bus?personId=…&state=coming|away|on_board|delivered|absent`
+  puts زهراء on a morning run with two neighbours' children picked up before her and one after
+  (`&fixAgoMin=5` for an old bus fix). The run view's `minutes` is null in the demo today (the khat
+  service gets no `EtaService` injected), so the headline says «الباص بالطريق لبيتكم» without a time.
+
 ## «بيتنا» and «شهرك» (joy w4, w6)
 
 `docs/api/family-and-month.md`. The household hub (`app/household/index.tsx`) shows this month per

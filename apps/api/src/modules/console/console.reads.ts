@@ -27,12 +27,15 @@ import {
   type RightNow,
   type SimulatorStartInput,
   type SimulatorStatus,
+  type SmsDayView,
 } from '@driver/contracts';
 import { TripsService } from '../trips/index.js';
 import { replayMarks, thinPoints, trailPurged } from './replay.js';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalMonth } from '../../shared/local-time.js';
+import { SMS_DAY_KEY, SMS_DAY_MS, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { CatalogService } from '../catalog/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { DriverAccountService } from '../driver-account/index.js';
@@ -90,6 +93,8 @@ export class ConsoleReadService implements ConsolePort {
     @Optional() private readonly accounts?: DriverAccountService,
     /** The replay's trails (maps program o2); the replay is empty without it. */
     @Optional() private readonly trips?: TripsService,
+    /** The shared window counter that holds the day's SMS count; 0 without it. */
+    @Optional() @Inject(WINDOW_COUNTER) private readonly counter?: WindowCounter,
   ) {}
 
   // ───────────────────────── names (K-01) ─────────────────────────
@@ -386,6 +391,11 @@ export class ConsoleReadService implements ConsolePort {
   async outbox(): Promise<OutboxView> {
     const [stats, recentFailed] = await Promise.all([this.events.outboxStats(), this.events.recentFailedOutbox(RECENT_FAILED_OUTBOX)]);
     return { ...stats, recentFailed };
+  }
+
+  /** SMS sent in the last 24 h (sign-in codes and notification texts) and the budget they share. */
+  async smsDay(): Promise<SmsDayView> {
+    return { sent: this.counter ? await this.counter.count(SMS_DAY_KEY, SMS_DAY_MS) : 0, budget: smsDailyBudgetFromEnv() };
   }
 
   /** Live simulator (plan Step 7): progress while running, and the latest run's report summary. */

@@ -140,7 +140,10 @@ fly secrets set --config deploy/fly/api.toml --stage \
   SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
   SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
-  S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
+  S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>' \
+  CONSOLE_BASE_URL='https://driver-console.fly.dev' \
+  SAFETY_LINK_BASE_URL='<customer web origin>/sos/' \
+  SHARE_LINK_BASE_URL='<customer web origin>'
 
 # 4. First deploy (later deploys come from GitHub, runbook.md), then the machine counts
 fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only
@@ -199,6 +202,9 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
 | `REQUEST_LIMIT_IP_MODE` | no | `alert` (default) until carrier traffic is understood; `enforce` limits guests per address ([request-limits.md](../api/request-limits.md)) |
+| `CONSOLE_BASE_URL` | **yes** (production) | the Console's public https origin, e.g. `https://driver-console.fly.dev`: the links in staff WhatsApp alerts (on-call, SOS, خطوط sweep) point here and nowhere else. Production refuses to boot without it; staging warns (Staging setup sets `https://<FLY_CONSOLE_APP>.fly.dev`). Only a public https value is accepted |
+| `SAFETY_LINK_BASE_URL` | **yes** (production) | where an emergency contact's SOS link opens: the customer web app's `/sos/`, e.g. `https://driver-customer-iota.vercel.app/sos/` (later `https://app.<domain>/sos/`). Never the default `https://driver.iq/sos/`, a domain we do not own. Same rule as `CONSOLE_BASE_URL` |
+| `SHARE_LINK_BASE_URL` | **yes** (production) | the customer web app's origin, e.g. `https://driver-customer-iota.vercel.app`: trip-share and phone-booking SMS links open its `/share/<token>` page. Never the default `https://driver.iq`. Same rule as `CONSOLE_BASE_URL`. (`NOTIFY_RECEIPT_BASE_URL` stays unset until there is a receipt page.) |
 | `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
 | `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |

@@ -5,6 +5,7 @@ import { AZIZIYAH_ZONES, transformer, type AppRouter, type RoleKind } from '@dri
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { createApp } from './bootstrap.js';
 import { CatalogService, seedStorefronts } from './modules/catalog/index.js';
+import { ConfigService } from './modules/config/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
 import { EventsService } from './modules/events/index.js';
 import { IdentityService } from './modules/identity/index.js';
@@ -208,7 +209,7 @@ describe('launch control room (e2e)', () => {
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'zone', key: 'street_30', active: false, reason: 'خفّت' });
     });
 
-    it('a corridor switch refuses new الرجعة holds', async () => {
+    it('الرجعة is closed until the city launches it; then a corridor switch refuses new holds', async () => {
       const admin = await person(['admin']);
       const driver = await person(['intercity_driver']);
       const rider = await person();
@@ -219,11 +220,20 @@ describe('launch control room (e2e)', () => {
         latestDepartureAt: new Date(Date.now() + 80 * 60_000),
         vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 77001' },
       });
+      // Launch day (food, taxi, tuktuk): no seat hold and no private-car request, with no switch set.
+      const notOpen = { code: 'service_paused', message: 'خدمة الرجعة بعدها ما انفتحت. نبلشها قريب' };
+      expect(await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }))).toMatchObject(notOpen);
+      expect(await errOf(rider.client.routes.requestBoard.post.mutate({ from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: new Date(Date.now() + 120 * 60_000), seats: 3, privateCar: true, travellingAs: 'aila' }))).toMatchObject(notOpen);
+      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk']);
+      const config = app.get(ConfigService);
+      const launch = config.launchedVerticals('aziziyah');
+      config.setLaunchedVerticals('aziziyah', [...launch, 'intercity']);
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'corridor', key: 'aziziyah_kut', active: true, reason: 'سيطرة مغلقة' });
       const refused = await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }));
       expect(refused).toMatchObject({ code: 'service_paused', message: 'حجز العزيزية ⇄ الكوت موقّف مؤقتاً' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'corridor', key: 'aziziyah_kut', active: false, reason: 'انفتحت' });
       expect((await rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' })).state).toBe('held');
+      config.setLaunchedVerticals('aziziyah', launch);
     });
   });
 
@@ -276,7 +286,7 @@ describe('launch control room (e2e)', () => {
         name: 'فلافل أبو علي',
         type: 'restaurant',
         contact: { name: 'أبو علي', phone: '07719888001' },
-        location: { zoneKey: 'hashimi' },
+        location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
         menuPhotoUploadIds: [await upload(opsA.client)],
         shopPhotoUploadId: await upload(opsA.client),
       });

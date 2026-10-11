@@ -12,6 +12,8 @@ import Animated, {
 import { lift, type ServiceSwatch } from '@driver/design-tokens';
 import { Icon, Text, useNetwork, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
+import { tileLaunched } from './launched';
 import { SERVICES, type ServiceId } from './ServicesRow';
 
 /**
@@ -24,8 +26,8 @@ const PILL_H = 32;
 
 /**
  * Home's header folded into a slim bar (Ali's Yes, effects menu "collapse", 2026-10-07): once the
- * search has scrolled under the top, a cream bar slides down with a short search pill and the five
- * services as small colour buttons, so search and a taxi are always one tap away. It answers like
+ * search has scrolled under the top, a cream bar slides down with a short search pill and the
+ * launched services (up to five) as small colour buttons, so search and a taxi are always one tap away. It answers like
  * the tiles (offline the ride buttons go grey; with every kitchen closed أكل goes quiet) and is out
  * of the way of touches and screen readers while hidden.
  */
@@ -44,6 +46,7 @@ export function CollapsedBar({
   const t = useT();
   const online = useNetwork().online;
   const s = theme.services;
+  const launched = useSeason().launched;
   const [shown, setShown] = useState(false);
   const p = useSharedValue(0);
   const reduce = theme.reduceMotion;
@@ -119,7 +122,7 @@ export function CollapsedBar({
         </Text>
       </Pressable>
       <View style={{ flexDirection: 'row', gap: 6 }}>
-        {PILLS.map((id) => {
+        {PILLS.filter((id) => tileLaunched(id, launched)).map((id) => {
           const sw = swatch(id);
           const off = sw === s.off && id !== 'food';
           const label = t(SERVICES.find((x) => x.id === id)!.label);

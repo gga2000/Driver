@@ -55,6 +55,8 @@
 //            box (on the way, the range option, late), delivered with the courier, the compliment chips
 //            (picked, sent) before the tip card            POST /demo/track (kitchen, on_the_way, late; rated=1)
 //            and the ride reveal (a taxi accepted while the screen is open)    POST /demo/ride
+//   stats-*  «دفترك ويا درايفر» on a fresh account with a year of history: the year (+ full page), a month
+//            column picked, «شلون نحسبها؟», بالتفصيل, this month, since the start      POST /demo/stats
 //   trips-*  joy J7d on a fresh account: the ride tab (a regular trip asking, «خليه سايقك المفضل؟»),
 //            «رحلاتي الثابتة», a day to confirm (ride, الرجعة) and confirmed, the editor (ride, الرجعة),
 //            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
@@ -144,7 +146,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'stats'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -312,6 +314,7 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  if (wants('stats')) await asOtherAccount(statsShots);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -980,6 +983,73 @@ async function laterShots() {
  * followed pot, Thursday 20:00 «باچر الجمعة» and its booking sheet, the restaurant page with the pot
  * banner and «مطاعمنا», the item sheet's follow row, and the «قدر اليوم» switch.     POST /demo/usuals
  */
+/** «دفترك ويا درايفر» (docs/api/stats.md): a fresh account with a year of meals, rides, seats and savings. */
+async function statsShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.STATS_PHONE ?? '0770 456 9911');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('حيدر');
+    const box = await byTestId('place-map').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+    await page.mouse.up();
+    await settle(1000);
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await byTestId('welcome-home').click();
+      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('stats: no person after sign-in');
+  await demoPost(`/demo/stats?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/month`, LOADED);
+  await byTestId('stats-saved').waitFor({ timeout: 20_000 });
+  await settle(1500);
+  await shot('stats-year');
+  await fullShot('stats-year-full');
+  const cols = page.locator('[data-testid^="stats-col-"]');
+  if ((await cols.count()) > 2) {
+    await cols.nth((await cols.count()) - 3).click();
+    await settle(500);
+    await byTestId('stats-columns').screenshot({ path: join(outDir, 'stats-year-picked.png') }).catch(() => errors.push('stats: picked column shot'));
+  }
+  await byTestId('stats-how').click();
+  await settle(800);
+  await shot('stats-how');
+  await page.keyboard.press('Escape');
+  await settle(500);
+  await byTestId('stats-tab-detail').click();
+  await byTestId('stats-detail-food').waitFor({ timeout: 10_000 }).catch(() => errors.push('stats: detail not shown'));
+  await settle(1200);
+  await fullShot('stats-detail-full');
+  await byTestId('stats-tab-ledger').click();
+  await byTestId('stats-period-month').click();
+  await byTestId('stats-month').waitFor({ timeout: 10_000 });
+  await settle(1500);
+  await fullShot('stats-month-full');
+  await byTestId('stats-period-all').click();
+  await settle(1800);
+  await fullShot('stats-all-full');
+  await byTestId('stats-period-year').click();
+  await byTestId('stats-tab-map').click();
+  // The lines draw once (1.2 s), then the pins; the map files load first.
+  await byTestId('stats-map-legend').waitFor({ timeout: 15_000 }).catch(() => errors.push('stats: map legend not shown'));
+  await settle(4500);
+  await shot('stats-map');
+}
+
 async function habitsShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());

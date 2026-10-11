@@ -101,7 +101,7 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
 
   it('field ops set the spot with their own photos; couriers get it, the store’s event and the audit say who', async () => {
     const h = await setup();
-    expect(await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).toEqual({ merchantOrgId: h.khalid.id, storeName: 'مطعم خالد', note: null, photos: [], canEdit: true, updatedAt: null, consoleEdit: null });
+    expect(await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).toEqual({ merchantOrgId: h.khalid.id, storeName: 'مطعم خالد', note: null, photos: [], canEdit: true, updatedAt: null, consoleEdit: null, kitchen: null });
     const saved = await h.svc.set(HAIDER, { merchantOrgId: h.khalid.id, note: '  من الشباك اليسار جنب باب المطبخ ', photoIds: ['up_haider_window'] });
     expect(saved).toMatchObject({
       storeName: 'مطعم خالد',
@@ -149,5 +149,33 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
     expect(await code(h.svc.get(HAIDER, { merchantOrgId: h.home.id }))).toBe('org_not_found');
     expect(await code(h.svc.set(HAIDER, { merchantOrgId: 'org_missing', note: 'x', photoIds: [] }))).toBe('org_not_found');
     expect(h.auditRepo.auditRows).toEqual([]);
+  });
+
+  it('«حرّك مكان المطعم»: the zone is read from the new pin, outside town is refused, and the move is audited', async () => {
+    const h = await setup();
+    await h.orgs.setMerchantSettings(h.khalid.id, { location: { zoneKey: 'centre' } });
+    expect((await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).kitchen).toEqual({ zoneKey: 'centre', zoneName: 'العزيزية (مركز)', pin: null });
+    const moved = await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.887, lng: 45.0765 } });
+    expect(moved.kitchen).toEqual({ zoneKey: 'zakur', zoneName: 'زاكور', pin: { lat: 32.887, lng: 45.0765 } });
+    expect((await h.orgs.merchantSettings(h.khalid.id)).location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    expect(h.auditRepo.auditRows.at(-1)).toMatchObject({
+      actorId: HAIDER.personId,
+      action: 'store.kitchen_moved',
+      subjectKind: 'store',
+      subjectId: h.khalid.id,
+      summaryAr: 'حرّك مكان مطعم خالد لـزاكور',
+      detail: { fromZone: 'centre', fromPin: null, toZone: 'zakur', toPin: { lat: 32.887, lng: 45.0765 } },
+    });
+    expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 33.3, lng: 44.4 } }))).toBe('outside_zone');
+    expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.home.id, pin: { lat: 32.887, lng: 45.0765 } }))).toBe('org_not_found');
+    expect((await h.orgs.merchantSettings(h.khalid.id)).location?.zoneKey).toBe('zakur');
+  });
+
+  it('a kitchen move does not hide who set the pickup spot last', async () => {
+    const h = await setup();
+    await h.svc.set(HAIDER, { merchantOrgId: h.khalid.id, note: 'الشباك اليسار', photoIds: [] });
+    h.clock.advance(60_000);
+    const view = await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.905, lng: 45.06 } });
+    expect(view.consoleEdit).toMatchObject({ byName: 'حيدر' });
   });
 });
