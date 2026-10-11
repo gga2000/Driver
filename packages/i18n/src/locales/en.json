@@ -3189,6 +3189,8 @@
   "home.welcome_eta": "The nearest open kitchen reaches you in {range} min",
   "home.welcome_go": "Let's go",
   "home.welcome_skip_a11y": "Welcome. Tap to continue",
+  "home.welcome_door_body": "Set your door once, and every order comes to it.",
+  "home.welcome_door_set": "Set my home",
   "firsts.stamp": "A first",
   "firsts.food": "Your first order with us. Enjoy your meal",
   "firsts.tuktuk": "Your first tuktuk ride. Glad you got there safe",

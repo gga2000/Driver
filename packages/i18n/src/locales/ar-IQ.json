@@ -3189,6 +3189,8 @@
   "home.welcome_eta": "أقرب مطعم مفتوح يوصلك بـ {range} دقيقة",
   "home.welcome_go": "يلا",
   "home.welcome_skip_a11y": "هلا بيك. دوس حتى تكمل",
+  "home.welcome_door_body": "حدّد باب بيتك مرة وحدة، وكل طلباتك توصل عليه.",
+  "home.welcome_door_set": "حدّد بيتي",
   "firsts.stamp": "أول مرة",
   "firsts.food": "أول طلب إلك ويانا، بالعافية",
   "firsts.tuktuk": "أول مشوار إلك بالتكتك، الحمد لله على السلامة",
