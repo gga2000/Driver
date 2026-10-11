@@ -276,7 +276,7 @@ describe('launch control room (e2e)', () => {
         name: 'فلافل أبو علي',
         type: 'restaurant',
         contact: { name: 'أبو علي', phone: '07719888001' },
-        location: { zoneKey: 'hashimi' },
+        location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
         menuPhotoUploadIds: [await upload(opsA.client)],
         shopPhotoUploadId: await upload(opsA.client),
       });

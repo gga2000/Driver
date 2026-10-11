@@ -218,6 +218,27 @@ describe('MerchantService — board', () => {
     expect(await flag(late.id)).toBe(true);
   });
 
+  it('an accepted order the customer cancels turns into a red «انلغى» card for 15 minutes instead of vanishing', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const place = () => h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const cooking = await place();
+    const unanswered = await place();
+    await h.orders.merchantAccept('s1', { orderId: cooking.id, prepMinutes: 15 });
+    await h.orders.cancel('c1', { orderId: unanswered.id, reason: 'changed_mind' });
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).cancelled).toEqual([]);
+    await h.advance(3 * MIN);
+    await h.orders.cancel('c1', { orderId: cooking.id, reason: 'changed_mind' });
+    let board = await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(board.orders.map((o) => o.id)).toEqual([]);
+    // Only the one it had accepted: an order never accepted was not being cooked.
+    expect(board.cancelled).toEqual([{ orderId: cooking.id, number: expect.any(String), wasReady: false, cancelledAt: h.clock.now(), itemCount: expect.any(Number), totalIqd: cooking.totalIqd }]);
+    await h.advance(14 * MIN);
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).cancelled).toHaveLength(1);
+    await h.advance(1 * MIN + 1);
+    board = await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(board.cancelled).toEqual([]);
+  });
+
   it('the "+5 د" shows on the card once used', async () => {
     const { h, svc, staff, khalid } = await setup();
     const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));

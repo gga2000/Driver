@@ -440,7 +440,7 @@ await ops.merchantOnboarding(actor(haider), {
   name: 'فلافل أبو علي',
   type: 'restaurant',
   contact: { name: 'أبو علي', phone: '07730000001' },
-  location: { zoneKey: 'hashimi' },
+  location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
   menuPhotoUploadIds: [await upload(haider, await render(menu('فلافل أبو علي', [['لفة فلافل', '1,000'], ['صمونة فلافل', '750'], ['صحن فلافل', '3,000'], ['عمبة إضافية', '250']])))],
   shopPhotoUploadId: await upload(haider, await render(scene('فلافل أبو علي', 'شارع المحدود · الهاشمي', '#e9a65b', '#d9c7a8'))),
   notes: 'يفتح من 4 العصر لحد 12 بالليل',

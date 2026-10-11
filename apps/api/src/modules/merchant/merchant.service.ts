@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  CANCELLED_CARD_MIN,
   DELIVERY_AREA_CACHE_MS,
   DRINKS_DEFAULT_PREP_MIN,
   DriverError,
@@ -48,7 +49,7 @@ import { closedNow, type MerchantPickupSpot, type MerchantSettings, type Org } f
 import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { composeCustomerZones, composeDeliveryArea } from './area.js';
-import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
+import { cancelledCards, courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyExtraFor, busyUntilFor, toStoreStatus } from './status.js';
 
 /**
@@ -61,6 +62,8 @@ export interface MerchantOrdersPort {
   merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
   /** Perf z5: only the store's orders placed in `[from, to)` that it missed. Fakes may leave it out (then `merchantOrders`). */
   merchantMissedOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Orders the store had accepted that were cancelled since `since` (the board's red cards). Fakes may leave it out. */
+  merchantCancelledAfterAccept?(merchantOrgId: string, since: Date): Promise<Order[]>;
   /** Delivered orders placed in `[from, to)` per drop-off zone: counts only (maps program r6). */
   deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>>;
 }
@@ -219,7 +222,10 @@ export class MerchantService implements MerchantPort {
       if (card) cards.push(card);
     }
     const missed = await this.missedToday(org, now);
-    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}) };
+    // An accepted order that was cancelled stays as a red card for 15 minutes: it never just vanishes.
+    const since = new Date(now.getTime() - CANCELLED_CARD_MIN * 60_000);
+    const cancelled = this.orders.merchantCancelledAfterAccept ? cancelledCards(await this.orders.merchantCancelledAfterAccept(org.id, since)) : [];
+    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}), cancelled };
   }
 
   /**

@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
@@ -335,6 +335,14 @@ export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookup
   }
 }
 
+/** «انلغى طلب #4821» to the store's people when the cancelled order was one the kitchen had accepted. */
+async function kitchenCancelled(order: OrderFacts, from: unknown, base: { eventId: string }, L: NotifyLookups): Promise<NotifyRequest[]> {
+  const orgId = order.merchantOrgId;
+  if (!orgId || order.type === 'ride' || typeof from !== 'string' || !kitchenHeld(from)) return [];
+  const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
+  return staff.map((to) => ({ ...base, template: 'merchant_order_cancelled' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
+}
+
 async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const p = e.payload;
   const base = { eventId: e.id };
@@ -370,12 +378,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       return [{ ...base, template: 'order_partial_ask', to: order.customerId, orderId: order.id, params: { items: missingItemsAr(names, lineIds.length), merchant: merchant ?? 'المطعم', amount: iqd(reduced), orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.cancelled': {
+      // The kitchen first: an order it already accepted (cooking, or bagged on the pass) is cancelled —
+      // «انلغى طلب #4821» to everyone at the store, whoever cancelled (staff cancels included: their
+      // `order.ops_cancelled` rides on this same `order.cancelled`, so the kitchen hears it once).
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      const kitchen = order ? await kitchenCancelled(order, p['from'], base, L) : [];
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
-      if (p['cancelledState'] !== 'platform_cancelled') return [];
+      if (p['cancelledState'] !== 'platform_cancelled') return kitchen;
       // Staff ending an order (W3) is told by its own `order.ops_cancelled` «آسفين، ألغينا طلبك»: never twice.
-      if (p['reason'] === 'staff_cancelled') return [];
-      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (p['reason'] === 'staff_cancelled') return kitchen;
       if (!order) return [];
       const template =
         p['reason'] === 'payer_declined'
@@ -385,7 +397,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
             : p['reason'] === 'partial_timeout'
               ? ('order_partial_no_answer' as const)
               : ('order_cancelled' as const);
-      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }, ...kitchen];
     }
     case 'order.picked_up': {
       // «حيدر استلم طلبك ويوصلك الساعة 8:40» — the order screen's own ETA; without one, no time at all.

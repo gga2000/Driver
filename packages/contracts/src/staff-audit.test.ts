@@ -22,6 +22,7 @@ const AUDITED = [
   'system.setSeason',
   'system.setIftarTime',
   'ops.pickupSpots.set',
+  'ops.pickupSpots.moveKitchen',
   'ops.dishPhotos.keep',
   'ops.dishPhotos.takeDown',
   'safety.acknowledge',

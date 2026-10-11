@@ -135,6 +135,7 @@ export const NotifyTemplateId = z.enum([
   'phone_ride_matched',
   'phone_driver_arrived',
   'merchant_new_order',
+  'merchant_order_cancelled',
   'partner_new_job',
   'partner_zone_nudge',
   'ride_nudge',
@@ -555,6 +556,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     // Domain §8: "push + loud alert + optional SMS" — the SMS goes when the push is not confirmed in 30 s.
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  merchant_order_cancelled: {
+    id: 'merchant_order_cancelled',
+    category: 'work',
+    app: 'merchant',
+    // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
+    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   partner_new_job: {

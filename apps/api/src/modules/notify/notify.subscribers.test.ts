@@ -425,6 +425,22 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
   });
 
+  it('an order the kitchen had accepted is cancelled: everyone at the store hears «انلغى طلب #…», once, whoever cancelled', async () => {
+    const cancel = (from: string, cancelledState: string, reason: string) => event('order.cancelled', { from, to: cancelledState, cancelledState, by: cancelledState === 'customer_cancelled' ? 'customer' : 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    const kitchen = [
+      { template: 'merchant_order_cancelled', to: 'staff', params: { id: '1284', orderId: 'ord_1' } },
+      { template: 'merchant_order_cancelled', to: 'owner', params: { id: '1284', orderId: 'ord_1' } },
+    ];
+    expect(await run(cancel('preparing', 'customer_cancelled', 'changed_mind'))).toEqual(kitchen);
+    expect(await run(cancel('merchant_accepted', 'customer_cancelled', 'staff_on_behalf'))).toEqual(kitchen);
+    // Staff ended it: the customer hears it from `order.ops_cancelled`, the kitchen from this event.
+    expect(await run(cancel('ready', 'platform_cancelled', 'staff_cancelled'))).toEqual(kitchen);
+    expect(await run(cancel('preparing', 'platform_cancelled', 'ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }, ...kitchen]);
+    // Not yet accepted: nothing was being cooked, so the kitchen's board just updates.
+    expect(await run(cancel('placed', 'customer_cancelled', 'changed_mind'))).toEqual([]);
+    expect(await run(event('order.ops_cancelled', { customerId: 'cust', from: 'preparing' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params: { id: '1284', orderId: 'ord_1' } }]);
+  });
+
   it('picked up: the order screen’s own arrival time, or no time at all when none can be read', async () => {
     const picked = event('order.picked_up', { from: 'ready', to: 'picked_up', tripId: 'trp_1', courierId: 'courier' }, { orderId: 'ord_1', actorId: 'courier' });
     expect(await run(picked)).toEqual([{ template: 'order_picked_up', to: 'cust', params: { courier: 'كرار', orderId: 'ord_1', time: '12:52 م' } }]);
