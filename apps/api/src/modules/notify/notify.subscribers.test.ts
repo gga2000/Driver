@@ -90,6 +90,13 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // The tip after a 4–5 rating (Ali, 2026-10-06): «علي كرمك 1,000 دينار» to the driver who carried it.
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'الزبون', amount: '1,000', id: '1284' } }]);
+    // The desk took the job off him before pickup: he hears it; other trip ends tell him nothing here.
+    const cancelled = (payload: Record<string, unknown>, actorId = 'ops') => event('trip.cancelled', { courierId: 'courier', orderIds: ['ord_1'], reason: 'واگف', ...payload }, { tripId: 't1', actorId });
+    expect(await one(cancelled({ by: 'platform' }))).toEqual([{ template: 'partner_job_taken_off', to: 'courier', params: { id: '1284' } }]);
+    expect(await one(cancelled({ by: 'platform' }, 'system'))).toEqual([]);
+    expect(await one(cancelled({ by: 'platform', reason: 'all_orders_detached' }))).toEqual([]);
+    expect(await one(cancelled({ by: 'driver' }, 'courier'))).toEqual([]);
+    expect(await one(cancelled({ by: 'platform', courierId: null }))).toEqual([]);
     expect(await one(event('order.tipped', { customerId: 'drv', courierId: 'courier', tripId: 't1', amountIqd: 2000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'حيدر', amount: '2,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // Joy l4: the customer's kind words after a 4–5 rating, to the courier who carried it (unknown keys dropped).

@@ -119,7 +119,26 @@ def mosque():
             m.palm(x, y)
     for x, y in ((-3, -27), (2.5, -23), (7, -19), (-8, -12), (-2.2, -8.5)):
         m.person(x, y, 'robe')
+    # Ramadan lanterns, kept all year (Ali, 2026-10-11): strings from each minaret's balcony down to the compound's
+    # corners and the gate, the way Iraqi mosques dress for Ramadan; painted glass by day, lit at night
+    for sx in (-23.5, 23.5):
+        top = (sx, hy0 - 3, 28.4)
+        for end in ((sx * 1.27, -D / 2 + 0.4, 3.6), (math.copysign(5.8, sx), -D / 2 + 0.4, 6.2), (sx * 1.27, D / 2 - 0.4, 3.6)):
+            _lantern_string(m, top, end, sag=2.2)
+    m.add(_disc(0, -16, 9, 24), 'pool', 0.07, 0.09)                               # the courtyard and the gate in warm light
+    m.add(_disc(0, -D / 2 - 3, 6, 24), 'pool', 0.07, 0.09)
     return m
+
+
+def _lantern_string(m, a, b, sag=1.5, gap=1.6, size=0.45):
+    """Lanterns along a sagging string from a = (x, y, z) to b, each a small box in the air, colours in turn."""
+    L = math.dist(a[:2], b[:2])
+    n = max(2, int(L // gap))
+    for i in range(n + 1):
+        t = i / n
+        x, y = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
+        z = a[2] + (b[2] - a[2]) * t - sag * 4 * t * (1 - t)
+        m.add(_box(x - size, y - size, x + size, y + size), ('lamp1', 'lamp2', 'lamp3')[i % 3], z - 2 * size, z)
 
 
 def hospital():

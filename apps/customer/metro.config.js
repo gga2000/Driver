@@ -43,8 +43,17 @@ const EN_WORDS = '@driver/i18n/en-words';
 // A checked-in file, not one written at build time: Metro only bundles files it saw when it started.
 const EMPTY_ENGLISH = path.join(projectRoot, 'src/lib/english-empty.json');
 
+// Speed (2026-10-09): a production build takes from `@driver/contracts` only the schemas this app imports
+// (scripts/contracts-subset.cjs), not every app's. Written here, before Metro looks at the files.
+const CONTRACTS_SUBSET =
+  process.env.NODE_ENV === 'production'
+    ? require('./scripts/contracts-subset.cjs').writeContractsSubset({ repoRoot: workspaceRoot, appRoots: ['apps/customer'], outDir: path.join(projectRoot, 'node_modules/.cache/customer-contracts') })
+    : null;
+const CONTRACTS_DIR = path.join(workspaceRoot, 'packages/contracts') + path.sep;
+
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (CONTRACTS_SUBSET && moduleName === '@driver/contracts' && !context.originModulePath.startsWith(CONTRACTS_DIR)) return { type: 'sourceFile', filePath: CONTRACTS_SUBSET };
   const production = process.env.NODE_ENV === 'production';
   if (moduleName === EN_WORDS) return { type: 'sourceFile', filePath: production ? subsetLocales().en : path.join(workspaceRoot, 'packages/i18n/src/locales/en.json') };
   const locale = production ? LOCALE_FILE.exec(moduleName) : null;
