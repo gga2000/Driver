@@ -18,7 +18,7 @@ describe('stats format', () => {
   });
 
   it('periodTotals and labelledColumn (every third back from the latest)', () => {
-    const m = (food: number, taxi: number) => ({ month: '2026-09' as const, food, taxi, tuktuk: 1, rajaa: 0 });
+    const m = (food: number, taxi: number) => ({ month: '2026-09' as const, food, taxi, tuktuk: 1, rajaa: 0, savedIqd: 0 });
     expect(periodTotals([m(2, 1), m(3, 0)])).toEqual({ food: 5, tuktuk: 2, taxi: 1, rajaa: 0 });
     expect([0, 1, 2, 3, 4, 5].map((i) => labelledColumn(i, 6))).toEqual([true, true, true, true, true, true]);
     expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => labelledColumn(i, 10))).toEqual([true, false, false, true, false, false, true, false, false, true]);
