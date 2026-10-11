@@ -19,70 +19,129 @@ const ON_DEMAND_TARGET_MS = 60 * 60_000;
 /** Modes in which couriers bring the merchant its cash (nightly return route, or on demand). */
 const COURIER_MODES: ReadonlySet<SettlementMode> = new Set(['nightly_courier', 'on_demand']);
 
+/** The ledger lines one attribution pass reads: restaurants' accounts and their order groups, and couriers' own books. */
+export interface CashAttributionInput {
+  /** Each restaurant's `merchant_cash:` lines. */
+  merchantEvents: ReadonlyMap<string, readonly LedgerEvent[]>;
+  /** Every line of the order groups those restaurants were paid in (to find who collected the cash). */
+  groupEvents: readonly LedgerEvent[];
+  /** Each courier's `cash:` and `driver:` lines (what he holds, what he has earned, what he handed in). */
+  courierEvents: ReadonlyMap<string, readonly LedgerEvent[]>;
+}
+
+const byTime = (a: LedgerEvent, b: LedgerEvent) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime() || a.id.localeCompare(b.id);
+
 /**
- * Which couriers hold a merchant's cash, from the ledger alone. Each cash order a courier collected
- * adds the merchant's net (payable − commission) to a FIFO queue under that courier; his hand-overs
- * (`merchant_paid_by_courier`) consume his own entries; a payout by the company (`merchant_payout`)
- * consumes the oldest entries of anyone — those couriers now owe the platform instead. Cash a courier
- * hands in to the company (`driver_settlement` on his `cash:` account, in `courierEvents`) consumes his
- * own entries, oldest first: the company holds that money for the merchant now. Lines are taken in
- * time order, so a hand-in only consumes cash he had already collected.
+ * Which couriers hold which restaurant's cash, from the ledger alone, across every restaurant at once.
+ * Each cash order a courier collected adds the restaurant's net (payable − commission) to one FIFO queue
+ * under that courier; his hand-overs to a restaurant (`merchant_paid_by_courier`) consume his entries
+ * for it; a payout by the company (`merchant_payout`) consumes that restaurant's oldest entries of
+ * anyone (those couriers now owe the company instead).
+ *
+ * Cash he hands in to the company (`driver_settlement` on his `cash:`) is applied once, whatever the
+ * number of restaurants: what he owes the company (`owedIqd`: the cash in his hand less his pay) is the
+ * restaurants' cash he holds plus the company's own part (fees and commission on his cash orders), so
+ * a hand-in first pays the company's own part, and only the rest comes off his restaurant cash, oldest
+ * first across restaurants: that much is with the company now. Lines are taken in time order, so a
+ * hand-in only consumes cash he had already collected. A courier is never shown holding more
+ * restaurant cash than he has in hand.
+ *
+ * Returns, per restaurant, the cash each courier holds for it.
  */
-export function attributeMerchantCash(merchantAccount: string, merchantEvents: readonly LedgerEvent[], groupEvents: readonly LedgerEvent[], courierEvents: readonly LedgerEvent[] = []): Map<string, number> {
+export function attributeCourierCash(input: CashAttributionInput): Map<string, Map<string, number>> {
   const byGroup = new Map<string, LedgerEvent[]>();
-  for (const e of groupEvents) {
+  for (const e of input.groupEvents) {
     if (!e.postingGroupId) continue;
     const list = byGroup.get(e.postingGroupId) ?? [];
     list.push(e);
     byGroup.set(e.postingGroupId, list);
   }
-  const queue: Array<{ courierId: string; amount: number }> = [];
-  const consume = (amount: number, courierId?: string) => {
+  const merchantOf = new Map<string, string>();
+  for (const merchantId of input.merchantEvents.keys()) merchantOf.set(Accounts.merchantCash(merchantId), merchantId);
+  // One timeline: restaurants' lines, and each courier's own lines (to follow what he owes the company).
+  const lines = new Map<string, LedgerEvent>();
+  for (const list of input.merchantEvents.values()) for (const e of list) lines.set(e.id, e);
+  for (const list of input.courierEvents.values()) for (const e of list) lines.set(e.id, e);
+  const timeline = [...lines.values()].sort(byTime);
+
+  const queue: Array<{ merchantId: string; courierId: string; amount: number }> = [];
+  const consume = (amount: number, match: (q: (typeof queue)[number]) => boolean) => {
     let left = amount;
     for (const entry of queue) {
       if (left <= 0) break;
-      if (courierId && entry.courierId !== courierId) continue;
+      if (!match(entry)) continue;
       const take = Math.min(entry.amount, left);
       entry.amount -= take;
       left -= take;
     }
   };
-  const handIns = courierEvents.filter((e) => e.type === 'driver_settlement' && e.toAccount.startsWith('cash:'));
-  const timeline = handIns.length === 0 ? merchantEvents : [...merchantEvents, ...handIns].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+  const restaurantCash = (courierId: string) => queue.reduce((n, q) => (q.courierId === courierId ? n + q.amount : n), 0);
+  // Running balances of each courier's `cash:` (negative while he holds cash) and `driver:` (his pay).
+  const cashBal = new Map<string, number>();
+  const payBal = new Map<string, number>();
+  const bump = (m: Map<string, number>, id: string, by: number) => m.set(id, (m.get(id) ?? 0) + by);
   const seenGroups = new Set<string>();
-  const seenLines = new Set<string>();
+
   for (const e of timeline) {
-    if (seenLines.has(e.id)) continue;
-    seenLines.add(e.id);
-    if (e.type === 'driver_settlement') {
+    const handIn = e.type === 'driver_settlement' ? idOf(e.toAccount, 'cash') : undefined;
+    if (handIn && input.courierEvents.has(handIn)) {
+      const owed = Math.max(0, -((cashBal.get(handIn) ?? 0) + (payBal.get(handIn) ?? 0)));
+      const companyPart = Math.max(0, owed - restaurantCash(handIn));
+      const fromRestaurants = Math.max(0, e.amount - companyPart);
+      if (fromRestaurants > 0) consume(fromRestaurants, (q) => q.courierId === handIn);
+    }
+    // Keep each courier's balances (after the hand-in itself was weighed against them).
+    for (const [account, sign] of [[e.toAccount, 1], [e.fromAccount, -1]] as const) {
+      const cashOf = idOf(account, 'cash');
+      if (cashOf && input.courierEvents.has(cashOf)) bump(cashBal, cashOf, sign * e.amount);
+      const payOf = idOf(account, 'driver');
+      if (payOf && input.courierEvents.has(payOf)) bump(payBal, payOf, sign * e.amount);
+    }
+    if (handIn) continue;
+    const fromMerchant = merchantOf.get(e.fromAccount);
+    if (e.type === 'merchant_paid_by_courier' && fromMerchant) {
       const courierId = idOf(e.toAccount, 'cash');
-      if (courierId) consume(e.amount, courierId);
+      if (courierId) consume(e.amount, (q) => q.merchantId === fromMerchant && q.courierId === courierId);
       continue;
     }
-    if (e.type === 'merchant_paid_by_courier' && e.fromAccount === merchantAccount) {
-      const courierId = idOf(e.toAccount, 'cash');
-      if (courierId) consume(e.amount, courierId);
+    if (e.type === 'merchant_payout' && fromMerchant) {
+      consume(e.amount, (q) => q.merchantId === fromMerchant);
       continue;
     }
-    if (e.type === 'merchant_payout' && e.fromAccount === merchantAccount) {
-      consume(e.amount);
-      continue;
-    }
-    if (e.type !== 'merchant_payable' || !e.postingGroupId || seenGroups.has(e.postingGroupId)) continue;
-    seenGroups.add(e.postingGroupId);
-    const lines = byGroup.get(e.postingGroupId) ?? [];
-    const collector = lines.find((l) => l.type === 'cash_collected')?.fromAccount;
+    const toMerchant = merchantOf.get(e.toAccount);
+    if (e.type !== 'merchant_payable' || !toMerchant || !e.postingGroupId || seenGroups.has(`${e.postingGroupId}:${toMerchant}`)) continue;
+    seenGroups.add(`${e.postingGroupId}:${toMerchant}`);
+    const group = byGroup.get(e.postingGroupId) ?? [];
+    const collector = group.find((l) => l.type === 'cash_collected')?.fromAccount;
     const courierId = collector ? idOf(collector, 'cash') : undefined;
     if (!courierId) continue;
     let net = 0;
-    for (const l of lines) {
-      if (l.toAccount === merchantAccount) net += l.amount;
-      if (l.fromAccount === merchantAccount) net -= l.amount;
+    for (const l of group) {
+      if (l.toAccount === e.toAccount) net += l.amount;
+      if (l.fromAccount === e.toAccount) net -= l.amount;
     }
-    if (net > 0) queue.push({ courierId, amount: net });
+    if (net > 0) queue.push({ merchantId: toMerchant, courierId, amount: net });
   }
-  const out = new Map<string, number>();
-  for (const { courierId, amount } of queue) if (amount > 0) out.set(courierId, (out.get(courierId) ?? 0) + amount);
+
+  // Never more restaurant cash than he has in hand: his newest entries give way first.
+  for (const courierId of new Set(queue.map((q) => q.courierId))) {
+    if (!input.courierEvents.has(courierId)) continue;
+    let over = restaurantCash(courierId) - Math.max(0, -(cashBal.get(courierId) ?? 0));
+    for (let i = queue.length - 1; i >= 0 && over > 0; i--) {
+      const q = queue[i]!;
+      if (q.courierId !== courierId) continue;
+      const take = Math.min(q.amount, over);
+      q.amount -= take;
+      over -= take;
+    }
+  }
+  const out = new Map<string, Map<string, number>>();
+  for (const { merchantId, courierId, amount } of queue) {
+    if (amount <= 0) continue;
+    const m = out.get(merchantId) ?? new Map<string, number>();
+    m.set(courierId, (m.get(courierId) ?? 0) + amount);
+    out.set(merchantId, m);
+  }
   return out;
 }
 
@@ -161,26 +220,63 @@ export class MerchantCashService {
 
   /** Couriers holding this merchant's cash right now, largest first. */
   async holders(merchantId: string): Promise<Array<{ courierId: string; amountIqd: number }>> {
-    const account = Accounts.merchantCash(merchantId);
-    const events = await this.ledger.eventsFor(account);
-    const groupIds = [...new Set(events.filter((e) => e.type === 'merchant_payable' && e.postingGroupId).map((e) => e.postingGroupId!))];
-    const groups = await this.ledger.eventsForGroups(groupIds);
-    // Each collecting courier's own cash lines: what he handed in to the company, and what he still holds.
-    const couriers = [...new Set(groups.filter((l) => l.type === 'cash_collected').map((l) => idOf(l.fromAccount, 'cash')).filter((c): c is string => Boolean(c)))];
-    const cashLines = new Map(await Promise.all(couriers.map(async (c) => [c, await this.ledger.eventsFor(Accounts.cash(c))] as const)));
-    const attributed = attributeMerchantCash(account, events, groups, [...cashLines.values()].flat());
-    // Refunds or commission on wallet orders can leave the merchant owed less than couriers hold for it.
-    let room = Math.max(0, (await this.ledger.balance(account)).amount);
-    return [...attributed.entries()]
-      // Never more than he still has in hand.
-      .map(([courierId, amountIqd]) => ({ courierId, amountIqd: Math.min(amountIqd, Math.max(0, -sumFor(Accounts.cash(courierId), cashLines.get(courierId) ?? []))) }))
-      .sort((a, b) => b.amountIqd - a.amountIqd || a.courierId.localeCompare(b.courierId))
-      .map((h) => {
-        const amountIqd = Math.min(h.amountIqd, room);
-        room -= amountIqd;
-        return { ...h, amountIqd };
-      })
-      .filter((h) => h.amountIqd > 0);
+    return (await this.holdersOf([merchantId])).get(merchantId) ?? [];
+  }
+
+  /**
+   * Holders of several restaurants in one pass. A courier's hand-in to the company is weighed once
+   * against all the restaurant cash he holds, so the pass reads every restaurant those couriers
+   * collected for, not only the ones asked about.
+   */
+  private async holdersOf(merchantIds: readonly string[]): Promise<Map<string, Array<{ courierId: string; amountIqd: number }>>> {
+    const merchantEvents = new Map<string, LedgerEvent[]>();
+    const groupIds = new Set<string>();
+    const readMerchant = async (id: string) => {
+      if (merchantEvents.has(id)) return;
+      const events = await this.ledger.eventsFor(Accounts.merchantCash(id));
+      merchantEvents.set(id, events);
+      for (const e of events) if (e.type === 'merchant_payable' && e.postingGroupId) groupIds.add(e.postingGroupId);
+    };
+    for (const id of merchantIds) await readMerchant(id);
+    const askedGroups = [...groupIds];
+    const asked = await this.ledger.eventsForGroups(askedGroups);
+    // Each collecting courier's own book: what he holds, his pay, what he handed in.
+    const couriers = [...new Set(asked.filter((l) => l.type === 'cash_collected').map((l) => idOf(l.fromAccount, 'cash')).filter((c): c is string => Boolean(c)))];
+    const courierEvents = new Map<string, LedgerEvent[]>();
+    const courierGroups = new Set<string>();
+    for (const c of couriers) {
+      const [cash, pay] = await Promise.all([this.ledger.eventsFor(Accounts.cash(c)), this.ledger.eventsFor(Accounts.driver(c))]);
+      courierEvents.set(c, [...cash, ...pay]);
+      for (const e of cash) if (e.type === 'cash_collected' && e.postingGroupId && !groupIds.has(e.postingGroupId)) courierGroups.add(e.postingGroupId);
+    }
+    // The other restaurants those couriers collected for.
+    const others = courierGroups.size ? await this.ledger.eventsForGroups([...courierGroups]) : [];
+    for (const l of others) {
+      const m = l.type === 'merchant_payable' ? idOf(l.toAccount, 'merchant_cash') : undefined;
+      if (m) await readMerchant(m);
+    }
+    const askedIds = new Set(askedGroups);
+    const missing = [...groupIds].filter((g) => !askedIds.has(g));
+    const groupEvents = missing.length ? [...asked, ...(await this.ledger.eventsForGroups(missing))] : asked;
+    const attributed = attributeCourierCash({ merchantEvents, groupEvents, courierEvents });
+    const out = new Map<string, Array<{ courierId: string; amountIqd: number }>>();
+    for (const merchantId of merchantIds) {
+      // Refunds or commission on wallet orders can leave the merchant owed less than couriers hold for it.
+      let room = Math.max(0, sumFor(Accounts.merchantCash(merchantId), merchantEvents.get(merchantId) ?? []));
+      out.set(
+        merchantId,
+        [...(attributed.get(merchantId) ?? new Map<string, number>()).entries()]
+          .map(([courierId, amountIqd]) => ({ courierId, amountIqd }))
+          .sort((a, b) => b.amountIqd - a.amountIqd || a.courierId.localeCompare(b.courierId))
+          .map((h) => {
+            const amountIqd = Math.min(h.amountIqd, room);
+            room -= amountIqd;
+            return { ...h, amountIqd };
+          })
+          .filter((h) => h.amountIqd > 0),
+      );
+    }
+    return out;
   }
 
   /** Live balance for the Merchant app and Console. */
@@ -383,10 +479,11 @@ export class MerchantCashService {
     const lines = await this.ledger.eventsForGroups(groupIds);
     const merchants = [...new Set(lines.filter((l) => l.type === 'merchant_payable').map((l) => idOf(l.toAccount, 'merchant_cash')).filter((m): m is string => Boolean(m)))];
     const stops: Array<{ merchantId: string; amountIqd: number; mode: SettlementMode }> = [];
+    const holders = await this.holdersOf(merchants);
     for (const merchantId of merchants) {
       const s = await this.settings(merchantId);
       if (!COURIER_MODES.has(s.mode)) continue;
-      const owed = (await this.holders(merchantId)).find((h) => h.courierId === courierId)?.amountIqd ?? 0;
+      const owed = holders.get(merchantId)?.find((h) => h.courierId === courierId)?.amountIqd ?? 0;
       if (owed > 0) stops.push({ merchantId, amountIqd: owed, mode: s.mode });
     }
     return stops.sort((a, b) => b.amountIqd - a.amountIqd || a.merchantId.localeCompare(b.merchantId));

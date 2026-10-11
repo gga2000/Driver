@@ -121,16 +121,42 @@ describe('merchant cash account (decisions §3)', () => {
     await expect(h.merchantCash.confirmHandover({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true })).rejects.toMatchObject({ code: 'handover_mismatch' });
   });
 
-  it('a partial hand-in counts against his oldest cash; he is never shown holding more than he has', async () => {
+  it('a partial hand-in pays the company its own part first, then comes off his restaurant cash', async () => {
     const h = ledgerHarness();
     await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    // He holds 16,500: 12,750 is the restaurant's, 1,000 his pay, 2,750 the company's own (fees, commission).
     h.clock.set(minutes(1));
-    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 10000, channel: 'ops_round', reference: 'D-OPS-2' });
-    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 2750 }]);
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 2750, channel: 'ops_round', reference: 'D-OPS-2a' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    // 10,000 more: all of it is restaurant cash now with the company.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 7250, channel: 'ops_round', reference: 'D-OPS-2' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 5500 }]);
     // A later order is cash he collected after the hand-in: all of it is still with him.
     await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', occurredAt: minutes(2) }));
-    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 15500 }]);
-    expect(-(await h.caps.status('k1')).cashIqd).toBeGreaterThanOrEqual(15500);
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 18250 }]);
+    expect(-(await h.caps.status('k1')).cashIqd).toBeGreaterThanOrEqual(18250);
+  });
+
+  it('one hand-in is counted once across restaurants: a courier holding cash for two still holds the rest', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', merchantId: 'm1', occurredAt: minutes(0) }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', merchantId: 'm2', occurredAt: minutes(1) }));
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    h.clock.set(minutes(2));
+    // He hands in 12,750: the company's own 5,500 first, then 7,250 of m1's (the oldest) restaurant cash.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 12750, channel: 'ops_round', reference: 'D-OPS-3' });
+    const m1 = (await h.merchantCash.balance('m1')).holders;
+    const m2 = (await h.merchantCash.balance('m2')).holders;
+    expect(m1).toEqual([{ courierId: 'k1', amountIqd: 5500 }]);
+    expect(m2).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    // He still holds all of it (and his 2,000 pay), and can hand both restaurants what is theirs.
+    expect(-(await h.caps.status('k1')).cashIqd).toBe(5500 + 12750 + 2000);
+    expect((await h.merchantCash.returnRoute('k1')).map((r) => [r.merchantId, r.amountIqd])).toEqual([['m2', 12750], ['m1', 5500]]);
+    await h.merchantCash.confirmHandover({ handoverId: 'h-m2', courierId: 'k1', merchantId: 'm2', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true });
+    await h.merchantCash.confirmHandover({ handoverId: 'h-m1', courierId: 'k1', merchantId: 'm1', amountIqd: 5500, merchantConfirmedIqd: 5500, tabletTap: true });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([]);
   });
 
   it('courier return route: merchants in a courier-settled mode he owes, largest first', async () => {

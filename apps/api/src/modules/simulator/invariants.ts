@@ -341,17 +341,64 @@ export const INVARIANTS: readonly Definition[] = [
   },
   {
     name: 'merchant_cash_held_within_courier_cash',
-    description: 'Σ of restaurants’ cash shown as held by a courier ≤ the cash he still holds (hand-ins to the company and to restaurants come off it)',
+    description:
+      'Σ of restaurants’ cash shown as held by a courier ≤ the cash he still holds, and ≥ what he collected for them less what he handed over, handed in and the company paid them (each hand-in counted once across restaurants)',
     run: (s) => {
       const bad: string[] = [];
+      const withHolders = s.merchants.filter((m) => m.holders !== undefined);
       const shown = new Map<string, number>();
-      for (const m of s.merchants) for (const h of m.holders ?? []) shown.set(h.courierId, (shown.get(h.courierId) ?? 0) + h.amountIqd);
-      for (const [courierId, amount] of shown) {
+      for (const m of withHolders) for (const h of m.holders ?? []) shown.set(h.courierId, (shown.get(h.courierId) ?? 0) + h.amountIqd);
+      const held = (courierId: string) => {
         const acct = `cash:${courierId}`;
-        const held = Math.max(0, sum(s.ledger, (e) => e.fromAccount === acct) - sum(s.ledger, (e) => e.toAccount === acct));
-        if (amount > held) bad.push(`${courierId}: restaurants show ${amount} with him, he holds ${held}`);
+        return Math.max(0, sum(s.ledger, (e) => e.fromAccount === acct) - sum(s.ledger, (e) => e.toAccount === acct));
+      };
+      for (const [courierId, amount] of shown) {
+        const h = held(courierId);
+        if (amount > h) bad.push(`${courierId}: restaurants show ${amount} with him, he holds ${h}`);
       }
-      return { checked: shown.size, bad };
+      // The floor: restaurant cash he collected (net per order), less his hand-overs to them, less every
+      // hand-in to the company (each counted once, however many restaurants he carried for), less
+      // whatever the company paid those restaurants or they are owed short of what couriers hold.
+      const known = new Set(withHolders.map((m) => m.merchantId));
+      const groups = new Map<string, LedgerEvent[]>();
+      for (const e of s.ledger) if (e.postingGroupId) groups.set(e.postingGroupId, [...(groups.get(e.postingGroupId) ?? []), e]);
+      const raw = new Map<string, Map<string, number>>();
+      const add = (k: string, m: string, by: number) => {
+        const row = raw.get(k) ?? new Map<string, number>();
+        row.set(m, (row.get(m) ?? 0) + by);
+        raw.set(k, row);
+      };
+      for (const e of s.ledger) {
+        if (e.type === 'cash_collected' && e.fromAccount.startsWith('cash:') && e.postingGroupId) {
+          const k = e.fromAccount.slice(5);
+          const net = new Map<string, number>();
+          for (const l of groups.get(e.postingGroupId) ?? []) {
+            if (l.toAccount.startsWith('merchant_cash:')) net.set(l.toAccount.slice(14), (net.get(l.toAccount.slice(14)) ?? 0) + l.amount);
+            if (l.fromAccount.startsWith('merchant_cash:')) net.set(l.fromAccount.slice(14), (net.get(l.fromAccount.slice(14)) ?? 0) - l.amount);
+          }
+          for (const [m, n] of net) if (n > 0) add(k, m, n);
+        }
+        if (e.type === 'merchant_paid_by_courier' && e.fromAccount.startsWith('merchant_cash:') && e.toAccount.startsWith('cash:')) add(e.toAccount.slice(5), e.fromAccount.slice(14), -e.amount);
+      }
+      const owedTo = new Map<string, number>();
+      for (const row of raw.values()) for (const [m, n] of row) owedTo.set(m, (owedTo.get(m) ?? 0) + Math.max(0, n));
+      const slack = (m: string) => {
+        const acct = `merchant_cash:${m}`;
+        const payouts = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_payout');
+        const balance = withHolders.find((x) => x.merchantId === m)?.balanceIqd ?? 0;
+        return payouts + Math.max(0, (owedTo.get(m) ?? 0) - Math.max(0, balance));
+      };
+      let floors = 0;
+      for (const [k, row] of raw) {
+        const ms = [...row.entries()].filter(([m, n]) => n > 0 && known.has(m));
+        if (ms.length === 0) continue;
+        floors += 1;
+        const handIns = sum(s.ledger, (e) => e.type === 'driver_settlement' && e.toAccount === `cash:${k}`);
+        const floor = Math.min(held(k), ms.reduce((n, [, v]) => n + v, 0) - handIns - ms.reduce((n, [m]) => n + slack(m), 0));
+        const got = shown.get(k) ?? 0;
+        if (got < floor) bad.push(`${k}: restaurants show ${got} with him, at least ${floor} of their cash is still in his hand`);
+      }
+      return { checked: shown.size + floors, bad };
     },
   },
   {
