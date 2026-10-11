@@ -332,6 +332,9 @@ export const ERROR_TABLE = {
   // ledger (M2 Step 6)
   payout_exceeds_balance: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
+  // account close (docs/api/account-close.md): something still stands in the way; not an account closed there
+  account_close_blocked: { retryHint: 'never', status: 'CONFLICT' },
+  account_close_not_work: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
