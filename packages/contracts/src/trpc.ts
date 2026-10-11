@@ -36,6 +36,7 @@ import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { SupportPort } from './support-io.js';
+import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
@@ -120,6 +121,8 @@ export interface AppContext {
   controlRoom: ControlRoomPort;
   /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
   support: SupportPort;
+  /** Console: an admin closes a partner's or merchant's account and erases his identity (`modules/control-room`). */
+  accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  CLOSABLE_ROLES,
   DEFAULT_SAFETY_PREFS,
   DriverError,
   RIDE_RIDER_NAME_MAX,
@@ -962,6 +963,51 @@ export class IdentityService implements IdentityPort {
       const refs = await this.repo.vaultRefs(personId, field, tx);
       await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: [field === 'documentRefs' ? 'document_refs' : 'selfie_refs'], now: this.clock.now() }, tx);
       return refs.map((r) => ({ ref: String(r['ref'] ?? ''), kind: String(r['kind'] ?? ''), recordId: String(r['recordId'] ?? ''), at: String(r['at'] ?? '') }));
+    });
+  }
+
+  // ───────────────────────── account close (docs/api/account-close.md) ─────────────────────────
+
+  /** Whether the Console closes this account (he holds or held a partner or merchant role) and when it was closed. */
+  async accountCloseState(personId: string): Promise<{ closable: boolean; closedAt: Date | null; roles: RoleKind[] }> {
+    const person = await this.repo.findPersonById(personId);
+    if (!person) throw new DriverError('person_not_found');
+    const roles = await this.repo.roleKindsEver(personId);
+    return { closable: roles.some((k) => (CLOSABLE_ROLES as readonly RoleKind[]).includes(k)), closedAt: person.deletedAt, roles };
+  }
+
+  /**
+   * Every storage file the vault points at for this person (document photos, check-in selfies, his
+   * main photo, the photos of children he enrolled), so the account close can delete the bytes before
+   * the refs go. A staff read: logged, and refused if the log row can't be written.
+   */
+  async storedFileRefs(personId: string, accessorId: string): Promise<string[]> {
+    return this.uow.run(async (tx) => {
+      const identity = await this.repo.readIdentity(personId, tx);
+      const refs = new Set<string>();
+      for (const field of ['documentRefs', 'selfieRefs'] as const) for (const r of await this.repo.vaultRefs(personId, field, tx)) if (typeof r['ref'] === 'string') refs.add(r['ref']);
+      if (identity?.mainPhotoRef) refs.add(identity.mainPhotoRef);
+      for (const c of await this.repo.childIdentitiesOf(personId, tx)) if (c.photoRef) refs.add(c.photoRef);
+      if (identity) await this.repo.logVaultAccess({ personId, accessorId, purpose: 'account_close', fieldsRead: ['document_refs', 'selfie_refs', 'main_photo_ref'], now: this.clock.now() }, tx);
+      return [...refs];
+    });
+  }
+
+  /**
+   * Closes the account (admin, from the Console): his identity, the children he enrolled, the names he
+   * gave or was given, his devices, sessions and sign-in codes are deleted and every role revoked, in
+   * the caller's transaction when there is one. His number is free again: signing in with it later
+   * makes a new account. False when he was already closed.
+   */
+  async closeAccount(personId: string, actorId: string): Promise<boolean> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const roles = await this.repo.rolesOf(personId, tx);
+      if (!(await this.repo.closeAccount(personId, now, tx))) return false;
+      for (const r of roles) {
+        await this.events.emit(tx, { actorId, type: 'role.revoked', occurredAt: now, payload: { personId, kind: r.kind, orgId: r.orgId, revokedBy: actorId } }, { name: 'person', id: personId });
+      }
+      return true;
     });
   }
 

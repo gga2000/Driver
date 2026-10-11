@@ -70,6 +70,8 @@ const AUDITED = [
   // Cash staff take in: a courier's hand-in on the round, a customer's top-up at the counter.
   'ops.recordCashReceipt',
   'ops.confirmTopUp',
+  // Account close (docs/api/account-close.md): the audit row is written in the close's transaction.
+  'identity.closeAccount.close',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */

@@ -241,6 +241,17 @@ export interface IdentityRepository {
   findPendingGuardianLink(guardianId: string, ward: { wardPersonId: string | null; wardParticipantId: string | null }, tx?: Tx): Promise<GuardianLinkRecord | null>;
   updateGuardianLink(id: string, patch: Partial<Pick<GuardianLinkRecord, 'state' | 'consentedAt' | 'revokedAt'>>, tx?: Tx): Promise<GuardianLinkRecord>;
   guardianLinksOf(guardianId: string, tx?: Tx): Promise<GuardianLinkRecord[]>;
+
+  // account close (docs/api/account-close.md)
+  /** Every role kind this person ever held, revoked grants included. */
+  roleKindsEver(personId: string, tx?: Tx): Promise<RoleKind[]>;
+  /**
+   * Closes the account in one go (the person row locked): `deleted_at` set, the vault rows (his
+   * identity, the children he enrolled, the names he gave others or was given), devices, sessions,
+   * sign-in codes and guardian links deleted, live roles revoked. False when the person is unknown or
+   * already closed (nothing changed). Storage files are the caller's: read their refs first.
+   */
+  closeAccount(personId: string, now: Date, tx?: Tx): Promise<boolean>;
 }
 
 export interface RosterPage {
@@ -627,6 +638,33 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async guardianLinksOf(guardianId: string, tx?: Tx) {
     return this.db(tx).guardianLink.findMany({ where: { guardianId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async roleKindsEver(personId: string, tx?: Tx) {
+    const rows = await this.db(tx).role.findMany({ where: { personId }, distinct: ['kind'], select: { kind: true } });
+    return rows.map((r) => r.kind as RoleKind);
+  }
+
+  async closeAccount(personId: string, now: Date, tx?: Tx) {
+    const db = this.db(tx);
+    // The row lock makes two admins pressing at once close the account once.
+    const locked = await db.$queryRaw<Array<{ deleted_at: Date | null }>>`
+      SELECT "deleted_at" FROM "public"."people" WHERE "id" = ${personId} FOR UPDATE`;
+    const person = locked[0];
+    if (!person || person.deleted_at) return false;
+    const idn = await db.personIdentity.findUnique({ where: { personId }, select: { phoneHash: true } });
+    if (idn) {
+      await db.otpChallenge.deleteMany({ where: { phoneHash: idn.phoneHash } });
+      await db.personIdentity.delete({ where: { personId } });
+    }
+    await db.childIdentity.deleteMany({ where: { guardianId: personId } });
+    await db.participantIdentity.deleteMany({ where: { OR: [{ personId }, { givenById: personId }] } });
+    await db.guardianLink.deleteMany({ where: { OR: [{ guardianId: personId }, { wardPersonId: personId }] } });
+    await db.session.deleteMany({ where: { personId } });
+    await db.device.deleteMany({ where: { personId } });
+    await db.role.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: now } });
+    await db.person.update({ where: { id: personId }, data: { deletedAt: now } });
+    return true;
   }
 }
 
