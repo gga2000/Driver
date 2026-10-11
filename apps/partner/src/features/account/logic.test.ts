@@ -208,6 +208,9 @@ describe('documents', () => {
     expect(docsSummary({ documents: [doc('licence', 'expiring')], missing: [], blocksOnline: false })).toBe('action');
     expect(docsSummary({ documents: [doc('photo', 'pending')], missing: [], blocksOnline: false })).toBe('review');
     expect(docsSummary({ documents: [doc('photo', 'approved')], missing: [], blocksOnline: false })).toBe('ok');
+    // A required kind under review is listed as missing (not approved yet) but he has nothing to send.
+    expect(docsSummary({ documents: [doc('photo', 'pending')], missing: ['photo'], blocksOnline: false })).toBe('review');
+    expect(docsSummary({ documents: [doc('photo', 'pending')], missing: ['photo', 'licence'], blocksOnline: false })).toBe('action');
   });
 
   it('says the days left and what to do', () => {
@@ -229,6 +232,9 @@ describe('online gate', () => {
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }] })).toBe('checkin');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_expired', message_ar: '' }, { code: 'checkin_locked', message_ar: '' }] })).toBe('locked');
+    // Papers not on file or not approved yet: over the check-in, under an expired one.
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_missing', message_ar: '' }] })).toBe('missing');
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_missing', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
     // A pause after a safety report comes before everything else.
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_locked', message_ar: '' }, { code: 'staff_paused', message_ar: '' }] })).toBe('paused');
   });

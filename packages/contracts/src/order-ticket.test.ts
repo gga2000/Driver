@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mentionsAllergy, orderTicketNumber, parseOrderTicket } from './order.js';
+import { classifyOrderQuery, mentionsAllergy, orderTicketNumber, parseOrderTicket } from './order.js';
 
 describe('mentionsAllergy (M-09)', () => {
   it('flags allergies however they are written', () => {
@@ -33,5 +33,23 @@ describe('orderTicketNumber / parseOrderTicket', () => {
 
   it('every ticket parses back to itself', () => {
     for (const id of ['ord_1', 'ord_2', 'cmh3x9abc', 'trip-xyz']) expect(parseOrderTicket(`#${orderTicketNumber(id)}`)).toBe(orderTicketNumber(id));
+  });
+});
+
+describe('classifyOrderQuery (v7)', () => {
+  it('four bare digits are an order number and the last four of a phone; "#" means the number only', () => {
+    expect(classifyOrderQuery('4567')).toEqual({ kind: 'ticket', ticket: '4567', tail: '4567' });
+    expect(classifyOrderQuery('٤٥٦٧')).toEqual({ kind: 'ticket', ticket: '4567', tail: '4567' });
+    expect(classifyOrderQuery('#4567')).toEqual({ kind: 'ticket', ticket: '4567', tail: null });
+    expect(classifyOrderQuery('0567')).toEqual({ kind: 'tail', tail: '0567' });
+  });
+
+  it('a whole number, a name, anything else', () => {
+    expect(classifyOrderQuery('0770 123 4567')).toEqual({ kind: 'phone', phone: '07701234567' });
+    expect(classifyOrderQuery('+964 770-123-4567')).toEqual({ kind: 'phone', phone: '9647701234567' });
+    expect(classifyOrderQuery(' حيدر ')).toEqual({ kind: 'name', name: 'حيدر' });
+    expect(classifyOrderQuery('بدون بصل 2')).toEqual({ kind: 'text', text: 'بدون بصل 2' });
+    expect(classifyOrderQuery('ord_12')).toEqual({ kind: 'text', text: 'ord_12' });
+    expect(classifyOrderQuery('  ')).toBeNull();
   });
 });

@@ -41,6 +41,12 @@ describe('cash account', () => {
     expect(requestBlocker({ balanceIqd: -4_250, request: null })).toBe('owe');
     expect(requestBlocker({ balanceIqd: 0, request: null })).toBe('zero');
     expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'on_the_way' } as never })).toBe('open');
+    // UNR-06: every request state — only a finished hand-over lets a new request through.
+    expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'requested' } as never })).toBe('open');
+    expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'handed_over' } as never })).toBeNull();
+    expect(requestBlocker({ balanceIqd: 0, request: { state: 'handed_over' } as never })).toBe('zero');
+    expect(requestBlocker({ balanceIqd: -1, request: { state: 'handed_over' } as never })).toBe('owe');
+    expect(requestBlocker({ balanceIqd: -1, request: { state: 'requested' } as never })).toBe('open');
   });
 
   it('holder rows: couriers then Driver, with shares for the bars', () => {

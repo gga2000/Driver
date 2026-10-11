@@ -177,11 +177,11 @@ function MetricTile({ m, pulseKey = null, tv = false, light = false }: { m: Laun
           {t(s.word)}
         </span>
       </div>
-      <div className={cx('mt-auto flex items-end justify-between gap-4', tv ? 'pt-[1vh]' : 'pt-3')}>
+      <div className={cx('mt-auto flex flex-wrap items-end justify-between gap-x-4 gap-y-1', tv ? 'pt-[1vh]' : 'pt-3')}>
         <p className={cx('shrink-0 whitespace-nowrap font-bold leading-none tracking-[-0.03em]', tv ? TV.value : 'text-[96px]', s.value)}>{m.display}</p>
         {trend ? (
           <p
-            className={cx('flex min-w-0 items-center gap-2 pb-2 font-semibold leading-[1.3]', tv ? TV.trend : 'text-2xl', trend.good === true ? 'text-ok' : trend.good === false ? 'text-bad' : 'text-muted')}
+            className={cx('flex items-center gap-2 whitespace-nowrap pb-2 font-semibold leading-[1.3]', tv ? TV.trend : 'text-2xl', trend.good === true ? 'text-ok' : trend.good === false ? 'text-bad' : 'text-muted')}
             aria-label={t('console.wall_trend_a11y', { label: m.label_ar, direction: t(`console.wall_vs_yesterday_${trend.dir}`), value: trend.previous })}
           >
             {trend.dir === 'flat' ? <span aria-hidden className="inline-block h-[3px] w-6 rounded-pill bg-current" /> : <IconArrowUp size={30} className={cx('shrink-0', tv && 'h-[1.25em] w-[1.25em]', trend.dir === 'down' && 'rotate-180')} />}

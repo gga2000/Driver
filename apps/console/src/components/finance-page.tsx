@@ -128,7 +128,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
     <div className="space-y-5">
       <LedgerCheck desk={desk} />
 
-      <StatStrip className="md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
+      <StatStrip money className="md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
         <Stat label={t('console.fin_cash_field')} value={formatMoney(desk.totals.cashInFieldIqd)} hint={t('console.fin_couriers_n', { n: desk.couriers.length })} />
         <Stat
           label={t('console.fin_over_cap')}

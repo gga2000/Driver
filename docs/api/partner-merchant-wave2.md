@@ -27,13 +27,13 @@ Roles: driving roles (`courier`, `shopper`, `driver`, `intercity_driver`, `khat_
 |---|---|---|---|
 | `earnings` | query | `{period: 'day'\|'week'\|'month' = 'day', anchor?: Date, driverId?}` | `EarningsView`: `{from, to, totals {grossIqd, takeIqd, tipsIqd, bonusesIqd, guaranteeTopUpsIqd, penaltiesIqd, netIqd, jobs}, jobs[] {key, tripId, orderId, at, components[] {type, label_ar, label_en, amountIqd (signed), memo}, netIqd, cashCollectedIqd}, cash {collectedIqd, toMerchantsIqd, settledIqd, heldIqd, owedIqd}, cap {role, tier, capIqd, owedIqd, remainingIqd, fill 0–1, overCap, byTier {bronze, silver, gold}}, payoutDueIqd}` |
 | `scorecard` | query | `{driverId?}` | `ScorecardView`: `{dayNumber, visibleFrom, visible, observation, learningMessage_ar, index\|null, tier\|null, completedTrips, windowDays: 14, metrics[] {key: acceptance\|completion\|on_time\|rating\|cash_return, label_ar, value, display, samples, fullAt, zeroAt, silverLine, score, weight, belowSilver}, nudges[] {key, message_ar, message_en}, consequencesFrom\|null}` — days 1–30: `visible=false`, metrics `[]`, index `null` for the driver (back office still sees them); from day 31 nudges for components under the Silver line and `consequencesFrom` = next Sunday |
-| `documents` | query | `{driverId?}` | `{driverId, documents[] DriverDocumentView, missing[] kind, blocksOnline}` |
+| `documents` | query | `{driverId?}` | `{driverId, documents[] DriverDocumentView, missing[] kind, blocksOnline}` — `missing`: kinds his driving roles need (ID front/back + photo; licence + registration for car roles) with no approved document yet |
 | `uploadDocument` | mutation | `{kind, uploadId, expiresAt?}` — kinds `national_id_front`, `national_id_back`, `licence`, `vehicle_registration`, `insurance`, `photo` | `DriverDocumentView {id, kind, kind_ar, status, status_ar, expiresAt, daysToExpiry, submittedAt, reviewedAt, rejectReason}`; status `pending → approved\|rejected`, derived `expiring` (≤ 30 days) / `expired`. A new upload of a kind supersedes the old one |
 | `reviewDocument` | mutation | `{documentId, decision: 'approve'\|'reject', reason? (required to reject), expiresAt?}` — roles `field_ops`, `support`, `admin` | `DriverDocumentView` |
 | `checkInChallenge` | mutation | — | `{challengeId, gesture: blink\|turn_left\|turn_right\|smile\|nod, gesture_ar, expiresAt (2 min)}` |
 | `submitCheckIn` | mutation | `{challengeId, uploadId (selfie), livenessScore? 0–1}` | `CheckInStatus & {checkInId, result: passed\|failed, reason}` |
 | `checkInStatus` | query | — | `{localDate, required, verifiedToday, verifiedAt, failuresToday, lockedOut, badge_ar ("متحقق اليوم ✓")}` |
-| `onlineGate` | query | — | `{canGoOnline, reasons[] {code: checkin_required\|checkin_locked\|document_expired, message_ar}, checkIn}` |
+| `onlineGate` | query | — | `{canGoOnline, reasons[] {code: checkin_required\|checkin_locked\|document_expired\|document_missing\|staff_paused, message_ar}, checkIn}` |
 | `handoverCode` | query | — | `{code: 4 digits, validUntil}` — read out to field ops for `ops.recordCashReceipt`; rotates at local midnight |
 | `shiftSummary` | query | `{from?: Date (partner.status.onlineSince), to?: Date}` — clamped: `to` ≤ now, window ≤ 24 h, `from` defaults to Baghdad midnight | `{from, to, onlineMinutes, jobs, netIqd, tipsIqd, perHourIqd\|null (net × 60 ÷ exact online minutes, to the nearest 50, shown as «تقريباً … لكل ساعة شغل»; null under 30 min online), bestHour {from, to, netIqd, jobs}\|null (Baghdad clock hour), day {netIqd, jobs}, cash {heldIqd, owedIqd, capIqd, overCap}, tomorrow {from, to, orders}\|null (busiest 2 h from the city's orders on the same weekday last week; null under 4 orders), nudge {key, message_ar, message_en}\|null (one, from day 31)}` — Partner audit S-4 |
 | `jobReceipt` | query | `{key, at}` (an `EarningsJobLine`) | `{key, tripId, orderId, ticket ("1284")\|null, at, lines[] (EarningsComponent & reason {code, params}\|null), grossIqd, takeIqd, takeRate 0–1\|null, tipsIqd, netIqd, cash {collectedIqd (the whole note: price, rounding change, change to wallet), toMerchantIqd (paid at pickup), keptIqd (his net pay for the job, netted at hand-over), toCompanyIqd (the rest); the three add up to collectedIqd}\|null, queryOpen}` — reason codes `delivery_full`, `night` {time}, `rain`, `peak`, `door_pickup`, `wait` {amount} (the customer's `quote.reason.*` sentences) and `fare`, `take` {rate}, `tip`, `batch`, `compensation`, `guarantee`, `incentive`, `penalty` (`partner.receipt_reason_*`). His own jobs only (`not_found`) — Partner audit S-7 |
@@ -135,8 +135,14 @@ dispatcher's "سكّر التنبيه" + reason ─► closed_at / closed_by_id 
                          audit khat.sweep_close + khat.sweep_alert_closed; the row leaves the strip
 ```
 
-The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
-(`khat.child_tapped_out`, `khat.absence_reported`), one job id per run end; the check re-reads the
+A child still on board is caught too: from the first tap-in, while a tapped-in child has no tap-out,
+the timer is armed for the run's last planned drop-off (its window end) + `sweepAlertAfterMin`. If a
+child is still tapped in then, the same alert is raised (`khat.sweep_missed` `reason:
+child_still_on_board`, `runEndedAt` = the planned drop-off), so a driver who parks and never ends the
+run still pages the desk; the normal case carries `reason: sweep_missed`.
+
+The timer is armed by `tapIn` / `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
+(`khat.child_tapped_in`, `khat.child_tapped_out`, `khat.absence_reported`), one job id per due time; the check re-reads the
 run, so a redelivery or a second instance changes nothing (unique `trip_id`). The queue is BullMQ
 with `REDIS_URL` (survives restarts), otherwise in process (polled once a second). Runs where no
 child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006150000_khat_sweep_alerts`.
@@ -208,7 +214,10 @@ Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the c
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`.
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
+prices, dishes, options, sections and imports (MER-06: `menu.updatePrice`, `menu.upsertItem`, `menu.setModifiers`,
+`menu.upsertCategory`, `menu.reorderCategories`, `menu.importFromPhotos`, `menu.applyImport`). Staff keep the daily
+switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replacePhoto`).
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
@@ -364,8 +373,10 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
 - **Liveness and face match are stubs** (device SDK score, default 1); OCR for menu import is a stub
   (empty draft, staff type the rows).
 - **Online gate enforcement**: `partner.goOnline` calls `DriverAccountService.onlineGateFor` and refuses with
-  `online_checkin_required` / `checkin_locked` / `online_document_expired`; `partner.status.gate` carries
-  the reasons. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
+  `online_checkin_required` / `checkin_locked` / `online_document_expired` / `online_document_missing`;
+  `partner.status.gate` carries the reasons. `document_missing` is one reason per paper his driving roles
+  need that has no approved document (never sent, rejected or still under review); an approved paper
+  stays in force while its renewal is reviewed. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
   Nothing pushes a driver offline the moment `driver.checkin_locked` fires or a document expires: it
   happens at his next heartbeat (≤ 30 s while the app is open).
 - **Registered vehicle and roles** (review 2026-10-04 #20): `partner.goOnline` puts him online on his
@@ -384,7 +395,7 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   version: the app keeps the position it sent, and `partner.status` (re-read on live events and by its
   poll) brings the rest.
 - **Lighter heartbeat** (speed x2): the app's own reads (`partner.goOnline`, `partner.status`) keep his
-  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`; the tier reads his whole event history),
+  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`),
   while his cash and earnings are read on every beat, so what he holds is never stale. Dispatch's
   over-cap check and the money desk always work the limit out fresh. His ringing offer is found from
   his own open offers (one indexed read of `dispatch_offers` by driver and state) instead of reading

@@ -20,6 +20,7 @@ import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { AuditLogService } from '../controls/index.js';
 import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -33,6 +34,8 @@ export const CASH_TASK_SHARE_OF_CAP = 0.5;
 /** Wrong hand-over codes for one courier in a local day before his code locks until midnight. */
 export const HANDOVER_CODE_MAX_FAILURES = 5;
 const DAY_MS = 86_400_000;
+/** Cash receipts carry no city of their own; one city today (the audit page reads by city). */
+const CASH_CITY = 'aziziyah';
 
 function taskView(t: TaskRecord): OpsTask {
   return {
@@ -70,6 +73,7 @@ export class OpsService implements OpsPort, OnModuleInit {
     @Optional() private readonly places?: PlacesService,
     @Optional() @Inject(WINDOW_COUNTER) codeFailures?: WindowCounter,
     @Optional() private readonly landmarkFeed?: LandmarkFeedService,
+    @Optional() private readonly audits?: AuditLogService,
   ) {
     this.codeFailures = codeFailures ?? new InMemoryWindowCounter(clock);
   }
@@ -142,7 +146,12 @@ export class OpsService implements OpsPort, OnModuleInit {
     });
   }
 
+  /**
+   * Field ops takes a courier's cash against his daily code. Nobody takes in his own cash (a field ops
+   * person who also delivers hands it to a colleague), and every receipt is on the Console audit log.
+   */
   async recordCashReceipt(actor: Actor, input: RecordCashReceiptInput): Promise<CashReceiptView> {
+    if (input.courierId === actor.personId) throw new DriverError('staff_own_account');
     if (input.idempotencyKey) {
       const prior = await this.repo.cashReceiptByKey(input.idempotencyKey);
       if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return this.receiptView(prior);
@@ -180,6 +189,10 @@ export class OpsService implements OpsPort, OnModuleInit {
           ...(input.idempotencyKey ? { idempotencyKey: `ops.cash_received:${input.idempotencyKey}` } : {}),
         },
         { name: 'person', id: input.courierId },
+      );
+      await this.audits?.record(
+        { cityId: CASH_CITY, actorId: actor.personId, action: 'cash.receipt', subjectKind: 'person', subjectId: input.courierId, summaryAr: `استلم ${input.amountIqd.toLocaleString('en-US')} دينار كاش من دليفري`, detail: { receiptId: row.id, amountIqd: input.amountIqd, reference, courierCashAfterIqd: cashAfter } },
+        tx,
       );
       return row;
     }));
