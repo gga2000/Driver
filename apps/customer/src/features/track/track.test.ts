@@ -2,23 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Order, OrderTracking } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import { lateMinutes, liveEta, signalLostMinutes } from './eta';
-import {
-  bearingDeg,
-  distanceM,
-  fitCamera,
-  inFrame,
-  layerTransform,
-  nearestAngle,
-  project,
-  remainingRoute,
-  unproject,
-} from './geo';
+import { bearingDeg, distanceM, fitCamera, inFrame, layerTransform, nearestAngle, project, remainingRoute, unproject } from './geo';
 import { glidePos, planGlide, type Glide } from './motion';
 import { buildTimeline, phaseOf, statusLine } from './timeline';
 
 const t = createT('ar-IQ');
-const clock = (d: Date) =>
-  `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+const clock = (d: Date) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 
 const KITCHEN = { lat: 32.9095, lng: 45.0635 };
 const HOME = { lat: 32.887, lng: 45.0765 };
@@ -84,38 +73,15 @@ function view(o: Partial<Order> = {}, patch: Partial<OrderTracking> = {}): Order
   };
 }
 
-function trip(
-  state: NonNullable<OrderTracking['trip']>['state'],
-  extra: Partial<NonNullable<OrderTracking['trip']>> = {},
-): NonNullable<OrderTracking['trip']> {
+function trip(state: NonNullable<OrderTracking['trip']>['state'], extra: Partial<NonNullable<OrderTracking['trip']>> = {}): NonNullable<OrderTracking['trip']> {
   return {
     id: 'trp_1',
     state,
     acceptedAt: at(3),
     completedAt: null,
     stops: [
-      {
-        id: 's1',
-        seq: 0,
-        type: 'pickup',
-        state: 'pending',
-        mine: true,
-        target: KITCHEN,
-        courierNearAt: null,
-        arrivedAt: null,
-        completedAt: null,
-      },
-      {
-        id: 's2',
-        seq: 1,
-        type: 'dropoff',
-        state: 'pending',
-        mine: true,
-        target: HOME,
-        courierNearAt: null,
-        arrivedAt: null,
-        completedAt: null,
-      },
+      { id: 's1', seq: 0, type: 'pickup', state: 'pending', mine: true, target: KITCHEN, courierNearAt: null, arrivedAt: null, completedAt: null },
+      { id: 's2', seq: 1, type: 'dropoff', state: 'pending', mine: true, target: HOME, courierNearAt: null, arrivedAt: null, completedAt: null },
     ],
     dropsBeforeMine: 0,
     unreachable: null,
@@ -123,20 +89,7 @@ function trip(
   };
 }
 
-const courier = {
-  firstName: 'حيدر',
-  vehicleClass: 'bike' as const,
-  plate: 'واسط 12345',
-  vehicleLabel: null,
-  vehicleModel: null,
-  vehicleColour: null,
-  features: [],
-  tripCount: 0,
-  rating: null,
-  ratingCount: 0,
-  verifiedTodayAt: T0,
-  photoUrl: null,
-};
+const courier = { firstName: 'حيدر', vehicleClass: 'bike' as const, plate: 'واسط 12345', vehicleLabel: null, vehicleModel: null, vehicleColour: null, features: [], tripCount: 0, rating: null, ratingCount: 0, verifiedTodayAt: T0, photoUrl: null };
 
 describe('geo — interpolation and bearing', () => {
   it('bearing is clockwise from north', () => {
@@ -164,9 +117,7 @@ describe('geo — interpolation and bearing', () => {
     expect(mid.heading).toBeCloseTo(400, 0);
     expect(glidePos(east, null, 2).pos).toEqual(east.to); // clamped
     // a reported bearing wins over the travel direction
-    expect(
-      line(planGlide(null, start, { lat: 32.9, lng: 45.061, bearing: 0 }, 2_000)).toHeading,
-    ).toBe(360);
+    expect(line(planGlide(null, start, { lat: 32.9, lng: 45.061, bearing: 0 }, 2_000)).toHeading).toBe(360);
     // standing still keeps the old heading (no spinning on GPS noise)
     expect(line(planGlide(null, start, { lat: 32.900001, lng: 45.06 }, 2_000)).toHeading).toBe(350);
   });
@@ -254,13 +205,7 @@ describe('status → timeline', () => {
     const v = view();
     const tl = buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock);
     expect(tl.current).toBe('placed');
-    expect(tl.steps.map((s) => s.key)).toEqual([
-      'placed',
-      'accepted',
-      'preparing',
-      'picked_up',
-      'delivered',
-    ]);
+    expect(tl.steps.map((s) => s.key)).toEqual(['placed', 'accepted', 'preparing', 'picked_up', 'delivered']);
     expect(tl.steps[0]).toMatchObject({ time: '09:00', note: t('order.status.placed_hint') });
     expect(phaseOf(v)).toBe('waiting_merchant');
   });
@@ -268,9 +213,7 @@ describe('status → timeline', () => {
   it('joy w4: a household order over a limit says it waits for the payer, not the kitchen', () => {
     const v = view({ heldForPayer: true });
     expect(statusLine(v, t)).toBe('ننتظر موافقة حساب البيت');
-    expect(
-      buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock).steps[0]?.note,
-    ).toBe(t('order.status.awaiting_payer_hint'));
+    expect(buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock).steps[0]?.note).toBe(t('order.status.awaiting_payer_hint'));
     expect(statusLine(view(), t)).toBe(t('order.status.placed'));
   });
 
@@ -300,42 +243,20 @@ describe('status → timeline', () => {
   });
 
   it('preparing with a courier on his way to the kitchen, real timestamps on done steps and an ETA on the last', () => {
-    const v = view(
-      { state: 'preparing', acceptedAt: at(1), preparingAt: at(2), promisedReadyAt: at(17) },
-      { trip: trip('en_route_to_pickup'), courier },
-    );
+    const v = view({ state: 'preparing', acceptedAt: at(1), preparingAt: at(2), promisedReadyAt: at(17) }, { trip: trip('en_route_to_pickup'), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
     expect(tl.current).toBe('preparing');
     expect(tl.steps.find((s) => s.key === 'accepted')?.time).toBe('09:01');
-    expect(tl.steps.find((s) => s.key === 'preparing')).toMatchObject({
-      time: '09:02',
-      note: 'حيدر رايح للمطعم يستلم طلبك',
-    });
+    expect(tl.steps.find((s) => s.key === 'preparing')).toMatchObject({ time: '09:02', note: 'حيدر رايح للمطعم يستلم طلبك' });
     expect(tl.steps.find((s) => s.key === 'delivered')?.time).toBe('~09:30');
     expect(statusLine(v, t)).toBe(t('order.status.preparing'));
     // Joy l3: before the kitchen presses «بدأنا» it only said yes — no "cooking" yet.
-    expect(statusLine(view({ state: 'merchant_accepted', acceptedAt: at(1) }), t)).toBe(
-      t('order.status.merchant_accepted'),
-    );
+    expect(statusLine(view({ state: 'merchant_accepted', acceptedAt: at(1) }), t)).toBe(t('order.status.merchant_accepted'));
   });
 
   it('on the way: honest delay text on the current step when the live ETA runs past the promise', () => {
-    const v = view(
-      {
-        state: 'picked_up',
-        acceptedAt: at(1),
-        preparingAt: at(2),
-        readyAt: at(15),
-        pickedUpAt: at(16),
-      },
-      { trip: trip('in_transit'), courier, promisedAt: at(25) },
-    );
-    const tl = buildTimeline(
-      v,
-      { eta: at(33), lateMin: lateMinutes(at(33), at(25)), courierName: 'حيدر' },
-      t,
-      clock,
-    );
+    const v = view({ state: 'picked_up', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16) }, { trip: trip('in_transit'), courier, promisedAt: at(25) });
+    const tl = buildTimeline(v, { eta: at(33), lateMin: lateMinutes(at(33), at(25)), courierName: 'حيدر' }, t, clock);
     expect(tl.current).toBe('picked_up');
     const step = tl.steps.find((s) => s.key === 'picked_up')!;
     expect(step.late).toBe(true);
@@ -345,38 +266,11 @@ describe('status → timeline', () => {
   });
 
   it('the promise in the late note: "if" while the new time is inside the deadline, plainly coming once past it (c5b)', () => {
-    const latePromise = {
-      afterMin: 20,
-      creditIqd: 1000,
-      basis: 'delivery_fee' as const,
-      deadlineAt: at(45),
-      credit: null,
-      apologyAfterMin: 10,
-      apology: null,
-    };
-    const v = view(
-      {
-        state: 'picked_up',
-        acceptedAt: at(1),
-        preparingAt: at(2),
-        readyAt: at(15),
-        pickedUpAt: at(16),
-      },
-      { trip: trip('in_transit'), courier, promisedAt: at(25), latePromise },
-    );
-    const inside = buildTimeline(
-      v,
-      { eta: at(40), lateMin: lateMinutes(at(40), at(25)), courierName: 'حيدر' },
-      t,
-      clock,
-    ).steps.find((s) => s.key === 'picked_up')!;
+    const latePromise = { afterMin: 20, creditIqd: 1000, basis: 'delivery_fee' as const, deadlineAt: at(45), credit: null, apologyAfterMin: 10, apology: null };
+    const v = view({ state: 'picked_up', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16) }, { trip: trip('in_transit'), courier, promisedAt: at(25), latePromise });
+    const inside = buildTimeline(v, { eta: at(40), lateMin: lateMinutes(at(40), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
     expect(inside.note).toContain('إذا تعدّى التأخير 20 دقيقة');
-    const past = buildTimeline(
-      v,
-      { eta: at(53), lateMin: lateMinutes(at(53), at(25)), courierName: 'حيدر' },
-      t,
-      clock,
-    ).steps.find((s) => s.key === 'picked_up')!;
+    const past = buildTimeline(v, { eta: at(53), lateMin: lateMinutes(at(53), at(25)), courierName: 'حيدر' }, t, clock).steps.find((s) => s.key === 'picked_up')!;
     expect(past.note).toContain('فات الموعد، فالساعة 09:45 نرجعلك 1,000 دينار رصيد');
     expect(past.note).not.toContain('إذا');
   });
@@ -384,86 +278,36 @@ describe('status → timeline', () => {
   it('ready with a courier on the job: the status says where he is, like the kitchen board', () => {
     const ready = { state: 'ready' as const, acceptedAt: at(1), readyAt: at(5) };
     expect(phaseOf(view(ready, { trip: trip('en_route_to_pickup'), courier }))).toBe('to_pickup');
-    expect(statusLine(view(ready, { trip: trip('en_route_to_pickup'), courier }), t)).toBe(
-      t('track.courier_to_kitchen_short'),
-    );
+    expect(statusLine(view(ready, { trip: trip('en_route_to_pickup'), courier }), t)).toBe(t('track.courier_to_kitchen_short'));
     expect(phaseOf(view(ready, { trip: trip('arrived_pickup'), courier }))).toBe('at_pickup');
     expect(phaseOf(view(ready, { trip: trip('offered') }))).toBe('preparing');
-    expect(
-      phaseOf(view({ state: 'preparing' }, { trip: trip('en_route_to_pickup'), courier })),
-    ).toBe('preparing');
+    expect(phaseOf(view({ state: 'preparing' }, { trip: trip('en_route_to_pickup'), courier }))).toBe('preparing');
   });
 
   it('courier at my door: "الدليفري عند بابك", not "on the way"', () => {
-    const v = view(
-      { state: 'picked_up', pickedUpAt: at(16) },
-      { trip: trip('arrived_dropoff'), courier },
-    );
+    const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff'), courier });
     expect(statusLine(v, t)).toBe(t('track.courier_at_door'));
     // HUNT-02: placed «بالشارع», he waits on the street.
-    expect(
-      statusLine(
-        view(
-          { state: 'picked_up', pickedUpAt: at(16), streetHandover: true },
-          { trip: trip('arrived_dropoff'), courier },
-        ),
-        t,
-      ),
-    ).toBe(t('track.courier_at_street'));
-    expect(
-      statusLine(
-        view(
-          { state: 'picked_up' },
-          { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier },
-        ),
-        t,
-      ),
-    ).toBe(t('track.on_the_way'));
+    expect(statusLine(view({ state: 'picked_up', pickedUpAt: at(16), streetHandover: true }, { trip: trip('arrived_dropoff'), courier }), t)).toBe(t('track.courier_at_street'));
+    expect(statusLine(view({ state: 'picked_up' }, { trip: trip('arrived_dropoff', { dropsBeforeMine: 1 }), courier }), t)).toBe(t('track.on_the_way'));
   });
 
   it('after pickup the kitchen step drops its "waiting at the restaurant" note (L-11)', () => {
-    const stops = trip('in_transit').stops.map((s) =>
-      s.type === 'pickup'
-        ? { ...s, state: 'completed' as const, arrivedAt: at(14), completedAt: at(16) }
-        : s,
-    );
-    const v = view(
-      {
-        state: 'picked_up',
-        acceptedAt: at(1),
-        preparingAt: at(2),
-        readyAt: at(15),
-        pickedUpAt: at(16),
-      },
-      { trip: trip('in_transit', { stops }), courier },
-    );
+    const stops = trip('in_transit').stops.map((s) => (s.type === 'pickup' ? { ...s, state: 'completed' as const, arrivedAt: at(14), completedAt: at(16) } : s));
+    const v = view({ state: 'picked_up', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16) }, { trip: trip('in_transit', { stops }), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
     expect(tl.steps.find((s) => s.key === 'preparing')?.note).toBeUndefined();
-    expect(tl.steps.find((s) => s.key === 'picked_up')?.note).toBe(
-      t('track.note_on_the_way', { name: 'حيدر' }),
-    );
+    expect(tl.steps.find((s) => s.key === 'picked_up')?.note).toBe(t('track.note_on_the_way', { name: 'حيدر' }));
   });
 
   it('batched courier: says another drop comes first', () => {
-    const v = view(
-      { state: 'picked_up', pickedUpAt: at(16) },
-      { trip: trip('in_transit', { dropsBeforeMine: 1 }), courier },
-    );
+    const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('in_transit', { dropsBeforeMine: 1 }), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
-    expect(tl.steps.find((s) => s.key === 'picked_up')?.note).toBe(
-      t('order.eta_batched', { time: '09:30' }),
-    );
+    expect(tl.steps.find((s) => s.key === 'picked_up')?.note).toBe(t('order.eta_batched', { time: '09:30' }));
   });
 
   it('delivered: everything done, the last step carries the real time', () => {
-    const v = view({
-      state: 'delivered',
-      acceptedAt: at(1),
-      preparingAt: at(2),
-      readyAt: at(15),
-      pickedUpAt: at(16),
-      deliveredAt: at(29),
-    });
+    const v = view({ state: 'delivered', acceptedAt: at(1), preparingAt: at(2), readyAt: at(15), pickedUpAt: at(16), deliveredAt: at(29) });
     const tl = buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock);
     expect(tl.current).toBe('delivered');
     expect(tl.steps.at(-1)).toMatchObject({ label: t('order.status.delivered'), time: '09:29' });
@@ -471,83 +315,29 @@ describe('status → timeline', () => {
   });
 
   it('unreachable, reassigning, cancelled phases', () => {
-    const unreachable = {
-      stopId: 's2',
-      startedAt: at(20),
-      escalatedAt: null,
-      escalateAt: at(23),
-      failAllowedAt: at(25),
-      extendedAt: null,
-    };
-    expect(
-      phaseOf(
-        view(
-          { state: 'picked_up', pickedUpAt: at(16) },
-          { trip: trip('arrived_dropoff', { unreachable }), courier },
-        ),
-      ),
-    ).toBe('unreachable');
+    const unreachable = { stopId: 's2', startedAt: at(20), escalatedAt: null, escalateAt: at(23), failAllowedAt: at(25), extendedAt: null };
+    expect(phaseOf(view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('arrived_dropoff', { unreachable }), courier }))).toBe('unreachable');
     expect(phaseOf(view({ state: 'preparing' }, { reassigning: true }))).toBe('reassigning');
     expect(phaseOf(view({ state: 'merchant_rejected' }))).toBe('cancelled');
-    expect(statusLine(view({ state: 'merchant_rejected' }), t)).toBe(
-      t('order.status.merchant_rejected'),
-    );
+    expect(statusLine(view({ state: 'merchant_rejected' }), t)).toBe(t('order.status.merchant_rejected'));
   });
 
   it('rides: searching → coming → arrived → in transit → completed', () => {
     const ride = (state: NonNullable<OrderTracking['trip']>['state'], o: Partial<Order> = {}) =>
-      view(
-        { type: 'ride', merchantOrgId: null, state: 'matched', ...o },
-        { merchant: null, trip: trip(state), courier },
-      );
-    expect(
-      buildTimeline(
-        view({ type: 'ride', state: 'placed' }, { merchant: null }),
-        { eta: null, lateMin: 0, courierName: null },
-        t,
-        clock,
-      ).current,
-    ).toBe('searching');
-    expect(
-      buildTimeline(
-        ride('en_route_to_pickup'),
-        { eta: null, lateMin: 0, courierName: 'علي' },
-        t,
-        clock,
-      ).current,
-    ).toBe('matched');
-    expect(
-      buildTimeline(ride('arrived_pickup'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock)
-        .current,
-    ).toBe('arrived_pickup');
-    expect(
-      buildTimeline(ride('in_transit'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock)
-        .current,
-    ).toBe('in_transit');
-    expect(
-      buildTimeline(
-        ride('completed', { state: 'completed' }),
-        { eta: null, lateMin: 0, courierName: 'علي' },
-        t,
-        clock,
-      ).current,
-    ).toBe('completed');
+      view({ type: 'ride', merchantOrgId: null, state: 'matched', ...o }, { merchant: null, trip: trip(state), courier });
+    expect(buildTimeline(view({ type: 'ride', state: 'placed' }, { merchant: null }), { eta: null, lateMin: 0, courierName: null }, t, clock).current).toBe('searching');
+    expect(buildTimeline(ride('en_route_to_pickup'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('matched');
+    expect(buildTimeline(ride('arrived_pickup'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('arrived_pickup');
+    expect(buildTimeline(ride('in_transit'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('in_transit');
+    expect(buildTimeline(ride('completed', { state: 'completed' }), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('completed');
     expect(phaseOf(ride('arrived_pickup'))).toBe('at_pickup');
   });
 
   it('rides: a "وصلت" tapped far from the pickup reads as the driver saying so', () => {
     const arrivedFar = (outside: boolean) => {
       const tr = trip('arrived_pickup');
-      tr.stops[0] = {
-        ...tr.stops[0]!,
-        state: 'arrived',
-        arrivedAt: T0,
-        arrivalClaimedOnly: outside,
-      };
-      return view(
-        { type: 'ride', merchantOrgId: null, state: 'matched' },
-        { merchant: null, trip: tr, courier },
-      );
+      tr.stops[0] = { ...tr.stops[0]!, state: 'arrived', arrivedAt: T0, arrivalClaimedOnly: outside };
+      return view({ type: 'ride', merchantOrgId: null, state: 'matched' }, { merchant: null, trip: tr, courier });
     };
     expect(statusLine(arrivedFar(true), t)).toBe(t('trip.status.arrived_pickup_claimed'));
     expect(statusLine(arrivedFar(false), t)).toBe(t('trip.status.arrived_pickup'));
@@ -556,10 +346,7 @@ describe('status → timeline', () => {
 
 describe('eta', () => {
   it('before pickup: the later of courier-at-kitchen and ready time, plus the ride to the door', () => {
-    const v = view(
-      { state: 'preparing', promisedReadyAt: at(15) },
-      { trip: trip('en_route_to_pickup'), courier },
-    );
+    const v = view({ state: 'preparing', promisedReadyAt: at(15) }, { trip: trip('en_route_to_pickup'), courier });
     const eta = liveEta(v, KITCHEN, T0)!;
     const minutes = (eta.getTime() - T0.getTime()) / MIN;
     expect(minutes).toBeGreaterThan(15);
@@ -567,20 +354,10 @@ describe('eta', () => {
   });
 
   it('after pickup: from the courier to the door, plus earlier batched drops', () => {
-    const v = view(
-      { state: 'picked_up', pickedUpAt: at(16) },
-      { trip: trip('in_transit'), courier },
-    );
+    const v = view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('in_transit'), courier });
     const near = liveEta(v, { lat: 32.888, lng: 45.076 }, T0)!;
     expect(near.getTime() - T0.getTime()).toBe(MIN); // at least one minute
-    const batched = liveEta(
-      view(
-        { state: 'picked_up', pickedUpAt: at(16) },
-        { trip: trip('in_transit', { dropsBeforeMine: 2 }), courier },
-      ),
-      { lat: 32.888, lng: 45.076 },
-      T0,
-    )!;
+    const batched = liveEta(view({ state: 'picked_up', pickedUpAt: at(16) }, { trip: trip('in_transit', { dropsBeforeMine: 2 }), courier }), { lat: 32.888, lng: 45.076 }, T0)!;
     expect(batched.getTime() - T0.getTime()).toBe(9 * MIN);
     expect(liveEta(view({ state: 'delivered', deliveredAt: at(20) }), null, T0)).toBeNull();
   });
@@ -597,45 +374,20 @@ describe('eta', () => {
 
 describe('ride status line (J1c f4)', () => {
   const abbas = { ...courier, firstName: 'عباس', vehicleClass: 'tuktuk' as const };
-  const coming = view(
-    { type: 'ride', state: 'matched', merchantOrgId: null },
-    { merchant: null, trip: trip('en_route_to_pickup'), courier: abbas },
-  );
+  const coming = view({ type: 'ride', state: 'matched', merchantOrgId: null }, { merchant: null, trip: trip('en_route_to_pickup'), courier: abbas });
   it('names who was found for 4 s after the accept, then says he is coming', () => {
     expect(statusLine(coming, t, { now: at(3).getTime() + 1_000 })).toBe('لگينالك سايق: عباس');
     expect(statusLine(coming, t, { now: at(3).getTime() + 5_000 })).toBe('عباس بالطريق إلك');
   });
   it('without a name keeps the plain line', () => {
-    expect(
-      statusLine({ ...coming, courier: { ...abbas, firstName: null } }, t, {
-        now: at(3).getTime() + 1_000,
-      }),
-    ).toBe(t('trip.status.en_route_to_pickup'));
+    expect(statusLine({ ...coming, courier: { ...abbas, firstName: null } }, t, { now: at(3).getTime() + 1_000 })).toBe(t('trip.status.en_route_to_pickup'));
   });
   it('s3: the booker of a ride for someone else follows it about them, to the end', () => {
-    const forMum = (
-      state: NonNullable<OrderTracking['trip']>['state'],
-      orderState: Order['state'] = 'matched',
-    ) =>
-      view(
-        { type: 'ride', state: orderState, merchantOrgId: null, rider: { name: 'ماما' } },
-        { merchant: null, trip: trip(state), courier: abbas },
-      );
-    expect(
-      statusLine(
-        view(
-          { type: 'ride', state: 'placed', merchantOrgId: null, rider: { name: 'ماما' } },
-          { merchant: null },
-        ),
-        t,
-      ),
-    ).toBe('ندوّر سايق لـ ماما');
-    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 1_000 })).toBe(
-      'لگينا سايق لـ ماما: عباس',
-    );
-    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 5_000 })).toBe(
-      'عباس رايح ياخذ ماما',
-    );
+    const forMum = (state: NonNullable<OrderTracking['trip']>['state'], orderState: Order['state'] = 'matched') =>
+      view({ type: 'ride', state: orderState, merchantOrgId: null, rider: { name: 'ماما' } }, { merchant: null, trip: trip(state), courier: abbas });
+    expect(statusLine(view({ type: 'ride', state: 'placed', merchantOrgId: null, rider: { name: 'ماما' } }, { merchant: null }), t)).toBe('ندوّر سايق لـ ماما');
+    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 1_000 })).toBe('لگينا سايق لـ ماما: عباس');
+    expect(statusLine(forMum('en_route_to_pickup'), t, { now: at(3).getTime() + 5_000 })).toBe('عباس رايح ياخذ ماما');
     expect(statusLine(forMum('arrived_pickup'), t)).toBe('السايق وصل عند ماما');
     expect(statusLine(forMum('in_transit', 'picked_up'), t)).toBe('مشوار ماما ماشي');
   });
