@@ -106,11 +106,25 @@ describe('ops.recordCashReceipt', () => {
     expect(s.owedIqd).toBeLessThan(held);
     const code = h.codes.code('k1', h.clock.now()).code;
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: held, code })).rejects.toMatchObject({ code: 'cash_receipt_exceeds_owed' });
+    expect(h.audits).toEqual([]);
     const r = await h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: s.owedIqd, code, idempotencyKey: 'receipt-owed' });
     expect(r.courierOwedIqd).toBe(0);
     // His pay stays in his hand and on his book: nothing more is owed, nothing more can be taken.
     expect(-(await h.lh.caps.status('k1')).cashIqd).toBe(held - s.owedIqd);
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 250, code })).rejects.toMatchObject({ code: 'cash_receipt_exceeds_owed' });
+    // One audit row, for the one receipt that posted, at what he owed.
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'cash.receipt', subjectId: 'k1', detail: expect.objectContaining({ amountIqd: s.owedIqd, reference: r.reference }) })]);
+  });
+
+  it('a staff member who also delivers is refused his own hand-in whatever the amount, before the owed check', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: h.staff.personId }));
+    const s = await h.lh.caps.status(h.staff.personId);
+    const code = h.codes.code(h.staff.personId, h.clock.now()).code;
+    for (const amountIqd of [s.owedIqd, -s.cashIqd]) {
+      await expect(h.ops.recordCashReceipt(h.staff, { courierId: h.staff.personId, amountIqd, code })).rejects.toMatchObject({ code: 'staff_own_account' });
+    }
+    expect(h.audits).toEqual([]);
   });
 });
 
