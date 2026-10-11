@@ -330,6 +330,7 @@
   "soon.parcel_body": "Send a package or papers anywhere in Aziziyah and follow it until it is handed over.",
   "soon.when": "Starting soon. Want us to tell you the day it opens?",
   "soon.notify_me": "Tell me when it opens",
+  "soon.not_open_yet": "{name} hasn't opened yet. Coming soon",
   "soon.notify_done": "We’ll tell you the day it opens",
   "soon.notify_done_body": "One notification on launch day, nothing else.",
   "soon.notify_guest": "Add your number so we can tell you",

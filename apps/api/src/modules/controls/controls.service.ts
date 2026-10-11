@@ -254,8 +254,17 @@ export class ControlsService implements ControlsPort {
     throw new DriverError('zone_at_capacity', { retryAfterSec: cap.etaMin * 60, messageAr: throttleMessage(cap.etaMin, cap.mode) });
   }
 
-  /** الرجعة booking: a switched-off corridor (or the intercity vertical) refuses new holds. */
+  /**
+   * Launch scope: a service missing from the city's `launchedVerticals` takes no new work, with or
+   * without a switch (`service_paused`, "not open yet").
+   */
+  assertLaunched(cityId: string, vertical: Vertical): void {
+    if (!this.config.isLaunched(cityId, vertical)) throw new DriverError('service_paused', { messageAr: t('soon.not_open_yet', { name: VERTICAL_AR[vertical] }) });
+  }
+
+  /** الرجعة booking: not launched yet, or a switched-off corridor (or the intercity vertical), refuses new holds. */
   async assertCorridorOpen(input: { cityId: string; corridorId: string }): Promise<void> {
+    this.assertLaunched(input.cityId, 'intercity');
     const live = await this.liveSwitches(input.cityId);
     const s = live.find((x) => x.scope === 'vertical' && x.key === 'intercity') ?? live.find((x) => x.scope === 'corridor' && x.key === input.corridorId);
     if (s) throw new DriverError('service_paused', { messageAr: await this.refusalFor(s, input.cityId) });
@@ -675,7 +684,9 @@ export class ControlsService implements ControlsPort {
    * the kind of day, Ramadan's times on both timetables and the home card (J6, `season.ts`).
    */
   async season(input: SeasonInput): Promise<PublicSeason> {
-    return composeSeason({ rows: await this.liveQuiet(), now: this.clock.now(), cityId: input.cityId, timetable: input.timetable });
+    const today = composeSeason({ rows: await this.liveQuiet(), now: this.clock.now(), cityId: input.cityId, timetable: input.timetable });
+    // The launched services ride along so home hides the tiles of the rest (no extra read).
+    return input.cityId ? { ...today, launched: this.config.launchedVerticals(input.cityId) } : today;
   }
 
   /** The notify engine's gate for offers: suppressed on quiet days and seasons with offers off, held around iftar (J6). */
