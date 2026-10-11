@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { KnownShopName } from '@driver/contracts';
 
 /**
  * «دوّرلي» (Ali 2026-10-11: "the customer can type a list but it shouldn't be confined to food, they
@@ -55,7 +56,7 @@ export function blankItem(): ErrandItem {
 /** An item is ready when it says what is wanted in some way, and a shop he knows has a name. */
 export function itemReady(item: ErrandItem): boolean {
   const said = item.what.trim().length > 0 || item.voice != null || item.photoUri != null;
-  const whereOk = item.where.kind !== 'known' || item.where.name.trim().length > 0;
+  const whereOk = item.where.kind !== 'known' || KnownShopName.safeParse(item.where.name).success;
   return said && whereOk && item.qty > 0;
 }
 

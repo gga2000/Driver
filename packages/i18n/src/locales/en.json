@@ -9252,6 +9252,7 @@
   "shopping.confirm_order": "Confirm order",
   "shopping.daily_done": "Done: your bread comes at {time} from {name}",
   "shopping.sending": "Sending the list…",
+  "shopping.where_known_no_phone": "Just the shop's name, no phone number",
   "shopping.checkout_soon": "Ordering from here is coming soon",
   "shopping.per_kg": "{amount} a kilo",
   "shopping.per_piece": "{amount} each",

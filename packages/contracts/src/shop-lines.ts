@@ -32,6 +32,17 @@ export type ErrandUnit = z.infer<typeof ErrandUnit>;
 export const IfMissing = z.enum(['call', 'similar', 'skip']);
 export type IfMissing = z.infer<typeof IfMissing>;
 
+/**
+ * A shop the customer knows, by its name («صيدلية الشفاء», «مكتبة 30 تموز»). Four digits in a row
+ * (Western or Arabic-Indic) are refused, so a phone number can never be stored here.
+ */
+export const KnownShopName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .refine((v) => !/[0-9\u0660-\u0669\u06F0-\u06F9]{4,}/.test(v), { message: 'a shop name, not a number' });
+
 /** An id in our own upload store (never an outside link). */
 const UploadId = z.string().regex(/^[A-Za-z0-9_-]{8,80}$/);
 
@@ -46,7 +57,7 @@ export const ErrandItemSpec = z
     where: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('near') }),
       z.object({ kind: z.literal('app'), shopId: z.string().min(1).max(80) }),
-      z.object({ kind: z.literal('known'), name: z.string().trim().min(1).max(60), pin: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).nullable() }),
+      z.object({ kind: z.literal('known'), name: KnownShopName, pin: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).nullable() }),
     ]),
     ifMissing: IfMissing,
     maxIqd: Iqd.positive().nullable(),

@@ -9252,6 +9252,7 @@
   "shopping.confirm_order": "أكّد الطلب",
   "shopping.daily_done": "تمام، صمونك يجيك {time} من {name}",
   "shopping.sending": "دنرسل القائمة…",
+  "shopping.where_known_no_phone": "اكتب اسم المحل بس، بدون رقم تلفون",
   "shopping.checkout_soon": "الطلب من هنا يشتغل قريباً",
   "shopping.per_kg": "{amount} الكيلو",
   "shopping.per_piece": "{amount} الحبة",

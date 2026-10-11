@@ -1,3 +1,4 @@
+import { KnownShopName } from '@driver/contracts';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -344,7 +345,12 @@ export default function ErrandItemScreen() {
                   item.where.kind === 'known' && setWhere({ ...item.where, name })
                 }
                 placeholder={t('shopping.where_known_placeholder')}
-                maxLength={80}
+                maxLength={60}
+                error={
+                  item.where.name.trim() && !KnownShopName.safeParse(item.where.name).success
+                    ? t('shopping.where_known_no_phone')
+                    : undefined
+                }
               />
               <Button
                 variant="secondary"
