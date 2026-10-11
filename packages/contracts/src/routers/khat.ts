@@ -9,6 +9,8 @@ import {
   CallGuardianInput,
   ConfirmEmptyCarInput,
   GuardianChild,
+  GuardianRunInput,
+  GuardianRunView,
   KhatRunTrip,
   KhatSweepAlert,
   KhatSweepAlertsInput,
@@ -86,6 +88,14 @@ export const khatRouter = router({
       .input(RemoveChildPhotoInput)
       .output(GuardianChild)
       .mutation(({ ctx, input }) => ctx.khat.removeChildPhoto(ctx.actor, input)),
+    /**
+     * Map idea N14 «بس بيتك والباص»: today's run of his own child (null when there is none): his home,
+     * the school, the bus only on legs to them, other children's stops as position-less dots.
+     */
+    run: protectedProcedure()
+      .input(GuardianRunInput)
+      .output(GuardianRunView.nullable())
+      .query(({ ctx, input }) => ctx.khat.guardianRun(ctx.actor, input)),
   }),
   /**
    * Runs that ended without the sweep within `KHAT_RULES.sweepAlertAfterMin` (Console safety strip):

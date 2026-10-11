@@ -223,10 +223,51 @@ export type SetChildPhotoInput = z.infer<typeof SetChildPhotoInput>;
 export const RemoveChildPhotoInput = z.object({ childRef: z.string().min(1).max(80) });
 export type RemoveChildPhotoInput = z.infer<typeof RemoveChildPhotoInput>;
 
+// ───────────────────────── guardian: the bus map (map idea N14, Ali 2026-10-11) ─────────────────────────
+
+/** Today's run of one of the guardian's own children. */
+export const GuardianRunInput = z.object({ childRef: z.string().min(1).max(80) });
+export type GuardianRunInput = z.infer<typeof GuardianRunInput>;
+
+/**
+ * «بس بيتك والباص» (map idea N14): what a guardian sees of his child's run. Only his own child's
+ * home stop, the school and the bus; every other child's stop is a dot WITHOUT a position (just
+ * whether it is done), so no other child's home ever reaches him.
+ *
+ * The bus itself would trace the other homes, so its position is sent only on a leg that ends at
+ * this child's home or at the school, and only once it is 300 m from every other child's stop
+ * (`bus` is null otherwise, and `busAway` says so). `stopsBefore` counts the other children's stops still to come before this
+ * child's next stop.
+ */
+export const GuardianRunView = z.object({
+  tripId: z.string(),
+  state: TripState,
+  /** Morning (home → school) or afternoon (school → home). */
+  leg: z.enum(['to_school', 'to_home']),
+  child: z.enum(['waiting', 'on_board', 'delivered', 'absent']),
+  home: LatLng,
+  school: LatLng.extend({ landmark: z.string().nullable() }),
+  bus: z.object({ lat: z.number(), lng: z.number(), bearing: z.number().nullable(), at: z.coerce.date() }).nullable(),
+  /** The bus is out on another child's leg: no position is sent until it heads here or to school. */
+  busAway: z.boolean(),
+  stopsBefore: z.number().int().min(0),
+  /** The other children's stops in run order: a done flag only, never where they are. */
+  others: z.array(z.object({ done: z.boolean() })),
+  /**
+   * The road through public points only (the bus when shown, this child's home, the school), encoded
+   * polyline precision 6; null without a road router (the app draws straight lines).
+   */
+  polyline6: z.string().nullable(),
+  /** Minutes for the shown bus to this child's next point (home, or the school once on board); else null. */
+  minutes: z.number().int().min(0).nullable(),
+});
+export type GuardianRunView = z.infer<typeof GuardianRunView>;
+
 export interface KhatPort {
   guardianChildren(actor: Actor): Promise<GuardianChild[]>;
   setChildPhoto(actor: Actor, input: SetChildPhotoInput): Promise<GuardianChild>;
   removeChildPhoto(actor: Actor, input: RemoveChildPhotoInput): Promise<GuardianChild>;
+  guardianRun(actor: Actor, input: GuardianRunInput): Promise<GuardianRunView | null>;
   todayRun(actor: Actor, input: z.infer<typeof TodayRunInput>): Promise<TodayRunView>;
   tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;
   tapOut(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip>;

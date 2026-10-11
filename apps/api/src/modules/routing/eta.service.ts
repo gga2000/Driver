@@ -53,6 +53,14 @@ export class EtaService {
     return { minutes: wholeMinutes(exact), exactMinutes: exact, basis: r.basis };
   }
 
+  /**
+   * The learned multiplier alone for a leg, with no router call (N6: which piece of a road already
+   * routed runs slow). 1 when nothing trustworthy has been learned.
+   */
+  factor(from: LatLng, to: LatLng, vehicle: VehicleClass, basis: EtaBasis): Promise<number> {
+    return this.correction.factor({ from, to, vehicle, basis });
+  }
+
   /** The road through `points` (two or more): its shape for the map, its length and duration (uncorrected). */
   path(points: readonly LatLng[]): Promise<RouteResult> {
     return this.router.route(points);
