@@ -11,7 +11,7 @@ import { SunriseFrame, SunrisePin } from './SunriseFrame';
 import type { WelcomeHomeProps } from './WelcomeDrawing';
 
 type Golden = typeof import('@driver/map/golden');
-type Pieces = typeof import('@driver/map/pieces');
+type Pieces = typeof import('@driver/map/pieces/sunrise');
 type SunriseLight = import('@driver/map/golden').GoldenLight;
 
 /**
@@ -42,7 +42,7 @@ export function WelcomeSunrise({ onFail, ...props }: WelcomeHomeProps & { onFail
     let map: MlMap | null = null;
     let raf = 0;
     let stopFallback: (() => void) | undefined;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces')])
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/sunrise')])
       .then(async ([mod, golden, pieces]: [unknown, Golden, Pieces]) => {
         const maplibregl = ((mod as { default?: unknown }).default ?? mod) as typeof import('maplibre-gl');
         await prepareGolden(maplibregl);

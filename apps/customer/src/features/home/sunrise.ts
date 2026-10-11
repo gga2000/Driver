@@ -1,6 +1,6 @@
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import type { GoldenLight } from '@driver/map/golden';
-import type { SunriseKeyframe, SunriseTour } from '@driver/map/pieces';
+import type { SunriseKeyframe, SunriseTour } from '@driver/map/pieces/sunrise';
 
 /**
  * «الشمس تطلع على العزيزية» (map idea N4, Ali 2026-10-11): after sign-up, once, the camera rises from the

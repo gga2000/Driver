@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
-import { sunriseTour } from '@driver/map/pieces';
+import { sunriseTour } from '@driver/map/pieces/sunrise';
 import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLegs, sunriseLightAt, TOWN } from './sunrise';
 
 describe('the sign-up sunrise (map idea N4)', () => {

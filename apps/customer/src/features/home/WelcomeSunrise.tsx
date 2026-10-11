@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
 import * as golden from '@driver/map/golden';
-import { sunriseTour } from '@driver/map/pieces';
+import { sunriseTour } from '@driver/map/pieces/sunrise';
 import { useTheme } from '@driver/ui';
 import { nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
 import { useProfile } from '@/lib/profile';
