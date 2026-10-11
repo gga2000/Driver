@@ -284,7 +284,18 @@ export class Simulation implements SimContext {
       }
     if (this.t - this.lastDispatcherT >= 15_000) {
       this.lastDispatcherT = this.t;
+      const before = this.dispatcher.overrides.length;
       await dispatcherStep(this, this.cards, this.dispatcher);
+      // The desk's offer reaches the chosen driver's phone at once (as a push does), not on the next
+      // board read a tick later: with live ticks of 6 s or more, that extra tick plus his reaction
+      // often ran past the 15-s offer timer, so desk offers timed out unanswered.
+      for (const o of this.dispatcher.overrides.slice(before)) {
+        const card = this.cards.find((c) => c.tripId === o.tripId);
+        if (!card) continue;
+        const list = byDriver.get(o.driverId) ?? [];
+        list.push({ card, offerId: o.offerId });
+        byDriver.set(o.driverId, list);
+      }
     }
 
     // Drivers act a moment after the desk: on a fake clock everything in a tick shares one
