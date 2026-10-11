@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { arrivedTooLate, batchMinutes, riderTripsKey, serviceOf, speakText, timeShare } from './slip';
+import { secondsLeft } from '@/features/work/logic';
+import { arrivedTooLate, batchMinutes, localExpiry, riderTripsKey, serviceOf, shouldOpenOffer, speakText, timeShare } from './slip';
 
 const t = (key: string, p?: Record<string, string | number>) => `${key}${p ? JSON.stringify(p) : ''}`;
 
@@ -24,6 +25,29 @@ describe('order slip', () => {
     expect(timeShare(exp, 20, 0)).toBe(1);
     expect(timeShare(exp, 20, 10_000)).toBe(0.5);
     expect(timeShare(exp, 20, 30_000)).toBe(0);
+  });
+
+  it('counts the ring from the server’s clock, so a phone 20 s fast or slow still gets the full 15 s', () => {
+    const server = Date.parse('2026-10-03T10:00:00Z');
+    const offer = { expiresAt: new Date(server + 15_000), serverNow: new Date(server) };
+    for (const skew of [20_000, -20_000, 0]) {
+      const receivedAt = server + skew;
+      const expiry = localExpiry(offer, receivedAt);
+      expect(arrivedTooLate(expiry, receivedAt)).toBe(false);
+      expect(secondsLeft(expiry, receivedAt)).toBe(15);
+      expect(secondsLeft(expiry, receivedAt + 10_000)).toBe(5);
+    }
+    // Counting on the phone's own clock (the old way) drops it unseen on a phone 20 s fast.
+    expect(arrivedTooLate(offer.expiresAt, server + 20_000)).toBe(true);
+  });
+
+  it('brings an unanswered offer back on top, never one already answered or the card twice', () => {
+    const done = new Set(['o1']);
+    expect(shouldOpenOffer('o2', '(tabs)', done)).toBe(true);
+    expect(shouldOpenOffer('o2', 'job', done)).toBe(true);
+    expect(shouldOpenOffer('o2', 'offer', done)).toBe(false);
+    expect(shouldOpenOffer('o1', '(tabs)', done)).toBe(false);
+    expect(shouldOpenOffer(null, '(tabs)', done)).toBe(false);
   });
 
   it('drops an offer that reached the screen already over (l8)', () => {

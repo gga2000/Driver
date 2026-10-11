@@ -14,6 +14,7 @@ import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
 import { ensureMaplibreCss } from './maplibre-css';
 import { RecentreChip } from './RecentreChip';
+import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
 
 type Golden = typeof import('@driver/map/golden');
@@ -23,7 +24,6 @@ const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The route redraws at most this often while the courier glides (the marker itself moves every frame). */
 const ROUTE_REDRAW_MS = 250;
-const PIN = 40;
 const PHOTO = 38;
 const RING_W = 3;
 /** Street life moves at about 30 frames a second (smooth enough for small cars, half the work). */
@@ -354,28 +354,6 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
       <Text variant="caption" color="textMuted" style={{ position: 'absolute', right: theme.space[3], bottom: bottomInset + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}>
         {MAP_CREDIT}
       </Text>
-    </View>
-  );
-}
-
-/** A map pin: a rounded square turned 45°, tip down, with a soft halo. */
-function Teardrop({ fill, halo, children }: { fill: string; halo: string; children: React.ReactNode }) {
-  const inner = PIN - 6;
-  return (
-    <View style={{ width: PIN, height: PIN + 4, alignItems: 'center' }}>
-      <View
-        style={{
-          width: inner,
-          height: inner,
-          marginTop: 3,
-          backgroundColor: fill,
-          borderRadius: inner / 2,
-          borderBottomRightRadius: 3,
-          transform: [{ rotate: '45deg' }],
-          boxShadow: `0 0 0 4px ${halo}, 0 3px 8px rgba(40,24,8,0.3)`,
-        }}
-      />
-      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingBottom: 6 }]}>{children}</View>
     </View>
   );
 }

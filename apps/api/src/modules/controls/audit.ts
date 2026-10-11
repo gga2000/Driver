@@ -17,7 +17,7 @@ export const AUDIT_CATEGORY_ACTIONS: Record<AuditCategory, readonly string[]> = 
   approvals: ['approval.', 'store.dish_photo', 'store.pickup_spot'],
   pauses: ['driver.pause', 'driver.lift_pause', 'kill_switch.', 'capacity.'],
   safety: ['safety.', 'khat.', 'pin.'],
-  orders: ['order.ops_cancel', 'ride.', 'departure.', 'ticket.open', 'ticket.resolve', 'ticket.escalate', 'ticket.fault'],
+  orders: ['order.ops_cancel', 'trip.ops_', 'ride.', 'departure.', 'ticket.open', 'ticket.resolve', 'ticket.escalate', 'ticket.fault'],
   settings: ['zone.', 'banner.', 'screen.', 'season.', 'quiet.', 'on_call.', 'handover.'],
 };
 

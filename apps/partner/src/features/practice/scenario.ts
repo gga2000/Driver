@@ -79,6 +79,7 @@ export function ring(s: PracticeState, now: number): PracticeState {
     wave: 1,
     sentAt: new Date(now),
     expiresAt: new Date(now + RING_SEC[s.kind] * 1000),
+    serverNow: new Date(now),
     ringSec: RING_SEC[s.kind],
     seen: false,
     pickup: food ? { zoneId: 'street_30', label: PRACTICE_RESTAURANT, pin: KITCHEN, landmark: 'جامع الرسول' } : { zoneId: 'centre', label: null, pin: RIDER, landmark: 'الجامع الكبير' },

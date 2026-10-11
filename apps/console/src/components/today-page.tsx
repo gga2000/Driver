@@ -18,9 +18,10 @@ import { t } from '@driver/i18n';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { formatClock } from '@/lib/format';
 import { useHotkeys } from '@/lib/hotkeys';
-import { detailText, holdRows, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
+import { detailText, holdRows, inService, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone, type Service, SERVICE_KEY, serviceOf, SERVICES } from '@/lib/inbox';
 import { CITY_ID, queryRetry, useRightNow } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
+import { PREF_KEYS, readJson, writeJson } from '@/lib/prefs';
 import { countText } from '@/lib/plural';
 import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
@@ -60,8 +61,8 @@ import {
 /** The list and its counts refresh this often (the plan's freshness bar: Today within 3 s). */
 const TODAY_POLL_MS = 3_000;
 const VIEWS: readonly InboxView[] = ['open', 'mine', 'snoozed', 'done'];
-const LINK_DEFAULTS = { view: 'open', kind: '' };
-const LINK_ALLOWED = { view: VIEWS, kind: INBOX_KINDS };
+const LINK_DEFAULTS = { view: 'open', kind: '', svc: '' };
+const LINK_ALLOWED = { view: VIEWS, kind: INBOX_KINDS, svc: SERVICES };
 const VIEW_KEY = {
   open: 'console.today.view_open',
   mine: 'console.today.view_mine',
@@ -93,12 +94,23 @@ function Today() {
   const canWork = loaded && hasAny(roles, INBOX_WORK_ROLES);
   const [view, setView] = useState<InboxView>('open');
   const [kind, setKind] = useState<InboxKind | null>(null);
+  // h7: the service chip is remembered on this browser (a خطوط-only person picks it once); a link wins.
+  const [service, setServiceState] = useState<Service | null>(null);
+  useEffect(() => {
+    const saved = readJson<string | null>(PREF_KEYS.todayService, null);
+    if (saved && (SERVICES as readonly string[]).includes(saved)) setServiceState(saved as Service);
+  }, []);
+  const setService = (s: Service | null) => {
+    setServiceState(s);
+    writeJson(PREF_KEYS.todayService, s);
+  };
   useLinkedFilters(
-    { view, kind: kind ?? '' },
+    { view, kind: kind ?? '', svc: service ?? '' },
     LINK_DEFAULTS,
     (got) => {
       if (got['view']) setView(got['view'] as InboxView);
       if (got['kind']) setKind(got['kind'] as InboxKind);
+      if (got['svc']) setServiceState(got['svc'] as Service);
     },
     LINK_ALLOWED,
   );
@@ -121,8 +133,10 @@ function Today() {
     snoozed: c?.snoozed,
     done: c?.doneToday,
   };
+  const rows = useMemo(() => (list.data ? list.data.filter((r) => inService(r, service)) : undefined), [list.data, service]);
   return (
     <div className="space-y-5">
+      <ServiceBar rows={list.data} value={service} onChange={setService} />
       <Pulse counts={c} />
       <NobodyOnCall />
       <HandoverCard />
@@ -152,7 +166,7 @@ function Today() {
             <CopyLinkButton />
           </div>
         </div>
-        {view === 'open' && c ? <KindFilter counts={c} value={kind} onChange={setKind} /> : null}
+        {view === 'open' && c ? <KindFilter counts={service && rows && !kind ? { ...c, byKind: countByKind(rows) } : c} value={kind} onChange={setKind} /> : null}
         {list.isError ? (
           <div className="p-5">
             <QueryError error={list.error} onRetry={() => void list.refetch()} />
@@ -163,7 +177,7 @@ function Today() {
             <SkeletonBlock className="h-16" />
             <SkeletonBlock className="h-16" />
           </div>
-        ) : list.data.length === 0 ? (
+        ) : !rows || rows.length === 0 ? (
           <EmptyState
             icon={<IconCheckCircle size={28} />}
             title={t(
@@ -179,12 +193,66 @@ function Today() {
             className="py-12"
           />
         ) : (
-          <Rows rows={list.data} listKey={`${view}:${kind ?? ''}`} canWork={canWork} />
+          <Rows rows={rows} listKey={`${view}:${kind ?? ''}:${service ?? ''}`} canWork={canWork} />
         )}
       </section>
       {loaded && !canWork ? (
         <p className="text-dense text-muted">{t('console.today.read_only')}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** Under a service chip the type filter counts only the rows that chip shows. */
+function countByKind(rows: readonly InboxRow[]): InboxCounts['byKind'] {
+  const out: Partial<Record<InboxKind, number>> = {};
+  for (const r of rows) out[r.kind] = (out[r.kind] ?? 0) + 1;
+  return out as InboxCounts['byKind'];
+}
+
+// ───────────────────────── h7: the service chips ─────────────────────────
+
+/**
+ * One chip per service with how many of the shown rows are its own; picking one narrows the list.
+ * SOS, safety and approvals stay under every chip (the line under the chips says so).
+ */
+function ServiceBar({
+  rows,
+  value,
+  onChange,
+}: {
+  rows: InboxRow[] | undefined;
+  value: Service | null;
+  onChange: (s: Service | null) => void;
+}) {
+  const own = (s: Service) => (rows ? rows.filter((r) => serviceOf(r) === s).length : null);
+  const chip = (active: boolean) =>
+    cx(
+      'inline-flex h-11 shrink-0 items-center gap-2 rounded-pill border px-4 text-sm font-medium transition-colors duration-fast',
+      active ? 'border-accent bg-accent-wash text-text' : 'border-line bg-surface text-muted shadow-card hover:border-line-strong hover:text-text',
+    );
+  return (
+    <div>
+      <div
+        className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:flex-wrap"
+        role="group"
+        aria-label={t('console.today.svc_label')}
+        data-testid="today-services"
+      >
+        <button type="button" className={chip(value === null)} aria-pressed={value === null} onClick={() => onChange(null)}>
+          {t('console.today.svc_all')}
+        </button>
+        {SERVICES.map((s) => {
+          const n = own(s);
+          return (
+            <button key={s} type="button" className={chip(value === s)} aria-pressed={value === s} onClick={() => onChange(value === s ? null : s)}>
+              {t(SERVICE_KEY[s])}
+              {n ? <span className="num rounded-pill bg-warn-tint px-1.5 text-xs font-semibold text-warn">{n}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {value ? <p className="mt-1 text-xs text-muted">{t('console.today.svc_shared')}</p> : null}
     </div>
   );
 }
@@ -332,8 +400,14 @@ function Rows({ rows, listKey, canWork }: { rows: InboxRow[]; listKey: string; c
   const holding = hovering || active !== null || busy;
   const { shown, held } = useMemo(() => holdRows(rows, known, holding), [rows, known, holding]);
   // What is on screen while nobody holds the list becomes the list to hold.
+  // Keeps the same object when nothing changed, or each new set would run this effect again.
   useEffect(() => {
-    if (!holding || known === null) setOnScreen({ key: listKey, ids: new Set(rows.map((r) => r.id)) });
+    if (holding && known !== null) return;
+    setOnScreen((prev) =>
+      prev?.key === listKey && prev.ids.size === rows.length && rows.every((r) => prev.ids.has(r.id))
+        ? prev
+        : { key: listKey, ids: new Set(rows.map((r) => r.id)) },
+    );
   }, [holding, known, listKey, rows]);
   // The highlight follows the visible rows only.
   useEffect(() => {

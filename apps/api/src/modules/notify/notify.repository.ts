@@ -103,6 +103,11 @@ export interface NotifyRepository {
   byDedupe(dedupeKey: string): Promise<DeliveryRecord[]>;
   byProviderRef(ref: string): Promise<DeliveryRecord | null>;
   updateDelivery(id: string, patch: DeliveryPatch, now: Date): Promise<DeliveryRecord>;
+  /**
+   * Claims a queued or deferred row for one provider call: sets `sentAt` only while it is still unset.
+   * False when another run already claimed it, so a retried job never sends the same message twice.
+   */
+  claimSend(id: string, at: Date): Promise<boolean>;
   /** Marketing messages that went (or are going) to a person since `since`, one per dedupe key. */
   countMarketingSince(personId: string, since: Date): Promise<number>;
   log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]>;
@@ -231,6 +236,13 @@ export class InMemoryNotifyRepository implements NotifyRepository {
     const next = { ...r, ...structuredClone(patch), updatedAt: now };
     this.deliveries.set(id, next);
     return structuredClone(next);
+  }
+
+  async claimSend(id: string, at: Date): Promise<boolean> {
+    const r = this.deliveries.get(id);
+    if (!r || (r.status !== 'queued' && r.status !== 'deferred') || r.sentAt !== null) return false;
+    this.deliveries.set(id, { ...r, sentAt: at, updatedAt: at });
+    return true;
   }
 
   async countMarketingSince(personId: string, since: Date): Promise<number> {
@@ -392,6 +404,11 @@ export class PrismaNotifyRepository implements NotifyRepository {
   async byProviderRef(ref: string): Promise<DeliveryRecord | null> {
     const r = await this.db().notifyDelivery.findFirst({ where: { providerRef: ref } });
     return r ? deliveryOf(r) : null;
+  }
+
+  async claimSend(id: string, at: Date): Promise<boolean> {
+    const r = await this.db().notifyDelivery.updateMany({ where: { id, status: { in: ['queued', 'deferred'] }, sentAt: null }, data: { sentAt: at } });
+    return r.count === 1;
   }
 
   async updateDelivery(id: string, patch: DeliveryPatch): Promise<DeliveryRecord> {
