@@ -3,6 +3,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps } from '@maplibre/maplibre-react-native';
 import type { GuardianRunView } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
+import * as pieces from '@driver/map/pieces';
 import { useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
@@ -41,10 +42,10 @@ export function KhatMap({ view, topInset, bottomInset, lite, onFail }: KhatMapPr
   const light = useMemo(() => golden.resolveLight().light, []);
   const style = useMemo(() => nativeGoldenStyle(golden, light, lite ? 'lite' : 'customer'), [light, lite]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
-  const layers = useMemo(() => golden.khatRouteLayers({ source: SOURCE, light }), [light]);
+  const layers = useMemo(() => pieces.khatRouteLayers({ source: SOURCE, light }), [light]);
   const scene = useMemo(() => khatScene(view), [view]);
   const data = useMemo(
-    () => golden.khatRouteGeoJSON({ route: scene.route, school: scene.school, mine: scene.home, others: scene.others, ...(scene.bus ? { bus: scene.bus } : {}) }) as GeoJSON.FeatureCollection,
+    () => pieces.khatRouteGeoJSON({ route: scene.route, school: scene.school, mine: scene.home, others: scene.others, ...(scene.bus ? { bus: scene.bus } : {}) }) as GeoJSON.FeatureCollection,
     [scene],
   );
 

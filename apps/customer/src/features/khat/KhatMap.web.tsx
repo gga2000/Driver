@@ -11,7 +11,8 @@ import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { khatScene, type Pt } from './bus';
 import { BusPin, HomePin, SCHOOL_DOT_R, SchoolPin } from './KhatPins';
 
-type Golden = typeof import('@driver/map/golden');
+// The map's base (`golden`) and the screens' pieces (`pieces`: the khat route, its own entry so other screens don't carry it).
+type Golden = typeof import('@driver/map/golden') & typeof import('@driver/map/pieces');
 
 export interface KhatMapProps {
   view: GuardianRunView;
@@ -96,8 +97,9 @@ export function KhatMap({ view, topInset, bottomInset, lite, onFail }: KhatMapPr
     let cancelled = false;
     let map: MlMap | null = null;
     let stopFallback: (() => void) | undefined;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden')])
-      .then(async ([mod, golden]) => {
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces')])
+      .then(async ([mod, base, pieces]) => {
+        const golden: Golden = { ...base, ...pieces };
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
