@@ -23,6 +23,7 @@ import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
 import { fixPush, usePushHealth, usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
+import { useMyInvites } from '@/features/staff/queries';
 import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, usePrintOrder, type StorePrint } from '@/features/print/runtime';
 import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
 import { dayCardKey, dayCardMode, orderWhoLine, showDayCard } from '@/features/day/logic';
@@ -350,7 +351,11 @@ export function Board() {
     if (missedNew.length > 0) markSeen(missedNew.map((m) => m.orderId));
     setSheet(null);
   };
-  const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
+  const calm = boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen });
+  const push = usePushPrompt(calm);
+  // PRV-08: an invite from another store, for someone who already works here (the board opens
+  // straight away, so the store picker that lists invites is never seen). Only on a calm board.
+  const invites = useMyInvites().data ?? [];
   const pushHealth = usePushHealth();
   // a7: a new order starts ringing → the sheets that only show things step aside (missed orders, the
   // cash, the phone's "…", the details of an order that isn't new), so nothing hides the ribbon. The
@@ -716,7 +721,16 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {failed || stale ? <InfoStrip tone="danger" testID="board-error" text={t('merchant.board.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void board.refetch(), testID: 'board-error-retry' }} /> : null}
-      {push.visible ? (
+      {calm && invites[0] ? (
+        <InfoStrip
+          tone="neutral"
+          icon="bell"
+          testID="invite-strip"
+          text={invites.length === 1 ? t('merchant.invites.card', { store: invites[0].storeName }) : t('merchant.invites.strip_many', { count: invites.length })}
+          action={{ label: t('merchant.invites.see'), onPress: () => router.push('/stores'), testID: 'invite-strip-see' }}
+        />
+      ) : null}
+      {push.visible && !(calm && invites[0]) ? (
         <InfoStrip
           tone="neutral"
           icon="bell"
