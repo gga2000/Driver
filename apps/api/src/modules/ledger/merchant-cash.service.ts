@@ -27,6 +27,12 @@ export interface CashAttributionInput {
   groupEvents: readonly LedgerEvent[];
   /** Each courier's `cash:` and `driver:` lines (what he holds, what he has earned, what he handed in). */
   courierEvents: ReadonlyMap<string, readonly LedgerEvent[]>;
+  /**
+   * Where each courier's lines start: the last moment he held no cash (nothing he collected before it
+   * can still be in his hand), with his `cash:` and `driver:` balances then. Absent: his whole history.
+   * `since: null` means he holds no cash now.
+   */
+  windows?: ReadonlyMap<string, { since: Date | null; cash: number; pay: number }>;
 }
 
 const byTime = (a: LedgerEvent, b: LedgerEvent) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime() || a.id.localeCompare(b.id);
@@ -64,22 +70,39 @@ export function attributeCourierCash(input: CashAttributionInput): Map<string, M
   for (const list of input.courierEvents.values()) for (const e of list) lines.set(e.id, e);
   const timeline = [...lines.values()].sort(byTime);
 
-  const queue: Array<{ merchantId: string; courierId: string; amount: number }> = [];
-  const consume = (amount: number, match: (q: (typeof queue)[number]) => boolean) => {
+  type Entry = { merchantId: string; courierId: string; amount: number };
+  const queue: Entry[] = [];
+  // Each courier's entries (oldest first) and their open total, so his hand-ins don't walk everyone's.
+  const mine = new Map<string, Entry[]>();
+  const open = new Map<string, number>();
+  const take = (entry: Entry, left: number) => {
+    const n = Math.min(entry.amount, left);
+    entry.amount -= n;
+    open.set(entry.courierId, (open.get(entry.courierId) ?? 0) - n);
+    return n;
+  };
+  const consume = (amount: number, match: (q: Entry) => boolean, courierId?: string) => {
     let left = amount;
-    for (const entry of queue) {
+    for (const entry of courierId ? (mine.get(courierId) ?? []) : queue) {
       if (left <= 0) break;
-      if (!match(entry)) continue;
-      const take = Math.min(entry.amount, left);
-      entry.amount -= take;
-      left -= take;
+      if (entry.amount > 0 && match(entry)) left -= take(entry, left);
     }
   };
-  const restaurantCash = (courierId: string) => queue.reduce((n, q) => (q.courierId === courierId ? n + q.amount : n), 0);
+  const restaurantCash = (courierId: string) => open.get(courierId) ?? 0;
   // Running balances of each courier's `cash:` (negative while he holds cash) and `driver:` (his pay).
   const cashBal = new Map<string, number>();
   const payBal = new Map<string, number>();
   const bump = (m: Map<string, number>, id: string, by: number) => m.set(id, (m.get(id) ?? 0) + by);
+  for (const [courierId, w] of input.windows ?? []) {
+    cashBal.set(courierId, w.cash);
+    payBal.set(courierId, w.pay);
+  }
+  // Cash collected before his window is no longer in his hand.
+  const inWindow = (courierId: string, at: Date) => {
+    const w = input.windows?.get(courierId);
+    if (!w) return true;
+    return w.since !== null && at.getTime() >= w.since.getTime();
+  };
   const seenGroups = new Set<string>();
 
   for (const e of timeline) {
@@ -88,7 +111,7 @@ export function attributeCourierCash(input: CashAttributionInput): Map<string, M
       const owed = Math.max(0, -((cashBal.get(handIn) ?? 0) + (payBal.get(handIn) ?? 0)));
       const companyPart = Math.max(0, owed - restaurantCash(handIn));
       const fromRestaurants = Math.max(0, e.amount - companyPart);
-      if (fromRestaurants > 0) consume(fromRestaurants, (q) => q.courierId === handIn);
+      if (fromRestaurants > 0) consume(fromRestaurants, () => true, handIn);
     }
     // Keep each courier's balances (after the hand-in itself was weighed against them).
     for (const [account, sign] of [[e.toAccount, 1], [e.fromAccount, -1]] as const) {
@@ -101,7 +124,7 @@ export function attributeCourierCash(input: CashAttributionInput): Map<string, M
     const fromMerchant = merchantOf.get(e.fromAccount);
     if (e.type === 'merchant_paid_by_courier' && fromMerchant) {
       const courierId = idOf(e.toAccount, 'cash');
-      if (courierId) consume(e.amount, (q) => q.merchantId === fromMerchant && q.courierId === courierId);
+      if (courierId) consume(e.amount, (q) => q.merchantId === fromMerchant, courierId);
       continue;
     }
     if (e.type === 'merchant_payout' && fromMerchant) {
@@ -114,26 +137,27 @@ export function attributeCourierCash(input: CashAttributionInput): Map<string, M
     const group = byGroup.get(e.postingGroupId) ?? [];
     const collector = group.find((l) => l.type === 'cash_collected')?.fromAccount;
     const courierId = collector ? idOf(collector, 'cash') : undefined;
-    if (!courierId) continue;
+    if (!courierId || !inWindow(courierId, e.occurredAt)) continue;
     let net = 0;
     for (const l of group) {
       if (l.toAccount === e.toAccount) net += l.amount;
       if (l.fromAccount === e.toAccount) net -= l.amount;
     }
-    if (net > 0) queue.push({ merchantId: toMerchant, courierId, amount: net });
+    if (net > 0) {
+      const entry = { merchantId: toMerchant, courierId, amount: net };
+      queue.push(entry);
+      const list = mine.get(courierId);
+      if (list) list.push(entry);
+      else mine.set(courierId, [entry]);
+      open.set(courierId, (open.get(courierId) ?? 0) + net);
+    }
   }
 
   // Never more restaurant cash than he has in hand: his newest entries give way first.
-  for (const courierId of new Set(queue.map((q) => q.courierId))) {
+  for (const [courierId, list] of mine) {
     if (!input.courierEvents.has(courierId)) continue;
     let over = restaurantCash(courierId) - Math.max(0, -(cashBal.get(courierId) ?? 0));
-    for (let i = queue.length - 1; i >= 0 && over > 0; i--) {
-      const q = queue[i]!;
-      if (q.courierId !== courierId) continue;
-      const take = Math.min(q.amount, over);
-      q.amount -= take;
-      over -= take;
-    }
+    for (let i = list.length - 1; i >= 0 && over > 0; i--) over -= take(list[i]!, over);
   }
   const out = new Map<string, Map<string, number>>();
   for (const { merchantId, courierId, amount } of queue) {
@@ -231,34 +255,34 @@ export class MerchantCashService {
   private async holdersOf(merchantIds: readonly string[]): Promise<Map<string, Array<{ courierId: string; amountIqd: number }>>> {
     const merchantEvents = new Map<string, LedgerEvent[]>();
     const groupIds = new Set<string>();
-    const readMerchant = async (id: string) => {
-      if (merchantEvents.has(id)) return;
+    for (const id of merchantIds) {
+      if (merchantEvents.has(id)) continue;
       const events = await this.ledger.eventsFor(Accounts.merchantCash(id));
       merchantEvents.set(id, events);
       for (const e of events) if (e.type === 'merchant_payable' && e.postingGroupId) groupIds.add(e.postingGroupId);
-    };
-    for (const id of merchantIds) await readMerchant(id);
-    const askedGroups = [...groupIds];
-    const asked = await this.ledger.eventsForGroups(askedGroups);
-    // Each collecting courier's own book: what he holds, his pay, what he handed in.
+    }
+    const asked = await this.ledger.eventsForGroups([...groupIds]);
+    // Each collecting courier's own book since he last held no cash: what he holds, his pay, his hand-ins.
     const couriers = [...new Set(asked.filter((l) => l.type === 'cash_collected').map((l) => idOf(l.fromAccount, 'cash')).filter((c): c is string => Boolean(c)))];
     const courierEvents = new Map<string, LedgerEvent[]>();
+    const windows = new Map<string, { since: Date | null; cash: number; pay: number }>();
     const courierGroups = new Set<string>();
     for (const c of couriers) {
-      const [cash, pay] = await Promise.all([this.ledger.eventsFor(Accounts.cash(c)), this.ledger.eventsFor(Accounts.driver(c))]);
-      courierEvents.set(c, [...cash, ...pay]);
-      for (const e of cash) if (e.type === 'cash_collected' && e.postingGroupId && !groupIds.has(e.postingGroupId)) courierGroups.add(e.postingGroupId);
+      const w = await this.cashWindow(c);
+      windows.set(c, { since: w.since, cash: w.cash, pay: w.pay });
+      courierEvents.set(c, [...w.cashLines, ...w.payLines]);
+      for (const e of w.cashLines) if (e.type === 'cash_collected' && e.postingGroupId && !groupIds.has(e.postingGroupId)) courierGroups.add(e.postingGroupId);
     }
-    // The other restaurants those couriers collected for.
+    // The other restaurants those couriers collected for in their windows: their entries come from the
+    // couriers' own order groups, their hand-overs from the couriers' own lines.
     const others = courierGroups.size ? await this.ledger.eventsForGroups([...courierGroups]) : [];
     for (const l of others) {
       const m = l.type === 'merchant_payable' ? idOf(l.toAccount, 'merchant_cash') : undefined;
-      if (m) await readMerchant(m);
+      if (!m || merchantIds.includes(m)) continue;
+      merchantEvents.set(m, [...(merchantEvents.get(m) ?? []), l]);
     }
-    const askedIds = new Set(askedGroups);
-    const missing = [...groupIds].filter((g) => !askedIds.has(g));
-    const groupEvents = missing.length ? [...asked, ...(await this.ledger.eventsForGroups(missing))] : asked;
-    const attributed = attributeCourierCash({ merchantEvents, groupEvents, courierEvents });
+    const groupEvents = others.length ? [...asked, ...others] : asked;
+    const attributed = attributeCourierCash({ merchantEvents, groupEvents, courierEvents, windows });
     const out = new Map<string, Array<{ courierId: string; amountIqd: number }>>();
     for (const merchantId of merchantIds) {
       // Refunds or commission on wallet orders can leave the merchant owed less than couriers hold for it.
@@ -277,6 +301,44 @@ export class MerchantCashService {
       );
     }
     return out;
+  }
+
+  /**
+   * A courier's lines since he last held no cash, read newest first a page at a time (he settles
+   * nightly, so this is a day or two, not his whole history), with his `cash:` and `driver:` balances
+   * at that moment. `since: null`: he holds no cash now.
+   */
+  private async cashWindow(courierId: string): Promise<{ since: Date | null; cash: number; pay: number; cashLines: LedgerEvent[]; payLines: LedgerEvent[] }> {
+    const account = Accounts.cash(courierId);
+    let running = (await this.ledger.balance(account)).amount;
+    if (running >= 0) return { since: null, cash: running, pay: 0, cashLines: [], payLines: [] };
+    const lines: LedgerEvent[] = [];
+    let before: Date | undefined;
+    let since: Date | undefined;
+    while (since === undefined) {
+      const page = await this.ledger.eventsPage(account, { before, take: 200 });
+      // Newest first, a timestamp at a time (a posting group's lines share one).
+      const stamps = [...new Set(page.events.map((e) => e.occurredAt.getTime()))].sort((a, b) => b - a);
+      for (const t of stamps) {
+        const at = page.events.filter((e) => e.occurredAt.getTime() === t);
+        lines.push(...at);
+        for (const e of at) running -= (e.toAccount === account ? e.amount : 0) - (e.fromAccount === account ? e.amount : 0);
+        if (running >= 0) {
+          since = new Date(t);
+          break;
+        }
+      }
+      if (since !== undefined) break;
+      if (page.complete || page.events.length === 0) break;
+      before = new Date(Math.min(...stamps));
+    }
+    if (since === undefined) {
+      // Never held nothing since his first line: his whole history counts.
+      const payLines = await this.ledger.eventsFor(Accounts.driver(courierId));
+      return { since: new Date(0), cash: 0, pay: 0, cashLines: lines.sort(byTime), payLines };
+    }
+    const [payLines, pay] = await Promise.all([this.ledger.eventsSince(Accounts.driver(courierId), since), this.ledger.balance(Accounts.driver(courierId), since)]);
+    return { since, cash: running, pay: pay.amount, cashLines: lines.sort(byTime), payLines };
   }
 
   /** Live balance for the Merchant app and Console. */
