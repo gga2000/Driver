@@ -143,8 +143,8 @@ export interface NotifySubscriberDeps {
   engine: Pick<NotifyEngine, 'dispatch'>;
   repo: Pick<NotifyRepository, 'deleteSessionTokens'>;
   lookups: NotifyLookups;
-  /** Public base of the receipt links in WhatsApp receipts (`https://driver.iq/r/`). */
-  receiptBaseUrl: string;
+  /** Public base of the receipt links in WhatsApp receipts (`NOTIFY_RECEIPT_BASE_URL`); null: unset, no link («تلگاه بالتطبيق»). */
+  receiptBaseUrl: string | null;
   /** The merchant app's web address (`MERCHANT_APP_URL`); the activation SMS links to its `/setup`. Unset = no link. */
   merchantAppUrl?: string | null;
 }
@@ -240,16 +240,16 @@ async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order:
 async function rideForRider(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts, driver: string): Promise<NotifyRequest[]> {
   const L = deps.lookups;
   const riderId = order.riderId;
-  if (!riderId || !L.shareLink) return [];
+  if (!riderId) return [];
   const tripId = str(e.payload['tripId']);
   const [link, booker, car, code] = await Promise.all([
-    L.shareLink(riderId, { orderId: order.id }),
+    L.shareLink ? L.shareLink(riderId, { orderId: order.id }) : null,
     L.firstName(order.customerId, 'notify_ride_for_rider'),
     tripId && L.driverCar ? L.driverCar(tripId, e.actorId) : null,
     L.startCode ? L.startCode(order.id) : null,
   ]);
-  if (!link) return [];
-  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', link, orderId: order.id, ...(code ? { code } : {}) };
+  // No link (no SHARE_LINK_BASE_URL, or the page could not be made): the same message without «تابع المشوار».
+  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', orderId: order.id, ...(link ? { link } : {}), ...(code ? { code } : {}) };
   return [{ eventId: e.id, template: 'ride_for_rider', to: riderId, orderId: order.id, params, data: { orderId: order.id } }];
 }
 
@@ -337,7 +337,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
   const p = e.payload;
   const base = { eventId: e.id };
   const L = deps.lookups;
-  const receipt = (orderId: string) => `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}`;
+  const receipt = (orderId: string) => (deps.receiptBaseUrl ? `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}` : t('notify.receipt_in_app'));
   switch (e.type) {
     case 'order.accepted':
     case 'order.auto_accepted': {

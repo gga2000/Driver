@@ -39,11 +39,18 @@ function envInt(name: string, fallback: number): number {
  * Console hears it on the live `safety` channel. Masked calls use the chat module's bridge classes
  * (development: the real number, logged; otherwise the platform's proxy number).
  *
- * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, default https://driver.iq/sos/),
+ * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, the customer web's `/sos/`; no default:
+ * unset, the message carries where the phone last was as text instead of a link),
  * CONSOLE_BASE_URL (dispatcher WhatsApp link; unset: no link, `shared/console-link.ts`), SAFETY_LINK_SECRET (required in production; elsewhere it falls
  * back to SHARE_LINK_SECRET / JWT_SECRET),
  * SAFETY_SWEEP_MS (default 5000; 0 turns the sweep off), SAFETY_TIMERS=0 turns the in-process timers off.
  */
+/** `SAFETY_LINK_BASE_URL` with one trailing slash (the token follows it); null when unset. */
+export function safetyLinkBaseFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env['SAFETY_LINK_BASE_URL']?.trim();
+  return raw ? raw.replace(/\/*$/, '/') : null;
+}
+
 @Module({
   imports: [ControlsModule, EventsModule, IdentityModule, LiveModule, NotifyModule, OnCallModule, OrdersModule, RoutesModule, TrackingModule, TripsModule],
   providers: [
@@ -120,7 +127,7 @@ function envInt(name: string, fallback: number): number {
       useFactory: (): SafetyConfig => ({
         // SEC-15: production needs its own SAFETY_LINK_SECRET (not JWT_SECRET's, not SHARE_LINK_SECRET's).
         secret: linkSecretFromEnv(process.env, 'SAFETY_LINK_SECRET', { fallbacks: ['SHARE_LINK_SECRET', 'JWT_SECRET'], distinctFrom: ['SHARE_LINK_SECRET'] }),
-        linkBase: process.env['SAFETY_LINK_BASE_URL'] ?? 'https://driver.iq/sos/',
+        linkBase: safetyLinkBaseFromEnv(),
         consoleBase: consoleBaseFromEnv(),
         timers: process.env['SAFETY_TIMERS'] !== '0',
         sweepMs: envInt('SAFETY_SWEEP_MS', 5_000),

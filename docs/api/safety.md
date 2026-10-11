@@ -48,7 +48,9 @@ from where the car last was when the person is in it.
 | `live.safety` | dispatcher, support, admin | SSE: `invalidate ['safety.open']` on every change. The Console also polls every 5 s. |
 
 Tables: `safety_incidents`, `safety_incident_entries` (timeline), `safety_incident_fixes` (trail);
-migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFETY_LINK_SECRET`,
+migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL` (the customer web's `/sos/`;
+no default: unset, the contact's WhatsApp goes out at the same moment with where the phone last was as
+text, nearest landmark and coordinates, instead of a link), `SAFETY_LINK_SECRET`,
 `CONSOLE_BASE_URL` (the dispatchers' link; no default: unset, the WhatsApp carries the alert number
 and «افتح الكونسول من الكمبيوتر» instead of a link), `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
 

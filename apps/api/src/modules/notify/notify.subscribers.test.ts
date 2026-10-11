@@ -3,6 +3,7 @@ import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import { decodeRajaaPassPush } from '@driver/contracts';
 import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor, twinStillWanted } from './notify.subscribers.js';
+import { render } from './render.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -60,6 +61,10 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ord_1' }))).toEqual([]);
+    // No receipt address set: the receipt still goes, with «تلگاه بالتطبيق» and no link.
+    const noReceiptUrl = await requestsFor(event('order.delivered', {}, { orderId: 'ord_1' }), { ...d, receiptBaseUrl: null });
+    expect(noReceiptUrl.find((r) => r.template === 'order_receipt')?.params).toMatchObject({ receiptUrl: 'تلگاه بالتطبيق' });
+    expect(render('order_receipt', noReceiptUrl.find((r) => r.template === 'order_receipt')!.params as Record<string, string>, 'ar-IQ').whatsapp?.text).toBe('وصل طلبك من مطعم خالد. المجموع 12,500 دينار. الوصل: تلگاه بالتطبيق');
     // Maps program SP5b: "الدليفري يوصل بعد دقيقتين" with the cash to have ready; rides never get it.
     expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 480 }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([
       { template: 'courier_arriving', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', amount: '12,500', orderId: 'ord_1' } },
@@ -376,8 +381,13 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
     expect(out[1]).toMatchObject({ template: 'ride_for_rider', to: 'mum', params: { code: '4821' } });
   });
 
-  it('no link, no message; an unknown car or booker name still says who is coming', async () => {
-    expect((await run(matched, forMum({ shareLink: async () => null }))).map((r) => r.template)).toEqual(['ride_matched']);
+  it('no link (no share address set): the rider still hears who is coming, without the link; an unknown car or booker name still says who is coming', async () => {
+    const noLink = await run(matched, forMum({ shareLink: async () => null }));
+    expect(noLink.map((r) => r.template)).toEqual(['ride_matched', 'ride_for_rider']);
+    expect(noLink[1]!.params).toEqual({ booker: 'علي', driver: 'حيدر', car: 'تويوتا كورولا · أبيض', plate: 'بغداد 12345', orderId: 'ride_2' });
+    const sms = render('ride_for_rider', noLink[1]!.params as Record<string, string>, 'ar-IQ').sms;
+    expect(sms).toBe('درايفر: علي حجزلك مشوار. السايق حيدر جاي بـتويوتا كورولا · أبيض، اللوحة بغداد 12345.');
+    expect(render('ride_for_rider', { ...(noLink[1]!.params as Record<string, string>), code: '4821' }, 'ar-IQ').sms).toContain('رمز المشوار 4821');
     const out = await run(matched, forMum({ driverCar: async () => null, firstName: async (p) => (p === 'drv' ? 'حيدر' : null) }));
     expect(out[1]!.params).toMatchObject({ booker: 'واحد من أهلك', car: 'تكسي', plate: '—' });
   });

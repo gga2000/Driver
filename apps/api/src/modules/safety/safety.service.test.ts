@@ -28,7 +28,7 @@ const POS = { lat: 32.9095, lng: 45.0635, accuracyM: 12, at: new Date('2026-10-0
 const NAMES: Record<string, string> = { p_rider: 'زينب علي', p_driver: 'حيدر كاظم', p_haider: 'حيدر جاسم', p_ali: 'علي أحمد' };
 const PHONES: Record<string, string> = { p_rider: '+9647702223344', p_driver: '+9647701110002', p_haider: '+9647700000002', p_ali: '+9647700000001' };
 
-function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null; consoleBase?: string | null } = {}) {
+function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null; consoleBase?: string | null; linkBase?: string | null } = {}) {
   const clock = new FakeClock('2026-10-05T18:00:00Z');
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -127,7 +127,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
         return { mode: 'proxy', dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     },
-    { secret: 'test-secret', linkBase: 'https://driver.iq/sos/', consoleBase: opts.consoleBase === undefined ? 'https://console.example.com' : opts.consoleBase, timers: false, sweepMs: 0 },
+    { secret: 'test-secret', linkBase: opts.linkBase === undefined ? 'https://app.example.com/sos/' : opts.linkBase, consoleBase: opts.consoleBase === undefined ? 'https://console.example.com' : opts.consoleBase, timers: false, sweepMs: 0 },
     bus,
     identity,
     notify,
@@ -320,7 +320,7 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
     await h.run();
     const rows = await h.deliveries('ec:p_rider');
     expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([['sos_emergency_contact', 'whatsapp', 'delivered']]);
-    const link = rows[0]!.payload.body!.match(/https:\/\/driver\.iq\/sos\/(\S+)/)?.[1];
+    const link = rows[0]!.payload.body!.match(/https:\/\/app\.example\.com\/sos\/(\S+)/)?.[1];
     expect(rows[0]!.payload.body).toContain('زينب');
     expect(link).toBeTruthy();
     // Vault reads: the contact's number is read by notify, logged against the person.
@@ -330,6 +330,22 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
     await expect(h.svc.shared({ token: `${v.incidentId}.forged` })).rejects.toMatchObject({ code: 'share_link_invalid' });
     expect((await h.svc.get(HAIDER, { id: v.incidentId })).contact).toMatchObject({ set: true, name: 'أم زينب', status: 'delivered' });
     expect((await h.svc.status(RIDER, {}))!.contactStatus).toBe('sent');
+  });
+
+  it('with no live-location address, the emergency contact still gets the message at the same moment, with where the phone was as text', async () => {
+    const h = harness({ linkBase: null });
+    const v = await h.raise();
+    h.clock.advance(10_001);
+    expect((await h.svc.sweep()).contacts).toBe(1);
+    await h.run();
+    const rows = await h.deliveries('ec:p_rider');
+    expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([['sos_emergency_contact', 'whatsapp', 'delivered']]);
+    const body = rows[0]!.payload.body!;
+    expect(body).toContain('زينب');
+    expect(body).toContain('تنبيه طوارئ');
+    expect(body).toContain(`${POS.lat.toFixed(5)}, ${POS.lng.toFixed(5)}`);
+    expect(body).not.toMatch(/https?:\/\//);
+    expect((await h.svc.get(HAIDER, { id: v.incidentId })).shareUrl).toBeNull();
   });
 
   it("a driver's SOS reaches the driver's own emergency contact (Partner الحساب → رقم للطوارئ)", async () => {

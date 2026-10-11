@@ -150,7 +150,7 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
     const sent = await waitFor('the emergency contact message sent', async () => (await deliveries('sos_emergency_contact', `ec:${people.customer}`)).find((d) => d.status === 'sent' || d.status === 'delivered'));
     expect(sent.reason).toBeNull();
     // …and the page that link opens shows the person's first name (accessor `sos_link:<incident>`).
-    const token = safety.linkOf(incident.id).split('/').pop()!;
+    const token = safety.tokenOf(incident.id);
     expect(await safety.shared({ token })).toMatchObject({ status: 'live', firstName: 'زينب' });
   }, 60_000);
 

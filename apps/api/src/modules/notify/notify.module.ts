@@ -4,6 +4,7 @@ import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
+import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
@@ -152,10 +153,13 @@ function envInt(name: string, fallback: number): number {
         // s2: «وصل بالسلامة» reaches only trusted people with an account (identity matches their numbers).
         trustedAccounts: async (personId, purpose) => (await orNull(() => identity.trustedContactAccounts(personId, 'system:notify', purpose))) ?? [],
         // w9 auto-share: the same signed link the rider's own «شارك» makes, created for the rider.
+        // No SHARE_LINK_BASE_URL: no link (and none made); the message goes without it where it can.
         shareLink: (personId, subject) =>
           orNull(async () => {
+            const base = baseUrlFromEnv('SHARE_LINK_BASE_URL');
+            if (!base) return null;
             const link = await shares.createShareLink({ personId, sessionId: 'system:notify' }, subject);
-            return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
+            return `${base}${link.path}`;
           }),
         // c9/s3: the name the booker gave the rider («ماما»), read from identity's vault for this message.
         riderName: (orderId) => orNull(async () => (await orders.riderOf(orderId, 'system:notify', 'notify_ride_for_rider'))?.name ?? null),
@@ -275,7 +279,7 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       engine: this.engine,
       repo: this.repo,
       lookups: this.lookups,
-      receiptBaseUrl: process.env['NOTIFY_RECEIPT_BASE_URL'] ?? 'https://driver.iq/r/',
+      receiptBaseUrl: baseUrlFromEnv('NOTIFY_RECEIPT_BASE_URL'),
       merchantAppUrl: process.env['MERCHANT_APP_URL'] ?? null,
     });
     const q = this.queue;

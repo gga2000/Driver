@@ -237,7 +237,7 @@ English (`en`):
 Your order from {{1}} was delivered. Total {{2}} IQD. Receipt: {{3}}
 ```
 
-Sample values for the submission: `{{1}}` = مطعم خالد · `{{2}}` = 12,500 · `{{3}}` = https://driver.iq/r/ord_123
+Sample values for the submission: `{{1}}` = مطعم خالد · `{{2}}` = 12,500 · `{{3}}` = https://app.example.com/r/ord_123
 
 ### `rajaa_arrived_contact`
 
@@ -294,7 +294,7 @@ English (`en`):
 You arrived safely. Fare {{1}} IQD with driver {{2}}. Receipt: {{3}}
 ```
 
-Sample values for the submission: `{{1}}` = 4,000 · `{{2}}` = حيدر · `{{3}}` = https://driver.iq/r/ord_123
+Sample values for the submission: `{{1}}` = 4,000 · `{{2}}` = حيدر · `{{3}}` = https://app.example.com/r/ord_123
 
 ### `sos_dispatch_alert`
 
@@ -332,7 +332,7 @@ English (`en`):
 Emergency alert from Driver: {{1}} pressed SOS. Our team is following up and calling now. Live location: {{2}}
 ```
 
-Sample values for the submission: `{{1}}` = علي · `{{2}}` = https://driver.iq/sos/abc.def
+Sample values for the submission: `{{1}}` = علي · `{{2}}` = https://app.example.com/sos/abc.def
 
 ### `trip_shared_contact`
 
@@ -351,7 +351,7 @@ English (`en`):
 {{1}} shared a trip with you: {{2}}. Follow it until arrival: {{3}}
 ```
 
-Sample values for the submission: `{{1}}` = زينب · `{{2}}` = الرجعة بغداد ← العزيزية · `{{3}}` = https://driver.iq/share/shr_abc
+Sample values for the submission: `{{1}}` = زينب · `{{2}}` = الرجعة بغداد ← العزيزية · `{{3}}` = https://app.example.com/share/shr_abc
 
 ### `wallet_topup_receipt`
 
