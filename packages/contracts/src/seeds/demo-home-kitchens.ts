@@ -15,12 +15,16 @@ export type SeedHomeSale = { mode: 'ready'; cooked: number; left: number } | { m
 export interface SeedHomeItem extends SeedMenuItem {
   /** «شنو بالصحن؟», e.g. «5 حبات». */
   portion?: string;
+  /** Her photo of the dish: a dish-library file served at `/media/food/<photo>.webp` (demo stand-in). */
+  photo: string;
   home: SeedHomeSale;
 }
 
 export interface SeedHomeKitchen extends SeedRestaurant {
   /** Marks the storefront a home kitchen; `monogram` null = the name's first letter. */
   home: { monogram: string | null };
+  /** The kitchen's cover photo (`/media/food/<photo>.webp`). */
+  photo: string;
   categories: Array<{ nameAr: string; nameEn: string; items: SeedHomeItem[] }>;
 }
 
@@ -46,15 +50,16 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
     hours: days('10:00', '21:00'),
     ratingPlaceholder: { avg: 4.9, count: 212 },
     home: { monogram: null },
+    photo: 'lib-dolma-2',
     categories: [
       {
         nameAr: 'أكل بيت',
         nameEn: 'Home dishes',
         items: [
-          { key: 'dolma', nameAr: 'دولمة عراقية', nameEn: 'Iraqi dolma', descriptionAr: 'ورق عنب وبصل وشجر، ويا ضلع غنم', priceIqd: 6000, prepTimeMin: 10, taxonomy: 'dolma', servesMin: 1, servesMax: 1, home: { mode: 'ready', cooked: 12, left: 4 } },
-          { key: 'kubba', nameAr: 'كبة حلب', nameEn: 'Kubba Halab', descriptionAr: 'تمن ولحم مفروم، مقلية بنفس اليوم', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'kubba', portion: '5 حبات', home: { mode: 'ready', cooked: 10, left: 6 } },
-          { key: 'quzi', nameAr: 'قوزي على تمن', nameEn: 'Quzi on rice', descriptionAr: 'لحم غنم على تمن بالكرزات والزبيب', priceIqd: 12000, prepTimeMin: 10, taxonomy: 'rice', servesMin: 2, servesMax: 2, labels: ['family'], home: { mode: 'reserve', rule: { aheadMin: 1440, days: [0, 3, 5], times: ['13:00', '19:00'], maxPerSlot: 6 } } },
-          { key: 'biryani', nameAr: 'برياني دجاج', nameEn: 'Chicken biryani', descriptionAr: 'دجاج كامل وتمن بالبهارات ويا شعرية', priceIqd: 8000, prepTimeMin: 10, taxonomy: 'biryani', servesMin: 3, servesMax: 4, home: { mode: 'reserve', rule: { aheadMin: 240, days: EVERY_DAY, times: ['13:00', '19:00'], maxPerSlot: 8 } } },
+          { key: 'dolma', photo: 'lib-dolma-1', nameAr: 'دولمة عراقية', nameEn: 'Iraqi dolma', descriptionAr: 'ورق عنب وبصل وشجر، ويا ضلع غنم', priceIqd: 6000, prepTimeMin: 10, taxonomy: 'dolma', servesMin: 1, servesMax: 1, home: { mode: 'ready', cooked: 12, left: 4 } },
+          { key: 'kubba', photo: 'lib-kubba-1', nameAr: 'كبة حلب', nameEn: 'Kubba Halab', descriptionAr: 'تمن ولحم مفروم، مقلية بنفس اليوم', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'kubba', portion: '5 حبات', home: { mode: 'ready', cooked: 10, left: 6 } },
+          { key: 'quzi', photo: 'lib-quzi-1', nameAr: 'قوزي على تمن', nameEn: 'Quzi on rice', descriptionAr: 'لحم غنم على تمن بالكرزات والزبيب', priceIqd: 12000, prepTimeMin: 10, taxonomy: 'rice', servesMin: 2, servesMax: 2, labels: ['family'], home: { mode: 'reserve', rule: { aheadMin: 1440, days: [0, 3, 5], times: ['13:00', '19:00'], maxPerSlot: 6 } } },
+          { key: 'biryani', photo: 'lib-biryani-1', nameAr: 'برياني دجاج', nameEn: 'Chicken biryani', descriptionAr: 'دجاج كامل وتمن بالبهارات ويا شعرية', priceIqd: 8000, prepTimeMin: 10, taxonomy: 'biryani', servesMin: 3, servesMax: 4, home: { mode: 'reserve', rule: { aheadMin: 240, days: EVERY_DAY, times: ['13:00', '19:00'], maxPerSlot: 8 } } },
         ],
       },
     ],
@@ -74,14 +79,15 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
     hours: days('11:00', '22:00'),
     ratingPlaceholder: { avg: 4.8, count: 96 },
     home: { monogram: 'ز' },
+    photo: 'lib-bamia-2',
     categories: [
       {
         nameAr: 'أكل بيت',
         nameEn: 'Home dishes',
         items: [
-          { key: 'bamia', nameAr: 'بامية ويا تمن', nameEn: 'Okra stew with rice', descriptionAr: 'بامية بلحم غنم ومعجون، وتمن بالشعرية', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'stew', servesMin: 1, servesMax: 1, home: { mode: 'ready', cooked: 15, left: 9 } },
-          { key: 'lentil_soup', nameAr: 'شوربة عدس', nameEn: 'Lentil soup', descriptionAr: 'عدس أحمر بالكمون، ويا خبز وليمون', priceIqd: 2000, prepTimeMin: 5, taxonomy: 'soup', portion: 'طاسة كبيرة', home: { mode: 'ready', cooked: 10, left: 0 } },
-          { key: 'meat_biryani', nameAr: 'برياني لحم', nameEn: 'Lamb biryani', descriptionAr: 'لحم غنم وتمن بسمتي، ويا لوز وزبيب', priceIqd: 10000, prepTimeMin: 10, taxonomy: 'biryani', servesMin: 2, servesMax: 3, home: { mode: 'reserve', rule: { aheadMin: 1440, days: EVERY_DAY, times: ['13:00'], maxPerSlot: 5 } } },
+          { key: 'bamia', photo: 'lib-bamia-1', nameAr: 'بامية ويا تمن', nameEn: 'Okra stew with rice', descriptionAr: 'بامية بلحم غنم ومعجون، وتمن بالشعرية', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'stew', servesMin: 1, servesMax: 1, home: { mode: 'ready', cooked: 15, left: 9 } },
+          { key: 'lentil_soup', photo: 'lib-lentil-soup-2', nameAr: 'شوربة عدس', nameEn: 'Lentil soup', descriptionAr: 'عدس أحمر بالكمون، ويا خبز وليمون', priceIqd: 2000, prepTimeMin: 5, taxonomy: 'soup', portion: 'طاسة كبيرة', home: { mode: 'ready', cooked: 10, left: 0 } },
+          { key: 'meat_biryani', photo: 'lib-biryani-2', nameAr: 'برياني لحم', nameEn: 'Lamb biryani', descriptionAr: 'لحم غنم وتمن بسمتي، ويا لوز وزبيب', priceIqd: 10000, prepTimeMin: 10, taxonomy: 'biryani', servesMin: 2, servesMax: 3, home: { mode: 'reserve', rule: { aheadMin: 1440, days: EVERY_DAY, times: ['13:00'], maxPerSlot: 5 } } },
         ],
       },
     ],
@@ -101,13 +107,14 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
     hours: days('06:00', '20:00'),
     ratingPlaceholder: { avg: 4.7, count: 58 },
     home: { monogram: null },
+    photo: 'lib-pacha-3',
     categories: [
       {
         nameAr: 'أكل بيت',
         nameEn: 'Home dishes',
         items: [
-          { key: 'pacha', nameAr: 'پاچة', nameEn: 'Pacha', descriptionAr: 'راس وكراعين ومعلاگ، ويا خبز مشرّب', priceIqd: 7000, prepTimeMin: 10, taxonomy: 'pacha', servesMin: 1, servesMax: 1, home: { mode: 'reserve', rule: { aheadMin: 1440, days: [5], times: ['07:00'], maxPerSlot: 10 } } },
-          { key: 'tashreeb', nameAr: 'تشريب دجاج', nameEn: 'Chicken tashreeb', descriptionAr: 'خبز مشرّب بمرگة دجاج وحمص ولومي', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'tashreeb', servesMin: 1, servesMax: 1, home: { mode: 'reserve', rule: { aheadMin: 240, days: EVERY_DAY, times: ['13:00'], maxPerSlot: 6 } } },
+          { key: 'pacha', photo: 'lib-pacha-2', nameAr: 'پاچة', nameEn: 'Pacha', descriptionAr: 'راس وكراعين ومعلاگ، ويا خبز مشرّب', priceIqd: 7000, prepTimeMin: 10, taxonomy: 'pacha', servesMin: 1, servesMax: 1, home: { mode: 'reserve', rule: { aheadMin: 1440, days: [5], times: ['07:00'], maxPerSlot: 10 } } },
+          { key: 'tashreeb', photo: 'lib-tashreeb-3', nameAr: 'تشريب دجاج', nameEn: 'Chicken tashreeb', descriptionAr: 'خبز مشرّب بمرگة دجاج وحمص ولومي', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'tashreeb', servesMin: 1, servesMax: 1, home: { mode: 'reserve', rule: { aheadMin: 240, days: EVERY_DAY, times: ['13:00'], maxPerSlot: 6 } } },
         ],
       },
     ],
@@ -118,7 +125,7 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
     nameAr: 'حلويات خالة سعاد',
     nameEn: "Auntie Suad's sweets",
     cuisineAr: 'كليچة · زلابية',
-    tags: ['home'],
+    tags: ['home', 'sweets'],
     cityId: 'aziziyah',
     zoneKey: 'area_150',
     pin: { lat: 32.9019, lng: 45.0583 },
@@ -127,13 +134,14 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
     hours: days('09:00', '22:00'),
     ratingPlaceholder: { avg: 4.9, count: 140 },
     home: { monogram: 'س' },
+    photo: 'lib-zalabia-2',
     categories: [
       {
         nameAr: 'حلو البيت',
         nameEn: 'Home sweets',
         items: [
-          { key: 'zalabia', nameAr: 'زلابية', nameEn: 'Zalabia', descriptionAr: 'مقرمشة بالقطر، من صبح اليوم', priceIqd: 3000, prepTimeMin: 5, taxonomy: 'sweets', portion: 'نص كيلو', home: { mode: 'ready', cooked: 30, left: 22 } },
-          { key: 'kleicha', nameAr: 'كليچة بالتمر', nameEn: 'Date kleicha', descriptionAr: 'عجينة بالهيل وحشوة تمر، مخبوزة بالبيت', priceIqd: 8000, prepTimeMin: 5, taxonomy: 'sweets', portion: 'كيلو', home: { mode: 'reserve', rule: { aheadMin: 2880, days: [4], times: ['17:00'], maxPerSlot: 20 } } },
+          { key: 'zalabia', photo: 'lib-zalabia-1', nameAr: 'زلابية', nameEn: 'Zalabia', descriptionAr: 'مقرمشة بالقطر، من صبح اليوم', priceIqd: 3000, prepTimeMin: 5, taxonomy: 'sweets', portion: 'نص كيلو', home: { mode: 'ready', cooked: 30, left: 22 } },
+          { key: 'kleicha', photo: 'lib-kleicha-1', nameAr: 'كليچة بالتمر', nameEn: 'Date kleicha', descriptionAr: 'عجينة بالهيل وحشوة تمر، مخبوزة بالبيت', priceIqd: 8000, prepTimeMin: 5, taxonomy: 'sweets', portion: 'كيلو', home: { mode: 'reserve', rule: { aheadMin: 2880, days: [4], times: ['17:00'], maxPerSlot: 20 } } },
         ],
       },
     ],

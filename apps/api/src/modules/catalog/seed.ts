@@ -40,7 +40,7 @@ export async function seedStorefronts(
       prepMin: r.prepMin,
       hours: r.hours,
       ratingPlaceholder: r.ratingPlaceholder,
-      ...('home' in r ? { home: (r as SeedHomeKitchen).home } : {}),
+      ...('home' in r ? { home: (r as SeedHomeKitchen).home, photoUrl: `/media/food/${(r as SeedHomeKitchen).photo}.webp` } : {}),
     });
     const itemIds = new Map<string, string>();
     let sortOrder = 0;
@@ -50,6 +50,7 @@ export async function seedStorefronts(
         const home = sale
           ? {
               portion: (item as SeedHomeItem).portion ?? null,
+              photoUrl: `/media/food/${(item as SeedHomeItem).photo}.webp`,
               ...(sale.mode === 'ready' ? { stock: sale.left, homeSale: { mode: 'ready' as const, cooked: sale.cooked, cookedOn: homeLocalDay(now) } } : { homeSale: { mode: 'reserve' as const, rule: sale.rule } }),
             }
           : {};
