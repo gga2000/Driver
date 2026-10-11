@@ -25,7 +25,7 @@ export default function StaffAlert() {
     <SafeAreaView testID="staff-alert" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.space[5], padding: theme.space[6] }}>
         <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.dangerTint, alignItems: 'center', justifyContent: 'center' }}>
-          <MIcon name="shield" size={40} color="danger" strokeWidth={2} />
+          <MIcon name="sos" size={40} color="danger" strokeWidth={2} />
         </View>
         <View style={{ gap: theme.space[2], maxWidth: 460 }}>
           <Text variant="heading" align="center" accessibilityRole="header">

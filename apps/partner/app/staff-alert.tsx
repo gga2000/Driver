@@ -35,7 +35,7 @@ export default function StaffAlert() {
     >
       <View style={{ alignItems: 'center' }}>
         <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.colors.dangerTint, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="shield" size={40} color="danger" strokeWidth={2} />
+          <Icon name="sos" size={40} color="danger" strokeWidth={2} />
         </View>
       </View>
       <View style={{ gap: theme.space[2] }}>
