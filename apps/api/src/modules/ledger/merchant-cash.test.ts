@@ -137,6 +137,19 @@ describe('merchant cash account (decisions §3)', () => {
     expect(-(await h.caps.status('k1')).cashIqd).toBeGreaterThanOrEqual(18250);
   });
 
+  it('cash collected before he last held nothing is no longer his: a new day starts from what he collects', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', merchantId: 'm1', occurredAt: minutes(0) }));
+    h.clock.set(minutes(1));
+    // Everything in his hand goes to the company (his pay included): he holds nothing.
+    await h.merchantCash.recordDriverSettlement({ driverId: 'k1', amountIqd: 16500, channel: 'agent', reference: 'D-AG-1' });
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', courierId: 'k1', merchantId: 'm2', occurredAt: minutes(60) }));
+    expect((await h.merchantCash.balance('m1')).holders).toEqual([]);
+    expect((await h.merchantCash.balance('m2')).holders).toEqual([{ courierId: 'k1', amountIqd: 12750 }]);
+    expect((await h.merchantCash.returnRoute('k1')).map((r) => [r.merchantId, r.amountIqd])).toEqual([['m2', 12750]]);
+  });
+
   it('one hand-in is counted once across restaurants: a courier holding cash for two still holds the rest', async () => {
     const h = ledgerHarness();
     await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', merchantId: 'm1', occurredAt: minutes(0) }));
