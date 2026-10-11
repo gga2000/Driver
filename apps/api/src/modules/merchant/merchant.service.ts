@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  CANCELLED_CARD_MIN,
   DELIVERY_AREA_CACHE_MS,
   DRINKS_DEFAULT_PREP_MIN,
   DriverError,
@@ -48,7 +49,7 @@ import { closedNow, type MerchantPickupSpot, type MerchantSettings, type Org } f
 import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { composeCustomerZones, composeDeliveryArea } from './area.js';
-import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
+import { cancelledCards, courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
 import { busyExtraFor, busyUntilFor, toStoreStatus } from './status.js';
 
 /**
@@ -61,6 +62,8 @@ export interface MerchantOrdersPort {
   merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
   /** Perf z5: only the store's orders placed in `[from, to)` that it missed. Fakes may leave it out (then `merchantOrders`). */
   merchantMissedOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Orders the store had accepted that were cancelled since `since` (the board's red cards). Fakes may leave it out. */
+  merchantCancelledAfterAccept?(merchantOrgId: string, since: Date): Promise<Order[]>;
   /** Delivered orders placed in `[from, to)` per drop-off zone: counts only (maps program r6). */
   deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>>;
 }
@@ -74,6 +77,11 @@ export interface MerchantPeoplePort {
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
   /** First name only, read from the vault and logged (purpose `courier_card`). */
   courierFirstName(courierId: string, accessorId: string): Promise<string | null>;
+  /**
+   * N16: his first name and approved main photo in one vault read (purpose `courier_card`, logged); the
+   * board prefers it to `courierFirstName` when the module provides it.
+   */
+  courierCard?(courierId: string, accessorId: string): Promise<{ firstName: string | null; photoRef: string | null }>;
   /** His vehicle class and plate (the counter tells couriers apart by it, S-M4). */
   courierVehicle(courierId: string, vehicleId: string | null): Promise<{ vehicleClass: VehicleClass; plate: string | null } | null>;
 }
@@ -161,8 +169,8 @@ const DAY_MS = 86_400_000;
 @Injectable()
 export class MerchantService implements MerchantPort {
   private readonly logger = new Logger(MerchantService.name);
-  /** Courier first names per trip and reader: a board polled every few seconds logs one vault read per trip. */
-  private readonly names = new Map<string, string | null>();
+  /** Courier cards per trip and reader: a board polled every few seconds logs one vault read per trip. */
+  private readonly names = new Map<string, { firstName: string | null; photoRef: string | null }>();
   /** Delivery maps per store, with when they were priced (DELIVERY_AREA_CACHE_MS, same Baghdad hour). */
   private readonly areas = new Map<string, { at: number; view: MerchantDeliveryArea }>();
 
@@ -219,7 +227,10 @@ export class MerchantService implements MerchantPort {
       if (card) cards.push(card);
     }
     const missed = await this.missedToday(org, now);
-    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}) };
+    // An accepted order that was cancelled stays as a red card for 15 minutes: it never just vanishes.
+    const since = new Date(now.getTime() - CANCELLED_CARD_MIN * 60_000);
+    const cancelled = this.orders.merchantCancelledAfterAccept ? cancelledCards(await this.orders.merchantCancelledAfterAccept(org.id, since)) : [];
+    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}), cancelled };
   }
 
   /**
@@ -574,6 +585,7 @@ export class MerchantService implements MerchantPort {
     // Accepted and no trip yet: dispatch is about to look for one.
     if (!trip) return courierView(order.id, { trip: { state: 'created', courierId: null, stops: [] }, ...nobody });
     let firstName: string | null = null;
+    let photoUrl: string | null = null;
     let vehicleClass: VehicleClass | null = null;
     let plate: string | null = null;
     let position: LatLng | null = null;
@@ -581,15 +593,21 @@ export class MerchantService implements MerchantPort {
       const key = `${trip.id}:${trip.courierId}:${readerId}`;
       if (!this.names.has(key)) {
         if (this.names.size >= CARD_CACHE_MAX) this.names.delete(this.names.keys().next().value!);
-        this.names.set(key, await this.people.courierFirstName(trip.courierId, readerId));
+        const card = this.people.courierCard
+          ? await this.people.courierCard(trip.courierId, readerId)
+          : { firstName: await this.people.courierFirstName(trip.courierId, readerId), photoRef: null };
+        this.names.set(key, card);
       }
-      firstName = this.names.get(key) ?? null;
+      const card = this.names.get(key);
+      firstName = card?.firstName ?? null;
+      // N16: his approved main photo on the board's map, signed on each read (the cache keeps the ref).
+      photoUrl = card?.photoRef && this.photos ? this.photos.readUrl(card.photoRef) : null;
       const vehicle = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
       vehicleClass = vehicle?.vehicleClass ?? null;
       plate = vehicle?.plate ?? null;
       position = (await this.trips.lastPosition(trip.id))?.pin ?? null;
     }
-    const facts = { trip, firstName, vehicleClass, plate, etaMinutes: null, pickupCode: trip.courierId ? pickupCodeFor(order.id, trip.courierId) : null };
+    const facts = { trip, firstName, photoUrl, vehicleClass, plate, etaMinutes: null, pickupCode: trip.courierId ? pickupCodeFor(order.id, trip.courierId) : null };
     const view = courierView(order.id, facts);
     if (view.state !== 'on_the_way' || !position || !kitchen) return view;
     // One ETA everywhere (maps program SP4b): the same service the customer's screen uses; the radar

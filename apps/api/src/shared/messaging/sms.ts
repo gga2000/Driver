@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { globalFetch, parseJson, pick, ProviderError, send, transientStatus, type FetchLike } from './http.js';
+import { isDevEnvironment } from '../call-bridge.js';
+import { globalFetch, maskNumber, parseJson, pick, ProviderError, send, transientStatus, type FetchLike } from './http.js';
 
 export interface SmsMessage {
   /** E.164 destination (`+9647…`). */
@@ -39,11 +40,16 @@ export class DevSmsProvider implements SmsPort {
   private readonly logger = new Logger('DevSms');
   private seq = 0;
 
-  constructor(private readonly log: boolean = true) {}
+  /** `redact`: outside development the log keeps only a masked number, never the text or a code. */
+  constructor(
+    private readonly log: boolean = true,
+    private readonly redact: boolean = false,
+  ) {}
 
   async send(message: SmsMessage): Promise<SmsResult> {
     this.sent.push(message);
-    if (this.log) this.logger.log(`→ ${message.to}: ${message.body}`);
+    if (this.log && this.redact) this.logger.log(`→ ${maskNumber(message.to)}`);
+    else if (this.log) this.logger.log(`→ ${message.to}: ${message.body}`);
     this.seq += 1;
     return { provider: this.name, messageId: `dev-sms-${this.seq}` };
   }
@@ -293,5 +299,5 @@ export function smsPortFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fet
   if (name === 'http') return new HttpSmsProvider(httpSmsConfigFromEnv(env), opts.fetchImpl);
   if (name === 'twilio') return new TwilioSmsProvider(twilioSmsConfigFromEnv(env), opts.fetchImpl);
   if (name === 'otpiq') return new OtpiqSmsProvider(otpiqConfigFromEnv(env), opts.fetchImpl);
-  return new DevSmsProvider(opts.log ?? true);
+  return new DevSmsProvider(opts.log ?? true, !isDevEnvironment(env['NODE_ENV']));
 }

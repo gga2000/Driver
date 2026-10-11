@@ -270,6 +270,13 @@ export const OutboxView = z.object({
 });
 export type OutboxView = z.infer<typeof OutboxView>;
 
+/** SMS sent in the last 24 hours (sign-in codes and notification texts together) against the day's budget. */
+export const SmsDayView = z.object({
+  sent: z.number().int().nonnegative(),
+  budget: z.number().int().positive(),
+});
+export type SmsDayView = z.infer<typeof SmsDayView>;
+
 /** Live simulator progress (sim time and counts) while a Console-started run is going. */
 export const SimulatorProgress = z.object({
   simTime: z.coerce.date(),
@@ -455,6 +462,7 @@ export interface ConsolePort {
   /** s5: a customer's last orders and this month's credits, for the support card. */
   customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory>;
   outbox(): Promise<OutboxView>;
+  smsDay(): Promise<SmsDayView>;
   merchants(cityId: string): Promise<MerchantRow[]>;
   simulatorStatus(): Promise<z.input<typeof SimulatorStatus>>;
   simulatorStart(input: z.infer<typeof SimulatorStartInput>): Promise<z.input<typeof SimulatorStatus>>;

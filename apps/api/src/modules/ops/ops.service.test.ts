@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MerchantOnboardingInput } from '@driver/contracts';
 import type { AuditLogService } from '../controls/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { HandoverCodes } from '../driver-account/index.js';
@@ -220,13 +221,13 @@ describe('ops.merchantOnboarding and tasks', () => {
       name: 'مطعم الريف',
       type: 'restaurant',
       contact: { name: 'أبو حسن', phone: '07800000123' },
-      location: { zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } },
+      location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } },
       menuPhotoUploadIds: menu,
     });
     expect(v).toMatchObject({ state: 'draft', menuPhotos: 2 });
     const org = await h.orgs.get(v.merchantOrgId);
     expect(org).toMatchObject({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah' });
-    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } });
     const ownerId = h.repo.onboardings[0]!.contactPersonId;
     expect((await h.id.repo.readIdentity(ownerId))?.name).toBe('أبو حسن');
     expect(JSON.stringify(h.repo.onboardings[0])).not.toContain('07800000123');
@@ -239,10 +240,21 @@ describe('ops.merchantOnboarding and tasks', () => {
     await expect(h.ops.completeTask(h.staff, { taskId: 'otk_nope' })).rejects.toMatchObject({ code: 'task_not_found' });
   });
 
+  it('the kitchen’s zone is read from its pin, never the tapped zone; no pin or a pin outside town is refused', async () => {
+    const h = await setup();
+    const input = { cityId: 'aziziyah', name: 'مطعم الريف', type: 'restaurant' as const, contact: { name: 'أبو حسن', phone: '07800000126' }, menuPhotoUploadIds: [] };
+    // Pinned in Zakur while the chip said centre: the store sits in Zakur.
+    const v = await h.ops.merchantOnboarding(h.staff, { ...input, location: { zoneKey: 'centre', pin: { lat: 32.887, lng: 45.0765 } } });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    expect(h.repo.onboardings.at(-1)!.location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    await expect(h.ops.merchantOnboarding(h.staff, { ...input, contact: { name: 'x', phone: '07800000127' }, location: { zoneKey: 'centre', pin: { lat: 33.3, lng: 44.4 } } })).rejects.toMatchObject({ code: 'outside_zone' });
+    expect(MerchantOnboardingInput.safeParse({ ...input, location: { zoneKey: 'centre' } }).success).toBe(false);
+  });
+
   it('refuses photos that are not the caller’s uploads', async () => {
     const h = await setup();
     await expect(
-      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre' }, menuPhotoUploadIds: ['up_nope'] }),
+      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } }, menuPhotoUploadIds: ['up_nope'] }),
     ).rejects.toMatchObject({ code: 'upload_invalid' });
   });
 
@@ -335,7 +347,7 @@ describe('ops.merchantOnboarding settlement mode', () => {
       name: 'أسواق النور',
       type: 'grocer',
       contact: { name: 'أبو نور', phone: '07800000125' },
-      location: { zoneKey: 'hashimi' },
+      location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
       menuPhotoUploadIds: [],
       settlementMode: 'daily_zaincash',
     });

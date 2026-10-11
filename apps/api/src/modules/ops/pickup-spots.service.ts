@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import type { Actor, ConsolePickupSpotView, MerchantOrgInput, PickupSpotView, PickupSpotsOpsPort, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '@driver/contracts';
+import { DriverError, type Actor, type ConsolePickupSpotView, type MerchantOrgInput, type MoveKitchenInput, type PickupSpotView, type PickupSpotsOpsPort, type PickupStoreRow, type PickupStoresInput, type SetPickupSpotInput } from '@driver/contracts';
 import { CatalogService } from '../catalog/index.js';
 import { AuditLogService } from '../controls/index.js';
 import { MerchantService } from '../merchant/index.js';
 import { OrgsService } from '../orgs/index.js';
+import { ZoneResolver } from '../places/index.js';
 
 /** The audit row a Console save writes (`console_audit_log`); also how the page finds the last one. */
 export const PICKUP_SPOT_AUDIT = { action: 'store.pickup_spot_set', subjectKind: 'store' } as const;
+/** The audit row «حرّك مكان المطعم» writes (same subject as the pickup spot). */
+export const KITCHEN_MOVE_AUDIT = { action: 'store.kitchen_moved', subjectKind: 'store' } as const;
 
 /**
  * Console › المطاعم (Ali 2026-10-07): field ops and admins see each store's pickup spot and set it
@@ -23,6 +26,8 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
     private readonly audits: AuditLogService,
     private readonly catalog: CatalogService,
   ) {}
+
+  private readonly zones = new ZoneResolver();
 
   /**
    * The city's restaurants and grocers by name, with how far their spot is set and what is still
@@ -72,17 +77,44 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
   }
 
   /**
+   * «حرّك مكان المطعم»: the kitchen's pin, with its zone read from it here (never sent by the page) —
+   * every delivery fee, ETA and late promise from the store starts there. Outside the service area
+   * is refused. The Console audit row keeps the zone before and after under the editor's name.
+   */
+  async moveKitchen(actor: Actor, input: MoveKitchenInput): Promise<ConsolePickupSpotView> {
+    const org = await this.orgs.get(input.merchantOrgId);
+    if (org.type !== 'restaurant' && org.type !== 'grocer') throw new DriverError('org_not_found');
+    const zoneKey = this.zones.resolve(org.cityId, input.pin);
+    if (!zoneKey) throw new DriverError('outside_zone');
+    const before = org.merchant?.location ?? null;
+    await this.orgs.setMerchantSettings(org.id, { location: { zoneKey, pin: input.pin } });
+    await this.audits.record({
+      cityId: org.cityId,
+      actorId: actor.personId,
+      action: KITCHEN_MOVE_AUDIT.action,
+      subjectKind: KITCHEN_MOVE_AUDIT.subjectKind,
+      subjectId: org.id,
+      summaryAr: `حرّك مكان ${org.name} لـ${this.zones.names(org.cityId, zoneKey).ar}`,
+      detail: { fromZone: before?.zoneKey ?? null, fromPin: before?.pin ?? null, toZone: zoneKey, toPin: input.pin },
+    });
+    return this.get(actor, { merchantOrgId: org.id });
+  }
+
+  /**
    * The store's name, and the latest Console edit when it is the spot couriers see now: an owner's
    * save after it (a later `updatedAt`) means the owner spoke last, so no Console line is shown. A
    * cleared spot has no time: it is the Console's only if its last edit was the clearing.
    */
   private async view(spot: PickupSpotView): Promise<ConsolePickupSpotView> {
     const org = await this.orgs.get(spot.merchantOrgId);
-    const [last] = await this.audits.list({ subjectKind: PICKUP_SPOT_AUDIT.subjectKind, subjectId: org.id, limit: 1 });
+    // The store's last pickup-spot edit (a kitchen move shares the subject, so it is skipped).
+    const last = (await this.audits.list({ subjectKind: PICKUP_SPOT_AUDIT.subjectKind, subjectId: org.id, limit: 10 })).find((a) => a.action === PICKUP_SPOT_AUDIT.action);
     const consoleSpoke =
       last !== undefined &&
       last.action === PICKUP_SPOT_AUDIT.action &&
       (spot.updatedAt === null ? last.detail['note'] === false && last.detail['photos'] === 0 : last.at.getTime() >= spot.updatedAt.getTime());
-    return { ...spot, storeName: org.name, consoleEdit: consoleSpoke ? { at: last.at, byName: last.actorName } : null };
+    const at = org.merchant?.location ?? null;
+    const kitchen = at ? { zoneKey: at.zoneKey, zoneName: this.zones.names(org.cityId, at.zoneKey).ar, pin: at.pin ?? null } : null;
+    return { ...spot, storeName: org.name, consoleEdit: consoleSpoke ? { at: last.at, byName: last.actorName } : null, kitchen };
   }
 }

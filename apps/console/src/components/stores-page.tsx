@@ -9,7 +9,7 @@ import { fileUrl } from '@/lib/control-room';
 import { formatDayClock } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { errorText, useConsoleNetwork } from '@/lib/network';
-import { filterStores, photoProblem, storeGaps, toFinish, uploadPhoto, type StoreGap } from '@/lib/pickup-spots';
+import { filterStores, parsePin, photoProblem, storeGaps, toFinish, uploadPhoto, type StoreGap } from '@/lib/pickup-spots';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC, useTRPCClient } from '@/lib/trpc';
 import { Button, buttonCls, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, Meter, NeedLogin, PageHeader, QueryError, Segmented, Skeleton, Spinner, Textarea, useToast } from './ui';
@@ -231,7 +231,59 @@ function PickupSpotEditor({ storeId }: { storeId: string }) {
       </Card>
     );
   }
-  return <SpotForm view={spot.data} />;
+  return (
+    <div className="space-y-5">
+      <SpotForm view={spot.data} />
+      <KitchenPlace view={spot.data} />
+    </div>
+  );
+}
+
+// ───────────────────────── «حرّك مكان المطعم» ─────────────────────────
+
+/**
+ * The kitchen's place on file (zone + pin) and «حرّك مكان المطعم»: field ops paste the right pin from a
+ * map; the server reads the zone from it, refuses one outside town, and audits the move.
+ */
+function KitchenPlace({ view }: { view: ConsolePickupSpotView }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const net = useConsoleNetwork();
+  const [text, setText] = useState('');
+  const [touched, setTouched] = useState(false);
+  const pin = parsePin(text);
+  const offline = net.state === 'offline';
+  const move = useMutation(
+    trpc.ops.pickupSpots.moveKitchen.mutationOptions({
+      onSuccess: (saved) => {
+        qc.setQueryData(trpc.ops.pickupSpots.get.queryKey({ merchantOrgId: saved.merchantOrgId }), saved);
+        setText('');
+        setTouched(false);
+        toast({ title: t('console.kitchen.moved', { name: saved.storeName, zone: saved.kitchen?.zoneName ?? '' }), tone: 'ok' });
+      },
+      onError: (e) => toast({ title: t('console.kitchen.move_failed', { message: errorText(e) }), tone: 'bad' }),
+    }),
+  );
+  const k = view.kitchen ?? null;
+  const now = !k ? t('console.kitchen.none') : k.pin ? t('console.kitchen.now', { zone: k.zoneName, pin: `\u2066${k.pin.lat.toFixed(5)}, ${k.pin.lng.toFixed(5)}\u2069` }) : t('console.kitchen.no_pin', { zone: k.zoneName });
+  return (
+    <Card title={t('console.kitchen.title')} hint={view.storeName}>
+      <p className="max-w-[68ch] text-sm text-muted">{t('console.kitchen.intro')}</p>
+      <p className={cx('mt-2 text-dense', k?.pin ? 'text-text' : 'rounded-md border border-warn/40 bg-warn-tint px-3 py-2 text-text')} data-testid="kitchen-now">
+        <bdi>{now}</bdi>
+      </p>
+      <Field className="mt-4" label={t('console.kitchen.pin_label')} htmlFor="kitchen-pin" {...(touched && text.trim() && !pin ? { error: t('console.kitchen.pin_bad') } : {})}>
+        <Input id="kitchen-pin" dir="ltr" inputMode="decimal" placeholder={t('console.kitchen.pin_placeholder')} value={text} onChange={(e) => setText(e.target.value)} onBlur={() => setTouched(true)} className="h-11" />
+      </Field>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <p className="max-w-[48ch] text-xs text-muted">{offline ? t('console.net_offline') : t('console.kitchen.audited')}</p>
+        <Button size="lg" variant="primary" loading={move.isPending} disabled={!pin || offline} onClick={() => pin && move.mutate({ merchantOrgId: view.merchantOrgId, pin })}>
+          {t('console.kitchen.move')}
+        </Button>
+      </div>
+    </Card>
+  );
 }
 
 function SpotForm({ view }: { view: ConsolePickupSpotView }) {

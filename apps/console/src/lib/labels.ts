@@ -28,6 +28,7 @@ export const timelineStepLabel = (s: string) => k('console.step_', s);
 export const priceLabel = (s: string) => k('console.price_', s);
 export const vehicleLabel = (s: string) => k('console.vehicle_', s);
 export const pinStateLabel = (s: string) => k('console.pin_state_', s);
+export const staffRoleLabel = (s: string) => k('console.staff_role_', s);
 
 const ZONES = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z]));
 
