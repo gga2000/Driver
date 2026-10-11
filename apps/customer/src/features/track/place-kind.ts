@@ -32,6 +32,7 @@ const SHOP: Partial<Record<MessageKey, MessageKey>> = {
   'kitchen.step_cooking': 'kitchen.step_cooking_shop',
   'kitchen.cancel_free': 'kitchen.cancel_free_shop',
   'kitchen.slow_hint': 'kitchen.slow_hint_shop',
+  'notify.ask.food_title': 'notify.ask.food_title_shop',
 };
 
 const SHOP_FOR_ME: Partial<Record<MessageKey, MessageKey>> = {
@@ -41,6 +42,7 @@ const SHOP_FOR_ME: Partial<Record<MessageKey, MessageKey>> = {
   'track.note_courier_to_kitchen': 'track.note_courier_to_kitchen_errand',
   'track.note_courier_waiting': 'track.note_courier_waiting_errand',
   'track.kitchen_pin': 'track.kitchen_pin_shop',
+  'notify.ask.food_title': 'notify.ask.food_title_errand',
 };
 
 /** `key` in the words of this kind of place (the restaurant key itself when there is no other). */

@@ -9443,5 +9443,7 @@
   "kitchen.step_confirm_shop": "المحل يأكّد",
   "kitchen.step_cooking_shop": "يجهّز طلبك",
   "kitchen.cancel_free_shop": "الإلغاء مجاني قبل ما يقبل المحل",
-  "kitchen.slow_hint_shop": "المحل بعده ما رد. ننطيه شوية، وإذا ما رد نخبرك"
+  "kitchen.slow_hint_shop": "المحل بعده ما رد. ننطيه شوية، وإذا ما رد نخبرك",
+  "notify.ask.food_title_shop": "نخبرك أول ما المحل يقبل؟",
+  "notify.ask.food_title_errand": "نخبرك أول ما شاري ياخذ طلبك؟"
 }

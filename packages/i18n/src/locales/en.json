@@ -9443,5 +9443,7 @@
   "kitchen.step_confirm_shop": "Shop confirming",
   "kitchen.step_cooking_shop": "Getting it ready",
   "kitchen.cancel_free_shop": "Free to cancel until the shop accepts",
-  "kitchen.slow_hint_shop": "The shop hasn't answered yet. We'll give it a moment and let you know"
+  "kitchen.slow_hint_shop": "The shop hasn't answered yet. We'll give it a moment and let you know",
+  "notify.ask.food_title_shop": "Shall we tell you the moment the shop accepts?",
+  "notify.ask.food_title_errand": "Shall we tell you the moment a shopper takes your order?"
 }

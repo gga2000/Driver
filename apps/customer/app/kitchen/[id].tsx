@@ -373,6 +373,7 @@ export default function KitchenScreen() {
           {pushAsk.visible && !yes && !ask ? (
             <PushAskCard
               kind="food"
+              place={kind}
               busy={pushAsk.busy}
               onAllow={pushAsk.allow}
               onLater={pushAsk.later}

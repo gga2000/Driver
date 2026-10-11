@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, SketchScene, Text, useTheme } from '@driver/ui';
+import { placeWord, type PlaceKind } from '@/features/track/place-kind';
 import { useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
@@ -11,7 +12,12 @@ import { usePushPermission } from './usePush';
  * its two answers. The OS prompt can be shown once and a "no" there is forever, so ours comes first:
  * "إي، خبرني" → the OS prompt; "لا هسة" → asked again in a week. Undetermined permissions only.
  */
-export function usePushAsk(active: boolean): { visible: boolean; busy: boolean; allow: () => void; later: () => void } {
+export function usePushAsk(active: boolean): {
+  visible: boolean;
+  busy: boolean;
+  allow: () => void;
+  later: () => void;
+} {
   const { permission, ask } = usePushPermission();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -25,7 +31,14 @@ export function usePushAsk(active: boolean): { visible: boolean; busy: boolean; 
     void (async () => {
       const raw = await storage.getItem(PREPROMPT_KEY).catch(() => null);
       const last = raw ? Number(raw) : null;
-      if (!cancelled) setVisible(shouldShowPrePrompt(permission, last !== null && Number.isFinite(last) ? last : null, Date.now()));
+      if (!cancelled)
+        setVisible(
+          shouldShowPrePrompt(
+            permission,
+            last !== null && Number.isFinite(last) ? last : null,
+            Date.now(),
+          ),
+        );
     })();
     return () => {
       cancelled = true;
@@ -56,11 +69,28 @@ const DOORBELL_WIDTH = 88;
  * Baghdad/Kut seat (CRIT2-05): on the boarding pass («نخبرك إذا تغيّر شي بسيارتك؟»), so a seat-only
  * customer is asked too and hears a moved or cancelled car.
  */
-export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | 'ride' | 'ride_search' | 'seat'; busy: boolean; onAllow: () => void; onLater: () => void }) {
+export function PushAskCard({
+  kind,
+  place = 'restaurant',
+  busy,
+  onAllow,
+  onLater,
+}: {
+  kind: 'food' | 'ride' | 'ride_search' | 'seat';
+  /** Food: who accepts it (a shop or a shopper says so). */ place?: PlaceKind;
+  busy: boolean;
+  onAllow: () => void;
+  onLater: () => void;
+}) {
   const theme = useTheme();
   const t = useT();
   return (
-    <Card elevation={0} padding={3} testID="push-ask" style={{ alignSelf: 'stretch', gap: theme.space[3] }}>
+    <Card
+      elevation={0}
+      padding={3}
+      testID="push-ask"
+      style={{ alignSelf: 'stretch', gap: theme.space[3] }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         {/* Joy J4 (S2-12): the doorbell drawing, not a bell in a circle. */}
         <View style={{ width: DOORBELL_WIDTH }}>
@@ -68,7 +98,15 @@ export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | '
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" weight={700}>
-            {t(kind === 'ride' ? 'notify.ask.ride_title' : kind === 'ride_search' ? 'notify.ask.ride_search_title' : kind === 'seat' ? 'notify.ask.seat_title' : 'notify.ask.food_title')}
+            {t(
+              kind === 'ride'
+                ? 'notify.ask.ride_title'
+                : kind === 'ride_search'
+                  ? 'notify.ask.ride_search_title'
+                  : kind === 'seat'
+                    ? 'notify.ask.seat_title'
+                    : placeWord('notify.ask.food_title', place),
+            )}
           </Text>
           <Text variant="footnote" color="textMuted">
             {t('notify.ask.body')}
@@ -76,8 +114,21 @@ export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | '
         </View>
       </View>
       <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-        <Button label={t('notify.ask.yes')} icon="bell" loading={busy} onPress={onAllow} style={{ flex: 1 }} testID="push-ask-yes" />
-        <Button label={t('notify.ask.no')} variant="ghost" onPress={onLater} style={{ flex: 1 }} testID="push-ask-no" />
+        <Button
+          label={t('notify.ask.yes')}
+          icon="bell"
+          loading={busy}
+          onPress={onAllow}
+          style={{ flex: 1 }}
+          testID="push-ask-yes"
+        />
+        <Button
+          label={t('notify.ask.no')}
+          variant="ghost"
+          onPress={onLater}
+          style={{ flex: 1 }}
+          testID="push-ask-no"
+        />
       </View>
     </Card>
   );

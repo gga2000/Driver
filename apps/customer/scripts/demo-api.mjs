@@ -405,7 +405,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false } = {}) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false, accept = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -429,6 +429,7 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     statedTenderIqd = tender >= totalIqd ? tender : tenderOptions(totalIqd)[1];
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
+  if (!accept) return placed.id;
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
@@ -537,6 +538,10 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'placed') {
+    // Sent and not yet accepted: the kitchen-waiting screen (/kitchen/[id]) with its ring.
+    return { orderId: await placeAccepted(personId, 20, undefined, null, { accept: false }) };
+  }
   if (name === 'kitchen') {
     // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
     // the kitchen on, /demo/track/assign brings the courier (the reveal plays on an open screen).
@@ -593,7 +598,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
