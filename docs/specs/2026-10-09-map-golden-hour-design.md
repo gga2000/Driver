@@ -155,6 +155,29 @@ at night. One `glow` point per string pools warm light on the street at night (`
 close (from z16.4) and only in the 3D modes; the Console and cheap phones never draw them. They come on with the light
 change at dusk (the style swap), and nothing pulses or loops.
 
+## Map pieces for the new ideas (Ali, 2026-10-11: "apply them all")
+
+These are pure helpers in `@driver/map/golden`; each screen's owner wires them (plan:
+`/mnt/project-files/map-design/next-ideas/build-plan.md`). Points are `[lng, lat]`. Streets come from the screen's own
+map via `roadsFromFeatures()`; the customer `BaseMap` hands them over with `onRoads`.
+- **N10 Walk to a safe stop** (`walk.ts`): `safeStopFor(pin, roads, landmarks)` returns a stop on a mid, major or
+  highway road within 250 m, preferring one by a landmark when it costs under 40 m more walking. It returns null when
+  the pin is already within 25 m of such a road. `walkToStopGeoJSON(from, to, k)` draws the dotted walk once over
+  `WALK_DRAW_MS` (1.5 s); `walkToStopLayers`, `walkColours`.
+- **N6 Why it's late** (`moments.ts`): `slowStretchGeoJSON(path, fromM, toM, label)` with `slowStretchLayers` (rust and
+  cream stripes, a label). No money rule changes.
+- **N16 The tablet sees the courier**: `shopWarmGeoJSON(at)` with `shopWarmLayers`, a warm pool that fades in once.
+- **N12 Seats at the garage** (`garage-seats.ts`): `GARAGE_BAYS` (generated from the garage model by
+  `tools/map-tiles/garage_bays.py`), `garageSeatsGeoJSON(cars)` (one block per seat floating over the car, gold for
+  free, date brown for taken, each carrying the car id) and `garageSeatLayers`.
+- **N14 Only your home and the bus** (`khat.ts`): `khatRouteGeoJSON({ route, bus, school, mine, others })`. Other
+  stops are fractions along the route, never coordinates; they draw as blank dots.
+- **N17 Where the orders are** (`demand.ts`): `demandGlowGeoJSON(cells)` with `demandGlowLayers`. Amber, never red;
+  cells under 0.15 stay dark; updates cross-fade over 2 s and nothing pulses.
+- **N4 Sunrise over Aziziyah** (`sunrise.ts`): `sunriseTour()` gives 8 s of keyframes from low over the Tigris towards
+  the town, with the light stepping night, then morning, then day. It plays once, a tap skips it, and reduce motion
+  shows the last frame.
+
 ## Landmarks in 3D (Ali, 2026-10-09: "not real spot, make good looking design for each")
 
 The main mosque, the hospital and the three town garages stand up as detailed models, built in metres by
