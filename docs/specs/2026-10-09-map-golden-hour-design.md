@@ -201,3 +201,11 @@ The mosque and hospital spots are design spots (empty lots beside a main road, o
 garages stand at Ali's real spots (2026-10-10), each lot sized to fit between its streets (`GARAGE_SIZE`). The houses
 Overture has on a lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
 demo spots; moving them onto the models belongs to the garage data owner.
+
+## Food carts (عربانات, 2026-10-11)
+- `@driver/map/pieces/carts`: `cartScene(list, {light, selectedId})`, `cartLayers(light)`, `CART_SOURCES`, `cartModel`,
+  `CART_AWNING` (the stripe colours, one place to swap them) and `CART_CLOSED`. Same pattern as `restaurantScene`.
+- A wooden push cart on two wheels with handles, a glass case, four poles, a striped fuchsia-and-cream awning, a bulb
+  and a gas bottle, drawn 3.2× life; the wares by kind (liver coals, skewers and smoke; falafel fryer; tea brass pot,
+  glasses and three stools; corn grill; bagilla pots; any other cart a glass case). Open carts glow on the street,
+  stronger when chosen, and the bulb burns at night; closed carts are all grey with no light or smoke.

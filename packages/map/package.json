@@ -19,6 +19,10 @@
     "./pieces": {
       "types": "./dist/golden/pieces.d.ts",
       "default": "./dist/golden/pieces.js"
+    },
+    "./pieces/carts": {
+      "types": "./dist/golden/carts.d.ts",
+      "default": "./dist/golden/carts.js"
     }
   },
   "scripts": {
