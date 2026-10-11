@@ -1,6 +1,7 @@
 import type { OrderTracking } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { amountParam } from '@/lib/money';
+import { placeKind, placeWord } from './place-kind';
 import { promiseCopy } from './late-promise';
 import { rideMatchedFresh } from './moments';
 
@@ -36,7 +37,12 @@ export type Phase =
   | 'failed'
   | 'disputed';
 
-const CANCELLED = new Set(['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'refunded']);
+const CANCELLED = new Set([
+  'merchant_rejected',
+  'customer_cancelled',
+  'platform_cancelled',
+  'refunded',
+]);
 
 /** True when the courier started the unreachable protocol at my door and it is still running. */
 export function unreachableActive(v: OrderTracking): boolean {
@@ -47,7 +53,9 @@ export function unreachableActive(v: OrderTracking): boolean {
 
 /** Food: he pressed "وصلت" at my door — not at another customer's drop before mine. */
 export function courierAtDoor(v: OrderTracking): boolean {
-  return v.order.type !== 'ride' && v.trip?.state === 'arrived_dropoff' && v.trip.dropsBeforeMine === 0;
+  return (
+    v.order.type !== 'ride' && v.trip?.state === 'arrived_dropoff' && v.trip.dropsBeforeMine === 0
+  );
 }
 
 export function phaseOf(v: OrderTracking): Phase {
@@ -61,7 +69,14 @@ export function phaseOf(v: OrderTracking): Phase {
   if (v.reassigning) return 'reassigning';
   const trip = v.trip;
   if (o.type === 'ride') {
-    if (!trip || trip.state === 'created' || trip.state === 'offered' || trip.state === 'declined' || trip.state === 'timed_out') return 'searching';
+    if (
+      !trip ||
+      trip.state === 'created' ||
+      trip.state === 'offered' ||
+      trip.state === 'declined' ||
+      trip.state === 'timed_out'
+    )
+      return 'searching';
     if (trip.state === 'arrived_pickup') return 'at_pickup';
     if (trip.state === 'in_transit' || trip.state === 'arrived_dropoff') return 'on_the_way';
     return 'to_pickup';
@@ -96,7 +111,9 @@ function statusLineFor(v: OrderTracking, t: TFn, name: string, now: number): str
     case 'to_pickup': {
       const driver = v.courier?.firstName;
       if (!driver) return t('trip.status.for_coming_unnamed', { name });
-      return rideMatchedFresh(v.trip?.acceptedAt, now) ? t('trip.status.for_matched', { name, driver }) : t('trip.status.for_coming', { name, driver });
+      return rideMatchedFresh(v.trip?.acceptedAt, now)
+        ? t('trip.status.for_matched', { name, driver })
+        : t('trip.status.for_coming', { name, driver });
     }
     case 'at_pickup':
       return t('trip.status.for_at_pickup', { name });
@@ -115,6 +132,7 @@ function statusLineFor(v: OrderTracking, t: TFn, name: string, now: number): str
  */
 export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}): string {
   const ride = v.order.type === 'ride';
+  const w = (key: MessageKey) => placeWord(key, placeKind(v.order));
   const forName = ride ? (v.order.rider?.name ?? null) : null;
   if (forName) {
     const line = statusLineFor(v, t, forName, opts.now ?? v.serverNow.getTime());
@@ -123,10 +141,14 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
   switch (phaseOf(v)) {
     case 'waiting_merchant':
       // Joy w4: on the household wallet over a limit, it waits for the payer before the kitchen.
-      return v.order.heldForPayer ? t('order.status.awaiting_payer') : t('order.status.placed');
+      return v.order.heldForPayer ? t('order.status.awaiting_payer') : t(w('order.status.placed'));
     case 'preparing':
       // Joy l3: say "cooking" only once the kitchen pressed it; before that, it said yes.
-      return v.order.readyAt ? t('order.status.ready') : v.order.preparingAt || v.order.state === 'preparing' ? t('order.status.preparing') : t('order.status.merchant_accepted');
+      return v.order.readyAt
+        ? t('order.status.ready')
+        : v.order.preparingAt || v.order.state === 'preparing'
+          ? t(w('order.status.preparing'))
+          : t(w('order.status.merchant_accepted'));
     case 'searching':
       return t('trip.status.offered');
     case 'reassigning':
@@ -134,18 +156,23 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
     case 'to_pickup':
       if (ride && v.courier?.firstName) {
         const name = v.courier.firstName;
-        return rideMatchedFresh(v.trip?.acceptedAt, opts.now ?? v.serverNow.getTime()) ? t('trip.status.matched_named', { name }) : t('trip.status.coming_named', { name });
+        return rideMatchedFresh(v.trip?.acceptedAt, opts.now ?? v.serverNow.getTime())
+          ? t('trip.status.matched_named', { name })
+          : t('trip.status.coming_named', { name });
       }
-      return ride ? t('trip.status.en_route_to_pickup') : t('track.courier_to_kitchen_short');
+      return ride ? t('trip.status.en_route_to_pickup') : t(w('track.courier_to_kitchen_short'));
     case 'at_pickup':
       // His "وصلت" came from too far off the pickup to count (the fee's rule): say he says so, not that he is outside.
-      if (ride && v.trip?.stops.some((s) => s.mine && s.type === 'pickup' && s.arrivalClaimedOnly)) return t('trip.status.arrived_pickup_claimed');
+      if (ride && v.trip?.stops.some((s) => s.mine && s.type === 'pickup' && s.arrivalClaimedOnly))
+        return t('trip.status.arrived_pickup_claimed');
       return t('trip.status.arrived_pickup');
     case 'on_the_way':
       if (ride) return t('trip.status.in_transit');
       // He pressed "وصلت" at my door (not someone else's drop first): say so, not "on the way".
       // HUNT-02: an order placed «بالشارع» is met on the street, not at the door.
-      return courierAtDoor(v) ? t(v.order.streetHandover ? 'track.courier_at_street' : 'track.courier_at_door') : t('track.on_the_way');
+      return courierAtDoor(v)
+        ? t(v.order.streetHandover ? 'track.courier_at_street' : 'track.courier_at_door')
+        : t('track.on_the_way');
     case 'unreachable':
       return t('unreachable.customer_title');
     case 'arrived':
@@ -153,7 +180,7 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
     case 'done':
       return t('order.status.closed');
     case 'cancelled':
-      return t(`order.status.${v.order.state}` as MessageKey);
+      return t(w(`order.status.${v.order.state}` as MessageKey));
     case 'failed':
       return t('order.status.failed');
     case 'disputed':
@@ -162,11 +189,23 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
 }
 
 /** Steps with real timestamps (done), ETA for the last one, and the key of the step in progress. */
-export function buildTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string): { steps: Step[]; current: string } {
-  return v.order.type === 'ride' ? rideTimeline(v, input, t, clock) : deliveryTimeline(v, input, t, clock);
+export function buildTimeline(
+  v: OrderTracking,
+  input: TimelineInput,
+  t: TFn,
+  clock: (d: Date) => string,
+): { steps: Step[]; current: string } {
+  return v.order.type === 'ride'
+    ? rideTimeline(v, input, t, clock)
+    : deliveryTimeline(v, input, t, clock);
 }
 
-function lateNote(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string): Pick<Step, 'note' | 'late'> {
+function lateNote(
+  v: OrderTracking,
+  input: TimelineInput,
+  t: TFn,
+  clock: (d: Date) => string,
+): Pick<Step, 'note' | 'late'> {
   if (input.lateMin <= 0 || !input.eta) return {};
   // The honest-delay threshold is the server's (MoneyRules.latePromise); no promise, no promise text.
   const p = v.latePromise;
@@ -177,28 +216,42 @@ function lateNote(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Dat
     p && !p.credit
       ? ` ${due ? `${t(promiseCopy(p.basis).barPast, { amount: amountParam(p.creditIqd), time: clock(p.deadlineAt) })}.` : t(promiseCopy(p.basis).noteLateCredit, { minutes: p.afterMin, amount: amountParam(p.creditIqd) })}`
       : '';
-  return { note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })}${promise}`, late: true };
+  return {
+    note: `${t('track.note_late', { minutes: input.lateMin, time: clock(input.eta) })}${promise}`,
+    late: true,
+  };
 }
 
-function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d: Date) => string) {
+function deliveryTimeline(
+  v: OrderTracking,
+  input: TimelineInput,
+  t: TFn,
+  clock: (d: Date) => string,
+) {
   const o = v.order;
+  const w = (key: MessageKey) => placeWord(key, placeKind(o));
   const name = input.courierName ?? t('track.courier_fallback');
   const at = (d: Date | null | undefined) => (d ? clock(d) : undefined);
   const phase = phaseOf(v);
   const courierAccepted = Boolean(v.trip?.acceptedAt && v.courier);
-  const pickupStop = v.trip?.stops.find((s) => s.mine && (s.type === 'pickup' || s.type === 'shop'));
+  const pickupStop = v.trip?.stops.find(
+    (s) => s.mine && (s.type === 'pickup' || s.type === 'shop'),
+  );
 
   const prepNote = (): string | undefined => {
     if (phase === 'reassigning') return t('track.reassigning_note');
-    if (courierAccepted && pickupStop?.arrivedAt) return t('track.note_courier_waiting', { name });
-    if (courierAccepted) return t('track.note_courier_to_kitchen', { name });
-    if (!o.readyAt && o.promisedReadyAt) return t('track.note_ready_at', { time: clock(o.promisedReadyAt) });
+    if (courierAccepted && pickupStop?.arrivedAt)
+      return t(w('track.note_courier_waiting'), { name });
+    if (courierAccepted) return t(w('track.note_courier_to_kitchen'), { name });
+    if (!o.readyAt && o.promisedReadyAt)
+      return t('track.note_ready_at', { time: clock(o.promisedReadyAt) });
     return undefined;
   };
 
   const onTheWayNote = (): string | undefined => {
     if (phase === 'reassigning') return t('track.reassigning_note');
-    if ((v.trip?.dropsBeforeMine ?? 0) > 0 && input.eta) return t('order.eta_batched', { time: clock(input.eta) });
+    if ((v.trip?.dropsBeforeMine ?? 0) > 0 && input.eta)
+      return t('order.eta_batched', { time: clock(input.eta) });
     return t('track.note_on_the_way', { name });
   };
 
@@ -214,16 +267,32 @@ function deliveryTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock:
             : 'placed';
 
   const steps: Step[] = [
-    { key: 'placed', label: t('order.status.placed'), time: at(o.placedAt), ...(o.state === 'placed' ? { note: o.heldForPayer ? t('order.status.awaiting_payer_hint') : t('order.status.placed_hint') } : {}) },
-    { key: 'accepted', label: t('order.status.merchant_accepted'), time: at(o.acceptedAt) },
+    {
+      key: 'placed',
+      label: t(w('order.status.placed')),
+      time: at(o.placedAt),
+      ...(o.state === 'placed'
+        ? {
+            note: o.heldForPayer
+              ? t(w('order.status.awaiting_payer_hint'))
+              : t(w('order.status.placed_hint')),
+          }
+        : {}),
+    },
+    { key: 'accepted', label: t(w('order.status.merchant_accepted')), time: at(o.acceptedAt) },
     {
       key: 'preparing',
-      label: o.readyAt ? t('order.status.ready') : t('order.status.preparing'),
+      label: o.readyAt ? t('order.status.ready') : t(w('order.status.preparing')),
       time: at(o.readyAt ?? o.preparingAt),
       // L-11: where the courier is matters only while the kitchen step is the current one.
       note: current === 'preparing' ? prepNote() : undefined,
     },
-    { key: 'picked_up', label: t('order.status.picked_up'), time: at(o.pickedUpAt), note: o.pickedUpAt && !o.deliveredAt ? onTheWayNote() : undefined },
+    {
+      key: 'picked_up',
+      label: t('order.status.picked_up'),
+      time: at(o.pickedUpAt),
+      note: o.pickedUpAt && !o.deliveredAt ? onTheWayNote() : undefined,
+    },
     {
       key: 'delivered',
       label: o.deliveredAt ? t('order.status.delivered') : t('track.step_arrive'),
@@ -244,16 +313,29 @@ function rideTimeline(v: OrderTracking, input: TimelineInput, t: TFn, clock: (d:
   const pickup = trip?.stops.find((s) => s.mine && s.type === 'pickup');
   const name = input.courierName ?? t('track.driver_fallback');
   const at = (d: Date | null | undefined) => (d ? clock(d) : undefined);
-  const done = trip?.state === 'completed' || v.order.state === 'completed' || v.order.state === 'closed';
+  const done =
+    trip?.state === 'completed' || v.order.state === 'completed' || v.order.state === 'closed';
   const steps: Step[] = [
     { key: 'searching', label: t('trip.status.offered'), time: at(v.order.placedAt) },
-    { key: 'matched', label: t('trip.status.en_route_to_pickup'), time: at(trip?.acceptedAt), note: trip?.acceptedAt && !pickup?.arrivedAt ? t('track.note_driver_coming', { name }) : undefined },
+    {
+      key: 'matched',
+      label: t('trip.status.en_route_to_pickup'),
+      time: at(trip?.acceptedAt),
+      note:
+        trip?.acceptedAt && !pickup?.arrivedAt
+          ? t('track.note_driver_coming', { name })
+          : undefined,
+    },
     { key: 'arrived_pickup', label: t('trip.status.arrived_pickup'), time: at(pickup?.arrivedAt) },
     { key: 'in_transit', label: t('trip.status.in_transit'), time: at(pickup?.completedAt) },
     {
       key: 'completed',
       label: t('trip.status.completed'),
-      time: done ? at(trip?.completedAt ?? v.order.closedAt) : input.eta && pickup?.completedAt ? `~${clock(input.eta)}` : undefined,
+      time: done
+        ? at(trip?.completedAt ?? v.order.closedAt)
+        : input.eta && pickup?.completedAt
+          ? `~${clock(input.eta)}`
+          : undefined,
     },
   ];
   const s = trip?.state;

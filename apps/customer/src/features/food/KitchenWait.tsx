@@ -3,6 +3,7 @@ import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import { Avatar, Card, CountdownRing, Icon, SketchScene, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import type { PersonLines, WaitingStep } from './kitchen-moment';
+import { placeWord, type PlaceKind } from '@/features/track/place-kind';
 
 /** The waiting kitchen drawing's width (joy J4) and the accept-ring medallion that sits on its sill. */
 const SCENE_MAX = 300;
@@ -13,7 +14,17 @@ const MEDALLION = 76;
  * motion) and the 90 s accept ring as a medallion on the sill. When the kitchen says yes the ring
  * closes in the success colour with a check that pops in (transforms and opacity only).
  */
-export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { startedAt: number; acceptMs: number; accepted: boolean; animate: boolean }) {
+export function KitchenMark({
+  startedAt,
+  acceptMs,
+  accepted,
+  animate,
+}: {
+  startedAt: number;
+  acceptMs: number;
+  accepted: boolean;
+  animate: boolean;
+}) {
   const theme = useTheme();
   return (
     <View style={{ width: '100%', maxWidth: SCENE_MAX, alignItems: 'center' }}>
@@ -34,7 +45,13 @@ export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { starte
         {accepted ? (
           <Animated.View
             testID="kitchen-accepted-ring"
-            entering={animate ? ZoomIn.springify().damping(theme.motion.spring.celebrate.damping).stiffness(theme.motion.spring.celebrate.stiffness) : undefined}
+            entering={
+              animate
+                ? ZoomIn.springify()
+                    .damping(theme.motion.spring.celebrate.damping)
+                    .stiffness(theme.motion.spring.celebrate.stiffness)
+                : undefined
+            }
             style={{
               width: MEDALLION - 10,
               height: MEDALLION - 10,
@@ -49,22 +66,43 @@ export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { starte
           </Animated.View>
         ) : (
           // «1:29» reads as time; a bare «89» didn't say what it counted (VIS-31).
-          <CountdownRing mode="accept" startedAt={startedAt} durationMs={acceptMs} format="clock" size={MEDALLION - 10} strokeWidth={5} />
+          <CountdownRing
+            mode="accept"
+            startedAt={startedAt}
+            durationMs={acceptMs}
+            format="clock"
+            size={MEDALLION - 10}
+            strokeWidth={5}
+          />
         )}
       </View>
     </View>
   );
 }
 
-const STEP_LABEL = { sent: 'kitchen.step_sent', confirm: 'kitchen.step_confirm', cooking: 'kitchen.step_cooking' } as const;
+const STEP_LABEL = {
+  sent: 'kitchen.step_sent',
+  confirm: 'kitchen.step_confirm',
+  cooking: 'kitchen.step_cooking',
+} as const;
 
 /** «وصل للمطعم ✓ · المطعم يأكّد · يتحضّر»: the three real steps, current one in the live colour. */
-export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
+export function WaitingSteps({
+  steps,
+  kind = 'restaurant',
+}: {
+  steps: WaitingStep[];
+  kind?: PlaceKind;
+}) {
   const theme = useTheme();
   const t = useT();
   const spoken = steps
     .filter((s) => s.state !== 'todo')
-    .map((s) => t(s.state === 'done' ? 'kitchen.step_done_a11y' : 'kitchen.step_current_a11y', { step: t(STEP_LABEL[s.key]) }))
+    .map((s) =>
+      t(s.state === 'done' ? 'kitchen.step_done_a11y' : 'kitchen.step_current_a11y', {
+        step: t(placeWord(STEP_LABEL[s.key], kind)),
+      }),
+    )
     .join('، ');
   return (
     <View
@@ -81,7 +119,18 @@ export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
         return (
           <View key={s.key} style={{ flex: 1, alignItems: 'center', gap: theme.space[1] }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' }}>
-              <View style={{ flex: 1, height: 2, backgroundColor: i === 0 ? 'transparent' : done || current ? theme.colors.live : theme.colors.border }} />
+              <View
+                style={{
+                  flex: 1,
+                  height: 2,
+                  backgroundColor:
+                    i === 0
+                      ? 'transparent'
+                      : done || current
+                        ? theme.colors.live
+                        : theme.colors.border,
+                }}
+              />
               <View
                 style={{
                   width: 22,
@@ -89,17 +138,48 @@ export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
                   borderRadius: 11,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: done ? theme.colors.live : current ? theme.colors.liveTint : theme.colors.surfaceSunken,
+                  backgroundColor: done
+                    ? theme.colors.live
+                    : current
+                      ? theme.colors.liveTint
+                      : theme.colors.surfaceSunken,
                   borderWidth: current ? 2 : 0,
                   borderColor: theme.colors.live,
                 }}
               >
-                {done ? <Icon name="check" size={13} color="onInverse" strokeWidth={3} /> : current ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.live }} /> : null}
+                {done ? (
+                  <Icon name="check" size={13} color="onInverse" strokeWidth={3} />
+                ) : current ? (
+                  <View
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: theme.colors.live,
+                    }}
+                  />
+                ) : null}
               </View>
-              <View style={{ flex: 1, height: 2, backgroundColor: i === steps.length - 1 ? 'transparent' : done ? theme.colors.live : theme.colors.border }} />
+              <View
+                style={{
+                  flex: 1,
+                  height: 2,
+                  backgroundColor:
+                    i === steps.length - 1
+                      ? 'transparent'
+                      : done
+                        ? theme.colors.live
+                        : theme.colors.border,
+                }}
+              />
             </View>
-            <Text variant="caption" weight={current ? 700 : 400} color={done || current ? 'liveText' : 'textMuted'} align="center">
-              {t(STEP_LABEL[s.key])}
+            <Text
+              variant="caption"
+              weight={current ? 700 : 400}
+              color={done || current ? 'liveText' : 'textMuted'}
+              align="center"
+            >
+              {t(placeWord(STEP_LABEL[s.key], kind))}
             </Text>
           </View>
         );
@@ -109,11 +189,25 @@ export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
 }
 
 /** The order by person, with each kitchen note, so the kids' notes are seen to have gone through. */
-export function PersonLinesCard({ groups, myName, totalLine }: { groups: PersonLines[]; myName: string | null; totalLine: string }) {
+export function PersonLinesCard({
+  groups,
+  myName,
+  totalLine,
+}: {
+  groups: PersonLines[];
+  myName: string | null;
+  totalLine: string;
+}) {
   const theme = useTheme();
   const t = useT();
   return (
-    <Card elevation={0} tone="sunken" padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-lines">
+    <Card
+      elevation={0}
+      tone="sunken"
+      padding={3}
+      style={{ alignSelf: 'stretch' }}
+      testID="kitchen-lines"
+    >
       <View style={{ gap: theme.space[2] }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <Icon name="wallet" size={18} color="text" />
@@ -122,11 +216,25 @@ export function PersonLinesCard({ groups, myName, totalLine }: { groups: PersonL
           </Text>
         </View>
         {groups.map((g) => (
-          <View key={g.personId} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-            {g.kind === 'table' ? <Avatar size={28} icon="family" tone="accent" /> : <Avatar size={28} name={g.name ?? myName ?? t('item.for_me_chip')} tone={g.name ? undefined : 'accent'} />}
+          <View
+            key={g.personId}
+            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}
+          >
+            {g.kind === 'table' ? (
+              <Avatar size={28} icon="family" tone="accent" />
+            ) : (
+              <Avatar
+                size={28}
+                name={g.name ?? myName ?? t('item.for_me_chip')}
+                tone={g.name ? undefined : 'accent'}
+              />
+            )}
             <Text variant="footnote" style={{ flex: 1 }}>
               <Text variant="footnote" weight={600}>
-                {g.kind === 'table' ? t('cart.for_table_section') : (g.name ?? t('cart.for_me_section'))}:{' '}
+                {g.kind === 'table'
+                  ? t('cart.for_table_section')
+                  : (g.name ?? t('cart.for_me_section'))}
+                :{' '}
               </Text>
               {g.lines.join('، ')}
             </Text>
@@ -138,7 +246,15 @@ export function PersonLinesCard({ groups, myName, totalLine }: { groups: PersonL
 }
 
 /** «مطعم خالد قبل طلبك · يوصلك تقريباً 7:45 م», held for a moment before tracking opens. */
-export function AcceptedCard({ name, time, animate }: { name: string; time: string; animate: boolean }) {
+export function AcceptedCard({
+  name,
+  time,
+  animate,
+}: {
+  name: string;
+  time: string;
+  animate: boolean;
+}) {
   const theme = useTheme();
   const t = useT();
   return (

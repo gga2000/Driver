@@ -2,18 +2,53 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, View } from 'react-native';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { travelMinutes, type RestaurantCard } from '@driver/contracts';
 import { cityDayDiff, formatClock, formatRange } from '@driver/i18n';
-import { Button, Card, EmptyState, Icon, QueryBoundary, SketchScene, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import {
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  QueryBoundary,
+  SketchScene,
+  Skeleton,
+  Text,
+  useTheme,
+  useToast,
+} from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { carryOver, cartMerchantOf } from '@/features/food/cart';
 import { cartStore, useCartStore } from '@/features/food/cart-store';
 import { FoodArt, motifForKitchen } from '@/features/food/FoodArt';
 import { trackingMessage } from '@/features/food/checkout-lines';
-import { ACCEPT_RING_MS, acceptFeedback, acceptedEta, answerIsSlow, linesByPerson, waitingSteps } from '@/features/food/kitchen-moment';
-import { AcceptedCard, KitchenMark, PersonLinesCard, WaitingSteps } from '@/features/food/KitchenWait';
-import { CITY_ID, isKitchenAccepted, isKitchenRejection, useCancelOrder, useDeliverTo, useKitchenAnswer } from '@/features/food/queries';
+import {
+  ACCEPT_RING_MS,
+  acceptFeedback,
+  acceptedEta,
+  answerIsSlow,
+  linesByPerson,
+  waitingSteps,
+} from '@/features/food/kitchen-moment';
+import {
+  AcceptedCard,
+  KitchenMark,
+  PersonLinesCard,
+  WaitingSteps,
+} from '@/features/food/KitchenWait';
+import {
+  CITY_ID,
+  isKitchenAccepted,
+  isKitchenRejection,
+  useCancelOrder,
+  useDeliverTo,
+  useKitchenAnswer,
+} from '@/features/food/queries';
 import { carryLines, optionCopy, rejectionReason } from '@/features/food/rejection';
 import { partialAsk } from '@/features/food/partial';
 import { PartialAskActions, PartialAskCard } from '@/features/food/PartialAsk';
@@ -30,6 +65,7 @@ import { amountParam } from '@/lib/money';
 import { useProfile } from '@/lib/profile';
 import { playCue } from '@/lib/sound';
 import { useSeason } from '@/lib/use-season';
+import { placeKind, placeWord, type PlaceKind } from '@/features/track/place-kind';
 
 /** The merchant's acceptance window (domain §2: 90 s, then the order auto-rejects). */
 const ACCEPT_MS = 90_000;
@@ -55,6 +91,8 @@ export default function KitchenScreen() {
   const api = useApi();
   const [sending, setSending] = useState(false);
   const o = order.data;
+  // A stall or bakery says «المحل», a restaurant «المطعم» (the order's type, from the server).
+  const kind = placeKind(o ?? { type: 'food' });
   // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
   const pushAsk = usePushAsk(o?.state === 'placed');
   const mineCart = placed?.orderId === id ? placed.cart : null;
@@ -67,10 +105,20 @@ export default function KitchenScreen() {
   const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
   // Opened from the push on a phone without the cart (or after a restart): names and the shop from the menu.
   const asking = Boolean(o?.state === 'placed' && o.partial);
-  const menu = useQuery({ ...api.catalog.menu.queryOptions({ merchantId: o?.merchantOrgId ?? '' }), enabled: asking && !mineCart && Boolean(o?.merchantOrgId) });
-  const menuLines = useMemo(() => menu.data?.categories.flatMap((c) => c.items.map((i) => ({ itemId: i.id, name: i.name }))) ?? null, [menu.data]);
+  const menu = useQuery({
+    ...api.catalog.menu.queryOptions({ merchantId: o?.merchantOrgId ?? '' }),
+    enabled: asking && !mineCart && Boolean(o?.merchantOrgId),
+  });
+  const menuLines = useMemo(
+    () =>
+      menu.data?.categories.flatMap((c) => c.items.map((i) => ({ itemId: i.id, name: i.name }))) ??
+      null,
+    [menu.data],
+  );
   // A menu that won't load leaves the dishes as «صنف من طلبك»: the answer matters more than the names.
-  const ask = o ? partialAsk(o, mineCart ?? (menuLines && !menu.isError ? { lines: menuLines } : null)) : null;
+  const ask = o
+    ? partialAsk(o, mineCart ?? (menuLines && !menu.isError ? { lines: menuLines } : null))
+    : null;
   const shop = name || menu.data?.restaurant.name || '';
   // BENCH-03: a dish ran out — a one-second clock for the minute he has to answer.
   const now = useNow(ask ? 1_000 : o?.state === 'placed' ? 5_000 : null);
@@ -88,7 +136,11 @@ export default function KitchenScreen() {
       if (yes) return;
       const kitchen = mineCart?.merchant?.pickup?.pin ?? null;
       const door = dropoff?.pin ?? null;
-      const eta = acceptedEta({ now: new Date(), promisedReadyAt: o.promisedReadyAt, rideMin: kitchen && door ? travelMinutes(kitchen, door, 'bike') : null });
+      const eta = acceptedEta({
+        now: new Date(),
+        promisedReadyAt: o.promisedReadyAt,
+        rideMin: kitchen && door ? travelMinutes(kitchen, door, 'bike') : null,
+      });
       const feedback = acceptFeedback(today, theme.reduceMotion);
       setYes({ time: formatClock(eta, { locale }) });
       theme.haptic(feedback.haptic);
@@ -168,9 +220,15 @@ export default function KitchenScreen() {
           query={order}
           locale={locale}
           testID="kitchen-state"
-          gone={{ icon: 'receipt', title: t('track.not_found'), action: { label: t('nav.orders'), onPress: () => router.replace('/orders') } }}
+          gone={{
+            icon: 'receipt',
+            title: t('track.not_found'),
+            action: { label: t('nav.orders'), onPress: () => router.replace('/orders') },
+          }}
           skeleton={
-            <View style={{ alignItems: 'center', gap: theme.space[4], paddingTop: theme.space[16] }}>
+            <View
+              style={{ alignItems: 'center', gap: theme.space[4], paddingTop: theme.space[16] }}
+            >
               <Skeleton height={176} width={280} radius={24} />
               <Skeleton height={22} width="60%" />
             </View>
@@ -182,9 +240,18 @@ export default function KitchenScreen() {
     );
   }
 
-  if (isKitchenRejection(o)) return <Rejected orderId={o.id} reason={o.cancellationReason} />;
+  if (isKitchenRejection(o))
+    return <Rejected orderId={o.id} reason={o.cancellationReason} kind={kind} />;
   // FOOD-02: booked for later — the kitchen sees it shortly before its time, so nothing to wait for here.
-  if (o.scheduledFor && isBookedAhead(o, now)) return <BookedAhead at={o.scheduledFor} shop={name} cancelling={cancel.isPending} onCancel={() => void onCancel()} />;
+  if (o.scheduledFor && isBookedAhead(o, now))
+    return (
+      <BookedAhead
+        at={o.scheduledFor}
+        shop={name}
+        cancelling={cancel.isPending}
+        onCancel={() => void onCancel()}
+      />
+    );
 
   const offeredAt = o.merchantOfferedAt ?? o.placedAt;
   const waiting = o.state === 'placed';
@@ -197,18 +264,38 @@ export default function KitchenScreen() {
         contentStyle={{ flexGrow: 1 }}
         footer={
           ask ? (
-            <PartialAskActions busy={answering} disabled={false} onSend={() => void answer(true)} onCancel={() => void answer(false)} />
+            <PartialAskActions
+              busy={answering}
+              disabled={false}
+              onSend={() => void answer(true)}
+              onCancel={() => void answer(false)}
+            />
           ) : waiting ? (
             <View style={{ gap: theme.space[1] }}>
-              <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
+              <Button
+                testID="kitchen-cancel"
+                variant="secondary"
+                fullWidth
+                label={t('kitchen.cancel')}
+                loading={cancel.isPending}
+                onPress={() => void onCancel()}
+              />
               <Text variant="caption" color="textMuted" align="center">
-                {t('kitchen.cancel_free')}
+                {t(placeWord('kitchen.cancel_free', kind))}
               </Text>
             </View>
           ) : null
         }
       >
-        <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[5], paddingVertical: theme.space[4] }}>
+        <View
+          style={{
+            flexGrow: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: theme.space[5],
+            paddingVertical: theme.space[4],
+          }}
+        >
           <KitchenMark
             key={ask ? 'partial' : 'accept'}
             startedAt={ask ? ask.proposedAt.getTime() : offeredAt.getTime()}
@@ -219,22 +306,50 @@ export default function KitchenScreen() {
           {ask ? (
             <PartialAskCard ask={ask} shop={shop} now={now} />
           ) : yes ? (
-            <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
+            <AcceptedCard
+              name={name || t(placeWord('order.status.placed', kind))}
+              time={yes.time}
+              animate={!theme.reduceMotion}
+            />
           ) : (
             <View style={{ alignItems: 'center', gap: theme.space[2] }}>
               <Text variant="heading" align="center" testID="kitchen-title">
-                {name ? t('kitchen.sent_title', { name }) : t('order.status.placed')}
+                {name
+                  ? t('kitchen.sent_title', { name })
+                  : t(placeWord('order.status.placed', kind))}
               </Text>
-              <Text variant="body" color={slow ? 'warningText' : 'textMuted'} align="center" testID="kitchen-hint" accessibilityLiveRegion="polite">
-                {slow ? t('kitchen.slow_hint') : t('kitchen.sent_hint')}
+              <Text
+                variant="body"
+                color={slow ? 'warningText' : 'textMuted'}
+                align="center"
+                testID="kitchen-hint"
+                accessibilityLiveRegion="polite"
+              >
+                {slow ? t(placeWord('kitchen.slow_hint', kind)) : t('kitchen.sent_hint')}
               </Text>
             </View>
           )}
-          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
-          {ask ? null : <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />}
-          {gift && id && !yes && !ask ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
+          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} kind={kind} />
+          {ask ? null : (
+            <PersonLinesCard
+              groups={groups}
+              myName={myName}
+              totalLine={t(
+                o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash',
+                { amount: amountParam(o.totalIqd) },
+              )}
+            />
+          )}
+          {gift && id && !yes && !ask ? (
+            <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} />
+          ) : null}
           {recipient && !gift && !yes && !ask ? (
-            <Card elevation={0} padding={3} style={{ alignSelf: 'stretch' }} testID="kitchen-send-tracking">
+            <Card
+              elevation={0}
+              padding={3}
+              style={{ alignSelf: 'stretch' }}
+              testID="kitchen-send-tracking"
+            >
               <View style={{ gap: theme.space[2] }}>
                 <Text variant="label" weight={600}>
                   {t('kitchen.whatsapp_title', { name: recipient.name })}
@@ -242,11 +357,27 @@ export default function KitchenScreen() {
                 <Text variant="footnote" color="textMuted">
                   {t('kitchen.whatsapp_body')}
                 </Text>
-                <Button size="sm" variant="secondary" icon="share" label={t('kitchen.whatsapp_send')} loading={sending} onPress={() => void sendTracking()} testID="kitchen-send-tracking-button" style={{ alignSelf: 'flex-start' }} />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="share"
+                  label={t('kitchen.whatsapp_send')}
+                  loading={sending}
+                  onPress={() => void sendTracking()}
+                  testID="kitchen-send-tracking-button"
+                  style={{ alignSelf: 'flex-start' }}
+                />
               </View>
             </Card>
           ) : null}
-          {pushAsk.visible && !yes && !ask ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
+          {pushAsk.visible && !yes && !ask ? (
+            <PushAskCard
+              kind="food"
+              busy={pushAsk.busy}
+              onAllow={pushAsk.allow}
+              onLater={pushAsk.later}
+            />
+          ) : null}
         </View>
       </Screen>
     </Animated.View>
@@ -266,7 +397,17 @@ function useNow(everyMs: number | null): number {
 
 /** The kitchen said no: nothing charged; two similar open kitchens, cart carried over on a tap. */
 /** FOOD-02: a food order booked for later, before the kitchen is shown it: when it's for, and what happens next. */
-function BookedAhead({ at, shop, cancelling, onCancel }: { at: Date; shop: string; cancelling: boolean; onCancel: () => void }) {
+function BookedAhead({
+  at,
+  shop,
+  cancelling,
+  onCancel,
+}: {
+  at: Date;
+  shop: string;
+  cancelling: boolean;
+  onCancel: () => void;
+}) {
   const theme = useTheme();
   const t = useT();
   const when = `${cityDayDiff(at, new Date()) <= 0 ? t('time.today') : t('time.tomorrow')} ${t('checkout.when_at', { time: clock12(at) })}`;
@@ -277,12 +418,33 @@ function BookedAhead({ at, shop, cancelling, onCancel }: { at: Date; shop: strin
       contentStyle={{ flexGrow: 1 }}
       footer={
         <View style={{ gap: theme.space[2] }}>
-          <Button testID="kitchen-booked-done" size="lg" fullWidth label={t('action.done')} onPress={() => router.replace('/orders')} />
-          <Button testID="kitchen-cancel" variant="ghost" fullWidth label={t('kitchen.cancel')} loading={cancelling} onPress={onCancel} />
+          <Button
+            testID="kitchen-booked-done"
+            size="lg"
+            fullWidth
+            label={t('action.done')}
+            onPress={() => router.replace('/orders')}
+          />
+          <Button
+            testID="kitchen-cancel"
+            variant="ghost"
+            fullWidth
+            label={t('kitchen.cancel')}
+            loading={cancelling}
+            onPress={onCancel}
+          />
         </View>
       }
     >
-      <View style={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[4] }}>
+      <View
+        style={{
+          flexGrow: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: theme.space[3],
+          paddingVertical: theme.space[4],
+        }}
+      >
         <View style={{ width: '100%', maxWidth: 260, marginBottom: theme.space[2] }}>
           <SketchScene name="kitchen" animate={false} />
         </View>
@@ -297,7 +459,15 @@ function BookedAhead({ at, shop, cancelling, onCancel }: { at: Date; shop: strin
   );
 }
 
-function Rejected({ orderId, reason }: { orderId: string; reason: string | null }) {
+function Rejected({
+  orderId,
+  reason,
+  kind,
+}: {
+  orderId: string;
+  reason: string | null;
+  kind: PlaceKind;
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -311,7 +481,12 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
   const rejectedId = cart?.merchant?.id ?? '';
   // o15: the server picks the similar kitchens and says how much of this cart each makes and about what it costs.
   const preview = useQuery({
-    ...api.catalog.carryOver.queryOptions({ cityId: cart?.merchant?.cityId ?? CITY_ID, merchantId: rejectedId || 'none', ...(dropoff ? { dropoff } : {}), lines: cart ? carryLines(cart) : [{ name: '-', qty: 1, choices: [] }] }),
+    ...api.catalog.carryOver.queryOptions({
+      cityId: cart?.merchant?.cityId ?? CITY_ID,
+      merchantId: rejectedId || 'none',
+      ...(dropoff ? { dropoff } : {}),
+      lines: cart ? carryLines(cart) : [{ name: '-', qty: 1, choices: [] }],
+    }),
     enabled: Boolean(cart && rejectedId && cart.lines.length > 0),
   });
   const suggestions = preview.data?.options ?? [];
@@ -321,7 +496,9 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
     if (!cart) return;
     setMoving(target.id);
     try {
-      const menu = await queryClient.fetchQuery(api.catalog.menu.queryOptions({ merchantId: target.id, ...(dropoff ? { dropoff } : {}) }));
+      const menu = await queryClient.fetchQuery(
+        api.catalog.menu.queryOptions({ merchantId: target.id, ...(dropoff ? { dropoff } : {}) }),
+      );
       const res = carryOver(cart, cartMerchantOf(menu.restaurant), menu.categories);
       cartStore.settlePlaced(orderId);
       if (res.moved.length === 0) {
@@ -331,7 +508,13 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
       }
       cartStore.replaceCart(res.cart);
       const moved = t('kitchen.moved', { n: res.moved.length, name: target.name });
-      toast.show({ message: res.dropped.length ? `${moved} · ${t('kitchen.dropped', { items: res.dropped.join('، ') })}` : moved, tone: 'success', icon: 'cart' });
+      toast.show({
+        message: res.dropped.length
+          ? `${moved} · ${t('kitchen.dropped', { items: res.dropped.join('، ') })}`
+          : moved,
+        tone: 'success',
+        icon: 'cart',
+      });
       router.replace('/cart');
     } catch {
       toast.show({ message: t('error.network'), tone: 'danger' });
@@ -347,7 +530,9 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
           <SketchScene name="rejected" />
         </View>
         <Text variant="heading" align="center" testID="kitchen-rejected-title">
-          {cart?.merchant?.name ? t('kitchen.rejected_title', { name: cart.merchant.name }) : t('order.status.merchant_rejected')}
+          {cart?.merchant?.name
+            ? t('kitchen.rejected_title', { name: cart.merchant.name })
+            : t(placeWord('order.status.merchant_rejected', kind))}
         </Text>
         {why ? (
           <Text variant="body" weight={600} align="center" testID="kitchen-rejected-reason">
@@ -355,7 +540,7 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
           </Text>
         ) : null}
         <Text variant="body" color="textMuted" align="center">
-          {t('order.status.merchant_rejected_hint')}
+          {t(placeWord('order.status.merchant_rejected_hint', kind))}
         </Text>
       </View>
 
@@ -364,7 +549,11 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
         {preview.isPending && preview.fetchStatus !== 'idle' ? (
           <Skeleton height={120} />
         ) : preview.isError ? (
-          <Button variant="secondary" label={t('action.retry')} onPress={() => void preview.refetch()} />
+          <Button
+            variant="secondary"
+            label={t('action.retry')}
+            onPress={() => void preview.refetch()}
+          />
         ) : suggestions.length === 0 ? (
           <EmptyState icon="clock" title={t('kitchen.no_suggestions')} />
         ) : (
@@ -382,7 +571,14 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
                     {r.rating ? (
                       <>
-                        <Icon name="star" size={14} color="starOutline" fillColor="star" filled strokeWidth={1.6} />
+                        <Icon
+                          name="star"
+                          size={14}
+                          color="starOutline"
+                          fillColor="star"
+                          filled
+                          strokeWidth={1.6}
+                        />
                         <Text variant="caption" weight={600} tabular>
                           {r.rating.avg.toFixed(1)}
                         </Text>
@@ -390,19 +586,35 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
                     ) : null}
                     {r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? (
                       <Text variant="caption" color="textMuted" tabular>
-                        {t('restaurant.eta', { range: formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) })}
+                        {t('restaurant.eta', {
+                          range: formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale),
+                        })}
                       </Text>
                     ) : null}
                   </View>
                   {(() => {
                     const c = optionCopy(fit, amountParam);
                     return (
-                      <Text variant="footnote" weight={600} color={fit.moved === fit.of ? 'successText' : 'textMuted'} tabular testID={`suggest-fit-${r.id}`}>
+                      <Text
+                        variant="footnote"
+                        weight={600}
+                        color={fit.moved === fit.of ? 'successText' : 'textMuted'}
+                        tabular
+                        testID={`suggest-fit-${r.id}`}
+                      >
                         {t(c.key, c.params)}
                       </Text>
                     );
                   })()}
-                  <Button size="sm" label={t('kitchen.move_cart')} icon="cart" loading={moving === r.id} onPress={() => void move(r)} testID={`suggest-move-${r.id}`} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
+                  <Button
+                    size="sm"
+                    label={t('kitchen.move_cart')}
+                    icon="cart"
+                    loading={moving === r.id}
+                    onPress={() => void move(r)}
+                    testID={`suggest-move-${r.id}`}
+                    style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                  />
                 </View>
               </View>
             </Card>
@@ -410,7 +622,12 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
         )}
       </View>
 
-      <Button variant="ghost" style={{ alignSelf: 'center' }} label={t('shell.back_home')} onPress={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))} />
+      <Button
+        variant="ghost"
+        style={{ alignSelf: 'center' }}
+        label={t('shell.back_home')}
+        onPress={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}
+      />
     </Screen>
   );
 }
