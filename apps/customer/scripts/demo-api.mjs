@@ -2473,6 +2473,166 @@ const rajaa = await (async () => {
         json(res, 500, { error: String(err?.stack ?? err) });
       }
     });
+
+    // ───────── «دفترك ويا درايفر» (stats & savings) ─────────
+    //   POST /demo/stats?personId=…   → {meals, rides, seats}
+    // This year so far, back-dated in memory: 30 meals from four kitchens (كبدة مطعم خالد the favourite,
+    // mostly Thursday and Friday nights, 3 of them late), 14 taxi and tuktuk rides (most to الدائرة,
+    // the driver 4–9 minutes away), three الرجعة seats to Baghdad (one the return leg, one with a child
+    // on the lap) and one to Kut, and what came off his bills each month (kitchen deals, our
+    // promotions, points against fees, the return-trip discount) plus one late-delivery credit.
+    const { LedgerService: StatsLedger, Accounts: StatsAccounts } = await load('modules/ledger/index.js');
+    const statsLedger = app.get(StatsLedger);
+    const DAY = 86_400_000;
+    /** A Baghdad wall-clock time `daysAgo` days back. */
+    const baghdadAt = (daysAgo, hour, minute = 0) => {
+      const local = new Date(Date.now() + 3 * 3_600_000 - daysAgo * DAY);
+      return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), hour, minute) - 3 * 3_600_000);
+    };
+    /** Moves an in-memory order's times so it was placed at `at` and reached the door `doorMin` later. */
+    const backdate = (orderId, at, doorMin) => {
+      const rec = orders.repo?.orders?.get?.(orderId);
+      if (!rec) return;
+      const shift = rec.placedAt.getTime() - at.getTime();
+      for (const f of ['placedAt', 'acceptedAt', 'preparingAt', 'readyAt', 'pickedUpAt', 'deliveredAt', 'closedAt', 'completedAt', 'merchantOfferedAt', 'promisedReadyAt']) {
+        if (rec[f] instanceof Date) rec[f] = new Date(rec[f].getTime() - shift);
+      }
+      if (doorMin != null && rec.deliveredAt instanceof Date) rec.deliveredAt = new Date(at.getTime() + doorMin * 60_000);
+    };
+    const MEALS = [
+      // [kitchen, lines, daysAgo, hour, minutes to the door, late]
+      ['khalid', [['liver_plate', 1]], 276, 21, 34],
+      ['khalid', [['liver_plate', 1], ['pepsi', 1]], 262, 22, 31],
+      ['sham', [['arabi_shawarma', 1]], 250, 20, 28],
+      ['khalid', [['khalid_mix', 1], ['salad', 1]], 241, 14, 36],
+      ['musafir', [['kahi_geymar', 2], ['iraqi_tea', 2]], 229, 8, 26],
+      ['khalid', [['liver_plate', 2]], 218, 21, 39],
+      ['haj_kareem', [['rice_bamia', 2], ['erbil_laban', 2]], 205, 13, 41, true],
+      ['sham', [['arabi_shawarma', 1], ['lemon_mint', 1]], 196, 23, 27],
+      ['khalid', [['liver_plate', 1], ['shenina', 1]], 184, 22, 30],
+      ['musafir', [['dolma', 1], ['quzi', 1]], 177, 13, 44],
+      ['khalid', [['khalid_mix', 1]], 163, 21, 33],
+      ['sham', [['falafel_plate', 1]], 151, 18, 25],
+      ['khalid', [['liver_plate', 1], ['pepsi', 2]], 142, 22, 29],
+      ['haj_kareem', [['rice_bamia', 1], ['arabic_salad', 1]], 133, 21, 38],
+      ['musafir', [['kahi_geymar', 1]], 121, 9, 24],
+      ['khalid', [['liver_plate', 1]], 112, 23, 52, true],
+      ['sham', [['arabi_shawarma', 2]], 104, 21, 30],
+      ['khalid', [['khalid_mix', 1]], 92, 14, 35],
+      ['haj_kareem', [['rice_bamia', 1]], 85, 13, 37],
+      ['khalid', [['liver_plate', 1], ['salad', 1]], 71, 22, 28],
+      ['sham', [['arabi_shawarma', 1]], 64, 20, 26],
+      ['musafir', [['dolma', 1]], 57, 13, 40],
+      ['khalid', [['khalid_mix', 1], ['liver_plate', 1]], 43, 21, 32],
+      ['sham', [['falafel_plate', 1], ['lemon_mint', 2]], 36, 17, 29],
+      ['khalid', [['liver_plate', 1]], 29, 22, 58, true],
+      ['haj_kareem', [['rice_bamia', 1], ['erbil_laban', 1]], 22, 21, 36],
+      ['musafir', [['kahi_geymar', 2]], 15, 8, 23],
+      ['khalid', [['liver_plate', 1], ['pepsi', 1]], 8, 22, 27],
+      ['sham', [['arabi_shawarma', 1]], 4, 23, 25],
+      ['khalid', [['liver_plate', 1]], 1, 21, 31],
+    ];
+    // [vehicle, daysAgo, hour, to work (else home), minutes the driver took to reach him]
+    const RIDES = [
+      ['tuktuk', 268, 7, true, 5], ['car', 247, 7, true, 7], ['tuktuk', 230, 15, false, 4], ['tuktuk', 211, 7, true, 6],
+      ['car', 188, 20, false, 9], ['tuktuk', 169, 7, true, 4], ['tuktuk', 140, 7, true, 5], ['car', 118, 15, false, 6],
+      ['tuktuk', 96, 7, true, 3], ['car', 74, 21, false, 8], ['tuktuk', 52, 7, true, 5], ['tuktuk', 33, 15, false, 4],
+      ['car', 17, 7, true, 6], ['tuktuk', 6, 7, true, 4],
+    ];
+    // [Baghdad (else Kut), daysAgo, return leg, lap child]
+    const SEATS = [[true, 238, false, false], [true, 160, true, false], [false, 97, false, false], [true, 40, false, true]];
+    // What came off his bills: [daysAgo, memo, amount]; one late-delivery credit made good.
+    const OFF_BILLS = [
+      [270, 'deal:demo', 2_000], [244, 'promo:welcome', 3_000], [226, 'deal:demo', 1_500], [200, 'points:delivery_fee', 1_500],
+      [180, 'deal:demo', 2_500], [159, 'return_bundle', 1_000], [138, 'points:service_fee', 1_000], [120, 'deal:demo', 2_000],
+      [101, 'promo:ramadan', 2_500], [88, 'points:delivery_fee', 1_500], [70, 'deal:demo', 3_000], [55, 'deal:demo:delivery', 1_000],
+      [41, 'points:delivery_fee', 2_000], [26, 'promo:friday', 1_500], [12, 'deal:demo', 2_500], [3, 'points:service_fee', 1_000],
+    ];
+
+    async function seatDone(personId, toBaghdad) {
+      const driverId = await namedRajaaDriver(toBaghdad ? 'حيدر عباس' : 'جاسم محمد');
+      const departAt = at5(Date.now() + 10 * MIN);
+      const dep = await j7deps.announce(driverId, {
+        garageId: 'mp_garage_bab1',
+        corridorId: toBaghdad ? 'aziziyah_baghdad' : 'aziziyah_kut',
+        departAt,
+        latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
+        vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'),
+        familyOnly: false,
+      });
+      const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: [toBaghdad ? 'front' : 'back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await j7deps.book(personId, held.id, 'cash');
+      await j7deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+      for (const seatId of ['front', 'back_left', 'back_middle', 'back_right']) {
+        await j7deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' }).catch(() => null);
+      }
+      await j7deps.checkIn(driverId, dep.id, booked.pin);
+      await j7deps.depart(driverId, dep.id);
+      await j7deps.arrive(driverId, dep.id);
+      return booked.id;
+    }
+
+    app.use('/demo/stats', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/stats?personId=…' });
+        for (const [key, lines, daysAgo, hour, doorMin, late] of MEALS) {
+          const id = await deliveredOrder(personId, { key, lines, daysAgo: 0 });
+          const at = baghdadAt(daysAgo, hour, 10 + (daysAgo % 40));
+          backdate(id, at, doorMin);
+          const rec = orders.repo?.orders?.get?.(id);
+          // On time unless marked late: the promise is ready + the locked ride.
+          if (rec && rec.deliveredAt) {
+            const ride = rec.promisedRideMin ?? 15;
+            rec.promisedReadyAt = new Date(rec.deliveredAt.getTime() - ride * 60_000 + (late ? -12 : 6) * 60_000);
+          }
+        }
+        const { home, work } = await homeAndWork(personId);
+        const free = async (vehicle) => (await ensureDrivers()).find((d) => !d.tripId && d.def.vehicle === vehicle)?.def.name;
+        for (const [vehicle, daysAgo, hour, toWork, waitMin] of RIDES) {
+          const name = await free(vehicle);
+          if (!name) throw new Error(`no free demo ${vehicle}`);
+          const id = await finishedRide(personId, name, toWork ? home : work, toWork ? work : home, 5);
+          const at = baghdadAt(daysAgo, hour, 15 + (daysAgo % 30));
+          backdate(id, at, 14);
+          const tripId = (await trips.tripIdsForOrder(id)).at(-1);
+          const trip = tripId ? trips.repo?.trips?.get?.(tripId) : null;
+          if (trip) {
+            trip.acceptedAt = new Date(at.getTime() + 60_000);
+            const pickup = [...trips.repo.stops.values()].find((s) => s.tripId === tripId && s.orderId === id && s.type === 'pickup');
+            if (pickup) pickup.arrivedAt = new Date(at.getTime() + (1 + waitMin) * 60_000);
+          }
+        }
+        for (const [toBaghdad, daysAgo, returnLeg, lapChild] of SEATS) {
+          const bookingId = await seatDone(personId, toBaghdad);
+          const b = j7deps.repo?.bookings?.get?.(bookingId);
+          if (b) {
+            b.completedAt = baghdadAt(daysAgo, toBaghdad ? 11 : 16);
+            if (returnLeg) b.returnDiscountIqd = 1_000;
+            if (lapChild) b.lapChildren = 1;
+          }
+        }
+        const customer = StatsAccounts.customer(personId);
+        const group = (id, kind, at, lines) => ({ id, kind, occurredAt: at, refs: {}, lines, controls: [] });
+        const stamp = Date.now().toString(36);
+        await statsLedger.recordAll([
+          ...OFF_BILLS.map(([daysAgo, memo, amount], i) =>
+            group(`demo:stats:${personId}:${stamp}:${i}`, 'money', baghdadAt(daysAgo, 21), [{ type: 'promo_funded', amount, fromAccount: StatsAccounts.platform, toAccount: customer, memo }]),
+          ),
+          group(`demo:stats:${personId}:${stamp}:late`, 'money', baghdadAt(29, 23), [{ type: 'credit_issued', amount: 1_500, fromAccount: StatsAccounts.platform, toAccount: customer, memo: 'late_promise' }]),
+          // Points spent against fees: 100 points = 1,000 دينار.
+          ...OFF_BILLS.filter(([, memo]) => memo.startsWith('points:')).map(([daysAgo, , amount], i) =>
+            group(`demo:stats:${personId}:${stamp}:used${i}`, 'points', baghdadAt(daysAgo, 21), [{ type: 'points_redeemed', amount: amount / 10, fromAccount: StatsAccounts.points(personId), toAccount: StatsAccounts.pointsPool }]),
+          ),
+          ...[260, 200, 150, 95, 44, 8].map((daysAgo, i) =>
+            group(`demo:stats:${personId}:${stamp}:pts${i}`, 'points', baghdadAt(daysAgo, 22), [{ type: 'points_earned', amount: 90 + i * 15, fromAccount: StatsAccounts.pointsPool, toAccount: StatsAccounts.points(personId) }]),
+          ),
+        ]);
+        json(res, 200, { meals: MEALS.length, rides: RIDES.length, seats: SEATS.length });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
   }
 
   // ───────────────────────── taxi ideas x2 / x3 / x4 (+ n10): taxis linked to a الرجعة seat ─────────────────────────
