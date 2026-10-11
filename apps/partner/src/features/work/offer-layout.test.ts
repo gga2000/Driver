@@ -12,6 +12,7 @@ const food = (over: Partial<PartnerOffer> = {}): PartnerOffer => ({
   wave: 1,
   sentAt: new Date('2026-10-05T10:00:00Z'),
   expiresAt: new Date('2026-10-05T10:00:15Z'),
+  serverNow: new Date('2026-10-05T10:00:00Z'),
   ringSec: 15,
   seen: false,
   pickup: { zoneId: 'centre', label: 'مطعم خالد', pin: null, landmark: null },
