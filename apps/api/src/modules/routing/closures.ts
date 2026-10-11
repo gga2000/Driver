@@ -30,8 +30,10 @@ export const CLOSURE_RULES = {
   endsM: 20,
   /** A trip that starts or ends this close to a closure has to use it: nothing to go around. */
   touchM: 30,
-  /** How far beside a closure the ways around are tried. */
+  /** How far beside a closure (a route running along it takes a parallel street) the ways around are tried. */
   detourM: [150, 300] as const,
+  /** How far past a closure's ends (a route crossing it goes round its end) the ways around are tried. */
+  pastEndM: [100, 250] as const,
   /** Rounds of going around (one per closure met on the way). */
   maxRounds: 2,
 } as const;
@@ -131,8 +133,9 @@ export function touches(points: readonly LatLng[], c: RouteClosure, rules: Closu
 }
 
 /**
- * Ways around closure `c` for a trip through `points`: the trip with one extra stop beside the closure's
- * middle, on either side and at two distances, put into the leg that passes nearest it.
+ * Ways around closure `c` for a trip through `points`: the trip with one extra stop put into the leg that
+ * passes nearest the closure — beside its middle on either side (for a route that ran along it, a parallel
+ * street), or just past either end (for a route that crossed it, round its end).
  */
 export function detourCandidates(points: readonly LatLng[], c: RouteClosure, rules: ClosureRules = CLOSURE_RULES): LatLng[][] {
   const s = samplePath(c.path, rules.stepM);
@@ -141,7 +144,8 @@ export function detourCandidates(points: readonly LatLng[], c: RouteClosure, rul
   const a = toXY(mid, c.path[0]!);
   const b = toXY(mid, c.path[c.path.length - 1]!);
   const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-  const n = { x: -(b.y - a.y) / len, y: (b.x - a.x) / len };
+  const u = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const n = { x: -u.y, y: u.x };
   // The leg whose straight line passes nearest the closure's middle gets the extra stop.
   let leg = 0;
   let best = Number.POSITIVE_INFINITY;
@@ -152,13 +156,13 @@ export function detourCandidates(points: readonly LatLng[], c: RouteClosure, rul
       leg = i;
     }
   }
-  const out: LatLng[][] = [];
-  for (const d of rules.detourM)
-    for (const side of [1, -1]) {
-      const via = fromXY(mid, n.x * d * side, n.y * d * side);
-      out.push([...points.slice(0, leg + 1), via, ...points.slice(leg + 1)]);
-    }
-  return out;
+  const vias: LatLng[] = [];
+  for (const d of rules.detourM) for (const side of [1, -1]) vias.push(fromXY(mid, n.x * d * side, n.y * d * side));
+  for (const d of rules.pastEndM) {
+    vias.push(fromXY(mid, a.x - u.x * d, a.y - u.y * d));
+    vias.push(fromXY(mid, b.x + u.x * d, b.y + u.y * d));
+  }
+  return vias.map((via) => [...points.slice(0, leg + 1), via, ...points.slice(leg + 1)]);
 }
 
 function segmentDistM(p: LatLng, a: LatLng, b: LatLng): number {
