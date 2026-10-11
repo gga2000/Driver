@@ -65,6 +65,9 @@ export const LANDMARK_PARTS = [
   // the garage terminal (Ali's pick, 2026-10-10): fins and roofs, their saffron light edge, the glass hall, the
   // destination colours, and `pool`, the light on the ground at night (drawn see-through by its own layer)
   'roof', 'led', 'hall', 'column', 'planter', 'paint', 'dest1', 'dest2', 'dest3', 'taxiband', 'kiosk', 'pool',
+  // the Ramadan lanterns, kept all year (Ali, 2026-10-11): saffron, gold and coral glass, painted by day, lit at night;
+  // the street strings in the tiles' `lanterns` layer use the same three (`c` 0–2)
+  'lamp1', 'lamp2', 'lamp3',
 ] as const;
 export type LandmarkPart = (typeof LANDMARK_PARTS)[number];
 
@@ -76,6 +79,7 @@ const LANDMARK_DAY: Record<LandmarkPart, string> = {
   yard: '#CDBB98', canopy: '#B8653A', sign: '#E08A1E', bus: '#FBF8F1', bus2: '#EADCC0',
   roof: '#FFFDF7', led: '#E08A1E', hall: '#5A4A3A', column: '#F2EADA', planter: '#B8653A', paint: '#FBF5E6',
   dest1: '#E08A1E', dest2: '#8E2F22', dest3: '#6E7A3A', taxiband: '#E08A1E', kiosk: '#E08A1E', pool: '#FFB04A',
+  lamp1: '#E08A1E', lamp2: '#D9A23A', lamp3: '#C8603F',
 };
 
 const DAY: GoldenPalette = {
@@ -127,7 +131,8 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     light: { color: '#FFD9B8', intensity: 0.28 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
     roofTones: ['#DDB898', '#D9BFA4', '#D2A884', '#E4C6A8', '#CC9F7A', '#D8B392'],
-    landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#C9B08E', white: '#F2E2D2', bus: '#F2E2D2' },
+    // the lanterns come on as the sun goes down
+    landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#C9B08E', white: '#F2E2D2', bus: '#F2E2D2', lamp1: '#F59A2E', lamp2: '#F2C054', lamp3: '#EE7650' },
   },
   night: {
     land: '#1D1712', urban: '#201913', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
@@ -151,6 +156,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
       yard: '#2E271E', canopy: '#8A4C2C', sign: '#E08A1E', bus: '#B8AE9E', bus2: '#9E9282',
       roof: '#6A6052', led: '#FFC66E', hall: '#FFC66E', column: '#5E554A', planter: '#5A3020', paint: '#7A6A52',
       dest1: '#FFB04A', dest2: '#E0604A', dest3: '#B8C46A', taxiband: '#C8781A', kiosk: '#FFB04A', pool: '#FFB04A',
+      lamp1: '#FFB04A', lamp2: '#FFD77E', lamp3: '#FF8A5C',
     },
   },
 };

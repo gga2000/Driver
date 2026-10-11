@@ -36,7 +36,7 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
  * overlay (drawn from the same values) never drifts from the tiles, including during follow
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onFail }: BaseMapProps & { onFail: () => void }) {
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onRoads, onFail }: BaseMapProps & { onFail: () => void }) {
   const api = useApi();
   const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zonesRef = useRef(zonesQuery.data);
@@ -45,8 +45,8 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   const mapRef = useRef<MlMap | null>(null);
   const driving = useRef(false);
   const labels = useSharedValue(1);
-  const cbs = useRef({ onUserGestureStart, onUserCamera, onFail });
-  cbs.current = { onUserGestureStart, onUserCamera, onFail };
+  const cbs = useRef({ onUserGestureStart, onUserCamera, onFail, onRoads });
+  cbs.current = { onUserGestureStart, onUserCamera, onFail, onRoads };
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +110,11 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
             m.setStyle(goldenStyle());
           }, LIGHT_CHECK_MS);
         }
+        // The streets on screen once the map settles, for a screen that asked (our map only).
+        m.on('idle', () => {
+          if (!onGolden || !golden || !cbs.current.onRoads) return;
+          cbs.current.onRoads(golden.roadsFromFeatures(m.querySourceFeatures(golden.GOLDEN_SOURCE, { sourceLayer: 'roads' })));
+        });
         m.touchZoomRotate.disableRotation();
         m.keyboard.disableRotation();
         // Attribution is drawn by the screen (`MapAttribution`) above the sheet, not as a MapLibre control.
