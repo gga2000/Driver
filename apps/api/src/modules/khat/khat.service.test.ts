@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { appRouter } from '@driver/contracts/router';
 import { KHAT_RULES, KhatSweepCloseInput, type AppContext, type DispatchBoard, type SessionClaims } from '@driver/contracts';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { InMemoryTimerStore, TIMER_SWEEP_GRACE_MS, TimerSweeper } from '../../shared/timers/index.js';
 import { ConfigService } from '../config/index.js';
 import { AuditLogService, ControlsService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { DispatchService } from '../dispatch/index.js';
@@ -537,6 +538,42 @@ describe('khat sweep alert: page and close', () => {
     await expect(caller('p_drv', ['khat_driver']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller('p_cust', ['customer']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     for (const role of ['dispatcher', 'support', 'admin']) await expect(caller(`p_${role}`, [role]).khat.closeSweepAlert(input)).resolves.toBeDefined();
+  });
+});
+
+describe('khat sweep check survives Redis (FLW-22)', () => {
+  const AFTER = KHAT_RULES.sweepAlertAfterMin * 60_000;
+
+  async function durable() {
+    const h = await sweepSetup();
+    const timerStore = new InMemoryTimerStore();
+    const sweeper = new TimerSweeper(timerStore, h.t.clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
+    h.khat.bindDurableTimers(timerStore, sweeper);
+    return { ...h, timerStore, sweeper };
+  }
+
+  it('the "child may still be on board" check still alerts when its job was lost', async () => {
+    const h = await durable();
+    await h.finishRun();
+    expect(h.timerStore.rows.some((r) => r.queue === 'khat.timers' && r.status === 'pending')).toBe(true);
+    await h.queue.close(); // Redis lost the job
+    await h.advance(AFTER + TIMER_SWEEP_GRACE_MS);
+    expect(await h.missed()).toEqual([]);
+    expect((await h.sweeper.sweep()).fired).toBeGreaterThanOrEqual(1);
+    expect(await h.missed()).toHaveLength(1);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toHaveLength(1);
+  });
+
+  it('a check that runs twice raises one alert', async () => {
+    const h = await durable();
+    await h.finishRun();
+    vi.spyOn(h.timerStore, 'markFired').mockRejectedValue(new Error('database timeout'));
+    await h.advance(AFTER);
+    expect(await h.missed()).toHaveLength(1);
+    await h.advance(TIMER_SWEEP_GRACE_MS);
+    expect((await h.sweeper.sweep()).fired).toBeGreaterThanOrEqual(1);
+    expect(await h.missed()).toHaveLength(1);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toHaveLength(1);
   });
 });
 
