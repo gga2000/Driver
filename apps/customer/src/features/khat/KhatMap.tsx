@@ -3,7 +3,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps } from '@maplibre/maplibre-react-native';
 import type { GuardianRunView } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
-import * as pieces from '@driver/map/pieces';
+import * as pieces from '@driver/map/pieces/khat';
 import { useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
