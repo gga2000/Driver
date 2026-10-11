@@ -141,7 +141,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     let lightTimer: ReturnType<typeof setInterval> | undefined;
     let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces')])
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/moments')])
       .then(async ([mod, golden, pieces]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         await prepareGolden(maplibregl);

@@ -3,7 +3,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps, MapRef } from '@maplibre/maplibre-react-native';
 import type { CourierPosition, OrderTracking } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
-import { slowStretchLayers } from '@driver/map/pieces';
+import { slowStretchLayers } from '@driver/map/pieces/moments';
 import { Avatar, Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
