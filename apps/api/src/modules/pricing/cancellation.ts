@@ -43,7 +43,7 @@ export interface TripCancellationSubject {
 export type CancellationSubject = OrderCancellationSubject | TripCancellationSubject;
 
 /**
- * Money rule (Ali may change it; 150 m is the default pending his confirmation): how far from the pickup
+ * Money rule (150 m, Ali 2026-10-11; only he changes it): how far from the pickup
  * pin a driver's «وصلت» still counts as "arrived" for the late-cancel fee and the driver's after-arrival
  * credit. Wider than the trips module's 60 m arrival geofence (kept for ops and the ETA learner): rider
  * pins here are often 30–100 m off and GPS drifts, and a driver waiting at the alley mouth did arrive.

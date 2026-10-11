@@ -266,7 +266,7 @@ How each one is detected:
   again at once. Held (suggest-only) jobs are never offered by themselves.
 - **Late-cancel fee after "arrival".** The rider's after-arrival fee (and the driver's
   after-arrival credit) count only a «وصلت» tapped near the pickup: within `FEE_ARRIVAL_RADIUS_M`
-  (150 m by default, a money-rule number pending Ali's confirmation, in `pricing/cancellation.ts`),
+  (150 m, Ali 2026-10-11, a money-rule number in `pricing/cancellation.ts`),
   or within 60 m plus the tap's GPS accuracy (at most 90 m). A farther tap keeps the en-route rule,
   and only then does the rider's tracking say «السايق يگول وصل» (`TrackStop.arrivalClaimedOnly`),
   so the line and the fee never disagree. The 60 m `arrivedOutsideGeofence` flag on the stop is
