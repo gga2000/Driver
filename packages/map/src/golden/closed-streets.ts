@@ -1,6 +1,6 @@
 import type { LayerSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { offsetMetres, pathMetres, slicePath, type LngLat } from './metres.js';
-import { GOLDEN_FONTS } from './golden-style.js';
+import { GOLDEN_FONTS } from './fonts.js';
 import type { GoldenLight } from './sun.js';
 
 /**
