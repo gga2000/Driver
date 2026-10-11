@@ -61,7 +61,7 @@ describe('monthCounts (joy w6)', () => {
 });
 
 describe('savedBetween (w10 and w6 share it)', () => {
-  it('points used, the delay credit and change kept, inside the range only; a top-up is not a saving', () => {
+  it('only what came off his bills, inside the range: not change kept, not the delay credit, not a top-up (Ali, 2026-10-11)', () => {
     const events = [
       ev({ type: 'promo_funded', amount: 1_000 }),
       ev({ type: 'credit_issued', amount: 1_500, memo: LATE_PROMISE_MEMO }),
@@ -69,7 +69,7 @@ describe('savedBetween (w10 and w6 share it)', () => {
       ev({ type: 'cash_change_to_wallet', amount: 750 }),
       ev({ type: 'promo_funded', amount: 2_000, occurredAt: day('2026-10-02T10:00:00Z') }),
     ];
-    expect(savedBetween('customer:me', events, day('2026-08-31T21:00:00Z'), day('2026-09-30T21:00:00Z'))).toBe(3_250);
+    expect(savedBetween('customer:me', events, day('2026-08-31T21:00:00Z'), day('2026-09-30T21:00:00Z'))).toBe(1_000);
   });
 });
 
