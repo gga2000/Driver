@@ -5,6 +5,7 @@ import { AZIZIYAH_CENTRE, AZIZIYAH_ZONES, type CartOwnerView } from '@driver/con
 import { Chip, Icon, Text, TextField, useTheme } from '@driver/ui';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
+import { timeLabel } from '@/features/hours/logic';
 import { useCounterToast } from '@/lib/toast';
 import { useHere } from './position';
 import { useCartActions } from './queries';
@@ -139,6 +140,24 @@ export function OpenHere({ view }: { view: CartOwnerView }) {
           <Chip label={t('merchant.cart.dishes_more')} icon="plus" role="button" onPress={() => router.push('/menu')} testID="cart-dish-more" />
         </View>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/cart/hours')}
+        testID="cart-hours-row"
+        style={({ pressed }) => ({ minHeight: 64, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingHorizontal: theme.space[4], opacity: pressed ? 0.85 : 1 })}
+      >
+        <Icon name="clock" size={24} color={theme.colors.text} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text variant="body" weight={600}>
+            {t('merchant.cart.hours_title')}
+          </Text>
+          <Text variant="footnote" color="textMuted" numberOfLines={1}>
+            {cart.awayNote ?? (cart.usual ? t('merchant.cart.hours_row_usual', { from: timeLabel(t, cart.usual.from), to: timeLabel(t, cart.usual.to) }) : t('merchant.cart.hours_row_none'))}
+          </Text>
+        </View>
+        <Icon name="chevron-forward" size={20} color={theme.colors.textMuted} />
+      </Pressable>
 
       <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start' }}>
         <Icon name="bell" size={18} color={theme.colors.textMuted} />

@@ -4,20 +4,26 @@ import { Pressable, View } from 'react-native';
 import { formatHourPart } from '@driver/i18n';
 import type { CartOwnerView, OwnerWalkupView } from '@driver/contracts';
 import { Button, Icon, ModalSheet, Text, useTheme } from '@driver/ui';
+import { MIcon } from '@/components/MIcon';
+import { useSoundReady } from '@/features/board/alarm';
 import { useServerTime } from '@/features/board/clock';
+import { testChime } from '@/lib/alert-sound';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { prefs as prefsStore, usePrefs } from '@/lib/prefs';
 import { minutesBetween } from '@/lib/time';
 import { useCounterToast } from '@/lib/toast';
 import { useCartActions } from './queries';
 import { nearestZone } from './spot';
+import { useWalkupRing } from './useWalkupRing';
 
 /**
  * «طلبات الليلة» (cart owner concept v2): the ink strip says where the cart stands, since when and the
  * cash so far, with «سدّيت الليلة؟». Under it the walk-over tickets, oldest first, each by its number
  * (never a name or a phone): «جاهزة» or «ما أگدر هسه» while he cooks, «استلمها» once the customer is
- * at the cart. Delivery orders keep the restaurants' board, one tap away.
+ * at the cart. A new ticket chimes (useWalkupRing) and wears «جديدة»; when sound can't play, a red
+ * strip says so. Delivery orders keep the restaurants' board, one tap away.
  */
 export function Tonight({ view }: { view: CartOwnerView }) {
   const theme = useTheme();
@@ -29,6 +35,15 @@ export function Tonight({ view }: { view: CartOwnerView }) {
   const { cart, walkups, tonight } = view;
   const place = cart.spot ? (cart.spot.label ?? (locale === 'en' ? nearestZone(cart.spot).name_en : nearestZone(cart.spot).name_ar)) : '';
   const fail = (e: unknown) => toast.show({ tone: 'danger', message: apiErrorMessage(e, t('merchant.cart.failed'), locale) });
+  const prefs = usePrefs();
+  const soundReady = useSoundReady();
+  const fresh = useWalkupRing(walkups, prefs.soundOn);
+  // The board's «الصوت طافي» chip, for the cart: one tap turns the sound on (and unlocks it on the web).
+  const soundOn = async () => {
+    if (!prefs.soundOn) await prefsStore.setSound(true);
+    const ok = await testChime();
+    toast.show(ok ? { message: t('merchant.sound.on_toast'), tone: 'success', icon: 'check' } : { message: t('merchant.settings.test_sound_blocked'), tone: 'warning' });
+  };
 
   return (
     <View style={{ gap: theme.space[4] }} testID="cart-tonight">
@@ -54,6 +69,20 @@ export function Tonight({ view }: { view: CartOwnerView }) {
         </Pressable>
       </View>
 
+      {!prefs.soundOn || !soundReady ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void soundOn()}
+          testID="cart-sound-off"
+          style={({ pressed }) => ({ minHeight: 48, borderRadius: theme.radius.lg, backgroundColor: theme.colors.danger, flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[4], opacity: pressed ? 0.88 : 1 })}
+        >
+          <MIcon name="volume-off" size={20} color="onDanger" />
+          <Text variant="body" weight={600} style={{ flex: 1, color: theme.colors.onDanger }}>
+            {t('merchant.sound.off_chip')}
+          </Text>
+        </Pressable>
+      ) : null}
+
       {walkups.length === 0 ? (
         <View style={{ alignItems: 'center', paddingVertical: theme.space[8], gap: theme.space[2] }} testID="cart-tonight-empty">
           <Icon name="walk" size={36} color={theme.colors.textMuted} />
@@ -69,6 +98,7 @@ export function Tonight({ view }: { view: CartOwnerView }) {
           <Ticket
             key={w.id}
             w={w}
+            fresh={fresh.has(w.id)}
             busy={actions.ready.isPending || actions.reject.isPending || actions.collect.isPending}
             onReady={() => actions.ready.mutate({ merchantOrgId: cart.merchantOrgId, walkupId: w.id }, { onError: fail })}
             onReject={() => actions.reject.mutate({ merchantOrgId: cart.merchantOrgId, walkupId: w.id }, { onError: fail, onSuccess: () => toast.show({ message: t('merchant.cart.rejected', { code: w.code }) }) })}
@@ -127,7 +157,7 @@ export function Tonight({ view }: { view: CartOwnerView }) {
 }
 
 /** One walk-over ticket (v2): its number big, who (always «جاي ماشي»), what, the cash he takes, and the next tap. */
-function Ticket({ w, busy, onReady, onReject, onCollect }: { w: OwnerWalkupView; busy: boolean; onReady: () => void; onReject: () => void; onCollect: () => void }) {
+function Ticket({ w, fresh, busy, onReady, onReject, onCollect }: { w: OwnerWalkupView; fresh: boolean; busy: boolean; onReady: () => void; onReject: () => void; onCollect: () => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -154,6 +184,13 @@ function Ticket({ w, busy, onReady, onReject, onCollect }: { w: OwnerWalkupView;
             <Text variant="heading" face="display">
               {ready ? t('merchant.cart.ready_waiting') : t('merchant.cart.walker')}
             </Text>
+            {fresh ? (
+              <View testID={`cart-fresh-${w.code}`} style={{ borderRadius: theme.radius.pill, backgroundColor: c.fill, paddingHorizontal: theme.space[2], paddingVertical: 2 }}>
+                <Text variant="footnote" weight={700} style={{ color: c.on }}>
+                  {t('merchant.cart.fresh')}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <Text variant="footnote" color={!ready && left < 0 ? 'danger' : 'textMuted'} tabular>
             {timing}

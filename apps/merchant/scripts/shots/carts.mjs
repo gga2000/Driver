@@ -1,5 +1,6 @@
 // Food carts (عربانات, Ali 2026-10-11), the owner's side: «فتحت هنا» with the day map (v1), tonight's
-// orders with no ticket yet, then three walk-over tickets (one ready, one late), and «سدّيت الليلة؟».
+// orders with no ticket yet, three walk-over tickets coming in («جديدة»), the same after a reload (one
+// ready, one late), «سدّيت الليلة؟», then «أوقاتك والإجازة» (usual hours and an away note).
 // Seeded by scripts/demo/carts.mjs (`/demo/carts/close`, `/demo/carts/open`, `/demo/carts/tickets`).
 export default {
   name: 'carts',
@@ -29,7 +30,10 @@ export default {
     await byTestId('cart-tonight').waitFor({ timeout: 15_000 });
     await shot('tonight-empty');
 
+    // The tickets come in while the screen is open: they chime and wear «جديدة».
     await demoPost('/demo/carts/tickets');
+    await page.locator('[data-testid^="cart-fresh-"]').first().waitFor({ timeout: 15_000 });
+    await shot('tickets-new');
     await page.reload({ waitUntil: 'load' });
     await byTestId('cart-tonight').waitFor({ timeout: 20_000 });
     await page.locator('[data-testid^="cart-ticket-"]').first().waitFor({ timeout: 15_000 });
@@ -41,5 +45,15 @@ export default {
     await shot('close');
     await byTestId('cart-close-yes').click();
     await byTestId('cart-open').waitFor({ timeout: 15_000 });
+
+    // «أوقاتك والإجازة»: usual hours and an away note, with the line people will read.
+    await byTestId('cart-hours-row').click();
+    await byTestId('cart-hours').waitFor({ timeout: 15_000 });
+    await shot('hours', { full: true });
+    await byTestId('cart-away-travel').click();
+    await shot('hours-away');
+    await byTestId('cart-hours-save').click();
+    await byTestId('cart-open').waitFor({ timeout: 15_000 });
+    await shot('open-away', { full: true });
   },
 };
