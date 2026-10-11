@@ -11,7 +11,6 @@ import { kitchenPhotos } from '@/features/home/dish-photos';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
-import { countKey } from '@/lib/plural';
 import { ramadanKitchens, type RamadanLine } from './ramadan';
 
 /** How many of the kitchens that make it show their photo, its size and how far each tucks under the last. */
@@ -47,7 +46,7 @@ export function IftarCard({ line, timetable, kitchens }: { line: Exclude<Ramadan
   const meta = [iftar ? t('season.iftar_at', { time: formatClock(line.at, { locale }) }) : null, timetable ? t('season.by_timetable', { timetable }) : null].filter((m): m is string => m !== null);
   const making = useMemo(() => ramadanKitchens(kitchens, line), [kitchens, line]);
   const n = making.length;
-  const count = iftar ? t(countKey('season.iftar_kitchens', n), { n }) : t(countKey('home.food_open', n), { n });
+  const count = t(iftar ? 'season.iftar_kitchens' : 'home.food_open', { n });
   return (
     <View testID="home-season" onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: night.fill }}>
       <CornerFill base={night.fill} light={night.light} />
