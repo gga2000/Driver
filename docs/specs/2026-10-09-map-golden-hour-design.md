@@ -168,7 +168,7 @@ map via `roadsFromFeatures()` (also in `@driver/map/golden`); the customer `Base
   cream stripes, a label). No money rule changes.
 - **N16 The tablet sees the courier**: `shopWarmGeoJSON(at)` with `shopWarmLayers`, a warm pool that fades in once.
 - **N12 Seats at the garage** (`garage-seats.ts`): `GARAGE_BAYS` (generated from the garage model by
-  `tools/map-tiles/garage_bays.py`), `garageSeatsGeoJSON(cars)` (one block per seat floating over the car, gold for
+  `tools/map-tiles/garage_bays.py`), `garageSeatsGeoJSON(cars)` (one block per seat in two rows floating 8.8–10 m up, clear of the wave roof, gold for
   free, date brown for taken, each carrying the car id) and `garageSeatLayers`.
 - **N14 Only your home and the bus** (`khat.ts`): `khatRouteGeoJSON({ route, bus, school, mine, others })`. Other
   stops are fractions along the route, never coordinates; they draw as blank dots.
