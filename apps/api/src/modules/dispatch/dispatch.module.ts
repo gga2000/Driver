@@ -1,4 +1,4 @@
-import { Inject, Injectable, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
@@ -45,10 +45,10 @@ export class DispatchRuntime implements OnModuleDestroy {
     @Inject(DISPATCH_QUEUE) queue: Queue<TimerJob>,
     orchestrator: OfferOrchestrator,
     @Inject(TIMER_STORE) timers: TimerStore,
-    @Optional() sweeper: TimerSweeper | null,
+    sweeper: TimerSweeper,
   ) {
     // NTF-05: booked rides' and departures' far-ahead timers survive a lost Redis job.
-    orchestrator.bindDurableTimers(timers, sweeper ?? null);
+    orchestrator.bindDurableTimers(timers, sweeper);
     if (queue instanceof InMemoryQueue) {
       this.timer = setInterval(() => void queue.drain().catch(() => undefined), 1000);
       this.timer.unref();
