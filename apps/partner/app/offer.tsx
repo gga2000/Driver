@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { AppState, BackHandler, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerOffer } from '@driver/contracts';
 import { partnerServices } from '@driver/design-tokens';
@@ -144,8 +144,10 @@ function OfferCard({ offer, receivedAt, vehicle, self }: { offer: PartnerOffer; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 
-  // Android back never closes an unanswered offer: he answers it, or it rings out.
+  // Android back never closes an unanswered offer: he answers it, or it rings out. (On the web the
+  // watcher brings the card back instead; BackHandler doesn't exist there.)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => !answered.current);
     return () => sub.remove();
   }, []);
