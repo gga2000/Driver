@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
-import { ChatThreadKind, type ChatThreadKind as ChatKind, type Order, type TicketChannel, type TicketKind } from '@driver/contracts';
+import { ChatThreadKind, type ChatThreadKind as ChatKind, type Order, type TicketChannel, type TicketKind, type Trip } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { formatClock, formatIqd } from '@/lib/format';
@@ -37,6 +37,7 @@ import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
 import { StuckStrip } from './stuck/strip';
+import { canTakeOff, TakeOffDialog } from './dispatch/take-off';
 import {
   Avatar,
   Button,
@@ -138,7 +139,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const aside = details.length > 0 || o.partial !== null;
   return (
     <Frame>
-      <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} now={now} />
+      <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} trip={lastTrip.data ?? null} now={now} />
       <StuckStrip orderId={o.id} />
       {o.rating && badRating(o.rating) ? <RatingCase o={o} courierId={courierId} /> : null}
       <section aria-labelledby="order-story" className="rounded-lg border border-line bg-surface shadow-card">
@@ -168,7 +169,7 @@ function Frame({ children }: { children: ReactNode }) {
 
 // ───────────────────────── header + actions ─────────────────────────
 
-function Header({ o, lateMin, riskMin, courierId, now }: { o: Order; lateMin: number | null; riskMin: number | null; courierId: string | null; now: Date }) {
+function Header({ o, lateMin, riskMin, courierId, trip, now }: { o: Order; lateMin: number | null; riskMin: number | null; courierId: string | null; trip: Trip | null; now: Date }) {
   return (
     <header className="mb-5 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
@@ -200,14 +201,14 @@ function Header({ o, lateMin, riskMin, courierId, now }: { o: Order; lateMin: nu
           {t('console.order_placed_at', { time: stamp(o.placedAt, now) })}
         </p>
       </div>
-      <Actions o={o} courierId={courierId} />
+      <Actions o={o} courierId={courierId} trip={trip} />
     </header>
   );
 }
 
-type ActionKind = 'contact' | 'ticket' | 'reassign';
+type ActionKind = 'contact' | 'ticket' | 'reassign' | 'take_off';
 
-function Actions({ o, courierId }: { o: Order; courierId: string | null }) {
+function Actions({ o, courierId, trip }: { o: Order; courierId: string | null; trip: Trip | null }) {
   const trpc = useTRPC();
   const { roles } = useMyRoles();
   const [open, setOpen] = useState<ActionKind | null>(null);
@@ -237,9 +238,15 @@ function Actions({ o, courierId }: { o: Order; courierId: string | null }) {
             </Button>
           </>
         ) : null}
-        {dispatch && active && !ride ? (
+        {/* A courier who stalls before pickup: the job comes off him and goes back to dispatch. Once the
+            food is in his bag nothing moves it. No courier yet: assign one on Dispatch. */}
+        {dispatch && active && !ride && trip && canTakeOff(trip) ? (
+          <Button size="sm" icon={<IconDispatch size={16} />} onClick={() => setOpen('take_off')}>
+            {t('console.take_off')}
+          </Button>
+        ) : dispatch && active && !ride && !courierId ? (
           <Button size="sm" icon={<IconDispatch size={16} />} onClick={() => setOpen('reassign')}>
-            {courierId ? t('console.order_reassign') : t('console.order_assign')}
+            {t('console.order_assign')}
           </Button>
         ) : null}
       </div>
@@ -249,6 +256,7 @@ function Actions({ o, courierId }: { o: Order; courierId: string | null }) {
         </p>
       ) : null}
       {open === 'contact' || open === 'ticket' ? <TicketDialog o={o} contact={open === 'contact'} onClose={() => setOpen(null)} /> : null}
+      <TakeOffDialog tripId={open === 'take_off' && trip ? trip.id : null} title={orderLabel(o.id)} onClose={() => setOpen(null)} />
       <Dialog
         open={open === 'reassign'}
         onClose={() => setOpen(null)}
