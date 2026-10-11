@@ -23,6 +23,10 @@
       "types": "./dist/seeds/demo-shops.d.ts",
       "default": "./dist/seeds/demo-shops.js"
     },
+    "./demo-home-kitchens": {
+      "types": "./dist/seeds/demo-home-kitchens.d.ts",
+      "default": "./dist/seeds/demo-home-kitchens.js"
+    },
     "./live-client": {
       "types": "./dist/live-client.d.ts",
       "default": "./dist/live-client.js"

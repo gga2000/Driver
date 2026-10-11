@@ -53,7 +53,7 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const { createApp } = await load('bootstrap.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { CatalogRpc, CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
@@ -68,7 +68,14 @@ const controls = app.get(ControlsService);
 // The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
 // door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
 const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
-const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
+// أكل بيت: four demo home kitchens (@driver/contracts/demo-home-kitchens; never in `pnpm db:seed`), and
+// home cooking opened in the studio (the city file keeps it closed until Ali opens it).
+const { DEMO_HOME_KITCHENS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-home-kitchens.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_HOME_KITCHENS, 'demo-owner'))];
+if (process.env.DEMO_HOME_KITCHENS !== '0') {
+  const { ConfigService } = await load('modules/config/index.js');
+  app.get(ConfigService).setHomeKitchensOpen('aziziyah', true);
+}
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -151,6 +158,30 @@ app.use('/demo/popular', async (req, res) => {
         if (i < 20) lines.push({ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 });
         if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
         await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
+      }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// أكل بيت: real reservations at مطبخ أم حسين so the reserve sheet shows a full time
+// — her chicken biryani's first time fully booked (8 of 8).
+let homeBookedSeeded = false;
+app.use('/demo/home-booked', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/home-booked' });
+    if (!homeBookedSeeded) {
+      homeBookedSeeded = true;
+      const umHussein = seeded.find((s) => s.seed.key === 'um_hussein');
+      for (const [key, qtys] of [['biryani', [2, 2, 2, 2]]]) {
+        const itemId = umHussein.itemIds.get(key);
+        const { days } = await app.get(CatalogRpc).homeSlots({ actor: null, ip: null }, { merchantId: umHussein.orgId, itemId });
+        const at = days[0].slots[0].at;
+        for (const [i, qty] of qtys.entries()) {
+          await orders.place(`demo-home-${key}-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: umHussein.orgId, lines: [{ catalogItemId: itemId, qty }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: at });
+        }
       }
     }
     json(res, 200, { ok: true });

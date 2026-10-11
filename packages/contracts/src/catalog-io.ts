@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { DealBadge } from './deals.js';
+import { HomeDishView, HomeKitchenBadge, type HomeSlots, type HomeSlotsInput } from './home-kitchens.js';
 import { MenuPot, MenuStory, type FollowDishInput, type MyDishFollows, type PotsTodayInput, type TodayPot } from './habits-io.js';
 import type { Actor } from './identity-io.js';
 import type { Quote } from './pricing.js';
@@ -89,6 +90,8 @@ export const RestaurantCard = z.object({
   pauses: z.array(z.object({ dow: z.number().int().min(0).max(6), start: z.string(), end: z.string() })).optional(),
   /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
   deals: z.array(DealBadge).optional(),
+  /** أكل بيت: set on a home kitchen (her letter and how many dishes are ready or by reservation); absent on a restaurant. */
+  home: HomeKitchenBadge.nullable().optional(),
 });
 export type RestaurantCard = z.infer<typeof RestaurantCard>;
 
@@ -166,6 +169,10 @@ export const MenuItem = z.object({
   labels: z.array(DishLabel).optional(),
   /** «جهّز محلك»: the photo is Driver's library photo of the dish; the app writes «صورة توضيحية» on it. */
   photoIllustrative: z.boolean().optional(),
+  /** «شنو بالصحن؟»: what is on the plate, in the kitchen's words; absent when not said. */
+  portion: z.string().max(60).optional(),
+  /** أكل بيت: a home kitchen's dish, ready today (plates left) or by reservation (next free time); absent elsewhere. */
+  home: HomeDishView.nullable().optional(),
 });
 export type MenuItem = z.infer<typeof MenuItem>;
 
@@ -196,6 +203,16 @@ export const RestaurantMenu = z.object({
   story: MenuStory.nullable().optional(),
 });
 export type RestaurantMenu = z.infer<typeof RestaurantMenu>;
+
+/**
+ * أكل بيت (`catalog.homeKitchens`): the city's home kitchens, kept out of every restaurant list.
+ * `open` is the city's launch switch (`homeKitchens.launched`); while it is off the list is empty and
+ * the app shows no entry.
+ */
+export const HomeKitchensInput = z.object({ cityId: CityId, dropoff: DeliveryPoint.optional() });
+export type HomeKitchensInput = z.input<typeof HomeKitchensInput>;
+export const HomeKitchens = z.object({ open: z.boolean(), kitchens: z.array(RestaurantCard) });
+export type HomeKitchens = z.infer<typeof HomeKitchens>;
 
 /**
  * Customer search (`catalog.search`): restaurants and dishes for one typed query, Arabic-folded
@@ -396,6 +413,10 @@ export interface CustomerCatalogPort {
   followDish(actor: Actor, input: FollowDishInput): Promise<MyDishFollows>;
   unmet(reader: Actor | CatalogReader, input: z.infer<typeof SearchUnmetInput>): Promise<{ ok: true }>;
   unmetSearches(actor: Actor, input: z.infer<typeof UnmetSearchesInput>): Promise<UnmetSearchRow[]>;
+  /** أكل بيت: the city's home kitchens (open ones first) and whether home cooking is open in the city. */
+  homeKitchens(reader: Actor | CatalogReader, input: z.infer<typeof HomeKitchensInput>): Promise<HomeKitchens>;
+  /** أكل بيت: a reserve dish's bookable week, with the plates still free at each time. */
+  homeSlots(reader: Actor | CatalogReader, input: HomeSlotsInput): Promise<HomeSlots>;
 }
 
 /**

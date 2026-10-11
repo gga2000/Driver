@@ -1,3 +1,4 @@
+import { ReserveRule } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -78,7 +79,18 @@ export interface CatalogItemRecord {
    * up, until Driver's team has looked at it (same day). Null/absent = nothing waiting.
    */
   photoReviewPendingAt?: Date | null;
+  /** «شنو بالصحن؟»: what is on the plate, in the kitchen's words («نص كيلو لحم»); null = not said. */
+  portion?: string | null;
+  /** أكل بيت: how a home kitchen sells this dish; null/absent on a restaurant's dish. */
+  homeSale?: HomeSaleRecord | null;
 }
+
+/**
+ * أكل بيت: a home dish is either cooked today and sold until the plates run out (the item's `stock` is
+ * the plates left; `cooked` what she said she made, on her local day `cookedOn`), or cooked only when
+ * booked by its reservation rule (`catalog_items.home_sale`).
+ */
+export type HomeSaleRecord = { mode: 'ready'; cooked: number | null; cookedOn: string | null } | { mode: 'reserve'; rule: ReserveRule };
 
 /** Wave 2: one price edit (merchant app "price edit with history"). */
 export interface PriceChangeRecord {
@@ -140,6 +152,14 @@ export interface StorefrontRecord {
   ratingPlaceholder: { avg: number; count: number } | null;
   /** «مطاعمنا» (joy h5): the owner's own lines; customers see it only when `shown`. */
   story?: KitchenStoryRecord | null;
+  /** أكل بيت: set on a home kitchen (kept out of every restaurant list); null/absent on a restaurant. */
+  home?: HomeKitchenRecord | null;
+}
+
+/** A home kitchen's own settings (storefront JSON `home`). */
+export interface HomeKitchenRecord {
+  /** The letter on her badge; null = the first letter of the kitchen's name (`kitchenMonogram`). */
+  monogram: string | null;
 }
 
 /** The kitchen's story as the owner wrote it (storefront JSON `story`). */
@@ -151,8 +171,8 @@ export interface KitchenStoryRecord {
   updatedAt: Date;
 }
 
-export type NewStorefront = Omit<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story'> &
-  Partial<Pick<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story'>>;
+export type NewStorefront = Omit<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story' | 'home'> &
+  Partial<Pick<StorefrontRecord, 'photoUrl' | 'prepMin' | 'hours' | 'ratingPlaceholder' | 'tags' | 'story' | 'home'>>;
 
 /** «قدر اليوم» (joy h2): one kitchen's dish of one Baghdad day. */
 export interface DailyPotRecord {
@@ -200,6 +220,8 @@ export interface NewCatalogItem {
   servesMax?: number | null;
   labels?: string[];
   photoLibrary?: string | null;
+  portion?: string | null;
+  homeSale?: HomeSaleRecord | null;
   modifierGroups?: Array<{
     nameAr: string;
     nameEn?: string | null;
@@ -294,6 +316,7 @@ function toStorefront(input: NewStorefront): StorefrontRecord {
     hours: [...(input.hours ?? [])],
     ratingPlaceholder: input.ratingPlaceholder ?? null,
     story: input.story ?? null,
+    home: input.home ?? null,
   };
 }
 
@@ -436,6 +459,8 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       servesMax: input.servesMax ?? null,
       labels: [...(input.labels ?? [])],
       photoLibrary: input.photoLibrary ?? null,
+      portion: input.portion ?? null,
+      homeSale: input.homeSale ?? null,
       modifierGroups: (input.modifierGroups ?? []).map((g, gi) => {
         const groupId = `${id}_mg_${gi + 1}`;
         return {
@@ -587,6 +612,8 @@ type ItemRow = {
   labels?: string[];
   photoLibrary?: string | null;
   photoReviewPendingAt?: Date | null;
+  portion?: string | null;
+  homeSale?: unknown;
   modifierGroups: Array<{
     id: string;
     itemId: string;
@@ -625,6 +652,8 @@ function fromRow(r: ItemRow): CatalogItemRecord {
     labels: [...(r.labels ?? [])],
     photoLibrary: r.photoLibrary ?? null,
     photoReviewPendingAt: r.photoReviewPendingAt ?? null,
+    portion: r.portion ?? null,
+    homeSale: homeSaleFromJson(r.homeSale),
     modifierGroups: r.modifierGroups.map((g) => ({
       id: g.id,
       itemId: g.itemId,
@@ -659,7 +688,29 @@ function storefrontFromRow(orgId: string, org: { name: string; cityId: string },
     hours: Array.isArray(j['hours']) ? (j['hours'] as AvailabilityWindow[]) : [],
     ratingPlaceholder: rating && typeof rating.avg === 'number' && typeof rating.count === 'number' ? { avg: rating.avg, count: rating.count } : null,
     story: storyFromJson(j['story']),
+    home: homeFromJson(j['home']),
   };
+}
+
+/** `storefront.home` as written by `saveStorefront`; anything else reads as a restaurant. */
+function homeFromJson(raw: unknown): HomeKitchenRecord | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const m = (raw as Record<string, unknown>)['monogram'];
+  return { monogram: typeof m === 'string' && m ? m : null };
+}
+
+/** `catalog_items.home_sale`; malformed JSON reads as no home sale (the dish sells like a restaurant's). */
+export function homeSaleFromJson(raw: unknown): HomeSaleRecord | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const j = raw as Record<string, unknown>;
+  if (j['mode'] === 'ready') {
+    return { mode: 'ready', cooked: typeof j['cooked'] === 'number' ? j['cooked'] : null, cookedOn: typeof j['cookedOn'] === 'string' ? j['cookedOn'] : null };
+  }
+  if (j['mode'] === 'reserve') {
+    const rule = ReserveRule.safeParse(j['rule']);
+    return rule.success ? { mode: 'reserve', rule: rule.data } : null;
+  }
+  return null;
 }
 
 /** `storefront.story` as written by `saveStorefront`; anything malformed reads as no story. */
@@ -772,7 +823,7 @@ export class PrismaCatalogRepository implements CatalogRepository {
     const s = toStorefront(input);
     const db = this.prisma.prisma;
     const story = s.story ? { text: s.story.text, sinceYear: s.story.sinceYear, shown: s.story.shown, updatedAt: s.story.updatedAt.toISOString() } : null;
-    const json = { cuisineAr: s.cuisineAr, tags: s.tags, photoUrl: s.photoUrl, minOrderIqd: s.minOrderIqd, prepMin: s.prepMin, hours: s.hours, ratingPlaceholder: s.ratingPlaceholder, story } as never;
+    const json = { cuisineAr: s.cuisineAr, tags: s.tags, photoUrl: s.photoUrl, minOrderIqd: s.minOrderIqd, prepMin: s.prepMin, hours: s.hours, ratingPlaceholder: s.ratingPlaceholder, story, ...(s.home ? { home: s.home } : {}) } as never;
     const catalog = await db.catalog.findFirst({ where: { orgId: s.orgId, branchKey: null, active: true }, orderBy: { createdAt: 'asc' } });
     if (catalog) await db.catalog.update({ where: { id: catalog.id }, data: { storefront: json } });
     else await db.catalog.create({ data: { orgId: s.orgId, nameAr: 'القائمة الرئيسية', storefront: json } });
@@ -807,6 +858,8 @@ export class PrismaCatalogRepository implements CatalogRepository {
         servesMax: input.servesMax ?? null,
         labels: [...(input.labels ?? [])],
         photoLibrary: input.photoLibrary ?? null,
+        portion: input.portion ?? null,
+        homeSale: (input.homeSale ?? undefined) as never,
         modifierGroups: {
           create: (input.modifierGroups ?? []).map((g, gi) => ({
             nameAr: g.nameAr,

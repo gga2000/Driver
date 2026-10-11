@@ -5,6 +5,8 @@ import {
   CATALOG_SEARCH_LIMITS,
   DriverError,
   iceCreamTooFar,
+  kitchenMonogram,
+  reserveSlots,
   PriceRequest,
   POPULAR_RULES,
   SMALL_ORDER_FEE_IQD,
@@ -31,6 +33,10 @@ import {
   type CatalogTodayInput,
   type CustomerCatalogPort,
   type FollowDishInput,
+  type HomeKitchens,
+  type HomeKitchensInput,
+  type HomeSlots,
+  type HomeSlotsInput,
   type MyDishFollows,
   type PotsTodayInput,
   type TodayPot,
@@ -54,7 +60,7 @@ import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
-import { activeWindow, basePrepMin, localTwelveHour, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
+import { activeWindow, basePrepMin, type HomeBooked, localTwelveHour, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
 
 /** The signed-in person behind a catalog read, if any. */
 function readerPerson(reader: Actor | CatalogReader): string | null {
@@ -126,6 +132,8 @@ export interface StorefrontMerchants {
    * moved, a tablet back online); 0 when never. A change rebuilds the town snapshot at once.
    */
   changeStamp?(): number;
+  /** أكل بيت: plates already reserved per dish and pickup time (`slotKey`); none when absent. */
+  homeBooked?(orgId: string, now: Date): Promise<HomeBooked>;
 }
 
 type MerchantFacts = Awaited<ReturnType<StorefrontMerchants['profile']>>;
@@ -151,6 +159,15 @@ export const TOWN_SNAPSHOT_MS = 30_000;
 const TOWN_SETTLE_MS = 2_000;
 
 export const STOREFRONT_MERCHANTS = Symbol('STOREFRONT_MERCHANTS');
+
+/**
+ * أكل بيت: whether home kitchens are open to customers in a city (the city file's switch), bound by the
+ * orders module. Unbound (tests) they are closed.
+ */
+export interface StorefrontHome {
+  open(cityId: string): boolean;
+}
+export const STOREFRONT_HOME = Symbol('STOREFRONT_HOME');
 
 /**
  * The rest of the welcome screen's facts (`catalog.today`, audit d-6), bound by the orders module:
@@ -218,6 +235,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() @Inject(STOREFRONT_TODAY) private readonly todayFacts: StorefrontToday | null = null,
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
     @Optional() @Inject(STOREFRONT_SWITCHES) private readonly switches: StorefrontSwitches | null = null,
+    @Optional() @Inject(STOREFRONT_HOME) private readonly home: StorefrontHome | null = null,
   ) {
     this.photo = photoLink(photos);
     this.clock = clock ?? new SystemClock();
@@ -263,7 +281,8 @@ export class CatalogRpc implements CustomerCatalogPort {
     const restaurant = await this.card(kitchen, input.dropoff ?? null, now);
     // f10: each dish's price under a live percent deal with no minimum (the rule orders.quote applies).
     const deals = restaurant.deals ?? [];
-    const categories = menuSections(items, now, this.merchants.timeZone, this.photo).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
+    const booked = s.home ? await this.homeBooked(s.orgId, now) : undefined;
+    const categories = menuSections(items, now, this.merchants.timeZone, this.photo, undefined, booked).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, deal: menuDealOf(i, deals) })) }));
     // o8: «الأكثر طلباً بالعزيزية» from the kitchen's real orders (≥ 20 orders a dish, last 30 days).
     const since = new Date(now.getTime() - POPULAR_RULES.windowDays * 86_400_000);
     const counts = (await this.merchants.dishOrderCounts?.(s.orgId, since, now)) ?? new Map<string, number>();
@@ -276,6 +295,44 @@ export class CatalogRpc implements CustomerCatalogPort {
     // h5: the owner's story, only when he chose to show it.
     const story = s.story?.shown && s.story.text ? { text: s.story.text, sinceYear: s.story.sinceYear } : null;
     return { restaurant, categories, popular, pot: potOk ? { itemId: pot.itemId, note: pot.note, until: pot.until } : null, potDishes, story };
+  }
+
+  /**
+   * أكل بيت: the city's home kitchens, never in the restaurant lists. Open kitchens first, then the
+   * ones with plates ready now, then the quickest to the door. Empty while the city keeps them closed.
+   */
+  async homeKitchens(reader: Actor | CatalogReader, input: z.infer<typeof HomeKitchensInput>): Promise<HomeKitchens> {
+    await this.admit(reader);
+    if (!this.home?.open(input.cityId)) return { open: false, kitchens: [] };
+    const now = this.clock.now();
+    const rides: RideMemo = new Map();
+    const homes = (await this.allKitchens(input.cityId)).filter((k) => k.s.home);
+    const cards = await mapBounded(homes, CARD_CONCURRENCY, (k) => this.card(k, input.dropoff ?? null, now, rides));
+    const ready = (c: RestaurantCard) => Number((c.home?.readyCount ?? 0) > 0);
+    const kitchens = cards.sort(
+      (a, b) =>
+        Number(b.open) - Number(a.open) ||
+        ready(b) - ready(a) ||
+        (a.etaMinMinutes ?? a.prepMinMinutes) - (b.etaMinMinutes ?? b.prepMinMinutes) ||
+        a.name.localeCompare(b.name, 'ar'),
+    );
+    return { open: true, kitchens };
+  }
+
+  /** أكل بيت: a reserve dish's bookable week (`reserveSlots`), with the plates still free at each time. */
+  async homeSlots(reader: Actor | CatalogReader, input: HomeSlotsInput): Promise<HomeSlots> {
+    await this.admit(reader);
+    const s = await this.catalog.storefront(input.merchantId);
+    if (!s?.home || !this.home?.open(s.cityId)) throw new DriverError('org_not_found');
+    const item = (await this.catalog.menu(s.orgId)).find((i) => i.id === input.itemId);
+    if (!item || item.homeSale?.mode !== 'reserve' || !item.available) throw new DriverError('catalog_item_unavailable');
+    const now = this.clock.now();
+    const booked = (await this.homeBooked(s.orgId, now)).get(item.id);
+    return { aheadMin: item.homeSale.rule.aheadMin, days: reserveSlots(item.homeSale.rule, now, booked) };
+  }
+
+  private async homeBooked(orgId: string, now: Date): Promise<HomeBooked> {
+    return (await this.merchants.homeBooked?.(orgId, now)) ?? new Map();
   }
 
   /**
@@ -645,7 +702,13 @@ export class CatalogRpc implements CustomerCatalogPort {
    * merchant profile and deal list instead of one per kitchen per list), rebuilt at once when the
    * catalog or a merchant's settings changed on this instance.
    */
-  private town(cityId: string): Promise<Kitchen[]> {
+  private async town(cityId: string): Promise<Kitchen[]> {
+    // أكل بيت kitchens have their own list; every restaurant list, search and pick leaves them out.
+    return (await this.allKitchens(cityId)).filter((k) => !k.s.home);
+  }
+
+  /** Every kitchen of the town, restaurants and home kitchens alike (see `town`). */
+  private allKitchens(cityId: string): Promise<Kitchen[]> {
     const now = this.clock.now().getTime();
     const menus = this.catalog.changeStamp();
     const merchants = this.merchants.changeStamp?.() ?? 0;
@@ -741,7 +804,21 @@ export class CatalogRpc implements CustomerCatalogPort {
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
       deals: k.deals,
+      ...(s.home ? { home: this.homeBadge(k, now) } : {}),
     };
+  }
+
+  /** أكل بيت: her letter, dishes with plates left today and dishes taking reservations. */
+  private homeBadge(k: Kitchen, now: Date): NonNullable<RestaurantCard['home']> {
+    let readyCount = 0;
+    let reserveCount = 0;
+    for (const item of k.items) {
+      if (!item.homeSale || !item.available) continue;
+      const view = menuItemView(item, now, this.merchants.timeZone);
+      if (view.home?.mode === 'ready' && view.home.left > 0) readyCount += 1;
+      if (view.home?.mode === 'reserve') reserveCount += 1;
+    }
+    return { monogram: k.s.home?.monogram ?? kitchenMonogram(k.s.nameAr), readyCount, reserveCount };
   }
 
   /** f12: minutes until a closed kitchen opens — its next opening window, or the end of the pause it is in. */

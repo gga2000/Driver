@@ -111,4 +111,5 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './home-kitchens.js';
 export * from './weights.js';

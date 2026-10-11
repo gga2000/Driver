@@ -28,4 +28,15 @@ export class ConfigService {
   dispatchFor(cityId: string, vertical: Vertical): DispatchConfig | undefined {
     return this.city(cityId)?.dispatch[vertical];
   }
+
+  /** أكل بيت: home kitchens are open to customers in this city (`homeKitchens.launched`, off when absent). */
+  homeKitchensOpen(cityId: string): boolean {
+    return this.city(cityId)?.homeKitchens?.launched === true;
+  }
+
+  /** Demo APIs and end-to-end tests only: open or close home kitchens. Production never calls it. */
+  setHomeKitchensOpen(cityId: string, launched: boolean): void {
+    const c = this.city(cityId);
+    if (c) this.cities.set(cityId, { ...c, homeKitchens: { launched } });
+  }
 }

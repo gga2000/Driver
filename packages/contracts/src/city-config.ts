@@ -180,5 +180,10 @@ export const CityPricingConfig = z.object({
       maxDays: z.number().int().min(1).max(365).default(60),
     })
     .optional(),
+  /**
+   * أكل بيت (home kitchens, Ali 2026-10-11): open to customers in this city. Absent = closed. Home
+   * kitchens are ordinary food orders, so this sits beside the launched services, not among them.
+   */
+  homeKitchens: z.object({ launched: z.boolean().default(false) }).optional(),
 });
 export type CityPricingConfig = z.infer<typeof CityPricingConfig>;
