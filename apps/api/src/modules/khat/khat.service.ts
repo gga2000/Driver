@@ -290,7 +290,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
     /** The guardian's bus map road (N14); absent in harnesses (straight lines then). */
-    @Optional() private readonly eta: EtaService | null = null,
+    @Optional() @Inject(EtaService) private readonly eta: EtaService | null = null,
   ) {}
 
   /**
