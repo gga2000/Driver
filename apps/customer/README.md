@@ -247,6 +247,12 @@ lookup on, package exports on, React singletons pinned). `pnpm typecheck` uses
   wave line + counter while searching (dispatch waves from `config.city`), free-cancel button, route
   card, free/paid wait counter at the pickup, "وصلت؟ خلّص المشوار" (`orders.confirmRideArrived`), one
   fare line with how it is paid, and a ride receipt on the arrival screen.
+- Map idea N10 «امشي دقيقة للشارع العام» (`walk-stop.ts`, `useWalkStop.ts`, `WalkToStop.tsx`): on street
+  pickup, when the pin is in an alley and the map's `safeStopFor` finds a stop on a main road, choose offers
+  the walk (a dotted line drawn once, «أنت هنا» → «اوكف هنا»). «تمام، أمشي هسة» makes the stop the pickup in
+  its own zone (re-quoted), «رجّعها لمكاني» undoes it, «خلي يجيني لباب البيت» is door pickup with its price
+  difference. «أسرع بـ» shows only when the nearest free car reaches the stop a whole minute sooner. Dev tools:
+  `sessionStorage['driver.dev.walk'] = 'demo'` puts a stop 60 m away; `SHOTS=ride-walk` writes `ride-walk-*.png`.
 - Demo: `POST /demo/ride[?acceptMs=3000]` puts four taxis and three tuktuks online, cruising small
   loops around the centre while free (the choose screen's nearby vehicles), (the nearest offered
   driver accepts after `acceptMs`, 0 = hold), `/demo/ride/accept?orderId=` and

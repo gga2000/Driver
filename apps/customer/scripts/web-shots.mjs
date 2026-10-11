@@ -150,7 +150,7 @@ const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PRE
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
 // Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors'];
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors', 'ride-walk'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
@@ -300,6 +300,7 @@ try {
   if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('later')) await laterShots();
   if (wants('ride-errors')) await rideErrorShots();
+  if (wants('ride-walk')) await rideWalkShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
@@ -765,6 +766,34 @@ async function tripsFlow(khalid, personId, seed) {
  * and after a touch that never moves the map. Each failure is one procedure's request answered as a
  * network failure (a batch carrying it fails as a whole, as it would on a phone).
  */
+/**
+ * Map idea N10 «امشي دقيقة للشارع العام»: the dev walk flag puts a safe stop 60 m from the pickup,
+ * so the choose screen offers the walk; then the walk chosen (the pickup is the stop) and undone.
+ */
+async function rideWalkShots() {
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => globalThis.sessionStorage.setItem('driver.dev.walk', 'demo'));
+  await byTestId('service-taxi').click({ timeout: 15_000 });
+  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
+  await byTestId('ride-walk-offer').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-offer');
+  await byTestId('ride-walk-go').click();
+  await byTestId('ride-walk-chosen').waitFor();
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-chosen');
+  await byTestId('ride-walk-undo').click();
+  await byTestId('ride-walk-offer').waitFor();
+  await byTestId('ride-walk-door').click();
+  await byTestId('ride-walk-offer').waitFor({ state: 'detached' });
+  await settle(600);
+  await shot('ride-walk-door');
+  await page.evaluate(() => globalThis.sessionStorage.removeItem('driver.dev.walk'));
+}
+
 async function rideErrorShots() {
   const failing = (proc) => async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
   const withFailure = async (proc, flow) => {

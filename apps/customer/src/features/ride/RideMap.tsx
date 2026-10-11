@@ -11,6 +11,8 @@ import { PlacePin, RadarPulse, RouteLine } from '@/features/track/map/Overlay';
 import type { VehicleKind } from '@/features/track/map/Vehicle';
 import { MapCredit, useMapCamera } from '@/features/places/PinPicker';
 import { NearbyVehicles } from './NearbyVehicles';
+import type { WalkRoad } from './walk-stop';
+import { WalkLine, WalkPin } from './WalkToStop';
 
 const AZIZIYAH: Camera = { lat: 32.9085, lng: 45.0655, zoom: 13.5 };
 
@@ -30,6 +32,8 @@ export function RideMap({
   radar = false,
   nearby,
   frame,
+  walk,
+  onRoads: _onRoads,
   testID,
 }: {
   pickup: LatLng;
@@ -45,6 +49,13 @@ export function RideMap({
   nearby?: { data: NearbyVehiclesData | undefined; kind: VehicleKind };
   /** More points to keep in view with the pickup (the where-to map frames the nearest free cars, ride idea w1). */
   frame?: readonly LatLng[];
+  /**
+   * Map idea N10: the dotted walk from where he stands to the safe stop, with «أنت هنا» and
+   * «اوكف هنا» in place of the pickup pin. The camera keeps both ends in view.
+   */
+  walk?: { from: LatLng; to: LatLng; youLabel: string; stopLabel: string } | null;
+  /** The roads the map has drawn, each time it settles (the safe-stop finder reads them). Wired to BaseMap with the map's M2. */
+  onRoads?: (roads: WalkRoad[]) => void;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -59,17 +70,23 @@ export function RideMap({
   const progress = useSharedValue(1);
   const start = useSharedValue<LngLat | null>(pickup);
   const waypoints = useSharedValue<LngLat[]>(dropoff ? [dropoff] : []);
+  // With a walk (N10) the car's trip starts at the stop, not where he stands.
+  const fromLat = walk ? walk.to.lat : pickup.lat;
+  const fromLng = walk ? walk.to.lng : pickup.lng;
   useEffect(() => {
-    start.value = pickup;
+    start.value = { lat: fromLat, lng: fromLng };
     waypoints.value = dropoff ? [dropoff] : [];
-  }, [pickup, dropoff, start, waypoints]);
+  }, [fromLat, fromLng, dropoff, start, waypoints]);
 
   // The extra points count, not their positions: free cars move every refresh and the camera stays put.
-  const key = `${pickup.lat},${pickup.lng}|${dropoff?.lat},${dropoff?.lng}|${size.w}x${size.h}|${topInset}|${bottomInset}|${frame?.length ?? 0}`;
+  const key = `${pickup.lat},${pickup.lng}|${dropoff?.lat},${dropoff?.lng}|${size.w}x${size.h}|${topInset}|${bottomInset}|${frame?.length ?? 0}|${walk ? `${walk.from.lat},${walk.from.lng},${walk.to.lat},${walk.to.lng}` : ''}`;
   useEffect(() => {
     if (size.w === 0) return;
     const pts = [...(dropoff ? [pickup, dropoff] : [pickup]), ...(frame ?? [])];
-    const target = fitCamera(pts, size, { top: topInset + 56, bottom: bottomInset + 36, left: 64, right: 64 }, [11, dropoff ? 16 : 15.5]);
+    // N10: close in on the short walk (both ends and their names), the trip running on past the edge.
+    const target = walk
+      ? fitCamera([walk.to, walk.from], size, { top: topInset + 96, bottom: bottomInset + 48, left: 96, right: 96 }, [15, 17.5])
+      : fitCamera(pts, size, { top: topInset + 56, bottom: bottomInset + 36, left: 64, right: 64 }, [11, dropoff ? 16 : 15.5]);
     if (!placed.current) {
       placed.current = true;
       cam.lng.value = target.lng;
@@ -87,7 +104,7 @@ export function RideMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const labelAvoid = useLabelAvoid([pickup, dropoff]);
+  const labelAvoid = useLabelAvoid(walk ? [walk.from, walk.to, dropoff] : [pickup, dropoff]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -104,7 +121,15 @@ export function RideMap({
           {radar ? <RadarPulse cam={cam} size={sizeSV} at={pickup} testID="ride-radar" /> : null}
           {nearby ? <NearbyVehicles cam={cam} size={sizeSV} data={nearby.data} kind={nearby.kind} /> : null}
           {dropoff ? <RouteLine cam={cam} size={sizeSV} glide={glide} progress={progress} start={start} waypoints={waypoints} color={theme.colors.accent} /> : null}
-          <PlacePin cam={cam} size={sizeSV} at={pickup} kind="pickup" label={pickupLabel} testID="pin-pickup" />
+          {walk ? (
+            <>
+              <WalkLine cam={cam} size={sizeSV} from={walk.from} to={walk.to} testID="ride-walk-line" />
+              <WalkPin cam={cam} size={sizeSV} at={walk.from} kind="you" label={walk.youLabel} testID="pin-walk-you" />
+              <WalkPin cam={cam} size={sizeSV} at={walk.to} kind="stop" label={walk.stopLabel} testID="pin-walk-stop" />
+            </>
+          ) : (
+            <PlacePin cam={cam} size={sizeSV} at={pickup} kind="pickup" label={pickupLabel} testID="pin-pickup" />
+          )}
           {dropoff ? <PlacePin cam={cam} size={sizeSV} at={dropoff} kind={dropoffKind} label={dropoffLabel} testID="pin-dropoff" /> : null}
         </>
       ) : null}
