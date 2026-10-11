@@ -16,6 +16,7 @@ import { countText } from '@/lib/plural';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { CashCapBar } from './cash-cap';
+import { AccountClose } from './account-close';
 import { DriverPause } from './driver-pause';
 import { PeriodPicker } from './period-picker';
 import { AccountName, CopyId, OrderRef } from './named';
@@ -146,6 +147,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
           </section>
         </div>
       ) : null}
+      <AccountClose personId={driverId} className="mt-6" />
     </div>
   );
 }
