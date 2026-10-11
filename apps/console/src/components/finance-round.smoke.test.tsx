@@ -27,8 +27,8 @@ const before: Round = {
       totalIqd: 70_000,
       collectedIqd: 0,
       couriers: [
-        { driverId: 'saif', name: 'سيف', heldIqd: 40_000, overCap: false, collected: null },
-        { driverId: 'ahmed', name: 'أحمد', heldIqd: 30_000, overCap: false, collected: null },
+        { driverId: 'saif', name: 'سيف', heldIqd: 40_000, dueIqd: 40_000, overCap: false, collected: null },
+        { driverId: 'ahmed', name: 'أحمد', heldIqd: 30_000, dueIqd: 30_000, overCap: false, collected: null },
       ],
     },
   ],
@@ -44,8 +44,8 @@ const after: Round = {
       totalIqd: 20_000,
       collectedIqd: 50_000,
       couriers: [
-        { driverId: 'ahmed', name: 'أحمد', heldIqd: 20_000, overCap: false, collected: { amountIqd: 10_000, at: took, reference: 'D-AAAA-0002' } },
-        { driverId: 'saif', name: 'سيف', heldIqd: 0, overCap: false, collected: { amountIqd: 40_000, at: took, reference: 'D-AAAA-0001' } },
+        { driverId: 'ahmed', name: 'أحمد', heldIqd: 20_000, dueIqd: 20_000, overCap: false, collected: { amountIqd: 10_000, at: took, reference: 'D-AAAA-0002' } },
+        { driverId: 'saif', name: 'سيف', heldIqd: 0, dueIqd: 0, overCap: false, collected: { amountIqd: 40_000, at: took, reference: 'D-AAAA-0001' } },
       ],
     },
   ],

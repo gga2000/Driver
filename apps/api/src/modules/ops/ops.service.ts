@@ -169,6 +169,8 @@ export class OpsService implements OpsPort, OnModuleInit {
       }
       const before = await this.caps.status(input.courierId);
       if (input.amountIqd > Math.max(0, -before.cashIqd)) throw new DriverError('cash_receipt_exceeds_held');
+      // Only what he owes the company: the rest of the cash in his hand is his own pay.
+      if (input.amountIqd > before.owedIqd) throw new DriverError('cash_receipt_exceeds_owed');
       const now = this.clock.now();
       const reference = settlementReference('D', input.courierId, now, await this.repo.countCashReceipts(input.courierId, tx));
       const cashAfter = await this.merchantCash.recordDriverSettlement({ driverId: input.courierId, amountIqd: input.amountIqd, channel: 'ops_round', reference });

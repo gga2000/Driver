@@ -85,6 +85,8 @@ export const ERROR_TABLE = {
   handover_code_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   handover_code_locked: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   cash_receipt_exceeds_held: { retryHint: 'never', status: 'CONFLICT' },
+  // ops.recordCashReceipt: more than he owes the company (the rest of his cash is his own pay)
+  cash_receipt_exceeds_owed: { retryHint: 'never', status: 'CONFLICT' },
   task_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   menu_item_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   import_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },

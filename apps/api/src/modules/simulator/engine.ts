@@ -464,7 +464,10 @@ export class Simulation implements SimContext {
     const ledgerById = new Map<string, Awaited<ReturnType<SimServices['ledger']['eventsFor']>>[number]>();
     for (const account of await this.s.ledger.accounts()) for (const e of await this.s.ledger.eventsFor(account)) ledgerById.set(e.id, e);
     const merchants = [];
-    for (const r of this.restaurants) merchants.push({ merchantId: r.orgId, balanceIqd: (await this.s.merchantCash.balance(r.orgId)).balanceIqd });
+    for (const r of this.restaurants) {
+      const view = await this.s.merchantCash.balance(r.orgId);
+      merchants.push({ merchantId: r.orgId, balanceIqd: view.balanceIqd, holders: view.holders });
+    }
     // G-91: who the guarantee covers, their offer answers (from the log), and the settled shifts of the day.
     const covered: string[] = [];
     const offerAnswers: GuaranteeSnapshot['offers'] = [];
