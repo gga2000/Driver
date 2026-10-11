@@ -112,11 +112,11 @@ export class IdentityService implements IdentityPort {
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
-    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
+    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
     @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
-    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp, stagingTest);
+    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
@@ -139,7 +139,7 @@ export class IdentityService implements IdentityPort {
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
       const res = await this.otp.request(e164, hash, 'login', tx, input.channel, { ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
-      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel };
+      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel, whatsapp: res.whatsappAvailable };
     });
   }
 
