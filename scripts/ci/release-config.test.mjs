@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { updateArgs } from '../deploy/eas-update.mjs';
 
 const require = createRequire(import.meta.url);
-const { releaseEnvProblems, releaseEnvWarnings, assertReleaseEnv } = require('../deploy/release-env.cjs');
+const { releaseEnvProblems, releaseEnvWarnings, assertReleaseEnv, webBuildProblems } = require('../deploy/release-env.cjs');
 
 const API = 'https://driver-api.fly.dev/trpc';
 const SHARE = 'https://driver.iq';
@@ -113,4 +113,27 @@ test('the update script ties the environment to the channel and checks its input
   assert.throws(() => updateArgs('console', 'production', 'x'), /app must be/);
   assert.throws(() => updateArgs('customer', 'staging', 'x'), /channel must be/);
   assert.throws(() => updateArgs('customer', 'preview', ''), /say what changed/);
+});
+
+test('the customer website refuses a production build without our map files; previews and other apps are not stopped', () => {
+  const TILES = 'https://ref.supabase.co/storage/v1/object/public/map/wasit.pmtiles';
+  const GLYPHS = 'https://ref.supabase.co/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf';
+  const prod = { VERCEL_ENV: 'production' };
+  assert.deepEqual(webBuildProblems('customer', { ...prod, EXPO_PUBLIC_MAP_TILES_URL: TILES, EXPO_PUBLIC_MAP_GLYPHS_URL: GLYPHS }), []);
+  assert.deepEqual(webBuildProblems('customer', { ...prod, EXPO_PUBLIC_MAP_TILES_URL: `pmtiles://${TILES}`, EXPO_PUBLIC_MAP_GLYPHS_URL: GLYPHS }), []);
+  const none = webBuildProblems('customer', prod);
+  assert.equal(none.length, 2);
+  assert.match(none[0], /EXPO_PUBLIC_MAP_TILES_URL is not set/);
+  assert.match(none[1], /EXPO_PUBLIC_MAP_GLYPHS_URL is not set/);
+  assert.match(webBuildProblems('customer', { ...prod, EXPO_PUBLIC_MAP_TILES_URL: 'http://localhost:9000/wasit.pmtiles', EXPO_PUBLIC_MAP_GLYPHS_URL: GLYPHS })[0], /points at a computer/);
+  assert.deepEqual(webBuildProblems('customer', { VERCEL_ENV: 'preview' }), []);
+  assert.deepEqual(webBuildProblems('customer', {}), []);
+  for (const app of ['merchant', 'partner', 'console']) assert.deepEqual(webBuildProblems(app, prod), []);
+});
+
+test('the customer Vercel build runs the map check before it builds anything', () => {
+  const script = readFileSync(new URL('../../apps/customer/scripts/vercel-build.sh', import.meta.url), 'utf8');
+  const check = script.indexOf('release-env.cjs web customer');
+  assert.ok(check > 0);
+  assert.ok(check < script.indexOf('pnpm turbo run build'));
 });

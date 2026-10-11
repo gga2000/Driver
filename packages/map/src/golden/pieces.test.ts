@@ -19,6 +19,11 @@ import {
   walkColours,
   walkToStopGeoJSON,
   walkToStopLayers,
+  myTripWidth,
+  myTripsBounds,
+  myTripsGeoJSON,
+  myTripsLayers,
+  type MyTrips,
   type Road,
 } from './pieces.js';
 import { roadsFromFeatures as fromGolden } from './index.js';
@@ -167,5 +172,58 @@ describe('sunrise over Aziziyah (N4)', () => {
     expect(t.lights.at(-1)!.light).toBe('day');
     expect(t.keyframes.map((k) => k.atMs)).toEqual([...t.keyframes.map((k) => k.atMs)].sort((a, b) => a - b));
     expect(metresBetween(t.keyframes.at(-1)!.center, [45.06, 32.906])).toBeLessThan(1);
+  });
+});
+
+describe('your trips map (stats «خريطتك»)', () => {
+  const at = (p: [number, number]) => ({ lng: p[0], lat: p[1] });
+  const trips: MyTrips = {
+    home: at(PIN),
+    kitchens: [{ ...at(offsetMetres(PIN, 400, 300)), count: 12 }, { ...at(offsetMetres(PIN, -300, 200)), count: 2 }],
+    traces: [
+      { service: 'food', from: at(offsetMetres(PIN, 400, 300)), to: at(PIN), count: 12, path: [at(offsetMetres(PIN, 400, 300)), at(offsetMetres(PIN, 400, 0)), at(PIN)] },
+      { service: 'tuktuk', from: at(PIN), to: at(offsetMetres(PIN, 600, -100)), count: 1 },
+      { service: 'rajaa', from: at(offsetMetres(PIN, -800, 600)), to: { lng: 44.3661, lat: 33.3152 }, count: 2 },
+      { service: 'rajaa', from: at(offsetMetres(PIN, 500, 600)), to: { lng: 45.8206, lat: 32.5128 }, count: 1 },
+    ],
+  };
+  const labels = { baghdad: 'لبغداد', kut: 'للكوت' };
+  const parts = (fc: { features: { properties: Record<string, unknown> }[] }) => fc.features.map((f) => f.properties.part);
+  it('draws trips along their streets, the arrows towards the right city, kitchens and home', () => {
+    const fc = myTripsGeoJSON(trips, { labels });
+    expect(parts(fc).filter((p) => p === 'trip')).toHaveLength(2);
+    expect(fc.features.filter((f) => f.properties.part === 'label').map((f) => f.properties.label)).toEqual(['للكوت', 'لبغداد']);
+    expect(fc.features.find((f) => f.properties.part === 'kitchen')!.properties.n).toBe('12');
+    expect(parts(fc)).toContain('home');
+    // the habit is drawn last and thickest, the one-off thin
+    const lines = fc.features.filter((f) => f.properties.part === 'trip');
+    expect(lines.map((f) => f.properties.w)).toEqual([3, 7.5]);
+    // the food trip follows its streets (round the corner), the tuktuk trip with no route is a straight line
+    expect(lines[1]!.geometry.coordinates).toHaveLength(3);
+    expect(lines[0]!.geometry.coordinates).toHaveLength(2);
+    // the arrow leaves its garage and stops 650 m out, inside the fitted view
+    const away = fc.features.find((f) => f.properties.part === 'away')!.geometry.coordinates as [number, number][];
+    expect(metresBetween(away[0]!, away[1]!)).toBeCloseTo(650, -1);
+    const [[w, s], [e, n]] = myTripsBounds(trips)!;
+    expect(away[1]![0]).toBeGreaterThanOrEqual(w); expect(away[1]![0]).toBeLessThanOrEqual(e);
+    expect(away[1]![1]).toBeGreaterThanOrEqual(s); expect(away[1]![1]).toBeLessThanOrEqual(n);
+  });
+  it('draws once: nothing at the start, pins only after the lines', () => {
+    expect(parts(myTripsGeoJSON(trips, { labels, k: 0 }))).toEqual([]);
+    const half = myTripsGeoJSON(trips, { labels, k: 0.5 });
+    // half drawn: the food trip has covered half of its 700 m of streets, so it is still on the first street
+    const food = half.features.find((f) => f.properties.w === 7.5)!.geometry.coordinates as [number, number][];
+    expect(metresBetween(food[0]!, food.at(-1)!)).toBeCloseTo(300, -1);
+    expect(parts(half)).not.toContain('kitchen');
+    expect(parts(half)).not.toContain('label');
+    expect(parts(myTripsGeoJSON(trips, { labels, k: 1, pins: true }))).toContain('kitchen');
+    expect(myTripsBounds({ home: null, kitchens: [], traces: [] })).toBeNull();
+    expect(myTripWidth(1)).toBe(3); expect(myTripWidth(3)).toBe(5); expect(myTripWidth(9)).toBe(7.5);
+  });
+  it('makes valid layers in both lights, never blue', () => {
+    for (const light of ['golden', 'day'] as const) {
+      expect(valid(myTripsLayers({ source: 't', light }), ['t'])).toEqual([]);
+      noBlue(myTripsLayers({ source: 't', light }));
+    }
   });
 });

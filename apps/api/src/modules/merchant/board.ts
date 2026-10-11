@@ -6,6 +6,7 @@ import {
   type BoardGroup,
   type BoardLine,
   type BoardOrder,
+  type CancelledOrder,
   type DishKind,
   type LatLng,
   type MissedOrder,
@@ -246,6 +247,21 @@ export function missedSummary(orders: readonly Order[], inPause: (at: Date) => b
   }
   missed.sort((a, b) => b.missedAt.getTime() - a.missedAt.getTime() || b.orderId.localeCompare(a.orderId));
   return { today: missed.filter((m) => m.reason === 'merchant_timeout').length, orders: missed.slice(0, MISSED_LIST_MAX) };
+}
+
+/**
+ * The board's red «انلغى، لا تكمل» cards: orders the kitchen had accepted that were then cancelled,
+ * newest first. Only ones it really held (accepted, not handed to the courier) — the read already
+ * keeps to accepted orders; this drops anything without a cancel time.
+ */
+export function cancelledCards(orders: readonly Order[]): CancelledOrder[] {
+  const out: CancelledOrder[] = [];
+  for (const o of orders) {
+    if (!o.cancelledAt || !o.acceptedAt || o.pickedUpAt) continue;
+    const itemCount = o.lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);
+    out.push({ orderId: o.id, number: ticketNumber(o.id), wasReady: o.readyAt != null, cancelledAt: o.cancelledAt, itemCount, totalIqd: o.totalIqd });
+  }
+  return out.sort((a, b) => b.cancelledAt.getTime() - a.cancelledAt.getTime() || a.orderId.localeCompare(b.orderId));
 }
 
 /**

@@ -1,5 +1,6 @@
 import { createHmac, generateKeyPairSync } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import type { FetchLike, HttpRequest } from '../../shared/messaging/http.js';
 import { HttpSmsProvider, httpSmsConfigFromEnv, OtpiqSmsProvider, otpiqConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, formatNumber } from '../../shared/messaging/sms.js';
 import { DevPushProvider, ExpoPushProvider, FcmPushProvider, pushPortsFromEnv, UnconfiguredPushProvider, type PushMessage } from './providers/push.js';
@@ -277,8 +278,31 @@ describe('provider selection by env', () => {
     expect(pushPortsFromEnv({ PUSH_PROVIDER: 'expo' }).expo).toBeInstanceOf(ExpoPushProvider);
     const wa = whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1', WHATSAPP_APP_SECRET: 's' });
     expect(wa).toBeInstanceOf(WhatsAppCloudProvider);
-    expect(wa.statusCallbacks).toBe(true);
-    expect(whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' }).statusCallbacks).toBe(false);
+    expect(wa?.statusCallbacks).toBe(true);
+    expect(whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' })?.statusCallbacks).toBe(false);
+  });
+
+  it('outside development, no WHATSAPP_TOKEN means no WhatsApp at all (never a sender that only logs)', () => {
+    for (const env of [{ NODE_ENV: 'production' }, { NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' }, { NODE_ENV: 'production', WHATSAPP_PROVIDER: 'dev' }, { NODE_ENV: 'production', WHATSAPP_PROVIDER: 'meta' }]) {
+      expect(whatsAppPortFromEnv(env, { log: false })).toBeNull();
+    }
+    expect(whatsAppPortFromEnv({ NODE_ENV: 'production', WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' })).toBeInstanceOf(WhatsAppCloudProvider);
+    expect(whatsAppPortFromEnv({ NODE_ENV: 'development' }, { log: false })).toBeInstanceOf(DevWhatsAppProvider);
+  });
+
+  it('outside development the dev senders log a masked number only: no text, no code', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(Logger.prototype, 'log').mockImplementation((m: unknown) => void lines.push(String(m)));
+    try {
+      await smsPortFromEnv({ NODE_ENV: 'production' }).send({ to: '+9647701234567', body: 'رمز دخول درايفر: 123456', code: '123456' });
+      await new DevWhatsAppProvider(true, true).send({ to: '+9647701234567', template: 'otp_login', language: 'ar', params: ['123456'], preview: 'رمز دخول درايفر: 123456' });
+      expect(lines).toEqual(['→ +96477*****67', '→ +96477*****67 [otp_login/ar]']);
+      lines.length = 0;
+      await smsPortFromEnv({ NODE_ENV: 'development' }).send({ to: '+9647701234567', body: 'رمز دخول درايفر: 123456', code: '123456' });
+      expect(lines[0]).toContain('123456');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('OPS-02: a live host refuses to boot on the dev push; staging may keep it', () => {

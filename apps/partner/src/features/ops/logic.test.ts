@@ -98,6 +98,12 @@ describe('zones', () => {
     expect(nearestZone({ lat: 32.887, lng: 45.0765 })).toBe('zakur');
     expect(nearestZone({ lat: 33.3, lng: 44.4 })).toBeNull();
   });
+
+  it('a fix well outside town is no zone: the same 2 km past the edge as the server, not 15', () => {
+    // ~6 km north of the northernmost zone's edge: the server refuses it (outside_zone), so the app does too.
+    const far = { lat: 32.905 + 0.11, lng: 45.06 };
+    expect(nearestZone(far)).toBeNull();
+  });
 });
 
 describe('merchant onboarding wizard', () => {
@@ -111,6 +117,11 @@ describe('merchant onboarding wizard', () => {
     expect(stepReady('contact', d)).toBe(true);
     expect(stepReady('location', d)).toBe(false);
     d.zoneKey = 'hashimi';
+    // A zone without the kitchen's pin is not enough: the server reads the zone from the pin.
+    expect(stepReady('location', d)).toBe(false);
+    expect(() => onboardingInput(d)).toThrow('draft_incomplete');
+    d.pin = { lat: 32.896, lng: 45.07 };
+    expect(stepReady('location', d)).toBe(true);
     d.menuPhotos = [{ uri: 'blob:1', uploadId: null }];
     expect(stepReady('menu', d)).toBe(false);
     d.menuPhotos = [{ uri: 'blob:1', uploadId: 'up_1' }];
@@ -120,14 +131,14 @@ describe('merchant onboarding wizard', () => {
       name: 'مطعم الريف',
       type: 'restaurant',
       contact: { name: 'أبو حسن', phone: '+9647800000123' },
-      location: { zoneKey: 'hashimi' },
+      location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.07 } },
       menuPhotoUploadIds: ['up_1'],
       settlementMode: 'nightly_courier',
     });
   });
 
   it('f8: the door photo is optional, waits only while uploading, and is sent once it is up', () => {
-    const d = { ...emptyDraft(), name: 'فرن الأمير', contactName: 'أبو علي', contactPhone: '0780 000 0123', zoneKey: 'hashimi' };
+    const d = { ...emptyDraft(), name: 'فرن الأمير', contactName: 'أبو علي', contactPhone: '0780 000 0123', zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.07 } };
     d.shopPhoto = { uri: 'blob:door', uploadId: null };
     expect(stepReady('location', d)).toBe(false);
     d.shopPhoto = { uri: 'blob:door', uploadId: null, failed: true };
