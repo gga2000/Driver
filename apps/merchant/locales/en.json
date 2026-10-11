@@ -1947,5 +1947,11 @@
   "merchant.invites.strip_many": "You have {count} invites from other stores",
   "merchant.invites.see": "See",
   "merchant.staff_alert.no_link": "Open the Console on a computer to see the alert and take it.",
-  "merchant.staff_alert.ref": "Alert number: {id}"
+  "merchant.staff_alert.ref": "Alert number: {id}",
+  "merchant.courier_map.label": "Couriers coming to your shop, on the map",
+  "merchant.courier_map.coming": "Couriers coming: {count}",
+  "merchant.courier_map.pin": "{name} · {minutes} min",
+  "merchant.courier_map.pin_anon": "Courier · {minutes} min",
+  "merchant.courier_map.pin_no_eta": "{name} on the way",
+  "merchant.courier_map.shop": "Your shop"
 }

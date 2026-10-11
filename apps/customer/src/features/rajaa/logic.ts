@@ -104,6 +104,11 @@ export function suggestDirection(
 
 const BOOKABLE: ReadonlySet<DepartureCard['state']> = new Set(['scheduled', 'boarding']);
 
+/** A car the rider can still book: scheduled or boarding, and not past its hard latest time. */
+export function isBookable(d: DepartureCard, now: Date): boolean {
+  return BOOKABLE.has(d.state) && d.latestDepartureAt.getTime() > now.getTime();
+}
+
 export interface GarageGroup<G extends GarageLike = GarageLike> {
   garage: G;
   departures: DepartureCard[];
@@ -131,7 +136,7 @@ export function groupBoard<G extends GarageLike>(
   now: Date,
 ): GarageGroup<G>[] {
   const side = garages.filter((g) => g.cityId === originCityId).sort((a, b) => garageRank(a.id) - garageRank(b.id) || a.nameAr.localeCompare(b.nameAr));
-  const live = departures.filter((d) => BOOKABLE.has(d.state) && d.latestDepartureAt.getTime() > now.getTime());
+  const live = departures.filter((d) => isBookable(d, now));
   return side.map((garage) => ({ garage, departures: live.filter((d) => d.garageId === garage.id).sort(compareDepartures) }));
 }
 
