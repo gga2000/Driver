@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CityId, Iqd, LatLng } from './common.js';
+import { CityId, DeliveryPoint, Iqd, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { MerchantScope } from './merchant-admin-io.js';
 
@@ -89,6 +89,8 @@ export const CartCard = z.object({
   dishes: z.array(CartDish),
   /** Delivery can be ordered now (open with a spot on file). */
   delivery: z.boolean(),
+  /** Where a courier collects a delivery order (tonight's spot and its zone); null while closed. */
+  pickup: DeliveryPoint.nullable(),
 });
 export type CartCard = z.infer<typeof CartCard>;
 

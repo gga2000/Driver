@@ -23,6 +23,9 @@ import {
 import { daysBefore, potDay, potShowing } from './pots.js';
 
 /** True when customers can order the item right now: the toggle, "sold out today" and stock. */
+/** The storefront tag of a food cart («عربانة»): kept out of the restaurant lists. */
+export const FOOD_CART_TAG = 'food_cart';
+
 export function itemOnSale(item: CatalogItemRecord, now: Date): boolean {
   if (!item.available) return false;
   if (item.stock === 0) return false;
@@ -98,6 +101,15 @@ export class CatalogService {
 
   storefronts(cityId: string): Promise<StorefrontRecord[]> {
     return this.repo.storefronts(cityId);
+  }
+
+  /**
+   * The storefronts the restaurant lists show (home, search, the doors, «مطاعم مشابهة»): every one but
+   * the food carts', which have their own list («عربانات»). By-id reads (menu, order, reorder) and the
+   * pickup-spots map use `storefront` / `storefronts` and still see carts.
+   */
+  async listedStorefronts(cityId: string): Promise<StorefrontRecord[]> {
+    return (await this.repo.storefronts(cityId)).filter((s) => !s.tags.includes(FOOD_CART_TAG));
   }
 
   storefront(orgId: string): Promise<StorefrontRecord | null> {

@@ -655,7 +655,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const fresh = hit !== undefined && now - hit.builtAt < (settling ? TOWN_SETTLE_MS : TOWN_SNAPSHOT_MS) && now < (hit.until ?? Infinity);
     if (hit && hit.stamp === stamp && fresh) return hit.kitchens;
     const at = new Date(now);
-    const kitchens = this.catalog.storefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
+    const kitchens = this.catalog.listedStorefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
     const entry: { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number } = { builtAt: now, stamp, kitchens };
     this.towns.set(cityId, entry);
     // A quick pause that ends inside the snapshot's life reopens the kitchen on the minute: the

@@ -2737,6 +2737,9 @@ const rajaa = await (async () => {
       const ticket = url.searchParams.get('ticket');
       let walkup = null;
       if (ticket === 'placed' || ticket === 'ready') {
+        // A re-run starts clean: this person's open tickets are cancelled first (the 3-ticket limit).
+        for (const w of await carts.myWalkups(a)) if (w.state === 'placed') await carts.cancelWalkup(a, { walkupId: w.id });
+        for (const w of await carts.myWalkups(a)) if (w.state === 'ready') await cartsRepo.updateWalkup(w.id, ['ready'], { state: 'expired' });
         const liver = cartOf('liver');
         walkup = await carts.placeWalkup(a, { cartId: liver.cartId, lines: [{ itemId: `${liver.orgId}_laffa`, qty: 2 }, { itemId: `${liver.orgId}_maalak`, qty: 1 }] });
         if (ticket === 'ready') await cartsRepo.updateWalkup(walkup.id, ['placed'], { state: 'ready', readyAt: new Date() });

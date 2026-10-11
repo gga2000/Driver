@@ -35,7 +35,7 @@ import {
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import { CatalogService, itemOnSale, type CatalogItemRecord } from '../catalog/index.js';
+import { CatalogService, FOOD_CART_TAG, itemOnSale, type CatalogItemRecord } from '../catalog/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
@@ -48,6 +48,9 @@ const TIMEZONE = 'Asia/Baghdad';
 const CARD_DISHES = 3;
 /** «تذاكري»: the tickets of the last day. */
 const MINE_WINDOW_MS = 24 * HOUR_MS;
+
+/** A cart's storefront cuisine line, by kind. */
+const CART_KIND_AR: Record<CartKind, string> = { liver: 'كبدة', falafel: 'فلافل', tea: 'چاي', corn: 'عرانيس', bagilla: 'باگلة', cart: 'عربانة' };
 
 /** Is the cart open at `now`: opened, not closed since, inside the night's limits. */
 export function cartOpen(c: Pick<FoodCartRecord, 'openedAt' | 'closedAt' | 'closesAt'>, now: Date): boolean {
@@ -98,6 +101,12 @@ export class FoodCartsService implements FoodCartsPort {
     const existing = await this.repo.byOrg(input.orgId);
     if (existing) return existing;
     await this.orgs.setMerchantSettings(input.orgId, { commissionTier: 'base' });
+    // A storefront tagged `food_cart`, so a delivery order goes through the menu, basket and checkout
+    // every kitchen uses; the restaurant lists leave `food_cart` storefronts out (carts have their own).
+    const org = await this.orgs.get(input.orgId);
+    if (!(await this.catalog.storefront(input.orgId))) {
+      await this.catalog.saveStorefront({ orgId: input.orgId, cityId: input.cityId, nameAr: org.name, cuisineAr: CART_KIND_AR[input.kind], tags: [FOOD_CART_TAG, input.kind], minOrderIqd: 0, hours: [] });
+    }
     return this.repo.create({
       orgId: input.orgId,
       cityId: input.cityId,
@@ -381,6 +390,7 @@ export class FoodCartsService implements FoodCartsPort {
       followers: o.followers,
       dishes: o.dishes === null ? dishes : dishes.filter((d) => d.available).slice(0, o.dishes),
       delivery: open && c.spot !== null,
+      pickup: open && c.spot ? { zoneKey: zoneKeyAt(c.spot), pin: { lat: c.spot.lat, lng: c.spot.lng } } : null,
     };
   }
 

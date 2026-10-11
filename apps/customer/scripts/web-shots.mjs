@@ -26,6 +26,8 @@
 //            the pinned strip, agreed                                         POST /demo/rajaa/trip-chat
 //   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
 //            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
+//   carts-*  food carts «عربانات»: the list (followed strip, near you, all), a cart's page with dishes picked,
+//            a closed cart, the walk-over ticket (cooking, ready), the carts map           POST /demo/carts
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
 //            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
@@ -144,7 +146,7 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'carts'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
@@ -311,6 +313,7 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  if (wants('carts')) await asOtherAccount(cartsShots);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -536,6 +539,54 @@ async function tripsShots(khalid) {
   const seed = await demoPost(`/demo/ride-habits?personId=${encodeURIComponent(personId)}`);
   if (!seed) return;
   await tripsFlow(khalid, personId, seed);
+}
+
+/**
+ * Food carts «عربانات»: a fresh account standing near the souq garage (position granted) follows the
+ * liver and corn carts; the list, the liver cart with two dishes picked, the walk-over ticket cooking
+ * and ready, a closed cart, and the carts on the golden map.
+ */
+async function cartsShots() {
+  const ctx = page.context();
+  await ctx.grantPermissions(['geolocation'], { origin });
+  await ctx.setGeolocation({ latitude: 32.9046, longitude: 45.0628, accuracy: 15 });
+  const personId = await freshSignIn(process.env.CARTS_PHONE ?? '0770 456 7711');
+  const seed = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const cart = (key) => seed.carts.find((c) => c.key === key).cartId;
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list');
+  await byTestId('carts-show-all').click();
+  await fullShot('carts-list-all');
+  await page.goto(`${origin}/food-carts/${cart('liver')}`, LOADED);
+  await byTestId('cart-menu').waitFor({ timeout: 20_000 });
+  await shot('carts-cart');
+  const liver = seed.carts.find((c) => c.key === 'liver');
+  const plus = (item) => page.locator(`[data-testid="cart-dish-${liver.orgId}_${item}"]`).locator('[data-testid="cart-dish-add"], [data-testid="stepper-inc"]').first();
+  await plus('laffa').click();
+  await plus('laffa').click();
+  await plus('maalak').click();
+  await shot('carts-cart-picked');
+  await byTestId('cart-order').click();
+  await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+  await shot('carts-ticket');
+  const ready = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}&ticket=ready`);
+  if (ready?.walkupId) {
+    await page.goto(`${origin}/food-carts/ticket/${ready.walkupId}`, LOADED);
+    await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+    await shot('carts-ticket-ready');
+  }
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list-tickets');
+  await page.goto(`${origin}/food-carts/${cart('corn')}`, LOADED);
+  await byTestId('cart-closed-note').waitFor({ timeout: 20_000 });
+  await shot('carts-closed');
+  await page.goto(`${origin}/food-carts/map`, LOADED);
+  await byTestId('carts-map-card').waitFor({ timeout: 30_000 }).catch(() => {});
+  await settle(4000);
+  await shot('carts-map');
 }
 
 /** Signs out, then in as that number (name and area on a first sign-in); the person's id. */
