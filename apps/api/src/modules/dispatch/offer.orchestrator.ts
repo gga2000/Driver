@@ -61,7 +61,8 @@ export type TimerKind =
   | 'booked_open'
   | 'booked_fav_end'
   | 'booked_deadline'
-  | 'booked_remind';
+  | 'booked_remind'
+  | 'retry';
 
 export interface TimerJob {
   kind: TimerKind;
@@ -88,6 +89,15 @@ export const DURABLE_TIMER_MIN_DELAY_MS = 5 * 60_000;
 export const DURABLE_TIMER_GRACE_MS = 60_000;
 
 export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
+
+/**
+ * A job nobody took stays red for the desk, and dispatch keeps looking in the background: one more
+ * offer after 1, 2 and then every 4 minutes, to drivers who have not said no to it (one who only let
+ * it ring out may get it again). A driver coming online or finishing a job tries at once.
+ */
+// Under `DURABLE_TIMER_MIN_DELAY_MS`: a lost retry only waits for the next one (or the desk), so none is kept durable.
+export const UNASSIGNED_RETRY = { firstSec: 60, maxSec: 240 } as const;
+const retryDelayMs = (done: number) => Math.min(UNASSIGNED_RETRY.firstSec * 2 ** done, UNASSIGNED_RETRY.maxSec) * 1000;
 
 /**
  * Joy l9: the offer a rider's favourite driver gets alone, for `RIDE_HABIT_RULES.favourite.offerWindowSec`,
@@ -574,7 +584,14 @@ export class OfferOrchestrator {
     const cands = await this.candidates(r, cfg, { requireIdle: false, exclude: offered });
     const expiresAt = this.now() + cfg.acceptTimeoutSec * 1000;
     r.nextTimerAt = expiresAt;
+    await this.offerFirstFit(r, cfg, cands, pass, expiresAt);
+    // A pass with nobody to offer still waits its 20 s: couriers free up.
+    await this.store.saveRequest(r);
+    await this.schedule('assign_timeout', r, expiresAt, pass);
+  }
 
+  /** auto_assign: the offer goes to the best candidate who is free or can batch it; false when none can. */
+  private async offerFirstFit(r: DispatchRequest, cfg: DispatchConfig, cands: readonly Candidate[], pass: number, expiresAt: number, extra: Record<string, unknown> = {}): Promise<boolean> {
     const next: BatchOrder = {
       tripId: r.tripId,
       pickup: r.pickup,
@@ -602,12 +619,10 @@ export class OfferOrchestrator {
       r.departAt = departAt;
       await this.createOffers(r, 'auto_assign', [c], { wave: 1, pass, expiresAt, compensation: () => 0 });
       await this.trips.offer(r.tripId, [c.ranked.driverId], cfg.acceptTimeoutSec);
-      await this.emit('dispatch.offer_sent', r, { driverId: c.ranked.driverId, pass, batchWith, departAt: departAt === null ? null : new Date(departAt).toISOString() });
-      break;
+      await this.emit('dispatch.offer_sent', r, { driverId: c.ranked.driverId, pass, batchWith, departAt: departAt === null ? null : new Date(departAt).toISOString(), ...extra });
+      return true;
     }
-    // A pass with nobody to offer still waits its 20 s: couriers free up.
-    await this.store.saveRequest(r);
-    await this.schedule('assign_timeout', r, expiresAt, pass);
+    return false;
   }
 
   /**
@@ -1321,6 +1336,50 @@ export class OfferOrchestrator {
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
     await this.retire(r);
+    // He is free again: a red job nobody took may be his now.
+    if (r.assignedDriverId) await this.retryUnassigned(r.cityId);
+  }
+
+  /**
+   * A driver came online or freed up: every red job in the city that dispatch may still offer by itself
+   * (no offer of it ringing now) tries once more at once, instead of waiting for its next retry.
+   */
+  async retryUnassigned(cityId: string): Promise<void> {
+    for (const r of await this.store.activeRequests(cityId)) {
+      if (!this.retryable(r)) continue;
+      if ((await this.repo.listByTrip(r.tripId)).some((o) => OPEN_STATES.includes(o.state) && o.expiresAt.getTime() > this.now())) continue;
+      await this.uow.run(() => this.onRetry(r, (r.retries ?? 0) + 1));
+    }
+  }
+
+  /** Red, and its policy offers by itself (not a held / suggest-only job, not a departure or a route). */
+  private retryable(r: DispatchRequest): boolean {
+    return r.status === 'needs_dispatcher' && !r.suggestOnly && (r.policy === 'auto_assign' || r.policy === 'smart_broadcast');
+  }
+
+  /**
+   * One background retry: the card stays red and the desk may override at any time;
+   * the job goes to the best free driver who has not declined it (auto_assign: one courier, batching
+   * rules as always; rides: every idle fitting driver), and the next retry is set on the backoff.
+   */
+  private async onRetry(r: DispatchRequest, step: number): Promise<void> {
+    if (!this.retryable(r) || (r.retries ?? 0) >= step) return;
+    const cfg = this.baseConfig(r.cityId, r.vertical);
+    await this.expireOpen(r, () => true);
+    const declined = new Set((await this.repo.listByTrip(r.tripId)).filter((o) => o.state === 'declined').map((o) => o.driverId));
+    const cands = await this.candidates(r, cfg, { requireIdle: r.policy === 'smart_broadcast', exclude: declined });
+    const expiresAt = this.now() + cfg.acceptTimeoutSec * 1000;
+    r.retries = step;
+    if (r.policy === 'auto_assign') {
+      await this.offerFirstFit(r, cfg, cands, r.pass, expiresAt, { retry: step });
+    } else if (cands.length > 0) {
+      const ids = cands.map((c) => c.ranked.driverId);
+      await this.createOffers(r, 'smart_broadcast', cands, { wave: r.wave, pass: r.pass, expiresAt, compensation: () => 0 });
+      await this.trips.offer(r.tripId, ids, cfg.acceptTimeoutSec);
+      await this.emit('dispatch.wave_sent', r, { wave: r.wave, driverIds: ids, seconds: cfg.acceptTimeoutSec, radiusKm: null, retry: step });
+    }
+    await this.store.saveRequest(r);
+    await this.schedule('retry', r, this.now() + retryDelayMs(step), step + 1);
   }
 
   async board(cityId: string): Promise<DispatchBoard> {
@@ -1497,6 +1556,8 @@ export class OfferOrchestrator {
           return this.onBookedDeadline(r);
         case 'booked_remind':
           return this.onBookedRemind(r);
+        case 'retry':
+          return this.onRetry(r, job.step);
       }
     });
   }
@@ -1641,8 +1702,10 @@ export class OfferOrchestrator {
 
   /** s5 / s4: the rider's avoid list and favourites, when the job is a rider's and ride habits are bound. */
   private async riderLists(job: DispatchJob): Promise<{ avoidDriverIds: string[]; favouriteDriverIds: string[] }> {
-    if (!job.riderId || !this.riders) return { avoidDriverIds: [], favouriteDriverIds: [] };
-    const [avoid, favourites] = await Promise.all([this.riders.avoided(job.riderId), this.riders.favourites(job.riderId)]);
+    const dropped = job.avoidDriverIds ?? [];
+    if (!job.riderId || !this.riders) return { avoidDriverIds: [...dropped], favouriteDriverIds: [] };
+    const [mine, favourites] = await Promise.all([this.riders.avoided(job.riderId), this.riders.favourites(job.riderId)]);
+    const avoid = [...new Set([...mine, ...dropped])];
     return { avoidDriverIds: avoid, favouriteDriverIds: favourites.filter((id) => !avoid.includes(id)) };
   }
 
@@ -1702,6 +1765,8 @@ export class OfferOrchestrator {
     r.nextTimerAt = null;
     await this.store.saveRequest(r);
     await this.emit('dispatch.needs_dispatcher', r, { reason });
+    // Red for the desk, but not forgotten: dispatch keeps offering it in the background.
+    if (this.retryable(r)) await this.schedule('retry', r, this.now() + retryDelayMs(r.retries ?? 0), (r.retries ?? 0) + 1);
   }
 
   private async emit(type: string, r: DispatchRequest, payload: Record<string, unknown>, actorId: string = SYSTEM): Promise<void> {

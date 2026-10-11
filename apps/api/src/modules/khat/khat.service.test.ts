@@ -14,7 +14,7 @@ import { DevPushProvider } from '../notify/providers/push.js';
 import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
 import { PINS, tripsHarness } from '../trips/test-harness.js';
 import { InMemoryKhatRepository } from './khat.repository.js';
-import { DEFAULT_KHAT_CONFIG, KhatService, type SweepCheckJob } from './khat.service.js';
+import { DEFAULT_KHAT_CONFIG, GUARDIAN_BUS_PRIVACY_M, KhatService, type SweepCheckJob } from './khat.service.js';
 
 /** A morning خطوط run: two children picked up at home, both dropped at school. */
 async function setup() {
@@ -278,7 +278,7 @@ describe('khat sweep alert', () => {
     expect(await h.advance(1_000)).toBe(1);
     const [ev] = await h.missed();
     // The event carries the driver: the notify subscriber turns it into his reminder push.
-    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, runEndedAt: lastDrop.toISOString(), afterMin: KHAT_RULES.sweepAlertAfterMin });
+    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, reason: 'sweep_missed', runEndedAt: lastDrop.toISOString(), afterMin: KHAT_RULES.sweepAlertAfterMin });
     const alerts = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ tripId: h.trip.id, driver: { personId: h.driver.personId }, childrenTotal: 2, lastDropAt: lastDrop, lastDropZone: 'centre', runEndedAt: lastDrop, raisedAt: h.t.clock.now(), confirmedAt: null, confirmedLateMin: null });
@@ -288,6 +288,36 @@ describe('khat sweep alert', () => {
     expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.dispatcher.personId && l.purpose === 'khat_sweep_alert')).toBe(true);
     // Another city's desk sees nothing.
     expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'kut' })).toEqual([]);
+  });
+
+  it('a child tapped in and never tapped out alerts ops after the last planned drop-off, though the run never ends', async () => {
+    const h = await sweepSetup();
+    const [p1, p2, d1] = h.trip.stops;
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p2!.id, pin: PINS.home2 });
+    await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school });
+    // علي is still tapped in. The last drop-off was planned to end 35 minutes after the start (setup).
+    const plannedEnd = h.trip.stops[3]!.windowEnd!;
+    await h.advance(plannedEnd.getTime() - h.t.clock.now().getTime() + AFTER - 1_000);
+    expect(await h.missed()).toEqual([]);
+    await h.advance(1_000);
+    const [ev] = await h.missed();
+    expect(ev?.payload).toMatchObject({ tripId: h.trip.id, driverId: h.driver.personId, reason: 'child_still_on_board', runEndedAt: plannedEnd.toISOString() });
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toEqual([expect.objectContaining({ tripId: h.trip.id, runEndedAt: plannedEnd, confirmedAt: null })]);
+    expect(await h.paged(h.dispatcher.personId)).not.toEqual([]);
+    // Three hours on, still one alert.
+    await h.advance(3 * 60 * MIN);
+    expect(await h.khat.checkSweep(h.trip.id)).toBe('already');
+    expect(await h.missed()).toHaveLength(1);
+  });
+
+  it('no alert from the plan when every tapped-in child got out (the run-end timer takes over)', async () => {
+    const h = await sweepSetup();
+    await h.finishRun();
+    await h.advance(2 * MIN);
+    await h.khat.confirmEmptyCar(h.driver, { tripId: h.trip.id });
+    await h.advance(3 * 60 * MIN);
+    expect(await h.missed()).toEqual([]);
   });
 
   it('keeps a finished run on today\'s list until the car is checked (app restart, reminder push)', async () => {
@@ -472,5 +502,93 @@ describe('khat sweep alert: page and close', () => {
     await expect(caller('p_drv', ['khat_driver']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller('p_cust', ['customer']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     for (const role of ['dispatcher', 'support', 'admin']) await expect(caller(`p_${role}`, [role]).khat.closeSweepAlert(input)).resolves.toBeDefined();
+  });
+});
+
+describe('khat.guardian.run (map idea N14: only your home and the bus)', () => {
+  /** Another family's child, picked up FIRST on the same run, so the bus passes that home before ours. */
+  async function withNeighbour() {
+    const h = await setup();
+    const parent = (await h.id.login('07700000300')).actor;
+    const sara = (await h.id.service.registerChild(parent, { name: 'سارة كريم' })).childRef;
+    const w = (min: number) => new Date(h.t.clock.now().getTime() + min * 60_000);
+    const trip = await h.t.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'khat',
+      orders: [],
+      stops: [
+        { type: 'pickup', zoneKey: 'zakur', target: PINS.home2, childRef: h.zainab, windowStart: w(10), windowEnd: w(15) },
+        { type: 'pickup', zoneKey: 'zakur', target: PINS.home, childRef: sara, windowStart: w(15), windowEnd: w(20) },
+        { type: 'dropoff', zoneKey: 'centre', target: PINS.school, childRef: h.zainab, windowStart: w(30), windowEnd: w(35) },
+        { type: 'dropoff', zoneKey: 'centre', target: PINS.school, childRef: sara, windowStart: w(30), windowEnd: w(35) },
+      ],
+    });
+    const driver = (await h.id.login('07700000201')).actor;
+    await h.t.trips.offer(trip.id, { driverIds: [driver.personId] });
+    await h.t.trips.accept(trip.id, driver.personId, { vehicleClass: 'van' });
+    return { ...h, parent, sara, run: trip, runDriver: driver };
+  }
+
+  it("never sends another child's home: other stops are dots without a position, the bus hides on their leg", async () => {
+    const h = await withNeighbour();
+    await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: PINS.home2, at: h.t.clock.now() });
+    const v = (await h.khat.guardianRun(h.parent, { childRef: h.sara }))!;
+    expect(v).toMatchObject({ tripId: h.run.id, leg: 'to_school', child: 'waiting', home: PINS.home, busAway: true, bus: null, stopsBefore: 1 });
+    expect(v.school).toMatchObject({ lat: PINS.school.lat, lng: PINS.school.lng });
+    expect(v.others).toEqual([{ done: false }]);
+    // زينب's home appears nowhere in what سارة's mother receives, nor her name.
+    const wire = JSON.stringify(v);
+    expect(wire).not.toContain(String(PINS.home2.lat));
+    expect(wire).not.toContain('زينب');
+
+    // زينب is picked up. The bus is still at her door: no fix and no "done" yet, or her home would show.
+    await h.khat.tapIn(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[0]!.id, pin: PINS.home2 });
+    await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: { lat: PINS.home2.lat + 0.0018, lng: PINS.home2.lng }, at: h.t.clock.now() });
+    const atDoor = (await h.khat.guardianRun(h.parent, { childRef: h.sara }))!;
+    expect(atDoor).toMatchObject({ bus: null, busAway: true, stopsBefore: 1, others: [{ done: false }] });
+    expect(JSON.stringify(atDoor)).not.toContain(String(PINS.home2.lat));
+    // Past GUARDIAN_BUS_PRIVACY_M from her stop, heading to سارة's home: now it shows.
+    await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: PINS.school, at: h.t.clock.now() });
+    const next = (await h.khat.guardianRun(h.parent, { childRef: h.sara }))!;
+    expect(next).toMatchObject({ busAway: false, stopsBefore: 0, others: [{ done: true }] });
+    expect(next.bus).toMatchObject({ lat: PINS.school.lat, lng: PINS.school.lng });
+    expect(GUARDIAN_BUS_PRIVACY_M).toBe(300);
+
+    // On board, heading to school: the bus stays shown; delivered: it goes.
+    await h.khat.tapIn(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[1]!.id, pin: PINS.home });
+    expect((await h.khat.guardianRun(h.parent, { childRef: h.sara }))).toMatchObject({ child: 'on_board', busAway: false });
+    await h.khat.tapOut(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[3]!.id, pin: PINS.school });
+    expect((await h.khat.guardianRun(h.parent, { childRef: h.sara }))).toMatchObject({ child: 'delivered', bus: null, busAway: false });
+  });
+
+  it("only for the guardian's own child; null when the child has no run today", async () => {
+    const h = await withNeighbour();
+    await expect(h.khat.guardianRun(h.guardian, { childRef: h.sara })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.khat.guardianRun(h.runDriver, { childRef: h.sara })).rejects.toMatchObject({ code: 'forbidden' });
+    const lonely = (await h.id.service.registerChild(h.parent, { name: 'حسن كريم' })).childRef;
+    expect(await h.khat.guardianRun(h.parent, { childRef: lonely })).toBeNull();
+  });
+
+  it('routes the road only through public points (bus, our home, school) and gives minutes to our home', async () => {
+    const h = await withNeighbour();
+    const asked: Array<Array<{ lat: number; lng: number }>> = [];
+    const eta = { path: async (pts: Array<{ lat: number; lng: number }>) => (asked.push(pts), { distanceM: 1000, durationS: 4 * 60, polyline6: 'road', basis: 'live' as const }) };
+    const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, null, null, DEFAULT_KHAT_CONFIG, undefined, undefined, null, eta as never);
+    // Bus on its way to the neighbour's home: road home → school only, no minutes.
+    await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: PINS.school, at: h.t.clock.now() });
+    expect(await khat.guardianRun(h.parent, { childRef: h.sara })).toMatchObject({ polyline6: 'road', minutes: null });
+    expect(asked).toEqual([[PINS.home, { lat: PINS.school.lat, lng: PINS.school.lng }]]);
+    // Heading to our home: bus → home → school, and 4 minutes for the first leg.
+    await khat.tapIn(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[0]!.id, pin: PINS.home2 });
+    asked.length = 0;
+    expect(await khat.guardianRun(h.parent, { childRef: h.sara })).toMatchObject({ polyline6: 'road', minutes: 4 });
+    expect(asked.flat()).not.toContainEqual(PINS.home2);
+    expect(asked[0]).toHaveLength(3);
+  });
+
+  it('says absent when the driver reported the child absent', async () => {
+    const h = await withNeighbour();
+    await h.khat.reportAbsence(h.runDriver, { tripId: h.run.id, childRef: h.sara, reason: 'sick' });
+    expect(await h.khat.guardianRun(h.parent, { childRef: h.sara })).toMatchObject({ child: 'absent', bus: null, stopsBefore: 0 });
   });
 });

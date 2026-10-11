@@ -11,7 +11,7 @@ import { stagingTestFromEnv } from './staging-test.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
-import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { requestPathRedis, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { ROLE_READER } from './role-reader.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
@@ -33,7 +33,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
       useFactory: (clock: Clock) => {
         const url = process.env['REDIS_URL'];
         const ttlMs = authCacheTtlMsFromEnv();
-        const bus = url && ttlMs > 0 ? new RedisDropBus(new Redis(url, { maxRetriesPerRequest: 3 }), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
+        const bus = url && ttlMs > 0 ? new RedisDropBus(requestPathRedis(url), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
         return new AuthCache(clock, ttlMs, bus);
       },
       inject: [CLOCK],

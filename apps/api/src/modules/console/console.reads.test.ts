@@ -225,6 +225,35 @@ describe('ConsoleReadService', () => {
     expect(await find('سجاد')).toEqual([]);
   });
 
+  it("customerHistory (s5): the customer's last orders and this month's credits, nothing else", async () => {
+    const w = await world();
+    const cust = w.people['cust']!;
+    const placed: Array<{ id: string }> = [];
+    for (let i = 0; i < 6; i += 1) {
+      w.o.clock.advanceMinutes(1);
+      placed.push(await w.o.orders.place(cust, w.o.foodInput()));
+    }
+    await w.o.orders.place('someone_else', w.o.foodInput());
+    const record = (type: 'refund' | 'credit_issued' | 'late_penalty_rider_credit' | 'cash_change_to_wallet', amount: number, at: string, to = `customer:${cust}`) =>
+      w.l.ledger.record({ type, amount, fromAccount: 'platform', toAccount: to, occurredAt: new Date(at), orderId: placed[0]!.id, idempotencyKey: `${type}:${at}:${to}` });
+    await record('late_penalty_rider_credit', 1_000, '2026-10-02T10:00:00Z');
+    await record('refund', 3_500, '2026-10-03T08:00:00Z');
+    await record('credit_issued', 2_000, '2026-09-29T10:00:00Z'); // last month (Baghdad)
+    await record('cash_change_to_wallet', 750, '2026-10-03T08:10:00Z'); // his own change, not a credit
+    await record('refund', 9_000, '2026-10-03T08:20:00Z', 'customer:someone_else');
+
+    const h = await w.reads.customerHistory({ cityId: 'aziziyah', customerId: cust });
+    expect(h.recentOrders.map((o) => o.id)).toEqual(placed.slice(1).reverse().map((o) => o.id));
+    expect(h.credits.from).toEqual(new Date('2026-09-30T21:00:00Z'));
+    expect(h.credits.totalIqd).toBe(4_500);
+    expect(h.credits.lines.map((l) => [l.type, l.amountIqd, l.orderId])).toEqual([
+      ['refund', 3_500, placed[0]!.id],
+      ['late_penalty_rider_credit', 1_000, placed[0]!.id],
+    ]);
+    expect(h.credits.lines.every((l) => l.label_ar.length > 0)).toBe(true);
+    expect(await w.reads.customerHistory({ cityId: 'aziziyah', customerId: 'nobody' })).toEqual({ recentOrders: [], credits: { from: h.credits.from, totalIqd: 0, lines: [] } });
+  });
+
   it('rightNow: orders, drivers, time-to-accept, cash in the field and outbox health', async () => {
     const w = await world();
     await w.o.orders.place('c1', w.o.foodInput());

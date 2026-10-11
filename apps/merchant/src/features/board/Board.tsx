@@ -23,6 +23,7 @@ import { clock12 } from '@/lib/time';
 import { scheduleBanner } from '@/features/hours/logic';
 import { fixPush, usePushHealth, usePushPrompt } from '@/features/notify/Push';
 import { boardCalmForPrompt } from '@/features/notify/prompt';
+import { useMyInvites } from '@/features/staff/queries';
 import { printerChipState, queueAutoPrint, useAutoPrint, usePrinterSnapshot, usePrintOrder, type StorePrint } from '@/features/print/runtime';
 import { DayLine, DaySummaryCard } from '@/features/day/DaySummaryCard';
 import { dayCardKey, dayCardMode, orderWhoLine, showDayCard } from '@/features/day/logic';
@@ -131,7 +132,7 @@ function CookingTotals({ totals }: { totals: readonly CookingTotal[] }) {
   const t = useT();
   if (totals.length === 0) return null;
   return (
-    <View testID="cooking-totals" accessibilityLabel={t('merchant.board.totals_a11y', { list: totals.map((x) => `${x.qty} ${x.name}`).join('، ') })} style={{ backgroundColor: COUNTER.date, borderRadius: theme.radius.lg, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 6, marginBottom: theme.space[2] }}>
+    <View testID="cooking-totals" accessibilityLabel={t('merchant.board.totals_a11y', { list: totals.map((x) => `${x.qty} ${x.name}`).join(t('merchant.list_joiner')) })} style={{ backgroundColor: COUNTER.date, borderRadius: theme.radius.lg, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 6, marginBottom: theme.space[2] }}>
       <Text variant="caption" weight={700} style={{ color: COUNTER.onDateMuted }}>
         {t('merchant.board.totals_title')}
       </Text>
@@ -350,7 +351,11 @@ export function Board() {
     if (missedNew.length > 0) markSeen(missedNew.map((m) => m.orderId));
     setSheet(null);
   };
-  const push = usePushPrompt(boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen }));
+  const calm = boardCalmForPrompt({ waiting, sheetOpen, shiftStarted: !gateOpen });
+  const push = usePushPrompt(calm);
+  // PRV-08: an invite from another store, for someone who already works here (the board opens
+  // straight away, so the store picker that lists invites is never seen). Only on a calm board.
+  const invites = useMyInvites().data ?? [];
   const pushHealth = usePushHealth();
   // a7: a new order starts ringing → the sheets that only show things step aside (missed orders, the
   // cash, the phone's "…", the details of an order that isn't new), so nothing hides the ribbon. The
@@ -693,7 +698,7 @@ export function Board() {
           onEnableSound={() => void soundOn()}
           compact={!wide}
           summary={summary}
-          storeClosed={plan.closed.length > 0}
+          storeClosed={plan.closed.length > 0 && plan.ringing.length === 0}
           featured={next ? { order: next, oneTapMinutes: oneTap.shown, busy: acceptingId === next.id, onAccept: () => void onAcceptNow(next), onOpen: () => setDetailId(next.id) } : null}
           acceptAll={all.targets.length > 0 ? { count: all.targets.length, minutes: oneTap.shown, busy: acceptingAll, onPress: () => void onAcceptAll(all.targets, all.skipped) } : null}
         />
@@ -716,7 +721,16 @@ export function Board() {
         <InfoStrip tone="warning" testID="offhours-strip" text={offHours} />
       ) : null}
       {failed || stale ? <InfoStrip tone="danger" testID="board-error" text={t('merchant.board.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void board.refetch(), testID: 'board-error-retry' }} /> : null}
-      {push.visible ? (
+      {calm && invites[0] ? (
+        <InfoStrip
+          tone="neutral"
+          icon="bell"
+          testID="invite-strip"
+          text={invites.length === 1 ? t('merchant.invites.card', { store: invites[0].storeName }) : t('merchant.invites.strip_many', { count: invites.length })}
+          action={{ label: t('merchant.invites.see'), onPress: () => router.push('/stores'), testID: 'invite-strip-see' }}
+        />
+      ) : null}
+      {push.visible && !(calm && invites[0]) ? (
         <InfoStrip
           tone="neutral"
           icon="bell"

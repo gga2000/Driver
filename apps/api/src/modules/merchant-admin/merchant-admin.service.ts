@@ -23,6 +23,7 @@ import {
   type MerchantInsights,
   type MerchantScope,
   type MerchantStaffRole,
+  type MyStaffInvite,
   type MoneyToday,
   type Order,
   type OrderWho,
@@ -71,7 +72,7 @@ export const DISPUTE_RESPONSE_HOURS = 48;
  * Merchant app wave 2 (`merchantAdmin.*`). Every call is scoped to one merchant org the caller holds
  * `merchant_owner` / `merchant_staff` at; money, staff and deal changes are owner-only. Menu through
  * the catalog module, deals through promotions, money from the ledger, orders from orders, staff as
- * identity role grants (names from the vault, logged).
+ * identity role grants (names from the vault, logged), given only when the invitee accepts (PRV-08).
  */
 @Injectable()
 export class MerchantAdminService implements MerchantAdminPort {
@@ -731,78 +732,48 @@ export class MerchantAdminService implements MerchantAdminPort {
   // ───────────────────────── staff ─────────────────────────
 
   /**
-   * The store's people. A member who has not used the app since he was given the role is `pending`
-   * and shown without his name: the owner typed the phone, but inviting a number must not tell him
-   * whose it is (review 2026-10-04 #6). The name appears once the invitee signs in or refreshes.
+   * The store's people: everyone holding `merchant_owner` / `merchant_staff` there (members, with
+   * names), then the pending, unexpired invites (PRV-08, Ali 2026-10-10: a person joins only by
+   * accepting). A pending row holds no role yet and shows no name: inviting a number must not tell the
+   * owner whose it is (review 2026-10-04 #6); only the 4+4 hint of the number he typed.
    */
   private async staffRows(actor: Actor, merchantOrgId: string): Promise<StaffMember[]> {
     const holders = await this.identity.orgRoleHolders(merchantOrgId, STAFF_KINDS);
     const roleOf = new Map<string, MerchantStaffRole>();
-    const grantedAt = new Map<string, Date>();
-    for (const h of holders) {
-      if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
-      const prev = grantedAt.get(h.personId);
-      if (!prev || h.grantedAt > prev) grantedAt.set(h.personId, h.grantedAt);
-    }
+    for (const h of holders) if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
     const ids = [...roleOf.keys()];
-    const active = ids.length > 0 ? await this.identity.lastActiveAtOf(ids) : {};
-    const pendingOf = (personId: string) => {
-      if (personId === actor.personId) return false;
-      const last = active[personId] ?? null;
-      return last === null || last < grantedAt.get(personId)!;
-    };
+    const now = this.clock.now();
+    const invites = (await this.repo.pendingStaffInvitesOfOrg(merchantOrgId)).filter((i) => i.expiresAt > now && !roleOf.has(i.personId));
     const cards = ids.length > 0 ? await this.identity.memberCards(ids, actor.personId, 'merchant_staff_view') : {};
-    const pendingIds = ids.filter(pendingOf);
-    const hints =
-      pendingIds.length > 0
-        ? await this.identity.invitePhoneHints(pendingIds, actor.personId, 'merchant_staff_invite')
-        : {};
-    const sends =
-      pendingIds.length > 0 ? await this.inviteSends(merchantOrgId) : new Map<string, Date>();
+    const hints = invites.length > 0 ? await this.identity.invitePhoneHints(invites.map((i) => i.personId), actor.personId, 'merchant_staff_invite') : {};
     const cooldownMs = STAFF_INVITE_RULES.resendCooldownMin * 60_000;
-    return ids
-      .map((personId) => {
-        const pending = pendingOf(personId);
-        const invitedAt = grantedAt.get(personId)!;
-        const resent = sends.get(personId);
-        const sentAt = resent && resent > invitedAt ? resent : invitedAt;
-        return {
-          personId,
-          name: pending ? null : (cards[personId]?.name ?? null),
-          // The 4+4 form the owner saw on the invite («0780 ••• 4455»): they added this number themselves.
-          phoneMasked: cards[personId]?.phoneHint ?? null,
-          role: roleOf.get(personId)!,
-          you: personId === actor.personId,
-          pending,
-          ...(pending
-            ? {
-                phoneHint: hints[personId] ?? null,
-                invitedAt,
-                inviteSentAt: sentAt,
-                resendAfter: new Date(sentAt.getTime() + cooldownMs),
-              }
-            : {}),
-        };
-      })
-      .sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
-  }
-
-  /** When each invite last went out again (`merchant.staff_invite_sent` on the store's staff stream). */
-  private async inviteSends(merchantOrgId: string): Promise<Map<string, Date>> {
-    const out = new Map<string, Date>();
-    for (const e of await this.events.forAggregate('merchant_staff', merchantOrgId)) {
-      if (e.type !== 'merchant.staff_invite_sent') continue;
-      const personId = (e.payload as { personId?: unknown }).personId;
-      if (typeof personId !== 'string') continue;
-      const prev = out.get(personId);
-      if (!prev || e.occurredAt > prev) out.set(personId, e.occurredAt);
-    }
-    return out;
+    const members: StaffMember[] = ids.map((personId) => ({
+      personId,
+      name: cards[personId]?.name ?? null,
+      // The 4+4 form the owner saw on the invite («0780 ••• 4455»): they added this number themselves.
+      phoneMasked: cards[personId]?.phoneHint ?? null,
+      role: roleOf.get(personId)!,
+      you: personId === actor.personId,
+      pending: false,
+    }));
+    const waiting: StaffMember[] = invites.map((i) => ({
+      personId: i.personId,
+      name: null,
+      phoneMasked: hints[i.personId] ?? null,
+      role: i.role,
+      you: false,
+      pending: true,
+      phoneHint: hints[i.personId] ?? null,
+      invitedAt: i.createdAt,
+      inviteSentAt: i.sentAt,
+      resendAfter: new Date(i.sentAt.getTime() + cooldownMs),
+    }));
+    return [...members, ...waiting].sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
   }
 
   /**
-   * The invite link goes out (WhatsApp, outbox `merchant.staff_invite_sent`): the store's name and the
-   * app link, to the invited number. No name read: the notifier resolves the number in the vault.
+   * Records the invite (outbox `merchant.staff_invite_sent`). Nothing is sent to the invited number yet
+   * (no subscriber): the owner tells them to install the app and sign in with that number (NTF2-05).
    */
   private async sendInvite(
     actor: Actor,
@@ -824,6 +795,12 @@ export class MerchantAdminService implements MerchantAdminPort {
     );
   }
 
+  private async pendingRow(actor: Actor, merchantOrgId: string, personId: string): Promise<StaffMember> {
+    const row = (await this.staffRows(actor, merchantOrgId)).find((s) => s.personId === personId);
+    if (!row) throw new DriverError('internal');
+    return row;
+  }
+
   /** Owner sends a waiting invite again; within the cooldown it is a no-op that returns the row. */
   async staffResendInvite(
     actor: Actor,
@@ -836,12 +813,11 @@ export class MerchantAdminService implements MerchantAdminPort {
     if (!row) throw new DriverError('not_found');
     if (!row.pending) throw new DriverError('staff_invite_not_pending');
     if (row.resendAfter && row.resendAfter.getTime() > this.clock.now().getTime()) return row;
+    const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+    if (!invite) throw new DriverError('not_found');
+    await this.repo.updateStaffInvite(invite.id, { sentAt: this.clock.now() });
     await this.sendInvite(actor, input.merchantOrgId, input.personId, row.role, true);
-    return (
-      (await this.staffRows(actor, input.merchantOrgId)).find(
-        (s) => s.personId === input.personId,
-      ) ?? row
-    );
+    return this.pendingRow(actor, input.merchantOrgId, input.personId);
   }
 
   async staffList(actor: Actor, input: MerchantScope): Promise<StaffMember[]> {
@@ -849,23 +825,109 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.staffRows(actor, input.merchantOrgId);
   }
 
-  /** Owner invites by phone (the Person is found or created pseudonymously; the number stays in the vault). */
+  /**
+   * Owner invites by phone (the Person is found or created pseudonymously; the number stays in the
+   * vault). PRV-08: this gives no role; the person joins when he accepts in the Merchant app
+   * (`staffRespondInvite`). Someone already at the store just gets the new role. A declined, cancelled
+   * or expired invite starts again as a fresh pending one; a waiting one keeps its dates, takes the new
+   * role and goes out again only after the resend cooldown.
+   */
   async staffInvite(actor: Actor, input: { merchantOrgId: string; phone: string; role: MerchantStaffRole }): Promise<StaffMember> {
     await this.owner(actor, input.merchantOrgId);
     const personId = await this.identity.ensurePersonByPhone(input.phone, actor.personId, 'merchant_staff_invite');
-    const row = await this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
-    if (row.pending) await this.sendInvite(actor, input.merchantOrgId, personId, row.role, false);
-    return row;
+    const staff = await this.staffRows(actor, input.merchantOrgId);
+    if (staff.some((s) => s.personId === personId && !s.pending)) return this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
+    const now = this.clock.now();
+    const existing = await this.repo.staffInvite(input.merchantOrgId, personId);
+    if (existing && existing.status === 'pending' && existing.expiresAt > now) {
+      const due = existing.sentAt.getTime() + STAFF_INVITE_RULES.resendCooldownMin * 60_000 <= now.getTime();
+      await this.repo.updateStaffInvite(existing.id, { role: input.role, ...(due ? { sentAt: now } : {}) });
+      if (due) await this.sendInvite(actor, input.merchantOrgId, personId, input.role, true);
+      return this.pendingRow(actor, input.merchantOrgId, personId);
+    }
+    await this.repo.upsertStaffInvite({
+      merchantOrgId: input.merchantOrgId,
+      personId,
+      role: input.role,
+      invitedById: actor.personId,
+      createdAt: now,
+      sentAt: now,
+      expiresAt: new Date(now.getTime() + STAFF_INVITE_RULES.expiresAfterDays * DAY_MS),
+    });
+    await this.sendInvite(actor, input.merchantOrgId, personId, input.role, false);
+    return this.pendingRow(actor, input.merchantOrgId, personId);
+  }
+
+  /**
+   * PRV-08: the caller's own pending, unexpired invites across stores: store name, role, dates (no
+   * owner name). Stores he already works at, and invites whose inviter is no longer an owner, are left out.
+   */
+  async staffMyInvites(actor: Actor): Promise<MyStaffInvite[]> {
+    const now = this.clock.now();
+    const invites = (await this.repo.pendingStaffInvitesOfPerson(actor.personId)).filter((i) => i.expiresAt > now);
+    if (invites.length === 0) return [];
+    const at = new Set((await this.identity.scopedOrgs(actor.personId, STAFF_KINDS)).map((g) => g.orgId));
+    const out: MyStaffInvite[] = [];
+    for (const i of invites) {
+      if (at.has(i.merchantOrgId)) continue;
+      // An invite from someone no longer an owner there can't be accepted, so it isn't shown.
+      if (!(await this.identity.hasRole(i.invitedById, 'merchant_owner', i.merchantOrgId))) continue;
+      const org = await this.orgs.find(i.merchantOrgId);
+      if (!org) continue;
+      out.push({ merchantOrgId: i.merchantOrgId, storeName: org.name, role: i.role, invitedAt: i.createdAt, expiresAt: i.expiresAt });
+    }
+    return out.sort((a, b) => b.invitedAt.getTime() - a.invitedAt.getTime());
+  }
+
+  /**
+   * PRV-08: only the invited person answers, only a pending, unexpired invite whose inviter is still
+   * an owner there. Accepting gives the invite's role (the same grant as a role change, granted by the
+   * owner who invited); declining gives nothing. Either way an event on the store's staff stream.
+   */
+  async staffRespondInvite(actor: Actor, input: { merchantOrgId: string; accept: boolean }): Promise<MyStaffInvite[]> {
+    const now = this.clock.now();
+    const invite = await this.repo.staffInvite(input.merchantOrgId, actor.personId);
+    if (!invite || invite.personId !== actor.personId || invite.status !== 'pending' || invite.expiresAt <= now) throw new DriverError('staff_invite_not_found');
+    if (input.accept && !(await this.identity.hasRole(invite.invitedById, 'merchant_owner', input.merchantOrgId))) throw new DriverError('staff_invite_not_found');
+    const already = (await this.identity.scopedOrgs(actor.personId, STAFF_KINDS)).some((g) => g.orgId === input.merchantOrgId);
+    await this.uow.run(async (tx) => {
+      if (input.accept && !already) {
+        const grantor = { personId: invite.invitedById };
+        await this.identity.grantRole(grantor, { personId: actor.personId, kind: invite.role, orgId: input.merchantOrgId });
+        const other: MerchantStaffRole = invite.role === 'merchant_owner' ? 'merchant_staff' : 'merchant_owner';
+        await this.identity.revokeRole(grantor, { personId: actor.personId, kind: other, orgId: input.merchantOrgId });
+      }
+      await this.repo.updateStaffInvite(invite.id, { status: input.accept ? 'accepted' : 'declined', answeredAt: now }, tx);
+      await this.events.emit(
+        tx,
+        {
+          actorId: actor.personId,
+          type: input.accept ? 'merchant.staff_invite_accepted' : 'merchant.staff_invite_declined',
+          occurredAt: now,
+          payload: { merchantOrgId: input.merchantOrgId, personId: actor.personId, role: invite.role, invitedById: invite.invitedById },
+        },
+        { name: 'merchant_staff', id: input.merchantOrgId },
+      );
+    });
+    return this.staffMyInvites(actor);
   }
 
   async staffSetRole(actor: Actor, input: { merchantOrgId: string; personId: string; role: MerchantStaffRole }): Promise<StaffMember> {
     await this.owner(actor, input.merchantOrgId);
-    if (!(await this.staffRows(actor, input.merchantOrgId)).some((s) => s.personId === input.personId)) throw new DriverError('not_found');
+    const row = (await this.staffRows(actor, input.merchantOrgId)).find((s) => s.personId === input.personId);
+    if (!row) throw new DriverError('not_found');
+    if (row.pending) {
+      // A waiting invite: change the role it offers (still nothing granted until he accepts).
+      const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+      if (!invite) throw new DriverError('not_found');
+      await this.repo.updateStaffInvite(invite.id, { role: input.role });
+      return this.pendingRow(actor, input.merchantOrgId, input.personId);
+    }
     return this.setRoleOf(actor, input.merchantOrgId, input.personId, input.role);
   }
 
   private async setRoleOf(actor: Actor, merchantOrgId: string, personId: string, role: MerchantStaffRole): Promise<StaffMember> {
-    const staff = await this.staffRows(actor, merchantOrgId);
+    const staff = (await this.staffRows(actor, merchantOrgId)).filter((s) => !s.pending);
     const current = staff.find((s) => s.personId === personId)?.role;
     if (current === 'merchant_owner' && role !== 'merchant_owner' && staff.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
     await this.uow.run(async () => {
@@ -878,12 +940,27 @@ export class MerchantAdminService implements MerchantAdminPort {
     return row;
   }
 
+  /** A member loses his roles there; a waiting invite is cancelled (it can no longer be accepted). */
   async staffRemove(actor: Actor, input: { merchantOrgId: string; personId: string }): Promise<{ removed: boolean }> {
     await this.owner(actor, input.merchantOrgId);
     const staff = await this.staffRows(actor, input.merchantOrgId);
     const target = staff.find((s) => s.personId === input.personId);
     if (!target) return { removed: false };
-    if (target.role === 'merchant_owner' && staff.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
+    if (target.pending) {
+      const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+      if (!invite) return { removed: false };
+      await this.uow.run(async (tx) => {
+        await this.repo.updateStaffInvite(invite.id, { status: 'cancelled' }, tx);
+        await this.events.emit(
+          tx,
+          { actorId: actor.personId, type: 'merchant.staff_invite_cancelled', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, personId: input.personId, role: invite.role } },
+          { name: 'merchant_staff', id: input.merchantOrgId },
+        );
+      });
+      return { removed: true };
+    }
+    const members = staff.filter((s) => !s.pending);
+    if (target.role === 'merchant_owner' && members.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
     await this.uow.run(async () => {
       for (const kind of STAFF_KINDS) await this.identity.revokeRole(actor, { personId: input.personId, kind, orgId: input.merchantOrgId });
     });

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { FakeClock } from '../../shared/clock.js';
+import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { EventsService } from './events.service.js';
 import { createInMemoryEvents } from './in-memory.js';
-import type { OutboxTick } from './outbox.publisher.js';
+import { InMemoryEventsRepository } from './memory.repository.js';
+import { OutboxPublisher, type OutboxTick } from './outbox.publisher.js';
+import { SubscriberRegistry } from './subscriber.registry.js';
 import { OUTBOX_LEASE_MS } from './timestamps.js';
 
 const START = '2026-10-03T09:00:00Z';
@@ -134,6 +138,45 @@ describe('OutboxPublisher — queue mode (BullMQ contract on InMemoryQueue)', ()
     await h.queue.drain();
     expect(seen).toEqual(['o1', 'o2', 'o3']);
     expect(await h.events.outboxStats()).toEqual({ pending: 0, published: 3, failed: 0 });
+  });
+  it('on a job machine the 500-ms interval drains from Postgres while Redis is unreachable: nothing waits for Redis', async () => {
+    const clock = new FakeClock(START);
+    const queue = new InMemoryQueue<OutboxTick>('outbox', () => clock.now());
+    queue.add = async () => {
+      throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+    };
+    const repo = new InMemoryEventsRepository();
+    const registry = new SubscriberRegistry();
+    const uow = new UnitOfWork(new NoDatabaseRunner());
+    const publisher = new OutboxPublisher(repo, registry, uow, clock, queue, { tickMs: 10 });
+    const events = new EventsService(repo, registry, publisher, clock, uow);
+    const seen: string[] = [];
+    events.subscribe('test:seen', '*', async (e) => {
+      seen.push(e.orderId!);
+    });
+    publisher.start();
+    try {
+      for (const id of ['o1', 'o2']) await events.emit(undefined, order(id), { name: 'order', id });
+      for (let i = 0; i < 50 && seen.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(seen).toEqual(['o1', 'o2']);
+      expect(await events.outboxStats()).toEqual({ pending: 0, published: 2, failed: 0 });
+      expect(queue.size).toBe(0); // no tick ever reached the queue
+      expect(await publisher.oldestOverdueMs()).toBe(0);
+    } finally {
+      publisher.stop();
+    }
+  });
+
+  it('says how late the oldest due row is, and when a drain last delivered', async () => {
+    const h = queued();
+    const before = h.publisher.lastProgressAt;
+    await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
+    h.clock.advanceSeconds(150);
+    expect(await h.publisher.oldestOverdueMs()).toBe(150_000);
+    await new Promise((r) => setTimeout(r, 5));
+    await h.queue.drain();
+    expect(await h.publisher.oldestOverdueMs()).toBe(0);
+    expect(h.publisher.lastProgressAt).toBeGreaterThan(before);
   });
 });
 

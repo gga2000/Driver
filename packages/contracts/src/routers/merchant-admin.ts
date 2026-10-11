@@ -24,11 +24,13 @@ import {
   OrderWho,
   OrderWhoInput,
   MyMerchant,
+  MyStaffInvite,
   PriceChange,
   PriceUpdateOutput,
   ProposeDealInput,
   RemoveStaffInput,
   ResendStaffInviteInput,
+  RespondStaffInviteInput,
   ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
@@ -56,7 +58,8 @@ export const DEAL_REVIEWERS: readonly RoleKind[] = ['admin', 'support'];
 const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 
 /**
- * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. Owner-only:
+ * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. `staff.myInvites` and
+ * `staff.respondInvite` need only a sign-in (the invitee's own). Owner-only:
  * `money.*`, `staff.*`, `activity.*` (who pressed what), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
  */
 export const merchantAdminRouter = router({
@@ -114,6 +117,13 @@ export const merchantAdminRouter = router({
     remove: p.input(RemoveStaffInput).output(z.object({ removed: z.boolean() })).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRemove(ctx.actor, input)),
     /** A pending invite goes out again (owner only; once per 10 min; the row after). */
     resendInvite: p.input(ResendStaffInviteInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffResendInvite(ctx.actor, input)),
+    /**
+     * PRV-08: the signed-in person's own waiting invites (any signed-in user: the invitee holds no
+     * merchant role yet). Store name, role and dates only.
+     */
+    myInvites: protectedProcedure().output(z.array(MyStaffInvite)).query(({ ctx }) => ctx.merchantAdmin.staffMyInvites(ctx.actor)),
+    /** PRV-08: the invitee accepts (joins with the invite's role) or declines; his invites after. */
+    respondInvite: protectedProcedure().input(RespondStaffInviteInput).output(z.array(MyStaffInvite)).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRespondInvite(ctx.actor, input)),
   }),
   /** «مين سوّى شنو»: who accepted, rejected, readied, extended, handed over, sold out. Owner only. */
   activity: router({

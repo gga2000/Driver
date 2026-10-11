@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { BoardOrder } from '@driver/contracts';
 import { canPlay, chime, onUnlock, setLoop, stopVibration, vibrate } from '@/lib/alert-sound';
-import { alarmAction, alarmPlan, snooze as snoozeMap, STAGE_VOLUME, VIBRATION, type AlarmPlan, type RingCandidate } from './ladder';
+import { alarmAction, alarmPlan, ringCandidates, snooze as snoozeMap, STAGE_VOLUME, VIBRATION, type AlarmPlan, type RingCandidate } from './ladder';
 
 /**
  * The new-order alarm, app-wide (it rings on any screen — menu, money… — until every new order is
@@ -26,7 +26,7 @@ let shown: AlarmPlan = EMPTY;
 let planKey = '';
 let secondsKey = '';
 let candidates: RingCandidate[] = [];
-/** The store is closed (by hand or out of hours): waiting orders show, nothing rings (m6a). */
+/** The store is closed (by hand or out of hours): orders waiting from before show quietly (m6a). */
 let storeClosed = false;
 
 const listeners = new Set<() => void>();
@@ -53,11 +53,6 @@ const subscribeSeconds = (cb: () => void) => {
     secondListeners.delete(cb);
   };
 };
-
-/** New orders that should ring (partial accepts wait for the customer, not the kitchen). */
-export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
-  return orders.filter((o) => o.column === 'new' && o.partial === null).map((o) => ({ id: o.id, number: o.number, acceptByMs: o.acceptBy ? o.acceptBy.getTime() : null }));
-}
 
 function publish(next: AlarmPlan) {
   const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
@@ -134,9 +129,12 @@ export const alarm = {
     lastChimeAt = 0;
     publish(alarmPlan(candidates, snoozedUntil, handling, now, storeClosed));
   },
-  /** A new order arrived on the live channel: ring now, before the board is re-read. */
+  /**
+   * A new order arrived on the live channel: ring now, before the board is re-read. It rings even
+   * while the store is closed — an order offered now was not waiting when the store closed (m6a).
+   */
   ringNow(orderId: string, soundOn: boolean) {
-    if (storeClosed || !soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
+    if (!soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
     lastChimeAt = Date.now();
     chime(STAGE_VOLUME.calm);
     vibrate(VIBRATION.calm);

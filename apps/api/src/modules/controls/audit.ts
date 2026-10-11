@@ -13,11 +13,11 @@ const NAME_TTL_MS = 10 * 60_000;
  * contracts: the Console's string subset reads contracts and would keep every key under `zone.` etc.
  */
 export const AUDIT_CATEGORY_ACTIONS: Record<AuditCategory, readonly string[]> = {
-  money: ['ticket.refund', 'order.refund', 'refund_approval.', 'finance.', 'order.ops_resolve_dispute', 'order.dispute_escalated'],
+  money: ['ticket.refund', 'order.refund', 'refund_approval.', 'finance.', 'order.ops_resolve_dispute', 'order.dispute_escalated', 'cash.', 'wallet.topup'],
   approvals: ['approval.', 'store.dish_photo', 'store.pickup_spot'],
   pauses: ['driver.pause', 'driver.lift_pause', 'kill_switch.', 'capacity.'],
   safety: ['safety.', 'khat.', 'pin.'],
-  orders: ['order.ops_cancel', 'ride.', 'departure.', 'ticket.open', 'ticket.resolve', 'ticket.escalate', 'ticket.fault'],
+  orders: ['order.ops_cancel', 'trip.ops_', 'ride.', 'departure.', 'ticket.open', 'ticket.resolve', 'ticket.escalate', 'ticket.fault'],
   settings: ['zone.', 'banner.', 'screen.', 'season.', 'quiet.', 'on_call.', 'handover.'],
 };
 

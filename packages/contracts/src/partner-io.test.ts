@@ -32,6 +32,7 @@ describe('partner-io', () => {
       wave: 1,
       sentAt: '2026-10-03T10:00:00Z',
       expiresAt: '2026-10-03T10:00:15Z',
+      serverNow: '2026-10-03T10:00:01Z',
       ringSec: 15,
       seen: false,
       pickup: { zoneId: 'centre', label: 'مطعم خالد', pin: null },
@@ -44,5 +45,6 @@ describe('partner-io', () => {
       collectIqd: null,
     });
     expect(parsed.expiresAt.getTime() - parsed.sentAt.getTime()).toBe(15_000);
+    expect(parsed.expiresAt.getTime() - parsed.serverNow.getTime()).toBe(14_000);
   });
 });
