@@ -6,7 +6,7 @@ import { useSharedValue } from 'react-native-reanimated';
 import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
 import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, RTL_TEXT_PLUGIN_URL, SOURCE } from '@driver/map';
 import { fallBackToOriginalMap, goldenImages, type FallbackMap, type GoldenLight } from '@driver/map/golden';
-import { demandGlowLayers, type DemandCell } from '@driver/map/pieces';
+import { demandGlowLayers, type DemandCell } from '@driver/map/pieces/demand';
 import { courierGoldenStyle, goldenLightFor, LIGHT_CHECK_MS, MAP_URLS } from './golden-map';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';

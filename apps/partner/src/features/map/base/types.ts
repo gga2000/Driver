@@ -1,6 +1,6 @@
 import type { SharedValue } from 'react-native-reanimated';
 import type { LabelObstacle } from '@driver/map';
-import type { DemandCell } from '@driver/map/pieces';
+import type { DemandCell } from '@driver/map/pieces/demand';
 import type { Camera, Size } from '../geo';
 
 /** The camera every layer reads on the UI thread: centre + zoom as three shared values. */

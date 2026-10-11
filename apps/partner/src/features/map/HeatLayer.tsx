@@ -3,7 +3,7 @@ import { StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import type { DemandLevel } from '@driver/contracts';
-import type { DemandCell } from '@driver/map/pieces';
+import type { DemandCell } from '@driver/map/pieces/demand';
 import { buildPlacedZonesGeoJSON, buildZonesGeoJSON } from '@driver/map';
 import { useTheme } from '@driver/ui';
 import type { CameraValues } from './base/types';
