@@ -72,6 +72,10 @@ export default function FoodCartsPage() {
           <Skeleton height={120} />
           <Skeleton height={120} />
         </View>
+      ) : !list.launched ? (
+        <View testID="carts-soon">
+          <EmptyState icon="bell" title={t('carts.soon_title')} body={t('carts.soon_body')} />
+        </View>
       ) : (
         <View style={{ gap: theme.space[4] }}>
           <SegmentedControl<Show>

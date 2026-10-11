@@ -9297,5 +9297,7 @@
   "push.food_cart_walkup_closed.body": "It closed before starting your order, so ticket {code} is off and you owe nothing.",
   "push.food_cart_opened.place_zone": "by {zone}",
   "notify.pref.food_carts": "Carts you follow",
-  "notify.pref.food_carts_hint": "When a cart you follow opens. Once a day per cart, never at night."
+  "notify.pref.food_carts_hint": "When a cart you follow opens. Once a day per cart, never at night.",
+  "carts.soon_title": "Carts are coming soon",
+  "carts.soon_body": "They're not open in Aziziyah yet. When they open, you'll find them here."
 }

@@ -97,8 +97,11 @@ export type CartCard = z.infer<typeof CartCard>;
 export const CartsInput = z.object({ cityId: CityId.default('aziziyah'), near: LatLng.optional() });
 export type CartsInput = z.input<typeof CartsInput>;
 
-/** «عربانات العزيزية»: open now (nearest first), then closed ones; `followed` are the reader's own. */
-export const CartsList = z.object({ open: z.array(CartCard), closed: z.array(CartCard), followedIds: z.array(z.string()) });
+/**
+ * «عربانات العزيزية»: open now (nearest first), then closed ones; `followed` are the reader's own.
+ * `launched` false: carts are not open in this city yet (both lists empty; the app says «جاية قريب»).
+ */
+export const CartsList = z.object({ open: z.array(CartCard), closed: z.array(CartCard), followedIds: z.array(z.string()), launched: z.boolean() });
 export type CartsList = z.infer<typeof CartsList>;
 
 export const CartInput = z.object({ cartId: z.string().min(1), near: LatLng.optional() });

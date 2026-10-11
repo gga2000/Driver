@@ -9297,5 +9297,7 @@
   "push.food_cart_walkup_closed.body": "سدّ قبل ما يبدي بطلبك، فتذكرتك {code} انلغت وما عليك شي.",
   "push.food_cart_opened.place_zone": "يم {zone}",
   "notify.pref.food_carts": "العربانات اللي تتابعها",
-  "notify.pref.food_carts_hint": "لمن عربانة تتابعها تفتح. مرة وحدة باليوم لكل عربانة، وماكو بالليل"
+  "notify.pref.food_carts_hint": "لمن عربانة تتابعها تفتح. مرة وحدة باليوم لكل عربانة، وماكو بالليل",
+  "carts.soon_title": "العربانات جاية قريب",
+  "carts.soon_body": "بعدها ما فاتحة بالعزيزية. أول ما تفتح تلگاها هنا."
 }

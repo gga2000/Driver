@@ -15,6 +15,12 @@ and limits.
 Cart storefronts (and shops, `shop`) stay out of the restaurant lists: `CatalogService.listedStorefronts`
 skips `NOT_RESTAURANT_TAGS`; by-id reads (menu, order, reorder) still see them.
 
+## Launch switch
+Off until Ali opens carts: the city file's `foodCarts.launched` (absent = closed;
+`ConfigService.foodCartsOpen`). Closed, `list` returns empty lists with `launched: false` (the app shows
+«العربانات جاية قريب») and `get`, `follow` and `walkups.place` are `service_paused`. The owner's side
+works either way, so carts can be set up before they open. Demo APIs open them (`setFoodCartsOpen`).
+
 ## Procedures (`foodCarts.*`)
 - Customer: `list({ near? })`, `get({ cartId, near? })` (public); `follow({ cartId, on })`;
   `walkups.place({ cartId, lines, note? })` (priced on the server, 3-digit code, at most 3 open

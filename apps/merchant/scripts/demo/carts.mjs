@@ -12,6 +12,8 @@ export default async function register(ctx) {
   const { FoodCartsService, FOOD_CARTS_REPOSITORY, seedDemoCarts, DEMO_CARTS } = await ctx.load('modules/food-carts/index.js');
   const carts = ctx.app.get(FoodCartsService);
   const repo = ctx.app.get(FOOD_CARTS_REPOSITORY);
+  // Carts are off at launch (`foodCarts.launched`); the demo opens them so its tickets can be placed.
+  ctx.app.get((await ctx.load('modules/config/index.js')).ConfigService).setFoodCartsOpen('aziziyah', true);
   const seeded = await seedDemoCarts(orgs, catalog, carts, { ownerId: 'demo-cart-owner' });
   const liver = seeded.find((c) => c.key === 'liver');
 

@@ -3003,6 +3003,8 @@ const rajaa = await (async () => {
   const { FoodCartsService, FOOD_CARTS_REPOSITORY, seedDemoCarts, DEMO_CARTS } = await load('modules/food-carts/index.js');
   const carts = app.get(FoodCartsService);
   const cartsRepo = app.get(FOOD_CARTS_REPOSITORY);
+  // Carts are off at launch (`foodCarts.launched`); the demo opens them.
+  app.get((await load('modules/config/index.js')).ConfigService).setFoodCartsOpen('aziziyah', true);
   const cartSeed = await seedDemoCarts(orgs, catalog, carts, { ownerId: 'demo-cart-owner' });
   const cartOf = (key) => cartSeed.find((c) => c.key === key);
   const cartActor = (personId) => ({ personId, sessionId: 'demo' });

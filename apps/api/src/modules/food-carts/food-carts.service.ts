@@ -36,6 +36,7 @@ import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService, FOOD_CART_TAG, itemOnSale, type CatalogItemRecord } from '../catalog/index.js';
+import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
@@ -92,6 +93,7 @@ export class FoodCartsService implements FoodCartsPort {
     private readonly events: EventsService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly config: ConfigService,
   ) {}
 
   // ───────────────────────── setup ─────────────────────────
@@ -124,6 +126,7 @@ export class FoodCartsService implements FoodCartsPort {
   // ───────────────────────── customer ─────────────────────────
 
   async list(reader: FoodCartsReader, input: z.output<typeof CartsInput>): Promise<CartsList> {
+    if (!this.config.foodCartsOpen(input.cityId)) return { open: [], closed: [], followedIds: [], launched: false };
     const now = this.clock.now();
     const carts = await this.repo.inCity(input.cityId);
     const ids = carts.map((c) => c.id);
@@ -137,11 +140,12 @@ export class FoodCartsService implements FoodCartsPort {
       open: cards.filter((c) => c.open).sort(byWalk),
       closed: cards.filter((c) => !c.open).sort((a, b) => Number(b.following) - Number(a.following) || byWalk(a, b)),
       followedIds: [...following],
+      launched: true,
     };
   }
 
   async get(reader: FoodCartsReader, input: z.output<typeof CartInput>): Promise<CartCard> {
-    const c = await this.cartOrThrow(input.cartId);
+    const c = await this.launchedCart(input.cartId);
     const [following, counts] = await Promise.all([
       reader.actor ? this.repo.followed(reader.actor.personId, [c.id]) : Promise.resolve(new Set<string>()),
       this.repo.followerCounts([c.id]),
@@ -150,7 +154,7 @@ export class FoodCartsService implements FoodCartsPort {
   }
 
   async follow(actor: Actor, input: FollowCartInput): Promise<{ following: boolean; followers: number }> {
-    const c = await this.cartOrThrow(input.cartId);
+    const c = await this.launchedCart(input.cartId);
     if (input.on) {
       const already = await this.repo.followed(actor.personId, [c.id]);
       if (!already.has(c.id) && (await this.repo.followCount(actor.personId)) >= FOOD_CART_RULES.maxFollows) throw new DriverError('cart_follow_limit');
@@ -162,7 +166,7 @@ export class FoodCartsService implements FoodCartsPort {
 
   async placeWalkup(actor: Actor, input: PlaceWalkupInput): Promise<WalkupView> {
     const now = this.clock.now();
-    const c = await this.cartOrThrow(input.cartId);
+    const c = await this.launchedCart(input.cartId);
     if (!cartOpen(c, now)) throw new DriverError('cart_closed');
     const mine = await this.settle(await this.repo.walkupsOfPerson(actor.personId, new Date(now.getTime() - MINE_WINDOW_MS)), now);
     if (mine.filter((w) => OPEN_WALKUP_STATES.includes(w.state)).length >= FOOD_CART_RULES.maxOpenTickets) throw new DriverError('walkup_too_many');
@@ -329,6 +333,13 @@ export class FoodCartsService implements FoodCartsPort {
     if (await this.identity.hasRole(actor.personId, 'merchant_owner', orgId)) return;
     if (await this.identity.hasRole(actor.personId, 'merchant_staff', orgId)) return;
     throw new DriverError('forbidden');
+  }
+
+  /** A cart customers may reach: carts must be open in its city (`foodCarts.launched`), else `service_paused`. */
+  private async launchedCart(cartId: string): Promise<FoodCartRecord> {
+    const c = await this.cartOrThrow(cartId);
+    if (!this.config.foodCartsOpen(c.cityId)) throw new DriverError('service_paused');
+    return c;
   }
 
   private async ownCart(actor: Actor, orgId: string): Promise<FoodCartRecord> {
