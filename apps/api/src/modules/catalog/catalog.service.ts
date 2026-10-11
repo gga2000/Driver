@@ -332,6 +332,9 @@ export class CatalogService {
           servesMin: rest.servesMin ?? null,
           servesMax: rest.servesMax ?? null,
           labels: [...(rest.labels ?? [])],
+          ...(rest.portion !== undefined ? { portion: rest.portion } : {}),
+          ...(rest.homeSale !== undefined ? { homeSale: rest.homeSale } : {}),
+          ...(rest.stock !== undefined ? { stock: rest.stock } : {}),
         },
         tx,
       );

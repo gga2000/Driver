@@ -10,7 +10,7 @@ import { Iqd } from './common.js';
 const Rate = z.number().min(0).max(1);
 
 /** Restaurant commission tier (money §1); the base is the item subtotal after merchant-funded discounts (G-87). */
-export const CommissionTier = z.enum(['base', 'featured', 'marketing', 'pickup']);
+export const CommissionTier = z.enum(['base', 'featured', 'marketing', 'pickup', 'home']);
 export type CommissionTier = z.infer<typeof CommissionTier>;
 
 /** Ride/seat/parcel service classes with their own platform take (money §3). */
@@ -76,7 +76,8 @@ export const AZIZIYAH_GUARANTEE_SHIFTS: readonly PeakShift[] = [
 ];
 
 export const MoneyRules = z.object({
-  commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
+  /** `home`: أكل بيت, a home cook's kitchen (Ali, 2026-10-11: 10 %). */
+  commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate, home: Rate }),
   serviceFeeIqd: Iqd.nonnegative(),
   /**
    * J-D6 (Ali, 2026-10-05): `feeIqd` is charged on an order below the restaurant's own minimum
@@ -285,7 +286,7 @@ export function bookedFallbackCompensationIqd(rules: Pick<MoneyRules, 'bookedRid
 }
 
 export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
-  commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
+  commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05, home: 0.1 },
   serviceFeeIqd: 500,
   smallOrder: { belowIqd: 5000, feeIqd: 500 },
   batchedSecondCourierShare: 0.7,

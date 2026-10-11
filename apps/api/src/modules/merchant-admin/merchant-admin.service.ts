@@ -34,11 +34,18 @@ import {
   type UpsertCategoryInput,
   type UpsertItemInput,
   type WeeklyStatement,
+  homeLocalDay,
+  type HomeKitchenDish,
+  type HomeKitchenView,
+  type HomeSale,
+  type HomeTally,
+  type SaveHomeDishInput,
+  type SetHomeTodayInput,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, homeDishView, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -648,6 +655,89 @@ export class MerchantAdminService implements MerchantAdminPort {
   // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
 
   /** Today's pot (even past its «لحد» time), last week's same day and the recent ones, follower counts. */
+  // ───────────────────────── أكل بيت: the cook's side ─────────────────────────
+
+  async homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView> {
+    await this.roleAt(actor, input.merchantOrgId);
+    if (!(await this.catalog.storefront(input.merchantOrgId))?.home) return { home: false, dishes: [], reservations: [] };
+    const now = this.clock.now();
+    const items = (await this.catalog.menu(input.merchantOrgId)).filter((i) => i.homeSale);
+    const { tally, reservations } = await this.orders.homeKitchenOrders(input.merchantOrgId, now);
+    const names = new Map(items.map((i) => [i.id, i.nameAr]));
+    return {
+      home: true,
+      dishes: items.map((i) => this.homeDish(i, now, tally)),
+      reservations: reservations.filter((r) => names.has(r.itemId)).map((r) => ({ ...r, nameAr: names.get(r.itemId)! })),
+    };
+  }
+
+  /** A new dish or an edit (owner): name, her line, portion, price, how it sells. A dish moved to ready starts with no plates today. */
+  async homeSaveDish(actor: Actor, input: SaveHomeDishInput): Promise<HomeKitchenDish> {
+    await this.owner(actor, input.merchantOrgId);
+    if (!(await this.catalog.storefront(input.merchantOrgId))?.home) throw new DriverError('forbidden');
+    const before = input.itemId ? await this.catalog.adminItem(input.merchantOrgId, input.itemId) : null;
+    if (before && !before.homeSale) throw new DriverError('catalog_item_unavailable');
+    const wasReady = before?.homeSale?.mode === 'ready' ? before.homeSale : null;
+    const homeSale: HomeSale = input.sale.mode === 'reserve' ? { mode: 'reserve', rule: input.sale.rule } : (wasReady ?? { mode: 'ready', cooked: null, cookedOn: null, setAt: null });
+    const { item } = await this.uow.run((tx) =>
+      this.catalog.upsertItem(
+        input.merchantOrgId,
+        {
+          itemId: input.itemId,
+          patch: {
+            nameAr: input.nameAr,
+            description: input.description,
+            priceIqd: input.priceIqd,
+            servesMin: input.servesMin,
+            servesMax: input.servesMax ?? input.servesMin,
+            portion: input.portion,
+            homeSale,
+            // A reserved dish is cooked to order: no plates count on it.
+            ...(input.sale.mode === 'reserve' ? { stock: null } : wasReady ? {} : { stock: 0 }),
+          },
+        },
+        actor.personId,
+        tx,
+      ),
+    );
+    const now = this.clock.now();
+    return this.homeDish(item, now, (await this.orders.homeKitchenOrders(input.merchantOrgId, now)).tally);
+  }
+
+  /** «جاهزة اليوم» (owner and staff): the plates of a ready dish she has now; null = not cooking it today. */
+  async homeSetToday(actor: Actor, input: SetHomeTodayInput): Promise<HomeKitchenDish> {
+    await this.roleAt(actor, input.merchantOrgId);
+    const item = await this.catalog.adminItem(input.merchantOrgId, input.itemId);
+    if (item.homeSale?.mode !== 'ready') throw new DriverError('catalog_item_unavailable');
+    const now = this.clock.now();
+    const today = homeLocalDay(now);
+    const cooked = input.left === null ? null : (input.cooked ?? (item.homeSale.cookedOn === today ? item.homeSale.cooked : null));
+    const homeSale: HomeSale = { mode: 'ready', cooked, cookedOn: input.left === null ? null : today, setAt: now.toISOString() };
+    const { item: saved } = await this.uow.run((tx) => this.catalog.upsertItem(input.merchantOrgId, { itemId: item.id, patch: { homeSale, stock: input.left ?? 0 } }, actor.personId, tx));
+    return this.homeDish(saved, now, (await this.orders.homeKitchenOrders(input.merchantOrgId, now)).tally);
+  }
+
+  private homeDish(i: CatalogItemRecord, now: Date, tally: HomeTally): HomeKitchenDish {
+    const sale = i.homeSale!;
+    const today = homeLocalDay(now);
+    let booked = 0;
+    for (const n of tally.slots.get(i.id)?.values() ?? []) booked += n;
+    return {
+      id: i.id,
+      nameAr: i.nameAr,
+      description: i.description,
+      priceIqd: i.priceIqd,
+      photoUrl: this.photoUrl(i.photoUrl),
+      servesMin: i.servesMin ?? null,
+      servesMax: i.servesMax ?? null,
+      portion: i.portion ?? null,
+      available: i.available,
+      sale: sale.mode === 'ready' ? { mode: 'ready', cooked: sale.cookedOn === today ? sale.cooked : null, cookingToday: sale.cookedOn === today } : { mode: 'reserve', rule: sale.rule },
+      view: homeDishView(sale, i.stock, now, i.id, tally),
+      booked,
+    };
+  }
+
   async potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.potView(input.merchantOrgId);

@@ -125,7 +125,7 @@ export interface MenuImportJobRecord {
   appliedCount: number;
 }
 
-export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'photoLibrary' | 'photoReviewPendingAt' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels'>> & {
+export type CatalogItemPatch = Partial<Pick<CatalogItemRecord, 'nameAr' | 'nameEn' | 'description' | 'priceIqd' | 'photoUrl' | 'photoLibrary' | 'photoReviewPendingAt' | 'categoryAr' | 'sortOrder' | 'prepTimeMin' | 'available' | 'servesMin' | 'servesMax' | 'labels' | 'portion' | 'homeSale' | 'stock'>> & {
   soldOutUntil?: Date | null;
 };
 

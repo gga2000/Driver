@@ -72,3 +72,21 @@ export function homeOrderProblem(lines: readonly HomeOrderLine[], scheduledFor: 
   }
   return null;
 }
+
+/** The pickup times a home kitchen has to cook for: per time and dish, the plates and how many orders. */
+export function homeReservations(orders: readonly OrderAggregate[], now: Date): Array<{ at: Date; itemId: string; plates: number; orders: number }> {
+  const byKey = new Map<string, { at: Date; itemId: string; plates: number; orders: Set<string> }>();
+  for (const agg of orders) {
+    const at = agg.order.scheduledFor;
+    if (!at || at.getTime() < now.getTime() || NOT_COUNTED.has(agg.order.state)) continue;
+    for (const l of agg.lines) {
+      if (!l.catalogItemId || l.substitution?.state === 'removed') continue;
+      const key = `${slotKey(at)}|${l.catalogItemId}`;
+      const row = byKey.get(key) ?? { at, itemId: l.catalogItemId, plates: 0, orders: new Set<string>() };
+      row.plates += l.qty;
+      row.orders.add(agg.order.id);
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()].map((r) => ({ at: r.at, itemId: r.itemId, plates: r.plates, orders: r.orders.size })).sort((a, b) => a.at.getTime() - b.at.getTime() || a.itemId.localeCompare(b.itemId));
+}

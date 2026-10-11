@@ -29,7 +29,7 @@ export async function seedStorefronts(
   const out: SeededStorefront[] = [];
   for (const r of restaurants) {
     const org = await orgs.create({ type: 'restaurant', name: r.nameAr, cityId: r.cityId, ownerId });
-    await orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'base' });
+    await orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'home' in r ? 'home' : 'base' });
     await catalog.saveStorefront({
       orgId: org.id,
       cityId: r.cityId,

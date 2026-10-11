@@ -9,7 +9,7 @@ export { UPLOAD_PHOTO_PREFIX, STOREFRONT_PHOTOS, itemPhotoUrl, photoLink } from 
 export type { PhotoLink, PhotoLinks } from './photos.js';
 export { potDay, potShowing, potSuggestions, daysBefore } from './pots.js';
 export type { SeededStorefront } from './seed.js';
-export { STOREFRONT_RULES, openState, nextOpening, twelveHour, pinOf, etaRange, prepRange, basePrepMin, menuSections, menuItemView, foldArabic, activeWindow, localDowMinutes } from './storefront.js';
+export { STOREFRONT_RULES, openState, nextOpening, twelveHour, pinOf, etaRange, prepRange, basePrepMin, menuSections, menuItemView, homeDishView, foldArabic, activeWindow, localDowMinutes } from './storefront.js';
 export type {
   AvailabilityWindow,
   BranchOverride,

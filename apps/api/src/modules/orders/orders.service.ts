@@ -53,6 +53,7 @@ import {
   type Vertical,
   MERCHANT_BUSY_RULES,
   localClock,
+  type HomeTally,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -62,7 +63,7 @@ import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
-import { homeOrderProblem, homeTally, homeTallySince } from './home-kitchen.js';
+import { homeOrderProblem, homeReservations, homeTally, homeTallySince } from './home-kitchen.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -1500,6 +1501,12 @@ export class OrdersService implements OnModuleInit {
   }
 
   // ───────────────────────── reads ─────────────────────────
+
+  /** أكل بيت (the cook's side): the plates her live orders hold and the pickup times she cooks for. */
+  async homeKitchenOrders(merchantOrgId: string, now: Date): Promise<{ tally: HomeTally; reservations: ReturnType<typeof homeReservations> }> {
+    const live = await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now);
+    return { tally: homeTally(live, now), reservations: homeReservations(live, now) };
+  }
 
   async get(orderId: string): Promise<Order> {
     return this.view(orderId);

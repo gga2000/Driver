@@ -65,6 +65,7 @@ import {
       provide: MERCHANT_CATALOG,
       useFactory: (catalog: CatalogService): MerchantCatalogPort => ({
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
+        isHomeKitchen: async (orgId) => Boolean((await catalog.storefront(orgId))?.home),
         itemKinds: async (orgId, ids) => {
           const kinds = new Map<string, DishKind>();
           for (const i of await catalog.itemsOf(orgId, ids)) {
