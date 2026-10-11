@@ -77,7 +77,7 @@ export class KhatModule implements OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null,
     private readonly khat: KhatService,
     @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
-    @Optional() private readonly sweeper: TimerSweeper | null,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   onModuleInit(): void {

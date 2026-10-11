@@ -70,7 +70,7 @@ export class TripsModule implements OnModuleInit, OnModuleDestroy {
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly trips: TripsService,
     @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
-    @Optional() private readonly sweeper: TimerSweeper | null,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   async onModuleInit(): Promise<void> {

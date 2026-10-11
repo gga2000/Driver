@@ -191,7 +191,7 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly eventsService: EventsService,
     private readonly walletHolds: WalletHolds,
     @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
-    @Optional() private readonly sweeper: TimerSweeper | null,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   private unsubscribeFailure: (() => void) | undefined;
