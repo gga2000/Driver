@@ -235,8 +235,8 @@ export type GuardianRunInput = z.infer<typeof GuardianRunInput>;
  * whether it is done), so no other child's home ever reaches him.
  *
  * The bus itself would trace the other homes, so its position is sent only on a leg that ends at
- * this child's home or at the school (`bus` is null while it heads to another child's stop, and
- * `busAway` says so). `stopsBefore` counts the other children's stops still to come before this
+ * this child's home or at the school, and only once it is 300 m from every other child's stop
+ * (`bus` is null otherwise, and `busAway` says so). `stopsBefore` counts the other children's stops still to come before this
  * child's next stop.
  */
 export const GuardianRunView = z.object({

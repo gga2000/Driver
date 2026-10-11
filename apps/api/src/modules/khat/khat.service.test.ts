@@ -14,7 +14,7 @@ import { DevPushProvider } from '../notify/providers/push.js';
 import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
 import { PINS, tripsHarness } from '../trips/test-harness.js';
 import { InMemoryKhatRepository } from './khat.repository.js';
-import { DEFAULT_KHAT_CONFIG, KhatService, type SweepCheckJob } from './khat.service.js';
+import { DEFAULT_KHAT_CONFIG, GUARDIAN_BUS_PRIVACY_M, KhatService, type SweepCheckJob } from './khat.service.js';
 
 /** A morning خطوط run: two children picked up at home, both dropped at school. */
 async function setup() {
@@ -541,12 +541,18 @@ describe('khat.guardian.run (map idea N14: only your home and the bus)', () => {
     expect(wire).not.toContain(String(PINS.home2.lat));
     expect(wire).not.toContain('زينب');
 
-    // زينب is picked up: the bus now heads to سارة's home, so it shows.
+    // زينب is picked up. The bus is still at her door: no fix and no "done" yet, or her home would show.
     await h.khat.tapIn(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[0]!.id, pin: PINS.home2 });
+    await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: { lat: PINS.home2.lat + 0.0018, lng: PINS.home2.lng }, at: h.t.clock.now() });
+    const atDoor = (await h.khat.guardianRun(h.parent, { childRef: h.sara }))!;
+    expect(atDoor).toMatchObject({ bus: null, busAway: true, stopsBefore: 1, others: [{ done: false }] });
+    expect(JSON.stringify(atDoor)).not.toContain(String(PINS.home2.lat));
+    // Past GUARDIAN_BUS_PRIVACY_M from her stop, heading to سارة's home: now it shows.
     await h.t.trips.reportPosition(h.runDriver.personId, { tripId: h.run.id, pin: PINS.school, at: h.t.clock.now() });
     const next = (await h.khat.guardianRun(h.parent, { childRef: h.sara }))!;
     expect(next).toMatchObject({ busAway: false, stopsBefore: 0, others: [{ done: true }] });
     expect(next.bus).toMatchObject({ lat: PINS.school.lat, lng: PINS.school.lng });
+    expect(GUARDIAN_BUS_PRIVACY_M).toBe(300);
 
     // On board, heading to school: the bus stays shown; delivered: it goes.
     await h.khat.tapIn(h.runDriver, { tripId: h.run.id, stopId: h.run.stops[1]!.id, pin: PINS.home });

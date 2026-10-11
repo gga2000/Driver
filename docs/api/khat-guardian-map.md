@@ -10,8 +10,10 @@ child's home, the school and the bus. Other children's stops are dots with no po
   (`leg: 'to_home'`). The other end is home.
 - **The bus:** its last position is sent only while the run's next stop is this child's or the
   school's. While it heads to another child's stop, `bus` is null and `busAway` is true, because the
-  bus's position would otherwise show that home. Once the child is delivered or absent, the bus is
-  not sent.
+  bus's position would otherwise show that home. It also stays hidden until it is 300 m
+  (`GUARDIAN_BUS_PRIVACY_M`) from every other child's stop, and a stop the bus is still within 300 m
+  of counts as not done. So neither the first fix nor the moment a neighbour's stop settles points at
+  that home. Once the child is delivered or absent, the bus is not sent.
 - **Other children:** `others` holds one `{ done }` per stop in run order, with no position, name or
   zone. `stopsBefore` counts the ones still to come before this child's next stop.
 - **Road:** `polyline6` runs only through the public points (the bus when it is shown, the home and

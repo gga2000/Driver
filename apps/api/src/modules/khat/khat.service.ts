@@ -198,13 +198,19 @@ export function runTripView(trip: Trip, names: Record<string, RunChild>, absence
 
 /** Two stops this close are the same place (the school gate every child is dropped at). */
 const SAME_PLACE_M = 60;
+/**
+ * The bus is shown only this far from every other child's stop (review of #259): a fix taken at the
+ * neighbour's door, the moment his stop settles, would otherwise mark that home on the guardian's map.
+ */
+export const GUARDIAN_BUS_PRIVACY_M = 300;
 const PROGRESS_TRIP_STATES = new Set(['accepted', 'en_route_to_pickup', 'arrived_pickup', 'in_transit', 'arrived_dropoff']);
 const settled = (s: Trip['stops'][number]) => s.state === 'completed' || s.state === 'skipped';
 
 /**
  * N14: the guardian's view of one run. The school is whichever end of his child's ride more of the
  * run's stops share (morning: the drop-offs; afternoon: the pick-ups). The bus's position goes out only
- * while the next stop is his child's or the school's; on any other leg it would show another home.
+ * while the next stop is his child's or the school's (on any other leg it would show another home),
+ * and only once it is `GUARDIAN_BUS_PRIVACY_M` from every other child's stop.
  */
 export function guardianRunView(
   trip: Trip,
@@ -226,7 +232,12 @@ export function guardianRunView(
   const riding = child === 'waiting' || child === 'on_board';
   const next = riding && PROGRESS_TRIP_STATES.has(trip.state) ? stops.find((s) => !settled(s)) : undefined;
   const ownNext = child === 'waiting' ? pickup : dropoff;
-  const busShown = next !== undefined && isPublic(next) && position !== null;
+  // Near another child's stop the bus stays hidden, and that stop still counts as not done, so neither
+  // the bus nor the moment the stop settled points at that home.
+  const nearOther = (s: Trip['stops'][number]) => position !== null && s.target !== null && !isPublic(s) && haversineMeters(position.pin, s.target) < GUARDIAN_BUS_PRIVACY_M;
+  const shielded = stops.some(nearOther);
+  const done = (s: Trip['stops'][number]) => settled(s) && !nearOther(s);
+  const busShown = next !== undefined && isPublic(next) && position !== null && !shielded;
   return {
     tripId: trip.id,
     state: trip.state,
@@ -235,9 +246,9 @@ export function guardianRunView(
     home: { lat: home.lat, lng: home.lng },
     school: { lat: school.lat, lng: school.lng, landmark: nearestLandmark(school) },
     bus: busShown ? { lat: position.pin.lat, lng: position.pin.lng, bearing: position.bearing, at: position.at } : null,
-    busAway: next !== undefined && !isPublic(next),
-    stopsBefore: riding ? stops.filter((s) => !settled(s) && !isPublic(s) && s.seq < ownNext.seq).length : 0,
-    others: stops.filter((s) => !isPublic(s)).map((s) => ({ done: settled(s) })),
+    busAway: next !== undefined && (!isPublic(next) || shielded),
+    stopsBefore: riding ? stops.filter((s) => !done(s) && !isPublic(s) && s.seq < ownNext.seq).length : 0,
+    others: stops.filter((s) => !isPublic(s)).map((s) => ({ done: done(s) })),
   };
 }
 
