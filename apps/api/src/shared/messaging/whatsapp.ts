@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Logger } from '@nestjs/common';
-import { globalFetch, parseJson, pick, ProviderError, send, transientStatus, type FetchLike } from './http.js';
+import { isDevEnvironment } from '../call-bridge.js';
+import { globalFetch, maskNumber, parseJson, pick, ProviderError, send, transientStatus, type FetchLike } from './http.js';
 
 export interface WhatsAppMessage {
   /** E.164 destination. */
@@ -40,11 +41,16 @@ export class DevWhatsAppProvider implements WhatsAppPort {
   private readonly logger = new Logger('DevWhatsApp');
   private seq = 0;
 
-  constructor(private readonly log = true) {}
+  /** `redact`: outside development the log keeps only a masked number and the template, never the text. */
+  constructor(
+    private readonly log = true,
+    private readonly redact = false,
+  ) {}
 
   async send(message: WhatsAppMessage): Promise<WhatsAppResult> {
     this.sent.push(message);
-    if (this.log) this.logger.log(`→ ${message.to} [${message.template}/${message.language}] ${message.preview ?? message.params.join(' | ')}`);
+    if (this.log && this.redact) this.logger.log(`→ ${maskNumber(message.to)} [${message.template}/${message.language}]`);
+    else if (this.log) this.logger.log(`→ ${message.to} [${message.template}/${message.language}] ${message.preview ?? message.params.join(' | ')}`);
     this.seq += 1;
     return { provider: this.name, messageId: `dev-wamid-${this.seq}` };
   }
@@ -178,9 +184,16 @@ export function parseStatusWebhook(body: unknown): WhatsAppStatusUpdate[] {
   return out;
 }
 
-export function whatsAppPortFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fetchImpl?: FetchLike; log?: boolean } = {}): WhatsAppPort {
+/**
+ * The WhatsApp port the environment asks for, or null when there is none: outside development
+ * (NODE_ENV other than development/test) without WHATSAPP_TOKEN nothing can reach WhatsApp, so no
+ * port is built. Sign-in then never offers or routes codes to WhatsApp, and notify skips WhatsApp rows
+ * (`not_configured`) so their SMS twins go. In development the dev sender logs instead.
+ */
+export function whatsAppPortFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fetchImpl?: FetchLike; log?: boolean } = {}): WhatsAppPort | null {
+  if (!isDevEnvironment(env['NODE_ENV']) && !env['WHATSAPP_TOKEN']) return null;
   const choice = (env['WHATSAPP_PROVIDER'] ?? (env['WHATSAPP_TOKEN'] ? 'meta' : 'dev')).toLowerCase();
-  if (choice !== 'meta' && choice !== 'cloud') return new DevWhatsAppProvider(opts.log ?? true);
+  if (choice !== 'meta' && choice !== 'cloud') return new DevWhatsAppProvider(opts.log ?? true, !isDevEnvironment(env['NODE_ENV']));
   return new WhatsAppCloudProvider(
     {
       token: env['WHATSAPP_TOKEN'] ?? '',

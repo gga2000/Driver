@@ -17,6 +17,7 @@ import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoar
 import { boardTitle, cityName, seatsCount } from '@/features/rajaa/labels';
 import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useMyBookings, useNetwork, usePostDemand, useSharedWithMe } from '@/features/rajaa/queries';
 import { returnOfferFor } from '@/features/rajaa/return-bundle';
+import { garageKey } from '@/features/rajaa/garage-cars';
 import { ReturnBundleStrip } from '@/features/rajaa/ReturnParts';
 import { SharedCarStrip } from '@/features/rajaa/ShareCarParts';
 import { useNow } from '@/features/rajaa/useNow';
@@ -286,6 +287,20 @@ export default function RajaaBoard() {
                     .join(' · ')}
                 </Text>
               </View>
+              {/* N12: the garage on the map with each car's seats over it (only the garages drawn in 3D). */}
+              {garageKey(g.garage.id) ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: -theme.space[3] }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="map-pin"
+                    label={t('rajaa_garage.open')}
+                    accessibilityLabel={t('rajaa_garage.open_a11y', { garage: publicPlaceName(g.garage.nameAr) })}
+                    onPress={() => router.push({ pathname: '/rajaa/garage/[id]', params: { id: g.garage.id, corridor: corridorId, direction } })}
+                    testID={`garage-open-map-${g.garage.id}`}
+                  />
+                </View>
+              ) : null}
               {/* The calm line (keep list #1), now a caption under the first garage instead of above the route. */}
               {gi === 0 ? (
                 <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start', marginTop: -theme.space[1] }}>

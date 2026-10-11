@@ -49,6 +49,22 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
 }
 
 /**
+ * One garage's live board (map idea N12, «شوف الكراج»): its cars for the next 12 h, on one line when
+ * the rider came from that line's board. Polled every 5 s like the board.
+ */
+export function useGarageBoard(garageId: string, corridorId?: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.board.queryOptions({ garageId, ...(corridorId ? { corridorId } : {}) }),
+    enabled: signedIn && !!garageId,
+    staleTime: 2_000,
+    refetchInterval: RAJAA_RULES.pollMs,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/**
  * Today's cars on every line, for the «بغداد» / «الكوت» cards (s1): one read per corridor, the same
  * span as the board, not polled (the picked line's own board polls).
  */

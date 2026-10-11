@@ -2,12 +2,26 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { baghdadMonthRange } from '@driver/contracts';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { Accounts, LedgerModule, LedgerService, savedBetween } from '../ledger/index.js';
+import { Accounts, LedgerModule, LedgerService, moneyLines, savedBetween } from '../ledger/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
-import { RoutesModule, RoutesRpc } from '../routes/index.js';
-import { INSIGHTS_SOURCES, InsightsService, type InsightsSources } from './insights.service.js';
+import { PlacesModule, SavedPlacesService } from '../places/index.js';
+import { GARAGES, RoutesModule, RoutesRpc } from '../routes/index.js';
+import { EtaService, RoutingModule } from '../routing/index.js';
+import { TripsModule, TripsService } from '../trips/index.js';
+import { INSIGHTS_SOURCES, InsightsService, STATS_SOURCES, type InsightsSources, type StatsSources } from './insights.service.js';
 import { MONTH_CARD_SOURCES, MonthCardJob, type MonthCardSources } from './month-card.job.js';
+
+/**
+ * «خريطتك»: the Aziziyah garage a الرجعة trip left from or came to (a trip from the far city counts at the
+ * town's first garage), and the far city's garage as the direction its arrow points.
+ */
+function rajaaEnds(garageId: string, cityId: string | null): { garage: { lat: number; lng: number } | null; farCity: { lat: number; lng: number } | null } {
+  const point = (g: { lat: number; lng: number } | undefined) => (g ? { lat: g.lat, lng: g.lng } : null);
+  const own = GARAGES.find((g) => g.id === garageId);
+  const garage = own?.cityId === 'aziziyah' ? own : GARAGES.find((g) => g.cityId === 'aziziyah');
+  return { garage: point(garage), farCity: point(cityId ? GARAGES.find((g) => g.cityId === cityId) : undefined) };
+}
 
 /**
  * Joy w4 / w6 read side: «شهرك» (`wallet.month`), the month-start card's event, and the household
@@ -15,7 +29,7 @@ import { MONTH_CARD_SOURCES, MonthCardJob, type MonthCardSources } from './month
  * bookings and the ledger. Owns no tables.
  */
 @Module({
-  imports: [OrdersModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, EventsModule],
+  imports: [OrdersModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, EventsModule, TripsModule, PlacesModule, RoutingModule],
   providers: [
     {
       provide: INSIGHTS_SOURCES,
@@ -40,6 +54,59 @@ import { MONTH_CARD_SOURCES, MonthCardJob, type MonthCardSources } from './month
         pointsAccount: (personId) => Accounts.points(personId),
       }),
       inject: [OrdersService, OrgsService, CatalogService, RoutesRpc, LedgerService],
+    },
+    {
+      provide: STATS_SOURCES,
+      useFactory: (orders: OrdersService, orgs: OrgsService, routes: RoutesRpc, trips: TripsService, places: SavedPlacesService, eta: EtaService): StatsSources => ({
+        ordersEverBy: async (personId) =>
+          (await orders.placedByBetween(personId, new Date(0), new Date(8.64e15))).map(({ order, lines }) => ({
+            id: order.id,
+            type: order.type,
+            state: order.state,
+            merchantOrgId: order.merchantOrgId,
+            placedAt: order.placedAt,
+            deliveredAt: order.deliveredAt,
+            scheduledFor: order.scheduledFor,
+            promisedReadyAt: order.promisedReadyAt,
+            promisedRideMin: order.promisedRideMin ?? null,
+            lines: lines.map((l) => ({ catalogItemId: l.catalogItemId, qty: l.qty, removed: l.substitution?.state === 'removed' })),
+          })),
+        rideOf: async (orderId) => {
+          const id = (await trips.tripIdsForOrder(orderId)).at(-1);
+          if (!id) return null;
+          const t = await trips.get(id);
+          const pickup = t.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
+          const dropoff = t.stops.find((s) => s.orderId === orderId && s.type === 'dropoff');
+          return {
+            vertical: t.vertical,
+            driverId: t.courierId,
+            acceptedAt: t.acceptedAt,
+            pickupArrivedAt: pickup?.arrivedAt ?? null,
+            dropoffPlaceId: dropoff?.placeId ?? null,
+            from: pickup?.target ?? null,
+            to: dropoff?.target ?? null,
+          };
+        },
+        bookingsOf: async (personId) =>
+          (await routes.myBookings({ personId, sessionId: 'insights' })).map((b) => ({
+            state: b.state,
+            completedAt: b.completedAt,
+            cityId: b.departure.cityId ?? null,
+            frontSeat: b.seatIds.includes('front'),
+            lapChildren: b.lapChildren,
+            returnDiscountIqd: b.returnDiscountIqd,
+            ...rajaaEnds(b.departure.garageId, b.departure.cityId ?? null),
+          })),
+        placeNames: async (personId) => new Map((await places.mine(personId)).map((p) => [p.id, p.name])),
+        homeOf: async (personId) => {
+          const home = (await places.mine(personId)).find((p) => p.label === 'home');
+          return home ? { lat: home.pin.lat, lng: home.pin.lng } : null;
+        },
+        roadBetween: async (from, to) => (await eta.path([from, to])).polyline6,
+        walletLines: (account, events) => moneyLines(account, events),
+        restaurantsInCity: async (cityId) => (await orgs.merchants(cityId)).filter((m) => m.type === 'restaurant').length,
+      }),
+      inject: [OrdersService, OrgsService, RoutesRpc, TripsService, SavedPlacesService, EtaService],
     },
     InsightsService,
     {

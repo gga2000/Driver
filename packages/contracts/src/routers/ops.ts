@@ -25,7 +25,7 @@ import {
   ScheduleMenuPhotosInput,
 } from '../menu-photos-io.js';
 import { DISH_PHOTO_REVIEW_ROLES, DishPhotoQueueInput, DishPhotoRow, KeepDishPhotoInput, KeepDishPhotoResult, TakeDownDishPhotoInput, TakeDownDishPhotoResult } from '../dish-photos-io.js';
-import { ConsolePickupSpotView, MerchantOrgInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
+import { ConsolePickupSpotView, MerchantOrgInput, MoveKitchenInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
@@ -83,6 +83,11 @@ export const opsPickupSpotsRouter = router({
     .input(SetPickupSpotInput)
     .output(ConsolePickupSpotView)
     .mutation(({ ctx, input }) => ctx.pickupSpots.set(ctx.actor, input)),
+  /** «حرّك مكان المطعم»: move the kitchen's pin (the zone is read from it), audited. */
+  moveKitchen: protectedProcedure(PICKUP_SPOT_CONSOLE_ROLES)
+    .input(MoveKitchenInput)
+    .output(ConsolePickupSpotView)
+    .mutation(({ ctx, input }) => ctx.pickupSpots.moveKitchen(ctx.actor, input)),
 });
 
 /**

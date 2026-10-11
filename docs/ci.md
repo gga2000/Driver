@@ -242,8 +242,11 @@ SEED_ADMIN_PHONE=07700000099 pnpm db:seed
 pnpm turbo run build --filter='./packages/*' --filter=@driver/api
 NODE_ENV=test LOG_FORMAT=json PORT=3999 SMS_PROVIDER=fake \
   OTP_RATE_LIMIT_PER_IP_HOUR=10000 OTP_RATE_LIMIT_PER_DEVICE_HOUR=10000 \
+  DRIVER_TEST_LAUNCHED_VERTICALS=food,grocery,errand,parcel,taxi,tuktuk,intercity,khat \
   node apps/api/dist/main.js >> api.log 2>&1 &
 E2E_API_LOG=api.log node scripts/e2e/realdb-core.mjs     # FLOWS=sos,share to run some only
+# (DRIVER_TEST_LAUNCHED_VERTICALS opens الرجعة and خطوط, not launched yet, for the seats and board flows;
+#  local runs and CI only, a deployed server refuses to boot with it.)
 kill %1
 ```
 

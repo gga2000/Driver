@@ -31,7 +31,10 @@ scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (P
 الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
 POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…), and
 `/demo/rajaa/arrived?personId=…[&told=1]` (a whole Kut → Aziziyah trip that just arrived: the pass shows
-«الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on). `SHOTS=rajaa`
+«الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on).
+`POST /demo/rajaa/garage[?garageId=mp_garage_bab1]` stands three more Baghdad cars in that garage, some
+seats taken, for «شوف الكراج» (`app/rajaa/garage/[id].tsx`, map idea N12: the 3D garage with each car's
+seats over it, gold free and brown taken; tap a car to book it; web needs the map files). `SHOTS=rajaa`
 limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
 Lock-screen pass (audit d-8): `src/features/rajaa/lockscreen/` — Android only (a no-op on the web
 and iOS), so it shows on a development build, not in the web studio; `content.test.ts` covers what it says.
@@ -181,6 +184,19 @@ for today (no delivered burst, success buzz or moment sounds). `POST /demo/night
 
 Metro caches inlined `EXPO_PUBLIC_*` values across checkouts: add `--clear` to the export when the
 API port changed (otherwise the bundle can still point at another demo API).
+
+## «وين الباص» (map idea N14, «بس بيتك والباص»)
+
+`docs/api/khat-guardian-map.md`. From أطفال الخطوط (`app/household/children.tsx`) each child has «وين
+الباص», which opens `app/household/bus/[childRef].tsx`: today's run on the Golden hour map with only the
+family's home, the school and the bus (`src/features/khat/`), read every 10 s. Other children's stops
+are blank dots spaced evenly on the client (the server sends no position for them). The sheet says
+where things stand in words, so without the map (or when it fails) the screen still answers.
+
+- Demo: after `POST /demo/account?personId=…`, `POST /demo/khat-bus?personId=…&state=coming|away|on_board|delivered|absent`
+  puts زهراء on a morning run with two neighbours' children picked up before her and one after
+  (`&fixAgoMin=5` for an old bus fix). The run view's `minutes` is null in the demo today (the khat
+  service gets no `EtaService` injected), so the headline says «الباص بالطريق لبيتكم» without a time.
 
 ## «بيتنا» and «شهرك» (joy w4, w6)
 

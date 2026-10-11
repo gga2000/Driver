@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import { HOUSEHOLD_RULES, type Trip } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { AppModule } from './app.module.js';
+import { ConfigService } from './modules/config/index.js';
 import { DISPATCH_QUEUE } from './modules/dispatch/index.js';
 import { EventsService } from './modules/events/index.js';
 import { IdentityService } from './modules/identity/index.js';
@@ -101,6 +102,9 @@ describe.skipIf(!url)('timed paths on Postgres, on a fake clock (CRIT3-05, needs
     app = moduleRef.createNestApplication({ logger });
     await app.init();
     db = app.get(PrismaService).prisma;
+    // These paths include a خطوط run; خطوط is not launched in Aziziyah yet, so this test opens it.
+    const config = app.get(ConfigService);
+    config.setLaunchedVerticals('aziziyah', [...config.launchedVerticals('aziziyah'), 'khat']);
     queues = [ORDERS_QUEUE, TRIPS_QUEUE, DISPATCH_QUEUE, KHAT_QUEUE].map((token) => app.get<InMemoryQueue<unknown>>(token, { strict: false }));
     for (const q of queues) if (!(q instanceof InMemoryQueue)) throw new Error('the timer queues must be in memory (REDIS_URL unset)');
     const identity = app.get(IdentityService);
