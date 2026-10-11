@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, LATE_PROMISE_MEMO, type LedgerEvent } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { savedBetween } from '../ledger/index.js';
-import { InsightsService, type InsightsSources } from './insights.service.js';
+import { InsightsService, type InsightsSources, type StatsSources } from './insights.service.js';
+
+/** «شهرك» tests never read the stats sources. */
+const NO_STATS = {} as StatsSources;
 import { MonthCardJob } from './month-card.job.js';
 import { monthCounts, pointsEarnedBetween, type MonthOrder } from './month.js';
 
@@ -101,7 +104,7 @@ describe('wallet.month (InsightsService)', () => {
 
   it('names the top kitchen and dish, counts الرجعة, saved and points; reads only the caller', async () => {
     const src = sources();
-    const v = await new InsightsService(src, clock).month(actor, { month: '2026-09' });
+    const v = await new InsightsService(src, clock, NO_STATS).month(actor, { month: '2026-09' });
     expect(v).toEqual({
       month: '2026-09',
       earliestMonth: '2025-10',
@@ -119,7 +122,7 @@ describe('wallet.month (InsightsService)', () => {
   });
 
   it('defaults to this month; refuses the future and more than 12 months back', async () => {
-    const svc = new InsightsService(sources({ ordersPlacedBy: async () => [], seatsTravelled: async () => 0, eventsFor: async () => [] }), clock);
+    const svc = new InsightsService(sources({ ordersPlacedBy: async () => [], seatsTravelled: async () => 0, eventsFor: async () => [] }), clock, NO_STATS);
     const now = await svc.month(actor, {});
     expect(now).toMatchObject({ month: '2026-10', hasActivity: false, topKitchen: null, topDish: null, savedIqd: 0 });
     await expect(svc.month(actor, { month: '2026-11' })).rejects.toBeInstanceOf(DriverError);
