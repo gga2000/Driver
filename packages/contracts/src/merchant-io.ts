@@ -481,8 +481,21 @@ export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 export const ConsolePickupSpotView = PickupSpotView.extend({
   storeName: z.string(),
   consoleEdit: z.object({ at: z.coerce.date(), byName: z.string().nullable() }).nullable(),
+  /**
+   * Where the kitchen is on file: its zone (the server's reading of the pin; every delivery fee starts
+   * there) and the pin. Null when the store has no place on file; absent on an older API.
+   */
+  kitchen: z.object({ zoneKey: z.string(), zoneName: z.string(), pin: LatLng.nullable() }).nullable().optional(),
 });
 export type ConsolePickupSpotView = z.infer<typeof ConsolePickupSpotView>;
+
+/**
+ * «حرّك مكان المطعم»: field ops or an admin put the kitchen's pin where it really is (it was saved in
+ * the wrong spot, or the shop moved). The server reads the zone from the pin and refuses one outside
+ * the service area (`outside_zone`); the change is written to the Console audit log.
+ */
+export const MoveKitchenInput = MerchantOrgInput.extend({ pin: LatLng });
+export type MoveKitchenInput = z.infer<typeof MoveKitchenInput>;
 
 /** What the API supplies to `ops.pickupSpots.*` (implemented in `modules/ops` over the merchant module). */
 export interface PickupSpotsOpsPort {
@@ -490,6 +503,8 @@ export interface PickupSpotsOpsPort {
   get(actor: Actor, input: MerchantOrgInput): Promise<ConsolePickupSpotView>;
   /** Same rules as the owner's save (photos the caller uploaded, 2 at most, 140 characters); audited. */
   set(actor: Actor, input: SetPickupSpotInput): Promise<ConsolePickupSpotView>;
+  /** «حرّك مكان المطعم»: the kitchen's pin and the zone read from it; audited. */
+  moveKitchen(actor: Actor, input: MoveKitchenInput): Promise<ConsolePickupSpotView>;
 }
 
 // ───────────────────────── delivery area and fees (maps program r5) ─────────────────────────
