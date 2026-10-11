@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inRing, litBuilding, routeGeoJSON, routeParts } from './map3d';
+import { inRing, litBuilding, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from './map3d';
 import { buildPath } from './motion';
 
 const road = buildPath([
@@ -59,5 +59,34 @@ describe('3D order map: the lit building', () => {
     expect(hit.features[0]!.properties).toEqual({ hm: 9 });
     const stand = litBuilding({ lat: 32.95, lng: 45.1 }, [{ ring, hm: 9 }]);
     expect(stand.features[0]!.properties).toEqual({ hm: 6 });
+  });
+});
+
+describe('3D order map: the slow stretch (N6)', () => {
+  const line = (s: ReturnType<typeof slowStretchShape>) => (s.line.features[0]?.geometry as GeoJSON.LineString | undefined)?.coordinates ?? null;
+  it('stripes the stretch between its metres, with the label at its middle', () => {
+    const s = slowStretchShape(road, { fromM: 20, toM: 100 });
+    const c = line(s)!;
+    expect(c.length).toBeGreaterThanOrEqual(2);
+    expect(c[0]![1]).toBeCloseTo(32.9 + 20 / 111_320, 5);
+    expect(s.mid!.lat).toBeCloseTo(32.9 + 60 / 111_320, 5);
+  });
+  it('only the part still ahead of him: behind him is not striped, all behind him is nothing', () => {
+    expect(line(slowStretchShape(road, { fromM: 20, toM: 100 }, 60))![0]![1]).toBeCloseTo(32.9 + 60 / 111_320, 5);
+    expect(slowStretchShape(road, { fromM: 20, toM: 100 }, 95)).toEqual({ line: { type: 'FeatureCollection', features: [] }, mid: null });
+  });
+  it('no stretch, no line: nothing drawn', () => {
+    expect(slowStretchShape(road, null).mid).toBeNull();
+    expect(slowStretchShape(null, { fromM: 0, toM: 50 }).line.features).toHaveLength(0);
+  });
+  it('a stretch past the end of the road is cut at the door', () => {
+    const c = line(slowStretchShape(road, { fromM: 200, toM: 9_999 }))!;
+    expect(c.at(-1)).toEqual([45.062, 32.901]);
+  });
+  it('without a road shape, the straight line from where the route started through the stops ahead', () => {
+    const v = { trip: null, dropoff: { pin: { lat: 32.901, lng: 45.06 } }, merchant: { pin: { lat: 32.9, lng: 45.06 } }, order: { state: 'preparing', deliveredAt: null }, courier: null } as never;
+    const p = slowStretchPath(null, v, null)!;
+    expect(p.pts).toEqual([{ lat: 32.9, lng: 45.06 }, { lat: 32.901, lng: 45.06 }]);
+    expect(slowStretchPath(road, v, null)).toBe(road);
   });
 });

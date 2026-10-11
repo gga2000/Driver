@@ -190,13 +190,15 @@ export function formatHourPart(at: Date | number, opts: { locale?: Locale; offse
 /**
  * A window's two ends for "بين {from} و {to}" or "{from}–{to}": the part of day once when both ends
  * share it ("8" … "10 بالليل", "4" … "6 العصر"), on each end otherwise ("5:50 العصر" … "6:55 المسا").
- * The end is the moment the window closes, so its part is read a minute before ("4–6 العصر", not المسا).
+ * The end is the moment the window closes, so its part is read a minute before ("4–6 العصر", not المسا),
+ * except at 12 noon: the clock then reads "12", and a minute before would make it «12 الصبح» (midnight).
  */
 export function hourWindow(start: Date | number, end: Date | number, opts: { locale?: Locale; offsetMin?: number } = {}): { from: string; to: string } {
   const { locale = 'ar-IQ', offsetMin = CITY_UTC_OFFSET_MIN } = opts;
   const startPart = dayPart(start, offsetMin);
   const endMs = typeof end === 'number' ? end : end.getTime();
-  const endPart = dayPart(endMs - MIN, offsetMin);
+  const endAt = cityParts(endMs, offsetMin);
+  const endPart = endAt.hour === 12 && endAt.minute === 0 ? dayPart(endMs, offsetMin) : dayPart(endMs - MIN, offsetMin);
   const to = `${hourDigits(endMs, offsetMin)} ${partWord(endPart, locale)}`;
   const from = hourDigits(start, offsetMin);
   return { from: startPart === endPart ? from : `${from} ${partWord(startPart, locale)}`, to };

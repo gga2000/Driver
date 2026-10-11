@@ -1,7 +1,7 @@
 import { createApp } from './bootstrap.js';
 import { API_VERSION } from './trpc/trpc.module.js';
 import { EventsService } from './modules/events/index.js';
-import { assertBootConfig } from './modules/config/index.js';
+import { assertBootConfig, bootConfigWarnings } from './modules/config/index.js';
 import { errorReporterFromEnv } from './shared/error-reporter.js';
 import { AppLogger, logFormatFromEnv, logLevelsFromEnv } from './shared/logging.js';
 import { Metrics, metricsPortFromEnv } from './shared/metrics.js';
@@ -26,6 +26,7 @@ process.on('uncaughtException', (err) => {
 Promise.resolve()
   .then(() => {
     assertBootConfig();
+    for (const warning of bootConfigWarnings()) logger.warn(warning, 'Bootstrap');
     return createApp({ logger, metrics });
   })
   .then(async (app) => {
