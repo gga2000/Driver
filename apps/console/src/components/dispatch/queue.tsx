@@ -2,7 +2,7 @@
 
 import type { BoardCard, VehicleClass } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BoardColumn } from '@/lib/board';
 import { QUEUE_ORDER, roadKm, waitTone, type Candidate, type Queue } from '@/lib/dispatch';
 import { formatCountdown, shortId } from '@/lib/format';
@@ -12,7 +12,8 @@ import { orderLabel, personText, useNames } from '@/lib/names';
 import { CashLine, StateGlyph, WavePips } from '../map-cards';
 import { OrgName, PersonName } from '../named';
 import { Button, Chip, cx, IconChevronDown, Kbd } from '../ui';
-import { BLOCKER_KEY } from './assign';
+import { BLOCKER_KEY, cardTitle } from './assign';
+import { TakeOffDialog } from './take-off';
 
 const SECTION_KEY: Record<BoardColumn, MessageKey> = {
   needs_dispatcher: 'console.col_needs_dispatcher',
@@ -207,13 +208,30 @@ function QueueCard({
         ) : null}
       </button>
 
-      {isSelected ? <Candidates card={card} candidates={candidates} pick={pick} onPick={onPick} onSend={onSend} sending={sending} onOther={onOther} /> : null}
+      {isSelected && card.assignedDriverId ? <TakeOff card={card} title={cardTitle(card, orderIds)} /> : null}
+      {isSelected && !card.assignedDriverId ? <Candidates candidates={candidates} pick={pick} onPick={onPick} onSend={onSend} sending={sending} onOther={onOther} /> : null}
+    </div>
+  );
+}
+
+/**
+ * An assigned job can't be offered to someone else while its courier holds it: the desk takes it off
+ * him first (before pickup only, with a reason), and it comes back here to be offered again.
+ */
+function TakeOff({ card, title }: { card: BoardCard; title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="px-4 pb-3">
+      <p className="mb-2 rounded-md bg-surface-2 px-3 py-2 text-dense text-muted">{t('console.take_off_card')}</p>
+      <Button variant="secondary" size="md" className="w-full" onClick={() => setOpen(true)}>
+        {t('console.take_off')}
+      </Button>
+      <TakeOffDialog tripId={open ? card.tripId : null} title={title} onClose={() => setOpen(false)} />
     </div>
   );
 }
 
 function Candidates({
-  card,
   candidates,
   pick,
   onPick,
@@ -221,7 +239,6 @@ function Candidates({
   sending,
   onOther,
 }: {
-  card: BoardCard;
   candidates: readonly Candidate[];
   pick: number;
   onPick: (i: number) => void;
@@ -235,7 +252,7 @@ function Candidates({
   return (
     <div className="px-4 pb-3">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold text-muted">{card.assignedDriverId ? t('console.q_reassign_to') : t('console.q_best')}</h3>
+        <h3 className="text-xs font-semibold text-muted">{t('console.q_best')}</h3>
         <span className="text-xs text-faint">{t('console.q_keys_hint')}</span>
       </div>
       {candidates.length === 0 ? (

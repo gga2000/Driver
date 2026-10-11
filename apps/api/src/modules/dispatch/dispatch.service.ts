@@ -124,6 +124,11 @@ export class DispatchService implements DispatchPort {
     return this.o.jobFinished(tripId);
   }
 
+  /** A driver came online: red jobs nobody took try again now (`UNASSIGNED_RETRY`). */
+  retryUnassigned(cityId: string): Promise<void> {
+    return this.o.retryUnassigned(cityId);
+  }
+
   getRequest(tripId: string): Promise<DispatchRequest | null> {
     return this.o.getRequest(tripId);
   }

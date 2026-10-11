@@ -228,6 +228,11 @@ export const PartnerOffer = z.object({
   wave: z.number().int(),
   sentAt: z.coerce.date(),
   expiresAt: z.coerce.date(),
+  /**
+   * The server's clock when it answered. The phone counts the ring as `expiresAt - serverNow` from when
+   * the answer arrived, so a phone whose clock is wrong still shows the right time left.
+   */
+  serverNow: z.coerce.date(),
   /** The full ring: 15 s food, 20 s rides (dispatch spec §3). */
   ringSec: z.number().int().min(1),
   /** Counted as seen (3 s in the foreground, edge-case §6). */
@@ -441,7 +446,7 @@ export interface PartnerPort {
   /** The road from his last fix through the job's remaining stops, in order (maps program d2). */
   jobRoute(actor: Actor): Promise<OrderRoute>;
   /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
-  demandMap(actor: Actor): Promise<PartnerDemandMap>;
+  demandGlow(actor: Actor): Promise<PartnerDemandGlow>;
   /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
   answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
   /** «مشاوير باچر» (review #28): rides booked for later he confirmed, and the ones he may confirm. */
@@ -478,6 +483,39 @@ export const PartnerDemandMap = z.object({
   at: z.coerce.date(),
 });
 export type PartnerDemandMap = z.infer<typeof PartnerDemandMap>;
+
+/**
+ * N17 «وين الطلبات» (map next-ideas #8): what a waiting courier's map glows with. Advice only, it never
+ * changes dispatch. No single order can be traced from it: no counts, a zone lights only with at least
+ * `minDemand` jobs (waiting plus usually expected), and the picture is taken every `snapshotMs`, so it
+ * is a few minutes old on purpose. Fair: a busy zone is "for you" for only as many free couriers as it
+ * is short of, the nearest first; everyone else sees it warm, so nobody is pulled to the same street.
+ */
+export const DEMAND_GLOW_RULES = {
+  /** One picture per city this often; the app reads it at the same pace. */
+  snapshotMs: 180_000,
+  /** Fewer jobs than this in a zone (waiting + expected) never light it. */
+  minDemand: 2,
+  /** A courier is offered a busy zone only within this distance of it. */
+  maxKm: 4,
+} as const;
+
+export const DemandGlowLevel = z.enum(['hot', 'warm']);
+export type DemandGlowLevel = z.infer<typeof DemandGlowLevel>;
+
+export const PartnerDemandGlow = z.object({
+  zones: z.array(
+    z.object({
+      zoneId: z.string(),
+      level: DemandGlowLevel,
+      /** The one busy zone picked for him (at most one), nearest first among the free couriers. */
+      forYou: z.boolean(),
+    }),
+  ),
+  /** When the picture was taken (a few minutes old on purpose). */
+  at: z.coerce.date(),
+});
+export type PartnerDemandGlow = z.infer<typeof PartnerDemandGlow>;
 
 export const PartnerOfferRouteInput = z.object({ offerId: z.string().min(1) });
 export type PartnerOfferRouteInput = z.infer<typeof PartnerOfferRouteInput>;

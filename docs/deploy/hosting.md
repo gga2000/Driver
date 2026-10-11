@@ -56,6 +56,13 @@ sweep; `worker` runs them and serves only its health check; `all` (the default) 
 without it. Each group's command in the toml sets its role and its heap cap (75 % of the machine), so
 an overload fails fast and restarts instead of swapping.
 
+**The worker watches itself** (`apps/api/src/shared/worker-self-check.ts`): every 30 s it asks how late
+its oldest due BullMQ job and its oldest due outbox row are. Work overdue for 2 minutes while nothing
+finished for 2 minutes means it is stuck: it logs one error (Sentry) and exits, and `[[restart]]` in the
+toml starts it again. While healthy it pings `WORKER_HEARTBEAT_URL`. Each BullMQ worker has its own
+Redis connection that waits out a Redis restart, and the outbox drains straight from Postgres every
+500 ms on the worker, so a Redis blip only pauses jobs.
+
 Set the counts once per app (and after `fly scale count 0`):
 
 ```bash
@@ -178,6 +185,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `DATABASE_STATEMENT_TIMEOUT_MS` | no | default `5000`: a query made while answering a phone is cancelled after 5 s ([Database time limits](#database-time-limits)). `0` = no limit |
 | `DATABASE_JOB_STATEMENT_TIMEOUT_MS` | no | default `120000`: the limit for jobs, sweeps and outbox deliveries (their transactions may stay open as long). `0` = no limit |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
+| `WORKER_HEARTBEAT_URL` | no | a Better Stack heartbeat URL (`fly secrets set`): the worker pings it every minute while it is healthy, so a frozen, crashed or Redis-less worker pages through the missing ping. Unset = no heartbeat |
 | `TIMERS_SWEEPER` | no | `on` (toml); unset = `off`. A sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. Today it holds dispatch's far-ahead timers (a booked ride's evening offer, deadline, reminder and T−30 search; a departure's start and low-fill check), each due a minute after its Redis job and marked fired when that job ran. `TIMERS_SWEEP_MS` default 5000 |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
@@ -254,11 +262,13 @@ never rotated.
   `fly logs --config deploy/fly/api.toml`, or the app's **Monitoring** page on fly.io. Search for
   `"level":"error"`. Fly keeps a short history only: for longer retention ship them (Fly log shipper
   → Better Stack / Axiom free tiers).
-- **Uptime checks**: Fly's own checks restart a sick machine but tell nobody. Before launch, add a free
+- **Uptime checks**: Fly's checks only take a failing machine out of rotation (and hold a deploy); they
+  do not restart it. A process that exits is started again (`[[restart]]` in the toml), and the worker
+  exits by itself when it is stuck (see "Web and worker machines"). None of this tells anybody. Before launch, add a free
   external monitor (Better Stack Uptime or UptimeRobot) that checks every minute and alerts the on-call
   phone: the API at `https://driver-api.fly.dev/trpc/health.live` (status 200; 503 means the
   database has been unreachable for 30 seconds), `https://driver-api.fly.dev/trpc/health.ready` for the dependencies
-  (the text `"ok":true`; `"redis":"unavailable"` alone does not take the API down), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
+  (the text `"ok":true`; its Redis check is a write, so a full Redis shows `"redis":"unavailable"`; `"redis":"unavailable"` alone does not take the API down), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
   custom domains once they exist.
 - **Metrics**: the Fly dashboard shows CPU, memory, HTTP status codes and response times per machine;
   Supabase → Reports shows database load and slow queries.
@@ -337,10 +347,11 @@ uses the straight-line estimate for a minute, then tries again — customers nev
 `deploy/fly/redis.toml` runs Redis 7 on a 256 MB machine with a 1 GB volume: append-only file every
 second (queued timers survive a restart), `noeviction` (BullMQ must never lose a key), password, and no
 public address. Cost ≈ $2/month. If that machine restarts (Fly host maintenance), the API logs Redis as
-unavailable for a few seconds; outbox rows wait as `pending` and drain when it is back.
+unavailable for a few seconds; jobs pause and carry on when it is back, and the outbox keeps draining
+from Postgres meanwhile.
 
 Alternative: `fly redis create` (Upstash, managed). Upstash bills per command on its pay-as-you-go
-plan, and BullMQ polls continuously (blocking reads, stalled-job checks, the 500 ms outbox tick), which
+plan, and BullMQ polls continuously (blocking reads, stalled-job checks, outbox pokes), which
 adds up to millions of commands a month: choose a **fixed-price** Upstash plan if you go that way. Set
 `REDIS_URL` to the URL it prints (keep `?family=6` on Fly).
 

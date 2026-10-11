@@ -72,6 +72,8 @@ export interface DispatchRequest {
   booked?: BookedJob | null;
   /** Review #28: pickup compensation on every offer of a booked ride's T−30 search (money rule; 0 = off). */
   fallbackCompensationIqd?: number;
+  /** Background retries made since it went red (`UNASSIGNED_RETRY`); absent = none. */
+  retries?: number;
 }
 
 export interface PolicyOverride {

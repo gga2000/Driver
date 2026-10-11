@@ -35,12 +35,42 @@ export interface TripCancellationSubject {
   /** Who is cancelling. */
   by: 'customer' | 'driver';
   acceptedAt: Date | null;
-  /** First pickup arrival (driver at the rider). */
+  /** First pickup arrival that counts for fees (`arrivalCountsForFees`, driver at the rider); a far "وصلت" tap is not one. */
   arrivedPickupAt: Date | null;
   fareIqd: number;
 }
 
 export type CancellationSubject = OrderCancellationSubject | TripCancellationSubject;
+
+/**
+ * Money rule (150 m, Ali 2026-10-11; only he changes it): how far from the pickup
+ * pin a driver's «وصلت» still counts as "arrived" for the late-cancel fee and the driver's after-arrival
+ * credit. Wider than the trips module's 60 m arrival geofence (kept for ops and the ETA learner): rider
+ * pins here are often 30–100 m off and GPS drifts, and a driver waiting at the alley mouth did arrive.
+ */
+export const FEE_ARRIVAL_RADIUS_M = 150;
+/** The 60 m geofence plus the tap's own GPS accuracy, up to this much, also counts (for a radius set below that). */
+const FEE_ARRIVAL_GEOFENCE_M = 60;
+const FEE_ARRIVAL_ACCURACY_CAP_M = 90;
+
+/** What `arrivalCountsForFees` reads of a stop (the trips view or its record). */
+export interface ArrivalFacts {
+  arrivedAt: Date | null;
+  arrivedOutsideGeofence: boolean;
+  arrivalDistanceM: number | null;
+  arrivalAccuracyM?: number | null | undefined;
+}
+
+/**
+ * Whether a «وصلت» counts as arrived for the fees: inside the 60 m geofence (or nothing to compare), or
+ * within `FEE_ARRIVAL_RADIUS_M`, or within 60 m plus the fix's accuracy (capped at 90 m).
+ */
+export function arrivalCountsForFees(s: ArrivalFacts): boolean {
+  if (!s.arrivedAt) return false;
+  if (!s.arrivedOutsideGeofence || s.arrivalDistanceM === null) return true;
+  const d = s.arrivalDistanceM;
+  return d <= FEE_ARRIVAL_RADIUS_M || d <= FEE_ARRIVAL_GEOFENCE_M + Math.min(s.arrivalAccuracyM ?? 0, FEE_ARRIVAL_ACCURACY_CAP_M);
+}
 
 export interface CancellationRules {
   roundingStep: number;
@@ -110,7 +140,8 @@ function tripFee(t: TripCancellationSubject, at: Date, r: CancellationRules): Ca
   const terminal: readonly TripState[] = ['completed', 'driver_cancelled', 'customer_cancelled', 'platform_cancelled', 'failed'];
   if (terminal.includes(t.state)) return notAllowed();
   const accepted = t.acceptedAt !== null && !['created', 'offered', 'declined', 'timed_out'].includes(t.state);
-  const arrived = t.arrivedPickupAt !== null || ['arrived_pickup', 'in_transit', 'arrived_dropoff'].includes(t.state);
+  // `arrived_pickup` alone is not enough: a "وصلت" tapped far from the rider moves the trip there too.
+  const arrived = t.arrivedPickupAt !== null || ['in_transit', 'arrived_dropoff'].includes(t.state);
 
   if (t.by === 'driver') {
     if (!accepted) return free('قبل القبول', 'Before acceptance');
