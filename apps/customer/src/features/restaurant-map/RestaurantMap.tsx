@@ -31,7 +31,7 @@ const PIN = 36;
  * The restaurant map on phones (MapLibre Native), the same Lantern tour as the web
  * (RestaurantMap.web.tsx): every restaurant as its own 3D shop with a pin over it; tapping one flies to
  * its front (one flight, one slow quarter-turn, then still) and lights it. Reduce motion jumps.
- * Pins are the map's own markers. The houses facing a chosen shop stay up on phones (the web lays them flat).
+ * Pins are the map's own markers. The houses across the street from a chosen shop lie flat, as on the web.
  */
 export function RestaurantMap({ shops, selectedId, onSelect, topInset, bottomInset, lite, onFail }: RestaurantMapProps) {
   const ml = nativeMapLibre()!;
@@ -68,6 +68,18 @@ export function RestaurantMap({ shops, selectedId, onSelect, topInset, bottomIns
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   const scene = useMemo(() => golden.restaurantScene(list, { light, selectedId }), [list, light, selectedId]);
   const layers = useMemo(() => golden.restaurantLayers(light), [light]);
+  // The house layers again, adopted by id so their filter follows the choice without reloading the style:
+  // no house under a shop, and the ones facing the chosen shop lie flat so the camera sees its front.
+  const houseLayers = useMemo(() => {
+    const hide = golden.restaurantHouseFilter(list, selectedId);
+    const ids: ReadonlySet<string> = new Set(golden.RESTAURANT_HIDES_HOUSE_LAYERS);
+    return style.layers
+      .filter((l) => ids.has(l.id))
+      .map((l) => {
+        const own = 'filter' in l ? l.filter : undefined;
+        return { id: l.id, type: l.type, filter: own ? ['all', own, hide] : hide } as unknown as LayerProps;
+      });
+  }, [list, selectedId, style]);
   const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
 
   const live = useRef({ shops, selectedId, topInset, bottomInset, lite, size, facing, reduce: theme.reduceMotion });
@@ -165,6 +177,10 @@ export function RestaurantMap({ shops, selectedId, onSelect, topInset, bottomIns
       >
         <ml.Camera ref={camera} maxZoom={20} initialViewState={shops[0] ? { center: shops[0].at, zoom: 15 } : { zoom: 14 }} />
         <ml.Images images={images} />
+        {/* Always mounted: unmounting an adopted layer would take the houses out of the style. */}
+        {houseLayers.map((l) => (
+          <ml.Layer key={l.id} {...l} />
+        ))}
         {lite ? null : (
           <>
             <ml.GeoJSONSource id={golden.RESTAURANT_SOURCES.solid} data={scene.solid as GeoJSON.FeatureCollection}>

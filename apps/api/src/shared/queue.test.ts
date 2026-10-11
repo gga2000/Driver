@@ -81,6 +81,18 @@ describe('InMemoryQueue', () => {
     expect(calls).toBe(2);
   });
 
+  it('a failing job runs 3 times by default (DEFAULT_JOB_ATTEMPTS), like on BullMQ', async () => {
+    const q = new InMemoryQueue<string>('t');
+    let calls = 0;
+    q.process(async () => {
+      calls += 1;
+      throw new Error('nope');
+    });
+    await q.add('j', 'x');
+    await expect(q.drain()).rejects.toThrow('nope');
+    expect(calls).toBe(3);
+  });
+
   it('factory returns the same queue per name and drains all', async () => {
     const f = new InMemoryQueueFactory();
     const a = f.queue<number>('a');

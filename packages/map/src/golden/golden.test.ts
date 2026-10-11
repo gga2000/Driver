@@ -59,9 +59,14 @@ describe('buildGoldenStyle', () => {
   it('reads only the layers the tiles carry and only the fonts glyphs.py writes', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'courier' });
     const sourceLayers = new Set(style.layers.flatMap((l) => ('source-layer' in l && l['source-layer'] ? [l['source-layer']] : [])));
-    expect([...sourceLayers].sort()).toEqual(['buildings', 'landmarks', 'landuse', 'localities', 'palms', 'places', 'roads', 'water']);
+    expect([...sourceLayers].sort()).toEqual(['buildings', 'landmarks', 'landuse', 'lanterns', 'localities', 'palms', 'places', 'roads', 'water']);
     const night = buildGoldenStyle({ ...base, light: 'night', mode: 'customer' });
     expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lights').map((l) => l.id)).toEqual(['golden-window-glow']);
+    // the lantern strings: lit glass and a warm pool on the street at night, painted glass with no pool by day
+    expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lantern-glow', 'golden-lanterns']);
+    expect(style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lanterns']);
+    const flat = buildGoldenStyle({ ...base, light: 'night', mode: 'console' });
+    expect(flat.layers.some((l) => 'source-layer' in l && l['source-layer'] === 'lanterns')).toBe(false);
     const fonts = new Set<string>(Object.values(GOLDEN_FONTS).flat());
     for (const l of style.layers) {
       if (l.type === 'symbol') for (const f of (l.layout?.['text-font'] as string[]) ?? []) expect(fonts.has(f)).toBe(true);

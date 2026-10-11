@@ -84,6 +84,12 @@ kill_timeout = 30
   interval = "15s"
   timeout = "5s"
 
+# A check never restarts a machine. A worker that finds itself stuck (apps/api/src/shared/worker-self-check.ts)
+# exits instead, and this starts it again.
+[[restart]]
+  policy = "always"
+  processes = ["worker"]
+
 # Fly scrapes every machine's /metrics into its managed Prometheus (Grafana at fly-metrics.net):
 # calls, errors and latency per procedure, heap and event-loop delay (docs/deploy/observability.md).
 [metrics]

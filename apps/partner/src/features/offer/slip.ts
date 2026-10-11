@@ -42,6 +42,26 @@ export function batchMinutes(offer: Pick<PartnerOffer, 'batch' | 'tripKm'>, vehi
 }
 
 /**
+ * The offer's end on this phone's clock: the time the server said was left (`expiresAt - serverNow`),
+ * counted from when the answer reached the phone. A phone whose clock is minutes off still counts the
+ * ring right; only the trip over the network is lost.
+ */
+export function localExpiry(offer: Pick<PartnerOffer, 'expiresAt' | 'serverNow'>, receivedAt: number): Date {
+  return new Date(receivedAt + (offer.expiresAt.getTime() - offer.serverNow.getTime()));
+}
+
+/**
+ * The offer card comes back on top while the offer is still unanswered (he pressed back, or the browser's
+ * back): any ringing offer not yet answered or dropped on this phone, unless the card is already showing.
+ */
+export function shouldOpenOffer(offerId: string | null, top: string | undefined, done: ReadonlySet<string>): boolean {
+  return offerId !== null && top !== 'offer' && !done.has(offerId);
+}
+
+/** Offers answered, rung out or dropped on this phone: the watcher never brings these back. */
+export const finishedOffers = new Set<string>();
+
+/**
  * l8: an offer that was already over when it reached the screen (the phone was offline, or asleep)
  * is dropped quietly — he never gets a surprise order with no time to read it.
  */

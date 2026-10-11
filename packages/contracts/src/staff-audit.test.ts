@@ -87,7 +87,6 @@ const GAPS: Record<string, string> = {
   'identity.revokeRole': 'role revoke, no console row (CON-10)',
   'khat.callSweepDriver': 'no trail',
   'ledger.runNightly': 'ledger entries only',
-  'merchantAdmin.deals.review': 'stored on the deal',
   'ops.addLandmarkPhoto': 'no trail',
   'onCall.present': 'heartbeat (a screen is open), not an action',
   'onCall.handoverAck': 'a read receipt on the handover note (who read it is the row itself), not an action',

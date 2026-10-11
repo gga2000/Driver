@@ -7,6 +7,9 @@ export type RequestLimitMode = 'enforce' | 'alert';
 /** Calls never counted against an address: sign-in has its own guard (W5 OTP guard), health is the load balancer's. */
 const UNCOUNTED_FOR_GUESTS = /^(identity|health)\./;
 
+/** After the counter fails (Redis away), calls go uncounted this long instead of each waiting to fail again. */
+const SKIP_AFTER_FAILURE_MS = 5_000;
+
 /** How long a staff call keeps its person on the staff ceiling, and how many staff one machine remembers. */
 const STAFF_MARK_MS = 10 * 60_000;
 const STAFF_MARKS_MAX = 2_000;
@@ -20,12 +23,13 @@ export function ipModeFromEnv(env: Record<string, string | undefined> = process.
  * SCALE-20: every API call is counted per signed-in person, or per address for a guest, in the shared
  * window counter (Redis across machines). Over a limit the call answers `rate_limited` with the
  * seconds until the minute ends; an alert-only rule logs once per minute and lets the call through.
- * If the counter itself fails (Redis down) the call goes through: a limit must never take the API
- * down with it.
+ * If the counter itself fails (Redis down) the call goes through, and for the next 5 s calls are not
+ * counted at all: a limit must never take the API down or slow it with it.
  */
 export class RequestLimits implements RequestLimitsPort {
   private readonly logger = new Logger(RequestLimits.name);
   private lastFailureLog = 0;
+  private skipUntil = 0;
   /**
    * Staff seen on this machine (person → until when), so their overall per-person ceiling covers their
    * Console limits: a dispatcher with three Console tabs open reads more than an app user ever does.
@@ -78,11 +82,13 @@ export class RequestLimits implements RequestLimitsPort {
   }
 
   private async count(key: string, limit: number, mode: RequestLimitMode, who: string, logEvery = 0): Promise<void> {
+    if (Date.now() < this.skipUntil) return;
     let tally: { count: number; retryAfterSec: number };
     try {
       tally = await this.counter.tally(key, REQUEST_LIMITS.windowMs);
     } catch (err) {
       const now = Date.now();
+      this.skipUntil = now + SKIP_AFTER_FAILURE_MS;
       if (now - this.lastFailureLog > 60_000) {
         this.lastFailureLog = now;
         this.logger.error(`request limits not counted (calls let through): ${(err as Error).message}`);

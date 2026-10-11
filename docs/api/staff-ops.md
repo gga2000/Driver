@@ -193,6 +193,8 @@ and the cap are off.
   `order.dispute_escalated` (by `system`).
 - `departure`: `departure.ops_cancel` (`system` when automatic), `departure.ops_arrive`,
   `departure.ops_close`.
+- `trip`: `trip.ops_take_off` (a dispatcher took a job off its driver before pickup; `detail`
+  has `courierId`, `orderIds`, `from` and `reason`).
 
 ## Events for the Console "Today" list
 
@@ -243,6 +245,33 @@ How each one is detected:
   each on its own in a tick: one failing does not stop the other. A second pod or a restart
   repeats nothing. A change of reason while the order stays on the list (`dispute_open` →
   `dispute_overdue`) emits nothing new. The watchdog runs whatever the money switches say.
+
+## Getting a job back on the road
+
+- **«شيل الطلب منه» (Console order page and the Dispatch card of an assigned job).** `trips.cancel`
+  by a dispatcher or admin cancels for the platform, with a required reason. It is refused with
+  `trip_picked_up` once any pickup on the trip is done (the food stays with its courier). It writes
+  `trip.ops_take_off` in the same unit of work. The order is then requested again on a new trip
+  (food: `order.courier_unassigned`; a ride: a new search without that driver). The desk can still
+  override it to the courier it picks. The courier gets the `partner_job_taken_off` push.
+- **A ride whose driver drops it before pickup** goes back to `placed` with `order.rematch_needed`.
+  That event now carries the ride (pickup and drop-off from the trip). Dispatch builds a new trip
+  and searches at once, never offering it to the driver who dropped it. A ride's driver can't
+  cancel once the pickup is done (`trip_picked_up`); a ride with a done pickup is never searched
+  again.
+- **A courier released at a silent kitchen** (or any order detached as the trip's last) is on the
+  `trip.cancelled` event, so dispatch requests a new courier.
+- **Red jobs keep being offered.** A food or ride job that went to `needs_dispatcher` stays red on
+  the board. Dispatch also tries again on its own after 1 and 2 minutes, then every 4. It offers
+  the job to free drivers who have not declined it. A driver coming online or finishing a job tries
+  again at once. Held (suggest-only) jobs are never offered by themselves.
+- **Late-cancel fee after "arrival".** The rider's after-arrival fee (and the driver's
+  after-arrival credit) count only a «وصلت» tapped near the pickup: within `FEE_ARRIVAL_RADIUS_M`
+  (150 m, Ali 2026-10-11, a money-rule number in `pricing/cancellation.ts`),
+  or within 60 m plus the tap's GPS accuracy (at most 90 m). A farther tap keeps the en-route rule,
+  and only then does the rider's tracking say «السايق يگول وصل» (`TrackStop.arrivalClaimedOnly`),
+  so the line and the fee never disagree. The 60 m `arrivedOutsideGeofence` flag on the stop is
+  unchanged and still feeds ops and the ETA learner. No amount changed.
 
 ## Other server changes in W3
 
