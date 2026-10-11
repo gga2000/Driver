@@ -164,6 +164,20 @@ describe('wallet.stats (InsightsService): cached reads and roads', () => {
     expect(orderReads).toBe(2);
     expect(roads).toHaveLength(1);
   });
+
+  it('a year or all-time page ignores the month it is sent (one cache entry), and a future month is refused before any read', async () => {
+    const clock = new FakeClock('2026-10-07T09:00:00Z');
+    let orderReads = 0;
+    const stats = { ordersEverBy: async () => (orderReads++, []), rideOf: async () => null, bookingsOf: async () => [], placeNames: async () => new Map(), homeOf: async () => null, roadBetween: async () => null, walletLines: () => [], restaurantsInCity: async () => 3 } satisfies StatsSources;
+    const svc = new InsightsService(sources({ eventsFor: async () => [] }), clock, stats);
+    const actor = { personId: 'me', sessionId: 's' };
+    await svc.stats(actor, { period: 'year', month: '2026-01' });
+    await svc.stats(actor, { period: 'year', month: '2026-02' });
+    await svc.stats(actor, { period: 'year' });
+    expect(orderReads).toBe(1);
+    await expect(svc.stats(actor, { period: 'month', month: '2026-11' })).rejects.toBeInstanceOf(DriverError);
+    expect(orderReads).toBe(1);
+  });
 });
 
 describe('MonthCardJob (the once-a-month card)', () => {

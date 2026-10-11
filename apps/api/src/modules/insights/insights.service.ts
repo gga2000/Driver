@@ -108,7 +108,8 @@ export class InsightsService implements InsightsPort {
     @Inject(STATS_SOURCES) private readonly stats_: StatsSources,
   ) {}
 
-  private readonly statsCache = new Map<string, { until: number; view: Promise<StatsView> }>();
+  private readonly statsCache = new Map<string, { until: number; view: StatsView }>();
+  private readonly statsRunning = new Map<string, Promise<StatsView>>();
   private readonly roadCache = new Map<string, { until: number; path: StatsPoint[] | null }>();
 
   async month(actor: Actor, raw: z.infer<typeof MonthInput>): Promise<MonthInsightsView> {
@@ -156,17 +157,26 @@ export class InsightsService implements InsightsPort {
   async stats(actor: Actor, raw: z.input<typeof StatsInput>): Promise<StatsView> {
     const input = StatsInput.parse(raw);
     const now = this.clock.now();
-    const key = `${actor.personId}|${input.period}|${input.month ?? ''}`;
+    // The key names only what the figures depend on: the month for a month, nothing more for a year or all time.
+    const month = input.period === 'month' ? (input.month ?? baghdadMonth(now)) : null;
+    if (month && month > baghdadMonth(now)) throw new DriverError('invalid_input');
+    const key = `${actor.personId}|${input.period}|${month ?? ''}`;
     const hit = this.statsCache.get(key);
     if (hit && hit.until > now.getTime()) return hit.view;
+    const running = this.statsRunning.get(key);
+    if (running) return running;
     const view = this.computeStats(actor.personId, input, now);
-    this.statsCache.delete(key);
-    this.statsCache.set(key, { until: now.getTime() + STATS_CACHE_MS, view });
-    while (this.statsCache.size > STATS_CACHE_MAX) this.statsCache.delete(this.statsCache.keys().next().value!);
-    view.catch(() => {
-      if (this.statsCache.get(key)?.view === view) this.statsCache.delete(key);
-    });
-    return view;
+    this.statsRunning.set(key, view);
+    try {
+      const done = await view;
+      // Only a finished page is kept, so a refused or failed call never pushes anyone else's out.
+      this.statsCache.delete(key);
+      this.statsCache.set(key, { until: now.getTime() + STATS_CACHE_MS, view: done });
+      while (this.statsCache.size > STATS_CACHE_MAX) this.statsCache.delete(this.statsCache.keys().next().value!);
+      return done;
+    } finally {
+      this.statsRunning.delete(key);
+    }
   }
 
   /** The page's figures for one person, period and month (cached briefly by `stats`). */
