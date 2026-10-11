@@ -307,6 +307,16 @@ describe('status → timeline', () => {
     expect(buildTimeline(ride('completed', { state: 'completed' }), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('completed');
     expect(phaseOf(ride('arrived_pickup'))).toBe('at_pickup');
   });
+
+  it('rides: a "وصلت" tapped far from the pickup reads as the driver saying so', () => {
+    const arrivedFar = (outside: boolean) => {
+      const tr = trip('arrived_pickup');
+      tr.stops[0] = { ...tr.stops[0]!, state: 'arrived', arrivedAt: T0, arrivalClaimedOnly: outside };
+      return view({ type: 'ride', merchantOrgId: null, state: 'matched' }, { merchant: null, trip: tr, courier });
+    };
+    expect(statusLine(arrivedFar(true), t)).toBe(t('trip.status.arrived_pickup_claimed'));
+    expect(statusLine(arrivedFar(false), t)).toBe(t('trip.status.arrived_pickup'));
+  });
 });
 
 describe('eta', () => {

@@ -2,10 +2,13 @@ import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { describe, expect, it } from 'vitest';
 import {
   buildGoldenStyle,
+  FURROW_PATTERN,
   GOLDEN_FIRST_LABEL,
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
   GOLDEN_SOURCE,
+  LANDMARK_PARTS,
+  LANDMARK_RISE,
   goldenImages,
   lightFor,
   PALM_PATTERN,
@@ -56,7 +59,14 @@ describe('buildGoldenStyle', () => {
   it('reads only the layers the tiles carry and only the fonts glyphs.py writes', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'courier' });
     const sourceLayers = new Set(style.layers.flatMap((l) => ('source-layer' in l && l['source-layer'] ? [l['source-layer']] : [])));
-    expect([...sourceLayers].sort()).toEqual(['buildings', 'landuse', 'localities', 'palms', 'places', 'roads', 'water']);
+    expect([...sourceLayers].sort()).toEqual(['buildings', 'landmarks', 'landuse', 'lanterns', 'localities', 'palms', 'places', 'roads', 'water']);
+    const night = buildGoldenStyle({ ...base, light: 'night', mode: 'customer' });
+    expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lights').map((l) => l.id)).toEqual(['golden-window-glow']);
+    // the lantern strings: lit glass and a warm pool on the street at night, painted glass with no pool by day
+    expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lantern-glow', 'golden-lanterns']);
+    expect(style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lanterns']);
+    const flat = buildGoldenStyle({ ...base, light: 'night', mode: 'console' });
+    expect(flat.layers.some((l) => 'source-layer' in l && l['source-layer'] === 'lanterns')).toBe(false);
     const fonts = new Set<string>(Object.values(GOLDEN_FONTS).flat());
     for (const l of style.layers) {
       if (l.type === 'symbol') for (const f of (l.layout?.['text-font'] as string[]) ?? []) expect(fonts.has(f)).toBe(true);
@@ -80,6 +90,25 @@ describe('buildGoldenStyle', () => {
     expect(courier.sky).toBeDefined();
     const rise = (s: typeof courier) => s.layers.find((l) => l.id === 'golden-houses-3d')!.minzoom!;
     expect(rise(courier)).toBeLessThan(rise(buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' })));
+  });
+
+  it('stands bridges up with the houses, the stair huts just after, and the small tanks and dishes only up close', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    const z = (id: string) => style.layers.find((l) => l.id === id)!.minzoom!;
+    expect(z('golden-roof-huts')).toBeGreaterThan(z('golden-houses-3d'));
+    expect(z('golden-roof-tanks')).toBeGreaterThan(z('golden-roof-huts'));
+    expect(z('golden-bridge-3d')).toBe(z('golden-houses-3d'));
+  });
+  it('stands the landmarks up before the houses, and shows their plan flat on the Console and cheap phones', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    const z = (id: string) => style.layers.find((l) => l.id === id)!.minzoom!;
+    expect(z('golden-landmarks-3d')).toBe(LANDMARK_RISE);
+    expect(LANDMARK_RISE).toBeLessThan(z('golden-houses-3d'));
+    for (const mode of ['console', 'lite'] as const) {
+      const flat = buildGoldenStyle({ ...base, light: 'golden', mode });
+      expect(ids(flat)).toContain('golden-landmarks');
+      expect(ids(flat)).not.toContain('golden-landmarks-3d');
+    }
   });
   it('lights the main streets like sodium lamps at night only, and casts no shadows in the dark', () => {
     const night = ids(buildGoldenStyle({ ...base, light: 'night' }));
@@ -114,12 +143,18 @@ describe('palettes', () => {
   };
   it('never use blue or teal (brand rule): water is olive, night is brown', () => {
     for (const [light, p] of Object.entries(GOLDEN_PALETTES)) {
-      for (const [key, value] of Object.entries(p)) {
+      for (const [key, value] of [...Object.entries(p), ...Object.entries(p.landmark).map(([k, v]) => [`landmark.${k}`, v] as const)]) {
         if (typeof value !== 'string') continue;
         const h = hue(value);
         if (h !== null) expect(h < 160 || h > 260, `${light}.${key} ${value}`).toBe(true);
       }
     }
+  });
+});
+
+describe('landmark colours', () => {
+  it('colour every part the tiles carry, in every light', () => {
+    for (const p of Object.values(GOLDEN_PALETTES)) expect(Object.keys(p.landmark).sort()).toEqual([...LANDMARK_PARTS].sort());
   });
 });
 
@@ -136,6 +171,6 @@ describe('palm pattern', () => {
     }
     expect([...alphas]).toEqual([255]);
     expect(colours.size).toBeGreaterThan(5);
-    expect(Object.keys(goldenImages('night'))).toEqual([PALM_PATTERN]);
+    expect(Object.keys(goldenImages('night'))).toEqual([PALM_PATTERN, FURROW_PATTERN]);
   });
 });

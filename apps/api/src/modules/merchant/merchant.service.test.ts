@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import { CUSTOMER_ZONE_MIN_ORDERS, DELIVERY_AREA_CACHE_MS, DriverError, MerchantAcceptInput, SetBusyInput, type RoleKind } from '@driver/contracts';
 import { OrgsMerchantDirectory } from '../orders/merchants.port.js';
@@ -90,6 +90,15 @@ function testArea(): MerchantAreaPort & { zoneReads: number; paused: Set<string>
 }
 
 describe('MerchantService — stores and scope', () => {
+  it('a database that is down stays a retryable error, never «restaurant not found» (DRL-08)', async () => {
+    const { svc, orgs, staff, khalid } = await setup();
+    const spy = vi.spyOn(orgs, 'get').mockRejectedValueOnce(new Error('connection refused'));
+    await expect(svc.board(staff, { merchantOrgId: khalid.id })).rejects.toThrow('connection refused');
+    spy.mockRejectedValueOnce(new DriverError('org_not_found'));
+    expect(await code(svc.board(staff, { merchantOrgId: khalid.id }))).toBe('org_not_found');
+    spy.mockRestore();
+  });
+
   it('lists the restaurants a person works at, owner wins over staff; nothing for a customer', async () => {
     const { svc, staff, owner, khalid, other } = await setup();
     expect(await svc.myStores(staff)).toEqual([{ orgId: khalid.id, name: 'مطعم خالد', type: 'restaurant', cityId: 'aziziyah', role: 'staff' }]);
@@ -112,6 +121,22 @@ describe('MerchantService — stores and scope', () => {
 });
 
 describe('MerchantService — board', () => {
+  it('one card whose courier lookup throws still comes out, without courier details (MER-04)', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const a = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const b = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    await h.orders.merchantAccept('s1', { orderId: a.id, prepMinutes: 15 });
+    const real = h.trips.activeForOrder.bind(h.trips);
+    const spy = vi.spyOn(h.trips, 'activeForOrder').mockImplementation(async (orderId: string) => {
+      if (orderId === a.id) throw new Error('lookup down');
+      return real(orderId);
+    });
+    const board = await svc.board(staff, { merchantOrgId: khalid.id });
+    spy.mockRestore();
+    expect(board.orders.map((o) => o.id).sort()).toEqual([a.id, b.id].sort());
+    expect(board.orders.find((o) => o.id === a.id)).toMatchObject({ column: 'preparing', courier: { state: 'none', firstName: null } });
+  });
+
   it('shows a new group order with people, notes, deadline; then preparing with courier state', async () => {
     const { h, svc, staff, khalid, nameReads } = await setup();
     const placed = await h.orders.place(
@@ -171,6 +196,26 @@ describe('MerchantService — board', () => {
     expect(board.orders).toEqual([]);
     expect(board.missed?.today).toBe(1);
     expect(board.missed?.orders[0]).toMatchObject({ orderId: placed.id, reason: 'merchant_timeout', scored: true, missedAt: h.clock.now() });
+  });
+
+  it('a card says whether it was offered while the store was already closed (the alarm rings those, m6a)', async () => {
+    const { h, orgs, svc, staff, khalid } = await setup();
+    // Saturday 12:30–23:00; the harness starts at 12:00, before opening.
+    await orgs.setMerchantSettings(khalid.id, { openingHours: [{ dow: 6, start: '12:30', end: '23:00' }] });
+    const place = () => h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const flag = async (id: string) => (await svc.board(staff, { merchantOrgId: khalid.id })).orders.find((o) => o.id === id)?.offeredWhileClosed;
+    const early = await place();
+    expect(await flag(early.id)).toBe(true);
+    await h.advance(31 * MIN);
+    const open = await place();
+    expect(await flag(open.id)).toBe(false);
+    // Closed by hand after the offer: it was waiting at close, so it stays quiet; one offered after the close rings.
+    await h.advance(10_000);
+    await svc.setOpen(staff, { merchantOrgId: khalid.id, open: false, reason: 'power_cut' });
+    await h.advance(10_000);
+    const late = await place();
+    expect(await flag(open.id)).toBe(false);
+    expect(await flag(late.id)).toBe(true);
   });
 
   it('the "+5 د" shows on the card once used', async () => {

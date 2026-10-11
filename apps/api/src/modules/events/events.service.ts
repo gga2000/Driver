@@ -93,8 +93,22 @@ export class EventsService {
     return this.registry.subscribe(name, types, handler, opts);
   }
 
-  forActor(actorId: string): Promise<StoredEvent[]> {
-    return this.repo.find({ actorId });
+  /**
+   * A person's events, in recording order (indexed `actor_id`). `from` bounds `occurredAt`
+   * (inclusive) and `types` narrows them, on the (actor_id, occurred_at) index.
+   */
+  forActor(actorId: string, opts: { from?: Date; types?: readonly string[] } = {}): Promise<StoredEvent[]> {
+    return this.repo.find({ actorId, ...(opts.from ? { from: opts.from } : {}), ...(opts.types ? { types: opts.types } : {}) });
+  }
+
+  /** When the person's first event happened, or null when he has none (one index read). */
+  firstActivityOf(actorId: string): Promise<Date | null> {
+    return this.repo.firstOccurredAt(actorId);
+  }
+
+  /** How many of the person's events have one of `types`, counting no further than `cap`. */
+  countForActor(actorId: string, types: readonly string[], cap: number): Promise<number> {
+    return this.repo.countUpTo(actorId, types, cap);
   }
 
   forTrip(tripId: string): Promise<StoredEvent[]> {

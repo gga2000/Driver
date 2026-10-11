@@ -19,6 +19,7 @@ import {
   type Trip,
   type TripsPort,
 } from '@driver/contracts';
+import type { Tx } from '../../shared/db/unit-of-work.js';
 import { shortDisplayName } from '../identity/index.js';
 import { TripsService } from './trips.service.js';
 
@@ -49,6 +50,13 @@ export interface DriverCardsPort {
 
 export const TRIPS_DRIVER_CARDS = Symbol('TRIPS_DRIVER_CARDS');
 
+/** The Console audit log (controls module): a dispatcher taking a job off its driver writes one row. */
+export interface TripsAuditPort {
+  record(input: { cityId: string | null; actorId: string; action: string; subjectKind: string; subjectId: string; summaryAr: string; detail?: Record<string, unknown> }, tx?: Tx): Promise<unknown>;
+}
+
+export const TRIPS_AUDIT = Symbol('TRIPS_AUDIT');
+
 const OPS: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 /**
@@ -64,6 +72,7 @@ export class TripsRpc implements TripsPort {
     @Inject(TRIPS_CHILD_NAMES) private readonly childNames: ChildNamesPort,
     /** The Console code alerts' driver names; without it they show the role only. */
     @Optional() @Inject(TRIPS_DRIVER_CARDS) private readonly cards: DriverCardsPort | null = null,
+    @Optional() @Inject(TRIPS_AUDIT) private readonly audit: TripsAuditPort | null = null,
   ) {}
 
   async get(actor: Actor, input: { tripId: string }): Promise<Trip> {
@@ -126,7 +135,28 @@ export class TripsRpc implements TripsPort {
   async cancel(actor: Actor, input: CancelTripInput): Promise<Trip> {
     const trip = await this.trips.get(input.tripId);
     if (trip.courierId === actor.personId) return this.trips.cancel(input.tripId, 'driver', actor.personId, input.reason);
-    if (await this.any(actor, ['dispatcher', 'admin'])) return this.trips.cancel(input.tripId, 'platform', actor.personId, input.reason);
+    if (await this.any(actor, ['dispatcher', 'admin'])) {
+      // The Console's «شيل الطلب منه»: only before pickup (food in the bag stays with its courier); the
+      // orders module re-requests a courier (or a driver) for what was on it.
+      const reason = input.reason.trim();
+      if (!reason) throw new DriverError('invalid_input');
+      return this.trips.cancel(input.tripId, 'platform', actor.personId, reason, {
+        beforePickupOnly: true,
+        record: (t, tx) =>
+          this.audit?.record(
+            {
+              cityId: t.cityId,
+              actorId: actor.personId,
+              action: 'trip.ops_take_off',
+              subjectKind: 'trip',
+              subjectId: t.id,
+              summaryAr: `شال الطلب من السايق ورجّعه للتوزيع: ${reason}`,
+              detail: { courierId: t.courierId, orderIds: t.orders.map((o) => o.orderId), from: trip.state, reason },
+            },
+            tx,
+          ) ?? Promise.resolve(),
+      });
+    }
     throw new DriverError('forbidden');
   }
 

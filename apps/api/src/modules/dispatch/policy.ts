@@ -53,6 +53,8 @@ export interface DispatchJob {
   scheduledFor?: Date;
   /** The order the job carries (named on the booked-ride events the rider and drivers hear about). */
   orderId?: string;
+  /** smart_broadcast: drivers never offered this job — the one who just dropped the ride (on top of the rider's avoid list). */
+  avoidDriverIds?: readonly string[];
 }
 
 export interface Wave {

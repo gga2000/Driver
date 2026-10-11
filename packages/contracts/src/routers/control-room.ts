@@ -5,6 +5,8 @@ import {
   ApprovalsView,
   AuditEntry,
   AuditInput,
+  AuditPage,
+  AuditPageInput,
   BannerInput,
   ClearBannerInput,
   ClearQuietDaysInput,
@@ -75,6 +77,11 @@ export const opsControlsRouter = router({
     .input(AuditInput)
     .output(z.array(AuditEntry))
     .query(({ ctx, input }) => ctx.controls.audit(input)),
+  /** v10: the audit page, 50 rows at a time, with a chip filter and the matching count. */
+  auditPage: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(AuditPageInput)
+    .output(AuditPage)
+    .query(({ ctx, input }) => ctx.controls.auditPage(input)),
   /** W6: the redesigned customer screens and who sees each (off, staff, everyone). */
   screens: protectedProcedure(CONSOLE_READ_ROLES)
     .input(ControlsInput)
