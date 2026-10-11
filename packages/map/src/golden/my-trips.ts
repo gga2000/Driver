@@ -1,14 +1,14 @@
 import type { LayerSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { services } from '@driver/design-tokens';
 import { GOLDEN_FONTS } from './golden-style.js';
-import { metresBetween, type LngLat } from './metres.js';
+import { metresBetween, pathMetres, slicePath, type LngLat } from './metres.js';
 
 /**
- * "Your map" (the stats tab «خريطتك», Ali 2026-10-11): the customer's own trips on the Golden hour map, as soft arcs
- * from every kitchen and pickup to where it ended, on a lightly faded map. Arcs, not streets: the server knows where
- * each trip started and ended, and the map says no more than that. Kitchens show how many meals came from them, home is
- * an ink dot in a cream ring, and each الرجعة trip leaves its garage as a short dashed arrow towards Baghdad or Kut.
- * Read-only and the customer's own data only. Lines draw once (MY_TRIPS_DRAW_MS), the pins come in after, then still.
+ * "Your map" (the stats tab «خريطتك», Ali 2026-10-11, look A "Streets"): the customer's own trips on the Golden hour
+ * map, each along the streets it took (the route the server sends), coloured by service and thicker the more often it
+ * was taken. Kitchens show how many meals came from them, home is an ink dot in a cream ring, and each الرجعة trip leaves
+ * its garage as a short dashed arrow towards Baghdad or Kut. Read-only and the customer's own data only. Lines draw
+ * once (MY_TRIPS_DRAW_MS), the pins come in after, then nothing moves.
  */
 
 export type MyTripService = 'food' | 'taxi' | 'tuktuk' | 'rajaa';
@@ -19,8 +19,12 @@ export interface MyTrips {
   home: LatLng | null;
   /** Kitchens the customer ordered from; `count` is meals. */
   kitchens: readonly (LatLng & { count: number })[];
-  /** Food: kitchen → drop-off. Rides: pickup → drop-off. الرجعة: garage → the city (only its direction is drawn). */
-  traces: readonly { service: MyTripService; from: LatLng; to: LatLng; count: number }[];
+  /**
+   * Food: kitchen → drop-off. Rides: pickup → drop-off. الرجعة: garage → the city (only its direction is drawn).
+   * `path`: the streets the trip took, from `from` to `to` (the route the server planned or the courier drove); without
+   * it the trip is a straight line between its ends.
+   */
+  traces: readonly { service: MyTripService; from: LatLng; to: LatLng; count: number; path?: readonly LatLng[] }[];
 }
 
 export type MyTripsLight = 'golden' | 'day';
@@ -28,8 +32,8 @@ export type MyTripsLight = 'golden' | 'day';
 /** The one-time draw of the lines; the pins come in over the next MY_TRIPS_PINS_MS, then nothing moves. */
 export const MY_TRIPS_DRAW_MS = 1200;
 export const MY_TRIPS_PINS_MS = 300;
-/** A gentle tilt for the arcs; pinch and pan stay free. */
-export const MY_TRIPS_CAMERA = { pitch: 40, bearing: -12 } as const;
+/** Flat and north-up, so the streets read like a map of the town; pinch and pan stay free. */
+export const MY_TRIPS_CAMERA = { pitch: 0, bearing: 0 } as const;
 
 const CREAM = '#FFFBF4';
 const INK = '#24170E';
@@ -52,17 +56,12 @@ const AWAY_M = 650;
 
 const ll = (p: LatLng): LngLat => [p.lng, p.lat];
 
-/** A soft arc from a to b (the bulge is a fifth of the length, always to the same side), cut at `k` (0–1). */
-function arc(a: LngLat, b: LngLat, k: number): LngLat[] {
-  const c: LngLat = [(a[0] + b[0]) / 2 - (b[1] - a[1]) * 0.2, (a[1] + b[1]) / 2 + (b[0] - a[0]) * 0.2];
-  const at = (t: number): LngLat => {
-    const u = 1 - t;
-    return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]];
-  };
-  const n = 32, last = k * n, out: LngLat[] = [];
-  for (let i = 0; i <= Math.floor(last); i++) out.push(at(i / n));
-  if (last % 1 > 0) out.push(at(last / n));
-  return out;
+/** The trip's line (its streets, else straight), drawn from its start up to `k` (0–1) of its length. */
+function tripLine(t: MyTrips['traces'][number], k: number): LngLat[] {
+  const line = t.path && t.path.length >= 2 ? t.path.map(ll) : [ll(t.from), ll(t.to)];
+  if (k >= 1) return line;
+  const cum = pathMetres(line);
+  return slicePath(line, 0, (cum[cum.length - 1] ?? 0) * k);
 }
 
 function away(t: MyTrips['traces'][number]) {
@@ -78,7 +77,7 @@ function away(t: MyTrips['traces'][number]) {
 export function myTripsBounds(trips: MyTrips): [LngLat, LngLat] | null {
   const pts: LngLat[] = [...(trips.home ? [ll(trips.home)] : []), ...trips.kitchens.map(ll)];
   for (const t of trips.traces) {
-    if (t.service === 'rajaa') { const w = away(t); pts.push(w.a, w.end); } else pts.push(ll(t.from), ll(t.to));
+    if (t.service === 'rajaa') { const w = away(t); pts.push(w.a, w.end); } else pts.push(...tripLine(t, 1));
   }
   if (!pts.length) return null;
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
@@ -94,16 +93,11 @@ export function myTripsGeoJSON(trips: MyTrips, opts: { labels: { baghdad: string
   const k = opts.k === undefined ? 1 : Math.max(0, Math.min(1, opts.k));
   const pins = opts.pins ?? opts.k === undefined;
   const features: { type: 'Feature'; properties: Record<string, string | number>; geometry: { type: 'Point' | 'LineString' | 'Polygon'; coordinates: unknown } }[] = [];
-  const b = myTripsBounds(trips);
-  if (b) {
-    const [[w, s], [e, n]] = b, m = 0.3;
-    features.push({ type: 'Feature', properties: { part: 'veil' }, geometry: { type: 'Polygon', coordinates: [[[w - m, s - m], [e + m, s - m], [e + m, n + m], [w - m, n + m], [w - m, s - m]]] } });
-  }
   // thin lines first, so a habit is drawn over a one-off
   for (const t of [...trips.traces].sort((x, y) => x.count - y.count)) {
     const c = SERVICE_INK[t.service], w = myTripWidth(t.count);
     if (t.service !== 'rajaa') {
-      const line = arc(ll(t.from), ll(t.to), k);
+      const line = tripLine(t, k);
       if (line.length >= 2) features.push({ type: 'Feature', properties: { part: 'trip', c, w }, geometry: { type: 'LineString', coordinates: line } });
       continue;
     }
@@ -126,14 +120,13 @@ export function myTripsGeoJSON(trips: MyTrips, opts: { labels: { baghdad: string
 const part = (p: string) => ['==', ['get', 'part'], p] as never;
 
 /**
- * The layers for `myTripsGeoJSON`, all on top of the map (the tab has no other overlay): a light cream fade over the
- * town, the arcs on a cream under-stroke, the dashed الرجعة arrows, then kitchens, home and the arrow words.
+ * The layers for `myTripsGeoJSON`, all on top of the map (the tab has no other overlay): the trips on a cream
+ * under-stroke, the dashed الرجعة arrows, then kitchens, home and the arrow words.
  */
 export function myTripsLayers(opts: { source: string; light: MyTripsLight; id?: string }): LayerSpecification[] {
   const id = opts.id ?? 'mytrips', src = opts.source;
   const round = { 'line-cap': 'round', 'line-join': 'round' } as const;
   return [
-    { id: `${id}-veil`, type: 'fill', source: src, filter: part('veil'), paint: { 'fill-color': CREAM, 'fill-opacity': opts.light === 'day' ? 0.3 : 0.38 } },
     { id: `${id}-under`, type: 'line', source: src, filter: part('trip'), layout: round, paint: { 'line-color': CREAM, 'line-width': ['+', ['get', 'w'], 4] } },
     { id: `${id}-line`, type: 'line', source: src, filter: part('trip'), layout: round, paint: { 'line-color': ['get', 'c'], 'line-width': ['get', 'w'] } },
     { id: `${id}-away-under`, type: 'line', source: src, filter: part('away'), layout: round, paint: { 'line-color': CREAM, 'line-width': ['+', ['get', 'w'], 4] } },
