@@ -1,22 +1,15 @@
-import { createHash } from 'node:crypto';
-import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { DriverError, type Actor, type AdjustInput, type AdjustResult, type PayDriverInput, type PayMerchantInput, type PayoutResult } from '@driver/contracts';
 import type { z } from 'zod';
-import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
 import { IdentityService } from '../identity/index.js';
-import { AdjustmentService, MerchantCashService, settlementReference, type Adjustment } from '../ledger/index.js';
+import { AdjustmentService, MerchantCashService, keyedSettlementReference, type Adjustment } from '../ledger/index.js';
 import { RefundApprovalsService, type RefundApprovalRecord } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { SupportService } from '../support/index.js';
 
 const iqd = (n: number) => n.toLocaleString('en-US');
-
-/** The settlement reference's sequence from the form's key: a retry of the same form is the same reference (and posts once). */
-export function keySeq(idempotencyKey: string): number {
-  return parseInt(createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 8), 16);
-}
 
 /**
  * Money out of the company, on the Console finance desk: paying a restaurant what it is owed, paying
@@ -39,7 +32,6 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
     private readonly orgs: OrgsService,
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
-    @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
   onModuleInit(): void {
@@ -54,7 +46,7 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   async payMerchant(actor: Actor, input: z.output<typeof PayMerchantInput>): Promise<PayoutResult> {
     // Nobody pays out to a shop he belongs to: a colleague does.
     if (await this.memberOf(actor.personId, input.merchantId)) throw new DriverError('staff_own_account');
-    const reference = settlementReference('M', input.merchantId, this.clock.now(), keySeq(input.idempotencyKey));
+    const reference = keyedSettlementReference('M', input.merchantId, input.idempotencyKey);
     const left = await this.merchantCash.recordPayout({ merchantId: input.merchantId, amountIqd: input.amountIqd, channel: input.channel, reference });
     const name = await this.orgs.get(input.merchantId).then((o) => o.name).catch(() => input.merchantId);
     await this.uow.run((tx) =>
@@ -69,7 +61,7 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
   async payDriver(actor: Actor, input: z.output<typeof PayDriverInput>): Promise<PayoutResult> {
     // A finance person who also drives is paid by a colleague.
     if (input.driverId === actor.personId) throw new DriverError('staff_own_account');
-    const reference = settlementReference('D', input.driverId, this.clock.now(), keySeq(input.idempotencyKey));
+    const reference = keyedSettlementReference('D', input.driverId, input.idempotencyKey);
     const left = await this.merchantCash.recordDriverPayout({ driverId: input.driverId, amountIqd: input.amountIqd, channel: input.channel, reference });
     await this.uow.run((tx) =>
       this.audits.record(

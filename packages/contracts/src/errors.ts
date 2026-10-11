@@ -334,6 +334,8 @@ export const ERROR_TABLE = {
   // finance.payDriver: more than the platform owes him right now
   payout_exceeds_due: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
+  // a payout or hand-over retried under the same key but with a different amount, channel or person
+  idempotency_key_reused: { retryHint: 'never', status: 'CONFLICT' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },

@@ -1590,6 +1590,7 @@
   "error.override_reason_required": "A forced assign needs a reason",
   "error.payout_exceeds_balance": "Payout is more than the merchant is owed",
   "error.payout_exceeds_due": "More than the company owes him right now",
+  "error.idempotency_key_reused": "This payment was already recorded with a different amount. Reopen the screen and check what was recorded",
   "error.settlement_nothing_due": "Nothing is due to this merchant now",
   "error.adjustment_incident_required": "An adjustment needs a reason and a linked incident",
   "error.adjustment_second_approver": "Adjustments above the threshold need a second finance approver",

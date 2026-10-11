@@ -9,7 +9,9 @@ import { AuditLogService } from './modules/controls/index.js';
 import { DriverAccountService } from './modules/driver-account/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { LedgerService, MerchantCashService, PostingService } from './modules/ledger/index.js';
+import type { LedgerIncidents } from './modules/ledger/incidents.js';
 import { workedExample } from './modules/ledger/test-harness.js';
+import { LEDGER_INCIDENTS } from './modules/ledger/tokens.js';
 import { MerchantAdminService } from './modules/merchant-admin/index.js';
 import { OrgsService } from './modules/orgs/index.js';
 import { SupportService } from './modules/support/index.js';
@@ -73,6 +75,25 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     expect(again.reference).toBe(first.reference);
     expect((await app.get(LedgerService).eventsFor(`merchant_cash:${orgId}`)).filter((e) => e.type === 'merchant_payout')).toHaveLength(1);
     expect((await audits(orgId)).map((a) => a.action)).toContain('finance.merchant_payout');
+  });
+
+  it('a payout form retried after midnight UTC is still one payout; the same key with another amount is refused', async () => {
+    const { orgId } = await restaurant('07800098013');
+    const courier = await person('07720098014', 'مصطفى', ['courier']);
+    await app.get(PostingService).orderMoney(workedExample({ orderId: 'mo-o3', merchantId: orgId, courierId: courier, occurredAt: clock.now() }));
+    const room = app.get(ControlRoomService);
+    const start = clock.now();
+    clock.set('2026-10-06T23:59:30Z');
+    const form = { cityId: 'aziziyah', merchantId: orgId, amountIqd: 5_000, channel: 'zaincash' as const, idempotencyKey: 'pay-merchant-midnight' };
+    const first = await room.payMerchant(fin1, form);
+    clock.set('2026-10-07T00:00:30Z');
+    const again = await room.payMerchant(fin1, form);
+    expect(again.reference).toBe(first.reference);
+    expect(again.leftIqd).toBe(7_750);
+    await expect(room.payMerchant(fin1, { ...form, amountIqd: 7_750 })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
+    expect((await app.get(LedgerService).eventsFor(`merchant_cash:${orgId}`)).filter((e) => e.type === 'merchant_payout')).toHaveLength(1);
+    expect((await app.get(MerchantCashService).balance(orgId)).balanceIqd).toBe(7_750);
+    clock.set(start);
   });
 
   it('finance pays a driver what the company owes him, never more', async () => {
@@ -148,6 +169,7 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     expect(after.balanceIqd).toBe(0);
     expect(after.holders).toEqual([]);
     expect((await admin.moneyReceiveCourierCash(owner, input)).balanceIqd).toBe(0);
+    await expect(admin.moneyReceiveCourierCash(owner, { ...input, amountIqd: 3_750 })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
     expect((await app.get(LedgerService).eventsFor(`cash:${courier}`)).filter((e) => e.type === 'merchant_paid_by_courier')).toHaveLength(1);
     expect((await app.get(MerchantCashService).balance(orgId)).balanceIqd).toBe(0);
     // An owner who also delivers can't take his own hand-in.
@@ -156,5 +178,20 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     await expect(admin.moneyReceiveCourierCash(owner, { ...input, courierId: owner.personId, code: ownCode, idempotencyKey: 'tablet-sheet-own' })).rejects.toMatchObject({ code: 'staff_own_account' });
     // Staff and other people cannot take it in the owner's name.
     await expect(admin.moneyReceiveCourierCash({ personId: courier, sessionId: 'e2e' }, { ...input, idempotencyKey: 'tablet-sheet-2' })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('the tablet sheet sent twice at once (a double tap) posts one hand-over and opens no incident', async () => {
+    const { orgId, owner } = await restaurant('07800098014');
+    const courier = await person('07720098015', 'كرار', ['courier']);
+    await app.get(PostingService).orderMoney(workedExample({ orderId: 'mo-o4', merchantId: orgId, courierId: courier, occurredAt: clock.now() }));
+    const { code } = await app.get(DriverAccountService).handoverCode({ personId: courier, sessionId: 'e2e' });
+    const admin = app.get(MerchantAdminService);
+    const discrepancies = () => app.get<LedgerIncidents>(LEDGER_INCIDENTS).opened().filter((i) => i.kind === 'merchant_handover_discrepancy').length;
+    const before = discrepancies();
+    const input = { merchantOrgId: orgId, courierId: courier, amountIqd: 12_750, code, idempotencyKey: 'tablet-double-tap' };
+    const [a, b] = await Promise.all([admin.moneyReceiveCourierCash(owner, input), admin.moneyReceiveCourierCash(owner, input)]);
+    expect([a.balanceIqd, b.balanceIqd]).toEqual([0, 0]);
+    expect((await app.get(LedgerService).eventsFor(`cash:${courier}`)).filter((e) => e.type === 'merchant_paid_by_courier')).toHaveLength(1);
+    expect(discrepancies()).toBe(before);
   });
 });

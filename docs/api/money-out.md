@@ -15,7 +15,9 @@ amount or money rule changes: the limits are the existing ones.
 
 What the company owes a restaurant is its `merchant_cash:` balance. A payout never goes above it
 (`payout_exceeds_balance`), and payouts for one restaurant run one at a time. The settlement reference
-comes from the form's `idempotencyKey`: a double click or a retry is the same reference and posts once.
+comes from the form's `idempotencyKey` alone (not the day): a double click or a retry, even after
+midnight, is the same reference and posts once. The same key with another amount or channel is refused
+(`idempotency_key_reused`), never answered as already paid.
 Audit: `finance.merchant_payout` (subject `merchant`).
 
 ## Paying a driver
@@ -23,7 +25,8 @@ Audit: `finance.merchant_payout` (subject `merchant`).
 What the company owes a driver is his earnings net of the cash in his hand (`driver:` + `cash:`).
 A payout never goes above it (`payout_exceeds_due`); any positive amount up to it may be paid (the
 weekly form), not only the amount above the automatic payout line. Payouts for one driver run one at
-a time; a retry posts once. Audit: `finance.driver_payout` (subject `driver`).
+a time; a retry posts once, and the same key with another amount or channel is refused
+(`idempotency_key_reused`). Audit: `finance.driver_payout` (subject `driver`).
 
 ## Ledger corrections (G-85)
 

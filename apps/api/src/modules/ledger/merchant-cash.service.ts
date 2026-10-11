@@ -9,7 +9,7 @@ import type { LedgerEventBus } from './events.adapter.js';
 import type { LedgerIncidentPort } from './incidents.js';
 import { LedgerService, sumFor } from './ledger.service.js';
 import type { MerchantSettings, MerchantSettingsRepository } from './merchant-settings.repository.js';
-import { postMerchantPaidByCourier, postSettlement, type SettlementChannel } from './postings.js';
+import { postMerchantPaidByCourier, postSettlement, type PostingGroup, type SettlementChannel } from './postings.js';
 import { settlementReference } from './settlement-ref.js';
 import { LEDGER_EVENTS, LEDGER_INCIDENTS, MERCHANT_SETTINGS_REPOSITORY, MONEY_RULES } from './tokens.js';
 
@@ -452,6 +452,12 @@ export class MerchantCashService {
       // The merchant confirms with its PIN, or by a tap on its own signed-in tablet. A merchant with no
       // PIN set confirms only by the tap: no typed PIN can stand in for one it never chose.
       const pinOk = input.pin ? Boolean(s.pinHash) && hashPin(input.merchantId, input.pin) === s.pinHash : Boolean(input.tabletTap);
+      // A hand-over already posted under this id (a retry, or a double tap that waited on the lock)
+      // posts nothing again and opens no incident; the same id with another amount or person is refused.
+      if (pinOk) {
+        const replay = postMerchantPaidByCourier({ ...input, occurredAt: this.clock.now() });
+        if (await this.alreadyPosted(replay)) return { ok: true as const, posted: { postedIqd: input.amountIqd, merchantBalanceIqd: (await this.ledger.balance(Accounts.merchantCash(input.merchantId))).amount } };
+      }
       const owed = (await this.holders(input.merchantId)).find((h) => h.courierId === input.courierId)?.amountIqd ?? 0;
       const problem = !pinOk ? 'pin' : input.amountIqd !== input.merchantConfirmedIqd ? 'amount_disagreement' : input.amountIqd > owed ? 'more_than_owed' : input.amountIqd <= 0 ? 'zero' : null;
       if (problem) return { ok: false as const, problem, owed };
@@ -497,6 +503,21 @@ export class MerchantCashService {
   }
 
   /**
+   * Whether a posting group is already in the ledger. A retry under the same key must be the same
+   * money (same lines: type, amount, accounts, channel); anything else is refused, never read as
+   * "already posted".
+   */
+  private async alreadyPosted(group: PostingGroup): Promise<boolean> {
+    const existing = await this.ledger.eventsForGroups([group.id]);
+    if (existing.length === 0) return false;
+    const key = (l: { type: string; amount: number; fromAccount: string; toAccount: string; memo?: string | undefined }) => `${l.type}|${l.amount}|${l.fromAccount}|${l.toAccount}|${l.memo ?? ''}`;
+    const want = group.lines.map(key).sort();
+    const have = existing.map(key).sort();
+    if (want.length !== have.length || want.some((k, i) => k !== have[i])) throw new DriverError('idempotency_key_reused');
+    return true;
+  }
+
+  /**
    * Company → merchant payout (ZainCash, ops round, bank) under a settlement reference. Never more
    * than the merchant is owed right now (`payout_exceeds_balance`, backend review 2026-10-04 #21);
    * partial payouts are fine. Checked and posted under the merchant's lock, so two payouts at once
@@ -509,7 +530,7 @@ export class MerchantCashService {
     return this.merchantLock.run(input.merchantId, (held) =>
       this.inTx(held, async (tx) => {
         const account = Accounts.merchantCash(input.merchantId);
-        if ((await this.ledger.eventsForGroups([group.id])).length > 0) return (await this.ledger.balance(account)).amount;
+        if (await this.alreadyPosted(group)) return (await this.ledger.balance(account)).amount;
         const before = (await this.ledger.balance(account)).amount;
         if (input.amountIqd > before) throw new DriverError('payout_exceeds_balance');
         await this.ledger.recordAll(group, tx);
@@ -551,7 +572,7 @@ export class MerchantCashService {
     };
     return this.driverLock.run(input.driverId, (held) =>
       this.inTx(held, async (tx) => {
-        if ((await this.ledger.eventsForGroups([group.id])).length > 0) return Math.max(0, await due());
+        if (await this.alreadyPosted(group)) return Math.max(0, await due());
         const before = await due();
         if (input.amountIqd > before) throw new DriverError('payout_exceeds_due');
         await this.ledger.recordAll(group, tx);

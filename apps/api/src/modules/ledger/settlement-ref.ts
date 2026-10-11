@@ -17,6 +17,17 @@ export function settlementReference(party: 'D' | 'M', partyId: string, at: Date,
   return `${party}-${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
+/**
+ * The reference of a money-out form, from the form's own key alone: a retry of the same form is the
+ * same reference (so it posts once) whatever the day, even after midnight UTC.
+ */
+export function keyedSettlementReference(party: 'D' | 'M', partyId: string, idempotencyKey: string): string {
+  const digest = createHash('sha256').update(`${party}|${partyId}|key|${idempotencyKey}`).digest();
+  let code = '';
+  for (let i = 0; i < 8; i++) code += ALPHABET[(digest[i] ?? 0) % 32];
+  return `${party}-${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
 export interface OpenSettlement {
   reference: string;
   partyId: string;

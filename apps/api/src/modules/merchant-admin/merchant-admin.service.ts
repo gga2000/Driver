@@ -527,10 +527,10 @@ export class MerchantAdminService implements MerchantAdminPort {
     // An owner who also delivers can't take his own hand-in: the cash goes to the shop through someone else.
     if (input.courierId === actor.personId) throw new DriverError('staff_own_account');
     const handoverId = `mt_${createHash('sha256').update(`${input.merchantOrgId}:${input.idempotencyKey}`).digest('hex').slice(0, 24)}`;
-    if (!(await this.ledger.hasGroup(`handover:${handoverId}`))) {
-      await this.ops.verifyCourierCode(actor, input.courierId, input.code);
-      await this.merchantCash.confirmHandover({ handoverId, courierId: input.courierId, merchantId: input.merchantOrgId, amountIqd: input.amountIqd, merchantConfirmedIqd: input.amountIqd, tabletTap: true });
-    }
+    await this.ops.verifyCourierCode(actor, input.courierId, input.code);
+    // A retry or a double tap is answered under the merchant's lock: the hand-over posts once, and the
+    // same key with another amount or courier is refused.
+    await this.merchantCash.confirmHandover({ handoverId, courierId: input.courierId, merchantId: input.merchantOrgId, amountIqd: input.amountIqd, merchantConfirmedIqd: input.amountIqd, tabletTap: true });
     return this.moneyCash(actor, { merchantOrgId: input.merchantOrgId });
   }
 
