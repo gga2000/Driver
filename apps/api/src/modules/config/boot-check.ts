@@ -1,5 +1,6 @@
 import { publicHttpsProblem } from '../../shared/public-url.js';
 import { smsProviderName } from '../../shared/messaging/sms.js';
+import { processRoleFromEnv, runsJobs } from '../../shared/process-role.js';
 
 /** Where this process runs: `production` (real customers), `staging`, or `local` (not NODE_ENV=production). */
 export type DeployEnvironment = 'production' | 'staging' | 'local';
@@ -65,11 +66,32 @@ export function bootConfigProblems(env: NodeJS.ProcessEnv = process.env): string
   return problems;
 }
 
-/** What a deployed API may run without but should not: logged at boot, never stops it. */
+/**
+ * Configuration a deployed API should have but can run without, logged once at boot as a warning.
+ *
+ * - A process that runs jobs (DRIVER_ROLE all or worker) without `TIMERS_SWEEPER=on`: the durable
+ *   timers (a booked ride's T−30 search, a departure's start) then fire from their Redis job only, so a
+ *   lost Redis job is never fired. deploy/fly/api.toml sets it on for staging and production.
+ * - A message address left unset (LINK_SETTINGS): staging may run without any; production only without
+ *   the optional ones.
+ */
 export function bootConfigWarnings(env: NodeJS.ProcessEnv = process.env): string[] {
   const where = deployEnvironmentFromEnv(env);
   if (where === 'local') return [];
-  return LINK_SETTINGS.filter(({ name, required }) => !env[name]?.trim() && (where === 'staging' || !required)).map(({ unset }) => unset);
+  const warnings: string[] = [];
+  let jobs = true;
+  try {
+    jobs = runsJobs(processRoleFromEnv(env));
+  } catch {
+    // A bad DRIVER_ROLE stops boot where the role is read; count the process as running jobs here.
+  }
+  if (jobs && (env['TIMERS_SWEEPER'] ?? '').trim().toLowerCase() !== 'on') {
+    warnings.push('TIMERS_SWEEPER is not on: durable timers fire only from Redis, so a lost Redis job never fires (set TIMERS_SWEEPER=on, deploy/fly/api.toml)');
+  }
+  for (const { name, required, unset } of LINK_SETTINGS) {
+    if (!env[name]?.trim() && (where === 'staging' || !required)) warnings.push(unset);
+  }
+  return warnings;
 }
 
 /** Throws with the whole list when `bootConfigProblems` finds any. */

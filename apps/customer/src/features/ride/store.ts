@@ -28,6 +28,11 @@ export interface RideDraft {
   rideCargo: RideCargo[];
   /** Ride ideas c9/s3 «لمنو المشوار؟»: «إلي» unless he picked someone; back to «إلي» after each ride. */
   rider: RiderPick;
+  /**
+   * Map idea N10: «تمام، أمشي هسة» moved the pickup to a safe stop. Where he stood (the way back), the
+   * landmark facing the stop and the walk. Read only while the pickup is still that stop.
+   */
+  walk: { from: Spot; landmark: string | null; walkM: number } | null;
 }
 
 export interface RideMemo {
@@ -55,7 +60,7 @@ export interface RideStoreState extends PersistedRide {
 
 const KEY = 'driver.customer.ride';
 const MAX_MEMOS = 20;
-export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false, rideCargo: [], rider: RIDER_ME };
+export const EMPTY_DRAFT: RideDraft = { vertical: 'taxi', pickup: null, dropoff: null, doorPickup: false, payment: 'cash', note: '', allowEdgeTuktuk: false, familyPreferred: false, rideCargo: [], rider: RIDER_ME, walk: null };
 
 export function createRideStore(store: KeyValueStorage) {
   let state: RideStoreState = { loaded: false, draft: EMPTY_DRAFT, recent: [], memos: {} };
