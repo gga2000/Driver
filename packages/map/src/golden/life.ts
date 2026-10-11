@@ -16,7 +16,8 @@ import type { GoldenLight } from './sun.js';
 export const LIFE_MINZOOM = 16.6;
 
 type LngLat = [number, number];
-interface Road {
+/** A street as the tiles' `roads` layer carries it (`roadsFromFeatures` turns map features into these). */
+export interface Road {
   cls: string;
   coords: LngLat[];
 }
