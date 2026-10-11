@@ -7676,6 +7676,13 @@
   "console.today.view_done": "تسكّرت",
   "console.today.filter": "نوع المشكلة",
   "console.today.filter_all": "الكل",
+  "console.today.svc_label": "الخدمة",
+  "console.today.svc_all": "كل الخدمات",
+  "console.today.svc_delivery": "الأكل والتوصيل",
+  "console.today.svc_ride": "تكسي وتكتك",
+  "console.today.svc_intercity": "الرجعة",
+  "console.today.svc_khat": "خطوط",
+  "console.today.svc_shared": "الطوارئ والسلامة والموافقات تبيّن بكل خدمة",
   "console.today.kind_sos": "طوارئ",
   "console.today.kind_no_driver": "محد أخذ المشوار",
   "console.today.kind_store_silent": "المطعم ما يرد",
@@ -8996,5 +9003,10 @@
   "console.glance.open_today": "افتح صفحة اليوم",
   "console.undo": "تراجع",
   "console.pause_undo_note": "تراجعت عن الإيقاف خلال ثواني",
-  "console.ctl_undo_reason": "تراجعت عن الإيقاف خلال ثواني"
+  "console.ctl_undo_reason": "تراجعت عن الإيقاف خلال ثواني",
+  "partner.glow_for_you": "بـ{zone} الطلبات أكثر من الشباب، وإنت أقرب واحد",
+  "partner.glow_some": "المناطق المضوية بيها شغل",
+  "partner.glow_yours": "القرار إلك. هاي نصيحة بس، والطلبات توصلك وين ما تكون",
+  "partner.glow_age_now": "الصورة من شوية",
+  "partner.glow_age": "الصورة قبل {n} دقيقة"
 }
