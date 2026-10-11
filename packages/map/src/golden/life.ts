@@ -56,6 +56,19 @@ export interface StreetLife {
   moving: boolean;
 }
 
+/** Map features from the tiles' `roads` layer (querySourceFeatures / queryRenderedFeatures) as streets. */
+export function roadsFromFeatures(features: readonly unknown[]): Road[] {
+  const out: Road[] = [];
+  for (const f of features as { properties?: Record<string, unknown> | null; geometry?: { type: string; coordinates: unknown } }[]) {
+    const cls = String(f.properties?.cls ?? '');
+    const g = f.geometry;
+    if (!g) continue;
+    if (g.type === 'LineString') out.push({ cls, coords: g.coordinates as LngLat[] });
+    else if (g.type === 'MultiLineString') for (const line of g.coordinates as LngLat[][]) out.push({ cls, coords: line });
+  }
+  return out;
+}
+
 // Half the drawn street width in metres at street-level zoom, per road class (the style's WIDTH at z18).
 const HALF: Record<string, number> = { major: 5, mid: 3.5, minor: 1.6 };
 // Mostly white and silver like Iraqi streets, one dark, one maroon; never saffron, yellow, blue or teal.

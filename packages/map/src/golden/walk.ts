@@ -1,5 +1,7 @@
 import type { LayerSpecification } from '@maplibre/maplibre-gl-style-spec';
 import type { Road } from './life.js';
+
+export { roadsFromFeatures, type Road } from './life.js';
 import { metresBetween, nearestOnSegment, type LngLat } from './metres.js';
 import type { GoldenLight } from './sun.js';
 
@@ -17,19 +19,6 @@ const NEAR_MAIN_M = 25;
 const LANDMARK_NAME_M = 80;
 /** The one-time draw of the dotted walk, then it holds. */
 export const WALK_DRAW_MS = 1500;
-
-/** Map features from the tiles' `roads` layer (querySourceFeatures / queryRenderedFeatures) as streets. */
-export function roadsFromFeatures(features: readonly unknown[]): Road[] {
-  const out: Road[] = [];
-  for (const f of features as { properties?: Record<string, unknown> | null; geometry?: { type: string; coordinates: unknown } }[]) {
-    const cls = String(f.properties?.cls ?? '');
-    const g = f.geometry;
-    if (!g) continue;
-    if (g.type === 'LineString') out.push({ cls, coords: g.coordinates as LngLat[] });
-    else if (g.type === 'MultiLineString') for (const line of g.coordinates as LngLat[][]) out.push({ cls, coords: line });
-  }
-  return out;
-}
 
 export interface SafeStop {
   stop: LngLat;

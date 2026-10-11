@@ -20,7 +20,8 @@ import {
   walkToStopGeoJSON,
   walkToStopLayers,
   type Road,
-} from './index.js';
+} from './pieces.js';
+import { roadsFromFeatures as fromGolden } from './index.js';
 import { metresBetween, offsetMetres } from './metres.js';
 
 const PIN: [number, number] = [45.06, 32.906];
@@ -54,6 +55,7 @@ function noBlue(x: unknown) {
 
 describe('walk to a safe stop (N10)', () => {
   it('reads streets from map features', () => {
+    expect(fromGolden).toBe(roadsFromFeatures);
     const roads = roadsFromFeatures([
       { properties: { cls: 'major' }, geometry: { type: 'LineString', coordinates: MAIN.coords } },
       { properties: { cls: 'minor' }, geometry: { type: 'MultiLineString', coordinates: [LANE.coords, LANE.coords] } },

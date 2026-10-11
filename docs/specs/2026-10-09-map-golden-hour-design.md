@@ -157,9 +157,9 @@ change at dusk (the style swap), and nothing pulses or loops.
 
 ## Map pieces for the new ideas (Ali, 2026-10-11: "apply them all")
 
-These are pure helpers in `@driver/map/golden`; each screen's owner wires them (plan:
+These are pure helpers in their own entry point `@driver/map/pieces` (so an app carries them only once a screen imports them); each screen's owner wires them (plan:
 `/mnt/project-files/map-design/next-ideas/build-plan.md`). Points are `[lng, lat]`. Streets come from the screen's own
-map via `roadsFromFeatures()`; the customer `BaseMap` hands them over with `onRoads`.
+map via `roadsFromFeatures()` (also in `@driver/map/golden`); the customer `BaseMap` hands them over with `onRoads`.
 - **N10 Walk to a safe stop** (`walk.ts`): `safeStopFor(pin, roads, landmarks)` returns a stop on a mid, major or
   highway road within 250 m, preferring one by a landmark when it costs under 40 m more walking. It returns null when
   the pin is already within 25 m of such a road. `walkToStopGeoJSON(from, to, k)` draws the dotted walk once over
