@@ -136,7 +136,8 @@ export function slowStretchPath(road: Path | null, v: OrderTracking, from: LngLa
 
 /**
  * N6 «ليش متأخر» (Ali, 2026-10-11): the part of the slow stretch still ahead of him (from
- * `aheadFromM` metres along the line), as the striped line, and its middle for the label.
+ * `aheadFromM` metres along the line), as the striped line (`part: 'slow'`, what `slowStretchLayers`
+ * from `@driver/map/pieces` draws), and its middle for the label chip.
  */
 export function slowStretchShape(path: Path | null, stretch: { fromM: number; toM: number } | null | undefined, aheadFromM = 0): { line: GeoJSON.FeatureCollection; mid: LngLat | null } {
   const none = { line: { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection, mid: null };
@@ -145,5 +146,5 @@ export function slowStretchShape(path: Path | null, stretch: { fromM: number; to
   const b = Math.min(path.length, stretch.toM);
   const coords = b - a >= SLOW_MIN_M ? slice(path, a, b) : null;
   if (!coords) return none;
-  return { line: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] }, mid: pointAt(path, (a + b) / 2) };
+  return { line: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { part: 'slow' }, geometry: { type: 'LineString', coordinates: coords } }] }, mid: pointAt(path, (a + b) / 2) };
 }

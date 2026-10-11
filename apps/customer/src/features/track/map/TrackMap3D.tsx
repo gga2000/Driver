@@ -3,6 +3,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps, MapRef } from '@maplibre/maplibre-react-native';
 import type { CourierPosition, OrderTracking } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
+import { slowStretchLayers } from '@driver/map/pieces';
 import { Avatar, Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
@@ -15,7 +16,6 @@ import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS } from './golden-setup';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { RecentreChip } from './RecentreChip';
-import { slowStretchLayers } from './slow-layers';
 import { GlintLayer, StreetLifeLayers, type Road } from './StreetLifeLayers';
 import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
@@ -192,7 +192,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [moment, slow?.fromM, slow?.toM, here?.d, roadQuery.data?.polyline6, roadQuery.data?.from],
   );
-  const slowLayers = useMemo(() => slowStretchLayers({ source: SRC.slow, light }), [light]);
+  const slowLayers = useMemo(() => slowStretchLayers({ source: SRC.slow, light, id: 'track-slow' }), [light]);
 
   const recentre = () => {
     setFollow(true);
