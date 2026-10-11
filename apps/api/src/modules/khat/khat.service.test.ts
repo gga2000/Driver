@@ -116,7 +116,7 @@ describe('khat launch scope', () => {
     const config = new ConfigService();
     const names = new StaffNames(h.id.service, h.t.clock);
     const ctlRepo = new InMemoryControlsRepository();
-    const controls = new ControlsService(ctlRepo, config, new OrgsService(h.ev.events, h.t.clock), h.ev.events, new AuditLogService(ctlRepo, names, h.t.clock), names, h.t.uow, h.t.clock);
+    const controls = new ControlsService(ctlRepo, config, new OrgsService(h.ev.events, h.t.clock), h.ev.events, new AuditLogService(ctlRepo, names, h.t.clock), names, h.t.uow, h.t.clock, h.id.service);
     const dispatch = { board: async () => h.board } as unknown as DispatchService;
     const khat = new KhatService(h.repo, h.t.trips, h.id.service, dispatch, h.ev.events, h.t.uow, h.t.clock, null, null, DEFAULT_KHAT_CONFIG, undefined, undefined, null, null, controls);
     return { ...h, khat, config };
