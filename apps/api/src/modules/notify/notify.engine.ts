@@ -181,7 +181,8 @@ export class NotifyEngine {
   }
 
   private async enqueue(job: NotifyJob, jobId: string, delayMs = 0): Promise<void> {
-    await this.queue.add(job.kind, job, { jobId, ...(delayMs > 0 ? { delayMs } : {}) });
+    // One attempt: a failed send retries through `failed()` with its own backoff and a fresh job.
+    await this.queue.add(job.kind, job, { jobId, attempts: 1, ...(delayMs > 0 ? { delayMs } : {}) });
   }
 
   // ───────────────────────── jobs ─────────────────────────
@@ -221,12 +222,26 @@ export class NotifyEngine {
       await this.repo.updateDelivery(row.id, { status: 'suppressed', reason: hold.reason }, now);
       return;
     }
+    // The claim (sentAt set while unset) comes before the provider call, so a rerun of this job never
+    // sends twice. Every outcome that allows another try clears sentAt again.
+    if (!(await this.repo.claimSend(row.id, now))) return;
     try {
       if (row.channel === 'push') await this.sendPush(row, def);
       else if (row.channel === 'sms') await this.sendSms(row);
       else await this.sendWhatsApp(row, def);
     } catch (err) {
+      // The message already went out: fail the job (logged) and leave the row claimed, never send again.
+      if (err instanceof AfterSendError) throw err.cause;
       await this.failed(row, err);
+    }
+  }
+
+  /** Bookkeeping after a provider accepted the message: its failure must not lead to a second send. */
+  private async afterSend<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      throw new AfterSendError(err);
     }
   }
 
@@ -238,12 +253,12 @@ export class NotifyEngine {
     const reason = isProviderError(err) ? err.code : (err as Error).message.slice(0, 200);
     if (!permanent && attempts < this.opts.maxAttempts) {
       const delay = Math.min(this.opts.retryBaseMs * 2 ** (attempts - 1), 10 * 60_000);
-      await this.repo.updateDelivery(row.id, { status: 'queued', attempts, reason: `retry:${reason}` }, now);
+      await this.repo.updateDelivery(row.id, { status: 'queued', attempts, reason: `retry:${reason}`, sentAt: null }, now);
       await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, attempts), delay);
       return;
     }
     this.logger.warn(`${row.template} ${row.channel} to ${row.personId} failed: ${reason}`);
-    await this.repo.updateDelivery(row.id, { status: 'failed', attempts, reason }, now);
+    await this.repo.updateDelivery(row.id, { status: 'failed', attempts, reason, sentAt: null }, now);
     await this.earlyTwin(row);
   }
 
@@ -256,7 +271,7 @@ export class NotifyEngine {
     const app = row.payload.app === 'any' ? undefined : row.payload.app;
     const tokens = await this.repo.tokensOf(row.personId, app);
     if (tokens.length === 0) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_device', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_device', attempts: row.attempts + 1, sentAt: null }, now);
       await this.earlyTwin(row);
       return;
     }
@@ -282,56 +297,59 @@ export class NotifyEngine {
       const sent: PushTicket[] = await this.providers.push[kind].send(messages);
       for (const t of sent) tickets.push({ token: t.token, kind, id: t.id, ok: t.ok, ...(t.error ? { error: t.error } : {}) });
       const dead = sent.filter((t) => t.invalidToken).map((t) => t.token);
-      if (dead.length > 0) await this.repo.deleteTokens(dead);
+      if (dead.length > 0) await this.afterSend(() => this.repo.deleteTokens(dead));
     }
     const ok = tickets.filter((t) => t.ok);
     const provider = [...new Set(tokens.map((t) => this.providers.push[t.kind].name))].join('+');
     if (ok.length === 0) {
       const allDead = tickets.every((t) => t.error === 'DeviceNotRegistered' || t.error === 'UNREGISTERED' || t.error === 'NOT_FOUND');
-      await this.repo.updateDelivery(row.id, { status: 'failed', reason: allDead ? 'invalid_token' : (tickets[0]?.error ?? 'push_failed'), provider, tickets, attempts: row.attempts + 1, payload: { ...row.payload, title: r.title, body: r.body } }, now);
+      await this.repo.updateDelivery(row.id, { status: 'failed', reason: allDead ? 'invalid_token' : (tickets[0]?.error ?? 'push_failed'), provider, tickets, attempts: row.attempts + 1, sentAt: null, payload: { ...row.payload, title: r.title, body: r.body } }, now);
       await this.earlyTwin(row);
       return;
     }
-    await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider, providerRef: ok[0]!.id, tickets, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: r.title, body: r.body } }, now);
-    // With a twin, the twin check polls the receipts at its deadline; otherwise poll later to prune.
-    if (def.smsTwinAfterSec === undefined && ok.some((t) => this.providers.push[t.kind].hasReceipts)) {
-      await this.enqueue({ kind: 'receipts', deliveryId: row.id }, jobKey('receipts', row.id), this.opts.receiptDelaySec * 1000);
-    }
+    await this.afterSend(async () => {
+      await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider, providerRef: ok[0]!.id, tickets, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: r.title, body: r.body } }, now);
+      // With a twin, the twin check polls the receipts at its deadline; otherwise poll later to prune.
+      if (def.smsTwinAfterSec === undefined && ok.some((t) => this.providers.push[t.kind].hasReceipts)) {
+        await this.enqueue({ kind: 'receipts', deliveryId: row.id }, jobKey('receipts', row.id), this.opts.receiptDelaySec * 1000);
+      }
+    });
   }
 
   private async sendSms(row: DeliveryRecord): Promise<void> {
     const now = this.clock.now();
     const contact = await this.contacts.contact(row.personId, { phone: true, purpose: `notify:${row.template}` });
     if (!contact?.phoneE164) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1, sentAt: null }, now);
       return;
     }
     const r = render(row.template, row.payload.params, contact.locale, row.payload.content ?? null);
     const res = await this.providers.sms.send({ to: contact.phoneE164, body: r.sms });
-    await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: null, body: r.sms } }, now);
+    await this.afterSend(() => this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: null, body: r.sms } }, now));
   }
 
   private async sendWhatsApp(row: DeliveryRecord, def: NotifyTemplateDef): Promise<void> {
     const now = this.clock.now();
     const contact = await this.contacts.contact(row.personId, { phone: true, purpose: `notify:${row.template}` });
     if (!contact?.phoneE164) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1, sentAt: null }, now);
       await this.earlyTwin(row);
       return;
     }
     const r = render(row.template, row.payload.params, contact.locale, null);
     if (!r.whatsapp || !def.whatsapp) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_template' }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_template', sentAt: null }, now);
       return;
     }
     const res = await this.providers.whatsapp.send({ to: contact.phoneE164, template: r.whatsapp.template, language: r.whatsapp.language, params: r.whatsapp.params, preview: r.whatsapp.text });
     // Without status callbacks Meta's acceptance is all we will hear: count it as delivered.
     const delivered = !this.providers.whatsapp.statusCallbacks;
-    await this.repo.updateDelivery(
+    const wa = r.whatsapp;
+    await this.afterSend(() => this.repo.updateDelivery(
       row.id,
-      { status: delivered ? 'delivered' : 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, ...(delivered ? { deliveredAt: now } : {}), payload: { ...row.payload, title: r.whatsapp.template, body: r.whatsapp.text } },
+      { status: delivered ? 'delivered' : 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, ...(delivered ? { deliveredAt: now } : {}), payload: { ...row.payload, title: wa.template, body: wa.text } },
       now,
-    );
+    ));
   }
 
   // ───────────────────────── receipts and the SMS twin ─────────────────────────
@@ -442,5 +460,12 @@ export class NotifyEngine {
     const updated = await this.repo.updateDelivery(row.id, { status, ...(status === 'delivered' || status === 'read' ? { deliveredAt: row.deliveredAt ?? at } : {}), ...(error ? { reason: error } : {}) }, now);
     if (status === 'failed') await this.earlyTwin(updated);
     return true;
+  }
+}
+
+/** Wraps an error raised after a provider accepted a message (see `NotifyEngine.afterSend`). */
+class AfterSendError extends Error {
+  constructor(override readonly cause: unknown) {
+    super((cause as Error)?.message ?? String(cause));
   }
 }

@@ -9085,5 +9085,10 @@
   "console.glance.open_today": "Open Today",
   "console.undo": "Undo",
   "console.pause_undo_note": "Took the pause back within seconds",
-  "console.ctl_undo_reason": "Took the stop back within seconds"
+  "console.ctl_undo_reason": "Took the stop back within seconds",
+  "partner.glow_for_you": "In {zone} there are more orders than drivers, and you're the nearest",
+  "partner.glow_some": "The glowing areas have work",
+  "partner.glow_yours": "Your call. This is only advice; orders reach you wherever you are",
+  "partner.glow_age_now": "Picture from a moment ago",
+  "partner.glow_age": "Picture from {n} min ago"
 }

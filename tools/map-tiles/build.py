@@ -194,6 +194,37 @@ for f in L(TOWN, 'building'):
         if g.contains(t): add('buildings', t, {'hm': hm + 0.9, 'base': hm, 'kind': 'dish'}, 15); nr += 1
 print('buildings', nb, 'roof pieces', nr, file=sys.stderr)
 
+# lantern strings (Ali, 2026-10-11: the Ramadan streets, kept all year): strings of fanous lanterns hang across the main
+# streets in the town centre, every ~26 m, sagging between the shop fronts. Each lantern is a small box in the air (base/hm)
+# with a colour index `c` (0 saffron, 1 gold, 2 coral) the style colours by light: painted glass by day, lit at night. A
+# `glow` point under each string lets the night style pool warm light on the street. Only close up (z16 tiles).
+LANTERN_CORE_M, LANTERN_EVERY_M, LANTERN_GAP_M = 1700, 26, 2.2
+LANTERN_HALF = {'major': 9.0, 'mid': 6.5}
+lan_mids = []; nlan = 0
+cxm, cym = CENTER[0] * mx, CENTER[1] * my
+for ly, g, p, z0, z1 in list(F):
+    if ly != 'roads' or p.get('cls') not in LANTERN_HALF or z0 < 12: continue
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+    if gm.geom_type != 'LineString' or gm.length < 40: continue
+    half = LANTERN_HALF[p['cls']]
+    d = 14.0
+    while d < gm.length - 14:
+        c = gm.interpolate(d); a = gm.interpolate(d - 2); b = gm.interpolate(d + 2); d += LANTERN_EVERY_M
+        if math.hypot(c.x - cxm, c.y - cym) > LANTERN_CORE_M: continue
+        if any(abs(c.x - o[0]) < 16 and abs(c.y - o[1]) < 16 for o in lan_mids): continue   # dual carriageways, crossings
+        lan_mids.append((c.x, c.y))
+        ux, uy = b.x - a.x, b.y - a.y; L_ = math.hypot(ux, uy) or 1; nx, ny = -uy / L_, ux / L_   # across the street
+        n = int(2 * half // LANTERN_GAP_M)
+        k = len(lan_mids)
+        for i in range(n + 1):
+            t = i / n; off = -half + 2 * half * t
+            z = 6.4 - 1.5 * (1 - (2 * t - 1) ** 2)                                              # the string sags in the middle
+            q = sg.box(c.x + nx * off - 0.45, c.y + ny * off - 0.45, c.x + nx * off + 0.45, c.y + ny * off + 0.45)
+            add('lanterns', shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0)), {'kind': 'lamp', 'c': (i + k) % 3, 'base': round(z - 0.9, 2), 'hm': round(z, 2)}, 16)
+            nlan += 1
+        add('lanterns', sg.Point(c.x / mx, c.y / my), {'kind': 'glow'}, 16)
+print('lantern strings', len(lan_mids), 'lanterns', nlan, file=sys.stderr)
+
 # places (POIs) -----------------------------------------------------------------------
 for f in pois:
     p = f['properties']; n = nm(p)
@@ -224,7 +255,7 @@ def merc(xy):
     y = (1 - np.log(np.tan(lat) + 1 / np.cos(lat)) / math.pi) / 2
     return np.column_stack([x, y])
 geoms_m = shapely.transform(np.array([f[1] for f in F], dtype=object), merc)
-LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'landmarks', 'lights', 'places', 'localities']
+LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'landmarks', 'lights', 'lanterns', 'places', 'localities']
 LAYER_TYPES = {}
 lon2x = lambda lon: (lon + 180) / 360
 lat2y = lambda lat: (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2
@@ -239,7 +270,7 @@ for z in range(MINZ, MAXZ + 1):
     for g, i in zip(gs, idx):
         lay = F[i][0]
         if g.geom_type in ('Point', 'MultiPoint'): simp.append(g); continue
-        s = shapely.simplify(g, tol, preserve_topology=(lay in ('buildings', 'landmarks')))
+        s = shapely.simplify(g, tol, preserve_topology=(lay in ('buildings', 'landmarks', 'lanterns')))
         if lay in ('landuse', 'palms', 'water') and s.geom_type in ('Polygon', 'MultiPolygon') and s.area < 64: s = None
         simp.append(s)
     keep = [j for j, s in enumerate(simp) if s is not None and not s.is_empty]

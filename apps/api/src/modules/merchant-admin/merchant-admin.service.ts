@@ -423,10 +423,6 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.promotions.setActive(input.merchantOrgId, input.dealId, input.active, actor.personId);
   }
 
-  dealsReview(actor: Actor, input: { dealId: string; approve: boolean; reason?: string | undefined }): Promise<DealView> {
-    return this.promotions.review(input.dealId, input.approve, actor.personId, input.reason);
-  }
-
   // ───────────────────────── money ─────────────────────────
 
   private async ordersIn(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Map<string, Order>> {
