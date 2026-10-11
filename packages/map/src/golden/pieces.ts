@@ -9,3 +9,4 @@ export * from './garage-seats.js';
 export * from './khat.js';
 export * from './demand.js';
 export * from './sunrise.js';
+export * from './my-trips.js';
