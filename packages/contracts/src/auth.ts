@@ -84,6 +84,13 @@ export type TokenPair = z.infer<typeof TokenPair>;
 
 export const ACCESS_TOKEN_TTL_SEC = 15 * 60;
 export const REFRESH_TOKEN_TTL_SEC = 30 * 24 * 60 * 60;
+/**
+ * A person holding any staff (Console) role signs in again within 12 hours of the session's start,
+ * however often it refreshes: a lost or stolen staff device stays useful for a shift, not a month.
+ */
+export const STAFF_SESSION_MAX_SEC = 12 * 60 * 60;
+/** The Console's roles; holding one puts a person on the staff session rules. */
+export const STAFF_ROLE_KINDS: readonly RoleKind[] = ['field_ops', 'dispatcher', 'support', 'finance', 'admin'];
 export const OTP_LENGTH = 6;
 export const OTP_MAX_ATTEMPTS = 5;
 /** THIN-21: a sign-in code works for 5 minutes (the adopted rule; tries and lock-out unchanged). */

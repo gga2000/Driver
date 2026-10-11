@@ -11,6 +11,13 @@ export interface KeyValueStorage {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
   removeItem(key: string): Promise<void>;
+  /**
+   * Web only, where every tab of the site shares this storage: runs `fn` holding a lock all those tabs
+   * share (`navigator.locks`; just runs it where the browser has none). Absent on native (one app).
+   */
+  lock?<T>(name: string, fn: () => Promise<T>): Promise<T>;
+  /** Web only: `cb` with the new value whenever another tab changes `key` (null: removed). Returns the unsubscribe. */
+  watch?(key: string, cb: (value: string | null) => void): () => void;
 }
 
 /** In-memory storage: tests, and the fallback when the platform store is unavailable. */
@@ -63,5 +70,21 @@ export const storage: KeyValueStorage = {
       /* ignore */
     }
     await memory.removeItem(key);
+  },
+  lock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+    if (!locks || typeof locks.request !== 'function') return fn();
+    return locks.request(name, () => fn()) as Promise<T>;
+  },
+  watch(key, cb) {
+    const w = globalThis as { addEventListener?: Window['addEventListener']; removeEventListener?: Window['removeEventListener'] };
+    if (typeof w.addEventListener !== 'function' || typeof w.removeEventListener !== 'function') return () => {};
+    // A null key is `localStorage.clear()` in another tab: everything, this key too, is gone.
+    const on = (e: StorageEvent) => {
+      if (e.key === null) cb(null);
+      else if (e.key === key) cb(e.newValue);
+    };
+    w.addEventListener('storage', on);
+    return () => w.removeEventListener?.('storage', on);
   },
 };

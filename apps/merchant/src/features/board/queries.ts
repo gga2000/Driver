@@ -15,7 +15,8 @@ import { beatLog, boardSeesOrders } from './shop-load';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
- * new order rings the moment it arrives (`new_order`, before the board is even re-read); a courier
+ * new order rings the moment it arrives (`new_order`, before the board is even re-read); an accepted
+ * order that is cancelled (`cancelled`) re-reads the board for its red card; a courier
  * on his way moves on the radar with each fix (`courier_radar`, patched in place); order, courier and
  * store changes re-read the board. The board keeps a slow safety refetch while live and
  * polls every 30 s when SSE does not get through.
@@ -31,6 +32,11 @@ export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (
     onEvent: (e, qc, api) => {
       if (e.type === 'courier_radar') {
         qc.setQueriesData<MerchantBoard>(api.merchant.board.pathFilter(), (b) => applyRadar(b, e));
+        return;
+      }
+      // An accepted order was cancelled: re-read now so its red «انلغى» card is up at once.
+      if (e.type === 'cancelled' && e.merchantOrgId === merchantOrgId) {
+        void qc.invalidateQueries(api.merchant.board.pathFilter());
         return;
       }
       if (e.type !== 'new_order' || e.merchantOrgId !== merchantOrgId) return;

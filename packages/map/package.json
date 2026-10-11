@@ -19,6 +19,34 @@
     "./pieces": {
       "types": "./dist/golden/pieces.d.ts",
       "default": "./dist/golden/pieces.js"
+    },
+    "./pieces/walk": {
+      "types": "./dist/golden/walk.d.ts",
+      "default": "./dist/golden/walk.js"
+    },
+    "./pieces/moments": {
+      "types": "./dist/golden/moments.d.ts",
+      "default": "./dist/golden/moments.js"
+    },
+    "./pieces/garage-seats": {
+      "types": "./dist/golden/garage-seats.d.ts",
+      "default": "./dist/golden/garage-seats.js"
+    },
+    "./pieces/khat": {
+      "types": "./dist/golden/khat.d.ts",
+      "default": "./dist/golden/khat.js"
+    },
+    "./pieces/demand": {
+      "types": "./dist/golden/demand.d.ts",
+      "default": "./dist/golden/demand.js"
+    },
+    "./pieces/sunrise": {
+      "types": "./dist/golden/sunrise.d.ts",
+      "default": "./dist/golden/sunrise.js"
+    },
+    "./pieces/my-trips": {
+      "types": "./dist/golden/my-trips.d.ts",
+      "default": "./dist/golden/my-trips.js"
     }
   },
   "scripts": {

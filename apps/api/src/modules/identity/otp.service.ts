@@ -54,7 +54,7 @@ export class OtpService {
     tx?: Tx,
     asked?: OtpChannel,
     origin: OtpRequestOrigin = {},
-  ): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel }> {
+  ): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel; whatsappAvailable: boolean }> {
     const whatsappAvailable = !!this.whatsapp && purpose === 'login';
     if (asked === 'whatsapp' && !whatsappAvailable) throw new DriverError('otp_channel_unavailable');
     const now = this.clock.now();
@@ -77,7 +77,7 @@ export class OtpService {
       await this.guard.admitFixed({ phoneE164, phoneHash, origin }, this.stagingTest.dailyCodes);
       const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
       await this.repo.createOtp({ phoneHash, codeHash: this.hash(this.stagingTest.code, phoneHash), purpose, expiresAt, now, attempts: carried }, tx);
-      return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms' };
+      return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms', whatsappAvailable };
     }
     const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
     const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
@@ -101,7 +101,7 @@ export class OtpService {
       if (channel === 'whatsapp') this.devChannel.set(phoneE164, 'whatsapp');
       else this.devChannel.delete(phoneE164);
     }
-    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel };
+    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel, whatsappAvailable };
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { SharedValue } from 'react-native-reanimated';
 import type { LabelObstacle } from '@driver/map';
+import type { DemandCell } from '@driver/map/pieces/demand';
 import type { Camera, Size } from '../geo';
 
 /** The camera every layer reads on the UI thread: centre + zoom as three shared values. */
@@ -25,4 +26,8 @@ export interface BaseMapProps {
   coveredBottom?: number;
   /** Zoom landmark names show from on this map (default `LANDMARK_RULES.nameZoom`). */
   landmarkNameZoom?: number;
+  /** Where the orders are (N17): soft amber light drawn into the map itself, under the street names (MapLibre only). */
+  glow?: readonly DemandCell[];
+  /** The map drew (`true`) or dropped (`false`) the glow, so the screen knows whether to draw its own. */
+  onGlow?: (drawn: boolean) => void;
 }
