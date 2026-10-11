@@ -7,20 +7,22 @@ import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { distanceM, type LngLat } from '../geo';
-import { litBuilding, momentOf, routeGeoJSON, routeParts } from '../map3d';
+import { SLOW_COPY } from '../late-promise';
+import { litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
 import { glidePos } from '../motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
 import { ensureMaplibreCss } from './maplibre-css';
 import { RecentreChip } from './RecentreChip';
+import { slowStretchLayers } from './slow-layers';
 import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
 
 type Golden = typeof import('@driver/map/golden');
 type Pt = [number, number];
 
-const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 'track-life' } as const;
+const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 'track-life', slow: 'track-slow' } as const;
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The route redraws at most this often while the courier glides (the marker itself moves every frame). */
 const ROUTE_REDRAW_MS = 250;
@@ -28,6 +30,8 @@ const PHOTO = 38;
 const RING_W = 3;
 /** Street life moves at about 30 frames a second (smooth enough for small cars, half the work). */
 const LIFE_FRAME_MS = 33;
+/** The slow-stretch label hangs this far under the middle of the stretch. */
+const SLOW_CHIP_GAP = 10;
 
 export interface TrackMap3DProps {
   view: OrderTracking;
@@ -68,9 +72,13 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const roadQuery = useOrderRoute(view.order.id, isLive(view), stage);
   const motion = useRoadGlide({ fix, polyline6: roadQuery.data?.polyline6 ?? null, stale, intervalMs: POSITION_POLL_MS, onStray: () => void roadQuery.refetch() });
 
+  // N6 «ليش متأخر»: the slow stretch the server names once the delivery is past its apology step.
+  const slow = roadQuery.data?.slowStretch ?? null;
+  const routeFrom = roadQuery.data?.from ?? null;
+
   // Everything the frame loop and map callbacks read, without re-creating the map.
-  const live = useRef({ moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion });
-  live.current = { moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion };
+  const live = useRef({ moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view });
+  live.current = { moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view };
   const failRef = useRef(onFail);
   failRef.current = onFail;
 
@@ -78,6 +86,9 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const doorPin = useRef<HTMLElement | null>(null);
   const courierPin = useRef<HTMLElement | null>(null);
   const wedge = useRef<HTMLElement | null>(null);
+  const slowChip = useRef<HTMLElement | null>(null);
+  const slowChipW = useRef(0);
+  const slowMid = useRef<LngLat | null>(null);
   const courierAt = useRef<{ pos: LngLat; heading: number; d: number | null } | null>(null);
   const glint = useRef<() => void>(() => undefined);
 
@@ -117,6 +128,10 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     m.getSource<GeoJSONSource>(SRC.glow)?.setData(spot ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: pt(spot) } }] } : EMPTY);
     const litAt = s.moment === 'kitchen' ? s.kitchen : s.moment === 'arrived' ? s.home : null;
     m.getSource<GeoJSONSource>(SRC.lit)?.setData(litAt ? litBuilding(litAt, housesNear(m, goldenRef.current)) : EMPTY);
+    // Only the part still ahead of him is striped; the label sits at its middle.
+    const slowShape = s.moment === 'arrived' ? null : slowStretchShape(slowStretchPath(motion.path.value, s.view, s.routeFrom), s.slow, here?.d ?? 0);
+    m.getSource<GeoJSONSource>(SRC.slow)?.setData(slowShape?.line ?? EMPTY);
+    slowMid.current = slowShape?.mid ?? null;
   };
 
   // ── the map, created once ──
@@ -172,10 +187,13 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           m.addSource(SRC.glow, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.lit, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.life, { type: 'geojson', data: EMPTY });
+          m.addSource(SRC.slow, { type: 'geojson', data: EMPTY });
           const before = m.getLayer(golden.GOLDEN_FIRST_LABEL) ? golden.GOLDEN_FIRST_LABEL : undefined;
           // Street life under the route and pins (spec "Street life"; only from LIFE_MINZOOM).
           for (const layer of golden.goldenLifeLayers({ source: SRC.life })) m.addLayer(layer as never, before);
           for (const layer of golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit })) m.addLayer(layer as never, before);
+          // The slow stretch over the road ahead, still under the street names.
+          for (const layer of slowStretchLayers({ source: SRC.slow, light })) m.addLayer(layer as never, before);
           paint();
           // The roads arrive with the tiles: build the street scene once they are in.
           m.once('idle', rebuildLife);
@@ -233,6 +251,8 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           const riding = s.moment === 'on_the_way' || s.moment === 'near';
           place(kitchenPin.current, s.moment === 'kitchen' ? s.kitchen : null, PIN / 2, PIN + 4);
           place(doorPin.current, s.home, PIN / 2, PIN + 4);
+          // Just under the stretch's middle, so it never sits on a pin (pins rise above their point).
+          place(slowChip.current, slowMid.current, slowChipW.current / 2, -SLOW_CHIP_GAP);
           const courierSpot = riding ? (c?.pos ?? null) : s.moment === 'arrived' && s.pickedUp ? s.home : null;
           place(courierPin.current, courierSpot, PHOTO / 2 + (s.moment === 'arrived' ? PIN : 0), PHOTO / 2 + (s.moment === 'arrived' ? PIN / 2 : 0));
           if (wedge.current) {
@@ -293,7 +313,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     paint();
     if (live.current.follow) frame(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moment, ready, roadQuery.data?.polyline6]);
+  }, [moment, ready, roadQuery.data?.polyline6, slow?.fromM, slow?.toM, slow?.reason]);
 
   // Each position update: keep him and the door in the shot, and one glint along the road ahead.
   const fixKey = fix ? `${fix.at.getTime()}` : 'none';
@@ -331,6 +351,25 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         <Teardrop fill={theme.colors.text} halo={withAlpha(theme.colors.surface, 0.7)}>
           <Icon name="home" size={18} color="surface" strokeWidth={2.2} />
         </Teardrop>
+      </View>
+      {/* N6: why it's late, by the striped stretch: rust chip, cream words. */}
+      <View
+        ref={asEl(slowChip)}
+        pointerEvents="none"
+        onLayout={(e) => {
+          slowChipW.current = e.nativeEvent.layout.width;
+        }}
+        style={[styles.marker, { display: 'none', direction: 'rtl', flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 10, borderRadius: 13, backgroundColor: theme.colors.danger, boxShadow: '0 2px 6px rgba(40,24,8,0.25)' }]}
+        testID="slow-stretch-chip"
+      >
+        {slow ? (
+          <>
+            <Icon name={SLOW_COPY[slow.reason].icon} size={14} color="onDanger" strokeWidth={2.4} />
+            <Text variant="caption" weight={700} color="onDanger" numberOfLines={1} tabular>
+              {t(SLOW_COPY[slow.reason].map, { minutes: slow.minutes })}
+            </Text>
+          </>
+        ) : null}
       </View>
       {/* The courier: his approved photo in a ring of the service colour, a small wedge for his heading. */}
       <View ref={asEl(courierPin)} pointerEvents="none" style={[styles.marker, { display: 'none', alignItems: 'center' }]} testID="courier-marker">

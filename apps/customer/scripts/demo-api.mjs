@@ -278,6 +278,8 @@ const { tenderOptions } = await import('@driver/contracts');
 // `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
 // read (or the sweep) sends the one "آسفين، طلبك تأخر شوية" push and the banner says sorry;
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
+// `late_traffic` (N6 «ليش متأخر»): `late_apology`, picked up and on the way, with the market street on
+// his way home learned slow, so the route names a traffic stretch (`late_apology` itself shows the kitchen one).
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -514,6 +516,17 @@ async function pastPromise(personId, orderId, minutes) {
 }
 
 async function scenario(personId, name, opts = {}) {
+  if (name === 'late_traffic') {
+    const r = await scenario(personId, 'late_apology');
+    // Picked up and standing at the start of the way home, so the whole road ahead is on the map.
+    await advance(r.orderId, { move: false });
+    await trips.reportPosition(r.courierId, { tripId: r.tripId, pin: TO_HOME[1], at: new Date(), bearing: 150, speedKmh: 0 });
+    // The demo only: legs starting near the middle of the way home run 1.6× the router (a learned jam).
+    const jam = TO_HOME[3];
+    const eta = app.get(EtaService);
+    eta.factor = async (from) => (Math.hypot(from.lat - jam.lat, (from.lng - jam.lng) * 0.84) < 0.006 ? 1.6 : 1);
+    return r;
+  }
   if (name === 'late_credit' || name === 'late_apology') {
     // Past one of the honest-delay promise's steps (MoneyRules.latePromise): the next read sends the
     // apology (+ apologyAfterMin) or posts the credit (+ afterMin; the apology went out on the way).
@@ -579,7 +592,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

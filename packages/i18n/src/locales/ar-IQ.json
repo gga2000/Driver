@@ -8938,5 +8938,11 @@
   "console.glance.open_today": "افتح صفحة اليوم",
   "console.undo": "تراجع",
   "console.pause_undo_note": "تراجعت عن الإيقاف خلال ثواني",
-  "console.ctl_undo_reason": "تراجعت عن الإيقاف خلال ثواني"
+  "console.ctl_undo_reason": "تراجعت عن الإيقاف خلال ثواني",
+  "track.slow_traffic_map": "زحمة، {minutes} دقيقة زيادة",
+  "track.slow_kitchen_map": "المطعم تأخر {minutes} دقيقة",
+  "track.slow_closed_map": "شارع مسدود",
+  "track.slow_traffic_why": "السبب: الطريق زحمة، يأخّر {minutes} دقيقة",
+  "track.slow_kitchen_why": "السبب: المطعم تأخر بالأكل {minutes} دقيقة",
+  "track.slow_closed_why": "السبب: شارع مسدود، الدليفري ياخذ طريق ثاني"
 }

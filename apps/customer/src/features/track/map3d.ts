@@ -23,6 +23,18 @@ export function momentOf(v: OrderTracking, toDoorM: number | null): TrackingMome
   return 'kitchen';
 }
 
+/** Where the route still goes after the courier: next stops of this order, in order. */
+export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoints: LngLat[] } {
+  const stops = v.trip?.stops.filter((s) => s.mine && s.target && s.state !== 'completed' && s.state !== 'skipped') ?? [];
+  const home = v.dropoff?.pin ?? v.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
+  const kitchen = v.merchant?.pin ?? null;
+  if (stops.length > 0) return { start: v.courier ? null : (kitchen ?? null), waypoints: stops.map((s) => s.target!) };
+  if (v.order.deliveredAt || v.order.state === 'closed' || v.order.state === 'delivered') return { start: null, waypoints: [] };
+  // No trip yet: kitchen → door.
+  if (kitchen && home) return { start: kitchen, waypoints: [home] };
+  return { start: null, waypoints: home ? [home] : [] };
+}
+
 type Pt = [number, number];
 const pt = (p: LngLat): Pt => [p.lng, p.lat];
 
@@ -106,4 +118,32 @@ export function litBuilding(at: LngLat, houses: readonly { ring: readonly Pt[]; 
         [p[0] - dLng, p[1] - dLat],
       ];
   return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { hm: hit?.hm ?? 6 }, geometry: { type: 'Polygon', coordinates: [ring] } }] };
+}
+
+/** A slow stretch shorter than this on screen (most of it behind him) is not worth pointing at. */
+export const SLOW_MIN_M = 15;
+
+/**
+ * The line the server measured the slow stretch along (N6, docs/api/late-promise.md): the road shape
+ * when there is one, else the straight line from where the route was computed through the stops ahead.
+ */
+export function slowStretchPath(road: Path | null, v: OrderTracking, from: LngLat | null): Path | null {
+  if (road) return road;
+  const { start, waypoints } = routeWaypoints(v);
+  const first = from ?? start;
+  return first ? buildPath([first, ...waypoints]) : null;
+}
+
+/**
+ * N6 «ليش متأخر» (Ali, 2026-10-11): the part of the slow stretch still ahead of him (from
+ * `aheadFromM` metres along the line), as the striped line, and its middle for the label.
+ */
+export function slowStretchShape(path: Path | null, stretch: { fromM: number; toM: number } | null | undefined, aheadFromM = 0): { line: GeoJSON.FeatureCollection; mid: LngLat | null } {
+  const none = { line: { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection, mid: null };
+  if (!path || !stretch) return none;
+  const a = Math.max(0, stretch.fromM, aheadFromM);
+  const b = Math.min(path.length, stretch.toM);
+  const coords = b - a >= SLOW_MIN_M ? slice(path, a, b) : null;
+  if (!coords) return none;
+  return { line: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] }, mid: pointAt(path, (a + b) / 2) };
 }

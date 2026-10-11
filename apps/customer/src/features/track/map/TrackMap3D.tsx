@@ -7,13 +7,15 @@ import { Avatar, Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { distanceM, type LngLat } from '../geo';
-import { litBuilding, momentOf, routeGeoJSON, routeParts } from '../map3d';
+import { SLOW_COPY } from '../late-promise';
+import { litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
 import { glidePos } from '../motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS } from './golden-setup';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { RecentreChip } from './RecentreChip';
+import { slowStretchLayers } from './slow-layers';
 import { GlintLayer, StreetLifeLayers, type Road } from './StreetLifeLayers';
 import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
@@ -21,7 +23,7 @@ import { useRoadGlide } from './useRoadGlide';
 type Pt = [number, number];
 type Light = ReturnType<typeof golden.resolveLight>['light'];
 
-const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit' } as const;
+const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', slow: 'track-slow' } as const;
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The courier marker and the route move this often on phones (the bridge is the cost, not the drawing). */
 const COURIER_MS = 120;
@@ -183,6 +185,14 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const glow: GeoJSON.FeatureCollection = spot ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: pt(spot) } }] } : EMPTY;
   const litAt = moment === 'kitchen' ? kitchen : moment === 'arrived' ? home : null;
   const lit = useMemo(() => (litAt ? litBuilding(litAt, houses) : EMPTY), [litAt, houses]);
+  // N6 «ليش متأخر»: the slow stretch still ahead of him, striped, with the reason at its middle.
+  const slow = roadQuery.data?.slowStretch ?? null;
+  const slowShape = useMemo(
+    () => (moment === 'arrived' ? null : slowStretchShape(slowStretchPath(motion.path.value, view, roadQuery.data?.from ?? null), slow, here?.d ?? 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [moment, slow?.fromM, slow?.toM, here?.d, roadQuery.data?.polyline6, roadQuery.data?.from],
+  );
+  const slowLayers = useMemo(() => slowStretchLayers({ source: SRC.slow, light }), [light]);
 
   const recentre = () => {
     setFollow(true);
@@ -242,6 +252,22 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         <ml.GeoJSONSource id={SRC.lit} data={lit as GeoJSON.FeatureCollection}>
           {layers.filter((l) => 'source' in l && l.source === SRC.lit).map((l) => <ml.Layer key={l.id} {...layerProps(l)} />)}
         </ml.GeoJSONSource>
+        <ml.GeoJSONSource id={SRC.slow} data={slowShape?.line ?? EMPTY}>
+          {slowLayers.map((l) => (
+            <ml.Layer key={l.id} {...({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL } as unknown as LayerProps)} />
+          ))}
+        </ml.GeoJSONSource>
+        {/* N6: why it's late, just under the middle of the striped stretch (pins rise above their point). */}
+        {slow && slowShape?.mid ? (
+          <ml.Marker id="slow-stretch" lngLat={pt(slowShape.mid)} anchor="top" offset={[0, 10]}>
+            <View pointerEvents="none" style={{ flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 10, borderRadius: 13, backgroundColor: theme.colors.danger }} testID="slow-stretch-chip">
+              <Icon name={SLOW_COPY[slow.reason].icon} size={14} color="onDanger" strokeWidth={2.4} />
+              <Text variant="caption" weight={700} color="onDanger" numberOfLines={1} tabular>
+                {t(SLOW_COPY[slow.reason].map, { minutes: slow.minutes })}
+              </Text>
+            </View>
+          </ml.Marker>
+        ) : null}
         {/* Restaurant: saffron teardrop with the food icon. */}
         {moment === 'kitchen' && kitchen ? (
           <ml.Marker id="pin-kitchen" lngLat={pt(kitchen)} anchor="bottom">
