@@ -41,6 +41,7 @@ import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
+import { MapBox, mapBoxNight } from '@/features/home/MapBox';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { lastReorderable } from '@/features/orders/history';
@@ -52,6 +53,7 @@ import { useActiveBooking } from '@/features/rajaa/queries';
 import { BaghdadModeCard } from '@/features/ride/BaghdadModeCard';
 import { RideHomeCard } from '@/features/ride/RideHomeCard';
 import { startRide } from '@/features/ride/WhereToBar';
+import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
 import { profile, selectedPlace, useProfile } from '@/lib/profile';
@@ -292,6 +294,12 @@ export default function Home() {
             </>
           )}
         </View>
+
+        {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
+            now; the phones get it with the native map) and there are kitchens to show on it. */}
+        {GOLDEN_MAP && list && list.length > 0 ? (
+          <MapBox night={mapBoxNight(dp.hour)} fact={open.length > 0 ? t('home.food_open', { n: open.length }) : t('home.rail_opening')} scrollY={scrollY} width={columnW} />
+        ) : null}
 
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
         {list?.some((r) => !!r.deal) ? (

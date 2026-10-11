@@ -90,6 +90,12 @@ describe('merchant board — grouping by person', () => {
     expect(abu!.lines[0]).toMatchObject({ name: 'وجبة كباب', unitPriceIqd: 9000, totalIqd: 9000, modifiers: ['نفر إضافي'] });
   });
 
+  it("carries the owner's ticket kind on the dishes he set it for (k4/j6 override)", () => {
+    const groups = groupLines(order(), NAMES, new Map([['kebab', 'food' as const]]));
+    expect(groups[0]!.lines[0]!.kind).toBeUndefined();
+    expect(groups[1]!.lines[0]!.kind).toBe('food');
+  });
+
   it('keeps a person whose lines are only partly removed, drops one with nothing left', () => {
     const o = order();
     o.lines[2]!.availability = 'unavailable';
@@ -107,6 +113,15 @@ describe('merchant board — cards', () => {
   it('joy w4: a household order waiting for the payer is not on the board until the payer says yes', () => {
     expect(toBoardOrder({ order: order({ heldForPayer: true }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).toBeNull();
     expect(toBoardOrder({ order: order({ heldForPayer: false }), itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).not.toBeNull();
+  });
+
+  it('a pre-order stays off the board until it is offered, then shows with its 90-s countdown', () => {
+    const booked = order({ scheduledFor: min(24 * 60), merchantOfferedAt: null });
+    expect(toBoardOrder({ order: booked, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: min(0.5) })).toBeNull();
+    const offeredAt = min(24 * 60 - 30);
+    const card = toBoardOrder({ order: { ...booked, merchantOfferedAt: offeredAt }, itemNames: NAMES, ...NOBODY, acceptWindowSec: 90, now: offeredAt })!;
+    expect(card).toMatchObject({ column: 'new', offeredAt });
+    expect(card.acceptBy).toEqual(new Date(offeredAt.getTime() + 90_000));
   });
 
   it('a new order carries the 90-s deadline, cash to collect and the item count', () => {

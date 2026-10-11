@@ -12,6 +12,7 @@ export const DISPATCH_TRIP_SUBSCRIBER = 'dispatch:trip-events';
 export const DISPATCH_REDISPATCH_SUBSCRIBER = 'dispatch:redispatch';
 export const DISPATCH_READY_SUBSCRIBER = 'dispatch:order-ready';
 export const DISPATCH_RIDE_SUBSCRIBER = 'dispatch:ride-request';
+export const DISPATCH_RIDE_REMATCH_SUBSCRIBER = 'dispatch:ride-rematch';
 
 /** The ride part of `order.placed` (orders adds it for `type: 'ride'`). */
 const RidePlaced = z.object({
@@ -31,6 +32,12 @@ const RidePlaced = z.object({
   }),
   /** Joy J7d: a ride booked for later (ISO); offered the evening before (review #28) or searched `searchLeadMin` before. */
   scheduledFor: z.string().nullable().optional(),
+});
+
+/** `order.rematch_needed` for a ride its driver dropped before pickup: the same ride part, the driver kept off it. */
+const RideRematch = RidePlaced.omit({ scheduledFor: true }).extend({
+  riderId: z.string().min(1),
+  avoidDriverIds: z.array(z.string()).default([]),
 });
 
 export const AUTO_ASSIGN_EVENTS = ['order.accepted', 'order.auto_accepted'] as const;
@@ -55,6 +62,8 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher. A
  *   ride booked for later (joy J7d) is offered to drivers the evening before (review #28) and otherwise waits until 30 min before; one that asked for the rider's
  *   favourite (l9) offers him the job alone for a minute first.
+ * - `dispatch:ride-rematch` on `order.rematch_needed`: the ride's driver dropped it (or a dispatcher
+ *   took it off him) before pickup — a new trip and a new search at once, never offered to him again.
  * - `dispatch:order-ready` on `order.ready`: a kitchen that finishes early starts the courier search
  *   now instead of at the timed start (the request moves its ready time to now).
  * - `dispatch:trip-events`: `trip.accepted` / `trip.declined` from the Partner app (or the echo of
@@ -78,6 +87,7 @@ export class DispatchSubscribers {
       events.subscribe(DISPATCH_REDISPATCH_SUBSCRIBER, ['order.courier_unassigned'], (e) => this.onCourierUnassigned(e)),
       events.subscribe(DISPATCH_READY_SUBSCRIBER, ['order.ready'], (e) => this.onOrderReady(e)),
       events.subscribe(DISPATCH_RIDE_SUBSCRIBER, ['order.placed'], (e) => this.onRidePlaced(e)),
+      events.subscribe(DISPATCH_RIDE_REMATCH_SUBSCRIBER, ['order.rematch_needed'], (e) => this.onRideRematch(e)),
       events.subscribe(DISPATCH_TRIP_SUBSCRIBER, DISPATCH_TRIP_EVENTS, (e) => this.onTripEvent(e)),
     ];
   }
@@ -117,6 +127,30 @@ export class DispatchSubscribers {
       // Ride step 3: the orderer's avoid list (s5) and favourites (s4) apply; «عوائل» shapes wave 1 (s6).
       ...(e.actorId ? { riderId: e.actorId } : {}),
       ...(p.ride.familyPreferred ? { familyPreferred: true } : {}),
+      orderId,
+      tripId,
+      cityId: p.cityId,
+      vertical: p.ride.vertical,
+      zoneId: pickup.zoneKey,
+      pickup: this.pin(p.cityId, pickup),
+      dropoffZoneId: dropoff.zoneKey,
+      cashIqd: p.paymentMethod === 'cash' ? p.totalIqd : 0,
+    });
+  }
+
+  /** A ride lost its driver before pickup: a fresh ride trip, searched now, without the driver who dropped it. */
+  async onRideRematch(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
+    const parsed = RideRematch.safeParse(e.payload);
+    if (!parsed.success || !this.trips.createRideTrip) return;
+    const p = parsed.data;
+    const orderId = e.orderId ?? e.aggregateId;
+    const pickup = this.point(p.cityId, p.ride.pickup, orderId, 'pickup');
+    const dropoff = this.point(p.cityId, p.ride.dropoff ?? p.ride.pickup, orderId, 'dropoff');
+    const tripId = await this.trips.createRideTrip({ orderId, cityId: p.cityId, vertical: p.ride.vertical, pickup, dropoff, quoteId: p.ride.quoteId });
+    await this.orchestrator.request({
+      riderId: p.riderId,
+      ...(p.ride.familyPreferred ? { familyPreferred: true } : {}),
+      avoidDriverIds: p.avoidDriverIds,
       orderId,
       tripId,
       cityId: p.cityId,

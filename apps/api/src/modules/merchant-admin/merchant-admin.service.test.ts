@@ -109,17 +109,32 @@ describe('merchantAdmin access', () => {
 });
 
 describe('merchantAdmin.menu', () => {
+  it('MER-06: staff keep the daily switches and photos; prices, dishes, options, sections and imports are the owner\'s', async () => {
+    const h = await setup('2026-10-03T12:00:00Z');
+    const dish = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'تكة', priceIqd: 2500, categoryAr: 'مشاوي' });
+    const scope = { merchantOrgId: h.orgId };
+    const forbidden = { code: 'forbidden' };
+    await expect(h.svc.menuUpdatePrice(h.staff, { ...scope, itemId: dish.id, priceIqd: 250 })).rejects.toMatchObject(forbidden);
+    await expect(h.svc.menuUpsertItem(h.staff, { ...scope, nameAr: 'جديد', priceIqd: 1000 })).rejects.toMatchObject(forbidden);
+    await expect(h.svc.menuSetModifiers(h.staff, { ...scope, itemId: dish.id, groups: [] })).rejects.toMatchObject(forbidden);
+    await expect(h.svc.menuReorderCategories(h.staff, { ...scope, order: ['مشاوي'] })).rejects.toMatchObject(forbidden);
+    await expect(h.svc.menuImportFromPhotos(h.staff, { ...scope, uploadIds: [await upload(h.blobs, h.staff.personId)] })).rejects.toMatchObject(forbidden);
+    expect((await h.svc.menuSoldOutToday(h.staff, { ...scope, itemId: dish.id })).onSale).toBe(false);
+    expect((await h.svc.menuSetAvailability(h.staff, { ...scope, itemId: dish.id, available: true })).available).toBe(true);
+    expect((await h.svc.menuGet(h.staff, scope)).categories[0]!.items[0]!.priceIqd).toBe(2500);
+  });
+
   it('creates items in sections, edits prices with history, and sold-out-today resets at local midnight', async () => {
     const h = await setup('2026-10-03T12:00:00Z'); // 15:00 Baghdad
-    const wrap = await h.svc.menuUpsertItem(h.staff, { merchantOrgId: h.orgId, nameAr: 'لفة شاورما', priceIqd: 3000, categoryAr: 'لفات' });
-    await h.svc.menuUpsertItem(h.staff, { merchantOrgId: h.orgId, nameAr: 'بيبسي', priceIqd: 750 });
+    const wrap = await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'لفة شاورما', priceIqd: 3000, categoryAr: 'لفات' });
+    await h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr: 'بيبسي', priceIqd: 750 });
     const menu = await h.svc.menuGet(h.staff, { merchantOrgId: h.orgId });
     expect(menu.categories.map((c) => [c.nameAr, c.items.map((i) => i.nameAr)])).toEqual([['لفات', ['لفة شاورما']], [null, ['بيبسي']]]);
 
-    const priced = await h.svc.menuUpdatePrice(h.staff, { merchantOrgId: h.orgId, itemId: wrap.id, priceIqd: 3500 });
+    const priced = await h.svc.menuUpdatePrice(h.owner, { merchantOrgId: h.orgId, itemId: wrap.id, priceIqd: 3500 });
     expect(priced.item.priceIqd).toBe(3500);
     expect(priced.history.map((c) => [c.oldPriceIqd, c.newPriceIqd])).toEqual([[3000, 3500], [0, 3000]]);
-    expect((await h.ev.events.forActor(h.staff.personId)).map((e) => e.type)).toEqual(expect.arrayContaining(['item.published', 'item.price_changed']));
+    expect((await h.ev.events.forActor(h.owner.personId)).map((e) => e.type)).toEqual(expect.arrayContaining(['item.published', 'item.price_changed']));
 
     const sold = await h.svc.menuSoldOutToday(h.staff, { merchantOrgId: h.orgId, itemId: wrap.id });
     expect(sold.onSale).toBe(false);
@@ -135,6 +150,18 @@ describe('merchantAdmin.menu', () => {
 
     const off = await h.svc.menuSetAvailability(h.staff, { merchantOrgId: h.orgId, itemId: wrap.id, available: false });
     expect(off.onSale).toBe(false);
+  });
+
+  it("keeps the owner's ticket kind and the customer labels apart in one column (k4/j6 override)", async () => {
+    const h = await setup();
+    const base = { merchantOrgId: h.orgId, nameAr: 'آيس كريم', priceIqd: 1500 };
+    const item = await h.svc.menuUpsertItem(h.owner, { ...base, labels: ['new'], kind: 'cold_drink' });
+    expect(item).toMatchObject({ labels: ['new'], kind: 'cold_drink' });
+    // A save that names only the labels keeps the kind, and one that names only the kind keeps the labels.
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, labels: ['family'] })).toMatchObject({ labels: ['family'], kind: 'cold_drink' });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, kind: 'sweet' })).toMatchObject({ labels: ['family'], kind: 'sweet' });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id, kind: null })).toMatchObject({ labels: ['family'], kind: null });
+    expect(await h.svc.menuUpsertItem(h.owner, { ...base, itemId: item.id })).toMatchObject({ labels: ['family'], kind: null });
   });
 
   it('replaces photos from uploads, sets modifiers, renames sections and refuses other merchants’ items', async () => {
@@ -200,13 +227,13 @@ describe('merchantAdmin.menu', () => {
 
   it('reorders sections for the customer menu, keeping item order inside each and the unnamed one last', async () => {
     const h = await setup();
-    const add = (nameAr: string, categoryAr?: string) => h.svc.menuUpsertItem(h.staff, { merchantOrgId: h.orgId, nameAr, priceIqd: 1000, ...(categoryAr ? { categoryAr } : {}) });
+    const add = (nameAr: string, categoryAr?: string) => h.svc.menuUpsertItem(h.owner, { merchantOrgId: h.orgId, nameAr, priceIqd: 1000, ...(categoryAr ? { categoryAr } : {}) });
     await add('لفة تكة', 'تكة');
     await add('صحن تكة', 'تكة');
     await add('بيبسي');
     await add('لفة كص', 'كص');
     await add('باجة', 'باجة');
-    const menu = await h.svc.menuReorderCategories(h.staff, { merchantOrgId: h.orgId, order: ['باجة', 'تكة', 'ما موجود'] });
+    const menu = await h.svc.menuReorderCategories(h.owner, { merchantOrgId: h.orgId, order: ['باجة', 'تكة', 'ما موجود'] });
     expect(menu.categories.map((c) => [c.nameAr, c.items.map((i) => i.nameAr)])).toEqual([
       ['باجة', ['باجة']],
       ['تكة', ['لفة تكة', 'صحن تكة']],
@@ -215,16 +242,16 @@ describe('merchantAdmin.menu', () => {
     ]);
     // The customer menu reads the same order.
     expect((await h.catalog.menu(h.orgId)).map((i) => i.nameAr)).toEqual(['باجة', 'لفة تكة', 'صحن تكة', 'لفة كص', 'بيبسي']);
-    expect((await h.ev.events.forActor(h.staff.personId)).map((e) => e.type)).toContain('menu.categories_reordered');
+    expect((await h.ev.events.forActor(h.owner.personId)).map((e) => e.type)).toContain('menu.categories_reordered');
     await expect(h.svc.menuReorderCategories(await h.person('07700000004'), { merchantOrgId: h.orgId, order: ['تكة'] })).rejects.toMatchObject({ code: 'forbidden' });
   });
 
   it('a menu import applied from two tablets at once creates its items once (review 2026-10-04 #12)', async () => {
     const h = await setup();
-    const job = await h.svc.menuImportFromPhotos(h.staff, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.staff.personId)] });
+    const job = await h.svc.menuImportFromPhotos(h.owner, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.owner.personId)] });
     const items = [{ nameAr: 'كباب', priceIqd: 5000 }];
     const results = await Promise.allSettled([
-      h.svc.menuApplyImport(h.staff, { merchantOrgId: h.orgId, jobId: job.jobId, items }),
+      h.svc.menuApplyImport(h.owner, { merchantOrgId: h.orgId, jobId: job.jobId, items }),
       h.svc.menuApplyImport(h.owner, { merchantOrgId: h.orgId, jobId: job.jobId, items }),
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -234,10 +261,10 @@ describe('merchantAdmin.menu', () => {
 
   it('imports a menu from photos: draft (OCR stub) → staff-corrected rows → items, once', async () => {
     const h = await setup();
-    const job = await h.svc.menuImportFromPhotos(h.staff, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.staff.personId)] });
+    const job = await h.svc.menuImportFromPhotos(h.owner, { merchantOrgId: h.orgId, uploadIds: [await upload(h.blobs, h.owner.personId)] });
     expect(job).toMatchObject({ state: 'draft', ocr: 'stub', items: [] });
     expect(job.photoUrls).toEqual([expect.stringMatching(/\/files\/up_[0-9a-f]+\?exp=\d+&sig=/)]);
-    const applied = await h.svc.menuApplyImport(h.staff, {
+    const applied = await h.svc.menuApplyImport(h.owner, {
       merchantOrgId: h.orgId,
       jobId: job.jobId,
       items: [
@@ -247,7 +274,7 @@ describe('merchantAdmin.menu', () => {
     });
     expect(applied).toMatchObject({ state: 'applied', appliedCount: 2 });
     expect((await h.catalog.adminMenu(h.orgId)).map((i) => i.nameAr)).toEqual(['كباب', 'شوربة']);
-    await expect(h.svc.menuApplyImport(h.staff, { merchantOrgId: h.orgId, jobId: job.jobId, items: [{ nameAr: 'x', priceIqd: 1 }] })).rejects.toMatchObject({ code: 'import_state_conflict' });
+    await expect(h.svc.menuApplyImport(h.owner, { merchantOrgId: h.orgId, jobId: job.jobId, items: [{ nameAr: 'x', priceIqd: 1 }] })).rejects.toMatchObject({ code: 'import_state_conflict' });
     await expect(h.svc.menuImportJob(h.staff, { merchantOrgId: 'org_other', jobId: job.jobId })).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
@@ -281,11 +308,12 @@ describe('merchantAdmin.deals', () => {
     expect(deal).toMatchObject({ state: 'pending_approval', state_ar: 'بانتظار موافقة المنصة', active: false, funder: 'merchant' });
 
     const admin = await h.person('07700000009', 'admin');
-    const approved = await h.svc.dealsReview(admin, { dealId: deal.dealId, approve: true });
+    // The platform approves through the Console queue (approvals.decide → promotions.review).
+    const approved = await h.promotions.review(deal.dealId, true, admin.personId);
     expect(approved).toMatchObject({ state: 'approved', active: true });
     const paused = await h.svc.dealsSetActive(h.owner, { merchantOrgId: h.orgId, dealId: deal.dealId, active: false });
     expect(paused).toMatchObject({ state: 'paused', active: false });
-    await expect(h.svc.dealsReview(admin, { dealId: deal.dealId, approve: true })).rejects.toMatchObject({ code: 'deal_state_conflict' });
+    await expect(h.promotions.review(deal.dealId, true, admin.personId)).rejects.toMatchObject({ code: 'deal_state_conflict' });
     expect((await h.svc.dealsList(h.staff, { merchantOrgId: h.orgId })).map((d) => d.dealId)).toEqual([deal.dealId]);
   });
 });
@@ -507,7 +535,7 @@ describe('merchantAdmin.insights rating attribution', () => {
 });
 
 describe('merchantAdmin.staff invite is not a name lookup (review 2026-10-04 #6)', () => {
-  it("inviting a phone does not reveal the person's name until he signs in after the invite", async () => {
+  it("inviting a phone does not reveal the person's name until he accepts the invite", async () => {
     const h = await setup();
     // Someone already on Driver as a customer, with a full name in the vault.
     const someone = await h.id.login('07700000088');
@@ -516,9 +544,12 @@ describe('merchantAdmin.staff invite is not a name lookup (review 2026-10-04 #6)
     const invited = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000088', role: 'merchant_staff' });
     expect(invited).toMatchObject({ personId: someone.actor.personId, pending: true, name: null });
     expect(JSON.stringify(await h.svc.staffList(h.owner, { merchantOrgId: h.orgId }))).not.toContain('مريم');
-    // He opens the Merchant app (a new sign-in after the invite): now he is staff with a name.
+    // Signing in alone changes nothing (PRV-08): he is still only invited.
     h.clock.advance(60_000);
-    await h.id.login('07700000088');
+    const again = await h.id.login('07700000088');
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === someone.actor.personId)).toMatchObject({ pending: true, name: null });
+    // He accepts in the Merchant app: now he is staff with a name.
+    await h.svc.staffRespondInvite(again.actor, { merchantOrgId: h.orgId, accept: true });
     expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === someone.actor.personId)).toMatchObject({ pending: false, name: 'مريم عبد الله صالح' });
   });
 
@@ -559,11 +590,12 @@ describe('merchantAdmin.staff invite is not a name lookup (review 2026-10-04 #6)
     });
     expect(await sent()).toHaveLength(2);
     expect(again.inviteSentAt).toEqual(h.clock.now());
-    // Staff can't; once he signs in there is nothing to resend.
+    // Staff can't; once he accepts there is nothing to resend.
     await expect(
       h.svc.staffResendInvite(h.staff, { merchantOrgId: h.orgId, personId: invited.personId }),
     ).rejects.toMatchObject({ code: 'forbidden' });
-    await h.id.login('07701234567');
+    const { actor: invitee } = await h.id.login('07701234567');
+    await h.svc.staffRespondInvite(invitee, { merchantOrgId: h.orgId, accept: true });
     await expect(
       h.svc.staffResendInvite(h.owner, { merchantOrgId: h.orgId, personId: invited.personId }),
     ).rejects.toMatchObject({ code: 'staff_invite_not_pending' });
@@ -586,9 +618,10 @@ describe('merchantAdmin.staff', () => {
     expect(h.id.repo.accessLogs.some((l) => l.accessorId === h.owner.personId && l.purpose === 'merchant_staff_view')).toBe(true);
 
     const cashier = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000077', role: 'merchant_staff' });
-    // Never signed in: the invite is pending until the first OTP.
+    // The invite is pending until he accepts it (PRV-08).
     expect(cashier).toMatchObject({ role: 'merchant_staff', phoneMasked: '0770 ••• 0077', pending: true });
-    await h.id.login('07700000077');
+    const { actor: cashierActor } = await h.id.login('07700000077');
+    await h.svc.staffRespondInvite(cashierActor, { merchantOrgId: h.orgId, accept: true });
     expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === cashier.personId)?.pending).toBe(false);
     expect(await h.id.service.hasRole(cashier.personId, 'merchant_staff', h.orgId)).toBe(true);
 
@@ -600,6 +633,132 @@ describe('merchantAdmin.staff', () => {
     expect(await h.id.service.hasRole(cashier.personId, 'merchant_owner', h.orgId)).toBe(false);
     await expect(h.svc.staffSetRole(h.owner, { merchantOrgId: h.orgId, personId: h.owner.personId, role: 'merchant_staff' })).rejects.toMatchObject({ code: 'staff_last_owner' });
     await expect(h.svc.staffRemove(h.owner, { merchantOrgId: h.orgId, personId: h.owner.personId })).rejects.toMatchObject({ code: 'staff_last_owner' });
+  });
+});
+
+describe('merchantAdmin.staff invites must be accepted (PRV-08, Ali 2026-10-10)', () => {
+  const DAY = 86_400_000;
+
+  it('an invite grants no role; the invitee sees it, accepts, and only then is a member', async () => {
+    const h = await setup();
+    const row = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000055', role: 'merchant_staff' });
+    expect(row).toMatchObject({ pending: true, name: null, role: 'merchant_staff', phoneHint: '0770 ••• 0055' });
+    expect(await h.id.service.hasRole(row.personId, 'merchant_staff', h.orgId)).toBe(false);
+    expect(await h.id.service.hasRole(row.personId, 'merchant_owner', h.orgId)).toBe(false);
+    expect(h.repo.invites.size).toBe(1);
+    expect(JSON.stringify([...h.repo.invites.values()])).not.toContain('0770');
+
+    const { actor } = await h.id.login('07700000055');
+    expect(actor.personId).toBe(row.personId);
+    await expect(h.svc.menuGet(actor, { merchantOrgId: h.orgId })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await h.svc.myMerchants(actor)).toEqual([]);
+    const mine = await h.svc.staffMyInvites(actor);
+    expect(mine).toEqual([{ merchantOrgId: h.orgId, storeName: 'مطعم الريف', role: 'merchant_staff', invitedAt: h.clock.now(), expiresAt: new Date(h.clock.now().getTime() + 7 * DAY) }]);
+    expect(JSON.stringify(mine)).not.toContain(h.owner.personId);
+
+    expect(await h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: true })).toEqual([]);
+    expect(await h.id.service.hasRole(actor.personId, 'merchant_staff', h.orgId)).toBe(true);
+    expect(await h.svc.myMerchants(actor)).toEqual([{ merchantOrgId: h.orgId, role: 'merchant_staff' }]);
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).find((s) => s.personId === actor.personId)).toMatchObject({ pending: false, role: 'merchant_staff' });
+    expect((await h.ev.events.forAggregate('merchant_staff', h.orgId)).map((e) => e.type)).toEqual(['merchant.staff_invite_sent', 'merchant.staff_invite_accepted']);
+    // Answered: no second answer.
+    await expect(h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: false })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
+  });
+
+  it('an owner invite gives the owner role on accept', async () => {
+    const h = await setup();
+    await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000056', role: 'merchant_owner' });
+    const { actor } = await h.id.login('07700000056');
+    await h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: true });
+    expect(await h.svc.roleAt(actor, h.orgId)).toBe('merchant_owner');
+  });
+
+  it('declining grants nothing and drops the row; re-inviting after a decline is pending again', async () => {
+    const h = await setup();
+    await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000057', role: 'merchant_staff' });
+    const { actor } = await h.id.login('07700000057');
+    expect(await h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: false })).toEqual([]);
+    expect(await h.id.service.hasRole(actor.personId, 'merchant_staff', h.orgId)).toBe(false);
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).some((s) => s.personId === actor.personId)).toBe(false);
+    expect((await h.ev.events.forAggregate('merchant_staff', h.orgId)).map((e) => e.type)).toContain('merchant.staff_invite_declined');
+
+    h.clock.advance(60 * MIN);
+    const again = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000057', role: 'merchant_owner' });
+    expect(again).toMatchObject({ pending: true, role: 'merchant_owner', invitedAt: h.clock.now() });
+    expect(h.repo.invites.size).toBe(1);
+    expect(await h.svc.staffMyInvites(actor)).toMatchObject([{ merchantOrgId: h.orgId, role: 'merchant_owner' }]);
+  });
+
+  it('only the invited person can answer', async () => {
+    const h = await setup();
+    await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000058', role: 'merchant_owner' });
+    const stranger = await h.person('07700000059');
+    expect(await h.svc.staffMyInvites(stranger)).toEqual([]);
+    await expect(h.svc.staffRespondInvite(stranger, { merchantOrgId: h.orgId, accept: true })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
+    await expect(h.svc.staffRespondInvite(h.staff, { merchantOrgId: h.orgId, accept: true })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
+    expect(await h.id.service.hasRole(stranger.personId, 'merchant_owner', h.orgId)).toBe(false);
+    expect(await h.id.service.hasRole(h.staff.personId, 'merchant_owner', h.orgId)).toBe(false);
+  });
+
+  it('an expired invite is gone from both sides and cannot be accepted; inviting again starts fresh', async () => {
+    const h = await setup();
+    await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000060', role: 'merchant_staff' });
+    const { actor } = await h.id.login('07700000060');
+    h.clock.advance(7 * DAY + MIN);
+    expect(await h.svc.staffMyInvites(actor)).toEqual([]);
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).some((s) => s.personId === actor.personId)).toBe(false);
+    await expect(h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: true })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
+    expect(await h.id.service.hasRole(actor.personId, 'merchant_staff', h.orgId)).toBe(false);
+    await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000060', role: 'merchant_staff' });
+    expect(await h.svc.staffMyInvites(actor)).toHaveLength(1);
+  });
+
+  it('removing a pending invite cancels it; the invitee can no longer accept', async () => {
+    const h = await setup();
+    const row = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000061', role: 'merchant_staff' });
+    expect(await h.svc.staffRemove(h.owner, { merchantOrgId: h.orgId, personId: row.personId })).toEqual({ removed: true });
+    expect([...h.repo.invites.values()][0]).toMatchObject({ status: 'cancelled' });
+    expect((await h.svc.staffList(h.owner, { merchantOrgId: h.orgId })).some((s) => s.personId === row.personId)).toBe(false);
+    const { actor } = await h.id.login('07700000061');
+    expect(await h.svc.staffMyInvites(actor)).toEqual([]);
+    await expect(h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: true })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
+  });
+
+  it('resend keeps the 10-minute cooldown; inviting the same waiting number again does not skip it', async () => {
+    const h = await setup();
+    const row = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000062', role: 'merchant_staff' });
+    const sends = async () => (await h.ev.events.forAggregate('merchant_staff', h.orgId)).filter((e) => e.type === 'merchant.staff_invite_sent').length;
+    h.clock.advance(3 * MIN);
+    expect((await h.svc.staffResendInvite(h.owner, { merchantOrgId: h.orgId, personId: row.personId })).inviteSentAt).toEqual(row.inviteSentAt);
+    const changed = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000062', role: 'merchant_owner' });
+    expect(changed).toMatchObject({ pending: true, role: 'merchant_owner', invitedAt: row.invitedAt });
+    expect(await sends()).toBe(1);
+    h.clock.advance(8 * MIN);
+    const resent = await h.svc.staffResendInvite(h.owner, { merchantOrgId: h.orgId, personId: row.personId });
+    expect(resent.inviteSentAt).toEqual(h.clock.now());
+    expect(resent.resendAfter).toEqual(new Date(h.clock.now().getTime() + 10 * MIN));
+    expect(await sends()).toBe(2);
+    // A pending row's role change edits the invite; still nothing granted.
+    const staffAgain = await h.svc.staffSetRole(h.owner, { merchantOrgId: h.orgId, personId: row.personId, role: 'merchant_staff' });
+    expect(staffAgain).toMatchObject({ pending: true, role: 'merchant_staff' });
+    expect(await h.id.service.hasRole(row.personId, 'merchant_staff', h.orgId)).toBe(false);
+  });
+
+  it('inviting someone already at the store changes his role, as before', async () => {
+    const h = await setup();
+    const row = await h.svc.staffInvite(h.owner, { merchantOrgId: h.orgId, phone: '07700000002', role: 'merchant_owner' });
+    expect(row).toMatchObject({ personId: h.staff.personId, pending: false, role: 'merchant_owner' });
+    expect(h.repo.invites.size).toBe(0);
+  });
+
+  it('an invite from an owner who has since lost the role cannot be accepted', async () => {
+    const h = await setup();
+    const second = await h.person('07700000063', 'merchant_owner');
+    await h.svc.staffInvite(second, { merchantOrgId: h.orgId, phone: '07700000064', role: 'merchant_owner' });
+    await h.svc.staffRemove(h.owner, { merchantOrgId: h.orgId, personId: second.personId });
+    const { actor } = await h.id.login('07700000064');
+    expect(await h.svc.staffMyInvites(actor)).toEqual([]);
+    await expect(h.svc.staffRespondInvite(actor, { merchantOrgId: h.orgId, accept: true })).rejects.toMatchObject({ code: 'staff_invite_not_found' });
   });
 });
 

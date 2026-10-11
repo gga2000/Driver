@@ -1,6 +1,6 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -17,6 +17,7 @@ import { useCurrentOffer, useLivePartner, usePartnerGate, useStatus } from '@/fe
 import { useJobPositions } from '@/features/work/useJobPositions';
 import { useBackgroundLocation } from '@/features/work/useBackgroundLocation';
 import { keepScreenOn } from '@/features/work/logic';
+import { finishedOffers, shouldOpenOffer } from '@/features/offer/slip';
 import { useKeepAwakeWhile } from '@/lib/keep-awake';
 import { useJobQueueRunner } from '@/features/work/useJobQueue';
 import { ApiProvider } from '@/lib/api';
@@ -170,7 +171,8 @@ function RootNavigator() {
 
 /**
  * Brings the offer card up wherever the driver is (home, or on a job for a batch offer) as soon as
- * `partner.currentOffer` returns one. Each offer is pushed once; the card closes itself.
+ * `partner.currentOffer` returns one, and back again while it is unanswered (the browser's back, or
+ * anything else that took it off the top). Once answered, rung out or dropped it never comes back.
  */
 function OfferWatcher() {
   const status = useStatus();
@@ -190,7 +192,6 @@ function OfferWatcher() {
   useJobQueueRunner(true);
   const segments = useSegments();
   const router = useRouter();
-  const shown = useRef<string | null>(null);
   // Only a live offer rings: not one left in the cache from a cold start once his status says he is
   // offline, and never a خطوط substitute run (it waits on the run screen, khat.substituteOffers, with
   // its children and start time; the ride card would show «0 دينار» and a batch line).
@@ -198,8 +199,7 @@ function OfferWatcher() {
   const offerId = ringing?.offerId ?? null;
 
   useEffect(() => {
-    if (!offerId || shown.current === offerId || segments[0] === 'offer') return;
-    shown.current = offerId;
+    if (!offerId || !shouldOpenOffer(offerId, segments[0], finishedOffers)) return;
     router.push('/offer');
   }, [offerId, segments, router]);
   return null;

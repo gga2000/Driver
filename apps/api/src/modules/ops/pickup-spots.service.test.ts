@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor, type RoleKind } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
+import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { IdentityService } from '../identity/index.js';
 import { MerchantService, type MerchantAreaPort, type MerchantEventsPort, type MerchantOrdersPort, type MerchantPeoplePort, type MerchantPhotosPort, type MerchantTripsPort } from '../merchant/index.js';
@@ -67,8 +68,9 @@ async function setup() {
   const auditRepo = new InMemoryControlsRepository();
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === HAIDER.personId ? 'حيدر' : null])) } as unknown as IdentityService;
   const audits = new AuditLogService(auditRepo, new StaffNames(identity, clock), clock);
-  const svc = new OpsPickupSpotsService(merchant, orgs, audits);
-  return { clock, orgs, khalid, karim, elsewhere, home, merchant, svc, auditRepo, recorded, removed };
+  const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+  const svc = new OpsPickupSpotsService(merchant, orgs, audits, catalog);
+  return { clock, orgs, khalid, karim, elsewhere, home, merchant, catalog, svc, auditRepo, recorded, removed };
 }
 
 describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)', () => {
@@ -76,8 +78,24 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
     const h = await setup();
     await h.merchant.setPickupSpot(OWNER, { merchantOrgId: h.khalid.id, note: 'الشباك اليسار', photoIds: ['up_owner_window'] });
     expect(await h.svc.stores(HAIDER, { cityId: 'aziziyah' })).toEqual([
-      { merchantOrgId: h.karim.id, name: 'أسواق كريم', type: 'grocer', note: null, photos: 0, updatedAt: null },
-      { merchantOrgId: h.khalid.id, name: 'مطعم خالد', type: 'restaurant', note: 'الشباك اليسار', photos: 1, updatedAt: h.clock.now() },
+      { merchantOrgId: h.karim.id, name: 'أسواق كريم', type: 'grocer', note: null, photos: 0, updatedAt: null, shopPhoto: false, dishes: 0, dishesNoPhoto: 0 },
+      { merchantOrgId: h.khalid.id, name: 'مطعم خالد', type: 'restaurant', note: 'الشباك اليسار', photos: 1, updatedAt: h.clock.now(), shopPhoto: false, dishes: 0, dishesNoPhoto: 0 },
+    ]);
+  });
+
+  it('k6 «للتكملة»: says whether the shop photo is up and how many dishes show no picture', async () => {
+    const h = await setup();
+    await h.catalog.saveStorefront({ orgId: h.khalid.id, cityId: 'aziziyah', nameAr: 'مطعم خالد', cuisineAr: 'مشويات', minOrderIqd: 0, photoUrl: 'upload:up_front' });
+    const own = await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'تكة', priceIqd: 2500 });
+    await h.catalog.replacePhoto(h.khalid.id, own.id, 'upload:up_tikka');
+    const library = await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'كباب', priceIqd: 3000 });
+    await h.catalog.replacePhoto(h.khalid.id, library.id, '/library/kebab-1.jpg', undefined, 'kebab');
+    await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'شوربة', priceIqd: 1500 });
+    await h.catalog.addItem({ orgId: h.karim.id, nameAr: 'صمون', priceIqd: 250 });
+    const rows = await h.svc.stores(HAIDER, { cityId: 'aziziyah' });
+    expect(rows.map((r) => [r.name, r.shopPhoto, r.dishes, r.dishesNoPhoto])).toEqual([
+      ['أسواق كريم', false, 1, 1],
+      ['مطعم خالد', true, 3, 1],
     ]);
   });
 

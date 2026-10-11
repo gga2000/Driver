@@ -13,6 +13,7 @@ const RUNS_EVERYWHERE: Record<string, string> = {
   'modules/safety/safety.service.ts': 'SOS sweep: an unanswered SOS must be escalated even if the worker is down; each step is claimed once in the database (repo.claim)',
   'modules/simulator/simulator.service.ts': 'started by hand from the Console, never on boot',
   'modules/events/outbox.publisher.ts': 'started only where events.module checks runsJobs',
+  'shared/queue-blip.child.ts': 'test fixture run as its own process by queue.redis.test.ts, never part of the API',
 };
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..');

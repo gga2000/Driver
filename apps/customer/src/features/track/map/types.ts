@@ -1,5 +1,6 @@
 import type { SharedValue } from 'react-native-reanimated';
 import type { LabelObstacle } from '@driver/map';
+import type { Road } from '@driver/map/golden';
 import type { Camera, Size } from '../geo';
 
 /** The camera every layer reads on the UI thread: centre + zoom as three shared values. */
@@ -25,4 +26,6 @@ export interface BaseMapProps {
   coveredBottom?: number;
   /** Always the day map, whatever the hour (pin pickers: Ali 10-09, setting a spot is easier in daylight). */
   alwaysDay?: boolean;
+  /** The streets on screen each time the map settles (our map only; the taxi pickup's walk to a safe stop, N10). */
+  onRoads?: (roads: Road[]) => void;
 }

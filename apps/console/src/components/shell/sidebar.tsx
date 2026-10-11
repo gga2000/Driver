@@ -29,6 +29,7 @@ import {
   IconPricing,
   IconSidebar,
   IconSupport,
+  IconNote,
   IconSystem,
   IconWall,
   IconSiren,
@@ -67,6 +68,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   oncall: IconBell,
   garage: IconGarage,
   system: IconSystem,
+  audit: IconNote,
 };
 
 /**

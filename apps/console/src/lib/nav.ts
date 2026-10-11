@@ -36,7 +36,8 @@ export type IconName =
   | 'phone'
   | 'oncall'
   | 'garage'
-  | 'system';
+  | 'system'
+  | 'audit';
 
 export interface NavItem {
   href: string;
@@ -113,6 +114,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { href: '/finance', key: 'console.nav_finance', icon: 'cash', roles: FINANCE, jump: 'f' },
       { href: '/pricing', key: 'console.nav_pricing', icon: 'pricing', roles: READ, jump: 'p' },
+      // b4: prices and the zones they are set by sit together.
+      { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
     ],
   },
   {
@@ -120,11 +123,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     folded: true,
     items: [
       { href: '/controls', key: 'console.nav_controls', icon: 'controls', roles: READ, jump: 'c' },
-      { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
       // E1 (CON-02): who is reached when an alert reaches nobody; every desk reads, admins edit.
       { href: '/on-call', key: 'console.nav_on_call', icon: 'oncall', roles: ON_CALL_READ_ROLES, jump: 'n' },
       { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
       { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
+      // v10 / p2: who did what in the Console; the money chip is why finance reads it too.
+      { href: '/audit', key: 'console.nav_audit', icon: 'audit', roles: ['admin', 'finance'], jump: 'l' },
     ],
   },
 ];

@@ -22,7 +22,7 @@ import { ReadinessRow } from '@/features/work/ReadinessRow';
 import { practiceKindFor } from '@/features/practice/scenario';
 import { usePracticeDone } from '@/features/practice/store';
 import { PrePromptGate } from '@/features/notify/Push';
-import { useBookedJobs, useDemandMap, useMe, useStatus } from '@/features/work/queries';
+import { useBookedJobs, useDemandGlow, useMe, useStatus } from '@/features/work/queries';
 import { bookedHome } from '@/features/work/booked-logic';
 import { usePresence } from '@/features/work/usePresence';
 import { useLocale, useT } from '@/lib/i18n';
@@ -56,7 +56,7 @@ export default function Home() {
   // P-09: the server may say "online", but with no network no offer can reach him. Say that instead.
   const conn = useConnectionBanner({ live: useLiveMode(LIVE_PARTNER_KEY), updatedAt: status.dataUpdatedAt || null });
   const cut = !conn.net.online;
-  const demandMap = useDemandMap(online && (s?.canDrive ?? false));
+  const demandGlow = useDemandGlow(online && (s?.canDrive ?? false));
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
   // a3: a paper reaches home only in its last 14 days.
@@ -219,7 +219,7 @@ export default function Home() {
         </SafeAreaView>
       ) : null}
 
-      <MapPeek visible={peek} onClose={closePeek} self={s?.position ?? null} vehicle={vehicle} online={online} zones={demandMap.data?.zones ?? []} />
+      <MapPeek visible={peek} onClose={closePeek} self={s?.position ?? null} vehicle={vehicle} online={online} zones={demandGlow.data?.zones ?? []} at={demandGlow.data?.at ?? null} />
       <ShiftCheckSheet
         visible={checking}
         checkedIn={!gate}

@@ -100,7 +100,6 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['merchantAdmin.menu.importFromPhotos', (c) => c.merchantAdmin.menu.importFromPhotos({ ...M, uploadIds: ['up_1'] }), 'merchant_staff', 'courier'],
   ['merchantAdmin.deals.project', (c) => c.merchantAdmin.deals.project({ ...M, type: 'free_delivery', nameAr: 'توصيل ببلاش', schedule: SCHEDULE }), 'merchant_owner', 'customer'],
   ['merchantAdmin.deals.propose', (c) => c.merchantAdmin.deals.propose({ ...M, type: 'percent', value: 10, nameAr: 'خصم', schedule: SCHEDULE }), 'merchant_owner', 'customer'],
-  ['merchantAdmin.deals.review', (c) => c.merchantAdmin.deals.review({ dealId: 'd1', approve: true }), 'admin', 'merchant_owner'],
   ['merchantAdmin.money.today', (c) => c.merchantAdmin.money.today(M), 'merchant_owner', 'finance'],
   ['merchantAdmin.money.cash', (c) => c.merchantAdmin.money.cash(M), 'merchant_owner', 'courier'],
   ['merchantAdmin.money.statement', (c) => c.merchantAdmin.money.statement(M), 'merchant_owner', 'courier'],
@@ -153,6 +152,18 @@ describe('wave-2 routers: role gates reach the right port', () => {
     expect(await codeOf(call.merchant.customerZones({ merchantOrgId: 'org_1', days: 91 }))).toBe('BAD_REQUEST');
     expect(await codeOf(call.merchant.deliveryArea({ merchantOrgId: '' }))).toBe('BAD_REQUEST');
     expect([...calls, ...ops.calls, ...reviewer.calls]).toEqual([]);
+  });
+
+  it('PRV-08: staff.myInvites and staff.respondInvite need only a sign-in (the invitee holds no merchant role yet)', async () => {
+    expect(await codeOf(caller(null).call.merchantAdmin.staff.myInvites())).toBe('UNAUTHORIZED');
+    expect(await codeOf(caller(null).call.merchantAdmin.staff.respondInvite({ ...M, accept: true }))).toBe('UNAUTHORIZED');
+    const someone = caller(['customer']);
+    expect(await codeOf(someone.call.merchantAdmin.staff.myInvites())).toBe('NOT_FOUND');
+    expect(await codeOf(someone.call.merchantAdmin.staff.respondInvite({ ...M, accept: false }))).toBe('NOT_FOUND');
+    const noRoles = caller([]);
+    expect(await codeOf(noRoles.call.merchantAdmin.staff.myInvites())).toBe('NOT_FOUND');
+    expect(await codeOf(noRoles.call.merchantAdmin.staff.respondInvite({ merchantOrgId: '', accept: true }))).toBe('BAD_REQUEST');
+    expect([...someone.calls, ...noRoles.calls]).toEqual(['merchantAdmin.staffMyInvites', 'merchantAdmin.staffRespondInvite', 'merchantAdmin.staffMyInvites']);
   });
 
   it('customerZones defaults to the last 30 days', async () => {

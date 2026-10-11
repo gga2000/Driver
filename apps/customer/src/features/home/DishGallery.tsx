@@ -340,7 +340,7 @@ function Slide({
 }
 
 /** Where the gallery is: a dot per slide, the one in view a saffron pill that slides with the photo. */
-function Dots({ count, pos, dir, onPick, testID }: { count: number; pos: SharedValue<number>; dir: number; onPick: (i: number) => void; testID: string }) {
+export function Dots({ count, pos, dir, onPick, testID }: { count: number; pos: SharedValue<number>; dir: number; onPick: (i: number) => void; testID: string }) {
   const theme = useTheme();
   const pill = useAnimatedStyle(() => ({ transform: [{ translateX: Math.max(0, Math.min(count - 1, pos.value)) * DOT_SLOT * dir }] }));
   return (

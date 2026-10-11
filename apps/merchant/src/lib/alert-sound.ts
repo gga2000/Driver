@@ -2,7 +2,9 @@
  * New-order alarm sound (web). A kitchen is loud, so this is a bright three-note chime made with
  * WebAudio (no files to fetch) and, for the last 10 seconds, a fast two-tone beep that repeats. Browsers
  * only allow sound after a tap: `unlock()` runs on the first pointer event and on "ابدأ الشغل";
- * `canPlay()` tells the board whether to show "الصوت طافي". Native: alert-sound.native.ts (expo-audio,
+ * `canPlay()` tells the board whether to show "الصوت طافي". MER-10: a browser can suspend the sound
+ * again later (a background tab, a locked screen), so `canPlay()` follows the live audio state and
+ * `onUnlock` listeners hear every change, not only the first unlock. Native: alert-sound.native.ts (expo-audio,
  * bundled WAVs, plays in silent mode). Same API on both.
  */
 
@@ -22,11 +24,21 @@ function audioContext(): Ctx | null {
   } catch {
     ctx = null;
   }
+  ctx?.addEventListener?.('statechange', notify);
   return ctx;
 }
 
+let lastCanPlay = false;
+function notify() {
+  const now = canPlay();
+  if (now === lastCanPlay) return;
+  lastCanPlay = now;
+  for (const l of listeners) l();
+}
+
+/** Sound will actually come out: unlocked by a tap and the browser's audio still running. */
 export function canPlay(): boolean {
-  return unlocked;
+  return unlocked && ctx?.state === 'running';
 }
 
 export function onUnlock(cb: () => void): () => void {
@@ -42,11 +54,9 @@ export function unlock(): Promise<boolean> {
   if (!c) return Promise.resolve(false);
   return c.resume().then(
     () => {
-      if (!unlocked && c.state === 'running') {
-        unlocked = true;
-        for (const l of listeners) l();
-      }
-      return unlocked;
+      if (c.state === 'running') unlocked = true;
+      notify();
+      return canPlay();
     },
     () => false,
   );
@@ -56,6 +66,12 @@ if (typeof window !== 'undefined') {
   const once = () => void unlock();
   window.addEventListener('pointerdown', once, { capture: true });
   window.addEventListener('keydown', once, { capture: true });
+  // Back in front: try to wake the audio the browser put to sleep (works where the browser allows it
+  // without a tap; otherwise «الصوت طافي» shows until the next tap).
+  globalThis.document?.addEventListener('visibilitychange', () => {
+    if (globalThis.document.visibilityState !== 'visible' || !unlocked || !ctx || ctx.state === 'running') return;
+    void ctx.resume().then(notify, notify);
+  });
 }
 
 function tone(c: Ctx, freq: number, start: number, dur: number, peak: number) {

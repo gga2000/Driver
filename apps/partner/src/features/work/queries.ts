@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEMAND_MAP_RULES, isPartner, type OrderRoute } from '@driver/contracts';
+import { DEMAND_GLOW_RULES, isPartner, type OrderRoute } from '@driver/contracts';
 import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
@@ -81,13 +81,14 @@ export function useActiveJob(enabled = true) {
   return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
 }
 
-/** Busy zones for the home map (maps program d5), every minute while he is online. */
-export function useDemandMap(online: boolean) {
+/**
+ * N17 «وين الطلبات»: the busy zones glowing on his map, read at the server's picture pace (one every
+ * 3 minutes; the low-data mode keeps the same pace, it is already slow).
+ */
+export function useDemandGlow(online: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
-  // Low-data mode (maps program q2): every 3 minutes instead of every minute.
-  const lite = useLiteMode();
-  return useQuery({ ...api.partner.demandMap.queryOptions(), enabled: signedIn && online, refetchInterval: online ? liteInterval(DEMAND_MAP_RULES.refreshMs, lite) : false, staleTime: DEMAND_MAP_RULES.refreshMs / 2 });
+  return useQuery({ ...api.partner.demandGlow.queryOptions(), enabled: signedIn && online, refetchInterval: online ? DEMAND_GLOW_RULES.snapshotMs : false, staleTime: DEMAND_GLOW_RULES.snapshotMs / 2 });
 }
 
 /** A road keeps for two minutes; the job's road is also re-read when the stop changes. */

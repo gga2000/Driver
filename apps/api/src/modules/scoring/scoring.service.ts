@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EventsService } from '../events/index.js';
+import { RELIABILITY_WINDOW_DAYS } from './reliability.js';
 
 export type Tier = 'bronze' | 'silver' | 'gold';
 
@@ -30,6 +31,10 @@ export const DEFAULT_THRESHOLDS: ScoringThresholds = { silver: 70, gold: 85, obs
 /** Scoring §2: Gold needs index ≥ 85 and at least this many completed trips. */
 export const GOLD_MIN_TRIPS = 100;
 
+/** The event types the index counts (the only part of his history the scorecard reads). */
+const SCORED_TYPES = ['offer.sent', 'offer.accepted', 'offer.declined', 'offer.timeout', 'trip.cancelled_by_driver', 'complaint.received'] as const;
+const DAY_MS = 86_400_000;
+
 @Injectable()
 export class ScoringService {
   constructor(private readonly events: EventsService) {}
@@ -40,17 +45,19 @@ export class ScoringService {
    * cap (bronze); Gold also needs ≥ 100 completed trips.
    */
   async capTier(driverId: string, now = new Date()): Promise<Tier | null> {
-    const evs = await this.events.forActor(driverId);
-    if (evs.length === 0) return null;
-    const firstActiveAt = new Date(Math.min(...evs.map((e) => e.occurredAt.getTime())));
+    // Bounded reads, so a courier's growing history never slows dispatch: his first event (one index
+    // row), the scorecard's window, and his completed trips counted only up to the Gold minimum.
+    const firstActiveAt = await this.events.firstActivityOf(driverId);
+    if (!firstActiveAt) return null;
+    if (now.getTime() - firstActiveAt.getTime() < DEFAULT_THRESHOLDS.observationDays * DAY_MS) return 'bronze';
     const card = await this.scorecard(driverId, firstActiveAt, now);
-    if (card.observation) return 'bronze';
-    const trips = evs.filter((e) => e.type === 'trip.completed').length;
-    return card.tier === 'gold' && trips < GOLD_MIN_TRIPS ? 'silver' : card.tier;
+    if (card.tier !== 'gold') return card.tier;
+    return (await this.events.countForActor(driverId, ['trip.completed'], GOLD_MIN_TRIPS)) < GOLD_MIN_TRIPS ? 'silver' : 'gold';
   }
 
+  /** Counts his scored events of the spec's rolling window (scoring §1: the last 14 days). */
   async scorecard(driverId: string, firstActiveAt: Date, now = new Date(), thresholds = DEFAULT_THRESHOLDS): Promise<Scorecard> {
-    const evs = await this.events.forActor(driverId);
+    const evs = await this.events.forActor(driverId, { from: new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS), types: SCORED_TYPES });
     const count = (type: string) => evs.filter((e) => e.type === type).length;
     const offers = count('offer.sent');
     const accepted = count('offer.accepted');
@@ -74,7 +81,7 @@ export class ScoringService {
     push('complaints', 'شكاوى', -complaints * 10);
     index = Math.max(0, Math.min(100, index));
 
-    const daysActive = (now.getTime() - firstActiveAt.getTime()) / 86_400_000;
+    const daysActive = (now.getTime() - firstActiveAt.getTime()) / DAY_MS;
     const tier: Tier = index >= thresholds.gold ? 'gold' : index >= thresholds.silver ? 'silver' : 'bronze';
     return {
       driverId, offers, accepted, declined, timedOut, cancelledAfterAccept, complaints, index, components, tier,

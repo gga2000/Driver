@@ -53,6 +53,15 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (CONTRACTS_SUBSET && moduleName === '@driver/contracts' && !context.originModulePath.startsWith(CONTRACTS_DIR)) return { type: 'sourceFile', filePath: CONTRACTS_SUBSET };
   const locale = process.env.NODE_ENV === 'production' ? LOCALE_FILE.exec(moduleName) : null;
   if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  // Speed: @trpc ships ESM and CJS builds, and Metro picked the CJS one for some `@trpc/server/*`
+  // subpaths, so the bundle carried @trpc/server twice. Every @trpc import takes the ESM file.
+  const trpc = /^(@trpc\/[^/]+)(\/.*)?$/.exec(moduleName);
+  if (trpc) {
+    const pkgJson = require.resolve(`${trpc[1]}/package.json`, { paths: [path.dirname(context.originModulePath)] });
+    const entry = require(pkgJson).exports?.[`.${trpc[2] ?? ''}`]?.import;
+    const file = typeof entry === 'string' ? entry : entry?.default;
+    if (file) return { type: 'sourceFile', filePath: path.join(path.dirname(pkgJson), file) };
+  }
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
   if (pkg) {
     const origin = path.join(projectRoot, 'package.json');

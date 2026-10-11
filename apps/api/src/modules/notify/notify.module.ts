@@ -19,7 +19,7 @@ import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJ
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
 import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService, trustedContactOwner } from './notify.service.js';
-import { registerNotifySubscribers } from './notify.subscribers.js';
+import { registerNotifySubscribers, twinStillWanted } from './notify.subscribers.js';
 import { pushPortsFromEnv } from './providers/push.js';
 import { whatsAppPortFromEnv } from './providers/whatsapp.js';
 import { WhatsAppWebhookController } from './whatsapp.webhook.controller.js';
@@ -88,7 +88,8 @@ function envInt(name: string, fallback: number): number {
           orNull(async () => {
             const o = await orders.get(orderId);
             const riderId = o.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
-            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod };
+            const waitingForKitchen = o.state === 'placed' && o.merchantOfferedAt !== null && !o.partial;
+            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod, waitingForKitchen };
           }),
         storeName: (orgId) => orNull(async () => (await orgs.get(orgId)).name),
         orgPeople: async (orgId, kinds) => (await orNull(async () => (await identity.orgRoleHolders(orgId, kinds)).filter((r) => !r.frozen).map((r) => r.personId))) ?? [],
@@ -211,7 +212,7 @@ function envInt(name: string, fallback: number): number {
     },
     {
       provide: NOTIFY_ENGINE,
-      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService) => {
+      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService, lookups: NotifyLookups) => {
         const contacts: NotifyContacts = {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
@@ -244,9 +245,11 @@ function envInt(name: string, fallback: number): number {
           },
           // Seasons set in the Console: no offers on mourning days, none in the minutes before iftar (J1a, J6).
           (at) => controls.promoHold(at),
+          // A new-order text only while the order still waits for the kitchen.
+          (row) => twinStillWanted(lookups, row),
         );
       },
-      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService],
+      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService, NOTIFY_LOOKUPS],
     },
     NotifyService,
   ],
