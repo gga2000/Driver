@@ -5,7 +5,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { LatLng } from '@driver/contracts';
 import { Button, Icon, IconButton, Text, useTheme, withAlpha } from '@driver/ui';
 import { color as palette } from '@driver/design-tokens';
-import { WALK_DRAW_MS, walkColours } from '@driver/map/pieces';
+import { WALK_DRAW_MS, walkColours } from '@driver/map/pieces/walk';
 import { project, type Size } from '@/features/track/geo';
 import type { CameraValues } from '@/features/track/map/types';
 import { useT } from '@/lib/i18n';

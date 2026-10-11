@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { t } from '@driver/i18n';
-import { safeStopFor } from '@driver/map/pieces';
+import { safeStopFor } from '@driver/map/pieces/walk';
 import { fasterBy, isWalkStop, showWalkOffer, stopLatLng, walkMetres, walkMinutes, walkStopSpot, type SafeStop } from './walk-stop';
 
 const STOP: SafeStop = { stop: [45.0662, 32.9089], landmarkName: 'الجامع الكبير', walkM: 63 };

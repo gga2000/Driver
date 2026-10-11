@@ -1,16 +1,16 @@
 import type { LatLng } from '@driver/contracts';
-import type { SafeStop } from '@driver/map/pieces';
+import type { SafeStop } from '@driver/map/pieces/walk';
 import type { Spot } from './logic';
 
 /**
  * Map idea N10 «امشي دقيقة للشارع العام»: when the pickup pin is in an alley, the choose screen
  * offers the nearest safe stop on a main road (a landmark when one is there) and a dotted walk to it.
- * The stop itself comes from the map (`safeStopFor` in `@driver/map/pieces`, fed the roads the map
+ * The stop itself comes from the map (`safeStopFor` in `@driver/map/pieces/walk`, fed the roads the map
  * has drawn); this file holds the ride-side rules: how it reads and what the pickup becomes.
  */
 
 /** A road as the map hands it over (`BaseMap`'s `onRoads`) and the stop the map finds (`safeStopFor`). */
-export type { Road as WalkRoad, SafeStop } from '@driver/map/pieces';
+export type { Road as WalkRoad, SafeStop } from '@driver/map/pieces/walk';
 
 /** A calm walking pace with a bag or a child, metres a minute. */
 export const WALK_M_PER_MIN = 70;

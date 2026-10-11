@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { LatLng } from '@driver/contracts';
-import { safeStopFor } from '@driver/map/pieces';
+import { safeStopFor } from '@driver/map/pieces/walk';
 import { useLandmarks } from '@/features/track/map/useLandmarks';
 import { DEV_TOOLS } from '@/lib/env';
 import type { SafeStop, WalkRoad } from './walk-stop';
