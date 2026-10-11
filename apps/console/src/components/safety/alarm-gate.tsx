@@ -31,10 +31,11 @@ export function AlarmGate() {
   const sweepRows = sweeps.rows;
   const urgent = useMemo(() => [...sosSystemAlerts(sosRows), ...sweepSystemAlerts(sweepRows, Date.now())], [sosRows, sweepRows]);
 
-  // A desktop notification for each alert this tab has not shown yet.
+  // A desktop notification for each alert this tab has not shown yet (once allowed, the ones already open too).
   useEffect(() => {
+    if (perm !== 'granted') return;
     for (const a of freshAlerts(urgent, seen.current)) showSystemAlert(a, (href) => router.push(href));
-  }, [urgent, router]);
+  }, [urgent, perm, router]);
 
   // Flash the tab title while an alert is open and the tab is hidden; put it back when seen or done.
   const count = urgent.length;
@@ -68,7 +69,7 @@ export function AlarmGate() {
 
   return (
     <div className="pointer-events-none fixed bottom-4 end-4 start-4 z-50 flex justify-end sm:start-auto" data-testid="alarm-gate">
-      <div className="pointer-events-auto flex max-w-sm items-center gap-3 rounded-lg border border-line bg-surface p-3 shadow-pop">
+      <div className="pointer-events-auto flex w-full flex-col items-stretch gap-3 rounded-lg border border-line bg-surface p-3 shadow-pop sm:w-auto sm:max-w-md sm:flex-row sm:items-center">
         <p className="min-w-0 flex-1 text-dense text-muted">{t('console.alarm.enable_hint')}</p>
         <Button
           variant="primary"
