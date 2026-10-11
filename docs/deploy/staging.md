@@ -90,10 +90,11 @@ The staging API puts four addresses in messages; set each only to an address the
   (`https://driver-customer-iota.vercel.app/sos/`).
 - `SHARE_LINK_BASE_URL`: trip-share and phone-booking links → the customer web
   (`https://driver-customer-iota.vercel.app`).
-- `NOTIFY_RECEIPT_BASE_URL`: receipt links in WhatsApp receipts.
+- `NOTIFY_RECEIPT_BASE_URL` (optional): receipt links in WhatsApp receipts. No page serves them yet:
+  leave it unset (receipts say «تلگاه بالتطبيق»).
 
 Without one, staging still boots (a warning in the log) and those messages go out without the link.
-Production refuses to boot without any of them ([hosting.md](hosting.md#environment-variables-of-the-api)).
+Production refuses to boot without any of the first three ([hosting.md](hosting.md#environment-variables-of-the-api)).
 
 ## Test sign-in numbers on staging
 

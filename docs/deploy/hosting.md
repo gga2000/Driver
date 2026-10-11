@@ -142,7 +142,6 @@ fly secrets set --config deploy/fly/api.toml --stage \
   CONSOLE_BASE_URL='https://<the Console address the company owns>' \
   SAFETY_LINK_BASE_URL='https://<the customer web address the company owns>/sos/' \
   SHARE_LINK_BASE_URL='https://<the customer web address the company owns>' \
-  NOTIFY_RECEIPT_BASE_URL='https://<the receipt page the company owns>/' \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
 
@@ -173,8 +172,8 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 **What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
 without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
 `DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS, a `STAGING_TEST_OTP` and a missing link address
-(`CONSOLE_BASE_URL`, `SAFETY_LINK_BASE_URL`, `SHARE_LINK_BASE_URL`, `NOTIFY_RECEIPT_BASE_URL`; staging
-only logs a warning for those); push other than Expo is refused where push is built (see
+(`CONSOLE_BASE_URL`, `SAFETY_LINK_BASE_URL`, `SHARE_LINK_BASE_URL`; staging only logs a warning for
+those; `NOTIFY_RECEIPT_BASE_URL` is optional everywhere and only warns); push other than Expo is refused where push is built (see
 `PUSH_PROVIDER` below). A link address that is set but is not a public https address (http,
 localhost, a private or `.internal` address) stops boot on staging and production alike. None of them
 has a default: set each **only to an address the company owns**.
@@ -211,7 +210,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `CONSOLE_BASE_URL` | no | **required in production**: the Console address staff alerts link to (SOS, on-call, خطوط sweep, Console watch — WhatsApp, SMS twin), e.g. `https://driver-console.fly.dev` or later `https://console.<your-domain>`. Set it **only to an address the company owns**; there is deliberately no default. Must be public https. Unset (local, or staging with a warning): the messages carry no link, only the alert number and «افتح الكونسول من الكمبيوتر» |
 | `SAFETY_LINK_BASE_URL` | no | **required in production**: the SOS emergency contact's live-location page, served by the customer web (`apps/customer/app/sos/[token].tsx`): `https://<customer web>/sos/`, e.g. `https://driver-customer-iota.vercel.app/sos/`. Only an address the company owns. Unset: the contact's WhatsApp still goes out at the same moment, with where the phone last was as text (nearest landmark and coordinates) instead of a link |
 | `SHARE_LINK_BASE_URL` | no | **required in production**: the customer web address trip-share and phone-booking links start with (the page is `/share/<token>`), e.g. `https://driver-customer-iota.vercel.app`. Only an address the company owns. Unset: no link is made; the phone-booking SMS and «لمنو المشوار» SMS go without «تابعه», and the automatic trip share to trusted people is not sent (it is only a link) |
-| `NOTIFY_RECEIPT_BASE_URL` | no | **required in production**: the base of receipt links in WhatsApp receipts (`<base><orderId>`). Only an address the company owns. Unset: the receipt goes with «تلگاه بالتطبيق» in place of the link |
+| `NOTIFY_RECEIPT_BASE_URL` | no | **optional** (a warning when unset): the base of receipt links in WhatsApp receipts (`<base><orderId>`). No page serves receipt links yet, so leave it unset until one exists; then only an address the company owns, public https. Unset: the receipt goes with «تلگاه بالتطبيق» in place of the link |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
 | `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |
 | `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |

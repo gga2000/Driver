@@ -9,6 +9,7 @@ const LINKS = {
   NOTIFY_RECEIPT_BASE_URL: 'https://app.example.com/r/',
 };
 const LINK_NAMES = Object.keys(LINKS) as Array<keyof typeof LINKS>;
+const REQUIRED_LINKS = LINK_NAMES.filter((n) => n !== 'NOTIFY_RECEIPT_BASE_URL');
 const live = { ...base, ...LINKS, SMS_PROVIDER: 'http' };
 
 describe('boot configuration (SEC-16)', () => {
@@ -37,8 +38,8 @@ describe('boot configuration (SEC-16)', () => {
     expect(bootConfigProblems({ ...base, ...LINKS })).toHaveLength(1);
   });
 
-  it('refuses production without each address we put in messages; staging only warns', () => {
-    for (const name of LINK_NAMES) {
+  it('refuses production without each required address we put in messages; staging only warns', () => {
+    for (const name of REQUIRED_LINKS) {
       const others = Object.fromEntries(Object.entries(LINKS).filter(([k]) => k !== name));
       const prod = { ...base, ...others, SMS_PROVIDER: 'http' };
       expect(bootConfigProblems(prod), name).toEqual([expect.stringMatching(new RegExp(`^${name} is not set`))]);
@@ -49,8 +50,20 @@ describe('boot configuration (SEC-16)', () => {
       expect(bootConfigWarnings(staging)).toEqual([expect.stringMatching(new RegExp(`^${name} is not set`))]);
     }
     expect(bootConfigWarnings({ ...base, DEPLOY_ENVIRONMENT: 'staging' })).toHaveLength(4);
+    expect(bootConfigWarnings({ ...base, SMS_PROVIDER: 'http' })).toEqual([expect.stringMatching(/^NOTIFY_RECEIPT_BASE_URL is not set/)]);
     expect(bootConfigWarnings({ ...base, ...LINKS, DEPLOY_ENVIRONMENT: 'staging' })).toEqual([]);
     expect(bootConfigWarnings({})).toEqual([]);
+  });
+
+  it('never requires the receipt address (no page serves receipts yet): production and staging only warn', () => {
+    const { NOTIFY_RECEIPT_BASE_URL: receipt, ...others } = LINKS;
+    expect(receipt).toBeTruthy();
+    for (const env of [{ ...base, ...others, SMS_PROVIDER: 'http' }, { ...base, ...others, DEPLOY_ENVIRONMENT: 'staging' }]) {
+      expect(bootConfigProblems(env)).toEqual([]);
+      expect(() => assertBootConfig(env)).not.toThrow();
+      expect(bootConfigWarnings(env)).toEqual([expect.stringMatching(/^NOTIFY_RECEIPT_BASE_URL is not set/)]);
+    }
+    expect(bootConfigWarnings(live)).toEqual([]);
   });
 
   it('refuses an address that is not public https, on staging and production, without echoing it', () => {
