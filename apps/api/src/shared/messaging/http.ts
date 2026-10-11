@@ -59,6 +59,38 @@ export function isProviderError(err: unknown): err is ProviderError {
   return err instanceof ProviderError;
 }
 
+/**
+ * Failure codes that mean our own account is broken, not the message: bad or expired credentials,
+ * no permission, nothing configured. Every send fails the same way until someone fixes the account.
+ */
+const ACCOUNT_CODES = new Set([
+  'http_401',
+  'http_402',
+  'http_403',
+  'not_configured',
+  'push_not_configured', // a live host with no transport for that token kind
+  'oauth_failed', // FCM service account refused
+  'UNAUTHENTICATED', // FCM
+  'PERMISSION_DENIED', // FCM
+  'THIRD_PARTY_AUTH_ERROR', // FCM → APNs
+  'SENDER_ID_MISMATCH', // FCM
+  'InvalidCredentials', // Expo
+  'wa_0', // Meta AuthException
+  'wa_10', // Meta permission denied
+  'wa_190', // Meta access token expired
+  'twilio_20003', // Twilio authentication
+]);
+
+/** A provider failure that no retry will fix: credentials, permission, or an empty balance / spending cap. */
+export function isAccountProblem(code: string, message = ''): boolean {
+  return ACCOUNT_CODES.has(code) || /balance|credit|insufficient|funds/i.test(message);
+}
+
+/** `+96477*****12`: enough to tell two log lines apart, useless to anyone reading the log. */
+export function maskNumber(e164: string): string {
+  return `${e164.slice(0, 6)}*****${e164.slice(-2)}`;
+}
+
 /** 429 and 5xx are worth retrying; any other 4xx is not. */
 export function transientStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
