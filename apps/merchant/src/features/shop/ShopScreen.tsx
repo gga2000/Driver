@@ -316,7 +316,7 @@ function WeekPanel({ query, dayMonth }: { query: QueryState<StoreHoursView>; day
                     {r.from === r.to ? day(r.from) : `${day(r.from)}–${day(r.to)}`}
                   </Text>
                   <Text variant="body" color={r.shifts.length ? 'text' : 'textMuted'} tabular style={{ flex: 1 }}>
-                    {r.shifts.length ? r.shifts.map((x) => shiftLabel(t, x, locale)).join('، ') : t('merchant.shop.day_closed')}
+                    {r.shifts.length ? r.shifts.map((x) => shiftLabel(t, x, locale)).join(t('merchant.list_joiner')) : t('merchant.shop.day_closed')}
                   </Text>
                 </View>
               ))}

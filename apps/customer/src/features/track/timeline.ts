@@ -138,6 +138,8 @@ export function statusLine(v: OrderTracking, t: TFn, opts: { now?: number } = {}
       }
       return ride ? t('trip.status.en_route_to_pickup') : t('track.courier_to_kitchen_short');
     case 'at_pickup':
+      // His "وصلت" came from too far off the pickup to count (the fee's rule): say he says so, not that he is outside.
+      if (ride && v.trip?.stops.some((s) => s.mine && s.type === 'pickup' && s.arrivalClaimedOnly)) return t('trip.status.arrived_pickup_claimed');
       return t('trip.status.arrived_pickup');
     case 'on_the_way':
       if (ride) return t('trip.status.in_transit');

@@ -8,3 +8,5 @@ export * from './tracking.js';
 export * from './life.js';
 export * from './restaurants.js';
 export * from './restaurant-tour.js';
+export * from './png.js';
+export * from './fit.js';

@@ -214,7 +214,7 @@ Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the c
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*` (except `staff.myInvites` / `staff.respondInvite`, which need only a sign-in), `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
 prices, dishes, options, sections and imports (MER-06: `menu.updatePrice`, `menu.upsertItem`, `menu.setModifiers`,
 `menu.upsertCategory`, `menu.reorderCategories`, `menu.importFromPhotos`, `menu.applyImport`). Staff keep the daily
 switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replacePhoto`).
@@ -246,11 +246,13 @@ switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replace
 | `money.disputes` | query | `{merchantOrgId}` | `[{orderId, kind, note, openedAt, evidence {acceptedAt, readyAt, pickedUpAt, deliveredAt, promisedReadyAt, lines[] {name, qty, participant}, itemsIqd}, defaultOutcome {code, text_ar, merchantImpactIqd}, response\|null}]` (last 30 days) |
 | `money.respondDispute` | mutation | `{merchantOrgId, orderId, decision: accept_default\|contest, note?, evidenceUploadIds[] ≤ 5}` | `MerchantDispute` (re-answering replaces; emits `merchant.dispute_responded`) |
 | `insights` | query | `{merchantOrgId, days = 30}` | `{prepHonesty {samples, quotedAvgMin, actualAvgMin, onTimeShare}, rejection {offered, rejected, rate}, itemRatings[] {itemId, nameAr, avg, count, reviews[] {score, note, at}}, peakHours[24]}` |
-| `staff.list` | query | `{merchantOrgId}` | `[{personId, name, phoneMasked, role, you}]` (vault reads logged, purpose `merchant_staff_view`) |
-| `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` (grants the role scoped to the org) |
-| `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` |
-| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` (also cancels a waiting invite) |
-| `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he signed in |
+| `staff.list` | query | `{merchantOrgId}` | `[{personId, name, phoneMasked, role, you, pending, phoneHint?, invitedAt?, inviteSentAt?, resendAfter?}]` — members (role holders, named; vault reads logged, purpose `merchant_staff_view`), then pending unexpired invites (`pending: true`, `name: null`, the invite's role, the typed number's 4+4 hint) |
+| `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` — **accept-first (PRV-08, Ali 2026-10-10): grants no role.** Creates a pending invite (`merchant_staff_invites`, expires 7 days after it is made) and emits `merchant.staff_invite_sent`. Someone already at the store just gets the new role. A declined, cancelled or expired invite starts again as a fresh pending one; a waiting one takes the new role and goes out again only after the 10-min cooldown |
+| `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` (on a pending invite: changes the role it offers, grants nothing) |
+| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` — a member loses his roles; a pending invite is set `cancelled` (`merchant.staff_invite_cancelled`) and can no longer be accepted |
+| `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he accepted |
+| `staff.myInvites` | query (**any signed-in user**) | — | `MyStaffInvite[]` `{merchantOrgId, storeName, role, invitedAt, expiresAt}` — the caller's own pending, unexpired invites (no owner name, no number); stores he already works at and invites whose inviter is no longer an owner are left out |
+| `staff.respondInvite` | mutation (**any signed-in user**) | `{merchantOrgId, accept}` | `MyStaffInvite[]` (his invites after) — only the invited person, only a pending, unexpired invite, else `staff_invite_not_found`. Accept grants the invite's role (granted by the inviting owner, other staff kind revoked, in one transaction) and emits `merchant.staff_invite_accepted`; decline grants nothing, `merchant.staff_invite_declined`. Both on stream `merchant_staff/<org>` |
 | `activity.today` | query | `{merchantOrgId, date?: YYYY-MM-DD}` (Baghdad day, default today) | `{merchantOrgId, localDate, entries[] {at, kind, orderId, orderNumber, dishName, until, who {personId, name, you}\|null, reason}}` newest first, ≤ 200. **Owner only** (staff `FORBIDDEN` on the server). «مين سوّى شنو» (2026-10-08) |
 | `activity.order` | query | `{merchantOrgId, orderId}` | `{orderId, entries[]}` oldest first (the order sheet's who-line). **Owner only**; another store's order `NOT_FOUND` |
 
@@ -276,7 +278,7 @@ batched vault read per call (purpose `merchant_activity_view`, logged), name onl
 missing name has `name: null` (the app shows «موظف سابق»). Board and order payloads never carry actor ids.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
-`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `upload_invalid`.
+`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `staff_invite_not_found`, `upload_invalid`.
 
 ## `merchant.hours` / `merchant.setHours` — opening hours (follow-ups 2026-10-04)
 

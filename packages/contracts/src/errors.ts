@@ -96,6 +96,8 @@ export const ERROR_TABLE = {
   dispute_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   staff_last_owner: { retryHint: 'never', status: 'CONFLICT' },
   staff_invite_not_pending: { retryHint: 'never', status: 'CONFLICT' },
+  /** PRV-08: no pending, unexpired invite for the caller at that store (answered, cancelled, expired or never made). */
+  staff_invite_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   store_hours_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «جهّز محلك»: going live (or opening) with steps still open.
   setup_not_ready: { retryHint: 'never', status: 'CONFLICT' },
@@ -306,6 +308,8 @@ export const ERROR_TABLE = {
   trip_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   stop_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   trip_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  /** The pickup is done (food in the bag, rider in the car): the trip can't be cancelled any more. */
+  trip_picked_up: { retryHint: 'support', status: 'CONFLICT' },
   stop_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   not_trip_courier: { retryHint: 'never', status: 'FORBIDDEN' },
   vehicle_too_small: { retryHint: 'never', status: 'CONFLICT' },

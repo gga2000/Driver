@@ -1,14 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { AppState, BackHandler, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PartnerOffer } from '@driver/contracts';
 import { partnerServices } from '@driver/design-tokens';
 import { HoldButton, Icon, Text, useTheme, useToast } from '@driver/ui';
 import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { DriverMap, type MapPin } from '@/features/map/DriverMap';
-import { arrivedTooLate, batchMinutes, riderTripsKey, serviceOf, SLIP_URGENT_S, speakText, timeShare } from '@/features/offer/slip';
+import { arrivedTooLate, batchMinutes, finishedOffers, localExpiry, riderTripsKey, serviceOf, SLIP_URGENT_S, speakText, timeShare } from '@/features/offer/slip';
 import { KitchenTime, PayChips, SERVICE_ICON, SlipBand, SlipNote, TimeBar } from '@/features/offer/SlipParts';
 import { speakOffer, stopSpeaking } from '@/features/offer/speak';
 import { PracticeBand, PracticeTip, useWorkRoutes } from '@/features/practice/Practice';
@@ -46,10 +46,11 @@ export default function OfferScreen() {
   }, [offerQ.isFetched, offerQ.data, held]);
 
   if (!offer) return <View style={{ flex: 1 }} />;
-  return <OfferCard key={offer.offerId} offer={offer} vehicle={status.data?.vehicleClass ?? 'bike'} self={status.data?.position ?? null} />;
+  // When the offer reached the phone: the ring is counted from here, not from the phone's own clock.
+  return <OfferCard key={offer.offerId} offer={offer} receivedAt={offerQ.dataUpdatedAt || Date.now()} vehicle={status.data?.vehicleClass ?? 'bike'} self={status.data?.position ?? null} />;
 }
 
-function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: keyof typeof VEHICLE_ICON; self: { lat: number; lng: number } | null }) {
+function OfferCard({ offer, receivedAt, vehicle, self }: { offer: PartnerOffer; receivedAt: number; vehicle: keyof typeof VEHICLE_ICON; self: { lat: number; lng: number } | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -66,8 +67,10 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const service = serviceOf(offer.vertical);
   const color = partnerServices[theme.scheme === 'dark' ? 'ember' : 'sun'][service];
   const cargo = cargoLine(offer.rideCargo ?? [], t);
+  // The offer's end on this phone's clock, fixed when the card opens (a refetch never moves it).
+  const [expiresAt] = useState(() => localExpiry(offer, receivedAt));
   const [now, setNow] = useState(() => Date.now());
-  const left = secondsLeft(offer.expiresAt, now);
+  const left = secondsLeft(expiresAt, now);
   const { height: windowHeight } = useWindowDimensions();
 
   const pickupZone = zoneName(offer.pickup.zoneId, locale, t);
@@ -76,6 +79,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
 
   const close = () => (router.canGoBack() ? router.back() : router.replace(routes.home));
   const drop = (message: string | null) => {
+    finishedOffers.add(offer.offerId);
     qc.setQueryData(api.partner.currentOffer.queryKey(), null);
     void refresh();
     if (message) toast.show({ message, tone: 'neutral' });
@@ -86,7 +90,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   // offer goes; with reading on, one ring, then the order read aloud, then the doorbell again.
   useEffect(() => {
     // l8: an offer that was over before it reached the screen is dropped — never a surprise order.
-    if (arrivedTooLate(offer.expiresAt, Date.now())) {
+    if (arrivedTooLate(expiresAt, Date.now())) {
       answered.current = true;
       drop(null);
       return;
@@ -106,9 +110,9 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     const tick = () => {
       const at = Date.now();
       setNow(at);
-      id = setTimeout(tick, msToNextSecond(offer.expiresAt, at));
+      id = setTimeout(tick, msToNextSecond(expiresAt, at));
     };
-    id = setTimeout(tick, msToNextSecond(offer.expiresAt, Date.now()));
+    id = setTimeout(tick, msToNextSecond(expiresAt, Date.now()));
     return () => {
       clearTimeout(speakAt);
       clearTimeout(id);
@@ -140,6 +144,14 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left]);
 
+  // Android back never closes an unanswered offer: he answers it, or it rings out. (On the web the
+  // watcher brings the card back instead; BackHandler doesn't exist there.)
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => !answered.current);
+    return () => sub.remove();
+  }, []);
+
   // Seen = 3 s with the app in the foreground (edge-case §6). Counted only while active.
   useEffect(() => {
     if (offer.seen) return;
@@ -163,6 +175,7 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const answer = async (accept: boolean) => {
     if (answered.current) return;
     answered.current = true;
+    finishedOffers.add(offer.offerId);
     stopOfferAlert();
     stopSpeaking();
     try {
@@ -209,8 +222,8 @@ function OfferCard({ offer, vehicle, self }: { offer: PartnerOffer; vehicle: key
   const fromYou = offer.distanceToPickupKm === null ? null : sum.near ? t('partner.offer_near') : t('partner.offer_from_you', { km: km(offer.distanceToPickupKm) });
   const extraMin = batchMinutes(offer, vehicle);
   const busy = respond.isPending;
-  const share = timeShare(offer.expiresAt, offer.ringSec, now);
-  const remainingMs = Math.max(0, offer.expiresAt.getTime() - now);
+  const share = timeShare(expiresAt, offer.ringSec, now);
+  const remainingMs = Math.max(0, expiresAt.getTime() - now);
   const near = (place: string | null) => (place ? t('partner.slip_near', { place }) : null);
 
   return (
