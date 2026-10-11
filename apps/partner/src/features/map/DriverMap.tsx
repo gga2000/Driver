@@ -36,7 +36,9 @@ export interface DriverMapProps {
   /** The road shape (polyline, precision 6; maps program d2): drawn solid instead of the dashed line. */
   road?: string | null;
   /** Busy zones (maps program d5), filled under the puck. */
-  heat?: ReadonlyArray<{ zoneId: string; level: DemandLevel }>;
+  heat?: ReadonlyArray<{ zoneId: string; level: DemandLevel; forYou?: boolean }>;
+  /** When the heat picture was taken (epoch ms): a new one cross-fades in. */
+  heatAt?: number;
   /** Space covered by overlays at the top and bottom; the camera frames what's between. */
   topInset?: number;
   bottomInset?: number;
@@ -54,7 +56,7 @@ export interface DriverMapProps {
  * plus the driver's puck, job pins and a dashed route, all projected from one camera held in
  * shared values so overlays never drift from the tiles.
  */
-export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, landmarkNameZoom, testID = 'driver-map' }: DriverMapProps) {
+export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, heatAt = 0, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, landmarkNameZoom, testID = 'driver-map' }: DriverMapProps) {
   const roadPoints = useMemo(() => (road ? decodePolyline(road) : null), [road]);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const sizeSV = useSharedValue<Size>({ w: 1, h: 1 });
@@ -123,7 +125,7 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
       {size.w > 0 ? (
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(landmarkNameZoom !== undefined ? { landmarkNameZoom } : {})} />
-          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} /> : null}
+          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} at={heatAt} /> : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
               the way to the kitchen «مطعم خالد» hid him; where he is matters most). */}
