@@ -138,6 +138,11 @@ function harness(
         presence = null;
       },
       zones: async () => ['centre', 'zakur'],
+      // N17: one courier waiting in zakur (him), one busy in the centre.
+      live: async () => [
+        { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
+        { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
+      ],
     },
     dispatch: {
       openOffer: async () => {
@@ -372,13 +377,14 @@ describe('PartnerService', () => {
     expect(await harness({ trips: [], roads: [] }).jobRoute(actor)).toMatchObject({ polyline6: null });
   });
 
-  it('demandMap (maps program d5): waiting now, the usual pickups this hour, drivers there', async () => {
-    const m = await harness().demandMap(actor);
-    // The harness: three jobs waiting in the centre, drivers in the centre and zakur, no history.
-    expect(m.zones).toEqual([
-      { zoneId: 'centre', waiting: 3, expected: 0, drivers: 1, level: 'hot' },
-      { zoneId: 'zakur', waiting: 0, expected: 0, drivers: 1, level: 'calm' },
-    ]);
+  it('demandGlow (N17): no counts, the short zone picked for the nearest free courier, one picture per 3 minutes', async () => {
+    const h = harness();
+    // The harness: three jobs waiting in the centre with one (busy) courier there; he waits in zakur.
+    const g = await h.demandGlow(actor);
+    expect(g.zones).toEqual([{ zoneId: 'centre', level: 'hot', forYou: true }]);
+    // Another courier reading the same picture sees the centre warm: it was picked for drv1.
+    expect((await h.demandGlow({ ...actor, personId: 'drv9' })).zones).toEqual([{ zoneId: 'centre', level: 'warm', forYou: false }]);
+    expect((await h.demandGlow(actor)).at).toEqual(g.at);
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {
@@ -397,6 +403,8 @@ describe('PartnerService', () => {
       collectIqd: 15_500,
     });
     expect(offer!.tripKm).toBeGreaterThan(2);
+    // The phone counts the ring from the server's clock, not its own.
+    expect(offer!.serverNow).toEqual(NOW);
   });
 
   it('joy l9: a ride the rider booked asking for him says so — and nothing else about who', async () => {

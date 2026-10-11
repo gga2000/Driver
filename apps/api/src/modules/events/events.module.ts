@@ -4,6 +4,7 @@ import { PrismaService } from '../../shared/db/prisma.service.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { BullMqQueueFactory } from '../../shared/queue.js';
+import { WorkerSelfCheck } from '../../shared/worker-self-check.js';
 import { CONTRADICTION_SUBSCRIBER, ContradictionDetector } from './contradiction.detector.js';
 import { EVENTS_REPOSITORY, PrismaEventsRepository, type EventsRepository } from './events.repository.js';
 import { EventsService } from './events.service.js';
@@ -41,6 +42,7 @@ export class EventsModule implements OnModuleInit, OnModuleDestroy {
     @Inject(EVENTS_REPOSITORY) private readonly repo: EventsRepository,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+    @Optional() private readonly selfCheck?: WorkerSelfCheck,
   ) {}
 
   onModuleInit(): void {
@@ -48,8 +50,9 @@ export class EventsModule implements OnModuleInit, OnModuleDestroy {
     this.events.subscribe(CONTRADICTION_SUBSCRIBER, '*', async (e, ctx) => {
       await detector.check(e, ctx.tx);
     });
-    // DRIVER_ROLE=web: commits still poke the queue; only job machines run the 500-ms safety-net tick.
+    // DRIVER_ROLE=web: commits only poke the queue; job machines also drain from Postgres every 500 ms.
     this.publisher.start({ interval: runsJobs(this.role) });
+    this.selfCheck?.watch({ name: 'outbox', oldestOverdueMs: () => this.publisher.oldestOverdueMs(), lastProgressAt: () => this.publisher.lastProgressAt });
   }
 
   onModuleDestroy(): void {
