@@ -32,6 +32,8 @@ export function bootConfigProblems(env: NodeJS.ProcessEnv = process.env): string
   const problems: string[] = [];
   if (!env['DATABASE_URL']?.trim()) problems.push('DATABASE_URL is not set');
   if (!env['REDIS_URL']?.trim()) problems.push('REDIS_URL is not set');
+  // The launch scope comes from the city file on every deployed server, staging included (game day checks it).
+  if (env['DRIVER_TEST_LAUNCHED_VERTICALS']?.trim()) problems.push('DRIVER_TEST_LAUNCHED_VERTICALS is for local runs and CI only: remove it (open a service in its city file instead)');
   if (where === 'production') {
     if (!env['SMS_PROVIDER']?.trim() || smsProviderName(env) === 'dev') problems.push('SMS_PROVIDER must be a real provider (otpiq, http or twilio): with dev nobody gets a sign-in code');
     if (env['STAGING_TEST_OTP']) problems.push('STAGING_TEST_OTP is set outside staging: remove it (fly secrets unset STAGING_TEST_OTP)');

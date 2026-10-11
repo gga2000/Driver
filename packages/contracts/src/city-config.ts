@@ -172,6 +172,12 @@ export const CityPricingConfig = z.object({
   verticals: z.array(VerticalPricing),
   dispatch: z.record(Vertical, DispatchConfig),
   creditCapsIqd: CreditCaps,
+  /**
+   * The services open to the public in this city. A service missing here takes no new work (الرجعة
+   * seats and requests, خطوط runs) and its home tile is hidden, whatever the switches say. Absent =
+   * every service in `verticals` (cities still being set up in tests).
+   */
+  launchedVerticals: z.array(Vertical).optional(),
   /** Merchant self-serve deals (domain §11 "platform approval switch"); absent = approval required, 50 % max. */
   merchantDeals: z
     .object({

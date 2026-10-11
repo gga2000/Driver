@@ -50,6 +50,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
     { provide: SMS_PROVIDER, useFactory: () => smsPortFromEnv() },
     // "ما وصلك؟ دزلي على واتساب": login codes over WhatsApp (template `otp_login`), same provider choice
     // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
+    // Outside development without WHATSAPP_TOKEN there is no port (null): codes go by SMS only.
     { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
     // Staging test numbers 0770 000 01xx sign in with STAGING_TEST_OTP (a host secret); only where
     // DEPLOY_ENVIRONMENT=staging, never as staff. Unset = off. docs/api/staging-test-numbers.md.

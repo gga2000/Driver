@@ -15,16 +15,23 @@ async function harness(start = '2026-10-04T09:00:00Z') {
   const clock = new FakeClock(start);
   const ev = createInMemoryEvents({ clock });
   const repo = new InMemoryControlsRepository();
-  const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : null])) } as unknown as IdentityService;
+  const ended: Array<{ personId: string; reason: string }> = [];
+  const identity = {
+    firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : id === 'p_zainab' ? 'زينب' : null])),
+    endAllSessions: async (_actor: Actor, personId: string, reason: string) => {
+      ended.push({ personId, reason });
+      return { ended: 2 };
+    },
+  } as unknown as IdentityService;
   const names = new StaffNames(identity, clock);
   const audits = new AuditLogService(repo, names, clock);
   const orgs = new OrgsService(ev.events, clock);
   const kitchen = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'p_owner' });
-  const svc = new ControlsService(repo, new ConfigService(), orgs, ev.events, audits, names, ev.uow, clock);
+  const svc = new ControlsService(repo, new ConfigService(), orgs, ev.events, audits, names, ev.uow, clock, identity);
   const counts = new Map<string, number>();
   svc.bindActiveOrders(async () => counts);
   svc.registerCorridors([{ id: 'aziziyah_kut', name_ar: 'العزيزية ⇄ الكوت' }]);
-  return { clock, ev, repo, svc, kitchen, counts };
+  return { clock, ev, repo, svc, kitchen, counts, ended };
 }
 
 const gate = (over: Partial<Parameters<ControlsService['assertOrderAllowed']>[0]> = {}) => ({
@@ -130,6 +137,17 @@ describe('launch controls', () => {
     await expect(h.svc.clearBanner(ALI, { bannerId: 'bn_none' })).rejects.toMatchObject({ code: 'banner_not_found' });
   });
 
+  it('launch scope: الرجعة refuses holds and requests until the city launches it, switch or not', async () => {
+    const h = await harness();
+    // Launch day is food, taxi and tuktuk: no switch needed to keep intercity and خطوط closed.
+    await expect(h.svc.assertCorridorOpen({ cityId: 'aziziyah', corridorId: 'aziziyah_kut' })).rejects.toMatchObject({ code: 'service_paused', envelope: { message_ar: 'خدمة الرجعة بعدها ما انفتحت. نبلشها قريب' } });
+    await expect(h.svc.assertCorridorOpen({ cityId: 'aziziyah', corridorId: '*' })).rejects.toMatchObject({ code: 'service_paused' });
+    expect(() => h.svc.assertLaunched('aziziyah', 'khat')).toThrow(expect.objectContaining({ code: 'service_paused' }));
+    expect(() => h.svc.assertLaunched('aziziyah', 'taxi')).not.toThrow();
+    expect(() => h.svc.assertLaunched('nowhere', 'food')).toThrow(expect.objectContaining({ code: 'service_paused' }));
+    expect((await h.svc.season({})).launched).toBeUndefined();
+  });
+
   it('daysBetween counts calendar days between two YYYY-MM-DD dates', () => {
     expect(daysBetween('2026-11-13', '2026-11-13')).toBe(0);
     expect(daysBetween('2026-11-13', '2026-11-27')).toBe(14);
@@ -138,12 +156,12 @@ describe('launch controls', () => {
 
   it('quiet days: by Baghdad date, every city or one city; cleared ones go; never in the past, at most 15 days', async () => {
     const h = await harness('2026-11-12T20:30:00Z'); // 23:30 Baghdad, 12 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk'] });
     const q = await h.svc.setQuietDays(ALI, { cityId: null, startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' });
     expect(q).toMatchObject({ active: false, setByName: 'علي', startsOn: '2026-11-13' });
     expect((await h.svc.season({ cityId: 'aziziyah' })).quiet).toBe(false);
     h.clock.advanceMinutes(31); // 00:01 Baghdad, 13 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13', kind: 'quiet', accent: false, ramadan: null, homeCard: null });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13', kind: 'quiet', accent: false, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk'] });
     expect(await h.svc.isQuietDay(h.clock.now())).toBe(true);
     expect((await h.svc.quietDays())[0]).toMatchObject({ id: q.id, active: true });
     h.clock.set('2026-11-13T21:00:00Z'); // 00:00 Baghdad, 14 Nov
@@ -236,5 +254,21 @@ describe('screen switches (W6)', () => {
     // Screen rows never stop an order nor show on the kill-switch board.
     await expect(h.svc.assertOrderAllowed(gate())).resolves.toBeUndefined();
     expect((await h.svc.view('aziziyah')).switches).toEqual([]);
+  });
+});
+
+describe('staff: end every session', () => {
+  it('ends the person\'s sessions and writes the audit row', async () => {
+    const h = await harness();
+    expect(await h.svc.endAllSessions(ALI, { personId: 'p_zainab' })).toEqual({ ended: 2 });
+    expect(h.ended).toEqual([{ personId: 'p_zainab', reason: 'admin' }]);
+    const rows = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'person', limit: 5 });
+    expect(rows.map((r) => [r.action, r.subjectId, r.summary_ar])).toEqual([['staff.end_sessions', 'p_zainab', 'طلّع زينب من كل الأجهزة (2)']]);
+  });
+
+  it('an admin cannot cut himself off from here', async () => {
+    const h = await harness();
+    await expect(h.svc.endAllSessions(ALI, { personId: ALI.personId })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(h.ended).toEqual([]);
   });
 });
