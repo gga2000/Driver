@@ -8,6 +8,8 @@ import type { SessionStatus } from './session';
  *  - signed in, roles still loading                  → stay (the splash covers the screen)
  *  - signed in, no driving/fleet/ops role            → /not-partner ("حسابك مو مفعّل كشريك بعد")
  *  - signed in as a partner, in (auth) or the gate   → / (home tab)
+ *  - signed in, on the staff-alert screen            → stay, whatever the roles (staff open SOS
+ *    pushes there; a dispatcher may have no partner role)
  */
 
 export type GuardTarget = '/welcome' | '/not-partner' | '/';
@@ -23,6 +25,7 @@ export interface GuardInput {
 
 export const AUTH_GROUP = '(auth)';
 export const GATE_SCREEN = 'not-partner';
+export const STAFF_ALERT_SCREEN = 'staff-alert';
 
 export function resolveGuard({ status, gate, segments }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;
@@ -31,6 +34,7 @@ export function resolveGuard({ status, gate, segments }: GuardInput): GuardTarge
   const onGate = first === GATE_SCREEN;
 
   if (status === 'signedOut') return inAuth ? null : '/welcome';
+  if (first === STAFF_ALERT_SCREEN) return null;
 
   if (gate === 'unknown') return null;
   if (gate === 'denied') return onGate ? null : '/not-partner';
