@@ -8,12 +8,27 @@ import { useT } from '@/lib/i18n';
  * The top of a shopping screen without a photo: the back button (→ in Arabic) and the title with one
  * quiet line under it. Opened from a link with no history, back goes to `fallback`.
  */
-export function ShopHeader({ title, sub, fallback = '/shopping' }: { title: string; sub?: string; fallback?: Href }) {
+export function ShopHeader({
+  title,
+  sub,
+  fallback = '/shopping',
+}: {
+  title: string;
+  sub?: string;
+  fallback?: Href;
+}) {
   const theme = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingTop: insets.top + theme.space[3] }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        paddingTop: insets.top + theme.space[3],
+      }}
+    >
       <IconButton
         icon="arrow-back"
         variant="tonal"

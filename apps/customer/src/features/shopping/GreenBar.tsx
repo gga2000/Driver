@@ -6,7 +6,17 @@ import { useShopping } from './palette';
  * The shopping side's main button, pinned over the bottom of a screen: leaf green, white words, the
  * amount, and a cream circle with the arrow. One look on every shopping screen.
  */
-export function GreenBar({ label, amountIqd, onPress, a11y }: { label: string; amountIqd?: number; onPress: () => void; a11y?: string }) {
+export function GreenBar({
+  label,
+  amountIqd,
+  onPress,
+  a11y,
+}: {
+  label: string;
+  amountIqd?: number;
+  onPress: () => void;
+  a11y?: string;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   return (
@@ -40,7 +50,16 @@ export function GreenBar({ label, amountIqd, onPress, a11y }: { label: string; a
             {formatIqd(amountIqd)}
           </Text>
         ) : null}
-        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: theme.colors.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <View
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            backgroundColor: theme.colors.bg,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
           <Icon name="arrow-forward" size={18} color={theme.colors.text} />
         </View>
       </View>

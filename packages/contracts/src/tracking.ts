@@ -115,6 +115,8 @@ export const TrackItem = z.object({
   totalIqd: z.number().int(),
   participantId: z.string().nullable(),
   note: z.string().nullable(),
+  /** A weighed shop line: the grams on the scale («1.5 كيلو»); absent otherwise. */
+  weightG: z.number().int().nullable().optional(),
 });
 export type TrackItem = z.infer<typeof TrackItem>;
 

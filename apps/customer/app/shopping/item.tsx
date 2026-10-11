@@ -1,12 +1,31 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Button, Icon, IconButton, Stepper, Text, TextField, useTheme, useToast, type IconName } from '@driver/ui';
+import {
+  Button,
+  Icon,
+  IconButton,
+  Stepper,
+  Text,
+  TextField,
+  useTheme,
+  useToast,
+  type IconName,
+} from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { pickGatePhoto } from '@/features/account/device';
 import { useT } from '@/lib/i18n';
-import { blankItem, ERRAND_UNITS, errandDraft, IF_MISSING, itemReady, shopPin, type ErrandItem, type ErrandWhere } from '@/features/shopping/errand';
+import {
+  blankItem,
+  ERRAND_UNITS,
+  errandDraft,
+  IF_MISSING,
+  itemReady,
+  shopPin,
+  type ErrandItem,
+  type ErrandWhere,
+} from '@/features/shopping/errand';
 import { GreenBar } from '@/features/shopping/GreenBar';
 import { useShopping } from '@/features/shopping/palette';
 import { ProducePhoto } from '@/features/shopping/ProducePhoto';
@@ -69,7 +88,10 @@ export default function ErrandItemScreen() {
   useFocusEffect(
     useCallback(() => {
       const pin = shopPin.take();
-      if (pin) setItem((cur) => (cur.where.kind === 'known' ? { ...cur, where: { ...cur.where, pin } } : cur));
+      if (pin)
+        setItem((cur) =>
+          cur.where.kind === 'known' ? { ...cur, where: { ...cur.where, pin } } : cur,
+        );
     }, []),
   );
 
@@ -85,7 +107,14 @@ export default function ErrandItemScreen() {
           label={t(existing ? 'shopping.item_save' : 'shopping.item_add')}
           onPress={() => {
             if (!ready) {
-              toast.show({ message: t(item.where.kind === 'known' && !item.where.name.trim() ? 'shopping.item_need_shop' : 'shopping.item_need_what'), tone: 'warning' });
+              toast.show({
+                message: t(
+                  item.where.kind === 'known' && !item.where.name.trim()
+                    ? 'shopping.item_need_shop'
+                    : 'shopping.item_need_what',
+                ),
+                tone: 'warning',
+              });
               return;
             }
             errandDraft.save({ ...item, what: item.what.trim() });
@@ -95,40 +124,96 @@ export default function ErrandItemScreen() {
         />
       }
     >
-      <ShopHeader title={t(existing ? 'shopping.item_edit_title' : 'shopping.item_new_title')} fallback="/shopping/dawwerli" />
+      <ShopHeader
+        title={t(existing ? 'shopping.item_edit_title' : 'shopping.item_new_title')}
+        fallback="/shopping/dawwerli"
+      />
 
       <Section title={t('shopping.what')}>
-        <TextField value={item.what} onChangeText={(what) => patch({ what })} placeholder={t('shopping.what_placeholder')} multiline maxLength={200} />
+        <TextField
+          value={item.what}
+          onChangeText={(what) => patch({ what })}
+          placeholder={t('shopping.what_placeholder')}
+          multiline
+          maxLength={200}
+        />
         <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>
           {item.photoUri ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: 4, paddingEnd: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: shop.tint }}>
-              <ProducePhoto uri={item.photoUri} label={t('shopping.photo_item')} style={{ width: 40, height: 40, borderRadius: theme.radius.md }} />
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: theme.space[2],
+                padding: 4,
+                paddingEnd: theme.space[2],
+                borderRadius: theme.radius.lg,
+                backgroundColor: shop.tint,
+              }}
+            >
+              <ProducePhoto
+                uri={item.photoUri}
+                label={t('shopping.photo_item')}
+                style={{ width: 40, height: 40, borderRadius: theme.radius.md }}
+              />
               <Text variant="footnote" weight={600} style={{ color: shop.onTint }}>
                 {t('shopping.photo_added')}
               </Text>
-              <IconButton icon="x" size={36} variant="plain" accessibilityLabel={t('shopping.photo_remove')} onPress={() => patch({ photoUri: null })} />
+              <IconButton
+                icon="x"
+                size={36}
+                variant="plain"
+                accessibilityLabel={t('shopping.photo_remove')}
+                onPress={() => patch({ photoUri: null })}
+              />
             </View>
           ) : (
-            <Attach icon="camera" label={t('shopping.photo_add')} onPress={() => void takePhoto()} />
+            <Attach
+              icon="camera"
+              label={t('shopping.photo_add')}
+              onPress={() => void takePhoto()}
+            />
           )}
           {item.voice ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: theme.space[1],
+                paddingHorizontal: theme.space[2],
+                borderRadius: theme.radius.lg,
+                backgroundColor: theme.colors.surfaceSunken,
+              }}
+            >
               <IconButton
                 icon={voice.playing ? 'pause' : 'play'}
                 size={44}
                 variant="plain"
-                accessibilityLabel={t(voice.playing ? 'shopping.voice_pause' : 'shopping.voice_play')}
+                accessibilityLabel={t(
+                  voice.playing ? 'shopping.voice_pause' : 'shopping.voice_play',
+                )}
                 onPress={() => item.voice && voice.toggle(item.voice.uri)}
               />
               <Text variant="footnote" weight={600} tabular>
-                {t('shopping.voice_len', { s: Math.max(1, Math.round(item.voice.durationMs / 1000)) })}
+                {t('shopping.voice_len', {
+                  s: Math.max(1, Math.round(item.voice.durationMs / 1000)),
+                })}
               </Text>
-              <IconButton icon="trash" size={44} variant="plain" accessibilityLabel={t('shopping.voice_remove')} onPress={() => patch({ voice: null })} />
+              <IconButton
+                icon="trash"
+                size={44}
+                variant="plain"
+                accessibilityLabel={t('shopping.voice_remove')}
+                onPress={() => patch({ voice: null })}
+              />
             </View>
           ) : (
             <Attach
               icon={voice.recording ? 'pause' : 'mic'}
-              label={voice.recording ? t('shopping.voice_stop', { s: Math.floor(voice.elapsedMs / 1000) }) : t('shopping.voice_add')}
+              label={
+                voice.recording
+                  ? t('shopping.voice_stop', { s: Math.floor(voice.elapsedMs / 1000) })
+                  : t('shopping.voice_add')
+              }
               live={voice.recording}
               onPress={() => void toggleRecord()}
             />
@@ -138,29 +223,63 @@ export default function ErrandItemScreen() {
 
       <Section title={t('shopping.how_much')}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-          <Stepper value={item.qty} onChange={(qty) => patch({ qty })} min={1} max={99} accessibilityLabel={t('shopping.how_much')} />
+          <Stepper
+            value={item.qty}
+            onChange={(qty) => patch({ qty })}
+            min={1}
+            max={99}
+            accessibilityLabel={t('shopping.how_much')}
+          />
         </View>
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
           {ERRAND_UNITS.map((u) => (
-            <Choice key={u} on={item.unit === u} label={t(`shopping.unit_${u}` as MessageKey)} onPress={() => patch({ unit: u })} />
+            <Choice
+              key={u}
+              on={item.unit === u}
+              label={t(`shopping.unit_${u}` as MessageKey)}
+              onPress={() => patch({ unit: u })}
+            />
           ))}
         </View>
       </Section>
 
       <Section title={t('shopping.where')}>
-        <WhereCard icon="location-arrow" title={t('shopping.where_near')} sub={t('shopping.where_near_sub')} on={item.where.kind === 'near'} onPress={() => setWhere({ kind: 'near' })} />
+        <WhereCard
+          icon="location-arrow"
+          title={t('shopping.where_near')}
+          sub={t('shopping.where_near_sub')}
+          on={item.where.kind === 'near'}
+          onPress={() => setWhere({ kind: 'near' })}
+        />
         <WhereCard
           icon="bag"
           title={t('shopping.where_app')}
           sub={item.where.kind === 'app' ? item.where.name : t('shopping.where_app_sub')}
           on={item.where.kind === 'app'}
-          onPress={() => item.where.kind !== 'app' && setWhere({ kind: 'app', shopId: '', name: '' })}
+          onPress={() =>
+            item.where.kind !== 'app' && setWhere({ kind: 'app', shopId: '', name: '' })
+          }
         >
           {item.where.kind === 'app' ? (
             <View style={{ gap: theme.space[2] }}>
-              <TextField value={shopSearch} onChangeText={setShopSearch} placeholder={t('shopping.where_app_search')} leadingIcon="search" />
+              <TextField
+                value={shopSearch}
+                onChangeText={setShopSearch}
+                placeholder={t('shopping.where_app_search')}
+                leadingIcon="search"
+              />
               {shops.isError ? (
-                <Pressable accessibilityRole="button" onPress={() => void shops.refetch()} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[2] }}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void shops.refetch()}
+                  style={{
+                    minHeight: 44,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: theme.space[2],
+                    paddingHorizontal: theme.space[2],
+                  }}
+                >
                   <Text variant="label" color="textMuted" style={{ flex: 1 }}>
                     {t('error.generic')}
                   </Text>
@@ -177,10 +296,26 @@ export default function ErrandItemScreen() {
                     accessibilityRole="radio"
                     accessibilityState={{ selected: on }}
                     onPress={() => setWhere({ kind: 'app', shopId: s.id, name: s.name })}
-                    style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[2], borderRadius: theme.radius.md, backgroundColor: on ? shop.tint : 'transparent' }}
+                    style={{
+                      minHeight: 44,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: theme.space[2],
+                      paddingHorizontal: theme.space[2],
+                      borderRadius: theme.radius.md,
+                      backgroundColor: on ? shop.tint : 'transparent',
+                    }}
                   >
-                    {on ? <Icon name="check" size={16} color={shop.fill} /> : <View style={{ width: 16 }} />}
-                    <Text variant="label" weight={on ? 700 : 500} style={{ flex: 1, color: on ? shop.onTint : theme.colors.text }}>
+                    {on ? (
+                      <Icon name="check" size={16} color={shop.fill} />
+                    ) : (
+                      <View style={{ width: 16 }} />
+                    )}
+                    <Text
+                      variant="label"
+                      weight={on ? 700 : 500}
+                      style={{ flex: 1, color: on ? shop.onTint : theme.colors.text }}
+                    >
                       {s.name}
                     </Text>
                     <Text variant="caption" color="textMuted">
@@ -197,13 +332,17 @@ export default function ErrandItemScreen() {
           title={t('shopping.where_known')}
           sub={t('shopping.where_known_sub')}
           on={item.where.kind === 'known'}
-          onPress={() => item.where.kind !== 'known' && setWhere({ kind: 'known', name: '', pin: null })}
+          onPress={() =>
+            item.where.kind !== 'known' && setWhere({ kind: 'known', name: '', pin: null })
+          }
         >
           {item.where.kind === 'known' ? (
             <View style={{ gap: theme.space[2] }}>
               <TextField
                 value={item.where.name}
-                onChangeText={(name) => item.where.kind === 'known' && setWhere({ ...item.where, name })}
+                onChangeText={(name) =>
+                  item.where.kind === 'known' && setWhere({ ...item.where, name })
+                }
                 placeholder={t('shopping.where_known_placeholder')}
                 maxLength={80}
               />
@@ -212,7 +351,15 @@ export default function ErrandItemScreen() {
                 size="md"
                 icon="map-pin"
                 label={item.where.pin ? t('shopping.pin_again') : t('shopping.pin_add')}
-                onPress={() => router.push({ pathname: '/shopping/shop-pin', params: item.where.kind === 'known' && item.where.pin ? { lat: String(item.where.pin.lat), lng: String(item.where.pin.lng) } : {} })}
+                onPress={() =>
+                  router.push({
+                    pathname: '/shopping/shop-pin',
+                    params:
+                      item.where.kind === 'known' && item.where.pin
+                        ? { lat: String(item.where.pin.lat), lng: String(item.where.pin.lng) }
+                        : {},
+                  })
+                }
               />
               {item.where.pin ? (
                 <Text variant="caption" weight={600} style={{ color: shop.fill }}>
@@ -227,7 +374,12 @@ export default function ErrandItemScreen() {
       <Section title={t('shopping.if_missing')}>
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
           {IF_MISSING.map((m) => (
-            <Choice key={m} on={item.ifMissing === m} label={t(`shopping.missing_${m}` as MessageKey)} onPress={() => patch({ ifMissing: m })} />
+            <Choice
+              key={m}
+              on={item.ifMissing === m}
+              label={t(`shopping.missing_${m}` as MessageKey)}
+              onPress={() => patch({ ifMissing: m })}
+            />
           ))}
         </View>
       </Section>
@@ -291,14 +443,29 @@ function Choice({ on, label, onPress }: { on: boolean; label: string; onPress: (
         paddingHorizontal: 4,
       }}
     >
-      <Text variant="label" weight={on ? 700 : 600} numberOfLines={1} style={{ color: on ? shop.onTint : theme.colors.text }}>
+      <Text
+        variant="label"
+        weight={on ? 700 : 600}
+        numberOfLines={1}
+        style={{ color: on ? shop.onTint : theme.colors.text }}
+      >
         {label}
       </Text>
     </Pressable>
   );
 }
 
-function Attach({ icon, label, onPress, live }: { icon: IconName; label: string; onPress: () => void; live?: boolean }) {
+function Attach({
+  icon,
+  label,
+  onPress,
+  live,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  live?: boolean;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   return (
@@ -316,21 +483,66 @@ function Attach({ icon, label, onPress, live }: { icon: IconName; label: string;
       }}
     >
       <Icon name={icon} size={16} color={live ? theme.colors.dangerText : shop.fill} />
-      <Text variant="footnote" weight={600} tabular style={{ color: live ? theme.colors.dangerText : theme.colors.text }}>
+      <Text
+        variant="footnote"
+        weight={600}
+        tabular
+        style={{ color: live ? theme.colors.dangerText : theme.colors.text }}
+      >
         {label}
       </Text>
     </Pressable>
   );
 }
 
-function WhereCard({ icon, title, sub, on, onPress, children }: { icon: IconName; title: string; sub: string; on: boolean; onPress: () => void; children?: React.ReactNode }) {
+function WhereCard({
+  icon,
+  title,
+  sub,
+  on,
+  onPress,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  sub: string;
+  on: boolean;
+  onPress: () => void;
+  children?: React.ReactNode;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   return (
-    <View style={{ borderRadius: theme.radius.lg, borderWidth: on ? 2 : 1.5, borderColor: on ? shop.fill : theme.colors.border, backgroundColor: theme.colors.surface, padding: theme.space[3], gap: theme.space[2] }}>
-      <Pressable accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={onPress} style={{ minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-        <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: on ? shop.fill : theme.colors.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
-          {on ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: shop.fill }} /> : null}
+    <View
+      style={{
+        borderRadius: theme.radius.lg,
+        borderWidth: on ? 2 : 1.5,
+        borderColor: on ? shop.fill : theme.colors.border,
+        backgroundColor: theme.colors.surface,
+        padding: theme.space[3],
+        gap: theme.space[2],
+      }}
+    >
+      <Pressable
+        accessibilityRole="radio"
+        accessibilityState={{ selected: on }}
+        onPress={onPress}
+        style={{ minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}
+      >
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            borderWidth: 2,
+            borderColor: on ? shop.fill : theme.colors.borderStrong,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {on ? (
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: shop.fill }} />
+          ) : null}
         </View>
         <Icon name={icon} size={18} color={shop.fill} />
         <Text variant="bodyStrong" weight={700} style={{ flex: 1 }}>

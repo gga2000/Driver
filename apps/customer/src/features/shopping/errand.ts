@@ -61,7 +61,15 @@ export function itemReady(item: ErrandItem): boolean {
 
 /** The shops the shopper will visit: one stop per named shop, one for everything «أي محل قريب». */
 export function stopsOf(items: readonly ErrandItem[]): number {
-  const named = new Set(items.filter((i) => i.where.kind !== 'near').map((i) => (i.where.kind === 'app' ? `a:${i.where.shopId}` : `k:${(i.where as { name: string }).name.trim()}`)));
+  const named = new Set(
+    items
+      .filter((i) => i.where.kind !== 'near')
+      .map((i) =>
+        i.where.kind === 'app'
+          ? `a:${i.where.shopId}`
+          : `k:${(i.where as { name: string }).name.trim()}`,
+      ),
+  );
   return named.size + (items.some((i) => i.where.kind === 'near') ? 1 : 0);
 }
 
@@ -86,7 +94,12 @@ export const errandDraft = {
   },
   save(item: ErrandItem) {
     const exists = draft.items.some((i) => i.id === item.id);
-    emit({ ...draft, items: exists ? draft.items.map((i) => (i.id === item.id ? item : i)) : [...draft.items, item] });
+    emit({
+      ...draft,
+      items: exists
+        ? draft.items.map((i) => (i.id === item.id ? item : i))
+        : [...draft.items, item],
+    });
   },
   remove(id: string) {
     emit({ ...draft, items: draft.items.filter((i) => i.id !== id) });

@@ -5,7 +5,9 @@ import type { Bakery } from './model';
 import { useShopping } from './palette';
 
 /** A bakery's state in words (Ali 2026-10-11: a bakery is open, paused for a bit, or closed). */
-export function useBakeryStateText(): (b: Pick<Bakery, 'state' | 'resumesAt' | 'opensAt'>) => string {
+export function useBakeryStateText(): (
+  b: Pick<Bakery, 'state' | 'resumesAt' | 'opensAt'>,
+) => string {
   const t = useT();
   return (b) =>
     b.state === 'open'
@@ -20,7 +22,13 @@ export function useBakeryStateText(): (b: Pick<Bakery, 'state' | 'resumesAt' | '
 }
 
 /** The state as a pill with its dot: green open, saffron paused, quiet closed. */
-export function BakeryStatePill({ bakery, onPhoto }: { bakery: Pick<Bakery, 'state' | 'resumesAt' | 'opensAt'>; onPhoto?: boolean }) {
+export function BakeryStatePill({
+  bakery,
+  onPhoto,
+}: {
+  bakery: Pick<Bakery, 'state' | 'resumesAt' | 'opensAt'>;
+  onPhoto?: boolean;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   const text = useBakeryStateText()(bakery);
@@ -29,9 +37,24 @@ export function BakeryStatePill({ bakery, onPhoto }: { bakery: Pick<Bakery, 'sta
       ? { bg: shop.tint, fg: shop.onTint, dot: shop.fill }
       : bakery.state === 'paused'
         ? { bg: theme.colors.warningTint, fg: theme.colors.warningText, dot: theme.colors.warning }
-        : { bg: onPhoto ? theme.colors.surface : theme.colors.surfaceSunken, fg: theme.colors.textMuted, dot: theme.colors.borderStrong };
+        : {
+            bg: onPhoto ? theme.colors.surface : theme.colors.surfaceSunken,
+            fg: theme.colors.textMuted,
+            dot: theme.colors.borderStrong,
+          };
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, minHeight: 28, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: tone.bg }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: 6,
+        minHeight: 28,
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.pill,
+        backgroundColor: tone.bg,
+      }}
+    >
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tone.dot }} />
       <Text variant="footnote" weight={700} style={{ color: tone.fg }}>
         {text}

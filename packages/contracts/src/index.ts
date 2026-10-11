@@ -62,6 +62,8 @@ export * from './khat-io.js';
 export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './menu-photos-io.js';
+export * from './shopping-io.js';
+export * from './shop-lines.js';
 export * from './dish-photos-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';

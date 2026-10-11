@@ -71,7 +71,7 @@ import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
 import { ORDERS_CONTROLS, THROTTLED_ORDER_TYPES, type OrdersControlsPort } from './controls.port.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
-import { ORDERS_CATALOG, priceLines, type CatalogPort, type CatalogStorefrontView } from './catalog.port.js';
+import { ORDERS_CATALOG, ORDERS_UPLOADS, ORDERS_WEIGHED_ITEMS, assertErrandUploads, priceLines, type CatalogPort, type CatalogStorefrontView, type OrdersUploadsPort, type WeighedItemsPort } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
@@ -260,6 +260,10 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_HOUSEHOLDS) private readonly households?: OrdersHouseholdsPort,
     /** The one ETA (learned minutes) the honest-delay promise's ride is locked from at placement; absent = no lock. */
     @Optional() private readonly eta?: EtaService,
+    /** Kilo-sold shop items (shop-items module); absent = no line may be weighed. */
+    @Optional() @Inject(ORDERS_WEIGHED_ITEMS) private readonly weighed?: WeighedItemsPort,
+    /** «دوّرلي» photos and voice notes are checked against it; absent = an errand line may carry none. */
+    @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
   }
@@ -874,7 +878,10 @@ export class OrdersService implements OnModuleInit {
       merchantOrder: merchantType,
       branchKey: input.branchKey ?? null,
       now: input.scheduledFor ?? now,
+      errandOrder: input.type === 'errand',
+      weighed: this.weighed,
     });
+    await assertErrandUploads(newLines, ordererId, this.uploads);
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
     // J-D6 (Ali, 2026-10-05; replaces apps review #11's refusal): below the restaurant minimum — on the
@@ -2597,6 +2604,9 @@ export function toOrderView(agg: OrderAggregate): Order {
       note: l.note,
       pointsEligible: l.pointsEligible,
       availability: l.substitution?.state === 'proposed' ? 'unavailable' : l.substitution?.state === 'removed' ? 'removed' : 'available',
+      weightG: l.weightG ?? null,
+      perKgIqd: l.perKgIqd ?? null,
+      errandItem: l.errandItem ?? null,
     })),
     participants: participants.map((p) => ({ id: p.id, role: p.role, personId: p.personId, phoneOnly: p.personId === null && p.phoneHash !== null, label: p.label, note: p.note })),
     partial: proposal

@@ -63,16 +63,30 @@ function StallCard({ stall }: { stall: Stall }) {
           {stall.name}
         </Text>
         <Text variant="footnote" color="textMuted">
-          {t('shopping.stall_meta', { rating: stall.rating, area: stall.area, min: stall.minutes })}
+          {t('shopping.stall_meta', {
+            rating: stall.rating ?? '—',
+            area: stall.area,
+            min: stall.minutes,
+          })}
         </Text>
-        <Text variant="footnote" weight={600} style={{ color: stall.postedAt ? shop.fill : theme.colors.textMuted }}>
-          {stall.postedAt ? t('shopping.posted_at', { time: stall.postedAt }) : t('shopping.not_posted')}
+        <Text
+          variant="footnote"
+          weight={600}
+          style={{ color: stall.postedAt ? shop.fill : theme.colors.textMuted }}
+        >
+          {stall.postedAt
+            ? t('shopping.posted_at', { time: stall.postedAt })
+            : t('shopping.not_posted')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
         {shown.map((item) => (
           <View key={item.id} style={{ flex: 1, gap: 2, alignItems: 'center' }}>
-            <ProducePhoto uri={item.photo} label={item.name} style={{ width: '100%', height: 60, borderRadius: theme.radius.md }} />
+            <ProducePhoto
+              uri={item.photo}
+              label={item.name}
+              style={{ width: '100%', height: 60, borderRadius: theme.radius.md }}
+            />
             <Text variant="caption" weight={600} numberOfLines={1}>
               {item.name}
             </Text>

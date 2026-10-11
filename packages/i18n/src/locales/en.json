@@ -9247,6 +9247,11 @@
   "shopping.basket_count_two": "Basket: 2 items",
   "shopping.basket_count_few": "Basket: {n} items",
   "shopping.basket_switched": "Started a new basket from this stall. The courier stops at one place.",
+  "shopping.sold_out_today": "Sold out today",
+  "shopping.sold_out_now": "Out right now",
+  "shopping.confirm_order": "Confirm order",
+  "shopping.daily_done": "Done: your bread comes at {time} from {name}",
+  "shopping.sending": "Sending the list…",
   "shopping.checkout_soon": "Ordering from here is coming soon",
   "shopping.per_kg": "{amount} a kilo",
   "shopping.per_piece": "{amount} each",
@@ -9411,5 +9416,9 @@
   "shopping.pin_done": "Marked on the map",
   "shopping.pin_title": "Where is the shop?",
   "shopping.pin_hint": "Move the map until the pin is on the shop's door.",
-  "shopping.pin_confirm": "The shop is here"
+  "shopping.pin_confirm": "The shop is here",
+  "error.stall_not_found": "This stall isn't in the app right now",
+  "error.bakery_not_found": "This bakery isn't in the app right now",
+  "error.daily_bread_not_found": "This daily order doesn't exist",
+  "error.daily_bread_limit": "You have 5 daily bread orders. Stop one before adding another"
 }

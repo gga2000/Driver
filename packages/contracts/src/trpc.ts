@@ -23,6 +23,7 @@ import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
+import type { ShoppingPort } from './shopping-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
 import type { MerchantSetupPort } from './merchant-setup-io.js';
@@ -131,6 +132,8 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** The shopping side «السوق»: stalls, bakeries, daily bread, shop mode (`modules/shopping`). */
+  shopping: ShoppingPort;
   /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */

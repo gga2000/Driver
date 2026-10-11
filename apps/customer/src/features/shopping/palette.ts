@@ -21,8 +21,22 @@ export interface ShoppingSwatch {
   down: string;
 }
 
-const day: ShoppingSwatch = { fill: '#2C6E2A', on: '#FFFFFF', tint: '#E3F0DA', onTint: '#1F4F1D', up: '#9A4A0A', down: '#2C6E2A' };
-const night: ShoppingSwatch = { fill: '#6FB766', on: '#0E1A0D', tint: '#1F2E1C', onTint: '#C4E6B9', up: '#F0A867', down: '#8FD184' };
+const day: ShoppingSwatch = {
+  fill: '#2C6E2A',
+  on: '#FFFFFF',
+  tint: '#E3F0DA',
+  onTint: '#1F4F1D',
+  up: '#9A4A0A',
+  down: '#2C6E2A',
+};
+const night: ShoppingSwatch = {
+  fill: '#6FB766',
+  on: '#0E1A0D',
+  tint: '#1F2E1C',
+  onTint: '#C4E6B9',
+  up: '#F0A867',
+  down: '#8FD184',
+};
 
 export function useShopping(): ShoppingSwatch {
   return useTheme().scheme === 'dark' ? night : day;

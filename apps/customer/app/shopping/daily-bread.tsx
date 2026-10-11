@@ -1,10 +1,15 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { formatIqd, QueryBoundary, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
-import { useT } from '@/lib/i18n';
+import { CITY_ID, useDeliverTo } from '@/features/food/queries';
+import { apiErrorMessage, useApi } from '@/lib/api';
+import { requireSignIn } from '@/lib/guest';
+import { useLocale, useT } from '@/lib/i18n';
+import { useSignedIn } from '@/lib/session';
 import { GreenBar } from '@/features/shopping/GreenBar';
 import type { Bakery } from '@/features/shopping/model';
 import { PackStepper } from '@/features/shopping/PackStepper';
@@ -15,13 +20,23 @@ import { ShopHeader } from '@/features/shopping/ShopHeader';
 
 /** When the bread should be at the door (Ali 2026-10-11: bakeries bake all day, so it is a time, not a batch). */
 const TIMES = [
-  { id: 'morning', time: '6:30', part: 'shopping.part_morning' },
-  { id: 'noon', time: '1:00', part: 'shopping.part_noon' },
-  { id: 'evening', time: '7:00', part: 'shopping.part_evening' },
+  { id: 'morning', time: '6:30', at: '06:30', part: 'shopping.part_morning' },
+  { id: 'noon', time: '1:00', at: '13:00', part: 'shopping.part_noon' },
+  { id: 'evening', time: '7:00', at: '19:00', part: 'shopping.part_evening' },
 ] as const;
 
 /** The Iraqi week, Saturday first. */
 const DAYS = ['sat', 'sun', 'mon', 'tue', 'wed', 'thu', 'fri'] as const;
+/** The server's week day of each (0 = Sunday … 6 = Saturday, Baghdad). */
+const WEEK_DAY: Record<(typeof DAYS)[number], number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
 
 /**
  * «صمون كل يوم» (round 1 C2, redrawn 2026-10-11): a standing bread order. The customer picks when it
@@ -56,6 +71,12 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
   const shop = useShopping();
   const t = useT();
   const toast = useToast();
+  const locale = useLocale();
+  const api = useApi();
+  const qc = useQueryClient();
+  const signedIn = useSignedIn();
+  const { dropoff } = useDeliverTo();
+  const create = useMutation(api.shopping.dailyBread.create.mutationOptions());
   const [time, setTime] = useState<(typeof TIMES)[number]['id']>('morning');
   const [itemId, setItemId] = useState(bakery.items[0]?.id ?? '');
   const [packs, setPacks] = useState(5);
@@ -65,6 +86,29 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
   const pieces = packs * item.per;
   const bread = packs * item.priceIqd;
   const chosen = TIMES.find((x) => x.id === time) ?? TIMES[0];
+
+  const onSet = async () => {
+    if (!signedIn) return requireSignIn(`/shopping/daily-bread?bakery=${bakery.id}`);
+    if (!dropoff) return toast.show({ message: t('cart.pick_place') });
+    if (create.isPending || days.size === 0) return;
+    try {
+      await create.mutateAsync({
+        cityId: CITY_ID,
+        bakeryId: bakery.id,
+        itemId: item.id,
+        packs,
+        time: chosen.at,
+        days: DAYS.filter((d) => days.has(d)).map((d) => WEEK_DAY[d]),
+        dropoff,
+      });
+      void qc.invalidateQueries({ queryKey: api.shopping.dailyBread.mine.queryKey() });
+      toast.show({ message: t('shopping.daily_done', { time: chosen.time, name: bakery.name }) });
+      if (router.canGoBack()) router.back();
+      else router.replace(`/shopping/bakery/${bakery.id}`);
+    } catch {
+      // Said above the button (`create.isError`).
+    }
+  };
 
   const chip = (on: boolean) => ({
     flex: 1,
@@ -82,15 +126,30 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
       testID="shopping-daily-bread"
       edges={['bottom']}
       footer={
-        <GreenBar
-          label={t('shopping.daily_set', { n: pieces })}
-          amountIqd={bread}
-          onPress={() => toast.show({ message: t('shopping.checkout_soon') })}
-          a11y={t('shopping.daily_set_a11y', { n: pieces, amount: formatIqd(bread), days: days.size })}
-        />
+        <View style={{ gap: theme.space[2] }}>
+          {create.isError ? (
+            <Text variant="footnote" weight={600} color="danger" align="center">
+              {apiErrorMessage(create.error, t('error.generic'), locale)}
+            </Text>
+          ) : null}
+          <GreenBar
+            label={t('shopping.daily_set', { n: pieces })}
+            amountIqd={bread}
+            onPress={() => void onSet()}
+            a11y={t('shopping.daily_set_a11y', {
+              n: pieces,
+              amount: formatIqd(bread),
+              days: days.size,
+            })}
+          />
+        </View>
       }
     >
-      <ShopHeader title={t('shopping.daily_title')} sub={bakery.name} fallback="/shopping/bakeries" />
+      <ShopHeader
+        title={t('shopping.daily_title')}
+        sub={bakery.name}
+        fallback="/shopping/bakeries"
+      />
       <Text variant="body" color="textMuted">
         {t('shopping.daily_body', { name: bakery.name })}
       </Text>
@@ -102,11 +161,26 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
         {TIMES.map((x) => {
           const on = x.id === time;
           return (
-            <Pressable key={x.id} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setTime(x.id)} style={chip(on)}>
-              <Text variant="bodyStrong" weight={700} tabular style={{ color: on ? shop.onTint : theme.colors.text }}>
+            <Pressable
+              key={x.id}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              onPress={() => setTime(x.id)}
+              style={chip(on)}
+            >
+              <Text
+                variant="bodyStrong"
+                weight={700}
+                tabular
+                style={{ color: on ? shop.onTint : theme.colors.text }}
+              >
                 {x.time}
               </Text>
-              <Text variant="caption" weight={600} style={{ color: on ? shop.onTint : theme.colors.textMuted }}>
+              <Text
+                variant="caption"
+                weight={600}
+                style={{ color: on ? shop.onTint : theme.colors.textMuted }}
+              >
                 {t(x.part as MessageKey)}
               </Text>
             </Pressable>
@@ -124,9 +198,21 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
                 accessibilityRole="radio"
                 accessibilityState={{ selected: on }}
                 onPress={() => setItemId(i.id)}
-                style={{ minHeight: 44, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, borderWidth: on ? 2 : 1.5, borderColor: on ? shop.fill : theme.colors.border, backgroundColor: on ? shop.tint : 'transparent', justifyContent: 'center' }}
+                style={{
+                  minHeight: 44,
+                  paddingHorizontal: theme.space[4],
+                  borderRadius: theme.radius.pill,
+                  borderWidth: on ? 2 : 1.5,
+                  borderColor: on ? shop.fill : theme.colors.border,
+                  backgroundColor: on ? shop.tint : 'transparent',
+                  justifyContent: 'center',
+                }}
               >
-                <Text variant="label" weight={on ? 700 : 600} style={{ color: on ? shop.onTint : theme.colors.text }}>
+                <Text
+                  variant="label"
+                  weight={on ? 700 : 600}
+                  style={{ color: on ? shop.onTint : theme.colors.text }}
+                >
                   {i.name}
                 </Text>
               </Pressable>
@@ -144,11 +230,27 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
             {t('shopping.lot', { n: item.per, amount: formatIqd(item.priceIqd) })}
           </Text>
         </View>
-        <PackStepper packs={packs} per={item.per} label={item.name} onChange={(n) => setPacks(Math.max(1, n))} />
+        <PackStepper
+          packs={packs}
+          per={item.per}
+          label={item.name}
+          onChange={(n) => setPacks(Math.max(1, n))}
+        />
       </View>
 
-      <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, padding: theme.space[3], gap: theme.space[2] }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View
+        style={{
+          backgroundColor: theme.colors.surface,
+          borderRadius: theme.radius.xl,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          padding: theme.space[3],
+          gap: theme.space[2],
+        }}
+      >
+        <View
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+        >
           <Text variant="label" weight={700}>
             {t('shopping.daily_days')}
           </Text>
@@ -173,9 +275,23 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
                     return next;
                   })
                 }
-                style={{ flex: 1, minHeight: 44, borderRadius: theme.radius.md, backgroundColor: on ? shop.fill : 'transparent', borderWidth: on ? 0 : 1.5, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' }}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: theme.radius.md,
+                  backgroundColor: on ? shop.fill : 'transparent',
+                  borderWidth: on ? 0 : 1.5,
+                  borderColor: theme.colors.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
-                <Text variant="caption" weight={600} numberOfLines={1} style={{ color: on ? shop.on : theme.colors.textMuted }}>
+                <Text
+                  variant="caption"
+                  weight={600}
+                  numberOfLines={1}
+                  style={{ color: on ? shop.on : theme.colors.textMuted }}
+                >
                   {t(`shopping.day_${d}` as MessageKey)}
                 </Text>
               </Pressable>
@@ -189,14 +305,30 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
 
       <View style={{ gap: 4 }}>
         <Line label={t('shopping.daily_bread_line')} value={formatIqd(bread)} />
-        <Line label={t('shopping.delivery')} value={t('shopping.delivery_from', { amount: formatIqd(500) })} />
+        <Line
+          label={t('shopping.delivery')}
+          value={t('shopping.delivery_from', { amount: formatIqd(500) })}
+        />
         <Text variant="footnote" color="textMuted">
           {t('shopping.daily_cash', { time: chosen.time, part: t(chosen.part as MessageKey) })}
         </Text>
       </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.services.food.card.bg }}>
-        <ProducePhoto uri="/media/food/shop-door-handover-1.webp" label="" style={{ width: 52, height: 52, borderRadius: theme.radius.md }} />
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[3],
+          padding: theme.space[3],
+          borderRadius: theme.radius.lg,
+          backgroundColor: theme.services.food.card.bg,
+        }}
+      >
+        <ProducePhoto
+          uri="/media/food/shop-door-handover-1.webp"
+          label=""
+          style={{ width: 52, height: 52, borderRadius: theme.radius.md }}
+        />
         <Text variant="footnote" weight={600} style={{ flex: 1 }}>
           {t('shopping.daily_hot_promise')}
         </Text>

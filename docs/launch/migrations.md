@@ -45,6 +45,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010510000 | handover_notes | lane E | shift handover note on Today (h5) |
 | 20261010520000 | outbox_event_id_index | fix wave (event-reads) | event-history reads speed PR |
 | 20261010530000 | merchant_staff_invites | PRV-08 (merchant staff accept) | staff join only after accepting the invite |
+| 20261010570000 | shopping | shopping thread | stalls' daily prices, bakery items, «صمون كل يوم», weighed and دوّرلي order lines (after 540000 home cooks, 550000 carts, 560000 lane A) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6

@@ -27,6 +27,7 @@ import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
 import { rideHabitsRouter } from './routers/ride-habits.js';
+import { shoppingRouter } from './routers/shopping.js';
 import { phoneBookingsRouter } from './routers/phone-booking.js';
 import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
@@ -106,6 +107,8 @@ export const appRouter = router({
   referral: referralRouter,
   // Joy J7d: favourite drivers, regular trips, dinner timed to the ride home.
   rideHabits: rideHabitsRouter,
+  // The shopping side «السوق» (2026-10-11): stalls, bakeries, «صمون كل يوم», shop mode.
+  shopping: shoppingRouter,
   // Taxi/tuktuk step 4 (v4): Console › حجز بالتلفون — a ride booked for a caller without the app.
   phoneBookings: phoneBookingsRouter,
   onCall: onCallRouter,

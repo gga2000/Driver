@@ -396,6 +396,11 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // The shopping side «السوق» (2026-10-11).
+  stall_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  bakery_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  daily_bread_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  daily_bread_limit: { retryHint: 'never', status: 'CONFLICT' },
   // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
   money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },

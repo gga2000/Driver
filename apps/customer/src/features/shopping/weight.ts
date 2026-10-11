@@ -19,13 +19,17 @@ export function roundUpCash(iqd: number): number {
   return Math.ceil(iqd / 250) * 250;
 }
 
-/** What `grams` of something priced per kilo comes to, as the customer will roughly pay it. */
-export function priceForWeight(pricePerKgIqd: number, grams: number): number {
-  return roundUpCash((pricePerKgIqd * grams) / 1000);
-}
+/**
+ * What `grams` of something priced per kilo comes to: the server's own rule (`priceForWeight`), so the
+ * basket shows what the order will charge; cash rounding happens once, on the order's total.
+ */
+export { priceForWeight } from '@driver/contracts';
 
 /** Pieces in `grams`, from the item's usual pieces per kilo: a [low, high] range, or null. */
-export function piecesFor(perKg: readonly [number, number] | null | undefined, grams: number): [number, number] | null {
+export function piecesFor(
+  perKg: readonly [number, number] | null | undefined,
+  grams: number,
+): [number, number] | null {
   if (!perKg) return null;
   const low = Math.max(1, Math.floor((perKg[0] * grams) / 1000));
   const high = Math.max(low, Math.ceil((perKg[1] * grams) / 1000));
@@ -39,9 +43,21 @@ export function piecesFor(perKg: readonly [number, number] | null | undefined, g
 export function weightWords(grams: number): { key: string; kilos?: number } {
   const kilos = Math.floor(grams / 1000);
   const rest = grams - kilos * 1000;
-  if (kilos === 0) return { key: rest === 250 ? 'shopping.weight.quarter' : rest === 500 ? 'shopping.weight.half' : 'shopping.weight.three_quarters' };
-  if (rest === 0) return kilos === 1 ? { key: 'shopping.weight.one' } : { key: 'shopping.weight.kilos', kilos };
-  if (rest === 500) return kilos === 1 ? { key: 'shopping.weight.one_half' } : { key: 'shopping.weight.kilos_half', kilos };
+  if (kilos === 0)
+    return {
+      key:
+        rest === 250
+          ? 'shopping.weight.quarter'
+          : rest === 500
+            ? 'shopping.weight.half'
+            : 'shopping.weight.three_quarters',
+    };
+  if (rest === 0)
+    return kilos === 1 ? { key: 'shopping.weight.one' } : { key: 'shopping.weight.kilos', kilos };
+  if (rest === 500)
+    return kilos === 1
+      ? { key: 'shopping.weight.one_half' }
+      : { key: 'shopping.weight.kilos_half', kilos };
   if (rest === 250) return { key: 'shopping.weight.kilos_quarter', kilos };
   return { key: 'shopping.weight.kilos_three_quarters', kilos };
 }

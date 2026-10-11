@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, type RecordingOptions, AudioQuality, IOSOutputFormat } from 'expo-audio';
+import {
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+  type RecordingOptions,
+  AudioQuality,
+  IOSOutputFormat,
+} from 'expo-audio';
 import { micPermission, requestMic } from '@/features/chat/mic';
 
 /** The chat's speech settings: mono AAC at 48 kb/s on phones, Opus in WebM in Chrome. */
@@ -9,7 +18,13 @@ const SPEECH: RecordingOptions = {
   numberOfChannels: 1,
   bitRate: 48000,
   android: { outputFormat: 'mpeg4', audioEncoder: 'aac' },
-  ios: { outputFormat: IOSOutputFormat.MPEG4AAC, audioQuality: AudioQuality.MEDIUM, linearPCMBitDepth: 16, linearPCMIsBigEndian: false, linearPCMIsFloat: false },
+  ios: {
+    outputFormat: IOSOutputFormat.MPEG4AAC,
+    audioQuality: AudioQuality.MEDIUM,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
   web: { mimeType: 'audio/webm', bitsPerSecond: 48000 },
 };
 
@@ -29,7 +44,9 @@ export function useItemVoice() {
 
   useEffect(
     () => () => {
-      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: false }).catch(() => undefined);
+      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: false }).catch(
+        () => undefined,
+      );
     },
     [],
   );
@@ -64,10 +81,20 @@ export function useItemVoice() {
       player.pause();
       return;
     }
-    void setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(() => undefined);
+    void setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(
+      () => undefined,
+    );
     player.replace({ uri });
     player.play();
   };
 
-  return { recording: rec.isRecording, elapsedMs: rec.isRecording ? rec.durationMillis : 0, denied, playing: status.playing, start, stop, toggle };
+  return {
+    recording: rec.isRecording,
+    elapsedMs: rec.isRecording ? rec.durationMillis : 0,
+    denied,
+    playing: status.playing,
+    start,
+    stop,
+    toggle,
+  };
 }

@@ -41,7 +41,43 @@ export function useBasket(): BasketState {
   return useSyncExternalStore(basket.subscribe, basket.get, basket.get);
 }
 
-/** What a line costs at the stall's price today (rounded the way cash is paid). */
+/**
+ * Hot bread from one bakery: packs (lots) of each bread. Held on the phone until checkout; another
+ * bakery starts over, like the produce basket.
+ */
+export interface BreadCartState {
+  bakeryId: string | null;
+  packs: Record<string, number>;
+}
+
+const NO_BREAD: BreadCartState = { bakeryId: null, packs: {} };
+let bread: BreadCartState = NO_BREAD;
+const breadListeners = new Set<() => void>();
+
+export const breadCart = {
+  get: () => bread,
+  subscribe(l: () => void) {
+    breadListeners.add(l);
+    return () => breadListeners.delete(l);
+  },
+  set(bakeryId: string, itemId: string, packs: number) {
+    const base = bread.bakeryId === bakeryId ? bread.packs : {};
+    const next = { ...base, [itemId]: packs };
+    if (packs <= 0) delete next[itemId];
+    bread = { bakeryId: Object.keys(next).length ? bakeryId : null, packs: next };
+    breadListeners.forEach((l) => l());
+  },
+  clear() {
+    bread = NO_BREAD;
+    breadListeners.forEach((l) => l());
+  },
+};
+
+export function useBreadCart(): BreadCartState {
+  return useSyncExternalStore(breadCart.subscribe, breadCart.get, breadCart.get);
+}
+
+/** What a line costs at the stall's price today (the server prices it the same way). */
 export function lineIqd(item: ProduceItem, amount: number): number {
   return item.soldBy === 'kg' ? priceForWeight(item.priceIqd, amount) : item.priceIqd * amount;
 }

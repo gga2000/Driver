@@ -1,46 +1,54 @@
-import { useQuery } from '@tanstack/react-query';
-import { DEMO_APP_SHOPS, DEMO_FRONT } from './demo';
-import type { Bakery, ShoppingFront, Stall } from './model';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useApi } from '@/lib/api';
+import { CITY_ID, useDeliverTo } from '@/features/food/queries';
 
-/**
- * The shopping side's reads. They answer from the demo shops for now; when the shopping API lands
- * each `queryFn` becomes its tRPC call and the screens stay as they are (loading, error and offline
- * states are already wired through react-query).
- */
-async function front(): Promise<ShoppingFront> {
-  return DEMO_FRONT;
-}
-
+/** The front door «السوق» (`shopping.front`): stalls with today's prices and bakeries with their state. Public. */
 export function useShoppingFront() {
-  return useQuery({ queryKey: ['shopping', 'front'], queryFn: front, staleTime: 60_000 });
+  const api = useApi();
+  const { dropoff } = useDeliverTo();
+  return useQuery({
+    ...api.shopping.front.queryOptions({ cityId: CITY_ID, ...(dropoff ? { near: dropoff } : {}) }),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
 }
 
+/** One stall with its posted prices (`shopping.stall`). */
 export function useStall(id: string | undefined) {
+  const api = useApi();
+  const { dropoff } = useDeliverTo();
   return useQuery({
-    queryKey: ['shopping', 'stall', id],
-    queryFn: async (): Promise<Stall | null> => (await front()).stalls.find((s) => s.id === id) ?? null,
+    ...api.shopping.stall.queryOptions({
+      cityId: CITY_ID,
+      id: id ?? '',
+      ...(dropoff ? { near: dropoff } : {}),
+    }),
     enabled: Boolean(id),
     staleTime: 60_000,
   });
 }
 
+/** One bakery, open, paused or closed (`shopping.bakery`). */
 export function useBakery(id: string | undefined) {
+  const api = useApi();
+  const { dropoff } = useDeliverTo();
   return useQuery({
-    queryKey: ['shopping', 'bakery', id],
-    queryFn: async (): Promise<Bakery | null> => (await front()).bakeries.find((b) => b.id === id) ?? null,
+    ...api.shopping.bakery.queryOptions({
+      cityId: CITY_ID,
+      id: id ?? '',
+      ...(dropoff ? { near: dropoff } : {}),
+    }),
     enabled: Boolean(id),
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
 }
 
 /** The shops in the app a دوّرلي item can be bought from, filtered by what he types. */
 export function useAppShops(search: string) {
+  const api = useApi();
   return useQuery({
-    queryKey: ['shopping', 'app-shops', search.trim()],
-    queryFn: async () => {
-      const q = search.trim();
-      return DEMO_APP_SHOPS.filter((s) => !q || s.name.includes(q) || s.kind.includes(q));
-    },
+    ...api.shopping.appShops.queryOptions({ cityId: CITY_ID, search: search.trim() }),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 }

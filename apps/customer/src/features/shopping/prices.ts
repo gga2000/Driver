@@ -9,7 +9,9 @@ export type PriceMove =
   /** The stall hasn't published today yet: the price shown is yesterday's. */
   | { kind: 'yesterday' };
 
-export function priceMove(item: Pick<ProduceItem, 'priceIqd' | 'yesterdayIqd' | 'priceFromYesterday'>): PriceMove {
+export function priceMove(
+  item: Pick<ProduceItem, 'priceIqd' | 'yesterdayIqd' | 'priceFromYesterday'>,
+): PriceMove {
   if (item.priceFromYesterday) return { kind: 'yesterday' };
   if (item.yesterdayIqd == null) return { kind: 'new' };
   const diff = item.priceIqd - item.yesterdayIqd;

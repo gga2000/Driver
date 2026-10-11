@@ -98,8 +98,22 @@ export function ScaleDial({ grams, onChange, accessibilityLabel, valueText }: Sc
       {...pan.panHandlers}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`}>
-        <Path d={arcTo(WEIGHT_MAX_G)} fill="none" stroke={theme.colors.border} strokeWidth={12} strokeLinecap="round" />
-        {grams > 0 ? <Path d={arcTo(grams)} fill="none" stroke={shop.fill} strokeWidth={12} strokeLinecap="round" /> : null}
+        <Path
+          d={arcTo(WEIGHT_MAX_G)}
+          fill="none"
+          stroke={theme.colors.border}
+          strokeWidth={12}
+          strokeLinecap="round"
+        />
+        {grams > 0 ? (
+          <Path
+            d={arcTo(grams)}
+            fill="none"
+            stroke={shop.fill}
+            strokeWidth={12}
+            strokeLinecap="round"
+          />
+        ) : null}
         {ticks.map(({ g, major }) => {
           const a = pointAt(g, R - 14);
           const b = pointAt(g, R - (major ? 34 : 24));
@@ -135,9 +149,24 @@ export function ScaleDial({ grams, onChange, accessibilityLabel, valueText }: Sc
               </SvgText>
             );
           })}
-        <Line x1={CX} y1={CY} x2={needle.x} y2={needle.y} stroke={theme.colors.text} strokeWidth={4} strokeLinecap="round" />
+        <Line
+          x1={CX}
+          y1={CY}
+          x2={needle.x}
+          y2={needle.y}
+          stroke={theme.colors.text}
+          strokeWidth={4}
+          strokeLinecap="round"
+        />
         <Circle cx={CX} cy={CY} r={9} fill={theme.colors.text} />
-        <Circle cx={knob.x} cy={knob.y} r={15} fill={theme.colors.surface} stroke={shop.fill} strokeWidth={5} />
+        <Circle
+          cx={knob.x}
+          cy={knob.y}
+          r={15}
+          fill={theme.colors.surface}
+          stroke={shop.fill}
+          strokeWidth={5}
+        />
       </Svg>
     </View>
   );

@@ -1,12 +1,22 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { formatAmount, formatIqd, Icon, QueryBoundary, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import {
+  formatAmount,
+  formatIqd,
+  Icon,
+  QueryBoundary,
+  Skeleton,
+  Text,
+  useTheme,
+  useToast,
+} from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { useT } from '@/lib/i18n';
 import { basket, basketIqd, useBasket } from '@/features/shopping/basket';
 import { GreenBar } from '@/features/shopping/GreenBar';
 import type { ProduceItem, Stall } from '@/features/shopping/model';
+import { goCheckout } from '@/features/shopping/checkout';
 import { useShopping } from '@/features/shopping/palette';
 import { priceMove } from '@/features/shopping/prices';
 import { ProducePhoto } from '@/features/shopping/ProducePhoto';
@@ -34,7 +44,14 @@ export default function StallScreen() {
         </Screen>
       }
       isEmpty={(s) => s == null}
-      empty={{ icon: 'bag', title: t('shopping.stall_gone'), action: { label: t('shopping.door_produce'), onPress: () => router.replace('/shopping/produce') } }}
+      empty={{
+        icon: 'bag',
+        title: t('shopping.stall_gone'),
+        action: {
+          label: t('shopping.door_produce'),
+          onPress: () => router.replace('/shopping/produce'),
+        },
+      }}
     >
       {(s) => (s ? <StallBody stall={s} openItem={item} /> : null)}
     </QueryBoundary>
@@ -52,7 +69,10 @@ function StallBody({ stall, openItem }: { stall: Stall; openItem?: string }) {
     if (openItem) setOpen(stall.items.find((i) => i.id === openItem) ?? null);
   }, [openItem, stall.items]);
 
-  const lines = useMemo(() => (cart.stallId === stall.id ? cart.lines : []), [cart.stallId, cart.lines, stall.id]);
+  const lines = useMemo(
+    () => (cart.stallId === stall.id ? cart.lines : []),
+    [cart.stallId, cart.lines, stall.id],
+  );
   const total = useMemo(() => basketIqd(lines, stall.items), [lines, stall.items]);
   const current = open ? lines.find((l) => l.itemId === open.id) : undefined;
   const owner = stall.name;
@@ -67,25 +87,52 @@ function StallBody({ stall, openItem }: { stall: Stall; openItem?: string }) {
             <GreenBar
               label={t('shopping.basket_count', { n: lines.length })}
               amountIqd={total}
-              onPress={() => toast.show({ message: t('shopping.checkout_soon') })}
+              onPress={() => void goCheckout('stall')}
             />
           ) : undefined
         }
       >
         <ShopHeader
           title={stall.name}
-          sub={t('shopping.stall_meta', { rating: stall.rating, area: stall.area, min: stall.minutes })}
+          sub={t('shopping.stall_meta', {
+            rating: stall.rating ?? '—',
+            area: stall.area,
+            min: stall.minutes,
+          })}
           fallback="/shopping/produce"
         />
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: shop.tint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.space[3],
+            backgroundColor: shop.tint,
+            borderRadius: theme.radius.lg,
+            padding: theme.space[3],
+          }}
+        >
           <Icon name="camera" size={22} color={shop.fill} />
           <Text variant="label" weight={600} style={{ flex: 1, color: shop.onTint }}>
-            {stall.postedAt ? t('shopping.posted_banner', { time: stall.postedAt }) : t('shopping.not_posted_banner')}
+            {stall.postedAt
+              ? t('shopping.posted_banner', { time: stall.postedAt })
+              : t('shopping.not_posted_banner')}
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: theme.space[3] }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            rowGap: theme.space[3],
+          }}
+        >
           {stall.items.map((item) => (
-            <ItemCard key={item.id} item={item} amount={lines.find((l) => l.itemId === item.id)?.amount ?? 0} onPress={() => setOpen(item)} />
+            <ItemCard
+              key={item.id}
+              item={item}
+              amount={lines.find((l) => l.itemId === item.id)?.amount ?? 0}
+              onPress={() => setOpen(item)}
+            />
           ))}
         </View>
       </Screen>
@@ -110,7 +157,15 @@ function StallBody({ stall, openItem }: { stall: Stall; openItem?: string }) {
   );
 }
 
-function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number; onPress: () => void }) {
+function ItemCard({
+  item,
+  amount,
+  onPress,
+}: {
+  item: ProduceItem;
+  amount: number;
+  onPress: () => void;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   const t = useT();
@@ -127,12 +182,27 @@ function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number
           : move.kind === 'new'
             ? t('shopping.move_new')
             : t('shopping.move_yesterday');
-  const moveColor = move.kind === 'down' ? shop.down : move.kind === 'up' ? shop.up : theme.colors.textMuted;
-  const inBasket = amount > 0 ? (item.soldBy === 'kg' ? weightText(amount) : t('shopping.pieces', { n: amount })) : null;
+  const moveColor =
+    move.kind === 'down' ? shop.down : move.kind === 'up' ? shop.up : theme.colors.textMuted;
+  const inBasket =
+    amount > 0
+      ? item.soldBy === 'kg'
+        ? weightText(amount)
+        : t('shopping.pieces', { n: amount })
+      : null;
+  const out = !item.available;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={[item.name, `${formatIqd(item.priceIqd)} ${unit}`, moveText, item.photoToday ? null : t('shopping.photo_yesterday'), inBasket ? t('shopping.in_basket', { what: inBasket }) : null]
+      accessibilityState={{ disabled: out }}
+      disabled={out}
+      accessibilityLabel={[
+        item.name,
+        out ? t('shopping.sold_out_today') : `${formatIqd(item.priceIqd)} ${unit}`,
+        out ? null : moveText,
+        item.photoToday ? null : t('shopping.photo_yesterday'),
+        inBasket ? t('shopping.in_basket', { what: inBasket }) : null,
+      ]
         .filter(Boolean)
         .join('، ')}
       onPress={onPress}
@@ -143,13 +213,27 @@ function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number
         overflow: 'hidden',
         borderWidth: amount > 0 ? 2 : 1,
         borderColor: amount > 0 ? shop.fill : theme.colors.border,
+        opacity: out ? 0.6 : 1,
         transform: [{ scale: pressed ? 0.98 : 1 }],
       })}
     >
       <View>
         <ProducePhoto uri={item.photo} label="" style={{ width: '100%', height: 118 }} />
         {inBasket ? (
-          <View style={{ position: 'absolute', top: theme.space[2], start: theme.space[2], flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: shop.fill, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[2], paddingVertical: 2 }}>
+          <View
+            style={{
+              position: 'absolute',
+              top: theme.space[2],
+              start: theme.space[2],
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              backgroundColor: shop.fill,
+              borderRadius: theme.radius.pill,
+              paddingHorizontal: theme.space[2],
+              paddingVertical: 2,
+            }}
+          >
             <Icon name="check" size={12} color={shop.on} />
             <Text variant="caption" weight={700} style={{ color: shop.on }}>
               {inBasket}
@@ -157,7 +241,16 @@ function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number
           </View>
         ) : null}
         {!item.photoToday ? (
-          <View style={{ position: 'absolute', bottom: theme.space[2], end: theme.space[2], backgroundColor: theme.colors.photoBackdrop, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[2] }}>
+          <View
+            style={{
+              position: 'absolute',
+              bottom: theme.space[2],
+              end: theme.space[2],
+              backgroundColor: theme.colors.photoBackdrop,
+              borderRadius: theme.radius.pill,
+              paddingHorizontal: theme.space[2],
+            }}
+          >
             <Text variant="caption" weight={600} style={{ color: theme.colors.onPhotoBackdrop }}>
               {t('shopping.photo_yesterday')}
             </Text>
@@ -165,7 +258,14 @@ function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number
         ) : null}
       </View>
       <View style={{ paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 0 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2] }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: theme.space[2],
+          }}
+        >
           <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ flexShrink: 1 }}>
             {item.name}
           </Text>
@@ -176,8 +276,13 @@ function ItemCard({ item, amount, onPress }: { item: ProduceItem; amount: number
         <Text variant="caption" color="textMuted" numberOfLines={1}>
           {unit}
         </Text>
-        <Text variant="caption" weight={600} numberOfLines={1} style={{ color: moveColor }}>
-          {moveText}
+        <Text
+          variant="caption"
+          weight={600}
+          numberOfLines={1}
+          style={{ color: out ? theme.colors.textMuted : moveColor }}
+        >
+          {out ? t('shopping.sold_out_today') : moveText}
         </Text>
       </View>
     </Pressable>

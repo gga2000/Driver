@@ -14,7 +14,8 @@ import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { PromotionsModule, PromotionsService } from '../promotions/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
-import { ORDERS_CATALOG } from './catalog.port.js';
+import { ORDERS_CATALOG, ORDERS_UPLOADS, ORDERS_WEIGHED_ITEMS } from './catalog.port.js';
+import { ShopItemsModule, ShopItemsService } from '../shop-items/index.js';
 import { ORDERS_CONTROLS } from './controls.port.js';
 import { EventsServiceAdapter, ORDER_EVENTS } from './events.adapter.js';
 import { ORDERS_HOUSEHOLDS, orgsHouseholds } from './households.port.js';
@@ -54,7 +55,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule, ReferralsModule],
+  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule, ReferralsModule, ShopItemsModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -121,6 +122,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     },
     // Review C2: line prices come from the merchant's menu (catalog module), never from the client.
     { provide: ORDERS_CATALOG, useExisting: CatalogService },
+    { provide: ORDERS_WEIGHED_ITEMS, useExisting: ShopItemsService },
+    { provide: ORDERS_UPLOADS, useExisting: BLOB_STORE },
     // Joy w4: who may spend the household wallet, their limits and budgets, the payer's approval.
     { provide: ORDERS_HOUSEHOLDS, useFactory: (orgs: OrgsService) => orgsHouseholds(orgs), inject: [OrgsService] },
     { provide: MERCHANT_DIRECTORY, useFactory: (orgs: OrgsService, clock: Clock) => new OrgsMerchantDirectory(orgs, () => clock.now()), inject: [OrgsService, CLOCK] },

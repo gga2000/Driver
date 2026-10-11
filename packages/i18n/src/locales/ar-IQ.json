@@ -9247,6 +9247,11 @@
   "shopping.basket_count_two": "السلة: غرضين",
   "shopping.basket_count_few": "السلة: {n} أغراض",
   "shopping.basket_switched": "بدينا سلة جديدة من هاي البسطية. الدليفري يوقف بمكان واحد.",
+  "shopping.sold_out_today": "خلص اليوم",
+  "shopping.sold_out_now": "خلص هسه",
+  "shopping.confirm_order": "أكّد الطلب",
+  "shopping.daily_done": "تمام، صمونك يجيك {time} من {name}",
+  "shopping.sending": "دنرسل القائمة…",
   "shopping.checkout_soon": "الطلب من هنا يشتغل قريباً",
   "shopping.per_kg": "{amount} الكيلو",
   "shopping.per_piece": "{amount} الحبة",
@@ -9411,5 +9416,9 @@
   "shopping.pin_done": "معلّم عالخريطة",
   "shopping.pin_title": "وين المحل؟",
   "shopping.pin_hint": "حرّك الخريطة لحد ما الدبوس يصير على باب المحل.",
-  "shopping.pin_confirm": "هنا المحل"
+  "shopping.pin_confirm": "هنا المحل",
+  "error.stall_not_found": "هالبسطية ما موجودة بالتطبيق هسه",
+  "error.bakery_not_found": "هالفرن ما موجود بالتطبيق هسه",
+  "error.daily_bread_not_found": "هذا الطلب اليومي ما موجود",
+  "error.daily_bread_limit": "عندك 5 طلبات صمون يومية، وگّف وحدة قبل ما تضيف غيرها"
 }

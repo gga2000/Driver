@@ -1,7 +1,15 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { formatAmount, Icon, IconButton, QueryBoundary, Skeleton, Text, useTheme } from '@driver/ui';
+import {
+  formatAmount,
+  Icon,
+  IconButton,
+  QueryBoundary,
+  Skeleton,
+  Text,
+  useTheme,
+} from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { useT } from '@/lib/i18n';
 import type { ProduceItem, ShoppingFront } from '@/features/shopping/model';
@@ -20,7 +28,14 @@ export default function ShoppingFront() {
   const insets = useSafeAreaInsets();
   const front = useShoppingFront();
   return (
-    <Screen testID="shopping-front" edges={[]} contentStyle={{ paddingTop: insets.top + theme.space[3], paddingBottom: insets.bottom + theme.space[8] }}>
+    <Screen
+      testID="shopping-front"
+      edges={[]}
+      contentStyle={{
+        paddingTop: insets.top + theme.space[3],
+        paddingBottom: insets.bottom + theme.space[8],
+      }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <IconButton
           icon="arrow-back"
@@ -85,15 +100,32 @@ function Front({ data }: { data: ShoppingFront }) {
       <View
         accessible
         accessibilityLabel={`${t('shopping.door_markets')}، ${t('shopping.markets_fact')}، ${t('shopping.soon')}`}
-        style={{ flexDirection: 'row', backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border }}
+        style={{
+          flexDirection: 'row',
+          backgroundColor: theme.colors.surface,
+          borderRadius: theme.radius.xl,
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+        }}
       >
-        <ProducePhoto uri="/media/food/shop-dukkan-1.webp" label="" style={{ width: 132, height: 112 }} />
+        <ProducePhoto
+          uri="/media/food/shop-dukkan-1.webp"
+          label=""
+          style={{ width: 132, height: 112 }}
+        />
         <View style={{ flex: 1, padding: theme.space[3], justifyContent: 'center', gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="title" weight={700}>
               {t('shopping.door_markets')}
             </Text>
-            <View style={{ paddingHorizontal: theme.space[2], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}>
+            <View
+              style={{
+                paddingHorizontal: theme.space[2],
+                borderRadius: theme.radius.pill,
+                backgroundColor: theme.colors.surfaceSunken,
+              }}
+            >
               <Text variant="caption" weight={600} color="textMuted">
                 {t('shopping.soon')}
               </Text>
@@ -129,7 +161,16 @@ function Front({ data }: { data: ShoppingFront }) {
             {t('shopping.dawwerli_fact')}
           </Text>
         </View>
-        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <View
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: theme.colors.bg,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
           <Icon name="arrow-forward" size={18} color={theme.colors.text} />
         </View>
       </Pressable>
@@ -141,7 +182,16 @@ function Front({ data }: { data: ShoppingFront }) {
           </Text>
           <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
             {today.map((item) => (
-              <PriceTile key={item.id} item={item} onPress={() => router.push({ pathname: '/shopping/stall/[id]', params: { id: stall.id, item: item.id } })} />
+              <PriceTile
+                key={item.id}
+                item={item}
+                onPress={() =>
+                  router.push({
+                    pathname: '/shopping/stall/[id]',
+                    params: { id: stall.id, item: item.id },
+                  })
+                }
+              />
             ))}
           </View>
         </View>
@@ -150,7 +200,19 @@ function Front({ data }: { data: ShoppingFront }) {
   );
 }
 
-function Door({ title, photo, fact, live, onPress }: { title: string; photo: string; fact: string; live?: boolean; onPress: () => void }) {
+function Door({
+  title,
+  photo,
+  fact,
+  live,
+  onPress,
+}: {
+  title: string;
+  photo: string;
+  fact: string;
+  live?: boolean;
+  onPress: () => void;
+}) {
   const theme = useTheme();
   const shop = useShopping();
   return (
@@ -174,8 +236,14 @@ function Door({ title, photo, fact, live, onPress }: { title: string; photo: str
           {title}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
-          {live ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: shop.fill }} /> : null}
-          <Text variant="footnote" weight={live ? 600 : 400} style={{ color: live ? shop.fill : theme.colors.textMuted }}>
+          {live ? (
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: shop.fill }} />
+          ) : null}
+          <Text
+            variant="footnote"
+            weight={live ? 600 : 400}
+            style={{ color: live ? shop.fill : theme.colors.textMuted }}
+          >
             {fact}
           </Text>
         </View>
@@ -190,11 +258,27 @@ function PriceTile({ item, onPress }: { item: ProduceItem; onPress: () => void }
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t('shopping.tile_a11y', { name: item.name, amount: formatAmount(item.priceIqd) })}
+      accessibilityLabel={t('shopping.tile_a11y', {
+        name: item.name,
+        amount: formatAmount(item.priceIqd),
+      })}
       onPress={onPress}
-      style={{ flex: 1, alignItems: 'center', gap: 2, padding: theme.space[2], backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.border }}
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        gap: 2,
+        padding: theme.space[2],
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.radius.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+      }}
     >
-      <ProducePhoto uri={item.photo} label="" style={{ width: '100%', height: 56, borderRadius: theme.radius.md }} />
+      <ProducePhoto
+        uri={item.photo}
+        label=""
+        style={{ width: '100%', height: 56, borderRadius: theme.radius.md }}
+      />
       <Text variant="footnote" weight={600} numberOfLines={1}>
         {item.name}
       </Text>
