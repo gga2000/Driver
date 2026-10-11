@@ -9066,5 +9066,7 @@
   "home_food.retry": "جرّب مرة ثانية",
   "home_food.reserve_other_cart": "سلتك بيها أكل من مكان أو وقت ثاني. الحجز ينطلب بسلة لحاله.",
   "home_food.reserved_added": "انضاف الحجز لسلتك",
-  "home_food.clash_title": "نبدي سلة جديدة؟"
+  "home_food.clash_title": "نبدي سلة جديدة؟",
+  "home_food.reserved_when": "محجوز: {day} {time}",
+  "home_food.reserved_passed": "هذا الوقت فات أو انحجز كله. ارجع لمطبخها واحجز وقت ثاني."
 }

@@ -15,7 +15,6 @@ import { useMenu } from '@/features/food/queries';
 import { splitMenu } from '@/features/home-food/format';
 import { HomeDishRow, type HomeDishActions } from '@/features/home-food/HomeDishRow';
 import { Monogram, usePom } from '@/features/home-food/parts';
-import { reservationStore } from '@/features/home-food/reservation';
 import { ReserveSheet } from '@/features/home-food/ReserveSheet';
 import { appNow } from '@/lib/dev-clock';
 import { useLocale, useT } from '@/lib/i18n';
@@ -71,35 +70,30 @@ export default function HomeKitchenScreen() {
     theme.haptic('light');
   };
   const addReady = (m: CartMerchant, item: MenuItem, replace: boolean) => {
-    if (replace) {
-      cartStore.clear();
-      reservationStore.set(null);
-    }
+    if (replace) cartStore.clear();
     const res = cartStore.add(m, lineOf(item, 1));
     if (!res.ok) return setPending({ kind: 'ready', item });
     landed();
   };
   const book = (m: CartMerchant, item: MenuItem, at: Date, qty: number, replace: boolean) => {
     const cart = cartStore.getSnapshot().cart;
-    const held = reservationStore.get();
-    const sameTime = held?.merchantId === m.id && held.at === at.toISOString();
-    const clash = cart.lines.length > 0 && !(cart.merchant?.id === m.id && sameTime);
+    // One reservation per cart: more plates for the same kitchen and time join it, anything else asks.
+    const clash = cart.lines.length > 0 && !(cart.merchant?.id === m.id && cart.reservedFor === at.toISOString());
     if (clash && !replace) return setPending({ kind: 'reserve', item, at, qty });
     if (clash) cartStore.clear();
     cartStore.add(m, lineOf(item, qty));
-    reservationStore.set({ merchantId: m.id, at: at.toISOString() });
+    cartStore.setReservedFor(at.toISOString());
     setReserving(null);
     landed();
   };
 
   const actions = useMemo<HomeDishActions>(
     () => ({
-      open: (item) => setOpen(item),
+      // A ready dish never joins a reservation (it comes now, the reservation later): ask first.
+      open: (item) => (cartStore.getSnapshot().cart.reservedFor ? setPending({ kind: 'ready', item }) : setOpen(item)),
       add: (item) => {
         if (!merchant) return;
-        const held = reservationStore.get();
-        const cart = cartStore.getSnapshot().cart;
-        if (held && cart.merchant?.id === held.merchantId && cart.lines.length > 0) return setPending({ kind: 'ready', item });
+        if (cartStore.getSnapshot().cart.reservedFor) return setPending({ kind: 'ready', item });
         addReady(merchant, item, false);
       },
       remove: (item) => {

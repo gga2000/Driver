@@ -7,6 +7,7 @@ import {
   iceCreamTooFar,
   kitchenMonogram,
   reserveSlots,
+  EMPTY_HOME_TALLY,
   PriceRequest,
   POPULAR_RULES,
   SMALL_ORDER_FEE_IQD,
@@ -37,6 +38,7 @@ import {
   type HomeKitchensInput,
   type HomeSlots,
   type HomeSlotsInput,
+  type HomeTally,
   type MyDishFollows,
   type PotsTodayInput,
   type TodayPot,
@@ -327,12 +329,12 @@ export class CatalogRpc implements CustomerCatalogPort {
     const item = (await this.catalog.menu(s.orgId)).find((i) => i.id === input.itemId);
     if (!item || item.homeSale?.mode !== 'reserve' || !item.available) throw new DriverError('catalog_item_unavailable');
     const now = this.clock.now();
-    const booked = (await this.homeBooked(s.orgId, now)).get(item.id);
+    const booked = (await this.homeBooked(s.orgId, now)).slots.get(item.id);
     return { aheadMin: item.homeSale.rule.aheadMin, days: reserveSlots(item.homeSale.rule, now, booked) };
   }
 
   private async homeBooked(orgId: string, now: Date): Promise<HomeBooked> {
-    return (await this.merchants.homeBooked?.(orgId, now)) ?? new Map();
+    return (await this.merchants.homeBooked?.(orgId, now)) ?? EMPTY_HOME_TALLY;
   }
 
   /**
@@ -804,17 +806,17 @@ export class CatalogRpc implements CustomerCatalogPort {
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
       deals: k.deals,
-      ...(s.home ? { home: this.homeBadge(k, now) } : {}),
+      ...(s.home ? { home: this.homeBadge(k, now, await this.homeBooked(s.orgId, now)) } : {}),
     };
   }
 
   /** أكل بيت: her letter, dishes with plates left today and dishes taking reservations. */
-  private homeBadge(k: Kitchen, now: Date): NonNullable<RestaurantCard['home']> {
+  private homeBadge(k: Kitchen, now: Date, tally: HomeTally): NonNullable<RestaurantCard['home']> {
     let readyCount = 0;
     let reserveCount = 0;
     for (const item of k.items) {
       if (!item.homeSale || !item.available) continue;
-      const view = menuItemView(item, now, this.merchants.timeZone);
+      const view = menuItemView(item, now, this.merchants.timeZone, undefined, tally);
       if (view.home?.mode === 'ready' && view.home.left > 0) readyCount += 1;
       if (view.home?.mode === 'reserve') reserveCount += 1;
     }

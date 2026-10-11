@@ -1,7 +1,8 @@
-import { HOME_KITCHEN_RULES, slotKey, type DealBadge, type DeliveryPoint } from '@driver/contracts';
+import { EMPTY_HOME_TALLY, type DealBadge, type DeliveryPoint, type HomeTally } from '@driver/contracts';
 import type { StorefrontMerchants } from '../catalog/index.js';
 import type { MerchantDirectory } from './merchants.port.js';
 import { busyExtraMinutes } from './busy.js';
+import { homeTally, homeTallySince } from './home-kitchen.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
 import type { OrdersRepository } from './orders.repository.js';
 import type { PromotionsPort } from './promotions.port.js';
@@ -41,27 +42,10 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
     return counts;
   }
 
-  /**
-   * أكل بيت: plates already reserved per dish and pickup time (`slotKey`) — the kitchen's live
-   * pre-orders still to come, placed within the booking window. Cancelled and refused orders free
-   * their plates.
-   */
-  async homeBooked(orgId: string, now: Date): Promise<Map<string, Map<string, number>>> {
-    const out = new Map<string, Map<string, number>>();
-    if (!this.orders) return out;
-    const since = new Date(now.getTime() - (HOME_KITCHEN_RULES.bookDays + 1) * 86_400_000);
-    for (const agg of await this.orders.merchantOrdersBetween(orgId, since, now)) {
-      const at = agg.order.scheduledFor;
-      if (!at || at.getTime() < now.getTime() || NOT_COUNTED.has(agg.order.state)) continue;
-      const key = slotKey(at);
-      for (const l of agg.lines) {
-        if (!l.catalogItemId || l.substitution?.state === 'removed') continue;
-        const slots = out.get(l.catalogItemId) ?? new Map<string, number>();
-        slots.set(key, (slots.get(key) ?? 0) + l.qty);
-        out.set(l.catalogItemId, slots);
-      }
-    }
-    return out;
+  /** أكل بيت: the plates the kitchen's live orders hold (`homeTally`). */
+  async homeBooked(orgId: string, now: Date): Promise<HomeTally> {
+    if (!this.orders) return EMPTY_HOME_TALLY;
+    return homeTally(await this.orders.merchantOrdersBetween(orgId, homeTallySince(now), now), now);
   }
 
   /** x1: when a merchant's settings last changed on this instance (the lists' snapshot rebuilds). */

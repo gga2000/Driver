@@ -1,4 +1,4 @@
-import { AZIZIYAH_ZONES, DISH_LABELS, homeLocalDay, localClock, nextReserveSlot, servesOf, type DeliveryPoint, type DishLabel, type HomeDishView, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
+import { AZIZIYAH_ZONES, DISH_LABELS, EMPTY_HOME_TALLY, homeLocalDay, localClock, nextReserveSlot, readyLeft, servesOf, type DeliveryPoint, type DishLabel, type HomeDishView, type HomeTally, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
 import type { AvailabilityWindow, CatalogItemRecord, HomeSaleRecord } from './catalog.repository.js';
 import { photoLink, type PhotoLink } from './photos.js';
 
@@ -146,24 +146,24 @@ function isGroupVariant(g: CatalogItemRecord['modifierGroups'][number]): boolean
   return min === 1 && g.maxSelect === 1 && g.modifiers.some((m) => m.priceIqd > 0);
 }
 
-/** Plates already reserved per dish id, then per pickup time (`slotKey`). */
-export type HomeBooked = ReadonlyMap<string, ReadonlyMap<string, number>>;
+/** Plates a home kitchen already gave out (reserved per dish and time, ready plates sold). */
+export type HomeBooked = HomeTally;
 
 /**
  * أكل بيت: what the menu says about a home dish now. A ready dish counts only what she cooked on this
  * local day (yesterday's plates are gone); a reserve dish shows its earliest time with a plate free.
  */
-export function homeDishView(sale: HomeSaleRecord, stock: number | null, at: Date, booked: ReadonlyMap<string, number> = new Map()): HomeDishView {
+export function homeDishView(sale: HomeSaleRecord, stock: number | null, at: Date, itemId: string, tally: HomeTally = EMPTY_HOME_TALLY): HomeDishView {
   if (sale.mode === 'ready') {
     const today = sale.cookedOn === homeLocalDay(at);
-    return { mode: 'ready', cooked: today ? sale.cooked : null, left: today ? Math.max(0, stock ?? 0) : 0 };
+    return { mode: 'ready', cooked: today ? sale.cooked : null, left: readyLeft(sale, stock, at, tally.sold.get(itemId)) };
   }
-  return { mode: 'reserve', aheadMin: sale.rule.aheadMin, next: nextReserveSlot(sale.rule, at, booked) };
+  return { mode: 'reserve', aheadMin: sale.rule.aheadMin, next: nextReserveSlot(sale.rule, at, tally.slots.get(itemId)) };
 }
 
 /** The customer's view of one dish; `photo` turns its stored photo into a link the app can load. */
 export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string, photo: PhotoLink = UNSIGNED, booked?: HomeBooked): MenuItem {
-  const home = item.homeSale ? homeDishView(item.homeSale, item.stock, at, booked?.get(item.id)) : null;
+  const home = item.homeSale ? homeDishView(item.homeSale, item.stock, at, item.id, booked) : null;
   // A ready home dish is out when its plates are; a reserve one when the coming week is fully booked.
   const homeOut = home?.mode === 'ready' ? home.left === 0 : home?.mode === 'reserve' ? home.next === null : false;
   const soldOut = !item.available || (home?.mode !== 'reserve' && item.stock === 0) || homeOut;

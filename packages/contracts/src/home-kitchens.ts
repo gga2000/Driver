@@ -138,6 +138,34 @@ export function reserveSlots(rule: ReserveRule, now: Date, booked: ReadonlyMap<s
   return out;
 }
 
+/** A home dish as sold: ready today (`setAt` = when she last said how many plates are left) or by reservation. */
+export type HomeSale = { mode: 'ready'; cooked: number | null; cookedOn: string | null; setAt?: string | null } | { mode: 'reserve'; rule: ReserveRule };
+
+/**
+ * Plates a home kitchen has already given out, from its live orders (cancelled and refused ones free
+ * theirs): reserved per dish and pickup time (`slotKey`), and ready plates sold per dish with when.
+ */
+export interface HomeTally {
+  slots: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  sold: ReadonlyMap<string, ReadonlyArray<{ at: Date; qty: number }>>;
+}
+
+export const EMPTY_HOME_TALLY: HomeTally = { slots: new Map(), sold: new Map() };
+
+/**
+ * Ready plates still free: what she said were left (`stock`), less the plates ordered since she said
+ * it (`setAt`; the start of her day when unknown). Nothing is left on a day she didn't cook.
+ */
+export function readyLeft(sale: Extract<HomeSale, { mode: 'ready' }>, stock: number | null, now: Date, sold: ReadonlyArray<{ at: Date; qty: number }> = [], offsetMin: number = HOME_KITCHEN_UTC_OFFSET_MIN): number {
+  const today = homeLocalDay(now, offsetMin);
+  if (sale.cookedOn !== today) return 0;
+  const dayStart = new Date(Date.parse(`${today}T00:00:00Z`) - offsetMin * MIN);
+  const setAt = sale.setAt ? new Date(sale.setAt) : null;
+  const from = setAt && setAt.getTime() > dayStart.getTime() ? setAt : dayStart;
+  const taken = sold.reduce((a, s) => (s.at.getTime() >= from.getTime() ? a + s.qty : a), 0);
+  return Math.max(0, (stock ?? 0) - taken);
+}
+
 /** The earliest bookable time with a plate free, or null. */
 export function nextReserveSlot(rule: ReserveRule, now: Date, booked?: ReadonlyMap<string, number>, offsetMin?: number): HomeSlot | null {
   for (const day of reserveSlots(rule, now, booked, offsetMin))

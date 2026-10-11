@@ -1,4 +1,4 @@
-import { ReserveRule } from '@driver/contracts';
+import { ReserveRule, type HomeSale } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
@@ -90,7 +90,7 @@ export interface CatalogItemRecord {
  * the plates left; `cooked` what she said she made, on her local day `cookedOn`), or cooked only when
  * booked by its reservation rule (`catalog_items.home_sale`).
  */
-export type HomeSaleRecord = { mode: 'ready'; cooked: number | null; cookedOn: string | null } | { mode: 'reserve'; rule: ReserveRule };
+export type HomeSaleRecord = HomeSale;
 
 /** Wave 2: one price edit (merchant app "price edit with history"). */
 export interface PriceChangeRecord {
@@ -704,7 +704,7 @@ export function homeSaleFromJson(raw: unknown): HomeSaleRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const j = raw as Record<string, unknown>;
   if (j['mode'] === 'ready') {
-    return { mode: 'ready', cooked: typeof j['cooked'] === 'number' ? j['cooked'] : null, cookedOn: typeof j['cookedOn'] === 'string' ? j['cookedOn'] : null };
+    return { mode: 'ready', cooked: typeof j['cooked'] === 'number' ? j['cooked'] : null, cookedOn: typeof j['cookedOn'] === 'string' ? j['cookedOn'] : null, setAt: typeof j['setAt'] === 'string' ? j['setAt'] : null };
   }
   if (j['mode'] === 'reserve') {
     const rule = ReserveRule.safeParse(j['rule']);

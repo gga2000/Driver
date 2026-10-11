@@ -9066,5 +9066,7 @@
   "home_food.retry": "Try again",
   "home_food.reserve_other_cart": "Your cart has food from another place or time. A reservation is ordered in a cart of its own.",
   "home_food.reserved_added": "Reservation added to your cart",
-  "home_food.clash_title": "Start a new cart?"
+  "home_food.clash_title": "Start a new cart?",
+  "home_food.reserved_when": "Reserved: {day} {time}",
+  "home_food.reserved_passed": "That time has passed or filled up. Go back to her kitchen and reserve another time."
 }

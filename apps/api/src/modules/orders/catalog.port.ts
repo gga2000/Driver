@@ -1,4 +1,4 @@
-import { DriverError, type OrderLineInput } from '@driver/contracts';
+import { DriverError, type HomeSale, type OrderLineInput } from '@driver/contracts';
 import type { z } from 'zod';
 import { DEFAULT_TIMEZONE } from './orders.config.js';
 import type { NewLine } from './orders.repository.js';
@@ -35,6 +35,8 @@ export interface CatalogItemView {
   branchOverrides: Record<string, { priceIqd?: number; available?: boolean }>;
   pointsEligible: boolean;
   modifierGroups: CatalogModifierGroupView[];
+  /** أكل بيت: how a home dish sells (ready today or by reservation); absent for restaurant dishes. */
+  homeSale?: HomeSale | null;
 }
 
 /** The customer storefront facts `orders.place` enforces: opening hours and the restaurant minimum. */
@@ -45,6 +47,8 @@ export interface CatalogStorefrontView {
   minOrderIqd: number;
   /** What the shop sells (`doorOf`, `iceCreamTooFar`); absent = unknown. */
   tags?: readonly string[];
+  /** أكل بيت: set on a home kitchen (its orders follow `homeOrderProblem`). */
+  home?: object | null;
 }
 
 export interface CatalogPort {

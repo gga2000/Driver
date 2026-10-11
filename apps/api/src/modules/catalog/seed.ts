@@ -51,7 +51,7 @@ export async function seedStorefronts(
           ? {
               portion: (item as SeedHomeItem).portion ?? null,
               photoUrl: `/media/food/${(item as SeedHomeItem).photo}.webp`,
-              ...(sale.mode === 'ready' ? { stock: sale.left, homeSale: { mode: 'ready' as const, cooked: sale.cooked, cookedOn: homeLocalDay(now) } } : { homeSale: { mode: 'reserve' as const, rule: sale.rule } }),
+              ...(sale.mode === 'ready' ? { stock: sale.left, homeSale: { mode: 'ready' as const, cooked: sale.cooked, cookedOn: homeLocalDay(now), setAt: now.toISOString() } } : { homeSale: { mode: 'reserve' as const, rule: sale.rule } }),
             }
           : {};
         const created = await catalog.addItem({

@@ -62,6 +62,7 @@ import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
+import { homeOrderProblem, homeTally, homeTallySince } from './home-kitchen.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -433,6 +434,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
+    if (merchantType && input.merchantOrgId) await this.assertHomePlates(input.merchantOrgId, input.lines, input.scheduledFor ?? null, now);
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -828,6 +830,20 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * أكل بيت: at a home kitchen, ready plates still free today and reserved plates within what she takes
+   * at that pickup time (`homeOrderProblem`); other kitchens pass untouched.
+   */
+  private async assertHomePlates(merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<void> {
+    if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return;
+    const ids = [...new Set(lines.map((l) => l.catalogItemId).filter((id): id is string => Boolean(id)))];
+    const items = new Map((await this.catalog.itemsOf(merchantOrgId, ids)).map((i) => [i.id, i]));
+    const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now), now);
+    const home = lines.filter((l) => l.catalogItemId).map((l) => ({ itemId: l.catalogItemId!, qty: l.qty, sale: items.get(l.catalogItemId!)?.homeSale ?? null, stock: items.get(l.catalogItemId!)?.stock ?? null }));
+    const problem = homeOrderProblem(home, scheduledFor, now, tally);
+    if (problem) throw new DriverError(problem);
+  }
+
+  /**
    * Prices an order the way `place` charges it: lines from the menu (review C2), fees from the server
    * quote (M2 follow-up), the tip cap, the one discount the server grants (merchant deal or a resolved
    * code, exactly as promised), and what the customer pays: cash rounds up to 250 with the change to
@@ -854,7 +870,8 @@ export class OrdersService implements OnModuleInit {
         // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
         // FOOD-03: a pre-order is for a real slot — from the kitchen's scheduling lead to the end of
         // «باچر» — never a past time (that dodged the hours, the hand-close and the night fee).
-        if (input.scheduledFor && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
+        // أكل بيت: a home kitchen's reserved dish books up to a week ahead at its own times (`homeOrderProblem`).
+        if (input.scheduledFor && !storefront?.home && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
