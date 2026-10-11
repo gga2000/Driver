@@ -109,6 +109,8 @@ export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
   /** The channel the code went out on (absent from older APIs = SMS). */
   channel: OtpChannel.optional(),
+  /** Whether a code can go by WhatsApp: the code screen offers «دزلي على واتساب» only when true (absent from older APIs = offered). */
+  whatsapp: z.boolean().optional(),
   expiresAt: z.coerce.date(),
   resendAfterSec: z.number().int(),
 });

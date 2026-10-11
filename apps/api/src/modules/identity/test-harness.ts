@@ -9,7 +9,7 @@ import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 import type { StagingTestConfig } from './staging-test.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
-import { DevWhatsAppProvider } from '../../shared/messaging/whatsapp.js';
+import { DevWhatsAppProvider, whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 
 export const PEPPER = 'test-pepper';
 
@@ -34,7 +34,7 @@ export function fakeRunner() {
 }
 
 /** Builds an IdentityService on in-memory everything. Shared by the unit tests. */
-export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Partial<OtpGuardConfig>; noWhatsApp?: boolean; stagingTest?: StagingTestConfig } = {}) {
+export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Partial<OtpGuardConfig>; noWhatsApp?: boolean; whatsappEnv?: NodeJS.ProcessEnv; stagingTest?: StagingTestConfig } = {}) {
   const clock = new FakeClock(start);
   const repo = new InMemoryIdentityRepository();
   const sms = new FakeSmsProvider(false);
@@ -43,9 +43,12 @@ export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Parti
   const uow = new UnitOfWork(runner);
   const sessions = new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: 'unit-test-secret' }], activeKid: 'k1' });
   const otpAlerts = new RecordingOtpAlerts();
-  const otpGuard = new OtpGuard(new InMemoryWindowCounter(clock), otpAlerts, { ...DEFAULT_OTP_GUARD, ...opts.otpGuard });
-  const whatsapp = opts.noWhatsApp ? undefined : new DevWhatsAppProvider(false);
-  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions, otpGuard, whatsapp, opts.stagingTest ?? null);
+  const counter = new InMemoryWindowCounter(clock);
+  const otpGuard = new OtpGuard(counter, otpAlerts, { ...DEFAULT_OTP_GUARD, ...opts.otpGuard });
+  const whatsapp = opts.noWhatsApp || opts.whatsappEnv ? undefined : new DevWhatsAppProvider(false);
+  // `whatsappEnv`: the port exactly as the module builds it from that environment.
+  const whatsappPort = opts.whatsappEnv ? whatsAppPortFromEnv(opts.whatsappEnv, { log: false }) : whatsapp;
+  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions, otpGuard, whatsappPort, opts.stagingTest ?? null);
 
   /** Full login: request → read fake SMS → verify. */
   async function login(phone: string, device?: { fingerprint: string; platform: 'android' | 'ios' | 'web' }, sharedFamilyPhone?: boolean) {
@@ -60,7 +63,7 @@ export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Parti
     return { personId: claims.sub, sessionId: claims.sid, ...(claims.did ? { deviceId: claims.did } : {}) };
   }
 
-  return { clock, repo, sms, whatsapp, events, uow, log, service, sessions, otpAlerts, login, actorFor };
+  return { clock, repo, sms, whatsapp, whatsappPort, events, uow, log, service, sessions, otpAlerts, counter, login, actorFor };
 }
 
 function normalize(phone: string): string {

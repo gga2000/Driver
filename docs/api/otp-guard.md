@@ -22,7 +22,7 @@ signed-in flows.
 | Per device | 5 an hour | enforce | `OTP_RATE_LIMIT_PER_DEVICE_HOUR`, `OTP_GUARD_MODE_DEVICE` |
 | Per signed-in sender | 5 an hour, 20 a day | enforce | `OTP_RATE_LIMIT_PER_ACTOR_HOUR` / `_DAY`, `OTP_GUARD_MODE_ACTOR` |
 | Per client IP | 1,000 an hour | **alert only** | `OTP_RATE_LIMIT_PER_IP_HOUR`, `OTP_GUARD_MODE_IP` |
-| SMS budget (rolling 24 h) | 4,500 SMS (3 × expected day-one installs) | throttle | `OTP_SMS_DAILY_BUDGET`, `OTP_BUDGET_MODE` |
+| SMS budget (rolling 24 h) | 4,500 SMS (3 × expected day-one installs), sign-in codes and notification texts together | throttle | `OTP_SMS_DAILY_BUDGET`, `OTP_BUDGET_MODE` |
 | Spiking number block | 30 codes an hour to one 7-digit block | used once the budget is spent | `OTP_BLOCK_SPIKE_PER_HOUR` |
 | Hard SMS cap (rolling 24 h) | 3 × the SMS budget | new numbers get WhatsApp | `OTP_SMS_HARD_CAP_MULTIPLIER` (follows `OTP_BUDGET_MODE`) |
 
@@ -33,6 +33,25 @@ Iraqi carriers put a whole town behind a few IPs, so blocking on IP would lock r
 Over an enforced limit the answer is `rate_limited` with `retryAfterSec`; the refusal is logged as
 `otp.rate_limited` with the rule and the carrier (Asiacell 077, Zain 078/079, Korek 075), never the
 number.
+
+## One SMS count for the whole server
+
+Sign-in codes and notification texts (SMS twins, texts to people who booked a ride by phone) go out
+through the same SMS account, so they share one rolling 24-hour count (`sms:day` in the shared window
+counter, `apps/api/src/shared/sms-budget.ts`) and one budget. The 50/80/100 % alerts below fire once
+per level a day, whichever side crossed the level (a notify alert carries `source: 'notify'`). Past
+100 % (in `throttle` mode) notify skips SMS twins that are not safety messages (delivery status
+`skipped`, reason `sms_budget`); safety twins and texts that are the only way to reach someone still
+go. The Console System page shows the count against the budget.
+
+## WhatsApp not set up
+
+Outside development, with no `WHATSAPP_TOKEN` the API builds no WhatsApp sender at all. Sign-in
+codes then always go by SMS: the guard never routes anyone to WhatsApp, a WhatsApp request answers
+`otp_channel_unavailable`, and `identity.requestOtp` answers `whatsapp: false` so the customer app's
+code screen does not offer «دزلي على واتساب». Past the budget, people who did not choose a channel
+still get SMS; past the hard cap a new number waits 15 minutes and a returning number gets its SMS.
+Notify marks WhatsApp rows `skipped` (`not_configured`) so their SMS twins go.
 
 ## When the SMS budget is spent
 

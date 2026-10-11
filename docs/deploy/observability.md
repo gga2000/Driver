@@ -46,6 +46,7 @@ open **Fly dashboard → driver-api → Metrics**, or Grafana at <https://fly-me
 | `driver_http_requests_total{status,role}` | HTTP answers on `/trpc` by class (`2xx`, `4xx`, `5xx`) |
 | `driver_heap_used_bytes`, `driver_rss_bytes` | memory (the web heap cap is 1,536 MB) |
 | `driver_event_loop_delay_p99_seconds` | how long work waits for the CPU; above 0.1 s phones feel it |
+| `driver_notify_delivery_total{channel,result,role}` | notification outcomes per channel (`push`, `sms`, `whatsapp`): `sent` (the provider took it), `failed` (given up on), `account` (refused for our own account: bad or expired key, no permission, no balance) |
 
 Labels are procedure names and codes only, never ids, inputs or phone numbers. `role` is `web`,
 `worker` or `all`.
@@ -62,6 +63,15 @@ histogram_quantile(0.95, sum by (le) (rate(driver_procedure_duration_seconds_buc
 # orders.place success (alert: < 95 % for 10 min; refusals such as a closed kitchen count as answered)
 sum(rate(driver_procedure_calls_total{procedure="orders.place",code!="INTERNAL_SERVER_ERROR"}[10m]))
   / sum(rate(driver_procedure_calls_total{procedure="orders.place"}[10m]))
+
+# notification provider refusing our account (alert: any in 5 min; page). Every send on that channel
+# fails until the key, permission or balance is fixed. The same failure is logged at error level, so
+# it also reaches the error reporter.
+sum by (channel) (increase(driver_notify_delivery_total{result="account"}[5m])) > 0
+
+# notifications given up on (alert: > 10 % of a channel's outcomes for 15 min)
+sum by (channel) (rate(driver_notify_delivery_total{result=~"failed|account"}[15m]))
+  / sum by (channel) (rate(driver_notify_delivery_total[15m])) > 0.1
 
 # slowest procedures right now
 topk(10, histogram_quantile(0.95, sum by (le, procedure) (rate(driver_procedure_duration_seconds_bucket[5m]))))
