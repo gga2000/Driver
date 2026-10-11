@@ -40,6 +40,8 @@ import { shouldLand } from '@/features/setup/logic';
 import { setupSession, useSetupActions } from '@/features/setup/queries';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
 import { AcceptSheet } from './AcceptSheet';
+import { CancelledCards } from './CancelledCards';
+import { visibleCancelled } from './cancelled';
 import { alarm, useAlarmPlan, useSoundReady } from './alarm';
 import { InfoStrip, missedText, NewOrderBanner } from './Banners';
 import { useCourierArrivals } from './useCourierArrivals';
@@ -62,8 +64,14 @@ import { RejectSheet } from './RejectSheet';
 import { StickyAcceptBar } from './Rush';
 import { ShiftGate } from './ShiftGate';
 import { shiftGateNeeded, startShift, useShift } from './shift';
-import { useMissedSeen } from './useMissed';
+import { useCancelledSeen, useMissedSeen } from './useMissed';
 import { useTicks } from './useTicks';
+import { comingCouriers } from './courier-map';
+import { COURIER_MAP, CourierMap } from './CourierMap';
+import { useDeliveryArea } from '@/features/area/queries';
+
+/** N16: the courier map over the ready lane (tablet; lower on a 1024-wide iPad so the pass card stays in view). */
+const courierMapHeight = (width: number) => (width < 1100 ? 240 : 340);
 
 const EMPTY_ICON: Record<BoardColumn, MIconName> = { new: 'bell', preparing: 'flame', ready: 'bag' };
 
@@ -181,7 +189,7 @@ export function Board() {
   const locale = useLocale();
   const toast = useCounterToast();
   const prefs = usePrefs();
-  const { wide } = useLayout();
+  const { wide, width } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const board = useBoard(storeId);
@@ -215,6 +223,7 @@ export function Board() {
   const printStore: StorePrint = useMemo(() => ({ orgId: storeId, name: store?.name ?? '', prepKind: status.data?.prepKind }), [storeId, store?.name, status.data?.prepKind]);
   const print = usePrintOrder(printStore);
   const { seen, markSeen } = useMissedSeen();
+  const cancelledSeen = useCancelledSeen();
   const ticks = useTicks();
 
   const [segment, setSegment] = useState<BoardColumn>('new');
@@ -243,6 +252,11 @@ export function Board() {
   const whoLine = whoDetailId && orderWho.data?.orderId === whoDetailId ? orderWhoLine(orderWho.data.entries, canSeeMoney, t) : null;
   // Maps program SP7a: a chime when a courier is about to walk in.
   useCourierArrivals(board.data?.orders, prefs.soundOn);
+  // N16 (Ali 2026-10-11): the tablet sees the courier coming, on a map over the ready lane, so the bag
+  // is ready when he walks in. His spot is the radar the board already has, from the kitchen's pin.
+  const area = useDeliveryArea(wide && COURIER_MAP ? storeId : null);
+  const kitchen = area.data?.kitchen?.pin ?? null;
+  const coming = useMemo(() => (kitchen ? comingCouriers(orders, kitchen) : []), [orders, kitchen]);
   // The ready column reads in counter order (S-M4): couriers waiting at the pass first.
   const nowMinute = Math.floor(now / 60_000);
   const cols = useMemo(() => {
@@ -344,6 +358,7 @@ export function Board() {
   const soundOff = !prefs.soundOn || !soundReady;
   const missed = board.data?.missed;
   const missedNew = missed ? unseenMissed(missed.orders, seen) : [];
+  const cancelledCards = visibleCancelled(board.data?.cancelled, cancelledSeen.seen);
   const nudge = missed ? missNudge(missed.orders, seen, now) : false;
   const sheetOpen = acceptId !== null || rejectId !== null || detailId !== null || sheet !== null;
   /** Closing «طلبات فاتتك» counts as «تمام» for the ones it showed (the strip it replaced did the same). */
@@ -761,6 +776,9 @@ export function Board() {
         />
       ) : null}
 
+      {/* An accepted order that was cancelled: a red card until tapped, so nobody keeps cooking it. */}
+      <CancelledCards cards={cancelledCards} wide={wide} onDismiss={(id) => cancelledSeen.markSeen([id])} />
+
       {wide ? (dayCard ?? dayLine) : null}
 
       {wide && inSetup && setupLine && storeId && orders.length === 0 && !failed ? (
@@ -788,6 +806,7 @@ export function Board() {
                 <ColumnHeader column={c} count={failed || loading ? null : cols[c].length} />
               </View>
               {c === 'preparing' ? <CookingTotals totals={totals} /> : null}
+              {c === 'ready' && kitchen && coming.length > 0 && !failed ? <CourierMap kitchen={kitchen} couriers={coming} height={courierMapHeight(width)} /> : null}
               <ScrollView
                 ref={c === 'new' ? newScroll : undefined}
                 style={{ flex: 1 }}

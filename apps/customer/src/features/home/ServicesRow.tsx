@@ -10,9 +10,11 @@ import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/log
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { useAmbient } from './ambient';
+import { tileLaunched } from './launched';
 import { backFact, rideFact, tripsFact, type Fact } from './service-facts';
 import { MOMENT_LEAD_MS, MOMENT_MS, nudge, steamWisp, tuktukHop } from './tile-moments';
 import { TILE_PICTURES, type TilePicture } from './tile-pictures';
@@ -128,6 +130,8 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
   const out = useNextCar('from_aziziyah', signedIn);
   const back = useNextCar('to_aziziyah', signedIn);
   const ridesOff = !online;
+  // Baghdad/Kut and الرجعة show only once the city has launched intercity (city config, via the season read).
+  const intercity = tileLaunched('trips', useSeason().launched);
   const facts = {
     taxi: rideFact('taxi', { online, signedIn, loading: taxi.loading, nearestMinutes: taxi.minutes }),
     tuktuk: rideFact('tuktuk', { online, signedIn, loading: tuktuk.loading, nearestMinutes: tuktuk.minutes }),
@@ -200,23 +204,25 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
       </View>
       {/* Out to Baghdad and Kut and back home: two cards with the there-and-back sign between them
           (Ali picked it over the torn ticket and one two-colour card, 2026-10-08). */}
-      <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
-        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
-          <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
-          <SideWords text={PLACE.trips.text}>
-            <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
-          </SideWords>
-        </Tile>
-        <View pointerEvents="none" style={{ width: GAP, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
-          <RoundTripSign card={ride(s.trips.card)} />
+      {intercity && (
+        <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
+          <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
+            <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
+            <SideWords text={PLACE.trips.text}>
+              <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
+            </SideWords>
+          </Tile>
+          <View pointerEvents="none" style={{ width: GAP, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+            <RoundTripSign card={ride(s.trips.card)} />
+          </View>
+          <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1 }} onPress={() => press('rajaa')}>
+            <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
+            <SideWords text={PLACE.rajaa.text}>
+              <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
+            </SideWords>
+          </Tile>
         </View>
-        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1 }} onPress={() => press('rajaa')}>
-          <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
-          <SideWords text={PLACE.rajaa.text}>
-            <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
-          </SideWords>
-        </Tile>
-      </View>
+      )}
     </View>
   );
 }

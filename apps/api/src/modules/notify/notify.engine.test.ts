@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { vi } from 'vitest';
+import { FakeClock } from '../../shared/clock.js';
 import { ProviderError } from '../../shared/messaging/http.js';
+import { notifyDeliveries } from '../../shared/metrics.js';
+import { SMS_DAY_KEY, SMS_DAY_MS } from '../../shared/sms-budget.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+import type { NotifySmsBudget } from './notify.engine.js';
 import { inQuietHours, quietHoursEnd } from './notify.engine.js';
 import { twinStillWanted } from './notify.subscribers.js';
 import type { PromoHold } from '../controls/index.js';
@@ -323,6 +330,150 @@ describe('SMS twins', () => {
     await off.service.dispatch({ eventId: 'ev1', template: 'phone_ride_matched', to: 'cust', params });
     await off.run();
     expect(off.sms.sent).toHaveLength(0);
+  });
+});
+
+describe('WhatsApp not set up (a live host without WHATSAPP_TOKEN)', () => {
+  const sos = { name: 'حيدر ك.', role: 'سايق', what: 'مشوار تكتك #1290', link: 'https://console.driver.iq/safety/sos_1', incidentId: 'sos_1' };
+
+  it('safety page with no WhatsApp -> SMS after 30 s', async () => {
+    const push = new ScriptedPush(); // the push is taken but its receipt never confirms it
+    const h = notifyHarness({ push, whatsapp: null });
+    await h.register('owner', 'ExponentPushToken[owner-1]', 'partner');
+    await h.service.dispatch({ eventId: 'ev1', template: 'sos_dispatch_alert', to: 'owner', params: sos });
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'sent', null],
+      ['whatsapp', 'skipped', 'not_configured'],
+    ]);
+    await h.run(29 * SEC);
+    expect(h.sms.sent).toHaveLength(0);
+    await h.run(1 * SEC);
+    expect(h.sms.sentTo('+9647701110003')).toHaveLength(1);
+
+    // Someone with no app at all gets the SMS at once: nothing else could reach him.
+    await h.service.dispatch({ eventId: 'ev2', template: 'sos_dispatch_alert', to: 'courier', params: sos });
+    await h.run();
+    expect((await h.rows({ personId: 'courier' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'skipped', 'no_device'],
+      ['whatsapp', 'skipped', 'not_configured'],
+      ['sms', 'sent', null],
+    ]);
+  });
+
+  it('a WhatsApp-only safety message (the emergency contact) goes by SMS straight away', async () => {
+    const h = notifyHarness({ whatsapp: null });
+    await h.service.dispatch({ eventId: 'ev1', template: 'sos_emergency_contact', to: 'guardian', params: { name: 'علي', link: 'https://driver.iq/sos/abc' } });
+    await h.run();
+    expect((await h.rows({ personId: 'guardian' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['whatsapp', 'skipped', 'not_configured'],
+      ['sms', 'sent', null],
+    ]);
+  });
+});
+
+describe('the shared daily SMS budget', () => {
+  function budget(dailyBudget: number, alerts: unknown[], throttle = true) {
+    let counter: InMemoryWindowCounter | undefined;
+    const make = (clock: FakeClock): NotifySmsBudget => {
+      counter = new InMemoryWindowCounter(clock);
+      return { counter, dailyBudget, throttle, alert: async (a) => void alerts.push(a) };
+    };
+    return { make, counter: () => counter! };
+  }
+  const order = (n: number) => ({ eventId: `ev${n}`, template: 'merchant_new_order' as const, to: 'owner', params: { id: String(n), items: '1', orderId: `o${n}` } });
+
+  it('counts every notification SMS in the same day counter as sign-in codes, alerting at 50/80/100 % once each', async () => {
+    const alerts: unknown[] = [];
+    const b = budget(4, alerts);
+    const h = notifyHarness({ smsBudget: b.make });
+    for (let n = 1; n <= 4; n += 1) await h.service.dispatch(order(n)); // no device: each twin goes at once
+    await h.run();
+    expect(h.sms.sent).toHaveLength(4);
+    expect(await b.counter().count(SMS_DAY_KEY, SMS_DAY_MS)).toBe(4);
+    expect(alerts).toEqual([
+      { level: 50, count: 2, limit: 4 },
+      { level: 80, count: 4, limit: 4 },
+      { level: 100, count: 4, limit: 4 },
+    ]);
+  });
+
+  it('past 100 %: SMS twins are skipped (sms_budget), safety twins and SMS-first messages still go', async () => {
+    const alerts: unknown[] = [];
+    const b = budget(2, alerts);
+    const h = notifyHarness({ smsBudget: b.make });
+    await h.service.dispatch(order(1));
+    await h.service.dispatch(order(2));
+    await h.run();
+    await h.service.dispatch(order(3));
+    await h.service.dispatch({ eventId: 'sos', template: 'courier_unreachable_reminder', to: 'cust', params: { orderId: 'o9' } });
+    await h.service.dispatch({ eventId: 'ph', template: 'phone_ride_matched', to: 'cust', params: { driver: 'علي', car: 'تكتك', eta: 'بعد 5 دقايق' } });
+    await h.run();
+    const sms = (await h.rows()).filter((r) => r.channel === 'sms').map((r) => [r.template, r.status, r.reason]);
+    expect(sms.sort((x, y) => String(x).localeCompare(String(y)))).toEqual([
+      ['courier_unreachable_reminder', 'sent', null],
+      ['merchant_new_order', 'sent', null],
+      ['merchant_new_order', 'sent', null],
+      ['merchant_new_order', 'skipped', 'sms_budget'],
+      ['phone_ride_matched', 'sent', null],
+    ]);
+  });
+
+  it('OTP_BUDGET_MODE=alert: past 100 % the twins still go', async () => {
+    const b = budget(1, [], false);
+    const h = notifyHarness({ smsBudget: b.make });
+    await h.service.dispatch(order(1));
+    await h.service.dispatch(order(2));
+    await h.run();
+    expect(h.sms.sent).toHaveLength(2);
+  });
+});
+
+describe('delivery outcomes ops can see', () => {
+  const value = (channel: string, result: string) => notifyDeliveries.values.get(`channel="${channel}",result="${result}"`) ?? 0;
+
+  it('counts notify_delivery_total{channel,result} and reports a refused account at error level', async () => {
+    const errors: string[] = [];
+    const warns: string[] = [];
+    const err = vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => void errors.push(String(m)));
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation((m: unknown) => void warns.push(String(m)));
+    try {
+      const push = new ScriptedPush();
+      const h = notifyHarness({ push });
+      await h.register('cust');
+      const before = { sent: value('push', 'sent'), account: value('push', 'account'), failed: value('push', 'failed') };
+      await h.service.dispatch({ eventId: 'ev1', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      push.throwNext.push(new ProviderError('expo', 'http_401', 'unauthorized', true));
+      await h.service.dispatch({ eventId: 'ev2', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      push.throwNext.push(new ProviderError('expo', 'http_400', 'bad request', true));
+      await h.service.dispatch({ eventId: 'ev3', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      expect({ sent: value('push', 'sent') - before.sent, account: value('push', 'account') - before.account, failed: value('push', 'failed') - before.failed }).toEqual({ sent: 1, account: 1, failed: 1 });
+      expect(errors.filter((m) => m.includes('http_401'))).toHaveLength(1);
+      expect(errors.some((m) => m.includes('http_400'))).toBe(false);
+      expect(warns.some((m) => m.includes('http_400'))).toBe(true);
+    } finally {
+      err.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('an SMS account with no balance left is an account problem too', async () => {
+    const errors: string[] = [];
+    const err = vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => void errors.push(String(m)));
+    try {
+      const h = notifyHarness();
+      const before = value('sms', 'account');
+      vi.spyOn(h.sms, 'send').mockRejectedValueOnce(new ProviderError('otpiq', 'http_400', 'Insufficient balance', true));
+      await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', params: { id: '1', items: '1', orderId: 'o1' } });
+      await h.run();
+      expect(value('sms', 'account') - before).toBe(1);
+      expect(errors.some((m) => m.includes('sms provider refused our account'))).toBe(true);
+    } finally {
+      err.mockRestore();
+    }
   });
 });
 

@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { formatClock } from '@driver/i18n';
+import { formatHourPart } from '@driver/i18n';
 import { Icon, PhotoImage, Text, useTheme, withAlpha } from '@driver/ui';
 import { measure } from '@/features/food/FlyToCart';
 import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
@@ -244,7 +244,8 @@ function Slide({
   const quick = d.quickAdd && d.available;
   const ink = theme.colors.photoBackdrop;
   const on = theme.colors.onPhotoBackdrop;
-  const tag = h.pot ? [t('pots.badge'), h.pot.until ? t('pots.until', { time: formatClock(potUntilAt(h.pot.until, now)) }) : null].filter(Boolean).join(' · ') : null;
+  // «لحد 10 بالليل», the way people say it, not «10:00 م».
+  const tag = h.pot ? [t('pots.badge'), h.pot.until ? t('pots.until', { time: formatHourPart(potUntilAt(h.pot.until, now), { locale }) }) : null].filter(Boolean).join(' · ') : null;
   const meta = [d.restaurantName, h.line, minutes ? t('food.minutes', { n: minutes }) : null].filter(Boolean).join(' · ');
   const slide = useAnimatedStyle(() => ({ transform: [{ translateX: (i - pos.value) * step * dir }] }));
   const open = () => {

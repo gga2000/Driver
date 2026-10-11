@@ -1592,6 +1592,11 @@ export class OrdersService implements OnModuleInit {
     return (await this.repo.merchantMissedBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
   }
 
+  /** Orders the store had accepted that were cancelled since `since`, newest first (the board's red cards). */
+  async merchantCancelledAfterAccept(merchantOrgId: string, since: Date): Promise<Order[]> {
+    return (await this.repo.merchantCancelledAfterAcceptSince(merchantOrgId, since)).map(toOrderView);
+  }
+
   /**
    * «منين زبائنك» (maps program r6): the store's delivered orders placed in `[from, to)` per drop-off
    * zone. Counts only, from one grouped read; the merchant module hides the small zones (D7).

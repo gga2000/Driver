@@ -219,9 +219,9 @@ export const WalletBalanceView = z.object({
   /** w1: the most points one order or trip can earn (city money rules), for the earn-rules line. */
   pointsMaxPerOrder: z.number().int().nonnegative().default(0),
   /**
-   * w10 «وفّرت {amount} دينار هالسنة»: since 1 January (Baghdad), what came back to the customer —
-   * points spent on fees, deals and promotions, the late-delivery credits and change kept in the
-   * wallet ("الخردة علينا"). A sum of ledger lines; nothing is estimated.
+   * w10 «وفّرت {amount} دينار هالسنة»: since 1 January (Baghdad), what came off the customer's bills —
+   * points spent on fees, deals and promotions (`promo_funded`). Not change kept in the wallet or the
+   * late-delivery credit (Ali, 2026-10-11). A sum of ledger lines; nothing is estimated.
    */
   savedThisYearIqd: Iqd.default(0),
 });

@@ -104,7 +104,7 @@ describe('the envelope', () => {
   });
 
   it('never serializes a thrown object', () => {
-    const event = buildCrashEvent({ user: { phone: '07701112233' } }, {}, meta, 'b'.repeat(32), new Date());
+    const event = buildCrashEvent({ user: { phone: '07701112233' } }, {}, meta, 'b'.repeat(32), new Date('2026-10-07T10:00:00Z'));
     expect(JSON.stringify(event)).not.toContain('0770');
     expect(event.exception.values[0]!.value).toBe('Non-Error object thrown');
   });
