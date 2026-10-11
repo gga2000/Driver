@@ -109,6 +109,8 @@ export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
   /** The channel the code went out on (absent from older APIs = SMS). */
   channel: OtpChannel.optional(),
+  /** Whether a code can go by WhatsApp: the code screen offers «دزلي على واتساب» only when true (absent from older APIs = offered). */
+  whatsapp: z.boolean().optional(),
   expiresAt: z.coerce.date(),
   resendAfterSec: z.number().int(),
 });
@@ -132,6 +134,10 @@ export const LogoutInput = z.object({ refreshToken: z.string().min(16).optional(
 
 export const GrantRoleInput = z.object({ personId: z.string(), kind: RoleKind, orgId: z.string().optional() });
 export const RevokeRoleInput = GrantRoleInput;
+
+/** Admins: «طلّعه من كل الأجهزة», every session of one person, on every device. */
+export const EndAllSessionsInput = z.object({ personId: z.string().min(1) });
+export const EndAllSessionsOutput = z.object({ ended: z.number().int().nonnegative() });
 
 export const LinkGuardianInput = z.object({
   wardPhone: z.string().min(7).max(20).optional(),

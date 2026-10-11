@@ -22,6 +22,7 @@ const AUDITED = [
   'system.setSeason',
   'system.setIftarTime',
   'ops.pickupSpots.set',
+  'ops.pickupSpots.moveKitchen',
   'ops.dishPhotos.keep',
   'ops.dishPhotos.takeDown',
   'safety.acknowledge',
@@ -72,6 +73,8 @@ const AUDITED = [
   'ops.confirmTopUp',
   // Account close (docs/api/account-close.md): the audit row is written in the close's transaction.
   'identity.closeAccount.close',
+  // Admins cut a staff member off every device («الموظفين»).
+  'identity.endAllSessions',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */

@@ -8,6 +8,8 @@ import {
   ChangePhoneStartOutput,
   ConsentGuardianLinkInput,
   DevLastOtpInput,
+  EndAllSessionsInput,
+  EndAllSessionsOutput,
   StagingTestCodeInput,
   StagingTestCodeOutput,
   DevLastOtpOutput,
@@ -56,6 +58,11 @@ export const identityRouter = router({
       await ctx.identity.revokeRole(ctx.actor, input);
       return { ok: true as const };
     }),
+  /**
+   * «طلّعه من كل الأجهزة» (Console «الموظفين»): every session of the person ends on every device. The
+   * audit row lives with the Console's trail, so `ctx.controls` runs it (identity cannot write there).
+   */
+  endAllSessions: protectedProcedure(['admin']).input(EndAllSessionsInput).output(EndAllSessionsOutput).mutation(({ ctx, input }) => ctx.controls.endAllSessions(ctx.actor, input)),
   linkGuardian: protectedProcedure().input(LinkGuardianInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.linkGuardian(ctx.actor, input)),
   consentGuardianLink: protectedProcedure().input(ConsentGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.consentGuardianLink(ctx.actor, input)),
   revokeGuardianLink: protectedProcedure().input(RevokeGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.revokeGuardianLink(ctx.actor, input)),

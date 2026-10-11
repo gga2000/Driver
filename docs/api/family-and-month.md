@@ -57,7 +57,9 @@ is a household spending limit that asks the payer; it never blocks an order sile
 (`invalid_input` otherwise): `meals` (food/shop orders delivered), `kitchens`, `topKitchen {name,
 orders}` (ties: latest), `topDish {name, kitchen, orders}` (orders that had it; ties: portions, then
 latest), `rides` (completed), `rajaaTrips` (bookings completed in the month), `savedIqd` (the same
-`savedBetween` the account header's year uses: points spent, deals, late-delivery credit, change kept),
+`savedBetween` the account header's year uses: only what came off his bills, `promo_funded` into his
+account — points spent, deals, the الرجعة return discount; not change kept or the late-delivery credit, Ali
+2026-10-11),
 `pointsEarned` (`points_earned` + `organizer_bonus`), `hasActivity`, `earliestMonth`. The warm line is
 chosen in the app (`features/account/month.ts`): safe الرجعة travel, discovering kitchens, a favourite,
 savings, thanks — never eating volume. Private: nothing is shared.

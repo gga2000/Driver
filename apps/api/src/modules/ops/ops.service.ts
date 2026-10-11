@@ -229,11 +229,15 @@ export class OpsService implements OpsPort, OnModuleInit {
   }
 
   async merchantOnboarding(actor: Actor, input: z.output<typeof MerchantOnboardingInput>): Promise<MerchantOnboardingView> {
+    // The kitchen's zone is the server's reading of its pin (fees, ETAs and the late promise start there).
+    const zoneKey = this.zones.resolve(input.cityId, input.location.pin);
+    if (!zoneKey) throw new DriverError('outside_zone');
+    const location = { zoneKey, pin: input.location.pin };
     for (const id of [...input.menuPhotoUploadIds, ...(input.shopPhotoUploadId ? [input.shopPhotoUploadId] : [])]) await this.assertUpload(actor.personId, id);
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
     const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    await this.orgs.setMerchantSettings(org.id, { location: input.location });
+    await this.orgs.setMerchantSettings(org.id, { location });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
@@ -244,7 +248,7 @@ export class OpsService implements OpsPort, OnModuleInit {
           name: input.name,
           type: input.type,
           contactPersonId,
-          location: input.location,
+          location,
           menuPhotoRefs: [...input.menuPhotoUploadIds],
           shopPhotoRef: input.shopPhotoUploadId ?? null,
           notes: input.notes ?? null,

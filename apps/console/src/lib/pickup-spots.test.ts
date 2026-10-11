@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PHOTO_MAX_BYTES, type PhotoUploadTicket } from '@driver/contracts';
-import { filterStores, missingCount, photoProblem, storeGaps, toFinish, uploadPhoto } from './pickup-spots';
+import { filterStores, missingCount, parsePin, photoProblem, storeGaps, toFinish, uploadPhoto } from './pickup-spots';
 
 const rows = [
   { name: 'مطعم خالد', note: 'الشباك اليسار', photos: 1 },
@@ -56,5 +56,16 @@ describe('pickup-spot photo upload', () => {
     expect(put).toHaveBeenCalledWith('http://api/uploads/up_1?sig=x', { method: 'PUT', headers: ticket.headers, body: file });
     const refused = vi.fn(async () => new Response(null, { status: 413 }));
     await expect(uploadPhoto(file, requestTicket, (u) => u, refused)).rejects.toThrow('upload_413');
+  });
+});
+
+describe('«حرّك مكان المطعم»: the pasted pin', () => {
+  it('reads «lat, lng» as a maps app copies it, Arabic digits too', () => {
+    expect(parsePin('32.905, 45.06')).toEqual({ lat: 32.905, lng: 45.06 });
+    expect(parsePin(' 32.887 45.0765 ')).toEqual({ lat: 32.887, lng: 45.0765 });
+    expect(parsePin('٣٢٫٩٠٥، ٤٥٫٠٦')).toEqual({ lat: 32.905, lng: 45.06 });
+  });
+  it('refuses anything that is not two numbers in range', () => {
+    for (const bad of ['', '32.905', 'حي العسكري', '32.9, 45.0, 1', '95, 45', '32.9, abc']) expect(parsePin(bad)).toBeNull();
   });
 });

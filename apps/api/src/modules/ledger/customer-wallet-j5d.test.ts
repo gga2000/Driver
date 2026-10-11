@@ -22,7 +22,7 @@ describe('customer wallet: lines that open what they were, and what you saved th
     expect(lines.find((l) => l.kind === 'seat')).toMatchObject({ bookingId: 'bk_9' });
   });
 
-  it('sums points used, deals, late credits and change kept since 1 January (Baghdad) only', async () => {
+  it('sums only what came off his bills (points used, deals) since 1 January (Baghdad): not late credits, change kept or top-ups (Ali, 2026-10-11)', async () => {
     const clock = new FakeClock('2026-10-06T09:00:00Z');
     const h = ledgerHarness({ clock });
     const wallet = new CustomerWalletService(h.ledger, h.rules, { phoneHashOf: async () => null }, { householdOf: () => null }, clock);
@@ -34,12 +34,13 @@ describe('customer wallet: lines that open what they were, and what you saved th
       ]),
       group('late1', '2026-10-02T10:00:00Z', [{ type: 'credit_issued', amount: 1_000, fromAccount: Accounts.platform, toAccount: c, memo: LATE_PROMISE_MEMO }]),
       group('chg1', '2026-10-03T10:00:00Z', [{ type: 'cash_change_to_wallet', amount: 2_250, fromAccount: Accounts.cash('cour'), toAccount: c }]),
-      // A top-up is the customer's own money, not a saving; last year's deal is not this year's.
+      // A top-up is the customer's own money, not a saving; the late credit and change kept are not off his bills;
+      // last year's deal is not this year's.
       group('tu1', '2026-10-03T11:00:00Z', [{ type: 'credit_issued', amount: 25_000, fromAccount: Accounts.bank, toAccount: c, memo: 'topup:agent' }]),
       group('old', '2025-12-31T20:00:00Z', [{ type: 'promo_funded', amount: 9_000, fromAccount: Accounts.platform, toAccount: c, memo: 'deal:p0' }]),
     ]);
     const b = await wallet.balance(actor('c1'));
-    expect(b.savedThisYearIqd).toBe(7_250);
+    expect(b.savedThisYearIqd).toBe(4_000);
     expect(b.pointsMaxPerOrder).toBe(h.rules.points.maxPerOrder);
   });
 });

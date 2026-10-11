@@ -214,9 +214,9 @@ export function cachedIdentityRepository(inner: IdentityRepository, cache: AuthC
       return row;
     },
     revokeSessionsOf: async (personId, now, tx) => {
-      const n = await inner.revokeSessionsOf(personId, now, tx);
+      const ids = await inner.revokeSessionsOf(personId, now, tx);
       await dropAfter(tx, { person: personId });
-      return n;
+      return ids;
     },
     upsertRole: async (input, tx) => {
       const out = await inner.upsertRole(input, tx);
