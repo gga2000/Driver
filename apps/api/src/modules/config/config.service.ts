@@ -1,6 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { CityPricingConfig, type DispatchConfig, type Vertical } from '@driver/contracts';
+import { CityPricingConfig, Vertical, type DispatchConfig } from '@driver/contracts';
+import { deployEnvironmentFromEnv } from './boot-check.js';
 import { aziziyah } from './cities/aziziyah.js';
+
+/**
+ * Local runs and CI only (never staging or production, where boot refuses it): the services every city
+ * opens instead of its own `launchedVerticals`, e.g. `food,taxi,tuktuk,intercity,khat` so the end-to-end
+ * flows on a real database can book seats. Comma-separated vertical names.
+ */
+export const TEST_LAUNCHED_VERTICALS_ENV = 'DRIVER_TEST_LAUNCHED_VERTICALS';
+
+/** The override list from the environment, or null when unset or not a local run. */
+export function testLaunchedVerticals(env: NodeJS.ProcessEnv = process.env): Vertical[] | null {
+  const raw = env[TEST_LAUNCHED_VERTICALS_ENV]?.trim();
+  if (!raw || deployEnvironmentFromEnv(env) !== 'local') return null;
+  return raw.split(',').map((v) => Vertical.parse(v.trim()));
+}
 
 /**
  * City configuration registry. Cities are data: adding one is a new file under `cities/`
@@ -11,8 +26,9 @@ export class ConfigService {
   private readonly cities = new Map<string, CityPricingConfig>();
 
   constructor() {
+    const open = testLaunchedVerticals();
     for (const raw of [aziziyah]) {
-      const parsed = CityPricingConfig.parse(raw);
+      const parsed = CityPricingConfig.parse(open ? { ...raw, launchedVerticals: open } : raw);
       this.cities.set(parsed.cityId, parsed);
     }
   }
