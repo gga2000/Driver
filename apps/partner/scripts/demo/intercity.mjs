@@ -20,8 +20,9 @@
 //   GET  /demo/intercity/pins                  → { name: pin } for run A's riders still to check in
 import { PostRequestInput } from '@driver/contracts';
 const MIN = 60_000;
-const BAB1 = { lat: 32.9032, lng: 45.0578 };
+const BAB1 = { lat: 32.91575, lng: 45.0405 };
 const HASHIMI_DOOR = { lat: 32.8968, lng: 45.0662 };
+const HAWAS_DOOR = { lat: 32.9285, lng: 45.0385 };
 const BAGHDAD_DOOR = { lat: 33.3195, lng: 44.4302 };
 // Step 4: spots on the Baghdad road (outside both garages' door areas) and a door in Aziziyah.
 const ROAD_PIN = { lat: 33.1667, lng: 44.5517 };
@@ -108,7 +109,7 @@ export default async function register(demo) {
     });
     const zahraa = await book('zahraa', a.id, ['front'], 'nisa', 'wallet');
     const hussein = await book('hussein', a.id, ['middle_left'], 'rijal', 'wallet', { kind: 'garage' }, true);
-    const maryam = await book('maryam', a.id, ['rear_left', 'rear_middle'], 'aila', 'wallet', { kind: 'door', ...HASHIMI_DOOR, note: 'بيت باب أسود، مقابل جامع الهاشمي' });
+    const maryam = await book('maryam', a.id, ['rear_left', 'rear_middle'], 'aila', 'wallet', { kind: 'door', ...HAWAS_DOOR, note: 'حواس حي العباس، بيت باب أسود' });
     const ahmed = await book('ahmed', a.id, ['rear_right'], 'rijal', 'cash');
     await rpc.respondPickup(driver, { departureId: a.id, bookingId: maryam.id, accept: true });
     await rpc.selfie(driver, { departureId: a.id, selfieRef: 'demo:selfie' });

@@ -58,7 +58,7 @@ export function NavRail({ items, active, newCount, onNavigate }: ShellNavProps) 
         style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center', marginBottom: theme.space[4] }}
       >
         <Text weight={700} style={{ fontSize: 26, lineHeight: 36, color: theme.colors.onAccent }}>
-          د
+          {t('merchant.app_letter')}
         </Text>
       </View>
       {items.map((item) => {

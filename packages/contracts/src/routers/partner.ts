@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AnswerClimateCheckInput } from '../climate-check.js';
-import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandMap, PartnerGoOnlineInput, PartnerGoOnlineResult, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandGlow, PartnerGoOnlineInput, PartnerGoOnlineResult, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -46,9 +46,9 @@ export const partnerRouter = router({
     .output(OrderRoute)
     .query(({ ctx }) => ctx.partner.jobRoute(ctx.actor)),
   /** Busy zones for the driver's map (refresh every minute). */
-  demandMap: protectedProcedure(PARTNER_DRIVING_ROLES)
-    .output(PartnerDemandMap)
-    .query(({ ctx }) => ctx.partner.demandMap(ctx.actor)),
+  demandGlow: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .output(PartnerDemandGlow)
+    .query(({ ctx }) => ctx.partner.demandGlow(ctx.actor)),
   /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones that fit him to confirm. */
   bookedJobs: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerBookedJobs)

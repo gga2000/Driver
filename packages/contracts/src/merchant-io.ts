@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { ZoneTier } from './city-config.js';
 import { Iqd, LatLng } from './common.js';
+import { DishKind } from './dish-kind.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
@@ -77,6 +78,8 @@ export const BoardLine = z.object({
   availability: z.enum(['available', 'unavailable', 'removed']),
   /** The dish on the menu (null for a free-text line), so the kitchen can stop it for the day from the ticket (m5). */
   menuItemId: z.string().nullable().optional(),
+  /** The owner's ticket kind for this dish (k4/j6 override); absent or null = guess from the name. */
+  kind: DishKind.nullable().optional(),
 });
 export type BoardLine = z.infer<typeof BoardLine>;
 
@@ -150,6 +153,12 @@ export const BoardOrder = z.object({
   offeredAt: z.coerce.date().nullable(),
   /** End of the 90-s acceptance window (new orders only; null for auto-accepted or not yet offered). */
   acceptBy: z.coerce.date().nullable(),
+  /**
+   * Offered while the store was already closed (out of hours, or closed by hand before the offer): a
+   * pre-order for opening time. It rings even though the store is closed — the quiet rule (m6a) is
+   * only for orders that were waiting when the store closed. Absent on an older API = false.
+   */
+  offeredWhileClosed: z.boolean().optional(),
   acceptedAt: z.coerce.date().nullable(),
   promisedReadyAt: z.coerce.date().nullable(),
   readyAt: z.coerce.date().nullable(),
@@ -426,6 +435,11 @@ export const PickupStoreRow = z.object({
   note: z.string().nullable(),
   photos: z.number().int().min(0).max(PICKUP_SPOT_RULES.maxPhotos),
   updatedAt: z.coerce.date().nullable(),
+  /** k6 «للتكملة»: the storefront has its shop photo (customers see it on the card). */
+  shopPhoto: z.boolean(),
+  /** Dishes on the menu, and how many show no picture at all (neither the kitchen's nor a library one). */
+  dishes: z.number().int().min(0),
+  dishesNoPhoto: z.number().int().min(0),
 });
 export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 

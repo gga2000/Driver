@@ -78,6 +78,8 @@ export interface PartnerDeps {
     offline(driverId: string): Promise<void>;
     /** Online drivers' zones in the city (demand hint). */
     zones(cityId: string): Promise<Array<string | null>>;
+    /** N17: the city's online drivers with where they are and whether they're free. Absent in older fakes = none. */
+    live?(cityId: string): Promise<Array<{ driverId: string; zoneId: string | null; lat: number; lng: number; free: boolean }>>;
   };
   dispatch: {
     openOffer(driverId: string, cityId: string): Promise<{ offer: PartnerOfferRecord; request: PartnerOfferRequest } | null>;
@@ -87,6 +89,8 @@ export interface PartnerDeps {
     bookedJobs?(driverId: string, cityId: string): Promise<{ online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] }>;
     /** His answer on one (dispatch's rules: first confirm wins, fit, clash, start window). */
     answerBookedJob?(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void>;
+    /** He just came online: red jobs nobody took try again now. Absent in older fakes = nothing. */
+    retryUnassigned?(cityId: string): Promise<void>;
   };
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;

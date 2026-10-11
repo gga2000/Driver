@@ -65,7 +65,7 @@ import { foodScheduleProblem } from './orders.config.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
-import type { CancellationSubject } from '../pricing/index.js';
+import { arrivalCountsForFees, type CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
@@ -118,6 +118,8 @@ export interface OrdersTripsPort {
   extendUnreachable(tripId: string, orderId: string, customerId: string): Promise<{ extended: boolean; trip: Trip }>;
   /** Who carried the order (for settlement on `closed`); null when no driver ever took it. */
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
+  /** A trip as it stands (a dropped ride's pickup and drop-off for its new search). */
+  get?(tripId: string): Promise<Trip>;
 }
 
 /**
@@ -231,6 +233,11 @@ type PlaceInput = z.input<typeof PlaceOrderInput>;
  */
 /** Orders one ticket-number search reads before it pages (two busy days of a city fit easily). */
 export const TICKET_SCAN_LIMIT = 5_000;
+
+/** An order-number search with no `from` looks back to the start of yesterday (Baghdad). */
+function ticketWindowStart(now: Date): Date {
+  return new Date(startOfLocalDay(now).getTime() - 86_400_000);
+}
 
 @Injectable()
 export class OrdersService implements OnModuleInit {
@@ -1594,10 +1601,12 @@ export class OrdersService implements OnModuleInit {
   }
 
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
-  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined }): Promise<OrderSearchPage> {
-    const { cursor, late, ...filter } = input;
+  async search(
+    input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined; alsoOrdererIds?: readonly string[] | undefined },
+  ): Promise<OrderSearchPage> {
+    const { cursor, late, alsoOrdererIds, ...filter } = input;
     const ticket = filter.text ? parseOrderTicket(filter.text) : null;
-    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late);
+    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late, alsoOrdererIds);
     if (late) return this.searchLate(filter, cursor);
     const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
     const page = rows.slice(0, input.limit);
@@ -1613,14 +1622,37 @@ export class OrdersService implements OnModuleInit {
    * Console shows each with its time and restaurant). Other filters still apply. Pages by the same
    * keyset cursor; a scan that hit its bound continues from where it stopped.
    */
-  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined, late?: boolean): Promise<OrderSearchPage> {
+  private async searchTicket(
+    ticket: string,
+    filter: Omit<OrderSearchFilter, 'after'>,
+    cursor: string | undefined,
+    late?: boolean,
+    alsoOrdererIds?: readonly string[],
+  ): Promise<OrderSearchPage> {
     const now = this.clock.now();
-    const from = filter.from ?? new Date(startOfLocalDay(now).getTime() - 86_400_000);
+    const from = filter.from ?? ticketWindowStart(now);
+    const also = new Set(alsoOrdererIds);
     const scanned = await this.repo.search({ ...filter, from, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
-    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket && (!late || isLate(o, now)));
+    const hits = scanned.filter((o) => (orderTicketNumber(o.id) === ticket || also.has(o.ordererId)) && (!late || isLate(o, now)));
     const page = hits.slice(0, filter.limit);
     const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };
+  }
+
+  /** Where an order-number search with no `from` starts: the start of yesterday (Baghdad). */
+  ticketWindowFrom(): Date {
+    return ticketWindowStart(this.clock.now());
+  }
+
+  /**
+   * v7: who ordered in the city over the filter's window — the people a phone-tail or name search
+   * looks among. The same bounded scan as an order number; `recent` defaults the window to today
+   * and yesterday (Baghdad) like `searchTicket`, else an open window is the newest scan's worth.
+   */
+  async ordererIdsIn(filter: Omit<OrderSearchFilter, 'after' | 'limit' | 'text' | 'ordererIds'>, recent: boolean): Promise<string[]> {
+    const from = filter.from ?? (recent ? ticketWindowStart(this.clock.now()) : undefined);
+    const rows = await this.repo.search({ ...filter, from, limit: TICKET_SCAN_LIMIT });
+    return [...new Set(rows.map((o) => o.ordererId))];
   }
 
   /**
@@ -2081,6 +2113,8 @@ export class OrdersService implements OnModuleInit {
     const by = String(p['by'] ?? 'platform');
     const orderIds = Array.isArray(p['orderIds']) ? (p['orderIds'] as string[]) : [];
     const pickedUp = new Set(Array.isArray(p['pickedUpOrderIds']) ? (p['pickedUpOrderIds'] as string[]) : []);
+    // A ride's new search needs its pickup and drop-off, which live on the trip.
+    const trip = e.tripId && this.trips.get ? await this.trips.get(e.tripId).catch(() => null) : null;
     for (const id of orderIds) {
       await this.whenOrder(id, async (o, tx) => {
         if (TERMINAL_ORDER_STATES.includes(o.state) || o.state === 'disputed') return;
@@ -2089,6 +2123,8 @@ export class OrdersService implements OnModuleInit {
           return this.move(o, 'disputed', SYSTEM, tx, {}, { kind: 'courier_cancelled_after_pickup', openedBy: 'system', defaultOutcome: 'courier_pays_food_cost', tripId: e.tripId, courierId: p['courierId'] ?? null });
         }
         if (o.type === 'ride' && o.state === 'matched') {
+          // The rider was already picked up: never search for a driver again (staff settle it from the stuck list).
+          if (pickedUp.has(o.id)) return undefined;
           if (by === 'driver') {
             // Spec §4: driver cancel after accept = scoring hit; after arrival also 500 credit to the customer from the driver.
             const arrivedPickupAt = dateOrNull(p['arrivedPickupAt']);
@@ -2110,8 +2146,9 @@ export class OrdersService implements OnModuleInit {
               creditFundedBy: creditIqd > 0 ? 'driver' : null,
             });
           }
-          // The ride goes back to dispatch.
-          return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true }, 'order.rematch_needed');
+          // The ride goes back to dispatch: a new trip and a new search, without the driver who dropped it.
+          const ride = trip ? rideRematch(o, trip, typeof p['courierId'] === 'string' ? p['courierId'] : null) : {};
+          return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true, ...ride }, 'order.rematch_needed');
         }
         if (by !== 'customer') {
           // Dispatch requests a new courier from this (it used to go nowhere and the order waited forever).
@@ -2154,7 +2191,8 @@ export class OrdersService implements OnModuleInit {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {
-      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && s.arrivedAt)?.arrivedAt ?? null;
+      // Only an arrival near the pickup counts (`arrivalCountsForFees`; a far tap is the driver's word, not the fact).
+      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && arrivalCountsForFees(s))?.arrivedAt ?? null;
       return { fee: this.pricing.cancellationFee({ kind: 'trip', by: 'customer', state: trip.state, acceptedAt: trip.acceptedAt, arrivedPickupAt, fareIqd: order.totalIqd }, now, order.cityId), trip };
     }
     const fee = this.pricing.cancellationFee(
@@ -2622,5 +2660,27 @@ export function later<T>(promise: Promise<T>): () => Promise<T> {
     const r = await settled;
     if (!r.ok) throw r.error;
     return r.value;
+  };
+}
+
+/**
+ * What dispatch needs to search again for a ride whose driver dropped it before pickup (the same
+ * shape as the ride part of `order.placed`): the trip's own pickup and drop-off, searched now.
+ */
+function rideRematch(o: OrderRecord, trip: Trip, droppedDriverId: string | null): Record<string, unknown> {
+  const stop = (type: 'pickup' | 'dropoff') => trip.stops.find((s) => s.type === type && s.orderId === o.id);
+  const p = stop('pickup');
+  const d = stop('dropoff');
+  if (!p || (trip.vertical !== 'taxi' && trip.vertical !== 'tuktuk')) return {};
+  const pickup: DeliveryPoint = { zoneKey: p.zoneKey, ...(p.target ? { pin: p.target } : {}) };
+  const dropoff: DeliveryPoint = o.dropoff ?? (d ? { zoneKey: d.zoneKey, ...(d.target ? { pin: d.target } : {}) } : pickup);
+  return {
+    type: 'ride',
+    cityId: o.cityId,
+    paymentMethod: o.paymentMethod,
+    totalIqd: o.totalIqd,
+    riderId: o.ordererId,
+    ride: { vertical: trip.vertical, pickup, dropoff, quoteId: o.quoteId },
+    avoidDriverIds: droppedDriverId ? [droppedDriverId] : [],
   };
 }

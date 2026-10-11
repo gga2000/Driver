@@ -63,6 +63,7 @@ export const ERROR_TABLE = {
   // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
   online_checkin_required: { retryHint: 'never', status: 'FORBIDDEN' },
   online_document_expired: { retryHint: 'never', status: 'FORBIDDEN' },
+  online_document_missing: { retryHint: 'never', status: 'FORBIDDEN' },
   // partner.goOnline: the vehicle is the registered one, and it has to fit his roles (backend review 2026-10-04 #20)
   vehicle_not_registered: { retryHint: 'support', status: 'FORBIDDEN' },
   khat_not_child_stop: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -95,6 +96,8 @@ export const ERROR_TABLE = {
   dispute_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   staff_last_owner: { retryHint: 'never', status: 'CONFLICT' },
   staff_invite_not_pending: { retryHint: 'never', status: 'CONFLICT' },
+  /** PRV-08: no pending, unexpired invite for the caller at that store (answered, cancelled, expired or never made). */
+  staff_invite_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   store_hours_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   // «جهّز محلك»: going live (or opening) with steps still open.
   setup_not_ready: { retryHint: 'never', status: 'CONFLICT' },
@@ -126,6 +129,9 @@ export const ERROR_TABLE = {
   refund_customer_cap: { retryHint: 'support', status: 'CONFLICT' },
   refund_exceeds_order: { retryHint: 'never', status: 'BAD_REQUEST' },
   refund_no_customer: { retryHint: 'never', status: 'BAD_REQUEST' },
+  refund_fault_not_attributed: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Staff never act on their own account (a cash hand-in, a top-up, a pause, a refund), nor refund a staff account
+  staff_own_account: { retryHint: 'support', status: 'FORBIDDEN' },
   // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
   phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -302,6 +308,8 @@ export const ERROR_TABLE = {
   trip_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   stop_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   trip_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  /** The pickup is done (food in the bag, rider in the car): the trip can't be cancelled any more. */
+  trip_picked_up: { retryHint: 'support', status: 'CONFLICT' },
   stop_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   not_trip_courier: { retryHint: 'never', status: 'FORBIDDEN' },
   vehicle_too_small: { retryHint: 'never', status: 'CONFLICT' },

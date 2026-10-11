@@ -11,6 +11,8 @@ import {
   type CallSession,
   type ConfirmEmptyCarInput,
   type GuardianChild,
+  type GuardianRunInput,
+  type GuardianRunView,
   type KhatPort,
   type KhatRunTrip,
   type KhatSweepAlert,
@@ -38,7 +40,8 @@ import { DispatchService } from '../dispatch/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, shortDisplayName } from '../identity/index.js';
 import { NotifyService } from '../notify/index.js';
-import { TripsService } from '../trips/index.js';
+import { EtaService } from '../routing/index.js';
+import { TripsService, haversineMeters } from '../trips/index.js';
 import { KHAT_REPOSITORY, type AbsenceRecord, type KhatRepository, type SweepAlertRecord } from './khat.repository.js';
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -75,7 +78,7 @@ export interface SweepCheckJob {
 
 /** The job's name on `khat.timers`. */
 export const SWEEP_CHECK_JOB = 'khat.sweepCheck';
-/** Outbox subscriber that arms the sweep timer for runs settled outside `khat.tapOut` / `reportAbsence`. */
+/** Outbox subscriber that arms the sweep timer for taps and runs settled outside `khat.tap*` / `reportAbsence`. */
 export const SWEEP_TIMER_SUBSCRIBER = 'khat:sweep-timer';
 /** Raised once per run when the sweep is late: the notify subscriber pushes the driver's reminder. */
 export const SWEEP_MISSED_EVENT = 'khat.sweep_missed';
@@ -110,6 +113,34 @@ export function runEndedAt(trip: Trip, absences: readonly AbsenceRecord[]): Date
   const at = trip.stops.filter((s) => s.childRef).map((s) => (s.childTapOutAt ?? s.completedAt ?? s.skippedAt)?.getTime() ?? 0);
   const ms = Math.max(...at);
   return ms > 0 ? new Date(ms) : null;
+}
+
+/**
+ * Children tapped in whose drop-off has no tap-out (and was not completed): as far as the run knows
+ * they are still in the car.
+ */
+export function childrenOnBoard(trip: Trip): string[] {
+  const dropped = new Set(trip.stops.filter((s) => s.type === 'dropoff' && s.childRef && (s.childTapOutAt || s.state === 'completed')).map((s) => s.childRef!));
+  return [...new Set(trip.stops.filter((s) => s.type === 'pickup' && s.childRef && s.childTapInAt).map((s) => s.childRef!))].filter((c) => !dropped.has(c));
+}
+
+/** When the run's last child drop-off was planned to be over (its window end, else start); null without a plan. */
+export function plannedEndAt(trip: Trip): Date | null {
+  const ends = trip.stops.filter((s) => s.type === 'dropoff' && s.childRef).map((s) => (s.windowEnd ?? s.windowStart)?.getTime() ?? 0);
+  const ms = Math.max(0, ...ends);
+  return ms > 0 ? new Date(ms) : null;
+}
+
+/**
+ * What the sweep check counts from: when the run's last child stop settled; while a tapped-in child
+ * has no tap-out, the run's last planned drop-off, so a driver who parks and never ends the run is
+ * still caught. `onBoard` says which case it is.
+ */
+function sweepBase(trip: Trip, absences: readonly AbsenceRecord[]): { at: Date; onBoard: boolean } | null {
+  const ended = runEndedAt(trip, absences);
+  if (ended) return { at: ended, onBoard: false };
+  const planned = childrenOnBoard(trip).length > 0 ? plannedEndAt(trip) : null;
+  return planned ? { at: planned, onBoard: true } : null;
 }
 
 /** The latest school tap-out on the run and that stop's zone. */
@@ -165,6 +196,72 @@ export function runTripView(trip: Trip, names: Record<string, RunChild>, absence
   };
 }
 
+/** Two stops this close are the same place (the school gate every child is dropped at). */
+const SAME_PLACE_M = 60;
+/**
+ * The bus is shown only this far from every other child's stop (review of #259): a fix taken at the
+ * neighbour's door, the moment his stop settles, would otherwise mark that home on the guardian's map.
+ */
+export const GUARDIAN_BUS_PRIVACY_M = 300;
+const PROGRESS_TRIP_STATES = new Set(['accepted', 'en_route_to_pickup', 'arrived_pickup', 'in_transit', 'arrived_dropoff']);
+const settled = (s: Trip['stops'][number]) => s.state === 'completed' || s.state === 'skipped';
+
+/**
+ * N14: the guardian's view of one run. The school is whichever end of his child's ride more of the
+ * run's stops share (morning: the drop-offs; afternoon: the pick-ups). The bus's position goes out only
+ * while the next stop is his child's or the school's (on any other leg it would show another home),
+ * and only once it is `GUARDIAN_BUS_PRIVACY_M` from every other child's stop.
+ */
+export function guardianRunView(
+  trip: Trip,
+  childRef: string,
+  absent: boolean,
+  position: { at: Date; pin: { lat: number; lng: number }; bearing: number | null } | null,
+): Omit<GuardianRunView, 'polyline6' | 'minutes'> | null {
+  const stops = [...trip.stops].sort((a, b) => a.seq - b.seq);
+  const pickup = stops.find((s) => s.childRef === childRef && s.type === 'pickup');
+  const dropoff = stops.find((s) => s.childRef === childRef && s.type === 'dropoff');
+  if (!pickup?.target || !dropoff?.target) return null;
+  const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => haversineMeters(a, b) <= SAME_PLACE_M;
+  const sharing = (p: { lat: number; lng: number }) => stops.filter((s) => s.target && near(s.target, p)).length;
+  const toSchool = sharing(dropoff.target) >= sharing(pickup.target);
+  const school = toSchool ? dropoff.target : pickup.target;
+  const home = toSchool ? pickup.target : dropoff.target;
+  const child = absent ? 'absent' : dropoff.childTapOutAt ? 'delivered' : pickup.childTapInAt ? 'on_board' : 'waiting';
+  const isPublic = (s: Trip['stops'][number]) => s.childRef === childRef || (s.target !== null && near(s.target, school));
+  const riding = child === 'waiting' || child === 'on_board';
+  const next = riding && PROGRESS_TRIP_STATES.has(trip.state) ? stops.find((s) => !settled(s)) : undefined;
+  const ownNext = child === 'waiting' ? pickup : dropoff;
+  // Near another child's stop the bus stays hidden, and that stop still counts as not done, so neither
+  // the bus nor the moment the stop settled points at that home.
+  const nearOther = (s: Trip['stops'][number]) => position !== null && s.target !== null && !isPublic(s) && haversineMeters(position.pin, s.target) < GUARDIAN_BUS_PRIVACY_M;
+  const shielded = stops.some(nearOther);
+  const done = (s: Trip['stops'][number]) => settled(s) && !nearOther(s);
+  const busShown = next !== undefined && isPublic(next) && position !== null && !shielded;
+  return {
+    tripId: trip.id,
+    state: trip.state,
+    leg: toSchool ? 'to_school' : 'to_home',
+    child,
+    home: { lat: home.lat, lng: home.lng },
+    school: { lat: school.lat, lng: school.lng, landmark: nearestLandmark(school) },
+    bus: busShown ? { lat: position.pin.lat, lng: position.pin.lng, bearing: position.bearing, at: position.at } : null,
+    busAway: next !== undefined && (!isPublic(next) || shielded),
+    stopsBefore: riding ? stops.filter((s) => !done(s) && !isPublic(s) && s.seq < ownNext.seq).length : 0,
+    others: stops.filter((s) => !isPublic(s)).map((s) => ({ done: done(s) })),
+  };
+}
+
+/** The public points the guardian's road runs through, in driving order (never another child's stop). */
+export function guardianRoadPoints(v: Omit<GuardianRunView, 'polyline6' | 'minutes'>): Array<{ lat: number; lng: number }> {
+  const home = v.home;
+  const school = { lat: v.school.lat, lng: v.school.lng };
+  if (!v.bus) return v.leg === 'to_school' ? [home, school] : [school, home];
+  const bus = { lat: v.bus.lat, lng: v.bus.lng };
+  if (v.child === 'on_board') return [bus, v.leg === 'to_school' ? school : home];
+  return v.leg === 'to_school' ? [bus, home, school] : [bus, school, home];
+}
+
 /**
  * خطوط driver side (edge-case §5). Runs are khat Trips; taps go through `TripsService.completeStop`
  * with the per-child tap (which emits `khat.child_tapped_in/out`, the guardian push on tap-out).
@@ -192,6 +289,8 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     @Optional() private readonly audits?: AuditLogService,
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
+    /** The guardian's bus map road (N14); absent in harnesses (straight lines then). */
+    @Optional() private readonly eta: EtaService | null = null,
   ) {}
 
   /**
@@ -212,6 +311,37 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
 
   async guardianChildren(actor: Actor): Promise<GuardianChild[]> {
     return (await this.identity.childrenWithPhotos(actor.personId)).map((c) => this.guardianChild(c));
+  }
+
+  /**
+   * Map idea N14 «بس بيتك والباص» (Ali, 2026-10-11): today's run of the guardian's own child. Only his
+   * child's home, the school and the bus on legs that end at one of them; other children's stops go
+   * out as position-less dots (`GuardianRunView`). Null when the child has no run today.
+   */
+  async guardianRun(actor: Actor, input: GuardianRunInput): Promise<GuardianRunView | null> {
+    const own = await this.identity.childrenWithPhotos(actor.personId);
+    if (!own.some((c) => c.childRef === input.childRef)) throw new DriverError('forbidden');
+    const now = this.clock.now();
+    const today = localDateKey(now);
+    const runs = (await this.trips.forChild(input.childRef, new Date(now.getTime() - DAY_MS))).filter((t) => localDateKey(runAt(t)) === today);
+    const trip = runs.find((t) => t.state !== 'completed') ?? runs.at(-1);
+    if (!trip) return null;
+    const absent = (await this.repo.absence(trip.id, input.childRef)) !== null;
+    const position = PROGRESS_TRIP_STATES.has(trip.state) ? await this.trips.lastPosition(trip.id) : null;
+    const view = guardianRunView(trip, input.childRef, absent, position);
+    if (!view) return null;
+    const points = guardianRoadPoints(view);
+    const road = async (pts: Array<{ lat: number; lng: number }>) => {
+      if (!this.eta) return null;
+      try {
+        return await this.eta.path(pts);
+      } catch {
+        return null; // no road: the app draws straight lines
+      }
+    };
+    const full = await road(points);
+    const leg = view.bus ? (points.length === 2 ? full : await road(points.slice(0, 2))) : null;
+    return { ...view, polyline6: full?.polyline6 ?? null, minutes: leg ? Math.max(1, Math.round(leg.durationS / 60)) : null };
   }
 
   /** The guardian adds (or replaces) his child's photo; the replaced photo's bytes are deleted. */
@@ -247,14 +377,14 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
   /**
    * The sweep timer (Ali, 2026-10-06): the queue runs `checkSweep` when a run's grace is over. Taps
    * and absences through this service arm it directly; the outbox subscriber arms it for anything
-   * that settles a run another way (a stop completed through trips, a redelivered event).
+   * that taps or settles a run another way (a stop completed through trips, a redelivered event).
    */
   onModuleInit(): void {
     this.queue?.process(async (job) => {
       if (job.name === SWEEP_CHECK_JOB) await this.checkSweep(job.data.tripId);
     });
     this.offs.push(
-      this.events.subscribe(SWEEP_TIMER_SUBSCRIBER, ['khat.child_tapped_out', 'khat.absence_reported'], async (e) => {
+      this.events.subscribe(SWEEP_TIMER_SUBSCRIBER, ['khat.child_tapped_in', 'khat.child_tapped_out', 'khat.absence_reported'], async (e) => {
         if (e.tripId) await this.armSweepTimer(e.tripId);
       }),
     );
@@ -335,30 +465,34 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
   // ───────────────────────── the late sweep (Ali, 2026-10-06) ─────────────────────────
 
   /**
-   * Schedules the run's sweep check for `sweepAlertAfterMin` after its last child stop settled.
-   * Idempotent (one job id per run end); a no-op while a child stop is open or once swept.
+   * Schedules the run's sweep check for `sweepAlertAfterMin` after its last child stop settled, or,
+   * from the first tap-in while a child is still on board, after the run's last planned drop-off.
+   * Idempotent (one job id per due time); a no-op without a child on board or once swept.
    */
   async armSweepTimer(tripId: string): Promise<void> {
     if (!this.queue) return;
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat') return;
-    const endedAt = runEndedAt(trip, await this.repo.absencesForTrips([trip.id]));
-    if (!endedAt || (await this.emptyCarCheckedAt(trip.id))) return;
-    const dueAt = endedAt.getTime() + this.config.sweepAlertAfterMin * 60_000;
+    const base = sweepBase(trip, await this.repo.absencesForTrips([trip.id]));
+    if (!base || (await this.emptyCarCheckedAt(trip.id))) return;
+    const dueAt = base.at.getTime() + this.config.sweepAlertAfterMin * 60_000;
     await this.queue.add(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
   }
 
   /**
    * The timer's check: the run ended `sweepAlertAfterMin` ago and the driver has not confirmed the
    * car is empty → one `khat_sweep_alerts` row (the Console strip) and `khat.sweep_missed` (the
-   * driver's reminder push), once per run. Runs where no child ever got in are left alone.
+   * driver's reminder push), once per run. The same alert (reason `child_still_on_board`) when a
+   * child is still tapped in `sweepAlertAfterMin` after the run's last planned drop-off. Runs where
+   * no child ever got in are left alone.
    */
   async checkSweep(tripId: string): Promise<SweepCheckOutcome> {
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat' || !trip.courierId || DONE_TRIP_STATES.has(trip.state)) return 'not_applicable';
     const absences = await this.repo.absencesForTrips([trip.id]);
-    const endedAt = runEndedAt(trip, absences);
-    if (!endedAt || !trip.stops.some((s) => s.childTapInAt)) return 'not_applicable';
+    const base = sweepBase(trip, absences);
+    if (!base || !trip.stops.some((s) => s.childTapInAt)) return 'not_applicable';
+    const endedAt = base.at;
     if (await this.emptyCarCheckedAt(trip.id)) return 'swept';
     const now = this.clock.now();
     if (now.getTime() < endedAt.getTime() + this.config.sweepAlertAfterMin * 60_000) {
@@ -383,7 +517,16 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
           occurredAt: now,
           tripId: trip.id,
           idempotencyKey: `khat:sweep_missed:${trip.id}`,
-          payload: { alertId: alert.id, tripId: trip.id, driverId, cityId: trip.cityId, runEndedAt: endedAt.toISOString(), lastDropAt: drop.at?.toISOString() ?? null, afterMin: this.config.sweepAlertAfterMin },
+          payload: {
+            alertId: alert.id,
+            tripId: trip.id,
+            driverId,
+            cityId: trip.cityId,
+            reason: base.onBoard ? 'child_still_on_board' : 'sweep_missed',
+            runEndedAt: endedAt.toISOString(),
+            lastDropAt: drop.at?.toISOString() ?? null,
+            afterMin: this.config.sweepAlertAfterMin,
+          },
         },
         { name: 'trip', id: trip.id },
       );
@@ -576,7 +719,8 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
       await this.trips.arrive(trip.id, stop.id, actor.personId, { ...stamp, ...(input.pin ? { pin: input.pin } : {}), ...(input.idempotencyKey ? { idempotencyKey: `${input.idempotencyKey}:arrive` } : {}) });
     }
     const after = await this.trips.completeStop(trip.id, stop.id, actor.personId, { handover: { childTap: tap }, ...stamp, ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}) });
-    if (tap === 'out') await this.armSweepTimerSafely(trip.id);
+    // From the first tap-in the run is watched: a child still tapped in after the plan alerts ops.
+    await this.armSweepTimerSafely(trip.id);
     return this.view(actor, after);
   }
 

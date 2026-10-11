@@ -133,6 +133,16 @@ export interface ControlsRepository {
   setIftarOverrides(id: string, overrides: IftarOverrides, tx?: Tx): Promise<QuietRecord>;
   addAudit(input: Omit<AuditRecord, 'id'>, tx?: Tx): Promise<AuditRecord>;
   audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
+  /** v10: newest first, rows after `after` (the last row of the previous page), and how many match in all. */
+  auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }>;
+}
+
+export interface AuditPageFilter {
+  cityId: string;
+  /** Action prefixes; none = every row. */
+  prefixes?: readonly string[] | undefined;
+  after?: { at: Date; id: string } | undefined;
+  limit: number;
 }
 
 export const CONTROLS_REPOSITORY = Symbol('CONTROLS_REPOSITORY');
@@ -251,6 +261,16 @@ export class InMemoryControlsRepository implements ControlsRepository {
       .sort((a, b) => b.at.getTime() - a.at.getTime() || Number(b.id.slice(3)) - Number(a.id.slice(3)))
       .slice(0, filter.limit)
       .map((a) => ({ ...a }));
+  }
+  async auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }> {
+    const order = (a: AuditRecord, b: AuditRecord) => b.at.getTime() - a.at.getTime() || Number(b.id.slice(3)) - Number(a.id.slice(3));
+    const matching = this.auditRows
+      .filter((a) => (a.cityId === null || a.cityId === filter.cityId) && (!filter.prefixes || filter.prefixes.some((p) => a.action.startsWith(p))))
+      .sort(order);
+    const after = filter.after;
+    const from = after ? matching.findIndex((a) => order(a, { ...a, at: after.at, id: after.id }) > 0) : 0;
+    const rows = from < 0 ? [] : matching.slice(from, from + filter.limit);
+    return { rows: rows.map((a) => ({ ...a })), total: matching.length };
   }
 }
 
@@ -408,5 +428,16 @@ export class PrismaControlsRepository implements ControlsRepository {
       take: filter.limit,
     });
     return rows.map(auditFrom);
+  }
+  async auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }> {
+    const match: object[] = [{ OR: [{ cityId: filter.cityId }, { cityId: null }] }];
+    if (filter.prefixes) match.push({ OR: filter.prefixes.map((p) => ({ action: { startsWith: p } })) });
+    const after = filter.after;
+    const page = after ? [...match, { OR: [{ at: { lt: after.at } }, { at: after.at, id: { lt: after.id } }] }] : match;
+    const [rows, total] = await Promise.all([
+      this.db().consoleAuditLog.findMany({ where: { AND: page }, orderBy: [{ at: 'desc' }, { id: 'desc' }], take: filter.limit }),
+      this.db().consoleAuditLog.count({ where: { AND: match } }),
+    ]);
+    return { rows: rows.map(auditFrom), total };
   }
 }

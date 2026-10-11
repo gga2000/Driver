@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderError } from '../../shared/messaging/http.js';
 import { inQuietHours, quietHoursEnd } from './notify.engine.js';
+import { twinStillWanted } from './notify.subscribers.js';
 import type { PromoHold } from '../controls/index.js';
 import { CallbackWhatsApp, notifyHarness, ScriptedPush } from './test-harness.js';
 
@@ -204,6 +205,22 @@ describe('SMS twins', () => {
     ]);
   });
 
+  it('sends no new-order twin once the order no longer waits for the kitchen (accepted in the 30 s)', async () => {
+    const push = new ScriptedPush();
+    let waiting = true;
+    const h = notifyHarness({ push, twinWanted: (row) => twinStillWanted({ order: async (id) => (id === 'o1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'm1', totalIqd: 0, itemCount: 1, waitingForKitchen: waiting } : null) }, row) });
+    await h.register('owner', 'ExponentPushToken[owner-1]', 'merchant');
+    await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', orderId: 'o1', params: { id: 'X', items: '1', orderId: 'o1' } });
+    await h.run();
+    waiting = false;
+    await h.run(30 * SEC);
+    expect(h.sms.sent).toHaveLength(0);
+    expect((await h.rows({ orderId: 'o1' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'sent', null],
+      ['sms', 'suppressed', 'no_longer_needed'],
+    ]);
+  });
+
   it('sends no twin when the receipt confirms the push', async () => {
     const push = new ScriptedPush();
     push.receipt.set('t1', { ok: true });
@@ -324,6 +341,27 @@ describe('retries and token pruning', () => {
     expect(h.queue.pending().map((j) => j.readyAt.getTime() - h.clock.now().getTime())).toContain(2000);
     await h.run(2 * SEC);
     expect((await h.repo.delivery(row!.id))).toMatchObject({ status: 'sent', attempts: 3, reason: null });
+  });
+
+  it('a job rerun after the send went out (writing "sent" failed) never sends the message again', async () => {
+    const push = new ScriptedPush();
+    const h = notifyHarness({ push });
+    await h.register('cust');
+    const update = h.repo.updateDelivery.bind(h.repo);
+    let failOnce = true;
+    h.repo.updateDelivery = async (id, patch, now) => {
+      if (patch.status === 'sent' && failOnce) {
+        failOnce = false;
+        throw new Error('database timeout');
+      }
+      return update(id, patch, now);
+    };
+    const [row] = await h.service.dispatch({ eventId: 'ev1', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+    await expect(h.run()).rejects.toThrow('database timeout'); // one attempt: the queue does not rerun it by itself
+    expect(push.sent).toHaveLength(1);
+    await h.engine.process({ kind: 'send', deliveryId: row!.id }); // the queue (or a stalled-job check) runs it again
+    await h.run(10 * SEC); // and no retry of notify's own is waiting either
+    expect(push.sent).toHaveLength(1);
   });
 
   it('gives up after maxAttempts, and fails a permanent error at once', async () => {

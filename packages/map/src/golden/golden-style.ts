@@ -1,6 +1,6 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
-import { GOLDEN_PALETTES, type GoldenPalette } from './palettes.js';
+import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
 import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
 
@@ -84,6 +84,9 @@ export function shadowOffset(sun: SunPosition, heightM: number, z: number): [num
   const px = lengthM / metresPerPx;
   return [Math.round(Math.sin(away) * px * 10) / 10, Math.round(-Math.cos(away) * px * 10) / 10];
 }
+
+/** Zoom where the landmarks (main mosque, hospital, garages) stand up: before the houses, so they guide the eye. */
+export const LANDMARK_RISE = 14.6;
 
 function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt?: number): LayerSpecification[] {
   const rich = mode === 'customer' || mode === 'courier';
@@ -174,6 +177,14 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
   const finish = ['match', ['%', ['coalesce', ['get', 'tone'], 0], 6], 0, t[0], 1, t[1], 2, t[2], 3, t[3], 4, t[4], t[5]];
   const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
   const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
+  const lm = { ...src, 'source-layer': 'landmarks' } as const;
+  // `pool` parts are light on the ground: never solid, drawn see-through at night by their own layer
+  const solidPart = ['!=', ['get', 'part'], 'pool'] as never;
+  const landmarkColor = ['match', ['get', 'part'], ...LANDMARK_PARTS.flatMap((k) => [k, p.landmark[k]]), p.landmark.stone] as never;
+  if (!rich) {
+    // flat screens (Console, cheap phones): the landmark's plan seen from above
+    L.push({ id: 'golden-landmarks', type: 'fill', ...lm, minzoom: 14, filter: solidPart, paint: { 'fill-color': landmarkColor } });
+  }
   L.push({
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
@@ -214,6 +225,41 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     L.push({
       id: 'golden-roof-huts', type: 'fill-extrusion', ...bld, minzoom: rise + 0.6, filter: kindIn('hut'),
       paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-vertical-gradient': true, 'fill-extrusion-opacity': fade(rise + 0.6, 0, rise + 1, 1) },
+    });
+    // the landmarks (main mosque, hospital, garages) stand up before the houses, so they guide the eye from further out
+    L.push({
+      id: 'golden-landmarks-3d', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE, filter: solidPart,
+      paint: {
+        'fill-extrusion-color': landmarkColor,
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], LANDMARK_RISE, 0, LANDMARK_RISE + 0.6, ['get', 'hm']] as never,
+        'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], LANDMARK_RISE, 0, LANDMARK_RISE + 0.6, ['get', 'base']] as never,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    });
+    if (p.windowGlow) {
+      // at night the garages throw warm light on the ground under their fins, hall and kiosk
+      L.push({
+        id: 'golden-landmark-pools', type: 'fill-extrusion', ...lm, minzoom: LANDMARK_RISE + 0.6, filter: ['==', ['get', 'part'], 'pool'] as never,
+        paint: { 'fill-extrusion-color': p.landmark.pool, 'fill-extrusion-base': 0.07, 'fill-extrusion-height': 0.09, 'fill-extrusion-opacity': 0.3 },
+      });
+    }
+    // the lantern strings across the main streets (Ali, 2026-10-11: the Ramadan streets, kept all year), from street
+    // level only; at night each string pools warm light on the street under it
+    const lan = { ...src, 'source-layer': 'lanterns' } as const;
+    if (p.windowGlow) {
+      L.push({
+        id: 'golden-lantern-glow', type: 'circle', ...lan, minzoom: 16.4, filter: kindIn('glow'),
+        paint: { 'circle-color': p.landmark.lamp1, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-opacity': fade(16.4, 0, 17, 0.26), 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 16.4, 9, 18, 34, 20, 136] as never },
+      });
+    }
+    L.push({
+      id: 'golden-lanterns', type: 'fill-extrusion', ...lan, minzoom: 16.4, filter: kindIn('lamp'),
+      paint: {
+        'fill-extrusion-color': ['match', ['get', 'c'], 1, p.landmark.lamp2, 2, p.landmark.lamp3, p.landmark.lamp1] as never,
+        'fill-extrusion-base': ['get', 'base'] as never,
+        'fill-extrusion-height': ['get', 'hm'] as never,
+        'fill-extrusion-opacity': fade(16.4, 0, 16.9, 1),
+      },
     });
     L.push({
       id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB', 'dish'),

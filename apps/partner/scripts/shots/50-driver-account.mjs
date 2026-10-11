@@ -147,8 +147,9 @@ export default async function run(s) {
 
   // ── rookie: home gate, month-one scorecard, the check-in flow ──────────
   const rk = await s.signIn(PHONES.rookie);
-  await rk.wait('gate-banner-checkin');
-  await rk.shot('home-checkin-needed', { settle: 1800 });
+  // His ID back is under review and his photo is missing: the papers gate comes before the check-in.
+  await rk.wait('gate-banner-missing');
+  await rk.shot('home-papers-missing', { settle: 1800 });
   await rk.goto('/scorecard');
   await rk.wait('score-observation');
   await rk.shot('scorecard-month-one', { full: true, settle: 1500 });
@@ -174,8 +175,13 @@ export default async function run(s) {
   await rk.wait('checkin-passed');
   await rk.shot('checkin-passed', { settle: 1100 });
   await rk.byTestId('checkin-done').click();
-  await rk.wait('online-switch');
-  await rk.shot('home-unlocked', { settle: 1500 });
+  // Checked in, but his papers are still not complete: the switch stays locked and opens the papers page.
+  await rk.wait('gate-banner-missing');
+  await rk.wait('online-switch-blocked');
+  await rk.shot('home-checked-in-papers-missing', { settle: 1500 });
+  await rk.byTestId('online-switch-blocked').click();
+  await rk.wait('docs-summary-action');
+  await rk.shot('documents-papers-missing', { settle: 900 });
   await rk.close();
 
   // ── locked out, and an expired licence ─────────────────────────────────

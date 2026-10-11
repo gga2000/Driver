@@ -1,7 +1,8 @@
 import { RoutingModule } from '../routing/index.js';
+import type { DishKind } from '@driver/contracts';
 import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { CatalogModule, CatalogService, kindOfLabels } from '../catalog/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
@@ -64,6 +65,14 @@ import {
       provide: MERCHANT_CATALOG,
       useFactory: (catalog: CatalogService): MerchantCatalogPort => ({
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
+        itemKinds: async (orgId, ids) => {
+          const kinds = new Map<string, DishKind>();
+          for (const i of await catalog.itemsOf(orgId, ids)) {
+            const kind = kindOfLabels(i.labels);
+            if (kind) kinds.set(i.id, kind);
+          }
+          return kinds;
+        },
         storefrontHours: async (orgId) =>
           (await catalog.storefront(orgId))?.hours.map((w) => ({
             dow: w.dow,

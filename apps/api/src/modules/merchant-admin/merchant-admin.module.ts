@@ -15,7 +15,7 @@ import { MerchantAdminService } from './merchant-admin.service.js';
 
 /**
  * Merchant app wave 2: composes catalog (menu), promotions (deals), ledger + orders (money,
- * insights, disputes) and identity (staff). Owns only `merchant_dispute_responses`.
+ * insights, disputes) and identity (staff). Owns `merchant_dispute_responses` and `merchant_staff_invites`.
  */
 @Module({
   imports: [CatalogModule, ConfigModule, EventsModule, IdentityModule, LedgerModule, MerchantModule, OrdersModule, OrgsModule, PlacesModule, PromotionsModule],

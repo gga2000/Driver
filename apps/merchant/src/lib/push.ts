@@ -16,6 +16,8 @@ export interface PushToken {
 export interface PushData {
   deliveryId?: string;
   template?: string;
+  /** MER-05: the store a new-order push is for. */
+  merchantOrgId?: string;
   deepLink?: string;
   [key: string]: unknown;
 }

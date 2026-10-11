@@ -9,10 +9,10 @@ import { fileUrl } from '@/lib/control-room';
 import { formatDayClock } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { errorText, useConsoleNetwork } from '@/lib/network';
-import { filterStores, missingCount, photoProblem, uploadPhoto } from '@/lib/pickup-spots';
+import { filterStores, photoProblem, storeGaps, toFinish, uploadPhoto, type StoreGap } from '@/lib/pickup-spots';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC, useTRPCClient } from '@/lib/trpc';
-import { Button, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, NeedLogin, PageHeader, QueryError, Skeleton, Spinner, Textarea, useToast } from './ui';
+import { Button, buttonCls, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, Meter, NeedLogin, PageHeader, QueryError, Segmented, Skeleton, Spinner, Textarea, useToast } from './ui';
 
 /**
  * Console › المطاعم (Ali 2026-10-07): every restaurant and grocer in the city with how its pickup
@@ -28,7 +28,7 @@ export function StoresPage({ storeId }: { storeId: string | null }) {
       {!signedIn ? (
         <NeedLogin />
       ) : (
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(260px,340px)_1fr]">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(300px,380px)_1fr]">
           <StoreList selected={storeId} />
           {storeId ? (
             // On a phone the picked store's spot comes first; the list follows.
@@ -36,11 +36,78 @@ export function StoresPage({ storeId }: { storeId: string | null }) {
               <PickupSpotEditor key={storeId} storeId={storeId} />
             </div>
           ) : (
-            <EmptyState icon={<IconStore size={20} />} title={t('console.stores.pick')} hint={t('console.stores.pick_hint')} />
+            // The short summary comes first on a phone too, above the long list.
+            <div className="order-first min-w-0 lg:order-none">
+              <CityOverview />
+            </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// ───────────────────────── nothing picked: what the city still lacks ─────────────────────────
+
+/**
+ * With no store picked, the wide side shows how complete the city's stores are and what is missing
+ * most, with one button to the store that needs the most work (instead of an empty "pick one" box).
+ */
+function CityOverview() {
+  const trpc = useTRPC();
+  const stores = useQuery(trpc.ops.pickupSpots.stores.queryOptions({ cityId: CITY_ID }, { retry: queryRetry }));
+  const pickHint = <p className="mt-4 text-xs text-muted">{t('console.stores.pick_hint')}</p>;
+  if (!stores.data) {
+    if (stores.error) return <EmptyState icon={<IconStore size={20} />} title={t('console.stores.pick')} hint={t('console.stores.pick_hint')} />;
+    return (
+      <Card title={t('console.stores.overview')}>
+        <div className="space-y-3" aria-busy>
+          <Skeleton className="h-2 w-full rounded-pill" />
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-6 w-full rounded-md" />
+          ))}
+        </div>
+      </Card>
+    );
+  }
+  const rows = stores.data;
+  const unfinished = toFinish(rows);
+  const done = rows.length - unfinished.length;
+  const gaps = rows.map(storeGaps);
+  const count = (g: StoreGap) => gaps.filter((list) => list.includes(g)).length;
+  const lines: Array<{ key: StoreGap; label: string; n: number }> = [
+    { key: 'shop_photo', label: t('console.stores.gap_shop_photo'), n: count('shop_photo') },
+    { key: 'spot', label: t('console.stores.spot_none'), n: count('spot') },
+    { key: 'menu', label: t('console.stores.gap_menu'), n: count('menu') },
+    { key: 'dish_photos', label: t('console.stores.ov_dishes'), n: count('dish_photos') },
+  ];
+  const next = unfinished[0];
+  return (
+    <Card title={t('console.stores.overview')} hint={t('console.stores.overview_done', { done, total: rows.length })}>
+      <Meter value={done} max={Math.max(rows.length, 1)} tone={unfinished.length === 0 ? 'ok' : 'warn'} label={t('console.stores.overview_done', { done, total: rows.length })} />
+      {unfinished.length === 0 ? (
+        <p className="mt-4 text-sm text-ok">{t('console.stores.finish_none')}</p>
+      ) : (
+        <>
+          <ul className="mt-4 divide-y divide-line/70">
+            {lines.map((l) => (
+              <li key={l.key} className="flex min-h-11 items-center justify-between gap-3 text-sm">
+                <span className={l.n > 0 ? 'text-text' : 'text-muted'}>{l.label}</span>
+                <span className={cx('num font-semibold', l.n > 0 ? 'text-warn' : 'text-faint')}>{l.n}</span>
+              </li>
+            ))}
+          </ul>
+          {next ? (
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+              <Link href={`/stores/${encodeURIComponent(next.merchantOrgId)}`} className={buttonCls('primary', 'lg')}>
+                {t('console.stores.open_next', { name: next.name })}
+              </Link>
+            </div>
+          ) : null}
+        </>
+      )}
+      {pickHint}
+    </Card>
   );
 }
 
@@ -49,12 +116,25 @@ export function StoresPage({ storeId }: { storeId: string | null }) {
 function StoreList({ selected }: { selected: string | null }) {
   const trpc = useTRPC();
   const [query, setQuery] = useState('');
+  const [view, setView] = useState<'all' | 'finish'>('all');
   const deferred = useDeferredValue(query);
   const stores = useQuery(trpc.ops.pickupSpots.stores.queryOptions({ cityId: CITY_ID }, { retry: queryRetry }));
-  const rows = stores.data ? filterStores(stores.data, deferred) : [];
+  // k6 «للتكملة»: only the stores with something missing, the most unfinished first.
+  const unfinished = stores.data ? toFinish(stores.data) : [];
+  const rows = stores.data ? filterStores(view === 'finish' ? unfinished : stores.data, deferred) : [];
   return (
-    <Card title={t('console.stores.list')} hint={stores.data ? t('console.stores.hint', { n: missingCount(stores.data) }) : undefined} flush>
-      <div className="px-5 pb-3">
+    <Card title={t('console.stores.list')} hint={stores.data ? t('console.stores.hint', { n: unfinished.length }) : undefined} flush>
+      <div className="space-y-3 px-5 pb-3">
+        <Segmented
+          label={t('console.stores.list')}
+          size="sm"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'all', label: t('console.stores.view_all'), ...(stores.data ? { count: stores.data.length } : {}) },
+            { value: 'finish', label: t('console.stores.view_finish'), ...(stores.data ? { count: unfinished.length } : {}) },
+          ]}
+        />
         <Input type="search" aria-label={t('console.stores.search')} placeholder={t('console.stores.search')} leading={<IconSearch size={16} />} value={query} onChange={(e) => setQuery(e.target.value)} className="h-11" />
       </div>
       {stores.error ? (
@@ -70,7 +150,8 @@ function StoreList({ selected }: { selected: string | null }) {
         </div>
       ) : null}
       {stores.data && stores.data.length === 0 ? <p className="px-5 pb-5 text-sm text-muted">{t('console.stores.empty')}</p> : null}
-      {stores.data && stores.data.length > 0 && rows.length === 0 ? <p className="px-5 pb-5 text-sm text-muted">{t('console.stores.no_match')}</p> : null}
+      {stores.data && stores.data.length > 0 && view === 'finish' && unfinished.length === 0 ? <p className="px-5 pb-5 text-sm text-ok">{t('console.stores.finish_none')}</p> : null}
+      {stores.data && stores.data.length > 0 && rows.length === 0 && deferred.trim() ? <p className="px-5 pb-5 text-sm text-muted">{t('console.stores.no_match')}</p> : null}
       {rows.length > 0 ? (
         <ul className="relative max-h-[70vh] overflow-y-auto border-t border-line/70 pb-2" aria-label={t('console.stores.list')}>
           {rows.map((r) => (
@@ -84,8 +165,18 @@ function StoreList({ selected }: { selected: string | null }) {
   );
 }
 
+const GAP_KEY: Record<Exclude<StoreGap, 'dish_photos'>, 'console.stores.gap_shop_photo' | 'console.stores.spot_none' | 'console.stores.gap_menu'> = {
+  shop_photo: 'console.stores.gap_shop_photo',
+  spot: 'console.stores.spot_none',
+  menu: 'console.stores.gap_menu',
+};
+
+function gapText(gap: StoreGap, row: PickupStoreRow): string {
+  return gap === 'dish_photos' ? t('console.stores.gap_dishes', { n: row.dishesNoPhoto }) : t(GAP_KEY[gap]);
+}
+
 function StoreRow({ row, active }: { row: PickupStoreRow; active: boolean }) {
-  const set = row.note !== null || row.photos > 0;
+  const gaps = storeGaps(row);
   const ref = useRef<HTMLAnchorElement>(null);
   // The picked store stays in sight in a long list (opened from a link or after a reload): only the
   // list scrolls, never the page.
@@ -101,13 +192,20 @@ function StoreRow({ row, active }: { row: PickupStoreRow; active: boolean }) {
       href={`/stores/${encodeURIComponent(row.merchantOrgId)}`}
       aria-current={active ? 'page' : undefined}
       className={cx('flex min-h-11 items-center gap-3 px-5 py-2 text-sm transition-colors duration-fast hover:bg-surface-2', active && 'bg-accent-tint')}
+      data-testid="store-row"
     >
       <span className="min-w-0 flex-1">
         <span className={cx('block truncate', active ? 'font-semibold text-text' : 'font-medium text-text')}>{row.name}</span>
-        <span className="block truncate text-xs text-muted">{row.note ?? (set ? '' : t('console.stores.spot_none'))}</span>
+        {gaps.length > 0 ? (
+          <span className="block truncate text-xs text-warn" title={gaps.map((g) => gapText(g, row)).join(' · ')}>
+            {gaps.map((g) => gapText(g, row)).join(' · ')}
+          </span>
+        ) : row.note ? (
+          <span className="block truncate text-xs text-muted">{row.note}</span>
+        ) : null}
       </span>
-      <Chip size="sm" tone={set ? 'ready' : 'warn'} dot>
-        {t('console.stores.photos', { n: row.photos })}
+      <Chip size="sm" tone={gaps.length > 0 ? 'warn' : 'ready'} dot>
+        {gaps.length > 0 ? t('console.stores.gaps', { n: gaps.length }) : t('console.stores.done')}
       </Chip>
     </Link>
   );

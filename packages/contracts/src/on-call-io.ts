@@ -248,6 +248,37 @@ export interface OnCallPort {
   firstPage(incident: IncidentForPaging): Promise<PagePlan>;
 }
 
+// ───────────────────────── the shift handover note (Console › اليوم, h5) ─────────────────────────
+
+export const HANDOVER_RULES = {
+  bodyMax: 1000,
+  /** A note stays on Today this long after it was written, or until the person taps «وصلت». */
+  showHours: 16,
+} as const;
+
+/** The newest handover note of a city, as one staff member sees it. */
+export const HandoverNote = z.object({
+  id: z.string(),
+  cityId: z.string(),
+  authorId: z.string(),
+  body: z.string(),
+  createdAt: z.coerce.date(),
+  /** This person already tapped «وصلت». */
+  ackedByMe: z.boolean(),
+  /** How many people have read it. */
+  acks: z.number().int().nonnegative(),
+  /** The person reading is the one who wrote it. */
+  mine: z.boolean(),
+});
+export type HandoverNote = z.infer<typeof HandoverNote>;
+
+export const HandoverInput = z.object({ cityId: z.string().min(1).max(40) });
+export const HandoverWriteInput = z.object({
+  cityId: z.string().min(1).max(40),
+  body: z.string().trim().min(1).max(HANDOVER_RULES.bodyMax),
+});
+export const HandoverAckInput = z.object({ id: z.string().min(1).max(64) });
+
 /** `onCall.*` behind `ctx.onCall` (`modules/on-call`). */
 export interface OnCallServicePort {
   list(actor: Actor, input: z.output<typeof OnCallListInput>): Promise<OnCallShiftRow[]>;
@@ -257,4 +288,8 @@ export interface OnCallServicePort {
   ladder(actor: Actor, input: z.output<typeof AlertLadderInput>): Promise<AlertLadder | null>;
   staff(actor: Actor): Promise<OnCallStaff[]>;
   present(actor: Actor, input: ConsolePresentInput): Promise<ConsoleWatch>;
+  /** The city's newest handover note from the last `showHours`, or null. */
+  handover(actor: Actor, input: z.output<typeof HandoverInput>): Promise<HandoverNote | null>;
+  handoverWrite(actor: Actor, input: z.output<typeof HandoverWriteInput>): Promise<HandoverNote>;
+  handoverAck(actor: Actor, input: z.output<typeof HandoverAckInput>): Promise<HandoverNote>;
 }
