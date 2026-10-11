@@ -251,8 +251,8 @@ describe('staff: end every session', () => {
     const h = await harness();
     expect(await h.svc.endAllSessions(ALI, { personId: 'p_zainab' })).toEqual({ ended: 2 });
     expect(h.ended).toEqual([{ personId: 'p_zainab', reason: 'admin' }]);
-    const rows = await h.svc.audit({ subjectKind: 'person', subjectId: 'p_zainab', limit: 5 });
-    expect(rows.map((r) => [r.action, r.summary_ar])).toEqual([['staff.end_sessions', 'طلّع زينب من كل الأجهزة (2)']]);
+    const rows = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'person', limit: 5 });
+    expect(rows.map((r) => [r.action, r.subjectId, r.summary_ar])).toEqual([['staff.end_sessions', 'p_zainab', 'طلّع زينب من كل الأجهزة (2)']]);
   });
 
   it('an admin cannot cut himself off from here', async () => {

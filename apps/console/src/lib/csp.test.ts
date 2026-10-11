@@ -22,6 +22,28 @@ describe('Console CSP (CON-06)', () => {
     expect(p['base-uri']).toEqual(["'self'"]);
   });
 
+  it('sends only to the API, the map hosts and the crash reports, never any https host', () => {
+    const p = parse(
+      buildCsp({
+        nonce: 'n',
+        apiUrl: 'https://api.driver.iq/trpc',
+        dev: false,
+        mapUrls: ['pmtiles://https://maps.driver.iq/wasit.pmtiles', 'https://maps.driver.iq/fonts/{fontstack}/{range}.pbf', undefined, 'not a url'],
+        crashDsn: 'https://key@o1.ingest.sentry.io/2',
+      }),
+    );
+    expect(p['connect-src']).not.toContain('https:');
+    expect(p['connect-src']).toEqual([
+      "'self'",
+      'https://api.driver.iq',
+      'https://tile.openstreetmap.org',
+      'https://protomaps.github.io',
+      new URL(RTL_TEXT_PLUGIN_URL).origin,
+      'https://maps.driver.iq',
+      'https://o1.ingest.sentry.io',
+    ]);
+  });
+
   it('lets next dev hot-reload and the local studio frame it', () => {
     const p = parse(buildCsp({ nonce: 'n', apiUrl: 'http://localhost:3395/trpc', dev: true }));
     expect(p['script-src']).toContain("'unsafe-eval'");
