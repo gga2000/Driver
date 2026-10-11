@@ -11,6 +11,8 @@ import {
   type CallSession,
   type ConfirmEmptyCarInput,
   type GuardianChild,
+  type GuardianRunInput,
+  type GuardianRunView,
   type KhatPort,
   type KhatRunTrip,
   type KhatSweepAlert,
@@ -38,7 +40,8 @@ import { DispatchService } from '../dispatch/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, shortDisplayName } from '../identity/index.js';
 import { NotifyService } from '../notify/index.js';
-import { TripsService } from '../trips/index.js';
+import { EtaService } from '../routing/index.js';
+import { TripsService, haversineMeters } from '../trips/index.js';
 import { KHAT_REPOSITORY, type AbsenceRecord, type KhatRepository, type SweepAlertRecord } from './khat.repository.js';
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -193,6 +196,61 @@ export function runTripView(trip: Trip, names: Record<string, RunChild>, absence
   };
 }
 
+/** Two stops this close are the same place (the school gate every child is dropped at). */
+const SAME_PLACE_M = 60;
+const PROGRESS_TRIP_STATES = new Set(['accepted', 'en_route_to_pickup', 'arrived_pickup', 'in_transit', 'arrived_dropoff']);
+const settled = (s: Trip['stops'][number]) => s.state === 'completed' || s.state === 'skipped';
+
+/**
+ * N14: the guardian's view of one run. The school is whichever end of his child's ride more of the
+ * run's stops share (morning: the drop-offs; afternoon: the pick-ups). The bus's position goes out only
+ * while the next stop is his child's or the school's; on any other leg it would show another home.
+ */
+export function guardianRunView(
+  trip: Trip,
+  childRef: string,
+  absent: boolean,
+  position: { at: Date; pin: { lat: number; lng: number }; bearing: number | null } | null,
+): Omit<GuardianRunView, 'polyline6' | 'minutes'> | null {
+  const stops = [...trip.stops].sort((a, b) => a.seq - b.seq);
+  const pickup = stops.find((s) => s.childRef === childRef && s.type === 'pickup');
+  const dropoff = stops.find((s) => s.childRef === childRef && s.type === 'dropoff');
+  if (!pickup?.target || !dropoff?.target) return null;
+  const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => haversineMeters(a, b) <= SAME_PLACE_M;
+  const sharing = (p: { lat: number; lng: number }) => stops.filter((s) => s.target && near(s.target, p)).length;
+  const toSchool = sharing(dropoff.target) >= sharing(pickup.target);
+  const school = toSchool ? dropoff.target : pickup.target;
+  const home = toSchool ? pickup.target : dropoff.target;
+  const child = absent ? 'absent' : dropoff.childTapOutAt ? 'delivered' : pickup.childTapInAt ? 'on_board' : 'waiting';
+  const isPublic = (s: Trip['stops'][number]) => s.childRef === childRef || (s.target !== null && near(s.target, school));
+  const riding = child === 'waiting' || child === 'on_board';
+  const next = riding && PROGRESS_TRIP_STATES.has(trip.state) ? stops.find((s) => !settled(s)) : undefined;
+  const ownNext = child === 'waiting' ? pickup : dropoff;
+  const busShown = next !== undefined && isPublic(next) && position !== null;
+  return {
+    tripId: trip.id,
+    state: trip.state,
+    leg: toSchool ? 'to_school' : 'to_home',
+    child,
+    home: { lat: home.lat, lng: home.lng },
+    school: { lat: school.lat, lng: school.lng, landmark: nearestLandmark(school) },
+    bus: busShown ? { lat: position.pin.lat, lng: position.pin.lng, bearing: position.bearing, at: position.at } : null,
+    busAway: next !== undefined && !isPublic(next),
+    stopsBefore: riding ? stops.filter((s) => !settled(s) && !isPublic(s) && s.seq < ownNext.seq).length : 0,
+    others: stops.filter((s) => !isPublic(s)).map((s) => ({ done: settled(s) })),
+  };
+}
+
+/** The public points the guardian's road runs through, in driving order (never another child's stop). */
+export function guardianRoadPoints(v: Omit<GuardianRunView, 'polyline6' | 'minutes'>): Array<{ lat: number; lng: number }> {
+  const home = v.home;
+  const school = { lat: v.school.lat, lng: v.school.lng };
+  if (!v.bus) return v.leg === 'to_school' ? [home, school] : [school, home];
+  const bus = { lat: v.bus.lat, lng: v.bus.lng };
+  if (v.child === 'on_board') return [bus, v.leg === 'to_school' ? school : home];
+  return v.leg === 'to_school' ? [bus, home, school] : [bus, school, home];
+}
+
 /**
  * خطوط driver side (edge-case §5). Runs are khat Trips; taps go through `TripsService.completeStop`
  * with the per-child tap (which emits `khat.child_tapped_in/out`, the guardian push on tap-out).
@@ -220,6 +278,8 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     @Optional() private readonly audits?: AuditLogService,
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
+    /** The guardian's bus map road (N14); absent in harnesses (straight lines then). */
+    @Optional() private readonly eta: EtaService | null = null,
   ) {}
 
   /**
@@ -240,6 +300,37 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
 
   async guardianChildren(actor: Actor): Promise<GuardianChild[]> {
     return (await this.identity.childrenWithPhotos(actor.personId)).map((c) => this.guardianChild(c));
+  }
+
+  /**
+   * Map idea N14 «بس بيتك والباص» (Ali, 2026-10-11): today's run of the guardian's own child. Only his
+   * child's home, the school and the bus on legs that end at one of them; other children's stops go
+   * out as position-less dots (`GuardianRunView`). Null when the child has no run today.
+   */
+  async guardianRun(actor: Actor, input: GuardianRunInput): Promise<GuardianRunView | null> {
+    const own = await this.identity.childrenWithPhotos(actor.personId);
+    if (!own.some((c) => c.childRef === input.childRef)) throw new DriverError('forbidden');
+    const now = this.clock.now();
+    const today = localDateKey(now);
+    const runs = (await this.trips.forChild(input.childRef, new Date(now.getTime() - DAY_MS))).filter((t) => localDateKey(runAt(t)) === today);
+    const trip = runs.find((t) => t.state !== 'completed') ?? runs.at(-1);
+    if (!trip) return null;
+    const absent = (await this.repo.absence(trip.id, input.childRef)) !== null;
+    const position = PROGRESS_TRIP_STATES.has(trip.state) ? await this.trips.lastPosition(trip.id) : null;
+    const view = guardianRunView(trip, input.childRef, absent, position);
+    if (!view) return null;
+    const points = guardianRoadPoints(view);
+    const road = async (pts: Array<{ lat: number; lng: number }>) => {
+      if (!this.eta) return null;
+      try {
+        return await this.eta.path(pts);
+      } catch {
+        return null; // no road: the app draws straight lines
+      }
+    };
+    const full = await road(points);
+    const leg = view.bus ? (points.length === 2 ? full : await road(points.slice(0, 2))) : null;
+    return { ...view, polyline6: full?.polyline6 ?? null, minutes: leg ? Math.max(1, Math.round(leg.durationS / 60)) : null };
   }
 
   /** The guardian adds (or replaces) his child's photo; the replaced photo's bytes are deleted. */
