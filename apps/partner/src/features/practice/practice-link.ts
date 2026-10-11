@@ -32,7 +32,8 @@ export function answerPractice(store: PracticeStore, path: string, input: unknow
         store.set({ ...s, stage: 'idle', offer: null });
         return null;
       }
-      return s.offer;
+      // Practice runs on the phone's own clock: its "server" time is now.
+      return { ...s.offer, serverNow: new Date(now) };
     case 'partner.activeJob':
       return s && (s.stage === 'job' || s.stage === 'done') ? s.job : null;
     case 'dispatch.offerSeen':

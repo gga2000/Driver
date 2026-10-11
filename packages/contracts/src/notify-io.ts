@@ -188,6 +188,8 @@ export const NotifyTemplateId = z.enum([
   'partner_booked_favourite',
   'partner_booked_reminder',
   'partner_booked_cancelled',
+  // The desk took a job off him before pickup («شيل الطلب منه»): it went back to dispatch.
+  'partner_job_taken_off',
   // W2 (CRIT1-01, NTF-03): the order's bad turns and the courier at the door reach the customer.
   'order_rejected',
   'order_kitchen_no_answer',
@@ -1055,6 +1057,14 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'partner',
     push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  partner_job_taken_off: {
+    id: 'partner_job_taken_off',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_job_taken_off.title', body: 'push.partner_job_taken_off.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
     primary: ['push'],
     quietHours: 'send',
   },
