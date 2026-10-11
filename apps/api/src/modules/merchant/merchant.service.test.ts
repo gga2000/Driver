@@ -27,7 +27,7 @@ const code = async (p: Promise<unknown>) => {
  * MerchantService over the orders harness (orders + trips in memory, fake clock) and a real
  * in-memory OrgsService. `org_1` is Khalid's (staff `s1`, owner `o1`), `org_2` a second store.
  */
-async function setup(opts: { photos?: MerchantPhotosPort; tags?: string[] } = {}) {
+async function setup(opts: { photos?: MerchantPhotosPort; tags?: string[]; courierPhotoRef?: string } = {}) {
   const h = ordersHarness();
   const orgs = new OrgsService(undefined, h.clock);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: 'o1' });
@@ -54,6 +54,14 @@ async function setup(opts: { photos?: MerchantPhotosPort; tags?: string[] } = {}
       return 'حيدر';
     },
     courierVehicle: async () => ({ vehicleClass: 'bike', plate: 'واسط 45678' }),
+    ...(opts.courierPhotoRef
+      ? {
+          courierCard: async (courierId: string) => {
+            nameReads.push(courierId);
+            return { firstName: 'حيدر', photoRef: opts.courierPhotoRef ?? null };
+          },
+        }
+      : {}),
   };
   const recorded: Array<{ type: string; payload: Record<string, unknown> }> = [];
   const events: MerchantEventsPort = {
@@ -187,6 +195,18 @@ describe('MerchantService — board', () => {
     expect((await svc.board(staff, { merchantOrgId: khalid.id })).orders).toEqual([]);
   });
 
+  it('N16: the board carries his approved photo, signed on every read, from one vault read per trip', async () => {
+    const photos: MerchantPhotosPort = { owns: async () => false, readUrl: (id) => `https://files/${id}?sig=x`, remove: async () => undefined };
+    const { h, svc, staff, khalid, nameReads } = await setup({ photos, courierPhotoRef: 'up_main_d1' });
+    const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    await h.orders.merchantAccept('s1', { orderId: placed.id, prepMinutes: 15 });
+    const trip = await h.tripFor(placed.id);
+    await h.trips.reportPosition('d1', { tripId: trip.id, pin: { lat: 32.9215, lng: 45.0598 }, at: h.clock.now(), bearing: 180, speedKmh: 20 });
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).orders[0]!.courier).toMatchObject({ state: 'on_the_way', firstName: 'حيدر', photoUrl: 'https://files/up_main_d1?sig=x' });
+    await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(nameReads).toEqual(['d1']);
+  });
+
   it('an order nobody accepted in 90 s leaves the columns but stays on the board as a miss (M-01)', async () => {
     const { h, svc, staff, khalid } = await setup();
     const placed = await h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
@@ -216,6 +236,27 @@ describe('MerchantService — board', () => {
     const late = await place();
     expect(await flag(open.id)).toBe(false);
     expect(await flag(late.id)).toBe(true);
+  });
+
+  it('an accepted order the customer cancels turns into a red «انلغى» card for 15 minutes instead of vanishing', async () => {
+    const { h, svc, staff, khalid } = await setup();
+    const place = () => h.orders.place('c1', h.foodInput({ merchantOrgId: khalid.id, deliveryFeeIqd: undefined, serviceFeeIqd: undefined }));
+    const cooking = await place();
+    const unanswered = await place();
+    await h.orders.merchantAccept('s1', { orderId: cooking.id, prepMinutes: 15 });
+    await h.orders.cancel('c1', { orderId: unanswered.id, reason: 'changed_mind' });
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).cancelled).toEqual([]);
+    await h.advance(3 * MIN);
+    await h.orders.cancel('c1', { orderId: cooking.id, reason: 'changed_mind' });
+    let board = await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(board.orders.map((o) => o.id)).toEqual([]);
+    // Only the one it had accepted: an order never accepted was not being cooked.
+    expect(board.cancelled).toEqual([{ orderId: cooking.id, number: expect.any(String), wasReady: false, cancelledAt: h.clock.now(), itemCount: expect.any(Number), totalIqd: cooking.totalIqd }]);
+    await h.advance(14 * MIN);
+    expect((await svc.board(staff, { merchantOrgId: khalid.id })).cancelled).toHaveLength(1);
+    await h.advance(1 * MIN + 1);
+    board = await svc.board(staff, { merchantOrgId: khalid.id });
+    expect(board.cancelled).toEqual([]);
   });
 
   it('the "+5 د" shows on the card once used', async () => {

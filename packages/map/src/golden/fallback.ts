@@ -44,7 +44,8 @@ export interface FallbackMap {
 /**
  * Safety net while the map is open: if our map file does not answer (no network to the host, a
  * failed upload, a blocked request) within `timeoutMs`, or a tile request fails before the first
- * tile arrives, swap to the original map once. After our map has loaded, a single failed tile
+ * tile arrives, swap to the original map once, drawn without the OSM street picture (zones and
+ * background only). After our map has loaded, a single failed tile
  * (a weak signal mid-ride) is left alone: MapLibre retries it, and switching looks would be worse.
  * Returns a function that stops watching (call it when the screen closes).
  */
@@ -62,7 +63,8 @@ export function fallBackToOriginalMap(
   const swap = () => {
     if (settled) return;
     stop();
-    map.setStyle(originalMapStyle(opts.fallback));
+    // Our files are configured (this map opened on them), so never the public OSM servers: zones only.
+    map.setStyle(originalMapStyle({ ...(opts.fallback ?? { theme: 'light' }), osmRaster: false }));
     opts.onFallback?.();
   };
   const onError = (e: { sourceId?: string }) => {

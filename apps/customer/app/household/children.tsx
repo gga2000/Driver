@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { GuardianChild } from '@driver/contracts';
@@ -117,6 +118,17 @@ function ChildCard({ child, online, onRemove }: { child: GuardianChild; online: 
             <Text variant="footnote" color="textMuted">
               {uri ? t('household.child_has_photo') : t('household.child_no_photo')}
             </Text>
+            {/* «وين الباص» (map idea N14): today's run on the map, only home, the school and the bus. */}
+            <View style={{ alignItems: 'flex-start', marginTop: theme.space[1] }}>
+              <Button
+                testID={`child-bus-${child.childRef}`}
+                variant="secondary"
+                size="sm"
+                icon="rajaa"
+                label={t('household.child_where_bus')}
+                onPress={() => router.push({ pathname: '/household/bus/[childRef]', params: { childRef: child.childRef } })}
+              />
+            </View>
           </View>
         </View>
         <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>

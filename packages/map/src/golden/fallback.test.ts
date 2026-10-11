@@ -46,7 +46,12 @@ describe('fallBackToOriginalMap', () => {
     emit('error', { sourceId: GOLDEN_SOURCE });
     emit('error', { sourceId: GOLDEN_SOURCE });
     expect(map.setStyle).toHaveBeenCalledTimes(1);
-    expect(map.setStyle.mock.calls[0]![0].metadata['driver:basemap']).toBe('osm-raster-fallback');
+    // Our files were configured, so the stand-in never calls the public OSM tile servers.
+    const swapped = map.setStyle.mock.calls[0]![0];
+    expect(swapped.metadata['driver:basemap']).toBe('zones-only');
+    expect(JSON.stringify(swapped)).not.toContain('openstreetmap.org/{z}');
+    expect(validateStyleMin(swapped)).toEqual([]);
+    expect(swapped.sources.zones).toBeDefined();
     expect(onFallback).toHaveBeenCalledTimes(1);
   });
   it('swaps when the map file never answers', () => {

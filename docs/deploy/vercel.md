@@ -10,6 +10,9 @@ Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays
 - Project environment variable `EXPO_PUBLIC_API_URL` = the **staging** API
   (`https://driver-api-staging.fly.dev/trpc`) until launch. It is baked in at build time: change it,
   then redeploy. `EXPO_PUBLIC_SHARE_BASE_URL` defaults to the project's own address.
+- `EXPO_PUBLIC_MAP_TILES_URL` and `EXPO_PUBLIC_MAP_GLYPHS_URL` (our map files, `docs/deploy/map.md`) are
+  required: a production build without them stops with a message, so the website's maps never load
+  from the public OpenStreetMap servers. Both are set (production and preview).
 - Only `main` deploys. `git.deploymentEnabled` in vercel.json stops every other branch from even creating a
   deployment (the free plan allows 100 deployments a day, and ignored builds still count), and the
   project setting "preview deployments disabled" covers branches cut before that line existed.

@@ -74,3 +74,16 @@ export async function uploadPhoto(
   if (!res.ok) throw new Error(`upload_${res.status}`);
   return ticket.uploadId;
 }
+
+/**
+ * «حرّك مكان المطعم»: a pin typed or pasted as «lat, lng» (what a maps app copies, e.g. «32.905, 45.06»),
+ * Arabic digits and comma accepted; null when it isn't two numbers in range.
+ */
+export function parsePin(text: string): { lat: number; lng: number } | null {
+  const western = text.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/٫/g, '.').replace(/،/g, ',');
+  const parts = western.split(/[,\s]+/).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [lat, lng] = parts.map(Number) as [number, number];
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
