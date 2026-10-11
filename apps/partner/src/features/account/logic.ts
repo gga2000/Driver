@@ -423,7 +423,9 @@ export type DocsSummary = 'blocked' | 'action' | 'review' | 'ok';
 
 export function docsSummary(view: Pick<DocumentsView, 'documents' | 'missing' | 'blocksOnline'>): DocsSummary {
   if (view.blocksOnline || view.documents.some((d) => d.status === 'expired')) return 'blocked';
-  if (view.missing.length > 0 || view.documents.some((d) => d.status === 'rejected' || d.status === 'expiring')) return 'action';
+  // A required kind still under review is his to wait for, not to upload: only kinds with nothing on file ask for action.
+  const unsent = view.missing.some((k) => !view.documents.some((d) => d.kind === k));
+  if (unsent || view.documents.some((d) => d.status === 'rejected' || d.status === 'expiring')) return 'action';
   if (view.documents.some((d) => d.status === 'pending')) return 'review';
   return 'ok';
 }
@@ -475,11 +477,11 @@ export function expiryFromMonth(year: number, month: number): Date {
 
 // ───────────────────────── online gate ─────────────────────────
 
-export type GateKind = 'paused' | 'checkin' | 'locked' | 'document';
+export type GateKind = 'paused' | 'checkin' | 'locked' | 'document' | 'missing';
 
 /**
  * The one thing blocking him, worst first: staff paused him after a safety report (`staff_paused`),
- * then a lock-out, an expired document, the check-in.
+ * then a lock-out, an expired document, a paper not on file or not approved yet, the check-in.
  */
 export function gateKind(gate: PartnerOnlineGate | null | undefined): GateKind | null {
   if (!gate || gate.canGoOnline) return null;
@@ -487,6 +489,7 @@ export function gateKind(gate: PartnerOnlineGate | null | undefined): GateKind |
   if (codes.has('staff_paused')) return 'paused';
   if (codes.has('checkin_locked')) return 'locked';
   if (codes.has('document_expired')) return 'document';
+  if (codes.has('document_missing')) return 'missing';
   if (codes.has('checkin_required')) return 'checkin';
   return null;
 }

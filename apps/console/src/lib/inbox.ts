@@ -256,3 +256,70 @@ export function holdRows<R extends Pick<InboxRow, 'id' | 'kind'>>(
   const shown = rows.filter((r) => onScreen.has(r.id) || r.kind === 'sos');
   return { shown, held: rows.length - shown.length };
 }
+
+// ───────────────────────── h7: one service at a time ─────────────────────────
+
+/** The service chips at the top of Today: a خطوط-only person narrows the page to خطوط. */
+export const SERVICES = ['delivery', 'ride', 'intercity', 'khat'] as const;
+export type Service = (typeof SERVICES)[number];
+
+export const SERVICE_KEY: Record<Service, MessageKey> = {
+  delivery: 'console.today.svc_delivery',
+  ride: 'console.today.svc_ride',
+  intercity: 'console.today.svc_intercity',
+  khat: 'console.today.svc_khat',
+};
+
+const BY_VERTICAL: Record<string, Service> = {
+  food: 'delivery',
+  grocery: 'delivery',
+  errand: 'delivery',
+  parcel: 'delivery',
+  taxi: 'ride',
+  tuktuk: 'ride',
+  intercity: 'intercity',
+  khat: 'khat',
+};
+const BY_ORDER_TYPE: Record<string, Service> = {
+  food: 'delivery',
+  grocery_catalog: 'delivery',
+  errand: 'delivery',
+  parcel: 'delivery',
+  ride: 'ride',
+  seat: 'intercity',
+  subscription: 'khat',
+};
+
+/**
+ * Which service a Today row belongs to, or null when it belongs to everyone (an SOS, a safety
+ * report, an approval) or the row doesn't say (a trip nobody answers). Null rows show under every
+ * chip, so narrowing the page never hides an emergency.
+ */
+export function serviceOf(row: Pick<InboxRow, 'kind' | 'facts'>): Service | null {
+  const f = row.facts;
+  switch (row.kind) {
+    case 'store_silent':
+    case 'late':
+    case 'stuck':
+    case 'cash_cap':
+      return 'delivery';
+    case 'late_departure':
+      return 'intercity';
+    case 'sweep':
+    case 'pin_alert':
+      return 'khat';
+    case 'no_driver':
+      return typeof f['vertical'] === 'string' ? (BY_VERTICAL[f['vertical']] ?? null) : null;
+    case 'low_rating':
+      return typeof f['orderType'] === 'string' ? (BY_ORDER_TYPE[f['orderType']] ?? null) : null;
+    default:
+      return null;
+  }
+}
+
+/** Rows a service chip keeps: its own and everyone's. */
+export function inService(row: Pick<InboxRow, 'kind' | 'facts'>, service: Service | null): boolean {
+  if (service === null) return true;
+  const own = serviceOf(row);
+  return own === null || own === service;
+}

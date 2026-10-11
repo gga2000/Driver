@@ -4,7 +4,7 @@ import { createMemoryStorage } from '@/lib/storage';
 import { PRACTICE_PREFIX } from './practice';
 
 const PRACTICE_ID = `${PRACTICE_PREFIX}1`;
-import { autoBusy, busyMinutesNow, createBeatLog, pausedMinutes, pauseView, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders } from './shop-load';
+import { autoBusy, boardSeesOrders, BOARD_FRESH_MS, busyMinutesNow, createBeatLog, pausedMinutes, pauseView, remakeErrorKey, remakeOffer, remakeOutcome, waitingOrders } from './shop-load';
 
 const NOW = Date.UTC(2026, 9, 8, 15, 0);
 const MIN = 60_000;
@@ -25,6 +25,9 @@ describe('l4: automatic busy', () => {
     expect(busyMinutesNow(20, autoBusy(15, true))).toBe(20);
     expect(busyMinutesNow(10, autoBusy(3, true))).toBe(10);
     expect(busyMinutesNow(0, autoBusy(3, false))).toBe(0);
+    // UNR-06: the owner's own busy minutes win over the automatic +10, never added to it.
+    expect(busyMinutesNow(20, autoBusy(15, false))).toBe(20);
+    expect(busyMinutesNow(5, autoBusy(40, false))).toBe(5);
   });
 });
 
@@ -103,5 +106,15 @@ describe('c6: remake paid', () => {
     expect(remakeErrorKey('money_rule_off')).toBe('merchant.remake.err_off');
     expect(remakeErrorKey('internal')).toBeNull();
     expect(remakeErrorKey(null)).toBeNull();
+  });
+});
+
+describe('the heartbeat waits for a board that loads (MER-04)', () => {
+  it('beats only while the last good board read is at most 90 s old', () => {
+    const now = 1_000_000;
+    expect(boardSeesOrders(0, now)).toBe(false); // never loaded
+    expect(boardSeesOrders(now - 5_000, now)).toBe(true);
+    expect(boardSeesOrders(now - BOARD_FRESH_MS, now)).toBe(true);
+    expect(boardSeesOrders(now - BOARD_FRESH_MS - 1, now)).toBe(false);
   });
 });

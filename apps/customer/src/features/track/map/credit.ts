@@ -1,8 +1,9 @@
 import { Platform } from 'react-native';
 import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
+import { nativeGolden } from './native-maplibre';
 
-/** The Golden hour map is set up for this build (web only until the phones get the native map). */
-export const GOLDEN_MAP = Platform.OS === 'web' && !!MAP_TILES_URL && !!MAP_GLYPHS_URL;
+/** The Golden hour map is set up for this build: its files are configured, and on phones the build has the native map. */
+export const GOLDEN_MAP = Platform.OS === 'web' ? !!MAP_TILES_URL && !!MAP_GLYPHS_URL : nativeGolden();
 
 /** The credit every map surface shows (maps program f12); our own tiles add Overture's buildings and places. */
 // Isolated left-to-right so «©» stays in front inside the right-to-left screen.

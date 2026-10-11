@@ -31,6 +31,7 @@
     "plugins": [
       ["expo-router", { "asyncRoutes": { "web": "production", "default": false } }],
       ["expo-localization", {}],
+      ["@maplibre/maplibre-react-native"],
       [
         "expo-image-picker",
         {

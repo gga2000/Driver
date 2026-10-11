@@ -90,7 +90,7 @@ export const ordersRouter = router({
   rideSwitchQuote: protectedProcedure().input(RideSwitchQuoteInput).output(RideSwitchQuote).query(({ ctx, input }) => ctx.orders.rideSwitchQuote(ctx.actor, input)),
   switchRideVehicle: protectedProcedure().input(SwitchRideVehicleInput).output(Order).mutation(({ ctx, input }) => ctx.orders.switchRideVehicle(ctx.actor, input)),
   /** Console history: any state, newest first, keyset-paginated. */
-  search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input)),
+  search: protectedProcedure(CONSOLE_READ_ROLES).input(OrderSearchInput).output(OrderSearchPage).query(({ ctx, input }) => ctx.console.searchOrders(input, ctx.actor.personId)),
   /** The order's actor event log (quarantined late replays included and marked). */
   events: protectedProcedure(CONSOLE_READ_ROLES).input(OrderIdInput).output(EventLog).query(({ ctx, input }) => ctx.console.orderEvents(input.orderId)),
   /** The courier's path and the order's moments, for the Console replay (maps program o2). */

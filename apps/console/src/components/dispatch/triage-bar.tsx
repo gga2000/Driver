@@ -104,9 +104,9 @@ export function TriageBar({
               <dt className="truncate text-xs text-muted">{t(TILE_KEY[k])}</dt>
               <dd
                 className={cx('num whitespace-nowrap text-[17px] font-semibold leading-7', alert ? 'text-bad' : 'text-text')}
-                title={k === 'cash_field' && x.value !== '—' ? `${x.value} ${t('console.iqd')}` : undefined}
               >
                 {x.value}
+                {k === 'cash_field' && x.value !== '—' ? <span className="ms-1 text-xs font-normal text-muted">{t('console.iqd')}</span> : null}
               </dd>
             </div>
           );

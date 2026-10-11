@@ -7,6 +7,7 @@ import { MIcon } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useMenuActions } from '@/features/menu/queries';
+import { acceptWindow } from './clock';
 import { clampPrep, committedPrep, defaultPrepChoice, dishesOut, kitchenNotes, partialValid, PREP_MAX, prepMin, prepOptions } from './logic';
 import { KitchenNote, PaymentPill } from './OrderCard';
 import { useOrderActions } from './queries';
@@ -100,7 +101,7 @@ export function AcceptSheet({ order, storeId, onClose, busyMinutes, prepKind, us
       testID="accept-sheet"
       title={t('merchant.accept.title', { number: order.number })}
       subtitle={t('merchant.card.items', { count: order.itemCount })}
-      aside={order.acceptBy ? <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - 90_000} durationMs={90_000} clock={clock} size={60} strokeWidth={5} testID="accept-ring" /> : null}
+      aside={order.acceptBy ? <CountdownRing mode="accept" startedAt={order.acceptBy.getTime() - acceptWindow.ms()} durationMs={acceptWindow.ms()} clock={clock} size={60} strokeWidth={5} testID="accept-ring" /> : null}
       footer={
         partial ? (
           <Button

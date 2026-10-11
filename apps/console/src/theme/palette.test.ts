@@ -4,6 +4,7 @@ import {
   CONSOLE_PAIRS,
   CONSOLE_ROLES,
   DATE_PAIRS,
+  WALL_PAIRS,
   datePalette,
   mix,
   palettes,
@@ -74,7 +75,7 @@ describe('console palette', () => {
     it('generates every role, from the date palette', () => {
       for (const role of CONSOLE_ROLES) expect(vars[role]).toBe(datePalette[role].toUpperCase());
     });
-    it.each(DATE_PAIRS.map((p) => [`${p.fg} on ${p.bg}`, p] as const))('%s', (_label, pair) => {
+    it.each([...DATE_PAIRS, ...WALL_PAIRS].map((p) => [`${p.fg} on ${p.bg} (${p.use})`, p] as const))('%s', (_label, pair) => {
       const ratio = contrastRatio(vars[pair.fg]!, vars[pair.bg]!);
       if (ratio < pair.min) {
         throw new Error(`date: ${pair.fg} ${vars[pair.fg]} on ${pair.bg} ${vars[pair.bg]} = ${ratio.toFixed(2)}:1 (< ${pair.min}:1) — ${pair.use}`);

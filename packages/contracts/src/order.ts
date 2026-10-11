@@ -659,6 +659,35 @@ export function parseOrderTicket(text: string): string | null {
   return m && m[1]! >= '1000' ? m[1]! : null;
 }
 
+/**
+ * What a Console order search is looking for (Yes-list v7), from what support typed:
+ * - `ticket`: an order number ("1284", "#1284"). Four bare digits are also the last four of the
+ *   customer's phone (`tail`), since that is what a caller reads out; "#1284" is the number only.
+ * - `phone`: a whole Iraqi mobile ("0770 123 4567", "+964 770…"): every order of that customer.
+ * - `name`: Arabic letters and no digits ("حيدر"): orders whose customer's display name matches.
+ * - `text`: anything else (an id, a note): the plain substring search.
+ */
+export type OrderQuery =
+  | { kind: 'ticket'; ticket: string; tail: string | null }
+  | { kind: 'tail'; tail: string }
+  | { kind: 'phone'; phone: string }
+  | { kind: 'name'; name: string }
+  | { kind: 'text'; text: string };
+
+export function classifyOrderQuery(text: string): OrderQuery | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const western = trimmed.replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - (d >= '۰' ? 0x06f0 : 0x0660)) % 10));
+  const ticket = parseOrderTicket(trimmed);
+  const bare = /^\d{4}$/.test(western);
+  if (ticket) return { kind: 'ticket', ticket, tail: bare ? western : null };
+  if (bare) return { kind: 'tail', tail: western };
+  const digits = western.replace(/[\s\-+()]/g, '');
+  if (/^\d{10,14}$/.test(digits)) return { kind: 'phone', phone: digits };
+  if (/[\u0600-\u06FF]/.test(trimmed) && !/\d/.test(western)) return { kind: 'name', name: trimmed };
+  return { kind: 'text', text: trimmed };
+}
+
 /** Words that mean an allergy in Iraqi Arabic, MSA and English (M-09). */
 const ALLERGY_WORDS = /حساسي[ةه]|حساس(?:ين|ة|ه)?\s+(?:من|على|عل)|allerg/i;
 

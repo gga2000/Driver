@@ -472,6 +472,35 @@ describe('launch control room (e2e)', () => {
       expect(list.counts.resolvedToday).toBeGreaterThanOrEqual(1);
       expect(list.rows.every((r) => r.status !== 'resolved')).toBe(true);
     });
+
+    it('refunds never go to the staff member giving them or any staff account; on an order only its customer; the courier or kitchen pays only once the fault is on them', async () => {
+      const agent = await person(['support']);
+      const finance = await person(['finance']);
+      const customer = await person();
+      const other = await person();
+      const key = `rs-${Date.now()}`;
+
+      // Herself, or a colleague's account: refused, nothing posts.
+      const self = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: agent.personId });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: self.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-a` }))).toBe('staff_own_account');
+      const colleague = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: finance.personId });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: colleague.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-b` }))).toBe('staff_own_account');
+      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: colleague.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-c` }))).toBe('staff_own_account');
+      for (const id of [agent.personId, finance.personId]) expect((await app.get(LedgerService).eventsFor(`customer:${id}`)).filter((e) => e.type === 'credit_issued')).toEqual([]);
+
+      // A ticket on an order belongs to that order's customer.
+      const placed = await order(customer.client, 'zakur');
+      expect(await codeOf(agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', orderId: placed.id, customerId: other.personId }))).toBe('invalid_input');
+
+      // The kitchen pays only once the fault is put on it, with a note; with no order nobody but Driver pays.
+      const onOrder = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'ناقص صنف', orderId: placed.id });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: onOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'merchant', idempotencyKey: `${key}-d` }))).toBe('refund_fault_not_attributed');
+      await agent.client.support.attributeFault.mutate({ ticketId: onOrder.id, faultParty: 'merchant', note: 'نسوا الصنف' });
+      expect((await agent.client.support.refund.mutate({ ticketId: onOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'merchant', idempotencyKey: `${key}-d` })).ticket.refundedIqd).toBe(1000);
+      const noOrder = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: other.personId });
+      await agent.client.support.attributeFault.mutate({ ticketId: noOrder.id, faultParty: 'courier', note: 'ما رجّع الباقي' });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: noOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'courier', idempotencyKey: `${key}-e` }))).toBe('refund_fault_not_attributed');
+    });
   });
 
   describe('cash desk and the wall', () => {

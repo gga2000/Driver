@@ -2,7 +2,7 @@
 #
 # Run by hand only: Actions → Staging setup → Run workflow. It reads the `staging` GitHub environment and
 # makes everything the Deploy workflow then needs, so nobody has to run flyctl or handle a secret:
-#   1. the Fly apps (API + Redis) and Redis's volume, when missing;
+#   1. the Fly apps (API + Redis, and the Console when FLY_CONSOLE_APP is set) and Redis's volume, when missing;
 #   2. the API's secrets on Fly, generated here when missing (JWT_SECRET, PHONE_HASH_PEPPER,
 #      UPLOADS_SECRET, SHARE_LINK_SECRET, SAFETY_LINK_SECRET, the Redis password) — they go straight from this runner to Fly and are never
 #      printed, stored in GitHub or shown to anyone; DATABASE_URL is DIRECT_URL on the transaction
@@ -16,7 +16,7 @@
 # Staging environment — secrets: DIRECT_URL, FLY_API_TOKEN (an org deploy token); optional
 # STAGING_TEST_OTP (the staging test numbers' code, chosen by a person). Variables:
 # DEPLOY_ENVIRONMENT=staging, DATABASE_REF, FLY_API_APP (ends in -staging); optional FLY_REDIS_APP
-# (default driver-redis-staging), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
+# (default driver-redis-staging), FLY_CONSOLE_APP (ends in -staging; unset = no staging Console), FLY_ORG (default personal), STAGING_ADMIN_PHONE (default 07700000099),
 # CORS_ORIGINS (default the customer and restaurant web versions on Vercel; the staging Console is added when FLY_CONSOLE_APP is set),
 # SENTRY_DSN (optional: the API's error reports go to Sentry, EU region).
 # Secrets are staged: they reach the API on its next deploy (Actions → Deploy → staging).
@@ -48,6 +48,7 @@ jobs:
       DATABASE_REF: ${{ vars.DATABASE_REF }}
       API_APP: ${{ vars.FLY_API_APP }}
       REDIS_APP: ${{ vars.FLY_REDIS_APP || 'driver-redis-staging' }}
+      CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
       FLY_ORG: ${{ vars.FLY_ORG || 'personal' }}
       ADMIN_PHONE: ${{ vars.STAGING_ADMIN_PHONE || '07700000099' }}
     steps:
@@ -61,6 +62,7 @@ jobs:
           [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
           [[ "$API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
           [[ "$REDIS_APP" == *-staging ]] || fail "FLY_REDIS_APP must end in -staging"
+          [ -z "$CONSOLE_APP" ] || [[ "$CONSOLE_APP" == *-staging ]] || fail "FLY_CONSOLE_APP must end in -staging"
           [ -n "$FLY_API_TOKEN" ] || fail "secret FLY_API_TOKEN is not set on the staging environment"
           [ -n "$DIRECT_URL" ] || fail "secret DIRECT_URL is not set on the staging environment"
           [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref)"
@@ -84,11 +86,13 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           has_app() { flyctl apps list --json | jq -e --arg a "$1" 'any(.[]; (.Name // .name // .ID) == $a)' > /dev/null; }
-          for app in "$API_APP" "$REDIS_APP"; do
+          apps=("$API_APP" "$REDIS_APP")
+          [ -z "$CONSOLE_APP" ] || apps+=("$CONSOLE_APP")
+          for app in "${apps[@]}"; do
             if has_app "$app"; then echo "app $app: exists"
             else
               flyctl apps create "$app" --org "$FLY_ORG" || {
-                echo "::error title=Fly app::could not create $app (names are global on Fly: if it is taken, pick another *-staging name in FLY_API_APP / FLY_REDIS_APP)"; exit 1; }
+                echo "::error title=Fly app::could not create $app (names are global on Fly: if it is taken, pick another *-staging name in FLY_API_APP / FLY_REDIS_APP / FLY_CONSOLE_APP)"; exit 1; }
               echo "app $app: created"
             fi
           done
@@ -102,7 +106,6 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app' }}
-          CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
           # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
           # and kept only as this environment's secret: never generated, printed or written anywhere here.
           STAGING_TEST_OTP: ${{ secrets.STAGING_TEST_OTP }}

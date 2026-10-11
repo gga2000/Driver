@@ -209,6 +209,15 @@ describe.skipIf(!url)('orders × trips on Postgres (needs DATABASE_URL)', () => 
     expect(await orders.merchantOrders(ids.org, { from: range.from, to: placedAt })).toEqual([]);
   });
 
+  it('Console search by orderer (v7): only the given orderers, an empty list matches nothing', async () => {
+    const placedAt = (await orders.get(ids.order)).placedAt;
+    const window = { cityId: 'aziziyah', from: new Date(placedAt.getTime() - 3_600_000), to: new Date(placedAt.getTime() + 1), limit: 50 };
+    expect((await orders.search({ ...window, ordererIds: [ids.customer] })).rows.map((r) => r.id)).toContain(ids.order);
+    expect((await orders.search({ ...window, ordererIds: [ids.courier] })).rows).toEqual([]);
+    expect((await orders.search({ ...window, ordererIds: [] })).rows).toEqual([]);
+    expect(await orders.ordererIdsIn({ cityId: 'aziziyah', from: window.from, to: window.to }, true)).toContain(ids.customer);
+  });
+
   it("perf z5: the board's misses come from a read of the missed orders only", async () => {
     const placedAt = (await orders.get(ids.order)).placedAt;
     const range = { from: new Date(placedAt.getTime() - 3_600_000), to: new Date(placedAt.getTime() + 60_000) };
