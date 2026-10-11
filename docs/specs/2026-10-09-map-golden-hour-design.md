@@ -145,6 +145,16 @@ from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-desig
 - **For the screen owner:** read the roads with `querySourceFeatures(GOLDEN_SOURCE, { sourceLayer: 'roads' })` on `moveend`. Feed `lifeFrame()` to a GeoJSON source each animation frame while the map is at street zoom, and stop the loop below it or when the screen is hidden.
 - **Phones** (`StreetLifeLayers.tsx`): every frame would cross the bridge, so the scene is split. Parked cars and people standing go to one source once per camera stop. Moving cars and walkers go to a second source about 12 times a second, paused when the app is in the background. The road-ahead glint steps about 15 times a second for its 2.4 s. On the restaurant map the house layers are adopted by id, so the houses facing a chosen shop lie flat without reloading the style.
 
+## Lantern streets (Ali, 2026-10-11: "even the ramadan thing make it permanent")
+
+Strings of fanous lanterns hang across the main streets of the town centre all year round. They sit within 1.7 km of the
+centre, about every 26 m on `major` and `mid` roads, and sag between the shop fronts at about 5–6.4 m. The tiles carry them
+in their own `lanterns` layer (z16, `tools/map-tiles/build.py`). Each lantern is a small box in the air (`base`, `hm`)
+with `c` 0–2, which the style colours saffron, gold or coral (`lamp1..3`): painted glass by day, brighter at sunset, lit
+at night. One `glow` point per string pools warm light on the street at night (`golden-lantern-glow`). They show only up
+close (from z16.4) and only in the 3D modes; the Console and cheap phones never draw them. They come on with the light
+change at dusk (the style swap), and nothing pulses or loops.
+
 ## Landmarks in 3D (Ali, 2026-10-09: "not real spot, make good looking design for each")
 
 The main mosque, the hospital and the three town garages stand up as detailed models, built in metres by
@@ -154,6 +164,8 @@ so they guide the eye from further out; the Console and cheap phones draw their 
 
 - **Main mosque**: walled courtyard with palms and a fountain, prayer hall with an arcade, a tall iwan with a gold-tiled
   arch, a gilded dome on its drum with four small domes, two banded minarets with a call balcony. Floodlit at night.
+  Ramadan lantern strings (`lamp1..3`, kept all year) run from each minaret's balcony down to the corners and the gate,
+  and warm pools light the courtyard and the gate at night.
 - **Hospital**: white L-shaped blocks with floor bands, a red crescent on a white roof disc, an entrance canopy with two
   ambulances and a red sign, parking and palms along the fence.
 - **Garages** (the new terminal, Ali's pick of three looks on 2026-10-10): a wave of white fins over two rows of bays,
