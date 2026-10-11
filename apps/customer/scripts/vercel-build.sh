@@ -4,6 +4,8 @@
 # API URL must be set in the Vercel project (staging until launch).
 set -euo pipefail
 : "${EXPO_PUBLIC_API_URL:?set EXPO_PUBLIC_API_URL in the Vercel project (e.g. https://driver-api-staging.fly.dev/trpc)}"
+# Production: our own map files (EXPO_PUBLIC_MAP_TILES_URL / _GLYPHS_URL), never the public OSM servers.
+node ../../scripts/deploy/release-env.cjs web customer
 # Share and invite links point at this site's own address unless the project sets one.
 export EXPO_PUBLIC_SHARE_BASE_URL="${EXPO_PUBLIC_SHARE_BASE_URL:-https://${VERCEL_PROJECT_PRODUCTION_URL:-$VERCEL_URL}}"
 
