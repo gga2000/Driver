@@ -24,6 +24,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { arrivalCountsForFees } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
 import { assessFix } from './position-guard.js';
@@ -236,7 +237,8 @@ export class TripsService implements OnModuleInit {
       await this.emit(tx, 'trip.order_detached', actorId, tripId, { orderId, reason }, { orderId });
       const remaining = links.filter((l) => l.detachedAt === null && l.id !== link.id);
       if (remaining.length === 0 && !isTerminal(trip.state)) {
-        await this.finishCancelled(trip, 'platform_cancelled', actorId, 'all_orders_detached', tx);
+        // The detached order rides on the event too: orders decides whether it still needs a courier.
+        await this.finishCancelled(trip, 'platform_cancelled', actorId, 'all_orders_detached', tx, [orderId]);
       } else {
         await this.rederive(trip, actorId, tx);
       }
@@ -842,14 +844,29 @@ export class TripsService implements OnModuleInit {
   /**
    * Cancels the trip. Unfinished stops are skipped and every order is detached (so late offline
    * replays are quarantined). Fees are the orders module's business: the event carries what it needs.
+   * A ride's driver can't cancel once the rider is in the car (a problem goes to safety or support).
+   * `beforePickupOnly` (a dispatcher taking the job off its driver) refuses once any pickup is done,
+   * and `record` writes the caller's audit row in the same unit of work.
    */
-  async cancel(tripId: string, by: 'driver' | 'customer' | 'platform', actorId: string, reason: string): Promise<Trip> {
+  async cancel(
+    tripId: string,
+    by: 'driver' | 'customer' | 'platform',
+    actorId: string,
+    reason: string,
+    opts: { beforePickupOnly?: boolean; record?: (trip: Trip, tx: Tx) => Promise<unknown> } = {},
+  ): Promise<Trip> {
     const to: TripState = by === 'driver' ? 'driver_cancelled' : by === 'customer' ? 'customer_cancelled' : 'platform_cancelled';
     return this.uow.run(async (tx) => {
       const trip = by === 'driver' ? await this.loadForCourier(tripId, actorId, tx) : await this.load(tripId, tx);
       if (trip.state === to) return this.view(tripId, tx);
+      if ((opts.beforePickupOnly || (by === 'driver' && RIDE_VERTICALS.includes(trip.vertical))) && !isTerminal(trip.state)) {
+        const stops = await this.repo.stopsOf(tripId, tx);
+        if (stops.some((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed')) throw new DriverError('trip_picked_up');
+      }
       await this.finishCancelled(trip, to, actorId, reason, tx);
-      return this.view(tripId, tx);
+      const after = await this.view(tripId, tx);
+      if (opts.record) await opts.record(after, tx);
+      return after;
     });
   }
 
@@ -892,6 +909,16 @@ export class TripsService implements OnModuleInit {
   async completedForDriver(driverId: string, since: Date): Promise<Trip[]> {
     const trips = await this.repo.findTrips({ courierId: driverId, states: ['completed'], completedSince: since });
     return Promise.all(trips.map((t) => this.view(t.id)));
+  }
+
+  /**
+   * The خطوط runs that carry this child (a stop with its ref): unfinished ones, and the ones completed
+   * at or after `since`. For the guardian's own-child view only; callers check the guardian first.
+   */
+  async forChild(childRef: string, since: Date): Promise<Trip[]> {
+    const going = await this.repo.findTrips({ childRef, states: PROGRESS_STATES });
+    const done = await this.repo.findTrips({ childRef, states: ['completed'], completedSince: since });
+    return Promise.all([...going, ...done].filter((t) => t.vertical === 'khat').map((t) => this.view(t.id)));
   }
 
   /** How many trips the driver completed, every vertical (the "1,240 مشوار" on his card). */
@@ -1073,14 +1100,16 @@ export class TripsService implements OnModuleInit {
     await this.move(trip, 'completed', actorId, tx, { completedAt: now, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, { by, reason, orderIds: links.map((l) => l.orderId) });
   }
 
-  private async finishCancelled(trip: TripRecord, to: TripState, actorId: string, reason: string, tx: Tx): Promise<void> {
+  /** `detachedOrderIds`: orders just taken off this trip, still on the event so their owner can re-request a courier. */
+  private async finishCancelled(trip: TripRecord, to: TripState, actorId: string, reason: string, tx: Tx, detachedOrderIds: readonly string[] = []): Promise<void> {
     if (!canMove(trip.state, to)) throw new DriverError('trip_state_conflict');
     const now = this.clock.now();
     const stops = await this.repo.stopsOf(trip.id, tx);
     for (const s of stops) if (!isStopFinished(s.state)) await this.repo.updateStop(s.id, { state: 'skipped', skippedAt: now, skipReason: `cancelled:${reason}` }, now, tx);
     const links = (await this.repo.linksOf(trip.id, tx)).filter((l) => l.detachedAt === null);
     for (const l of links) await this.repo.detach(l.id, { at: now, reason: `trip_${to}`, changedBy: personOrNull(actorId) }, tx);
-    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && s.arrivedAt).map((s) => s.arrivedAt!.getTime());
+    // A pickup "arrival" tapped far from it is only his word: the fees (and the M-15 credit) count arrivals near the pickup.
+    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && arrivalCountsForFees(s)).map((s) => s.arrivedAt!.getTime());
     const pickedUpOrderIds = [...new Set(stops.filter((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed' && s.orderId).map((s) => s.orderId!))];
     await this.move(trip, to, actorId, tx, { cancelledAt: now, cancellationReason: reason, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, {
       by: to === 'driver_cancelled' ? 'driver' : to === 'customer_cancelled' ? 'customer' : 'platform',
@@ -1088,7 +1117,7 @@ export class TripsService implements OnModuleInit {
       courierId: trip.courierId,
       acceptedAt: trip.acceptedAt?.toISOString() ?? null,
       arrivedPickupAt: arrivedPickup.length ? new Date(Math.min(...arrivedPickup)).toISOString() : null,
-      orderIds: links.map((l) => l.orderId),
+      orderIds: [...new Set([...detachedOrderIds, ...links.map((l) => l.orderId)])],
       pickedUpOrderIds,
     });
   }
@@ -1206,6 +1235,7 @@ function toStopView(s: StopRecord): Stop {
     arrivedAt: s.arrivedAt,
     arrivedOutsideGeofence: s.arrivedOutsideGeofence,
     arrivalDistanceM: s.arrivalDistanceM,
+    arrivalAccuracyM: s.arrivalAccuracyM,
     completedAt: s.completedAt,
     skippedAt: s.skippedAt,
     skipReason: s.skipReason,

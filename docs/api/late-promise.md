@@ -87,3 +87,26 @@ minutes.
 - Customer: `POST /demo/track?personId=…&scenario=late_apology` (promise moved 11 min into the past: the
   next read sends the apology) and `scenario=late_credit` (21 min: the next read posts the credit);
   `scenario=late&pastPromiseMin=<n>` for any point on the bar.
+
+## Why it's late, on the map (N6, Ali 2026-10-11)
+
+`tracking.route` (the road the customer's map draws) carries `slowStretch` once a delivery has passed
+its 10-minute late step (the apology) and is still on its way:
+
+```ts
+slowStretch: { fromM, toM, reason: 'traffic' | 'kitchen' | 'closed', minutes } | null
+```
+
+- `fromM` / `toM`: metres along this route's own line: the decoded `polyline6`, or, with no road shape,
+  the straight line through the route's points (what the map draws then).
+- **`kitchen`**: the food is not picked up and the kitchen is past its promised ready time. The stretch
+  is ±60 m around the point where the route passes the kitchen; `minutes` = how late the kitchen is.
+- **`traffic`**: otherwise. The road is cut into ~300 m pieces, each piece's learned ETA factor is read
+  (the same factors the one ETA uses, `EtaService.factor`, no router call), and the costliest unbroken
+  run of pieces at 1.15× or more is the stretch; `minutes` = what it adds over the router's estimate.
+  Under one extra minute, or nothing learned slow: `null`.
+- **`closed`**: kept for the closed-streets work (N20/N21); not sent yet.
+- Rides, on-time orders, delivered or cancelled orders: `null`.
+
+Read-only: the promise, the apology, the 20-minute credit and the amounts are unchanged. Code:
+`apps/api/src/modules/tracking/slow-stretch.ts`; tests: `slow-stretch.test.ts`.

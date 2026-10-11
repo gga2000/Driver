@@ -243,6 +243,24 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
         paint: { 'fill-extrusion-color': p.landmark.pool, 'fill-extrusion-base': 0.07, 'fill-extrusion-height': 0.09, 'fill-extrusion-opacity': 0.3 },
       });
     }
+    // the lantern strings across the main streets (Ali, 2026-10-11: the Ramadan streets, kept all year), from street
+    // level only; at night each string pools warm light on the street under it
+    const lan = { ...src, 'source-layer': 'lanterns' } as const;
+    if (p.windowGlow) {
+      L.push({
+        id: 'golden-lantern-glow', type: 'circle', ...lan, minzoom: 16.4, filter: kindIn('glow'),
+        paint: { 'circle-color': p.landmark.lamp1, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-opacity': fade(16.4, 0, 17, 0.26), 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 16.4, 9, 18, 34, 20, 136] as never },
+      });
+    }
+    L.push({
+      id: 'golden-lanterns', type: 'fill-extrusion', ...lan, minzoom: 16.4, filter: kindIn('lamp'),
+      paint: {
+        'fill-extrusion-color': ['match', ['get', 'c'], 1, p.landmark.lamp2, 2, p.landmark.lamp3, p.landmark.lamp1] as never,
+        'fill-extrusion-base': ['get', 'base'] as never,
+        'fill-extrusion-height': ['get', 'hm'] as never,
+        'fill-extrusion-opacity': fade(16.4, 0, 16.9, 1),
+      },
+    });
     L.push({
       id: 'golden-roof-tanks', type: 'fill-extrusion', ...bld, minzoom: 17.5, filter: kindIn('tankW', 'tankB', 'dish'),
       paint: { 'fill-extrusion-color': roofColor, 'fill-extrusion-height': ['get', 'hm'] as never, 'fill-extrusion-base': ['get', 'base'] as never, 'fill-extrusion-opacity': fade(17.5, 0, 17.9, 0.85) },

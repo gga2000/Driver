@@ -269,7 +269,6 @@ export type DealView = z.infer<typeof DealView>;
 export const DealIdInput = MerchantScope.extend({ dealId: z.string().min(1) });
 export const SetDealActiveInput = DealIdInput.extend({ active: z.boolean() });
 /** Platform approval switch (city config `merchantDeals.requirePlatformApproval`): admin / support. */
-export const ReviewDealInput = z.object({ dealId: z.string().min(1), approve: z.boolean(), reason: z.string().trim().max(200).optional() });
 
 // ───────────────────────── money ─────────────────────────
 
@@ -646,7 +645,6 @@ export interface MerchantAdminPort {
   dealsProject(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealProjectionView>;
   dealsPropose(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealView>;
   dealsSetActive(actor: Actor, input: z.infer<typeof SetDealActiveInput>): Promise<DealView>;
-  dealsReview(actor: Actor, input: z.infer<typeof ReviewDealInput>): Promise<DealView>;
   moneyToday(actor: Actor, input: MerchantScope): Promise<MoneyToday>;
   moneyCash(actor: Actor, input: MerchantScope): Promise<MerchantCashAccount>;
   moneyStatement(actor: Actor, input: z.infer<typeof StatementInput>): Promise<WeeklyStatement>;

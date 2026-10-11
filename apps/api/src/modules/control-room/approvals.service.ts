@@ -30,7 +30,7 @@ import { PromotionsService } from '../promotions/index.js';
 export const APPROVAL_KIND_ROLES: Record<ApprovalKind, readonly RoleKind[]> = {
   // driver-account `reviewDocument` reviewers
   driver_document: ['field_ops', 'support', 'admin'],
-  // merchant-admin `deals.review`: the platform approval switch
+  // The platform approval switch for deals (SEC2-08: this queue is its only path)
   merchant_deal: ['admin', 'support'],
   landmark_photo: ['field_ops', 'support', 'admin'],
   // A new merchant goes live: admin, or field ops other than the one who drafted it

@@ -127,7 +127,8 @@ export function DispatchPage() {
     }
     return top;
   }, [selectedCard, tripsById, pins, dropped]);
-  const assignable = Boolean(selectedCard && selectedCard.status !== 'cancelled');
+  // A courier holds an assigned job: it is taken off him first («شيل الطلب منه»), never offered over him.
+  const assignable = Boolean(selectedCard && selectedCard.status !== 'cancelled' && !selectedCard.assignedDriverId);
   const picked = desk.pick >= 0 ? candidates[desk.pick] : undefined;
 
   const names = useNames({ people: candidates.map((c) => c.driverId) });
