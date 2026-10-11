@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError } from '@driver/contracts';
+import { DriverError, type LedgerEvent } from '@driver/contracts';
 import type { Tx } from '@driver/db';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
-import { MerchantCashService } from './merchant-cash.service.js';
+import { MerchantCashService, attributeCourierCash } from './merchant-cash.service.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
 
 const t0 = new Date('2026-10-03T12:00:00Z');
@@ -255,5 +255,30 @@ describe('payouts never exceed what the merchant is owed (backend review 2026-10
     // He collected 16,500 and handed 12,750 over once.
     expect((await h.caps.status('k1')).cashIqd).toBe(-3750);
     expect(h.incidents.opened().map((i) => i.kind)).toEqual(['merchant_handover_discrepancy']);
+  });
+});
+
+describe('lines at one instant replay in money order, not id order', () => {
+  it('a hand-over at the same instant as the orders it pays for still clears them, whatever the ids', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', merchantId: 'm1', courierId: 'k1', occurredAt: t0 }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o2', merchantId: 'm1', courierId: 'k1', occurredAt: t0 }));
+    await h.posting.orderMoney(workedExample({ orderId: 'o3', merchantId: 'm2', courierId: 'k1', occurredAt: t0 }));
+    h.clock.set(t0);
+    await h.merchantCash.confirmHandover({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 25500, merchantConfirmedIqd: 25500, tabletTap: true });
+    // Every line at one instant (occurred and recorded), ids `le_<n>` as the in-memory store gives them.
+    const same = (e: LedgerEvent): LedgerEvent => ({ ...e, occurredAt: t0, recordedAt: t0 });
+    const m1 = (await h.ledger.eventsFor('merchant_cash:m1')).map(same);
+    const m2 = (await h.ledger.eventsFor('merchant_cash:m2')).map(same);
+    const groups = [...new Set([...m1, ...m2].map((e) => e.postingGroupId).filter((g): g is string => Boolean(g) && g!.startsWith('order')))];
+    const groupEvents = (await h.ledger.eventsForGroups(groups)).map(same);
+    const courier = [...(await h.ledger.eventsFor('cash:k1')), ...(await h.ledger.eventsFor('driver:k1'))].map(same);
+    const handover = m1.find((e) => e.type === 'merchant_paid_by_courier')!;
+    // The premise: well over 10 lines, and the hand-over's id sorts as text before an order line it pays for.
+    expect(new Set([...m1, ...m2, ...groupEvents, ...courier].map((e) => e.id)).size).toBeGreaterThan(10);
+    expect(m1.some((e) => e.type === 'merchant_payable' && handover.id.localeCompare(e.id) < 0)).toBe(true);
+    const out = attributeCourierCash({ merchantEvents: new Map([['m1', m1], ['m2', m2]]), groupEvents, courierEvents: new Map([['k1', courier]]) });
+    expect(out.get('m1')?.get('k1') ?? 0).toBe(0);
+    expect(out.get('m2')?.get('k1')).toBe(12750);
   });
 });
