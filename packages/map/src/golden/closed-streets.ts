@@ -71,14 +71,14 @@ export function closedStreetsLayers(opts: { source: string; light: GoldenLight; 
   const width = (lo: number, hi: number) => ['interpolate', ['exponential', 1.5], ['zoom'], 13, lo, 18, hi] as never;
   const is = (part: string) => ['==', ['get', 'part'], part] as never;
   return [
-    { id: `${id}-casing`, type: 'line', source: opts.source, filter: is('closed'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': rust, 'line-width': width(4, 13) } },
-    { id: `${id}-stripes`, type: 'line', source: opts.source, filter: is('closed'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': cream, 'line-width': width(2.2, 8), 'line-dasharray': [0.7, 0.7] } },
-    { id: `${id}-bar`, type: 'line', source: opts.source, filter: is('bar'), layout: { 'line-cap': 'round' }, paint: { 'line-color': rust, 'line-width': width(3, 8) } },
-    { id: `${id}-bar-stripes`, type: 'line', source: opts.source, filter: is('bar'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': cream, 'line-width': width(1.4, 4), 'line-dasharray': [1, 1] } },
-    { id: `${id}-end`, type: 'circle', source: opts.source, filter: is('end'), paint: { 'circle-radius': width(3, 7), 'circle-color': cream, 'circle-stroke-color': rust, 'circle-stroke-width': 2.5 } },
+    { id: `${id}-casing`, type: 'line', source: opts.source, filter: is('closed'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': rust, 'line-width': width(6, 17) } },
+    { id: `${id}-stripes`, type: 'line', source: opts.source, filter: is('closed'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': cream, 'line-width': width(3.6, 11), 'line-dasharray': [0.7, 0.7] } },
+    { id: `${id}-bar`, type: 'line', source: opts.source, filter: is('bar'), layout: { 'line-cap': 'round' }, paint: { 'line-color': rust, 'line-width': width(4, 10) } },
+    { id: `${id}-bar-stripes`, type: 'line', source: opts.source, filter: is('bar'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': cream, 'line-width': width(2, 5), 'line-dasharray': [1, 1] } },
+    { id: `${id}-end`, type: 'circle', source: opts.source, filter: is('end'), paint: { 'circle-radius': width(4, 8), 'circle-color': cream, 'circle-stroke-color': rust, 'circle-stroke-width': 2.5 } },
     {
       id: `${id}-label`, type: 'symbol', source: opts.source, filter: is('label'),
-      layout: { 'text-field': ['get', 'label'], 'text-font': [...GOLDEN_FONTS.bold], 'text-size': 13, 'text-offset': [0, -1.6], 'text-allow-overlap': true },
+      layout: { 'text-field': ['get', 'label'], 'text-font': [...GOLDEN_FONTS.bold], 'text-size': 13.5, 'text-max-width': 24, 'text-offset': [0, -1.8], 'text-allow-overlap': true },
       paint: { 'text-color': night ? '#FBEFD9' : '#5A1E08', 'text-halo-color': night ? '#120D09' : '#FFFCF6', 'text-halo-width': 2.2 },
     },
   ];
