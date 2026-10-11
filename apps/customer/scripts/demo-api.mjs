@@ -39,6 +39,7 @@
 //   - POST /demo/rajaa-taxi?personId=…&baghdadSeat=1                  n9: only his seat on a car back from Baghdad
 //   - POST /demo/booked-ride?personId=…[&state=looking|confirmed]    review #28: a ride booked for tomorrow 7:30,
 //                                                                     drivers asked until 22:00 or حسين confirmed
+//   - POST /demo/khat-bus?personId=…[&state=coming|away|…]           N14 «وين الباص»: a خطوط run for the first child
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -1737,6 +1738,109 @@ const rajaa = await (async () => {
       // A الرجعة trip that just ended (this month's «رجعة وحدة»).
       await fetch(`http://127.0.0.1:${PORT}/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`, { method: 'POST' }).catch(() => null);
       json(res, 200, { householdId: household.id, held: held ? { orderId: held.id, heldForPayer: held.heldForPayer === true } : null });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── «وين الباص» (map idea N14) ─────────────────────────
+//   POST /demo/khat-bus?personId=<id>[&state=coming|away|on_board|delivered|absent][&fixAgoMin=5]   (after /demo/account)
+//
+// Today's morning school run for the person's first خطوط child (زهراء): two neighbours' children
+// (another family) are picked up before her, one more after her, then the school (المركز). The bus is
+// a demo خطوط driver's fix, through the real trips/khat modules, so the guardian map shows exactly what
+// the server lets out. `away` (the default): no one picked up yet, the bus heading to the first
+// neighbour (busAway, two stops before yours). `coming`: both neighbours on board, the bus on the way to
+// her home, well past 300 m from their stops. `on_board`: she and the third child are on, the bus
+// heading to the school. `delivered`: dropped at school. `absent`: marked absent. Each call replaces
+// the previous demo run.
+{
+  const { KhatService } = await load('modules/khat/index.js');
+  const khat = app.get(KhatService);
+  // All in town north of the river: the neighbours east and north of her home, the third child between
+  // her home and the school.
+  const P = {
+    n1: { lat: 32.9135, lng: 45.068 },
+    n2: { lat: 32.915, lng: 45.061 },
+    home: { lat: 32.912, lng: 45.056 },
+    n3: { lat: 32.9085, lng: 45.0575 },
+    school: { lat: 32.905, lng: 45.06 },
+  };
+  /** Where the bus stands in each state (≥ 300 m from every other child's stop whenever it should show). */
+  const BUS_AT = {
+    away: { lat: 32.912, lng: 45.073, bearing: 290 },
+    coming: { lat: 32.9125, lng: 45.059, bearing: 260 },
+    on_board: { lat: 32.9058, lng: 45.0596, bearing: 150 },
+    delivered: { lat: 32.905, lng: 45.06, bearing: 150 },
+    absent: { lat: 32.912, lng: 45.073, bearing: 290 },
+  };
+  const runs = new Map(); // personId → tripId
+  let khatDriver = null;
+  let neighbours = null;
+
+  app.use('/demo/khat-bus', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const state = url.searchParams.get('state') ?? 'away';
+      if (req.method !== 'POST' || !personId || !BUS_AT[state]) return json(res, 400, { error: 'POST /demo/khat-bus?personId=…&state=coming|away|on_board|delivered|absent' });
+      const own = await identity.myChildren({ personId });
+      if (!own.length) return json(res, 400, { error: 'POST /demo/account?personId=… first (it adds the خطوط children)' });
+      const childRef = own[0].childRef;
+      if (!khatDriver) {
+        const phone = '07712990004';
+        await identity.requestOtp({ phone, purpose: 'login' });
+        const { code } = await identity.devLastOtp(phone);
+        khatDriver = (await identity.verifyOtp({ phone, code })).personId;
+        await identity.grantRole({ personId: 'system:demo' }, { personId: khatDriver, kind: 'khat_driver' });
+        await identity.setName({ personId: khatDriver, sessionId: 'demo' }, 'كرار عادل');
+        vehicles.register?.(khatDriver, { vehicleClass: 'van', plate: 'واسط 40417' });
+        await dispatch.setPolicy({ personId: 'demo-dispatcher', sessionId: 'demo' }, { cityId: 'aziziyah', vertical: 'khat', suggestOnly: true }).catch(() => undefined);
+      }
+      // The neighbours' children belong to another family: nothing of theirs reaches this guardian.
+      if (!neighbours) {
+        const parent = await identity.ensurePersonByPhone('07803330399', 'system:demo', 'demo');
+        neighbours = [];
+        for (const name of ['سجاد حيدر', 'نور كاظم', 'آية سالم']) neighbours.push((await identity.registerChild({ personId: parent }, { name })).childRef);
+      }
+      const old = runs.get(personId);
+      if (old) await trips.cancel(old, 'platform', 'demo-dispatcher', 'demo_reset').catch(() => undefined);
+      const driver = { personId: khatDriver, sessionId: 'demo' };
+      const now = Date.now();
+      const w = (m) => new Date(now + m * 60_000);
+      const kids = [
+        [neighbours[0], P.n1, -10],
+        [neighbours[1], P.n2, -5],
+        [childRef, P.home, 2],
+        [neighbours[2], P.n3, 6],
+      ];
+      const stops = kids.map(([ref, at, m]) => ({ type: 'pickup', zoneKey: 'hashimi', target: at, childRef: ref, windowStart: w(m), windowEnd: w(m + 5) }));
+      for (const [ref] of kids) stops.push({ type: 'dropoff', zoneKey: 'centre', target: P.school, childRef: ref, windowStart: w(15), windowEnd: w(25) });
+      const trip = await trips.createForOrders({ cityId: 'aziziyah', vertical: 'khat', orders: [], stops });
+      runs.set(personId, trip.id);
+      await dispatch.presence.online(khatDriver, { cityId: 'aziziyah', at: BUS_AT.away, vehicle: 'van', tier: 'silver' });
+      await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'khat', zoneId: 'hashimi', pickup: P.n1, dropoffZoneId: 'centre' });
+      const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: khatDriver, reason: 'demo: khat bus', force: true });
+      await dispatch.respond(driver, { offerId, accept: true });
+      const s = [...(await trips.get(trip.id)).stops].sort((a, b) => a.seq - b.seq);
+      const tapIn = (i) => khat.tapIn(driver, { tripId: trip.id, stopId: s[i].id, pin: kids[i][1] });
+      if (state === 'absent') await khat.reportAbsence(driver, { tripId: trip.id, childRef, reason: 'guardian_notice' });
+      if (state === 'coming' || state === 'on_board' || state === 'delivered') {
+        await tapIn(0);
+        await tapIn(1);
+      }
+      if (state === 'on_board' || state === 'delivered') {
+        await tapIn(2);
+        await tapIn(3);
+      }
+      if (state === 'delivered') await khat.tapOut(driver, { tripId: trip.id, stopId: s[6].id, pin: P.school });
+      // `&fixAgoMin=5`: the bus's last fix is that old (the stale caption); `&fixAt=<ISO>`: taken then (shots on a fixed clock).
+      const bus = BUS_AT[state];
+      const fixAt = url.searchParams.get('fixAt') ? new Date(url.searchParams.get('fixAt')) : new Date(now - Number(url.searchParams.get('fixAgoMin') ?? 0) * 60_000);
+      await trips.reportPosition(khatDriver, { tripId: trip.id, pin: { lat: bus.lat, lng: bus.lng }, at: fixAt, bearing: bus.bearing, speedKmh: 25 });
+      const view = await khat.guardianRun({ personId, sessionId: 'demo' }, { childRef });
+      json(res, 200, { tripId: trip.id, childRef, view });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
