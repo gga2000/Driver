@@ -1,28 +1,16 @@
 import { AZIZIYAH_ZONES } from '@driver/contracts';
+import type { GoldenLight } from '@driver/map/golden';
+import type { SunriseKeyframe, SunriseTour } from '@driver/map/pieces';
 
 /**
  * «الشمس تطلع على العزيزية» (map idea N4, Ali 2026-10-11): after sign-up, once, the camera rises from the
- * Tigris over the town while the light warms from dawn to morning, and lands over the person's own street.
- * The tour's shape is the map package's `sunriseTour` (M2); until it lands, `sunriseStandIn` draws the
- * same kind of path so the screen can be built and checked. Pure: the screen eases between keyframes.
+ * Tigris over the town while the light warms from night to day, and lands over the person's own place.
+ * The tour itself is the map package's `sunriseTour` (its keyframes and light steps); this file says
+ * where it lands and eases the camera between its keyframes. Pure.
  */
 
 export type LngLat = [number, number];
-/** The map's light steps (the Golden hour palettes). */
-export type SunriseLight = 'day' | 'morning' | 'golden' | 'sunset' | 'night';
-
-export interface SunriseCamera {
-  center: LngLat;
-  zoom: number;
-  pitch: number;
-  bearing: number;
-}
-
-export interface SunriseTour {
-  keyframes: (SunriseCamera & { atMs: number })[];
-  lights: { atMs: number; light: SunriseLight }[];
-  totalMs: number;
-}
+export type SunriseCamera = Omit<SunriseKeyframe, 'atMs'>;
 
 /** The town centre, where the camera lands without a zone. */
 export const TOWN: LngLat = (() => {
@@ -37,30 +25,7 @@ export function sunriseLanding(pin: { lat: number; lng: number } | null | undefi
   return z ? [z.lng, z.lat] : TOWN;
 }
 
-/**
- * Until the map's own `sunriseTour` lands: low over the Tigris just south of the town at dawn, looking
- * across the water at the roofs; up over the town as the light turns golden; then down over the landing
- * street in the morning, turning a little. 8 s.
- */
-export function sunriseStandIn(at: LngLat = TOWN): SunriseTour {
-  const river: LngLat = [TOWN[0] - 0.002, TOWN[1] - 0.0085];
-  const mid: LngLat = [(river[0] + at[0]) / 2, (river[1] + at[1]) / 2];
-  return {
-    keyframes: [
-      { atMs: 0, center: river, zoom: 14.4, pitch: 62, bearing: -28 },
-      { atMs: 4000, center: mid, zoom: 15.2, pitch: 56, bearing: -6 },
-      { atMs: 8000, center: at, zoom: 16.4, pitch: 60, bearing: 18 },
-    ],
-    lights: [
-      { atMs: 0, light: 'sunset' },
-      { atMs: 2800, light: 'golden' },
-      { atMs: 5600, light: 'morning' },
-    ],
-    totalMs: 8000,
-  };
-}
-
-/** Ease in and out: slow off the river, quick over the town, slow onto the street. */
+/** Ease in and out: slow off the river, quick over the town, slow onto the landing. */
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
 const mix = (a: number, b: number, f: number) => a + (b - a) * f;
 
@@ -84,14 +49,14 @@ export function sunriseCameraAt(tour: SunriseTour, t: number): SunriseCamera {
 }
 
 /** The light `t` ms into the tour: the last step that has started (the first one before any). */
-export function sunriseLightAt(tour: SunriseTour, t: number): SunriseLight {
-  let light = tour.lights[0]?.light ?? 'morning';
+export function sunriseLightAt(tour: SunriseTour, t: number): GoldenLight {
+  let light = tour.lights[0]?.light ?? 'day';
   for (const step of tour.lights) if (step.atMs <= t) light = step.light;
   return light;
 }
 
 /** Where the tour ends (what reduce motion and a skip jump to). */
-export function sunriseEnd(tour: SunriseTour): { camera: SunriseCamera; light: SunriseLight } {
+export function sunriseEnd(tour: SunriseTour): { camera: SunriseCamera; light: GoldenLight } {
   return { camera: sunriseCameraAt(tour, tour.totalMs), light: sunriseLightAt(tour, tour.totalMs) };
 }
 

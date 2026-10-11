@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
-import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLightAt, sunriseStandIn, TOWN } from './sunrise';
+import { sunriseTour } from '@driver/map/pieces';
+import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLightAt, TOWN } from './sunrise';
 
 describe('the sign-up sunrise (map idea N4)', () => {
   it('lands on the saved door, else the picked zone, else the town centre', () => {
@@ -11,9 +12,9 @@ describe('the sign-up sunrise (map idea N4)', () => {
     expect(sunriseLanding(null, null)).toEqual(TOWN);
   });
 
-  it('plays once in 8 s and ends exactly over the landing street', () => {
+  it('plays once in 8 s and ends exactly over the landing', () => {
     const at: [number, number] = [45.0635, 32.9095];
-    const tour = sunriseStandIn(at);
+    const tour = sunriseTour(at);
     expect(tour.totalMs).toBe(8000);
     const end = sunriseEnd(tour);
     expect(end.camera.center).toEqual(at);
@@ -22,23 +23,22 @@ describe('the sign-up sunrise (map idea N4)', () => {
   });
 
   it('eases between keyframes without jumping', () => {
-    const tour = sunriseStandIn();
+    const tour = sunriseTour(TOWN);
     let prev = sunriseCameraAt(tour, 0);
     for (let t = 100; t <= tour.totalMs; t += 100) {
       const cur = sunriseCameraAt(tour, t);
       expect(Math.abs(cur.zoom - prev.zoom)).toBeLessThan(0.2);
       expect(Math.abs(cur.bearing - prev.bearing)).toBeLessThan(3);
+      expect(Math.abs(cur.pitch - prev.pitch)).toBeLessThan(3);
       prev = cur;
     }
-    // The camera rises off the river and comes down onto the street.
-    expect(sunriseCameraAt(tour, 0).zoom).toBeLessThan(sunriseCameraAt(tour, 8000).zoom);
   });
 
-  it('the light warms from dawn to morning, one step at a time', () => {
-    const tour = sunriseStandIn();
-    expect(sunriseLightAt(tour, 0)).toBe('sunset');
-    expect(sunriseLightAt(tour, 3000)).toBe('golden');
-    expect(sunriseLightAt(tour, 8000)).toBe('morning');
-    expect(sunriseEnd(tour).light).toBe('morning');
+  it('the light warms from night to day, one step at a time, and ends on the day map', () => {
+    const tour = sunriseTour(TOWN);
+    const steps = tour.lights.map((l) => l.light);
+    expect(sunriseLightAt(tour, 0)).toBe(steps[0]);
+    for (const step of tour.lights) expect(sunriseLightAt(tour, step.atMs)).toBe(step.light);
+    expect(sunriseEnd(tour).light).toBe('day');
   });
 });

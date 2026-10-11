@@ -13,11 +13,13 @@ import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { useLocale, useT } from '@/lib/i18n';
 import { useProfile, zoneName } from '@/lib/profile';
 import { useSeason } from '@/lib/use-season';
-import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLightAt, sunriseStandIn, type SunriseLight } from './sunrise';
+import { sunriseCameraAt, sunriseEnd, sunriseLanding, sunriseLightAt } from './sunrise';
 import type { WelcomeHomeProps } from './WelcomeDrawing';
 import { nearestOpen, PIN_LAND_MS, welcomeLines } from './welcome-home';
 
 type Golden = typeof import('@driver/map/golden');
+type Pieces = typeof import('@driver/map/pieces');
+type SunriseLight = import('@driver/map/golden').GoldenLight;
 
 /** The home pin's size (px) and how far above the street it starts falling when the camera lands. */
 const PIN = 40;
@@ -25,12 +27,12 @@ const DROP_FROM = -120;
 
 /**
  * «الشمس تطلع على العزيزية» (map idea N4, Ali said yes 2026-10-11), web: the welcome-home moment after
- * sign-up, once. The camera rises from the Tigris over the real town while the light warms from dawn to
- * morning (about 8 s, played once), «هلا بيك علي / هذي العزيزية» over the sky, and it lands over the
+ * sign-up, once. The camera rises from the Tigris over the real town while the light warms from night to
+ * day (about 8 s, played once), «هلا بيك علي / هذي العزيزية» over the sky, and it lands over the
  * person's own street: the line becomes «هذا حيّك: شارع 30», the home pin drops onto it, and a sheet
  * asks for the door («وين بيتك؟ / حدّد بيتي / بعدين»; «يلا» when the door is already saved). A tap
- * during the flight lands at once; with reduced motion it opens landed. The camera path is the map's
- * `sunriseTour` once it lands (M2); `sunriseStandIn` draws the same kind of path until then.
+ * during the flight lands at once; with reduced motion it opens landed. The camera path and the light
+ * steps are the map's own `sunriseTour`, landing on the person's place; it ends on the day map.
  */
 export function WelcomeSunrise({ name, zoneId, kitchens, onDone, onFail }: WelcomeHomeProps & { onFail: () => void }) {
   const theme = useTheme();
@@ -77,19 +79,19 @@ export function WelcomeSunrise({ name, zoneId, kitchens, onDone, onFail }: Welco
     let map: MlMap | null = null;
     let raf = 0;
     let stopFallback: (() => void) | undefined;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden')])
-      .then(async ([mod, golden]: [unknown, Golden]) => {
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces')])
+      .then(async ([mod, golden, pieces]: [unknown, Golden, Pieces]) => {
         const maplibregl = ((mod as { default?: unknown }).default ?? mod) as typeof import('maplibre-gl');
         await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
         ensureMaplibreCss();
-        const tour = sunriseStandIn(landing);
+        const tour = pieces.sunriseTour(landing);
         const end = sunriseEnd(tour);
         let light: SunriseLight = theme.reduceMotion ? end.light : sunriseLightAt(tour, 0);
         const styleFor = (l: SunriseLight) => golden.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: l }).style as unknown as StyleSpecification;
         const camera = theme.reduceMotion ? end.camera : sunriseCameraAt(tour, 0);
         try {
-          map = new maplibregl.Map({ container: container.current, style: styleFor(light), ...camera, interactive: false, attributionControl: false, fadeDuration: 0, maxPitch: 65 });
+          map = new maplibregl.Map({ container: container.current, style: styleFor(light), ...camera, interactive: false, attributionControl: false, fadeDuration: 0, maxPitch: 75 });
         } catch {
           failRef.current();
           return;
