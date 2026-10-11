@@ -73,6 +73,10 @@ pause the project in Supabase (and **Restore** it before switching back on).
 
 ## Which web sites may call staging (CORS)
 
+Staging setup also sets the two link bases on every run: `CONSOLE_BASE_URL` = `https://<FLY_CONSOLE_APP>.fly.dev`
+(only when the variable `FLY_CONSOLE_APP` is set), and `SAFETY_LINK_BASE_URL` = the variable `SHARE_BASE_URL` (else
+the customer web app on Vercel) + `/sos/`, so staff alerts and SOS links never point at a domain we do not own.
+
 `CORS_ORIGINS` on the staging API lists the exact web origins allowed to call it from a browser.
 Staging setup sets it on every run: the GitHub variable `CORS_ORIGINS` on the `staging` environment,
 default `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` (the customer and
