@@ -1,5 +1,6 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
+import { GOLDEN_FONTS } from './fonts.js';
 import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
 import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
@@ -26,13 +27,9 @@ export interface GoldenStyleOptions {
   riseAt?: number;
 }
 
-/** The vector source id and the font stacks `tools/map-tiles/glyphs.py` writes. */
+/** The vector source id; the font stacks live in `fonts.ts` so pieces can import them alone. */
 export const GOLDEN_SOURCE = 'golden';
-export const GOLDEN_FONTS = {
-  regular: ['IBM Plex Sans Arabic Regular'],
-  medium: ['IBM Plex Sans Arabic Medium'],
-  bold: ['IBM Plex Sans Arabic Bold'],
-} as const;
+export { GOLDEN_FONTS };
 export const GOLDEN_ATTRIBUTION = '© OpenStreetMap contributors, Overture Maps Foundation';
 
 /**
