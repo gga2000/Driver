@@ -30,6 +30,7 @@ import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
 import { opsZonesRouter } from './zones.js';
+import { opsClosuresRouter } from './closures.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
 
@@ -162,4 +163,6 @@ export const opsRouter = router({
   zones: opsZonesRouter,
   /** Stores' pickup spots set from the Console (field ops, admin). */
   pickupSpots: opsPickupSpotsRouter,
+  /** N20 «شارع مسدود»: streets closed for today; every route goes around them (field ops, dispatchers, admin). */
+  closures: opsClosuresRouter,
 });

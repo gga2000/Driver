@@ -326,7 +326,7 @@ export class PartnerService implements PartnerPort {
     if (!orders[0]?.merchantOrgId) return none;
     const from = { lat: presence.lat, lng: presence.lng };
     const r = await this.deps.roads.path([from, found.request.pickup]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
   }
 
   async jobRoute(actor: Actor): Promise<OrderRoute> {
@@ -343,7 +343,7 @@ export class PartnerService implements PartnerPort {
     const from = fix && fix.driverId === actor.personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
     if (!from || ahead.length === 0) return none;
     const r = await this.deps.roads.path([from, ...ahead]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
   }
 
   /**

@@ -53,6 +53,7 @@ export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';
 export * from './zones-io.js';
+export * from './closures-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';

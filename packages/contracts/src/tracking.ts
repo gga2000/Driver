@@ -6,6 +6,7 @@ import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 import { VehicleColour, VehicleFeature } from './vehicle-features.js';
+import { AvoidedStreet } from './closures-io.js';
 
 /** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
 export const EtaBasis = z.enum(['road', 'estimated']);
@@ -338,7 +339,7 @@ export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bik
 /**
  * N6 «ليش متأخر»: why a late delivery is late, and where. `traffic`: the part of the road ahead whose
  * learned minutes run slowest; `kitchen`: the food is not out on time, at the kitchen on the route;
- * `closed`: a street closed today (kept for the closed-streets work, not sent yet).
+ * `closed`: a street closed today that the route goes around (N20).
  */
 export const SlowStretchReason = z.enum(['traffic', 'kitchen', 'closed']);
 export type SlowStretchReason = z.infer<typeof SlowStretchReason>;
@@ -367,6 +368,8 @@ export const OrderRoute = z.object({
    * and something on the route explains it; null otherwise.
    */
   slowStretch: SlowStretch.nullable().optional(),
+  /** N20: streets closed today that this route goes around (draw them; say why it bends). Absent or empty = none. */
+  closures: z.array(AvoidedStreet).optional(),
 });
 export type OrderRoute = z.infer<typeof OrderRoute>;
 

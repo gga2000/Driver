@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { EtaService, RoutingModule } from '../routing/index.js';
+import { avoidedStreets, EtaService, RouteClosures, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
 import { ClimateChecks, DispatchModule, DispatchService, type BookedJobInfo } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
@@ -54,8 +54,14 @@ function takeFor(vertical: Vertical): TakeRule | null {
         places: SavedPlacesService,
         merchant: MerchantService,
         climate: ClimateChecks,
+        closures: RouteClosures,
       ): PartnerDeps => ({
-        roads: { path: (points) => eta.path(points) },
+        roads: {
+          path: async (points) => {
+            const r = await eta.path(points);
+            return { ...r, closures: avoidedStreets(closures, r.avoided) };
+          },
+        },
         presence: {
           get: (id) => dispatch.presence.get(id),
           online: (id, input) => dispatch.presence.online(id, input),
@@ -136,7 +142,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks, RouteClosures],
     },
     PartnerService,
   ],

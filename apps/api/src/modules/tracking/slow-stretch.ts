@@ -13,6 +13,8 @@ export const SLOW_STRETCH_RULES = {
   minExtraMin: 1,
   /** A kitchen stretch spans this far either side of the kitchen. */
   kitchenHalfM: 60,
+  /** N20: a closed-street stretch is the route's way around, this far beyond the closed street's ends. */
+  closedAroundM: 150,
 } as const;
 
 export type SlowStretchRules = typeof SLOW_STRETCH_RULES;
@@ -134,4 +136,32 @@ export function kitchenStretch(
     reason: 'kitchen',
     minutes: Math.max(1, Math.round(lateMinutes)),
   };
+}
+
+/**
+ * N20 closed street: the order goes around a street closed today and that is what costs the minutes.
+ * The stretch is the part of this route near the closed street (its way around), not the closed street
+ * itself, which the map draws on its own.
+ */
+export function closedStretch(
+  path: { points: readonly LatLng[]; atM: readonly number[] },
+  closed: readonly LatLng[],
+  extraMinutes: number,
+  rules: SlowStretchRules = SLOW_STRETCH_RULES,
+): SlowStretch | null {
+  if (path.points.length < 2 || closed.length < 2 || extraMinutes < rules.minExtraMin) return null;
+  let closedLen = 0;
+  for (let i = 1; i < closed.length; i++) closedLen += haversineM(closed[i - 1]!, closed[i]!);
+  const mid = closed[Math.floor(closed.length / 2)]!;
+  const reach = closedLen / 2 + rules.closedAroundM;
+  let fromM: number | null = null;
+  let toM: number | null = null;
+  path.points.forEach((p, i) => {
+    if (haversineM(p, mid) > reach) return;
+    const at = path.atM[i]!;
+    fromM = fromM === null ? at : Math.min(fromM, at);
+    toM = toM === null ? at : Math.max(toM, at);
+  });
+  if (fromM === null || toM === null || toM - fromM < 1) return null;
+  return { fromM: Math.round(fromM), toM: Math.round(toM), reason: 'closed', minutes: Math.max(1, Math.round(extraMinutes)) };
 }

@@ -10,6 +10,7 @@ import {
   publicCourierRating,
   ROUTE_VEHICLE_FACTOR,
   type Actor,
+  type AvoidedStreet,
   type CourierCard,
   type CourierPosition,
   type DeliveryPoint,
@@ -32,10 +33,10 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { avoidedStreets, EtaService, RouteClosures, type EtaMinutes } from '../routing/index.js';
 import { arrivalCountsForFees } from '../pricing/index.js';
 import { rideMilestones } from './ride-milestones.js';
-import { decodePolyline, kitchenStretch, measuredPath, SLOW_STRETCH_RULES, trafficStretch } from './slow-stretch.js';
+import { closedStretch, decodePolyline, kitchenStretch, measuredPath, SLOW_STRETCH_RULES, trafficStretch } from './slow-stretch.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -202,6 +203,8 @@ export class TrackingService implements TrackingPort {
     @Optional() @Inject(TRACKING_PHOTOS) private readonly photos: TrackingPhotosPort | null = null,
     /** Customers' delivery scores for the card's public rating (joy l2); without it the card has none. */
     @Optional() @Inject(TRACKING_RATINGS) private readonly ratings: TrackingRatingsPort | null = null,
+    /** N20: today's closed streets (routing's book), to name the ones a route goes around. */
+    @Optional() private readonly closures: RouteClosures | null = null,
   ) {}
 
   private readonly logger = new Logger(TrackingService.name);
@@ -288,8 +291,11 @@ export class TrackingService implements TrackingPort {
     const points = courier ? [courier, ...ahead] : ahead;
     if (points.length < 2) return none;
     const r = await this.eta.path(points);
-    const slowStretch = await this.slowStretch(order, agg.order, trip, kitchenOrg?.pin ?? null, points, r, now);
-    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now, slowStretch };
+    const vehicle = await this.vehicleOf(order, trip);
+    // N20: the streets closed today that this route goes around, with the minutes each way around adds.
+    const closures: AvoidedStreet[] = this.closures ? avoidedStreets(this.closures, r.avoided, ROUTE_VEHICLE_FACTOR[vehicle]) : [];
+    const slowStretch = await this.slowStretch(order, agg.order, trip, kitchenOrg?.pin ?? null, points, r, now, closures);
+    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now, slowStretch, ...(closures.length > 0 ? { closures } : {}) };
   }
 
   /**
@@ -306,6 +312,7 @@ export class TrackingService implements TrackingPort {
     points: readonly LatLng[],
     road: { polyline6: string | null; durationS: number; basis: EtaBasis },
     now: Date,
+    closures: readonly AvoidedStreet[] = [],
   ): Promise<SlowStretch | null> {
     if (order.type === 'ride') return null;
     const promisedAt = await this.promise(stored, kitchen, order.acceptedAt);
@@ -325,6 +332,12 @@ export class TrackingService implements TrackingPort {
     if (kitchen && !order.pickedUpAt && promisedReady) {
       const lateMin = ((order.readyAt ?? now).getTime() - promisedReady.getTime()) / MIN_MS;
       if (lateMin >= 1) return kitchenStretch(path, kitchen, lateMin);
+    }
+    // N20: a street closed today that the route goes around, when the way around costs a minute or more.
+    const costliest = [...closures].sort((a, b) => b.extraMin - a.extraMin)[0];
+    if (costliest && costliest.extraMin >= SLOW_STRETCH_RULES.minExtraMin) {
+      const closed = closedStretch(path, costliest.path, costliest.extraMin);
+      if (closed) return closed;
     }
     const vehicle = await this.vehicleOf(order, trip);
     const baseMinutes = (road.durationS * ROUTE_VEHICLE_FACTOR[vehicle]) / 60;
