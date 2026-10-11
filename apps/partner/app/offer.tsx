@@ -15,6 +15,7 @@ import { PracticeBand, PracticeTip, useWorkRoutes } from '@/features/practice/Pr
 import { cargoLine, isRide, KIND_KEY, km, msToNextSecond, OFFER_SEEN_AFTER_MS, secondsLeft, VEHICLE_ICON, zoneName } from '@/features/work/logic';
 import { offerLayout, offerSummary } from '@/features/work/offer-layout';
 import { RouteNodes } from '@/features/work/OfferParts';
+import { ClosedNote } from '@/features/work/ClosedNote';
 import { useCurrentOffer, useOfferRoute, useOfferSeen, useRefreshWork, useRespond, useStatus } from '@/features/work/queries';
 import { OFFER_REPEAT_MS, playNudgeChime, startOfferAlert, stopOfferAlert } from '@/lib/alert';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
@@ -230,7 +231,7 @@ function OfferCard({ offer, receivedAt, vehicle, self }: { offer: PartnerOffer; 
     <View testID="offer" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <PracticeBand />
       <View style={{ height: mapHeight }}>
-        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} topInset={24} bottomInset={36} maxZoom={15.4} testID="offer-map" />
+        <DriverMap self={self} vehicleIcon={VEHICLE_ICON[vehicle]} online pins={pins} route={self ? [self, ...route] : route} road={road.data?.polyline6 ?? null} closures={road.data?.closures ?? []} topInset={24} bottomInset={36} maxZoom={15.4} testID="offer-map" />
       </View>
 
       <View testID="slip" style={{ flex: 1, marginTop: -20, backgroundColor: theme.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden' }}>
@@ -317,6 +318,10 @@ function OfferCard({ offer, receivedAt, vehicle, self }: { offer: PartnerOffer; 
               </View>
             }
           />
+
+          {/* N20 · the road to the kitchen goes around a street closed today: one line, under both stops (it
+              arrives with the road, so nothing above it moves, and the time bar and the hold button never do). */}
+          <ClosedNote testID="offer-closed" closures={road.data?.closures} />
 
           {/* o10 · rides: the fare is locked, and who the rider is to us (never his name before accepting) */}
           {ride && offer.vertical !== 'khat' ? (
