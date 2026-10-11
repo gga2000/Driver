@@ -9263,5 +9263,12 @@
   "partner.glow_some": "المناطق المضوية بيها شغل",
   "partner.glow_yours": "القرار إلك. هاي نصيحة بس، والطلبات توصلك وين ما تكون",
   "partner.glow_age_now": "الصورة من شوية",
-  "partner.glow_age": "الصورة قبل {n} دقيقة"
+  "partner.glow_age": "الصورة قبل {n} دقيقة",
+  "track.closed_detour": "الشارع مسدود اليوم، فالدليفري دار من فرع ثاني",
+  "track.closed_detour_named": "{name} مسدود اليوم، فالدليفري دار من فرع ثاني",
+  "partner.closed_line": "شارع مسدود اليوم، طريقك دار حوله",
+  "partner.closed_line_named": "{name} مسدود اليوم، طريقك دار حوله",
+  "partner.closed_line_min": "شارع مسدود اليوم، طريقك دار حوله (+{n} دقيقة)",
+  "partner.closed_line_named_min": "{name} مسدود اليوم، طريقك دار حوله (+{n} دقيقة)",
+  "partner.closed_map": "مسدود"
 }

@@ -9263,5 +9263,12 @@
   "partner.glow_some": "The glowing areas have work",
   "partner.glow_yours": "Your call. This is only advice; orders reach you wherever you are",
   "partner.glow_age_now": "Picture from a moment ago",
-  "partner.glow_age": "Picture from {n} min ago"
+  "partner.glow_age": "Picture from {n} min ago",
+  "track.closed_detour": "A street is closed today, so your courier is taking another way",
+  "track.closed_detour_named": "{name} is closed today, so your courier is taking another way",
+  "partner.closed_line": "A street is closed today; your route goes around it",
+  "partner.closed_line_named": "{name} is closed today; your route goes around it",
+  "partner.closed_line_min": "A street is closed today; your route goes around it (+{n} min)",
+  "partner.closed_line_named_min": "{name} is closed today; your route goes around it (+{n} min)",
+  "partner.closed_map": "Closed"
 }
