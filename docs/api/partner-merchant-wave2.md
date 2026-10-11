@@ -203,7 +203,7 @@ Roles: `field_ops`, `admin`.
 |---|---|---|---|
 | `addLandmarkPhoto` | mutation | `{target {kind: place\|meeting_point\|landmark, id}, uploadId, caption?, localNames[] (≤ 5)}` | `{photoId, target, state: 'proposed', addedAt}` (`landmark.proposed`; Console approves) |
 | `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt) |
-| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin?}, menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
+| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin} (pin required; the server reads the zone from it and refuses `outside_zone`), menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
 | `myTasks` | query | `{cityId?}` | `[{taskId, kind: cash_collection\|merchant_followup\|landmark_photo\|document_check, title_ar, refId, amountIqd, dueAt, state, computed}]` — computed `cash:<driverId>` tasks for couriers owing ≥ 50 % of their cap (or over it) |
 | `completeTask` | mutation | `{taskId, note?}` | `OpsTask` (stored tasks only) |
 | `cashHolders` | query | `{cityId?}` | `[{courierId, name, phoneMasked, heldIqd, owedIqd, capIqd, tier, overCap}]` — couriers holding customers' cash, over-cap then most owed first; names are vault reads (purpose `ops_cash_round`) |
@@ -317,8 +317,9 @@ customer's door rule). Gone once he picked up.
 | Procedure | Roles | Input | Output |
 |---|---|---|---|
 | `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt, shopPhoto, dishes, dishesNoPhoto}` by name (k6: `shopPhoto` = the storefront has a photo; `dishesNoPhoto` = menu items with neither the kitchen's photo nor a library one) |
-| `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null` |
+| `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null`, `kitchen {zoneKey, zoneName, pin \| null} \| null` |
 | `ops.pickupSpots.set` | same | `SetPickupSpotInput` (the owner's input) | `ConsolePickupSpotView` |
+| `ops.pickupSpots.moveKitchen` | same | `{merchantOrgId, pin}` | `ConsolePickupSpotView` — «حرّك مكان المطعم»: the zone is read from the pin (`outside_zone` past 2 km), audit row `store.kitchen_moved` with the zone and pin before and after |
 
 Console › المطاعم (`/stores`, `/stores/[id]`). `set` goes through `MerchantService.consoleSetPickupSpot`: the owner's rules
 unchanged (new photos must be the caller's own `places.photoUpload`, dropped photos deleted, empty clears) and the same

@@ -38,6 +38,7 @@ import {
   IconGarage,
   IconZones,
   Kbd,
+  IconShield,
   type IconProps,
 } from '../ui';
 import { BrandWordmark } from './brand';
@@ -69,6 +70,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   garage: IconGarage,
   system: IconSystem,
   audit: IconNote,
+  staff: IconShield,
 };
 
 /**

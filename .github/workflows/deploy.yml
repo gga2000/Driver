@@ -199,10 +199,15 @@ jobs:
             --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}" \
             --build-arg NEXT_PUBLIC_SENTRY_DSN="${{ vars.SENTRY_DSN_CONSOLE || vars.SENTRY_DSN }}" \
             --build-arg NEXT_PUBLIC_MAP_TILES_URL="$MAP_TILES_URL" \
-            --build-arg NEXT_PUBLIC_MAP_GLYPHS_URL="$MAP_GLYPHS_URL"
+            --build-arg NEXT_PUBLIC_MAP_GLYPHS_URL="$MAP_GLYPHS_URL" \
+            --build-arg NEXT_PUBLIC_UPLOADS_ORIGIN="$UPLOADS_ORIGIN"
         # The Golden hour map published by the Map tiles workflow on this environment's Supabase project
         # (docs/deploy/map.md). No DATABASE_REF → empty → the original map.
+        # UPLOADS_ORIGIN: the one host the Console may PUT photos to (connect-src, docs/deploy/console.md):
+        # the UPLOADS_ORIGIN variable when uploads live elsewhere, else this project's Supabase Storage
+        # S3 host (docs/deploy/supabase.md step 5). Neither → empty → the *.storage.supabase.co fallback.
         env:
+          UPLOADS_ORIGIN: ${{ vars.UPLOADS_ORIGIN || (vars.DATABASE_REF && format('https://{0}.storage.supabase.co', vars.DATABASE_REF)) || '' }}
           MAP_TILES_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/wasit.pmtiles', vars.DATABASE_REF) || '' }}
           MAP_GLYPHS_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/fonts/{{fontstack}}/{{range}}.pbf', vars.DATABASE_REF) || '' }}
 

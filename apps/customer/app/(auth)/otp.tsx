@@ -36,7 +36,7 @@ export default function OtpEntry() {
   const t = useT();
   const locale = useLocale();
   const api = useApi();
-  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string }>();
+  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string; whatsapp?: string }>();
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
   const [resendTotal, setResendTotal] = useState(() => Number(params.resendAfter ?? 30));
@@ -45,6 +45,8 @@ export default function OtpEntry() {
   const reason = signInReason(useProfile().returnTo);
   // SMS first; after 30 s "ما وصلك؟ دزلي على واتساب" sends the next code over WhatsApp (audit C-18).
   const [channel, setChannel] = useState<OtpChannel>(params.channel === 'whatsapp' ? 'whatsapp' : 'sms');
+  // The server says whether WhatsApp can carry a code at all (off until it is set up): no offer when not.
+  const [whatsappOffered, setWhatsappOffered] = useState(params.whatsapp !== '0');
   const [resending, setResending] = useState<OtpChannel | null>(null);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
@@ -92,6 +94,7 @@ export default function OtpEntry() {
       setResendTotal(res.resendAfterSec);
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
       setChannel(res.channel ?? via);
+      if (res.whatsapp !== undefined) setWhatsappOffered(res.whatsapp);
       setCode('');
       if (verify.error) verify.reset();
       if (DEV_TOOLS) void devCode.refetch();
@@ -115,6 +118,8 @@ export default function OtpEntry() {
       : null;
 
   const shownPhone = phone ? displayPhone(phone) : (params.masked ?? '');
+  // A code that already came on WhatsApp, or a server without WhatsApp: only «ابعث برسالة» is offered.
+  const smsOnly = channel === 'whatsapp' || !whatsappOffered;
 
   return (
     <AuthStage
@@ -172,8 +177,7 @@ export default function OtpEntry() {
         <ResendRing secondsLeft={secondsLeft} totalSeconds={resendTotal} label={t('onboarding.otp_resend_in', { seconds: secondsLeft })} />
       ) : (
         <View style={{ gap: theme.space[2] }} testID="otp-not-received">
-          {/* A code that already came on WhatsApp (the SMS budget was spent) offers SMS only. */}
-          {channel === 'whatsapp' ? null : (
+          {smsOnly ? null : (
             <Button
               testID="otp-whatsapp"
               variant="secondary"
@@ -187,13 +191,13 @@ export default function OtpEntry() {
           )}
           <Button
             testID="otp-resend"
-            variant={channel === 'whatsapp' ? 'secondary' : 'ghost'}
+            variant={smsOnly ? 'secondary' : 'ghost'}
             label={t('onboarding.otp_resend_sms')}
             loading={resending === 'sms'}
             disabled={resending !== null}
             onPress={() => void onResend('sms')}
-            style={channel === 'whatsapp' ? undefined : { alignSelf: 'center' }}
-            fullWidth={channel === 'whatsapp'}
+            style={smsOnly ? undefined : { alignSelf: 'center' }}
+            fullWidth={smsOnly}
           />
         </View>
       )}

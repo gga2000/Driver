@@ -6,7 +6,7 @@ import { decodePolyline, pinLabelSide, pinLabelWidth, type PinLabelLayout, type 
 import { Icon, Text, useTheme, withAlpha, type IconName } from '@driver/ui';
 import type { DemandLevel } from '@driver/contracts';
 import { BaseMap } from './base/BaseMap';
-import { HeatLayer } from './HeatLayer';
+import { HeatLayer, useGlowCells } from './HeatLayer';
 import { MAP_COLORS_NIGHT } from './base/mapColors';
 import type { CameraValues } from './base/types';
 import { fitCamera, pathD, project, type Camera, type LngLat, type Size } from './geo';
@@ -66,6 +66,9 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
   const cam = useMemo(() => ({ lng, lat, zoom }), [lng, lat, zoom]);
   const [drawn, setDrawn] = useState<Camera>(AZIZIYAH);
   const [placed, setPlaced] = useState(false);
+  // N17: the map draws the busy zones as light itself when it can (MapLibre); the SVG fills are the fallback.
+  const glow = useGlowCells(heat);
+  const [mapGlows, setMapGlows] = useState(false);
 
   const focus = useMemo(() => [...(self ? [self] : []), ...pins.map((p) => p.at)], [self, pins]);
   const focusKey = focus.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|');
@@ -124,8 +127,8 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
     <View style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden' }]} onLayout={onLayout} testID={testID}>
       {size.w > 0 ? (
         <>
-          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(landmarkNameZoom !== undefined ? { landmarkNameZoom } : {})} />
-          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} at={heatAt} /> : null}
+          <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(landmarkNameZoom !== undefined ? { landmarkNameZoom } : {})} {...(heat ? { glow, onGlow: setMapGlows } : {})} />
+          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} at={heatAt} outline={mapGlows} /> : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
               the way to the kitchen «مطعم خالد» hid him; where he is matters most). */}

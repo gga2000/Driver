@@ -25,7 +25,10 @@ export function SystemPage() {
             <NightlyCard />
             <SimulatorCard />
           </div>
-          <OutboxCard />
+          <div className="space-y-5">
+            <OutboxCard />
+            <SmsDayCard />
+          </div>
         </div>
       </div>
     </div>
@@ -180,6 +183,37 @@ function OutboxCard() {
             <p className="mt-4 flex items-center gap-2 text-sm text-text">
               <IconCheckCircle size={16} className="text-ok" />
               {t('console.outbox_all_ok')}
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** The day's SMS (sign-in codes and notification texts share one budget and one account balance). */
+function SmsDayCard() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const sms = useQuery(trpc.system.smsDay.queryOptions(undefined, { enabled: signedIn, refetchInterval: 30_000, retry: queryRetry }));
+  const s = sms.data;
+  const share = s ? s.sent / s.budget : 0;
+  const tone = share >= 1 ? 'bad' : share >= 0.8 ? 'warn' : undefined;
+  return (
+    <Card title={t('console.sms_day')} hint={t('console.sms_day_hint')} tone={tone ?? 'default'} actions={signedIn ? <LiveBadge seconds={30} updatedAt={sms.dataUpdatedAt} fetching={sms.isFetching} compact /> : undefined}>
+      {!signedIn && <NeedLogin />}
+      {sms.error && <QueryError error={sms.error} onRetry={() => void sms.refetch()} />}
+      {signedIn && !s && sms.isPending && <Skeleton className="h-16" />}
+      {s && (
+        <>
+          <dl className="grid grid-cols-2 gap-3">
+            <Count k={t('console.sms_day_sent')} v={s.sent} tone={tone} />
+            <Count k={t('console.sms_day_budget')} v={s.budget} />
+          </dl>
+          {share >= 1 && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-bad">
+              <IconAlert size={16} className="shrink-0" />
+              {t('console.sms_day_over')}
             </p>
           )}
         </>

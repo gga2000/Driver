@@ -135,6 +135,7 @@ export const NotifyTemplateId = z.enum([
   'phone_ride_matched',
   'phone_driver_arrived',
   'merchant_new_order',
+  'merchant_order_cancelled',
   'partner_new_job',
   'partner_zone_nudge',
   'ride_nudge',
@@ -158,6 +159,7 @@ export const NotifyTemplateId = z.enum([
   'sos_desk_ring',
   'console_unwatched_alert',
   'console_live_down_alert',
+  'staff_new_device',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -557,6 +559,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     smsTwinAfterSec: 30,
     quietHours: 'send',
   },
+  merchant_order_cancelled: {
+    id: 'merchant_order_cancelled',
+    category: 'work',
+    app: 'merchant',
+    // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
+    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
   partner_new_job: {
     id: 'partner_new_job',
     category: 'work',
@@ -782,6 +793,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.example.com']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // A staff account signed in from a device never seen on it: every admin, push only, at any hour.
+  staff_new_device: {
+    id: 'staff_new_device',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.

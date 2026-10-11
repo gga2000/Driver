@@ -7,6 +7,8 @@
 # NEXT_PUBLIC_SENTRY_DSN (optional, same way): crash reports from the browser; unset = none are sent.
 # NEXT_PUBLIC_MAP_TILES_URL / NEXT_PUBLIC_MAP_GLYPHS_URL (optional, same way): the Golden hour map files
 # (docs/deploy/map.md); unset = the original map.
+# NEXT_PUBLIC_UPLOADS_ORIGIN (optional, same way): the exact photo-upload host for connect-src
+# (docs/deploy/console.md); unset = any https://*.storage.supabase.co.
 # `next build` with NEXT_OUTPUT=standalone emits a self-contained server; the runtime stage is that
 # server, its static files and node — no pnpm, no node_modules beyond what Next traced.
 
@@ -17,9 +19,11 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG NEXT_PUBLIC_MAP_TILES_URL=
 ARG NEXT_PUBLIC_MAP_GLYPHS_URL=
+ARG NEXT_PUBLIC_UPLOADS_ORIGIN=
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1 TURBO_TELEMETRY_DISABLED=1 NEXT_TELEMETRY_DISABLED=1 \
     NEXT_OUTPUT=standalone NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
-    NEXT_PUBLIC_MAP_TILES_URL=${NEXT_PUBLIC_MAP_TILES_URL} NEXT_PUBLIC_MAP_GLYPHS_URL=${NEXT_PUBLIC_MAP_GLYPHS_URL}
+    NEXT_PUBLIC_MAP_TILES_URL=${NEXT_PUBLIC_MAP_TILES_URL} NEXT_PUBLIC_MAP_GLYPHS_URL=${NEXT_PUBLIC_MAP_GLYPHS_URL} \
+    NEXT_PUBLIC_UPLOADS_ORIGIN=${NEXT_PUBLIC_UPLOADS_ORIGIN}
 RUN test -n "$NEXT_PUBLIC_API_URL" || (echo "--build-arg NEXT_PUBLIC_API_URL=https://<api host>/trpc is required" && exit 1)
 RUN npm install --global corepack@latest && corepack enable
 WORKDIR /repo

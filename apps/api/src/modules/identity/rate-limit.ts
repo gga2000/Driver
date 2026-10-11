@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { DriverError, type OtpChannel, type OtpPurpose } from '@driver/contracts';
 import type { WindowCounter } from '../../shared/window-counter.js';
+import { DEFAULT_SMS_DAILY_BUDGET, SMS_DAY_KEY, smsBudgetLevelsReached, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
 import { carrierOf, numberBlock, type IraqiCarrier } from './phone.js';
 
 /**
@@ -37,7 +38,10 @@ export interface OtpGuardConfig {
   perActorPerDay: number;
   /** The alert threshold while the IP rule is in `alert` mode; a hard limit in `enforce`. */
   perIpPerHour: number;
-  /** SMS sends per rolling 24 h before the budget throttles (WhatsApp codes are not counted). */
+  /**
+   * SMS per rolling 24 h before the budget throttles: sign-in codes and notification texts together
+   * (`shared/sms-budget.ts`); WhatsApp codes are not counted.
+   */
   smsDailyBudget: number;
   /** Codes per hour to one 7-digit block that mark it as the spike, once the budget is spent. */
   blockSpikePerHour: number;
@@ -53,7 +57,7 @@ export const DEFAULT_OTP_GUARD: OtpGuardConfig = {
   perActorPerHour: 5,
   perActorPerDay: 20,
   perIpPerHour: 1000,
-  smsDailyBudget: 4500,
+  smsDailyBudget: DEFAULT_SMS_DAILY_BUDGET,
   blockSpikePerHour: 30,
   smsHardCapMultiplier: 3,
   modes: { number: 'enforce', device: 'enforce', actor: 'enforce', ip: 'alert', budget: 'throttle' },
@@ -84,7 +88,7 @@ export function otpGuardConfigFromEnv(env: Record<string, string | undefined> = 
     perActorPerHour: int('OTP_RATE_LIMIT_PER_ACTOR_HOUR', d.perActorPerHour),
     perActorPerDay: int('OTP_RATE_LIMIT_PER_ACTOR_DAY', d.perActorPerDay),
     perIpPerHour: int('OTP_RATE_LIMIT_PER_IP_HOUR', d.perIpPerHour),
-    smsDailyBudget: int('OTP_SMS_DAILY_BUDGET', d.smsDailyBudget),
+    smsDailyBudget: smsDailyBudgetFromEnv(env),
     blockSpikePerHour: int('OTP_BLOCK_SPIKE_PER_HOUR', d.blockSpikePerHour),
     smsHardCapMultiplier: int('OTP_SMS_HARD_CAP_MULTIPLIER', d.smsHardCapMultiplier),
     modes: {
@@ -135,7 +139,11 @@ const DAY_MS = 24 * HOUR_MS;
 const UNCAPPED = Number.MAX_SAFE_INTEGER;
 /** How long a throttled block is told to wait before trying again. */
 const BLOCK_RETRY_SEC = 15 * 60;
-const BUDGET_LEVELS = [50, 80, 100] as const;
+/**
+ * Sign-in codes sent by SMS in the last 24 h: every throttle decision (budget, spiking block, hard
+ * cap) reads this, never the server-wide `SMS_DAY_KEY`, so notification texts can't take a sign-in's room.
+ */
+const OTP_SMS_KEY = 'otp:guard:sms';
 
 export class OtpGuard {
   private readonly log = new Logger('OtpGuard');
@@ -186,7 +194,10 @@ export class OtpGuard {
 
   /** After the provider accepted the code: the SMS budget and the number block's hourly count. */
   async sent(req: Pick<OtpSendRequest, 'phoneE164'>, channel: OtpChannel): Promise<void> {
-    if (channel === 'sms') await this.counter.hit('otp:guard:sms', DAY_MS, UNCAPPED);
+    if (channel === 'sms') {
+      await this.counter.hit(OTP_SMS_KEY, DAY_MS, UNCAPPED);
+      await this.counter.hit(SMS_DAY_KEY, DAY_MS, UNCAPPED);
+    }
     const block = numberBlock(req.phoneE164);
     const r = await this.counter.hit(`otp:guard:block:${block}`, HOUR_MS, UNCAPPED);
     if (r.count >= this.config.blockSpikePerHour) {
@@ -210,10 +221,14 @@ export class OtpGuard {
   private async channelWithinBudget(req: OtpSendRequest, carrier: IraqiCarrier): Promise<OtpChannel> {
     const c = this.config;
     const wanted: OtpChannel = req.channel ?? 'sms';
-    const used = await this.counter.count('otp:guard:sms', DAY_MS);
-    for (const level of BUDGET_LEVELS) {
-      if (used >= (c.smsDailyBudget * level) / 100) await this.alertOnce(`sms_budget:${level}`, DAY_MS, { rule: 'sms_budget', level, count: used, limit: c.smsDailyBudget, mode: c.modes.budget });
+    // Alerts follow every SMS of the day (sign-in codes and notification texts: one account balance);
+    // the throttle below follows sign-in codes only.
+    const total = await this.counter.count(SMS_DAY_KEY, DAY_MS);
+    for (const level of smsBudgetLevelsReached(total, c.smsDailyBudget)) {
+      // Same marker as notify's (`smsBudgetAlertKey`): one alert per level a day, whoever crossed it.
+      await this.alertOnce(`sms_budget:${level}`, DAY_MS, { rule: 'sms_budget', level, count: total, limit: c.smsDailyBudget, mode: c.modes.budget });
     }
+    const used = await this.counter.count(OTP_SMS_KEY, DAY_MS);
     if (used < c.smsDailyBudget || c.modes.budget === 'alert') return wanted;
 
     const block = numberBlock(req.phoneE164);
