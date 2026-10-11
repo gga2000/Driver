@@ -1,6 +1,6 @@
 import type { LayerSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { services } from '@driver/design-tokens';
-import { GOLDEN_FONTS } from './golden-style.js';
+import { GOLDEN_FONTS } from './fonts.js';
 import { nearestOnSegment, pathMetres, slicePath, type LngLat } from './metres.js';
 import { ROAD_PATHS } from './road-data.js';
 import type { GoldenLight } from './sun.js';
