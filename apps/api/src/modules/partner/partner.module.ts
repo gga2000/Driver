@@ -61,6 +61,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
           online: (id, input) => dispatch.presence.online(id, input),
           offline: (id) => dispatch.presence.offline(id),
           zones: async (cityId) => (await dispatch.presence.list(cityId)).map((p) => p.zoneId),
+          live: async (cityId) =>
+            (await dispatch.liveDrivers(cityId, new Date())).map((d) => ({ driverId: d.presence.driverId, zoneId: d.presence.zoneId, lat: d.presence.lat, lng: d.presence.lng, free: d.state === 'free' })),
         },
         dispatch: {
           openOffer: (id, cityId) => dispatch.openOffer(id, cityId),

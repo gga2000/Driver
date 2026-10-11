@@ -7628,6 +7628,13 @@
   "console.today.view_done": "Closed",
   "console.today.filter": "Kind of problem",
   "console.today.filter_all": "All",
+  "console.today.svc_label": "Service",
+  "console.today.svc_all": "All services",
+  "console.today.svc_delivery": "Food & delivery",
+  "console.today.svc_ride": "Taxi & tuktuk",
+  "console.today.svc_intercity": "Intercity",
+  "console.today.svc_khat": "School & work routes",
+  "console.today.svc_shared": "SOS, safety and approvals show under every service",
   "console.today.kind_sos": "SOS",
   "console.today.kind_no_driver": "Nobody took the trip",
   "console.today.kind_store_silent": "Shop not answering",
@@ -8959,5 +8966,10 @@
   "partner.staff_alert_open": "Open in the Console",
   "partner.staff_alert_back": "Back",
   "partner.staff_alert_no_link": "Open the Console on a computer to see the alert and take it.",
-  "partner.staff_alert_ref": "Alert number: {id}"
+  "partner.staff_alert_ref": "Alert number: {id}",
+  "partner.glow_for_you": "In {zone} there are more orders than drivers, and you're the nearest",
+  "partner.glow_some": "The glowing areas have work",
+  "partner.glow_yours": "Your call. This is only advice; orders reach you wherever you are",
+  "partner.glow_age_now": "Picture from a moment ago",
+  "partner.glow_age": "Picture from {n} min ago"
 }
