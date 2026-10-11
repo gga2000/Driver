@@ -161,6 +161,9 @@ keepGate: true })` keeps it for a shot).
 Pre-orders (`scripts/demo/preorder.mjs`): `POST /demo/preorder/place` clears the new column and books a
 pre-order for tomorrow 14:00 (off the board until offered); `POST /demo/preorder/offer?id=…` offers it to
 the kitchen now, as its timer would (it rings with its 90-s countdown). Shots: `SHOTS=preorder`.
+Cancelled after accepting (`scripts/demo/cancelled.mjs`): `POST /demo/cancelled/one?ready=0|1` has the
+customer cancel one of Khalid's cooking (or ready) orders; the board shows it as a red «انلغى، لا تكمل»
+card for 15 minutes, one tap hides it on that device. Shots: `SHOTS=cancelled`.
 
 Shop picks from the server (`docs/api/shop-load.md`, `scripts/demo/shop-load.mjs`, shots `SHOTS=shop-server`):
 `POST /demo/shop/crowd?count=12` accepts 12 more orders (15+ waiting → «زحمة تلقائية», `count=0`
@@ -208,6 +211,15 @@ a dev-tools web export opened with `?demoBuild=0.0.1` reports that build. Shots:
 
 ## Signature moments (UI/UX audit phase 3: S-M4, S-M5, S-M6, M-17)
 
+- **The courier coming, on a map** (N16, Ali 2026-10-11; `features/board/CourierMap.tsx` / `.web.tsx`,
+  `courier-map.ts`): on a tablet, while couriers are on their way, the ready lane opens with the Golden hour
+  map in 3D: the shop lit up the street with «محلك», the nearest courier's approved photo and «حيدر · 2
+  دقيقة» coming up from the bottom, the dotted way behind him, «دليفري جايين: 2» in the corner, and the
+  shop's light warms once when the first is 2 minutes out. His spot is the board's radar (metres and
+  direction from the kitchen); farther than 220 m he stands at the edge of the shown street on his line.
+  The phone build needs the native map (`@maplibre/maplibre-react-native`, a new app build) and the map's
+  files (`EXPO_PUBLIC_MAP_TILES_URL` / `_GLYPHS_URL`); without them, in low-data mode or when the map fails,
+  the panel isn't shown. Shots: `SHOTS=courier-map` with the map files in the export.
 - **The courier at the pass** (`features/board/PassCard.tsx`, `pass.ts`): when a ready order's courier is
   at the counter the card turns green edge to edge — "حيدر وصل · سلّمه #7046", his plate (`PlateChip`),
   the cash he collects, the items — and amber after 3 minutes ("حيدر ينتظر من 4 دقايق"). The ready column

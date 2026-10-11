@@ -115,6 +115,11 @@ export const BoardCourier = z.object({
   distanceM: z.number().int().min(0).nullable().optional(),
   /** Degrees clockwise from north, kitchen → courier, while `on_the_way`. */
   bearingDeg: z.number().min(0).max(360).nullable().optional(),
+  /**
+   * N16 (the tablet sees the courier coming): his approved main photo, a short-lived signed URL (absolute
+   * or relative to the API origin); absent when he has none.
+   */
+  photoUrl: z.string().nullable().optional(),
   /** His plate ("واسط 45678") so the counter can tell couriers apart; null when unknown. */
   plate: z.string().nullable().optional(),
   /**
@@ -225,6 +230,34 @@ export const MissedSummary = z.object({
 });
 export type MissedSummary = z.infer<typeof MissedSummary>;
 
+/**
+ * States in which the kitchen has said yes and still holds the order (cooking, or bagged on the pass).
+ * An order cancelled from one of these is one the kitchen must be told about: it may be cooking it.
+ */
+export const KITCHEN_HELD_STATES = ['merchant_accepted', 'preparing', 'ready'] as const satisfies readonly OrderState[];
+export function kitchenHeld(state: unknown): boolean {
+  return typeof state === 'string' && (KITCHEN_HELD_STATES as readonly string[]).includes(state);
+}
+
+/** How long a cancelled-after-accept order stays on the board as a red card (unless dismissed sooner). */
+export const CANCELLED_CARD_MIN = 15;
+
+/**
+ * An order the kitchen had accepted and that was then cancelled (by the customer, or by us), in the
+ * last `CANCELLED_CARD_MIN` minutes: the board shows it as a red card «انلغى، لا تكمل» until the
+ * kitchen taps it away, so it never just vanishes while the grill is going.
+ */
+export const CancelledOrder = z.object({
+  orderId: z.string(),
+  number: z.string(),
+  /** It was already marked ready (bagged on the pass) when it was cancelled; otherwise it was cooking. */
+  wasReady: z.boolean(),
+  cancelledAt: z.coerce.date(),
+  itemCount: z.number().int(),
+  totalIqd: Iqd,
+});
+export type CancelledOrder = z.infer<typeof CancelledOrder>;
+
 export const MerchantBoard = z.object({
   merchantOrgId: z.string(),
   /** Server time, so card timers don't drift with the tablet's clock. */
@@ -233,6 +266,8 @@ export const MerchantBoard = z.object({
   orders: z.array(BoardOrder),
   /** Orders missed today (M-01): they never vanish silently. */
   missed: MissedSummary.optional(),
+  /** Accepted orders cancelled in the last 15 minutes, newest first; absent on an older API. */
+  cancelled: z.array(CancelledOrder).optional(),
 });
 export type MerchantBoard = z.infer<typeof MerchantBoard>;
 
@@ -451,8 +486,21 @@ export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 export const ConsolePickupSpotView = PickupSpotView.extend({
   storeName: z.string(),
   consoleEdit: z.object({ at: z.coerce.date(), byName: z.string().nullable() }).nullable(),
+  /**
+   * Where the kitchen is on file: its zone (the server's reading of the pin; every delivery fee starts
+   * there) and the pin. Null when the store has no place on file; absent on an older API.
+   */
+  kitchen: z.object({ zoneKey: z.string(), zoneName: z.string(), pin: LatLng.nullable() }).nullable().optional(),
 });
 export type ConsolePickupSpotView = z.infer<typeof ConsolePickupSpotView>;
+
+/**
+ * «حرّك مكان المطعم»: field ops or an admin put the kitchen's pin where it really is (it was saved in
+ * the wrong spot, or the shop moved). The server reads the zone from the pin and refuses one outside
+ * the service area (`outside_zone`); the change is written to the Console audit log.
+ */
+export const MoveKitchenInput = MerchantOrgInput.extend({ pin: LatLng });
+export type MoveKitchenInput = z.infer<typeof MoveKitchenInput>;
 
 /** What the API supplies to `ops.pickupSpots.*` (implemented in `modules/ops` over the merchant module). */
 export interface PickupSpotsOpsPort {
@@ -460,6 +508,8 @@ export interface PickupSpotsOpsPort {
   get(actor: Actor, input: MerchantOrgInput): Promise<ConsolePickupSpotView>;
   /** Same rules as the owner's save (photos the caller uploaded, 2 at most, 140 characters); audited. */
   set(actor: Actor, input: SetPickupSpotInput): Promise<ConsolePickupSpotView>;
+  /** «حرّك مكان المطعم»: the kitchen's pin and the zone read from it; audited. */
+  moveKitchen(actor: Actor, input: MoveKitchenInput): Promise<ConsolePickupSpotView>;
 }
 
 // ───────────────────────── delivery area and fees (maps program r5) ─────────────────────────

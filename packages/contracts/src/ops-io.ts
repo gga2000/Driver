@@ -65,7 +65,11 @@ export const MerchantOnboardingInput = z.object({
   type: z.enum(['restaurant', 'grocer']),
   /** The owner: phone and name go to the identity vault; the draft keeps only the person id. */
   contact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20) }),
-  location: DeliveryPoint,
+  /**
+   * The kitchen's door: the GPS pin is required, and the server reads the zone from it (the sent
+   * `zoneKey` is ignored) — every delivery fee and ETA from this store starts there.
+   */
+  location: DeliveryPoint.required({ pin: true }),
   /** Menu photography from the same visit (scoring §2), via `places.photoUpload`. */
   menuPhotoUploadIds: z.array(z.string().min(1)).max(30).default([]),
   shopPhotoUploadId: z.string().min(1).optional(),

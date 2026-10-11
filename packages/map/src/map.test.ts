@@ -91,6 +91,15 @@ describe('style', () => {
     expect(ids).toContain(LAYER.zoneFill);
     expect(ids.indexOf(LAYER.drivers)).toBeGreaterThan(ids.indexOf(LAYER.zoneFill));
   });
+  it('without the OSM street picture (our own map configured) still draws background and zones, and asks OSM for nothing', () => {
+    const style = buildMapStyle({ theme: 'light', osmRaster: false });
+    expect(validateStyleMin(style)).toEqual([]);
+    expect(style.sources[SOURCE.osm]).toBeUndefined();
+    expect(JSON.stringify(style)).not.toContain('tile.openstreetmap.org');
+    const ids = style.layers.map((l) => l.id);
+    expect(ids).not.toContain(LAYER.osm);
+    expect(ids.slice(0, 3)).toEqual([LAYER.background, LAYER.zoneFill, LAYER.zoneLine]);
+  });
   it('switches to the PMTiles vector base with Arabic-first labels when a URL is given', () => {
     const style = buildMapStyle({ pmtilesUrl: 'pmtiles://example.test/aziziyah.pmtiles' });
     expect(validateStyleMin(style)).toEqual([]);

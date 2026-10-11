@@ -64,12 +64,15 @@ export class SessionService {
     if (!this.keys.has(config.activeKid)) throw new Error(`JWT activeKid ${config.activeKid} has no secret`);
   }
 
-  /** Opens a session and returns the token pair; the row is written inside the caller's `tx`. */
-  async open(personId: string, deviceId: string | null, tx?: Tx): Promise<{ session: SessionRecord; tokens: TokenPair }> {
+  /**
+   * Opens a session and returns the token pair; the row is written inside the caller's `tx`.
+   * `maxSec` shortens its whole life (staff sessions, `STAFF_SESSION_MAX_SEC`).
+   */
+  async open(personId: string, deviceId: string | null, tx?: Tx, maxSec?: number): Promise<{ session: SessionRecord; tokens: TokenPair }> {
     const now = this.clock.now();
     const refresh = newRefreshToken();
     const session = await this.repo.createSession(
-      { personId, deviceId, refreshTokenHash: hashToken(refresh), expiresAt: addSec(now, REFRESH_TOKEN_TTL_SEC), now },
+      { personId, deviceId, refreshTokenHash: hashToken(refresh), expiresAt: addSec(now, Math.min(REFRESH_TOKEN_TTL_SEC, maxSec ?? REFRESH_TOKEN_TTL_SEC)), now },
       tx,
     );
     const tokens = await this.tokensFor(session, refresh, now);
@@ -87,12 +90,16 @@ export class SessionService {
    * was lost on a bad network. It then gets a fresh pair instead of being signed out; the pair the
    * lost answer carried dies unused. The window is counted from the first rotation, so retries
    * never stretch it.
+   *
+   * `endsBy` names the latest moment the session may live to (staff: 12 h after it opened); a
+   * session already past it is expired, and a refresh never carries it beyond.
    */
   async refresh(
     refreshToken: string,
     tx?: Tx,
     patch?: (session: SessionRecord) => Promise<{ deviceId?: string | null } | void>,
     callerDeviceId?: (session: SessionRecord) => Promise<string | null>,
+    endsBy?: (session: SessionRecord) => Promise<Date | null>,
   ): Promise<{ session: SessionRecord; tokens: TokenPair }> {
     const now = this.clock.now();
     const presented = hashToken(refreshToken);
@@ -100,12 +107,15 @@ export class SessionService {
     if (!session) return this.reused(presented, now, tx, callerDeviceId);
     if (session.revokedAt) throw new DriverError('refresh_reused');
     if (session.expiresAt.getTime() <= now.getTime()) throw new DriverError('session_expired');
+    const cap = (await endsBy?.(session)) ?? null;
+    if (cap && cap.getTime() <= now.getTime()) throw new DriverError('session_expired');
     const extra = (await patch?.(session)) ?? {};
     const next = newRefreshToken();
+    const expiresAt = addSec(now, REFRESH_TOKEN_TTL_SEC);
     const updated = await this.repo.rotateSession(
       session.id,
       presented,
-      { refreshTokenHash: hashToken(next), previousRefreshTokenHash: presented, rotatedAt: now, expiresAt: addSec(now, REFRESH_TOKEN_TTL_SEC), ...(extra.deviceId !== undefined ? { deviceId: extra.deviceId } : {}) },
+      { refreshTokenHash: hashToken(next), previousRefreshTokenHash: presented, rotatedAt: now, expiresAt: cap && cap < expiresAt ? cap : expiresAt, ...(extra.deviceId !== undefined ? { deviceId: extra.deviceId } : {}) },
       tx,
     );
     // Another refresh with the same token rotated first: this one is now a retired token.

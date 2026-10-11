@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Actor } from './identity-io.js';
+import type { Actor, EndAllSessionsInput, EndAllSessionsOutput } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
 import { HhMm, LocalDate } from './store-hours.js';
 import { VehicleFeature } from './vehicle-features.js';
@@ -319,6 +319,8 @@ export const PublicSeason = z.object({
   /** Present on every day of a Ramadan period, quiet or not (iftar is service, not celebration). */
   ramadan: RamadanToday.nullable(),
   homeCard: SeasonHomeCard.nullable(),
+  /** The services launched in the asked city (city config); apps hide the tiles of the rest. Absent from older servers. */
+  launched: z.array(Vertical).optional(),
 });
 export type PublicSeason = z.infer<typeof PublicSeason>;
 
@@ -714,6 +716,8 @@ export interface ControlsPort {
   screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens>;
   screenSwitches(cityId: string): Promise<ScreenSwitchView[]>;
   setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView>;
+  /** Admins: every session of a staff member ends on every device (`identity.endAllSessions`), audited. */
+  endAllSessions(actor: Actor, input: z.output<typeof EndAllSessionsInput>): Promise<z.output<typeof EndAllSessionsOutput>>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */

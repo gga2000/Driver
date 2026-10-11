@@ -1,11 +1,12 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
-import { useLiteMode } from '@driver/ui';
+import { useLiteMode, useTheme } from '@driver/ui';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
 import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, RTL_TEXT_PLUGIN_URL, SOURCE } from '@driver/map';
 import { fallBackToOriginalMap, goldenImages, type FallbackMap, type GoldenLight } from '@driver/map/golden';
+import { demandGlowLayers, type DemandCell } from '@driver/map/pieces/demand';
 import { courierGoldenStyle, goldenLightFor, LIGHT_CHECK_MS, MAP_URLS } from './golden-map';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
@@ -75,7 +76,66 @@ function styleFor(night: boolean, light: GoldenLight, golden: boolean): { style:
   return g ? { style: g, golden: true } : { style: original, golden: false };
 }
 
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, onFail }: BaseMapProps & { onFail: () => void }) {
+const GLOW = 'demand-glow';
+
+/** Steps of the glow's soft edge: wide and faint outside, brighter toward the middle where they stack. */
+const GLOW_STEPS = [1, 0.84, 0.68, 0.52, 0.36, 0.2] as const;
+/** Radius of a zone's glow at full strength, metres (a zone is about 1.2 km across). */
+const GLOW_REACH_M = 560;
+
+/**
+ * Each busy zone as a few stacked discs (the shared `demandGlowGeoJSON` draws one hard-edged disc per cell, which reads
+ * as a sticker on a zone this big). The steps' `w` stays low so their sum, not one of them, makes the bright middle.
+ */
+function glowRings(cells: readonly DemandCell[]) {
+  const ring = ([lng, lat]: readonly [number, number], r: number) => {
+    const kx = 111320 * Math.cos((lat * Math.PI) / 180);
+    return Array.from({ length: 41 }, (_, i) => {
+      const a = ((i % 40) / 40) * Math.PI * 2;
+      return [lng + (Math.cos(a) * r) / kx, lat + (Math.sin(a) * r) / 110540] as [number, number];
+    });
+  };
+  return {
+    type: 'FeatureCollection' as const,
+    features: cells.flatMap((c) =>
+      GLOW_STEPS.map((step) => ({
+        type: 'Feature' as const,
+        properties: { w: Math.min(1, c.weight) * (0.15 + 0.2 * (1 - step)) },
+        geometry: { type: 'Polygon' as const, coordinates: [ring(c.at, GLOW_REACH_M * (0.55 + 0.45 * c.weight) * step)] },
+      })),
+    ),
+  };
+}
+
+/**
+ * N17: the busy parts of town as amber light inside the map, under its first name layer, so the streets' names
+ * stay on top. Added again after every style swap (the light, the fallback); later pictures only swap the data,
+ * and MapLibre cross-fades them (at once under reduce motion).
+ */
+function putGlow(m: MlMap, cells: readonly DemandCell[], light: GoldenLight, still: boolean): boolean {
+  const data = glowRings(cells);
+  const src = m.getSource<GeoJSONSource>(GLOW);
+  if (src) {
+    src.setData(data);
+    return true;
+  }
+  // Not `isStyleLoaded()`: that also waits for tiles, which may never come (offline); the style itself is enough.
+  try {
+    const under = m.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+    m.addSource(GLOW, { type: 'geojson', data });
+    for (const layer of demandGlowLayers({ source: GLOW, light, id: GLOW })) {
+      m.addLayer(layer as Parameters<MlMap['addLayer']>[0], under);
+      if (still) m.setPaintProperty(layer.id, 'fill-opacity-transition', { duration: 0, delay: 0 });
+    }
+    return true;
+  } catch {
+    // The style is still loading: its 'load' / 'style.load' draws the glow.
+    return false;
+  }
+}
+
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, glow, onGlow, onFail }: BaseMapProps & { onFail: () => void }) {
+  const still = useTheme().reduceMotion;
   const zonesQuery = useZoneMap();
   const { map: mapColors, night } = useMapColors();
   const nightRef = useRef(night);
@@ -87,6 +147,15 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   const goldenOn = useRef(Boolean(MAP_URLS.tilesUrl && MAP_URLS.glyphsUrl));
   const zonesRef = useRef(zonesQuery.data);
   zonesRef.current = zonesQuery.data;
+  const glowRef = useRef({ cells: glow, still, onGlow });
+  glowRef.current = { cells: glow, still, onGlow };
+  /** The light the glow is drawn for: the Golden hour light, or day/night on the original look. */
+  const glowLight = (): GoldenLight => (goldenOn.current ? lightRef.current : nightRef.current ? 'night' : 'day');
+  const drawGlow = (m: MlMap) => {
+    const g = glowRef.current;
+    if (!g.cells) return;
+    if (putGlow(m, g.cells, glowLight(), g.still)) g.onGlow?.(true);
+  };
   const container = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const driving = useRef(false);
@@ -132,6 +201,10 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
           if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
         };
         m.once('load', putZones);
+        // The glow goes on as soon as a style (the first, or a new light's) can take it; 'load' alone can wait on tiles.
+        m.on('styledata', () => {
+          if (!m.getSource(GLOW)) drawGlow(m);
+        });
         // The palm pattern (and any other Golden hour image) for whichever light is showing.
         m.on('styleimagemissing', (e: { id: string }) => {
           const img = goldenImages(lightRef.current)[e.id];
@@ -220,6 +293,16 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
       if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
     });
   }, [night, light]);
+
+  // A new picture of where the orders are: swap the data (the map cross-fades it).
+  useEffect(() => {
+    const m = mapRef.current;
+    if (m && glow) drawGlow(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glow]);
+
+  // The screen draws its own glow again if this map goes (WebGL lost, low-data mode).
+  useEffect(() => () => glowRef.current.onGlow?.(false), []);
 
   useEffect(() => {
     if (zonesQuery.data) mapRef.current?.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesQuery.data));

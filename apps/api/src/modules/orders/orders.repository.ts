@@ -4,6 +4,9 @@ import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
+/** An order that ended by cancellation (the customer's, or ours). */
+const CANCELLED_STATES = ['customer_cancelled', 'platform_cancelled'] as const satisfies readonly OrderState[];
+
 /**
  * How an order leaves without the kitchen's answer (M-01): nobody accepted in time, or the customer let
  * a partial accept lapse. The merchant board's «طلبات فاتتك» reads these, and only these (perf z5).
@@ -203,6 +206,11 @@ export interface OrdersRepository {
    * placed_at)`, and only the few missed rows (with their lines) leave the database.
    */
   merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
+   * The merchant's orders it had accepted that were cancelled (customer or platform) at or after
+   * `since`, with their lines: the board's red «انلغى، لا تكمل» cards. On `(merchant_org_id, state)`.
+   */
+  merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]>;
   /**
    * One merchant's delivered orders placed in `[from, to)`, counted per drop-off zone (`dropoff.zoneKey`,
    * null when none): one grouped read on `(merchant_org_id, placed_at)` that returns counts only, never
@@ -521,6 +529,15 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
   }
 
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, state: { in: [...CANCELLED_STATES] }, acceptedAt: { not: null }, cancelledAt: { gte: since } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ cancelledAt: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]> {
     // Prisma's groupBy cannot group on a JSON path, so this one read is SQL; the placed-at range keeps
     // it on the (merchant_org_id, placed_at) index and only counts leave the database.
@@ -765,6 +782,15 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async merchantMissedBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
     const missed = (o: OrderRecord) => MISSED_STATES.some((m) => m.state === o.state && m.reason === o.cancellationReason);
     return (await this.merchantOrdersBetween(merchantOrgId, from, to)).filter((a) => missed(a.order));
+  }
+
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date): Promise<OrderAggregate[]> {
+    const out: OrderAggregate[] = [];
+    for (const o of this.orders.values()) {
+      if (o.merchantOrgId !== merchantOrgId || !(CANCELLED_STATES as readonly string[]).includes(o.state) || !o.acceptedAt || !o.cancelledAt || o.cancelledAt < since) continue;
+      out.push({ order: { ...o }, lines: (this.linesByOrder.get(o.id) ?? []).map((l) => ({ ...l })), participants: (this.participantsByOrder.get(o.id) ?? []).map((p) => ({ ...p })) });
+    }
+    return out.sort((a, b) => b.order.cancelledAt!.getTime() - a.order.cancelledAt!.getTime() || a.order.id.localeCompare(b.order.id));
   }
 
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date): Promise<DropoffZoneCount[]> {

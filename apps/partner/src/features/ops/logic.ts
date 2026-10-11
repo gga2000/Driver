@@ -141,6 +141,9 @@ function km(a: LatLng, b: LatLng): number {
   return 2 * r * Math.asin(Math.sqrt(s));
 }
 
+/** How far past the nearest zone's edge a pin still counts as in town: the server's own cutoff. */
+export const OUT_OF_SERVICE_KM = 2;
+
 /** The zone a GPS fix falls in, by nearest seed centroid minus its radius (the server re-checks). */
 export function nearestZone(pin: LatLng): string | null {
   let best: { id: string; d: number } | null = null;
@@ -148,7 +151,7 @@ export function nearestZone(pin: LatLng): string | null {
     const d = km(pin, { lat: z.lat, lng: z.lng }) - z.radiusM / 1000;
     if (!best || d < best.d) best = { id: z.id, d };
   }
-  return best && best.d <= 15 ? best.id : null;
+  return best && best.d <= OUT_OF_SERVICE_KM ? best.id : null;
 }
 
 // ───────────────────────── merchant onboarding ─────────────────────────
@@ -222,7 +225,8 @@ export function stepReady(step: OnboardStep, d: OnboardDraft): boolean {
       return d.contactName.trim().length >= 1 && normalizeIraqiPhone(d.contactPhone) !== null;
     case 'location':
       // The door photo is optional: wait only while it is on its way up (a failed one may be left).
-      return d.zoneKey !== null && !(d.shopPhoto && d.shopPhoto.uploadId === null && !d.shopPhoto.failed);
+      // The kitchen's GPS pin is required: the server reads the zone (and every fee) from it.
+      return d.pin !== null && d.zoneKey !== null && !(d.shopPhoto && d.shopPhoto.uploadId === null && !d.shopPhoto.failed);
     case 'menu':
       return d.menuPhotos.every((p) => p.uploadId !== null);
     case 'settle':
@@ -235,13 +239,13 @@ export function stepReady(step: OnboardStep, d: OnboardDraft): boolean {
 /** The `ops.merchantOnboarding` input from a finished draft. */
 export function onboardingInput(d: OnboardDraft, cityId = 'aziziyah') {
   const phone = normalizeIraqiPhone(d.contactPhone);
-  if (!phone || !d.zoneKey) throw new Error('draft_incomplete');
+  if (!phone || !d.zoneKey || !d.pin) throw new Error('draft_incomplete');
   return {
     cityId,
     name: d.name.trim(),
     type: d.type,
     contact: { name: d.contactName.trim(), phone },
-    location: { zoneKey: d.zoneKey, ...(d.pin ? { pin: d.pin } : {}) },
+    location: { zoneKey: d.zoneKey, pin: d.pin },
     menuPhotoUploadIds: d.menuPhotos.map((p) => p.uploadId).filter((id): id is string => id !== null),
     ...(d.shopPhoto?.uploadId ? { shopPhotoUploadId: d.shopPhoto.uploadId } : {}),
     settlementMode: d.settlementMode,

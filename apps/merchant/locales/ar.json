@@ -145,6 +145,11 @@
   "merchant.missed.not_scored": "ما ينحسب عليك (وقت توقف)",
   "merchant.missed.ok": "تمام",
   "merchant.missed.chip": "فاتك اليوم: {count}",
+  "merchant.cancelled.title": "انلغى ⁦#{number}⁩، لا تكمل",
+  "merchant.cancelled.body_cooking": "انلغى بعد ما قبلته. وقّف تحضيره",
+  "merchant.cancelled.body_ready": "انلغى وهو جاهز. لا تسلّمه لأي دليفري",
+  "merchant.cancelled.dismiss": "تمام",
+  "merchant.cancelled.hint": "دوس حتى تخفيه",
   "merchant.missed.nudge": "تشغّل وضع الزحمة أو تسد المحل شوية؟",
   "merchant.missed.busy": "شغّل الزحمة",
   "merchant.missed.close": "سد شوية",
@@ -1946,5 +1951,11 @@
   "merchant.gate.invite_title": "عندك دعوة لمحل",
   "merchant.gate.invite_body": "اقبلها وتفتح طلبات المحل بنفس الرقم. إذا ما تعرف المحل، گول لا شكراً",
   "merchant.invites.strip_many": "عندك {count} دعوات من محلات ثانية",
-  "merchant.invites.see": "شوفها"
+  "merchant.invites.see": "شوفها",
+  "merchant.courier_map.label": "الدليفرية الجايين لمحلك على الخريطة",
+  "merchant.courier_map.coming": "دليفري جايين: {count}",
+  "merchant.courier_map.pin": "{name} · {minutes} دقيقة",
+  "merchant.courier_map.pin_anon": "الدليفري · {minutes} دقيقة",
+  "merchant.courier_map.pin_no_eta": "{name} بالطريق",
+  "merchant.courier_map.shop": "محلك"
 }
