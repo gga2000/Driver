@@ -202,10 +202,11 @@ garages stand at Ali's real spots (2026-10-10), each lot sized to fit between it
 Overture has on a lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
 demo spots; moving them onto the models belongs to the garage data owner.
 
-## Your trips map (stats «خريطتك», 2026-10-11)
-- `@driver/map/pieces/my-trips`: `myTripsGeoJSON(trips, {labels, k?, pins?})`, `myTripsLayers({source, light})`, `myTripsBounds(trips)`,
-  `myTripWidth(count)`, `MY_TRIPS_DRAW_MS` (1200), `MY_TRIPS_PINS_MS` (300) and `MY_TRIPS_CAMERA` (pitch 40, bearing −12).
-- Soft arcs from each kitchen or pickup to where the trip ended (the server knows the ends, not the streets), coloured
-  by service, three widths by count, on a cream under-stroke and a light cream fade over the town. Kitchens are saffron
-  circles with the meal count, home an ink dot in a cream ring, and each الرجعة trip a 650 m dashed arrow out of its
-  garage towards Baghdad or Kut with the app's own words. Lines draw once, pins come in after, then nothing moves.
+## Your trips map (stats «خريطتك», 2026-10-11; Ali picked look A "Streets")
+- `@driver/map/pieces/my-trips`: `myTripsGeoJSON(trips, {labels, k?, pins?})`, `myTripsLayers({source, light})`,
+  `myTripsBounds(trips)`, `myTripWidth(count)`, `MY_TRIPS_DRAW_MS` (1200), `MY_TRIPS_PINS_MS` (300) and
+  `MY_TRIPS_CAMERA` (flat, north up).
+- Each trip runs along the streets it took (`path`, the route the server sends; a straight line when it has none),
+  coloured by service, three widths by count, on a cream under-stroke. Kitchens are saffron circles with the meal count,
+  home an ink dot in a cream ring, and each الرجعة trip a 650 m dashed arrow out of its garage towards Baghdad or Kut with
+  the app's own words. Lines draw once from their start, pins come in after, then nothing moves.
