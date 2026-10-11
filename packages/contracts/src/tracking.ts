@@ -335,12 +335,38 @@ export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bik
  * kitchen before anyone has the order) through this order's remaining stops. `polyline6` is null when
  * no road router is configured or there is nothing to draw — the app then draws straight lines.
  */
+/**
+ * N6 «ليش متأخر»: why a late delivery is late, and where. `traffic`: the part of the road ahead whose
+ * learned minutes run slowest; `kitchen`: the food is not out on time, at the kitchen on the route;
+ * `closed`: a street closed today (kept for the closed-streets work, not sent yet).
+ */
+export const SlowStretchReason = z.enum(['traffic', 'kitchen', 'closed']);
+export type SlowStretchReason = z.infer<typeof SlowStretchReason>;
+
+/**
+ * The slow part of the route, in metres along this route's own line (`polyline6`, or the straight
+ * line through its points when there is no road shape), and the minutes it costs. Read-only: it never
+ * changes the promise, the apology or the credit.
+ */
+export const SlowStretch = z.object({
+  fromM: z.number().int().min(0),
+  toM: z.number().int().min(0),
+  reason: SlowStretchReason,
+  minutes: z.number().int().positive(),
+});
+export type SlowStretch = z.infer<typeof SlowStretch>;
+
 export const OrderRoute = z.object({
   polyline6: z.string().nullable(),
   basis: EtaBasis,
   /** The point the route starts from (his fix when it was computed). */
   from: LatLng.nullable(),
   computedAt: z.coerce.date(),
+  /**
+   * N6: set once the delivery has passed its 10-minute late step (the apology) and is still on its way,
+   * and something on the route explains it; null otherwise.
+   */
+  slowStretch: SlowStretch.nullable().optional(),
 });
 export type OrderRoute = z.infer<typeof OrderRoute>;
 

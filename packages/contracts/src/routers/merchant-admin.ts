@@ -34,7 +34,6 @@ import {
   ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
-  ReviewDealInput,
   SetAvailabilityInput,
   SetDealActiveInput,
   SetModifiersInput,
@@ -52,8 +51,6 @@ import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
 export const MERCHANT_ADMIN_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
-/** Platform approval of merchant deals (city config switch). */
-export const DEAL_REVIEWERS: readonly RoleKind[] = ['admin', 'support'];
 
 const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 
@@ -97,7 +94,6 @@ export const merchantAdminRouter = router({
     project: p.input(ProposeDealInput).output(DealProjectionView).query(({ ctx, input }) => ctx.merchantAdmin.dealsProject(ctx.actor, input)),
     propose: p.input(ProposeDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsPropose(ctx.actor, input)),
     setActive: p.input(SetDealActiveInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsSetActive(ctx.actor, input)),
-    review: protectedProcedure(DEAL_REVIEWERS).input(ReviewDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsReview(ctx.actor, input)),
   }),
   money: router({
     today: p.input(MerchantScope).output(MoneyToday).query(({ ctx, input }) => ctx.merchantAdmin.moneyToday(ctx.actor, input)),

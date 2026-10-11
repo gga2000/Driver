@@ -8,6 +8,7 @@ import {
   MIN_PER_EARLIER_DROP,
   positionVisible,
   publicCourierRating,
+  ROUTE_VEHICLE_FACTOR,
   type Actor,
   type CourierCard,
   type CourierPosition,
@@ -21,6 +22,7 @@ import {
   type OrderHistoryRow,
   type OrderRoute,
   type OrderTracking,
+  type SlowStretch,
   type TrackingPort,
   type TrackItem,
   type TrackStop,
@@ -33,6 +35,7 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import { EtaService, type EtaMinutes } from '../routing/index.js';
 import { arrivalCountsForFees } from '../pricing/index.js';
 import { rideMilestones } from './ride-milestones.js';
+import { decodePolyline, kitchenStretch, measuredPath, SLOW_STRETCH_RULES, trafficStretch } from './slow-stretch.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -270,7 +273,7 @@ export class TrackingService implements TrackingPort {
     const agg = await this.assertOwner(actor, input.orderId);
     const order = await this.orders.get(input.orderId);
     const now = this.clock.now();
-    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now, slowStretch: null };
     if (SETTLED_ORDER_STATES.has(order.state)) return none;
     const trip = await this.trips.activeForOrder(order.id);
     const fix = trip?.courierId && positionVisible(trip.state) && trip.acceptedAt ? await this.trips.lastPosition(trip.id) : null;
@@ -285,7 +288,53 @@ export class TrackingService implements TrackingPort {
     const points = courier ? [courier, ...ahead] : ahead;
     if (points.length < 2) return none;
     const r = await this.eta.path(points);
-    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now };
+    const slowStretch = await this.slowStretch(order, agg.order, trip, kitchenOrg?.pin ?? null, points, r, now);
+    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now, slowStretch };
+  }
+
+  /**
+   * N6 «ليش متأخر» (Ali, 2026-10-11): once a delivery is past its 10-minute late step and still on its
+   * way, the part of this route that explains it — the kitchen when the food is not out on time, else
+   * the stretch whose learned minutes run slowest — measured along the same line the map draws.
+   * Read-only: the promise, the apology and the credit are untouched. Null when nothing explains it.
+   */
+  private async slowStretch(
+    order: Order,
+    stored: Parameters<TrackingService['promise']>[0],
+    trip: Trip | null,
+    kitchen: LatLng | null,
+    points: readonly LatLng[],
+    road: { polyline6: string | null; durationS: number; basis: EtaBasis },
+    now: Date,
+  ): Promise<SlowStretch | null> {
+    if (order.type === 'ride') return null;
+    const promisedAt = await this.promise(stored, kitchen, order.acceptedAt);
+    if (!promisedAt || !lateApologyDue(order, promisedAt, now, Boolean(trip?.unreachable), this.lateRules.apologyAfterMin)) return null;
+    // The road's own shape when it decodes to real points; else the straight line the map draws then.
+    let line: LatLng[] = [...points];
+    if (road.polyline6) {
+      try {
+        const decoded = decodePolyline(road.polyline6);
+        if (decoded.length >= 2 && decoded.every((p) => Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180)) line = decoded;
+      } catch {
+        // A shape that doesn't decode: keep the straight line.
+      }
+    }
+    const path = measuredPath(line, SLOW_STRETCH_RULES.pieceM);
+    const promisedReady = order.promisedReadyAt;
+    if (kitchen && !order.pickedUpAt && promisedReady) {
+      const lateMin = ((order.readyAt ?? now).getTime() - promisedReady.getTime()) / MIN_MS;
+      if (lateMin >= 1) return kitchenStretch(path, kitchen, lateMin);
+    }
+    const vehicle = await this.vehicleOf(order, trip);
+    const baseMinutes = (road.durationS * ROUTE_VEHICLE_FACTOR[vehicle]) / 60;
+    return trafficStretch(path, baseMinutes, (a, b) => this.eta.factor(a, b, vehicle, road.basis));
+  }
+
+  /** The vehicle the ETA times this order on: the courier's own, else what the order needs. */
+  private async vehicleOf(order: Order, trip: Trip | null): Promise<VehicleClass> {
+    const own = trip?.courierId ? (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass : undefined;
+    return own ?? order.minVehicleClass ?? (order.type === 'ride' ? 'car' : 'bike');
   }
 
   /**
@@ -297,7 +346,7 @@ export class TrackingService implements TrackingPort {
   async liveEta(order: Order, trip: Trip, pin: LatLng, now: Date): Promise<{ at: Date; basis: EtaBasis } | null> {
     const agg = await this.orders.aggregate(order.id);
     const stop = (type: 'pickup' | 'dropoff'): LatLng | null => trip.stops.find((s) => s.orderId === order.id && (s.type === type || (type === 'pickup' && s.type === 'shop')))?.target ?? null;
-    const vehicle: VehicleClass = (trip.courierId ? (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass : undefined) ?? order.minVehicleClass ?? (order.type === 'ride' ? 'car' : 'bike');
+    const vehicle = await this.vehicleOf(order, trip);
     const legs: EtaMinutes[] = [];
     const leg = async (a: LatLng, b: LatLng): Promise<number> => {
       const m = await this.eta.minutes(a, b, vehicle);
