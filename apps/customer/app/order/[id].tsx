@@ -39,7 +39,7 @@ import { rideArrivalCopy } from '@/features/track/arrival-copy';
 import { mapMinutesLabel } from '@/features/track/eta-range';
 import { CancelPanel, DisputePanel, StreetPanel, UNREACHABLE_PANEL_H, UnreachablePanel } from '@/features/track/Panels';
 import { currentSosFix } from '@/features/safety/fix';
-import { isLive, useCourierPosition, useLiveOrder, useTracking } from '@/features/track/queries';
+import { isLive, useCourierPosition, useLiveOrder, useSlowStretch, useTracking } from '@/features/track/queries';
 import { ActionRow, COURIER_FLOAT_H, COURIER_FLOAT_PLATE_H, CourierCard, CourierFloat, DegradedBanner, OrderItems, PriceSection, SheetHeader } from '@/features/track/SheetParts';
 import { DriverHereCard } from '@/features/track/DriverHere';
 import { DriverRevealCard, useDriverReveal } from '@/features/track/DriverReveal';
@@ -130,6 +130,8 @@ export default function OrderLiveScreen() {
   // The server's ETA (one ETA everywhere, routed on real roads when available); the local estimate if it has none.
   const eta = v ? (fix?.etaAt ?? liveEta(v, fix?.pin ?? null, new Date(now))) : null;
   const lateMin = v ? lateMinutes(eta, v.promisedAt) : 0;
+  // N6: why it's late (traffic, the kitchen, a closed street), from the route the map already reads.
+  const slow = useSlowStretch(id, Boolean(v && lateMin > 0 && isLive(v) && v.order.type !== 'ride'));
   const phase = v ? phaseOf(v) : null;
   // The courier over the map while he is coming (maps program SP5b, c6); the camera keeps clear of it.
   const showFloat = Boolean(v?.courier && fix && (phase === 'to_pickup' || phase === 'at_pickup' || phase === 'on_the_way'));
@@ -453,7 +455,7 @@ export default function OrderLiveScreen() {
           />
         ) : null}
         {phase === 'reassigning' ? <DegradedBanner testID="reassigning" icon="user" tone="info" title={t('track.reassigning')} body={t('track.reassigning_note')} /> : null}
-        {lateMin > 0 && phase !== 'reassigning' && eta && v ? <LateBanner view={v} lateMin={lateMin} eta={eta} now={now} /> : null}
+        {lateMin > 0 && phase !== 'reassigning' && eta && v ? <LateBanner view={v} lateMin={lateMin} eta={eta} now={now} slow={slow} /> : null}
       </TopBar>
       {/* The reveal introduces him once; his docked card follows when it closes, not both at once (VIS-13). */}
       {v?.courier && showFloat && !showHere && !showReveal ? (
