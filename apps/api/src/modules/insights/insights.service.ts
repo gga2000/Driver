@@ -12,6 +12,7 @@ import {
   type MonthInsightsView,
   type MonthKey,
   StatsInput,
+  type StatsTrips,
   type StatsView,
   type WalletLine,
 } from '@driver/contracts';
@@ -32,6 +33,8 @@ import {
   spentBetween,
   statsMonths,
   tripMap,
+  decodeRoad,
+  simplifyRoad,
   whenGrid,
   type StatsBooking,
   type StatsOrder,
@@ -70,6 +73,8 @@ export interface StatsSources {
   placeNames(personId: string): Promise<Map<string, string>>;
   /** His saved home's pin, if he saved one. */
   homeOf(personId: string): Promise<StatsPoint | null>;
+  /** The routed road from `from` to `to` as an encoded polyline (precision 6); null when only the straight line is known. */
+  roadBetween(from: StatsPoint, to: StatsPoint): Promise<string | null>;
   walletLines(account: string, events: readonly LedgerEvent[]): WalletLine[];
   restaurantsInCity(cityId: string): Promise<number>;
 }
@@ -79,6 +84,8 @@ export const STATS_SOURCES = Symbol('STATS_SOURCES');
 const HOME_CITY = 'aziziyah';
 /** «خريطتك» draws at most this many of the period's latest meals (one trip read each). */
 const MAP_MEALS = 200;
+/** «خريطتك» follows the streets for at most this many town traces (the most travelled first); the rest draw straight. */
+const MAP_ROADS = 40;
 
 /**
  * `wallet.month` (joy w6 «شهرك»): the caller's own month, counted here from real orders, rides,
@@ -219,10 +226,26 @@ export class InsightsService implements InsightsPort {
       rajaa: rajaaFacts(bookings, from, to),
       money: { spentIqd: spentBetween(this.stats_.walletLines(customer, money), from, to) },
       points: { earned: pointsEarnedBetween(pointsAccount, points, from, to), used: pts.used, balance: pts.balance },
-      trips: tripMap(home, meals, rideOrders, rides, bookings, from, to),
+      trips: await this.withRoads(tripMap(home, meals, rideOrders, rides, bookings, from, to)),
     };
     const r = view.rajaa;
     const hasActivity = view.food.orders + view.rides.taxi + view.rides.tuktuk + r.baghdad + r.kut > 0 || saved.totalIqd > 0 || view.points.earned > 0 || bookings.some((b) => b.state === 'completed' && b.completedAt !== null && within(b.completedAt));
     return { ...view, hasActivity };
+  }
+
+  /**
+   * «خريطتك» look A: each town trace follows its streets — the routed road between its ends, simplified to
+   * about 10 m. الرجعة stays a direction (no path); a road the router can't give draws straight.
+   */
+  private async withRoads(trips: StatsTrips): Promise<StatsTrips> {
+    const town = trips.traces.filter((t) => t.service !== 'rajaa').sort((a, b) => b.count - a.count).slice(0, MAP_ROADS);
+    await Promise.all(
+      town.map(async (t) => {
+        const encoded = await this.stats_.roadBetween(t.from, t.to).catch(() => null);
+        const road = encoded ? decodeRoad(encoded) : null;
+        if (road) t.path = simplifyRoad(road);
+      }),
+    );
+    return trips;
   }
 }

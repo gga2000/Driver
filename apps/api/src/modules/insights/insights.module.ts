@@ -7,6 +7,7 @@ import { OrdersModule, OrdersService } from '../orders/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, SavedPlacesService } from '../places/index.js';
 import { GARAGES, RoutesModule, RoutesRpc } from '../routes/index.js';
+import { EtaService, RoutingModule } from '../routing/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { INSIGHTS_SOURCES, InsightsService, STATS_SOURCES, type InsightsSources, type StatsSources } from './insights.service.js';
 import { MONTH_CARD_SOURCES, MonthCardJob, type MonthCardSources } from './month-card.job.js';
@@ -28,7 +29,7 @@ function rajaaEnds(garageId: string, cityId: string | null): { garage: { lat: nu
  * bookings and the ledger. Owns no tables.
  */
 @Module({
-  imports: [OrdersModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, EventsModule, TripsModule, PlacesModule],
+  imports: [OrdersModule, OrgsModule, CatalogModule, LedgerModule, RoutesModule, EventsModule, TripsModule, PlacesModule, RoutingModule],
   providers: [
     {
       provide: INSIGHTS_SOURCES,
@@ -56,7 +57,7 @@ function rajaaEnds(garageId: string, cityId: string | null): { garage: { lat: nu
     },
     {
       provide: STATS_SOURCES,
-      useFactory: (orders: OrdersService, orgs: OrgsService, routes: RoutesRpc, trips: TripsService, places: SavedPlacesService): StatsSources => ({
+      useFactory: (orders: OrdersService, orgs: OrgsService, routes: RoutesRpc, trips: TripsService, places: SavedPlacesService, eta: EtaService): StatsSources => ({
         ordersEverBy: async (personId) =>
           (await orders.placedByBetween(personId, new Date(0), new Date(8.64e15))).map(({ order, lines }) => ({
             id: order.id,
@@ -101,10 +102,11 @@ function rajaaEnds(garageId: string, cityId: string | null): { garage: { lat: nu
           const home = (await places.mine(personId)).find((p) => p.label === 'home');
           return home ? { lat: home.pin.lat, lng: home.pin.lng } : null;
         },
+        roadBetween: async (from, to) => (await eta.path([from, to])).polyline6,
         walletLines: (account, events) => moneyLines(account, events),
         restaurantsInCity: async (cityId) => (await orgs.merchants(cityId)).filter((m) => m.type === 'restaurant').length,
       }),
-      inject: [OrdersService, OrgsService, RoutesRpc, TripsService, SavedPlacesService],
+      inject: [OrdersService, OrgsService, RoutesRpc, TripsService, SavedPlacesService, EtaService],
     },
     InsightsService,
     {

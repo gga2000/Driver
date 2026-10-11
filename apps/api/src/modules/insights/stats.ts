@@ -290,3 +290,73 @@ export function tripMap(
   }
   return { home, kitchens: [...kitchens.values()], traces: [...traces.values()] };
 }
+
+/** A road shape for «خريطتك» keeps at most this many points; 10 to 80 is plenty for a town trip. */
+export const TRIP_PATH_MAX_POINTS = 80;
+/** Bends smaller than this (metres) are dropped from a road shape. */
+export const TRIP_PATH_TOLERANCE_M = 10;
+
+/** Decodes an encoded polyline (precision 6, the router's) to points; null when it doesn't decode to real ones. Pure. */
+export function decodeRoad(encoded: string): StatsPoint[] | null {
+  const out: StatsPoint[] = [];
+  let i = 0;
+  let lat = 0;
+  let lng = 0;
+  const next = (): number | null => {
+    let shift = 0;
+    let result = 0;
+    let b: number;
+    do {
+      if (i >= encoded.length) return null;
+      b = encoded.charCodeAt(i++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (i < encoded.length) {
+    const dLat = next();
+    const dLng = next();
+    if (dLat === null || dLng === null) return null;
+    lat += dLat;
+    lng += dLng;
+    out.push({ lat: lat / 1e6, lng: lng / 1e6 });
+  }
+  return out.length >= 2 && out.every((p) => Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180) ? out : null;
+}
+
+/** Distance in metres from `p` to the segment a–b (flat-earth, fine at town scale). */
+function offsetM(p: StatsPoint, a: StatsPoint, b: StatsPoint): number {
+  const kx = 111_320 * Math.cos((a.lat * Math.PI) / 180);
+  const ky = 110_540;
+  const [px, py, bx, by] = [(p.lng - a.lng) * kx, (p.lat - a.lat) * ky, (b.lng - a.lng) * kx, (b.lat - a.lat) * ky];
+  const len = bx * bx + by * by;
+  const t = len === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / len));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+/**
+ * A road shape simplified for the map: bends under `toleranceM` dropped (Douglas–Peucker), and the
+ * tolerance doubled until at most `maxPoints` remain. Both ends always stay. Pure.
+ */
+export function simplifyRoad(points: readonly StatsPoint[], toleranceM = TRIP_PATH_TOLERANCE_M, maxPoints = TRIP_PATH_MAX_POINTS): StatsPoint[] {
+  if (points.length <= 2) return [...points];
+  const keep = new Array<boolean>(points.length).fill(false);
+  keep[0] = keep[points.length - 1] = true;
+  const stack: Array<[number, number]> = [[0, points.length - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    let worst = -1;
+    let at = -1;
+    for (let k = s + 1; k < e; k++) {
+      const d = offsetM(points[k]!, points[s]!, points[e]!);
+      if (d > worst) [worst, at] = [d, k];
+    }
+    if (at > 0 && worst > toleranceM) {
+      keep[at] = true;
+      stack.push([s, at], [at, e]);
+    }
+  }
+  const out = points.filter((_, k) => keep[k]).map((p) => ({ lat: p.lat, lng: p.lng }));
+  return out.length > maxPoints ? simplifyRoad(points, toleranceM * 2, maxPoints) : out;
+}

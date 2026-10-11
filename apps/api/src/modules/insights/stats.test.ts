@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LATE_PROMISE_MEMO, type LedgerEvent } from '@driver/contracts';
-import { savedOffBills, statsMonths, STATS_MAX_MONTHS, tripMap, type StatsBooking, type StatsOrder, type StatsRide } from './stats.js';
+import { decodeRoad, savedOffBills, simplifyRoad, statsMonths, STATS_MAX_MONTHS, TRIP_PATH_MAX_POINTS, tripMap, type StatsBooking, type StatsOrder, type StatsRide } from './stats.js';
 
 const day = (iso: string) => new Date(iso);
 const FROM = day('2026-08-31T21:00:00Z');
@@ -96,5 +96,55 @@ describe('tripMap («خريطتك»)', () => {
     const map = tripMap(null, [order('m1', 'food', 'khalid')], [order('r1', 'ride')], trips, bookings, FROM, TO);
     expect(map.kitchens).toEqual([]);
     expect(map.traces).toEqual([{ service: 'rajaa', from: { lat: 32.915, lng: 45.04 }, to: { lat: 33.31, lng: 44.36 }, count: 2 }]);
+  });
+});
+
+/** Encodes points as a precision-6 polyline (what the router sends). */
+function encode(points: ReadonlyArray<{ lat: number; lng: number }>): string {
+  let out = '';
+  let pLat = 0;
+  let pLng = 0;
+  const put = (v: number) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    while (n >= 0x20) {
+      out += String.fromCharCode((0x20 | (n & 0x1f)) + 63);
+      n >>= 5;
+    }
+    out += String.fromCharCode(n + 63);
+  };
+  for (const p of points) {
+    const [lat, lng] = [Math.round(p.lat * 1e6), Math.round(p.lng * 1e6)];
+    put(lat - pLat);
+    put(lng - pLng);
+    [pLat, pLng] = [lat, lng];
+  }
+  return out;
+}
+
+describe('road shapes for «خريطتك» (look A)', () => {
+  it('decodes the router\'s polyline; junk or a single point is no road', () => {
+    const road = [
+      { lat: 32.905, lng: 45.07 },
+      { lat: 32.9071, lng: 45.0655 },
+      { lat: 32.91, lng: 45.06 },
+    ];
+    expect(decodeRoad(encode(road))).toEqual(road);
+    expect(decodeRoad(encode([road[0]!]))).toBeNull();
+    expect(decodeRoad('_')).toBeNull();
+  });
+
+  it('drops bends under 10 m, keeps real corners and both ends, and never sends more than 80 points', () => {
+    const corner = [
+      { lat: 32.9, lng: 45.06 },
+      { lat: 32.90002, lng: 45.0625 }, // ~2 m off the straight line
+      { lat: 32.9, lng: 45.065 },
+      { lat: 32.905, lng: 45.065 }, // a real corner
+    ];
+    expect(simplifyRoad(corner)).toEqual([corner[0], corner[2], corner[3]]);
+    const zigzag = Array.from({ length: 500 }, (_, i) => ({ lat: 32.9 + (i % 2) * 0.001, lng: 45.0 + i * 0.001 }));
+    const simple = simplifyRoad(zigzag);
+    expect(simple.length).toBeLessThanOrEqual(TRIP_PATH_MAX_POINTS);
+    expect(simple[0]).toEqual(zigzag[0]);
+    expect(simple.at(-1)).toEqual(zigzag.at(-1));
   });
 });

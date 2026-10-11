@@ -58,12 +58,14 @@ export type StatsTripService = z.infer<typeof StatsTripService>;
 /**
  * «خريطتك»: home, the kitchens he ordered from (with how many meals), and his trips grouped by where they
  * started and ended (about 100 m): food from the kitchen to his door, rides from pickup to drop-off,
- * الرجعة from its Aziziyah garage with `to` the far city (a direction only).
+ * الرجعة from its Aziziyah garage with `to` the far city (a direction only). `path`: the streets a town trip
+ * takes from `from` to `to` (the routed road, simplified to about 10 m); none for الرجعة or when the road
+ * isn't known, and the map then draws a straight line.
  */
 export const StatsTrips = z.object({
   home: Point.nullable(),
   kitchens: z.array(Point.extend({ count: z.number().int().positive() })),
-  traces: z.array(z.object({ service: StatsTripService, from: Point, to: Point, count: z.number().int().positive() })),
+  traces: z.array(z.object({ service: StatsTripService, from: Point, to: Point, count: z.number().int().positive(), path: z.array(Point).max(200).optional() })),
 });
 export type StatsTrips = z.infer<typeof StatsTrips>;
 
