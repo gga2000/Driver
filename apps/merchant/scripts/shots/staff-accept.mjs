@@ -12,5 +12,13 @@ export default {
     await byTestId('stores').waitFor();
     await page.locator('[data-testid^="invite-"]').first().waitFor({ timeout: 15_000 });
     await shot('invite-stores', { wait: 900 });
+    // On a calm board too (someone at one store never sees the picker): the strip opens it.
+    await page.locator('[data-testid^="store-"]').first().click();
+    await byTestId('board').waitFor({ timeout: 15_000 });
+    const learned = page.getByText('فهمت، نبدأ الشغل');
+    if (await learned.waitFor({ timeout: 4000 }).then(() => true, () => false)) await learned.click();
+    await h.startShift();
+    await byTestId('invite-strip').waitFor({ timeout: 120_000 });
+    await shot('invite-board-strip', { wait: 900 });
   },
 };
