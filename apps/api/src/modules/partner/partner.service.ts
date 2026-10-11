@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_ZONES,
+  DEMAND_GLOW_RULES,
   DEMAND_MAP_RULES,
+  demandGlow,
+  glowFor,
+  type DemandGlowSnapshot,
+  type PartnerDemandGlow,
   DriverError,
   sortCargo,
   PARTNER_DRIVING_ROLES,
@@ -13,7 +19,6 @@ import {
   type OrderRoute,
   type PartnerBookedJob,
   type PartnerBookedJobs,
-  type PartnerDemandMap,
   type PartnerGoOnlineInput,
   type PartnerGoOnlineResult,
   type PartnerHeartbeatAck,
@@ -36,7 +41,7 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines, workStateVersion } from './logic.js';
+import { buildPay, demandHint, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines, workStateVersion } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
@@ -56,6 +61,8 @@ const FORECAST_CACHE_MS = 5 * 60_000;
 @Injectable()
 export class PartnerService implements PartnerPort {
   private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
+  /** N17: one glow picture per city per `DEMAND_GLOW_RULES.snapshotMs` (aggregated and a few minutes old). */
+  private readonly glows = new Map<string, { bucket: number; snap: Promise<DemandGlowSnapshot> }>();
 
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
@@ -336,11 +343,35 @@ export class PartnerService implements PartnerPort {
     return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
   }
 
-  async demandMap(actor: Actor): Promise<PartnerDemandMap> {
+  /**
+   * N17 «وين الطلبات»: the city's glow picture, taken once per `snapshotMs` and shared by every courier;
+   * his own view keeps only the busy zone picked for him hot. Advice only: dispatch never reads it.
+   */
+  async demandGlow(actor: Actor): Promise<PartnerDemandGlow> {
     const now = this.clock.now();
     const cityId = (await this.deps.presence.get(actor.personId))?.cityId ?? DEFAULT_CITY;
-    const [waiting, drivers, expected] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId), this.expectedPickups(cityId, now)]);
-    return { zones: demandZones(waiting, drivers, expected), at: now };
+    const bucket = Math.floor(now.getTime() / DEMAND_GLOW_RULES.snapshotMs);
+    let hit = this.glows.get(cityId);
+    if (!hit || hit.bucket !== bucket) {
+      const snap = this.takeGlow(cityId, now);
+      hit = { bucket, snap };
+      this.glows.set(cityId, hit);
+      // A failed picture is not kept: the next read tries again.
+      snap.catch(() => {
+        if (this.glows.get(cityId) === hit) this.glows.delete(cityId);
+      });
+    }
+    return glowFor(await hit.snap, actor.personId);
+  }
+
+  private async takeGlow(cityId: string, now: Date): Promise<DemandGlowSnapshot> {
+    const [waitingZones, drivers, expected] = await Promise.all([
+      this.deps.dispatch.waitingZones(cityId),
+      this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
+      this.expectedPickups(cityId, now),
+    ]);
+    const centres = new Map(AZIZIYAH_ZONES.map((z) => [z.id, { lat: z.lat, lng: z.lng }] as const));
+    return demandGlow({ waitingZones, drivers, expected, centres, at: now });
   }
 
   /**

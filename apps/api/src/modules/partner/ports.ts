@@ -78,6 +78,8 @@ export interface PartnerDeps {
     offline(driverId: string): Promise<void>;
     /** Online drivers' zones in the city (demand hint). */
     zones(cityId: string): Promise<Array<string | null>>;
+    /** N17: the city's online drivers with where they are and whether they're free. Absent in older fakes = none. */
+    live?(cityId: string): Promise<Array<{ driverId: string; zoneId: string | null; lat: number; lng: number; free: boolean }>>;
   };
   dispatch: {
     openOffer(driverId: string, cityId: string): Promise<{ offer: PartnerOfferRecord; request: PartnerOfferRequest } | null>;
