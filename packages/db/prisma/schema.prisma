@@ -3334,6 +3334,8 @@ model NotifyPreference {
   regularTrips     Boolean  @default(true) @map("regular_trips")
   /// Step 4 (o4): «نفس مشوار البارحة؟» for a ride he takes most working days. On by default, one a day.
   sameRide         Boolean  @default(true) @map("same_ride")
+  /// Food carts: «{cart} فتح» when a followed cart opens. On by default (following is the opt-in), once a cart a day.
+  foodCarts        Boolean  @default(true) @map("food_carts")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

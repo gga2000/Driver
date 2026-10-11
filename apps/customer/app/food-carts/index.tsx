@@ -26,7 +26,8 @@ export default function FoodCartsPage() {
   const locale = useLocale();
   const net = useNetwork();
   const here = useGrantedPosition();
-  const carts = useCarts(here.data ?? null);
+  // No position (refused, failed): the list is by name, without walking minutes.
+  const carts = useCarts(here.isError ? null : (here.data ?? null));
   const [show, setShow] = useState<Show>('open');
   const list = carts.data;
   const followed: CartCard[] = list ? [...list.open, ...list.closed].filter((c) => c.following) : [];

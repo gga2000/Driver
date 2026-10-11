@@ -151,7 +151,7 @@ function TicketCard({ w }: { w: WalkupView }) {
         <Pressable
           testID="cart-ticket-cancel"
           accessibilityRole="button"
-          disabled={cancel.isPending}
+          disabled={cancel.status === 'pending'}
           onPress={() =>
             cancel.mutate(
               { walkupId: w.id },

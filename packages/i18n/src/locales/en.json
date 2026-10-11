@@ -9286,5 +9286,16 @@
   "carts.open_cart": "Open it",
   "carts.pin_open": "{name}, open",
   "carts.pin_closed": "{name}, closed",
-  "carts.add_a11y": "Add {dish}"
+  "carts.add_a11y": "Add {dish}",
+  "push.food_cart_opened.title": "{cart} is open",
+  "push.food_cart_opened.body": "Standing {place} now. Order and walk over, or have it delivered.",
+  "push.food_cart_walkup_ready.title": "Your order is ready at {cart}",
+  "push.food_cart_walkup_ready.body": "Come over, tell them {code} and pay there.",
+  "push.food_cart_walkup_rejected.title": "{cart} can't take it right now",
+  "push.food_cart_walkup_rejected.body": "Ticket {code} is off and you owe nothing. See another open cart.",
+  "push.food_cart_walkup_closed.title": "{cart} closed",
+  "push.food_cart_walkup_closed.body": "It closed before starting your order, so ticket {code} is off and you owe nothing.",
+  "push.food_cart_opened.place_zone": "by {zone}",
+  "notify.pref.food_carts": "Carts you follow",
+  "notify.pref.food_carts_hint": "When a cart you follow opens. Once a day per cart, never at night."
 }

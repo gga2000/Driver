@@ -253,7 +253,8 @@ export class FoodCartsService implements FoodCartsPort {
     if (!wasOpen) {
       const followerIds = await this.repo.followerIds(c.id);
       const day = localClock(now, TIMEZONE).date;
-      await this.emit(actorId, 'food_cart.opened', next, { followerIds, spotLabel: spot.label, localDate: day, kind: c.kind }, `food_cart.opened:${c.id}:${day}`);
+      const zone = AZIZIYAH_ZONES.find((z) => z.id === zoneKeyAt(spot));
+      await this.emit(actorId, 'food_cart.opened', next, { followerIds, spotLabel: spot.label, zoneName_ar: zone?.name_ar ?? null, localDate: day, kind: c.kind }, `food_cart.opened:${c.id}:${day}`);
     }
     return next;
   }

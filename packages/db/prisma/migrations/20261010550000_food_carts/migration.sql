@@ -63,5 +63,8 @@ CREATE INDEX "food_cart_walkups_cart_id_state_idx" ON "public"."food_cart_walkup
 
 CREATE INDEX "food_cart_walkups_person_id_state_idx" ON "public"."food_cart_walkups"("person_id", "state");
 
+-- «{cart} فتح» can be switched off in the customer's notification settings (on by default).
+ALTER TABLE "public"."notify_preferences" ADD COLUMN     "food_carts" BOOLEAN NOT NULL DEFAULT true;
+
 -- Supabase lock-down for the new tables (row level security on, nothing granted to anon / authenticated).
 SELECT * FROM "public"."driver_harden"(ARRAY['public', 'identity_vault'], 'identity_vault');

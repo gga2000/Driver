@@ -130,13 +130,13 @@ export function CartsMap({ carts, selectedId, onSelect, topInset, bottomInset, o
       map?.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   useEffect(() => {
     placePins();
     frame(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedId]);
 
   useEffect(() => {

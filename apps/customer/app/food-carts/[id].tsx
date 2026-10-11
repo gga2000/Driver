@@ -33,7 +33,8 @@ export default function FoodCartPage() {
   const locale = useLocale();
   const net = useNetwork();
   const here = useGrantedPosition();
-  const cart = useFoodCart(id ?? '', here.data ?? null);
+  // No position (refused, failed): the cart page shows no walking minutes.
+  const cart = useFoodCart(id ?? '', here.isError ? null : (here.data ?? null));
   const card = cart.data;
 
   if (cart.isError && !card) {
@@ -112,7 +113,7 @@ function CartPage({ card }: { card: CartCard }) {
       edges={['bottom']}
       footer={
         card.open ? (
-          <OrderBar way={way} total={total} count={lines.length} busy={place.isPending} onPress={order} />
+          <OrderBar way={way} total={total} count={lines.length} busy={place.status === 'pending'} onPress={order} />
         ) : undefined
       }
     >

@@ -26,7 +26,7 @@ export default function CartsMapScreen() {
   const locale = useLocale();
   const insets = useSafeAreaInsets();
   const here = useGrantedPosition();
-  const carts = useCarts(here.data ?? null);
+  const carts = useCarts(here.isError ? null : (here.data ?? null));
   const all = carts.data ? [...carts.data.open, ...carts.data.closed] : [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -35,10 +35,11 @@ export default function CartsMapScreen() {
   }, [carts.data, selectedId]);
   const chosen = all.find((c) => c.id === selectedId) ?? null;
 
-  if (!CARTS_MAP || failed) {
+  // No map here, the map failed, or the carts could not be read: back to the list.
+  if (!CARTS_MAP || failed || (carts.isError && !carts.data)) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.bg, justifyContent: 'center', paddingTop: insets.top }}>
-        <EmptyState icon="map-pin" title={failed ? t('carts.map_error') : t('carts.map_phone_soon')} action={{ label: t('carts.see_list'), onPress: () => router.replace('/food-carts') }} />
+        <EmptyState icon="map-pin" title={failed || carts.isError ? t('carts.map_error') : t('carts.map_phone_soon')} action={{ label: t('carts.see_list'), onPress: () => router.replace('/food-carts') }} />
       </View>
     );
   }
