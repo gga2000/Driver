@@ -2,7 +2,7 @@ import { router, Stack } from 'expo-router';
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { ActivityIndicator, Image, Pressable, View } from 'react-native';
 import type { MerchantOnboardingView } from '@driver/contracts';
-import { Button, Card, Chip, Icon, StatusPill, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, Card, Icon, StatusPill, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { ChoiceCard } from '@/components/ChoiceCard';
 import { Screen } from '@/components/Screen';
 import { DriverMap } from '@/features/map/DriverMap';
@@ -193,7 +193,8 @@ function LocationStep({ d, patch }: StepProps) {
   const zones = useMemo(() => zoneOptions(locale), [locale]);
   const [locating, setLocating] = useState(false);
   const zone = zones.find((z) => z.id === d.zoneKey);
-  const at = d.pin ?? zone?.centre ?? null;
+  // The kitchen's pin is required (the server reads its zone from it and prices every fee there).
+  const at = d.pin;
   const pins = useMemo(() => (at ? [{ at, kind: 'pickup' as const, label: d.name.trim() || t('partner.ops_ob_s_shop') }] : []), [at, d.name, t]);
 
   const here = async () => {
@@ -216,14 +217,11 @@ function LocationStep({ d, patch }: StepProps) {
       <Text variant="footnote" color={d.pin ? 'successText' : 'textMuted'} tabular>
         {d.pin ? t('partner.ops_ob_pin_gps') : t('partner.ops_ob_pin_zone')}
       </Text>
-      <View style={{ gap: theme.space[2] }}>
-        <Text variant="label">{t('partner.ops_ob_zone')}</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
-          {zones.map((z) => (
-            <Chip key={z.id} testID={`ops-onboard-zone-${z.id}`} role="radio" selected={d.zoneKey === z.id} label={z.name} onPress={() => patch({ zoneKey: z.id, pin: d.zoneKey === z.id ? d.pin : null })} />
-          ))}
-        </View>
-      </View>
+      {zone ? (
+        <Text variant="body" testID="ops-onboard-zone">
+          {t('partner.ops_ob_zone')}: {zone.name}
+        </Text>
+      ) : null}
     </>
   );
 }

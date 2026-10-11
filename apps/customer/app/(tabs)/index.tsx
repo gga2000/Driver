@@ -213,6 +213,9 @@ export default function Home() {
     setRefreshing(false);
   };
 
+  const lateFirst = dp.key === 'late';
+  const hourFood = <HourFood title={t(bandTitleKey(dp, quiet))} food={hour.food} pending={hour.pending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} />;
+
   return (
     <Screen testID="home" scroll={false} padded={false}>
       {/* «الوضع البسيط» on: home hands over to /simple (ride idea v2). */}
@@ -265,8 +268,9 @@ export default function Home() {
         <SeasonCard />
 
         {/* The hour's food (concept C, Ali 2026-10-08): the town's pots and the hour's dishes as one
-            photo gallery that shows itself once, then «أكلات ثانية» in two columns. */}
-        {open.length > 0 ? <HourFood title={t(bandTitleKey(dp, quiet))} food={hour.food} pending={hour.pending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} /> : null}
+            photo gallery that shows itself once, then «أكلات ثانية» in two columns. Late at night
+            («سهرانين؟ هذني فاتحين») it goes under the open kitchens, which come first. */}
+        {open.length > 0 && !lateFirst ? hourFood : null}
 
         {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات». */}
         <View testID="home-food" style={{ gap: theme.space[3] }}>
@@ -294,6 +298,7 @@ export default function Home() {
             </>
           )}
         </View>
+        {open.length > 0 && lateFirst ? hourFood : null}
 
         {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
             now; the phones get it with the native map) and there are kitchens to show on it. */}

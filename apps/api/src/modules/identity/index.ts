@@ -3,6 +3,7 @@ export { IdentityService, shortDisplayName } from './identity.service.js';
 export type { RosterRow, RosterResult } from './identity.service.js';
 export { normalizeIraqiPhone, maskPhone, invitePhoneHint } from './phone.js';
 export { OTP_WHATSAPP_TEMPLATE } from './otp.service.js';
+export { OTP_ALERT_EVENT } from './events.adapter.js';
 export type { SmsProvider } from './sms/provider.js';
 export { ROLE_READER } from './role-reader.js';
 export type { RoleReader } from './role-reader.js';
