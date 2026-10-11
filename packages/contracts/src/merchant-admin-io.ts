@@ -12,7 +12,8 @@ import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInp
 /**
  * `merchantAdmin.*` — the Merchant app's second wave (partner & merchant apps spec): menu, deals,
  * money, insights and staff. Every call names the merchant org; the caller must hold
- * `merchant_owner` or `merchant_staff` scoped to it. Owner-only: money, staff and changing deals
+ * `merchant_owner` or `merchant_staff` scoped to it (except `staffMyInvites` / `staffRespondInvite`,
+ * the invitee's own: he holds no role there yet). Owner-only: money, staff and changing deals
  * ("roles gate money views"). Menu edits go through the catalog module; deals through the
  * promotions module (discounts reach an order only via `PromotionsPort`); money from the ledger.
  */
@@ -570,14 +571,18 @@ export const StaffMember = z.object({
   phoneMasked: z.string().nullable(),
   role: MerchantStaffRole,
   you: z.boolean(),
-  /** Invited but has not signed in yet (the invite is waiting). */
+  /**
+   * Invited, has not accepted yet (PRV-08, Ali 2026-10-10: a person joins a store only by accepting
+   * its invite in the Merchant app). A pending row holds no role at the store: `role` is the one the
+   * invite offers, `name` is null.
+   */
   pending: z.boolean().default(false),
   /**
    * Pending rows only: the invited number as "0770 ••• 4567" (the owner typed it; the name stays
-   * hidden until the invitee signs in). Additive (2026-10-04 follow-up).
+   * hidden: the invitee has not accepted). Additive (2026-10-04 follow-up).
    */
   phoneHint: z.string().nullable().optional(),
-  /** Pending rows only: when the role was given (the invite). */
+  /** Pending rows only: when the invite was made (or made again after a decline, cancel or expiry). */
   invitedAt: z.coerce.date().nullable().optional(),
   /** Pending rows only: when the invite link last went out (the invite, or the latest resend). */
   inviteSentAt: z.coerce.date().nullable().optional(),
@@ -586,8 +591,11 @@ export const StaffMember = z.object({
 });
 export type StaffMember = z.infer<typeof StaffMember>;
 
-/** Re-sending a staff invite (WhatsApp link with the store name): at most once per cooldown. */
-export const STAFF_INVITE_RULES = { resendCooldownMin: 10 } as const;
+/**
+ * Re-sending a staff invite (WhatsApp link with the store name): at most once per cooldown. An invite
+ * the person has not answered within `expiresAfterDays` of being made can no longer be accepted.
+ */
+export const STAFF_INVITE_RULES = { resendCooldownMin: 10, expiresAfterDays: 7 } as const;
 
 export const InviteStaffInput = MerchantScope.extend({
   phone: z.string().min(7).max(20),
@@ -598,8 +606,26 @@ export const SetStaffRoleInput = MerchantScope.extend({
   role: MerchantStaffRole,
 });
 export const RemoveStaffInput = MerchantScope.extend({ personId: z.string().min(1) });
-/** Sends a pending invite again (`staff_invite_not_pending` once he signed in; within the cooldown it is a no-op). */
+/** Sends a pending invite again (`staff_invite_not_pending` once he is a member; within the cooldown it is a no-op). */
 export const ResendStaffInviteInput = MerchantScope.extend({ personId: z.string().min(1) });
+
+/**
+ * PRV-08: an invite waiting for the signed-in person (his own, across stores). The store's name only:
+ * no owner name, no number.
+ */
+export const MyStaffInvite = z.object({
+  merchantOrgId: z.string(),
+  storeName: z.string(),
+  /** The role he gets at the store when he accepts. */
+  role: MerchantStaffRole,
+  invitedAt: z.coerce.date(),
+  /** After this the invite can no longer be accepted (the owner can invite him again). */
+  expiresAt: z.coerce.date(),
+});
+export type MyStaffInvite = z.infer<typeof MyStaffInvite>;
+
+/** The invitee answers: `accept` joins the store with the invite's role; false declines it. */
+export const RespondStaffInviteInput = MerchantScope.extend({ accept: z.boolean() });
 
 export interface MerchantAdminPort {
   myMerchants(actor: Actor): Promise<Array<z.infer<typeof MyMerchant>>>;
@@ -637,6 +663,10 @@ export interface MerchantAdminPort {
     actor: Actor,
     input: z.infer<typeof ResendStaffInviteInput>,
   ): Promise<StaffMember>;
+  /** PRV-08: the caller's own pending, unexpired invites across stores (no merchant role needed). */
+  staffMyInvites(actor: Actor): Promise<MyStaffInvite[]>;
+  /** PRV-08: the invitee accepts (joins the store) or declines; his invites after. */
+  staffRespondInvite(actor: Actor, input: z.infer<typeof RespondStaffInviteInput>): Promise<MyStaffInvite[]>;
   /** Joy h2 «قدر اليوم»: today's pot, last week's and the recent ones (owner and staff). */
   potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView>;
   potSet(actor: Actor, input: z.output<typeof SetPotInput>): Promise<MerchantPotView>;
