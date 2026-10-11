@@ -1941,5 +1941,11 @@
   "merchant.gate.invite_title": "عندك دعوة لمحل",
   "merchant.gate.invite_body": "اقبلها وتفتح طلبات المحل بنفس الرقم. إذا ما تعرف المحل، گول لا شكراً",
   "merchant.invites.strip_many": "عندك {count} دعوات من محلات ثانية",
-  "merchant.invites.see": "شوفها"
+  "merchant.invites.see": "شوفها",
+  "merchant.courier_map.label": "الدليفرية الجايين لمحلك على الخريطة",
+  "merchant.courier_map.coming": "دليفري جايين: {count}",
+  "merchant.courier_map.pin": "{name} · {minutes} دقيقة",
+  "merchant.courier_map.pin_anon": "الدليفري · {minutes} دقيقة",
+  "merchant.courier_map.pin_no_eta": "{name} بالطريق",
+  "merchant.courier_map.shop": "محلك"
 }
