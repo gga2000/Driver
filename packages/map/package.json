@@ -15,6 +15,10 @@
     "./golden": {
       "types": "./dist/golden/index.d.ts",
       "default": "./dist/golden/index.js"
+    },
+    "./pieces": {
+      "types": "./dist/golden/pieces.d.ts",
+      "default": "./dist/golden/pieces.js"
     }
   },
   "scripts": {

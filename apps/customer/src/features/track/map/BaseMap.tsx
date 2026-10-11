@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { runOnJS, useAnimatedReaction, useSharedValue } from 'react-native-reanimated';
-import type { CameraRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
+import type { CameraRef, MapRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
 import * as golden from '@driver/map/golden';
 import { MAP_COLORS_LIGHT } from '@driver/map';
 import { useLiteMode } from '@driver/ui';
@@ -31,14 +31,24 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = nativeGolden() ? 'maplibre' : '
  * map jumps to them; while the person drags or pinches the map leads and writes them instead, so the
  * overlay drawn from the same values stays on the streets.
  */
-function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onFail }: BaseMapProps & { onFail: () => void }) {
+function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onRoads, onFail }: BaseMapProps & { onFail: () => void }) {
   const ml = nativeMapLibre()!;
   const camera = useRef<CameraRef>(null);
+  const map = useRef<MapRef>(null);
   const driving = useRef(false);
   const labels = useSharedValue(1);
   const [light, setLight] = useState(() => golden.resolveLight(alwaysDay ? { light: 'day' } : {}).light);
   const style = useMemo(() => nativeGoldenStyle(golden, light), [light]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
+  const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
+  /** The streets on screen once the map settles, for a screen that asked. */
+  const readRoads = () => {
+    if (!onRoads || !roadLayers.length) return;
+    void map.current
+      ?.queryRenderedFeatures({ layers: roadLayers })
+      .then((fs) => onRoads(golden.roadsFromFeatures(fs)))
+      .catch(() => undefined);
+  };
 
   // The light changes a few times a day; the pin pickers stay on the day map.
   useEffect(() => {
@@ -71,6 +81,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
     cam.zoom.value = v.zoom;
   };
   const settle = (e: { nativeEvent: ViewStateChangeEvent }) => {
+    readRoads();
     if (!driving.current) return;
     driving.current = false;
     labels.value = 1;
@@ -81,6 +92,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
       <ml.Map
+        ref={map}
         style={StyleSheet.absoluteFill}
         mapStyle={style}
         attribution={false}
@@ -91,6 +103,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
         onRegionIsChanging={follow}
         onRegionDidChange={settle}
         onDidFailLoadingMap={onFail}
+        onDidFinishRenderingMapFully={readRoads}
       >
         <ml.Camera ref={camera} initialViewState={{ center: [cam.lng.value, cam.lat.value], zoom: cam.zoom.value }} />
         <ml.Images images={images} />
