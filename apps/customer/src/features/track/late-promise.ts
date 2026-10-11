@@ -1,4 +1,4 @@
-import type { LatePromise, LatePromiseBasis } from '@driver/contracts';
+import type { LatePromise, LatePromiseBasis, SlowStretchReason } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 
 const MIN = 60_000;
@@ -76,3 +76,13 @@ export function promiseCopy(basis: LatePromiseBasis) {
     noteLateCredit: flat ? 'track.note_late_credit_flat' : 'track.note_late_credit',
   } as const satisfies Record<string, MessageKey>;
 }
+
+/**
+ * N6 «ليش متأخر»: the words for the slow stretch's reason, on the map (short, by the stripes) and in
+ * the running-late banner (one line under the new time). `minutes` fills both.
+ */
+export const SLOW_COPY = {
+  traffic: { map: 'track.slow_traffic_map', why: 'track.slow_traffic_why', icon: 'car' },
+  kitchen: { map: 'track.slow_kitchen_map', why: 'track.slow_kitchen_why', icon: 'flame' },
+  closed: { map: 'track.slow_closed_map', why: 'track.slow_closed_why', icon: 'x' },
+} as const satisfies Record<SlowStretchReason, { map: MessageKey; why: MessageKey; icon: string }>;
