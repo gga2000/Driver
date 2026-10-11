@@ -33,6 +33,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { nearestLandmark } from '../../shared/landmarks.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
 import { AuditLogService } from '../controls/index.js';
 import { DispatchService } from '../dispatch/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
@@ -213,14 +214,24 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() @Inject(KHAT_CALLS) private readonly calls: CallBridgePort | null = null,
-    @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null = null,
+    @Optional() @Inject(KHAT_QUEUE) queue: Queue<SweepCheckJob> | null = null,
     @Optional() @Inject(KHAT_CONFIG) private readonly config: KhatConfig = DEFAULT_KHAT_CONFIG,
     // Both always bound by `KhatModule`; optional only so narrow harnesses can leave them out.
     @Optional() private readonly notify?: NotifyService,
     @Optional() private readonly audits?: AuditLogService,
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
-  ) {}
+  ) {
+    this.timers = queue ? new DurableTimers(queue, clock, () => uow.current()) : null;
+  }
+
+  /** FLW-22: the sweep check has a durable copy, so a lost Redis job or a failed run only delays it. */
+  private readonly timers: DurableTimers<SweepCheckJob> | null;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers?.bind(store, sweeper);
+  }
 
   /**
    * The children on runs this driver drives, by childRef: first name and the guardian's photo (signed).
@@ -278,7 +289,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    * that taps or settles a run another way (a stop completed through trips, a redelivered event).
    */
   onModuleInit(): void {
-    this.queue?.process(async (job) => {
+    this.timers?.process(async (job) => {
       if (job.name === SWEEP_CHECK_JOB) await this.checkSweep(job.data.tripId);
     });
     this.offs.push(
@@ -368,13 +379,13 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    * Idempotent (one job id per due time); a no-op without a child on board or once swept.
    */
   async armSweepTimer(tripId: string): Promise<void> {
-    if (!this.queue) return;
+    if (!this.timers) return;
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat') return;
     const base = sweepBase(trip, await this.repo.absencesForTrips([trip.id]));
     if (!base || (await this.emptyCarCheckedAt(trip.id))) return;
     const dueAt = base.at.getTime() + this.config.sweepAlertAfterMin * 60_000;
-    await this.queue.add(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
+    await this.timers.schedule(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
   }
 
   /**

@@ -24,6 +24,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
 import { arrivalCountsForFees } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
@@ -130,15 +131,25 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIP_EVENTS) private readonly events: TripEventEmitter,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
+    @Inject(TRIPS_QUEUE) queue: Queue<TripTimerJob>,
     @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
-  ) {}
+  ) {
+    this.timers = new DurableTimers(queue, clock, () => uow.current());
+  }
+
+  /** FLW-22: the ride auto-complete and the unreachable protocol's timers have a durable copy. */
+  private readonly timers: DurableTimers<TripTimerJob>;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers.bind(store, sweeper);
+  }
 
   /** Dispatch's open-offer check (M2 review follow-up); fail closed until dispatch binds it. */
   private offerCheck: TripOfferCheck = new DenyAllOfferCheck();
 
   onModuleInit(): void {
-    this.queue.process((job) => this.handleTimer(job.name, job.data));
+    this.timers.process((job) => this.handleTimer(job.name, job.data));
   }
 
   /**
@@ -523,7 +534,7 @@ export class TripsService implements OnModuleInit {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
             const atMs = input.at.getTime();
-            await this.queue.add(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
+            await this.timers.schedule(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
           }
         }
       }
@@ -772,8 +783,8 @@ export class TripsService implements OnModuleInit {
         { orderId: stop.orderId ?? undefined, ...input },
       );
       const job = { tripId, stopId, startedAtMs: now.getTime() };
-      await this.queue.add(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
-      await this.queue.add(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
       return this.view(tripId, tx);
     });
   }
@@ -795,7 +806,7 @@ export class TripsService implements OnModuleInit {
       const failAllowedAt = failAt(trip.unreachableStartedAt, now);
       await this.emit(tx, 'trip.unreachable_extended', customerId, tripId, { stopId: atDoor.id, byCustomer: customerId, extraMs: UNREACHABLE_EXTEND_MS, failAllowedAt: failAllowedAt.toISOString() }, { orderId });
       const startedAtMs = trip.unreachableStartedAt.getTime();
-      await this.queue.add(
+      await this.timers.schedule(
         UNREACHABLE_JOBS.allowFail,
         { tripId, stopId: atDoor.id, startedAtMs },
         { delayMs: Math.max(0, failAllowedAt.getTime() - now.getTime()), jobId: unreachableJobId('allowFail', tripId, startedAtMs, true) },
@@ -994,7 +1005,8 @@ export class TripsService implements OnModuleInit {
         await this.emit(tx, 'trip.unreachable_escalated', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId, dispatcherCard: true });
       } else if (name === UNREACHABLE_JOBS.allowFail && canFail(trip.unreachableStartedAt, now, 'driver', trip.unreachableExtendedAt)) {
         // After «أني نازل» the 5:00 job finds it too early and stays quiet; the 7:00 one announces.
-        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId });
+        // Once per protocol run, however often its timer runs (FLW-22: BullMQ and the sweeper may both fire it).
+        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId }, { idempotencyKey: String(data.startedAtMs) });
       }
     });
   }

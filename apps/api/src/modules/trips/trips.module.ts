@@ -1,7 +1,8 @@
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { AuditLogService, ControlsModule } from '../controls/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
@@ -67,9 +68,14 @@ export class TripsModule implements OnModuleInit, OnModuleDestroy {
     @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
     @Inject(TRIPS_REPOSITORY) private readonly repo: TripsRepository,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly trips: TripsService,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() private readonly sweeper: TimerSweeper | null,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // FLW-22: trip timers survive a lost Redis job (the sweeper fires their durable copy).
+    this.trips.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {
