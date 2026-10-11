@@ -31,9 +31,11 @@ import {
   savedOffBills,
   spentBetween,
   statsMonths,
+  tripMap,
   whenGrid,
   type StatsBooking,
   type StatsOrder,
+  type StatsPoint,
   type StatsRide,
 } from './stats.js';
 
@@ -66,6 +68,8 @@ export interface StatsSources {
   rideOf(orderId: string): Promise<StatsRide | null>;
   bookingsOf(personId: string): Promise<StatsBooking[]>;
   placeNames(personId: string): Promise<Map<string, string>>;
+  /** His saved home's pin, if he saved one. */
+  homeOf(personId: string): Promise<StatsPoint | null>;
   walletLines(account: string, events: readonly LedgerEvent[]): WalletLine[];
   restaurantsInCity(cityId: string): Promise<number>;
 }
@@ -73,6 +77,8 @@ export const STATS_SOURCES = Symbol('STATS_SOURCES');
 
 /** The city a person with no orders yet is counted against. */
 const HOME_CITY = 'aziziyah';
+/** «خريطتك» draws at most this many of the period's latest meals (one trip read each). */
+const MAP_MEALS = 200;
 
 /**
  * `wallet.month` (joy w6 «شهرك»): the caller's own month, counted here from real orders, rides,
@@ -134,12 +140,13 @@ export class InsightsService implements InsightsPort {
     const now = this.clock.now();
     const current = baghdadMonth(now);
     const personId = actor.personId;
-    const [all, bookings, money, points, places] = await Promise.all([
+    const [all, bookings, money, points, places, home] = await Promise.all([
       this.stats_.ordersEverBy(personId),
       this.stats_.bookingsOf(personId),
       this.src.eventsFor(this.src.customerAccount(personId)),
       this.src.eventsFor(this.src.pointsAccount(personId)),
       this.stats_.placeNames(personId),
+      this.stats_.homeOf(personId),
     ]);
     const firstOrderAt = all.reduce<Date | null>((min, o) => (min === null || o.placedAt < min ? o.placedAt : min), null);
     const earliest: MonthKey = firstOrderAt ? baghdadMonth(firstOrderAt) : current;
@@ -170,6 +177,11 @@ export class InsightsService implements InsightsPort {
       if (r) rides.set(o.id, r);
     }
     const meals = orders.filter(isMeal);
+    // «خريطتك» needs where each meal came from and went: the latest 200 meals of the period are plenty.
+    for (const o of [...meals].sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime()).slice(0, MAP_MEALS)) {
+      const r = await this.stats_.rideOf(o.id);
+      if (r) rides.set(o.id, r);
+    }
     const fav = favourites(meals);
     const topKitchens = await Promise.all(fav.kitchens.slice(0, 5).map(async (k) => ({ name: await this.src.merchantName(k.merchantOrgId), orders: k.orders })));
     const topDishes: StatsView['food']['topDishes'] = [];
@@ -207,6 +219,7 @@ export class InsightsService implements InsightsPort {
       rajaa: rajaaFacts(bookings, from, to),
       money: { spentIqd: spentBetween(this.stats_.walletLines(customer, money), from, to) },
       points: { earned: pointsEarnedBetween(pointsAccount, points, from, to), used: pts.used, balance: pts.balance },
+      trips: tripMap(home, meals, rideOrders, rides, bookings, from, to),
     };
     const r = view.rajaa;
     const hasActivity = view.food.orders + view.rides.taxi + view.rides.tuktuk + r.baghdad + r.kut > 0 || saved.totalIqd > 0 || view.points.earned > 0 || bookings.some((b) => b.state === 'completed' && b.completedAt !== null && within(b.completedAt));

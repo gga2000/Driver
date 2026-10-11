@@ -10,6 +10,7 @@ import {
   type OrderType,
   type StatsMonth,
   type StatsSaved,
+  type StatsTrips,
   type WalletLine,
 } from '@driver/contracts';
 
@@ -34,6 +35,14 @@ export interface StatsRide {
   acceptedAt: Date | null;
   pickupArrivedAt: Date | null;
   dropoffPlaceId: string | null;
+  /** Where the trip picked up (the kitchen, for a meal) and dropped off this order. */
+  from: StatsPoint | null;
+  to: StatsPoint | null;
+}
+
+export interface StatsPoint {
+  lat: number;
+  lng: number;
 }
 
 /** One الرجعة booking of the person's. */
@@ -44,6 +53,9 @@ export interface StatsBooking {
   frontSeat: boolean;
   lapChildren: number;
   returnDiscountIqd: number;
+  /** The Aziziyah garage the trip left from or came to, and the far city's point (a direction). */
+  garage: StatsPoint | null;
+  farCity: StatsPoint | null;
 }
 
 const MEAL_TYPES: ReadonlySet<OrderType> = new Set(['food', 'grocery_catalog']);
@@ -234,4 +246,47 @@ export function rajaaFacts(bookings: readonly StatsBooking[], from: Date, to: Da
     lapChildren: done.reduce((s, b) => s + b.lapChildren, 0),
     returnTrips: done.filter((b) => b.returnDiscountIqd > 0).length,
   };
+}
+
+/** Points within about 100 m are the same place on «خريطتك». */
+const spot = (p: StatsPoint) => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
+
+/**
+ * «خريطتك»: kitchens with their meal counts (at the pickup of each meal's trip), and trips grouped by
+ * service and by where they started and ended: meals kitchen → door, rides pickup → drop-off, الرجعة
+ * garage → far city. Only trips whose points are known. Pure.
+ */
+export function tripMap(
+  home: StatsPoint | null,
+  meals: readonly StatsOrder[],
+  rideOrders: readonly StatsOrder[],
+  trips: ReadonlyMap<string, StatsRide>,
+  bookings: readonly StatsBooking[],
+  from: Date,
+  to: Date,
+): StatsTrips {
+  const kitchens = new Map<string, { lat: number; lng: number; count: number }>();
+  const traces = new Map<string, StatsTrips['traces'][number]>();
+  const add = (service: StatsTrips['traces'][number]['service'], a: StatsPoint, b: StatsPoint) => {
+    const key = `${service}|${spot(a)}|${spot(b)}`;
+    const t = traces.get(key);
+    if (t) t.count += 1;
+    else traces.set(key, { service, from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng }, count: 1 });
+  };
+  for (const o of meals) {
+    const r = trips.get(o.id);
+    if (!r?.from) continue;
+    const k = kitchens.get(o.merchantOrgId ?? spot(r.from));
+    if (k) k.count += 1;
+    else kitchens.set(o.merchantOrgId ?? spot(r.from), { lat: r.from.lat, lng: r.from.lng, count: 1 });
+    if (r.to) add('food', r.from, r.to);
+  }
+  for (const o of rideOrders) {
+    const r = trips.get(o.id);
+    if (r?.from && r.to) add(r.vertical === 'tuktuk' ? 'tuktuk' : 'taxi', r.from, r.to);
+  }
+  for (const b of bookings) {
+    if (b.state === 'completed' && inRange(b.completedAt, from, to) && b.garage && b.farCity) add('rajaa', b.garage, b.farCity);
+  }
+  return { home, kitchens: [...kitchens.values()], traces: [...traces.values()] };
 }

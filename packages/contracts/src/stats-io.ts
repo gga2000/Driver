@@ -49,6 +49,24 @@ export const StatsSaved = z.object({
 });
 export type StatsSaved = z.infer<typeof StatsSaved>;
 
+const Point = z.object({ lat: z.number(), lng: z.number() });
+
+/** The services a trip on «خريطتك» is drawn in. */
+export const StatsTripService = z.enum(['food', 'taxi', 'tuktuk', 'rajaa']);
+export type StatsTripService = z.infer<typeof StatsTripService>;
+
+/**
+ * «خريطتك»: home, the kitchens he ordered from (with how many meals), and his trips grouped by where they
+ * started and ended (about 100 m): food from the kitchen to his door, rides from pickup to drop-off,
+ * الرجعة from its Aziziyah garage with `to` the far city (a direction only).
+ */
+export const StatsTrips = z.object({
+  home: Point.nullable(),
+  kitchens: z.array(Point.extend({ count: z.number().int().positive() })),
+  traces: z.array(z.object({ service: StatsTripService, from: Point, to: Point, count: z.number().int().positive() })),
+});
+export type StatsTrips = z.infer<typeof StatsTrips>;
+
 const Named = z.object({ name: z.string(), orders: z.number().int().positive() });
 
 /**
@@ -93,6 +111,8 @@ export const StatsView = z.object({
   rajaa: z.object({ baghdad: count, kut: count, frontSeats: count, lapChildren: count, returnTrips: count }),
   money: z.object({ spentIqd: Iqd.nonnegative() }),
   points: z.object({ earned: count, used: count, balance: count }),
+  /** «خريطتك»: his own trips as points only (where each started and ended), grouped; nobody else's. */
+  trips: StatsTrips,
   hasActivity: z.boolean(),
 });
 export type StatsView = z.infer<typeof StatsView>;

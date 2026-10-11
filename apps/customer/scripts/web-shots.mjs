@@ -1013,8 +1013,11 @@ async function statsShots() {
   await byTestId('stats-period-all').click();
   await settle(1800);
   await fullShot('stats-all-full');
+  await byTestId('stats-period-year').click();
   await byTestId('stats-tab-map').click();
-  await settle(600);
+  // The lines draw once (1.2 s), then the pins; the map files load first.
+  await byTestId('stats-map-legend').waitFor({ timeout: 15_000 }).catch(() => errors.push('stats: map legend not shown'));
+  await settle(4500);
   await shot('stats-map');
 }
 

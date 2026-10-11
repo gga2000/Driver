@@ -8,6 +8,7 @@ import { monthLabel, monthSteps } from '@/features/account/month';
 import { useLocale, useT } from '@/lib/i18n';
 import { DetailTab } from './DetailTab';
 import { LedgerTab } from './LedgerTab';
+import { MapTab } from './MapTab';
 import { useStats } from './queries';
 
 type Tab = 'ledger' | 'map' | 'detail';
@@ -73,8 +74,6 @@ export function StatsScreen({ initialMonth }: { initialMonth?: string | undefine
           <Skeleton height={200} />
           <Skeleton height={160} />
         </View>
-      ) : tab === 'map' ? (
-        <EmptyState icon="map-pin" art={<SketchScene name="safe_arrival" />} title={t('stats.map_soon_title')} body={t('stats.map_soon_body')} />
       ) : !v.hasActivity ? (
         <EmptyState
           icon="receipt"
@@ -85,6 +84,8 @@ export function StatsScreen({ initialMonth }: { initialMonth?: string | undefine
         />
       ) : tab === 'ledger' ? (
         <LedgerTab v={v} />
+      ) : tab === 'map' ? (
+        <MapTab v={v} />
       ) : (
         <DetailTab v={v} />
       )}

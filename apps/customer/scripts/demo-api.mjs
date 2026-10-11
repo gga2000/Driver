@@ -658,7 +658,7 @@ async function deliveredOrder(personId, h) {
     paymentMethod: h.householdOrgId ? 'wallet' : 'cash',
     ...(h.householdOrgId ? { householdOrgId: h.householdOrgId } : {}),
     ...(h.familyTable ? { familyTable: true } : {}),
-    dropoff: { zoneKey: 'zakur', pin: HOME },
+    dropoff: { zoneKey: 'zakur', pin: h.pin ?? HOME },
   });
   await accept(placed.id);
   const courierId = await newCourier(r.seed.pin);
@@ -668,7 +668,7 @@ async function deliveredOrder(personId, h) {
   await trips.arrive(tripId, pickup.id, courierId, { pin: r.seed.pin });
   await trips.completeStop(tripId, pickup.id, courierId);
   const drop = await stopOf(tripId, 'dropoff');
-  await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+  await trips.arrive(tripId, drop.id, courierId, { pin: h.pin ?? HOME });
   const order = await orders.get(placed.id);
   await trips.completeStop(tripId, drop.id, courierId, { handover: h.householdOrgId ? {} : { cashCollectedIqd: order.totalIqd } });
   if (h.rate) await orders.rate(personId, { orderId: placed.id, delivery: 5, food: 5 });
@@ -2576,8 +2576,9 @@ const rajaa = await (async () => {
       try {
         const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
         if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/stats?personId=…' });
+        const { home, work } = await homeAndWork(personId);
         for (const [key, lines, daysAgo, hour, doorMin, late] of MEALS) {
-          const id = await deliveredOrder(personId, { key, lines, daysAgo: 0 });
+          const id = await deliveredOrder(personId, { key, lines, daysAgo: 0, pin: home.pin });
           const at = baghdadAt(daysAgo, hour, 10 + (daysAgo % 40));
           backdate(id, at, doorMin);
           const rec = orders.repo?.orders?.get?.(id);
@@ -2587,7 +2588,6 @@ const rajaa = await (async () => {
             rec.promisedReadyAt = new Date(rec.deliveredAt.getTime() - ride * 60_000 + (late ? -12 : 6) * 60_000);
           }
         }
-        const { home, work } = await homeAndWork(personId);
         const free = async (vehicle) => (await ensureDrivers()).find((d) => !d.tripId && d.def.vehicle === vehicle)?.def.name;
         for (const [vehicle, daysAgo, hour, toWork, waitMin] of RIDES) {
           const name = await free(vehicle);
