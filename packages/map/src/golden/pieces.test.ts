@@ -27,6 +27,7 @@ import {
   type Road,
 } from './pieces.js';
 import { roadsFromFeatures as fromGolden } from './index.js';
+import { closedStreetsGeoJSON, closedStreetsLayers } from './closed-streets.js';
 import { metresBetween, offsetMetres } from './metres.js';
 
 const PIN: [number, number] = [45.06, 32.906];
@@ -224,6 +225,41 @@ describe('your trips map (stats «خريطتك»)', () => {
     for (const light of ['golden', 'day'] as const) {
       expect(valid(myTripsLayers({ source: 't', light }), ['t'])).toEqual([]);
       noBlue(myTripsLayers({ source: 't', light }));
+    }
+  });
+});
+
+describe('closed streets (N20)', () => {
+  const a = offsetMetres(PIN, 0, 0), b = offsetMetres(PIN, 120, 0), c = offsetMetres(PIN, 160, 0);
+  const street = { id: 'cs1', path: [a, b, c].map(([lng, lat]) => ({ lat, lng })), reason: 'water', nameAr: null };
+  const fc = closedStreetsGeoJSON([street, { id: 'short', path: [{ lat: 32.9, lng: 45 }] }], () => 'مسدود اليوم · تصليح ماي');
+
+  it('draws the stretch, a barrier and a dot at each end, and one label mid-stretch', () => {
+    const parts = fc.features.map((f) => f.properties.part);
+    expect(parts.filter((p) => p === 'closed')).toHaveLength(1);
+    expect(parts.filter((p) => p === 'bar')).toHaveLength(2);
+    expect(parts.filter((p) => p === 'end')).toHaveLength(2);
+    const label = fc.features.find((f) => f.properties.part === 'label')!;
+    expect(label.properties.label).toBe('مسدود اليوم · تصليح ماي');
+    expect(metresBetween(label.geometry.coordinates as [number, number], a)).toBeCloseTo(80, 0);
+  });
+
+  it('puts each barrier square across the street, 12 m wide', () => {
+    const bar = fc.features.find((f) => f.properties.part === 'bar')!.geometry.coordinates as [number, number][];
+    expect(metresBetween(bar[0]!, bar[1]!)).toBeCloseTo(12, 0);
+    // the street runs east–west here, so the barrier runs north–south through the end
+    expect(Math.abs(bar[0]![0] - bar[1]![0])).toBeLessThan(1e-6);
+  });
+
+  it('leaves out a street with fewer than two points', () => {
+    expect(fc.features.some((f) => f.properties.id === 'short')).toBe(false);
+  });
+
+  it('has valid layers in every light, with no blue', () => {
+    for (const light of ['day', 'golden', 'night'] as const) {
+      const layers = closedStreetsLayers({ source: 'cs', light });
+      expect(valid(layers, ['cs'])).toEqual([]);
+      noBlue(layers);
     }
   });
 });
