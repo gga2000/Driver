@@ -204,7 +204,7 @@ export class TrackingService implements TrackingPort {
     /** Customers' delivery scores for the card's public rating (joy l2); without it the card has none. */
     @Optional() @Inject(TRACKING_RATINGS) private readonly ratings: TrackingRatingsPort | null = null,
     /** N20: today's closed streets (routing's book), to name the ones a route goes around. */
-    @Optional() private readonly closures: RouteClosures | null = null,
+    @Optional() @Inject(RouteClosures) private readonly closures: RouteClosures | null = null,
   ) {}
 
   private readonly logger = new Logger(TrackingService.name);

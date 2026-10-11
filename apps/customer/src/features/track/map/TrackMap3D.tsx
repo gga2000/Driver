@@ -3,13 +3,14 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps, MapRef } from '@maplibre/maplibre-react-native';
 import type { CourierPosition, OrderTracking } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
+import { closedStreetsGeoJSON, closedStreetsLayers } from '@driver/map/pieces/closed-streets';
 import { slowStretchLayers } from '@driver/map/pieces/moments';
 import { Avatar, Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { distanceM, type LngLat } from '../geo';
 import { SLOW_COPY } from '../late-promise';
-import { litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
+import { closuresOnMap, litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
 import { glidePos } from '../motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
@@ -23,7 +24,7 @@ import { useRoadGlide } from './useRoadGlide';
 type Pt = [number, number];
 type Light = ReturnType<typeof golden.resolveLight>['light'];
 
-const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', slow: 'track-slow' } as const;
+const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', slow: 'track-slow', closed: 'track-closed' } as const;
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The courier marker and the route move this often on phones (the bridge is the cost, not the drawing). */
 const COURIER_MS = 120;
@@ -193,6 +194,11 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     [moment, slow?.fromM, slow?.toM, here?.d, roadQuery.data?.polyline6, roadQuery.data?.from],
   );
   const slowLayers = useMemo(() => slowStretchLayers({ source: SRC.slow, light, id: 'track-slow' }), [light]);
+  // N20 «شارع مسدود»: the closed streets his route was bent around, striped with a barrier at each end.
+  const closures = roadQuery.data?.closures;
+  const closedLabel = t('track.slow_closed_map');
+  const closed = useMemo(() => closedStreetsGeoJSON(closuresOnMap(moment, closures), () => closedLabel) as GeoJSON.FeatureCollection, [moment, closures, closedLabel]);
+  const closedLayers = useMemo(() => closedStreetsLayers({ source: SRC.closed, light, id: 'track-closed' }), [light]);
 
   const recentre = () => {
     setFollow(true);
@@ -254,6 +260,11 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         </ml.GeoJSONSource>
         <ml.GeoJSONSource id={SRC.slow} data={slowShape?.line ?? EMPTY}>
           {slowLayers.map((l) => (
+            <ml.Layer key={l.id} {...({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL } as unknown as LayerProps)} />
+          ))}
+        </ml.GeoJSONSource>
+        <ml.GeoJSONSource id={SRC.closed} data={closed}>
+          {closedLayers.map((l) => (
             <ml.Layer key={l.id} {...({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL } as unknown as LayerProps)} />
           ))}
         </ml.GeoJSONSource>
