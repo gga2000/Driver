@@ -658,7 +658,10 @@ const ACTION_KEY: Record<CannedResponse['action'], MessageKey | null> = {
   resolve: 'console.sup_canned_action_resolve',
 };
 
-/** "/" picker: searchable, the suggested answer first (K-12), arrows + Enter, Escape closes. */
+/**
+ * "/" picker: searchable, the suggested answer first (K-12), arrows + Enter, Escape closes. With
+ * the search empty, 1–9 pick the reply on that line at once (s4); picking only fills the draft.
+ */
 function CannedPicker({
   canned,
   suggestedKey,
@@ -710,6 +713,12 @@ function CannedPicker({
               e.preventDefault();
               e.stopPropagation();
               onClose();
+            } else if (!q && /^[1-9]$/.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+              const c = list[Number(e.key) - 1];
+              if (c) {
+                e.preventDefault();
+                onPick(c);
+              }
             }
           }}
           className="h-9 w-full rounded-md bg-surface-2 px-3 text-sm placeholder:text-faint focus-visible:outline-none"
@@ -748,6 +757,11 @@ function CannedPicker({
                 />
               ) : null}
               <div className="flex items-center gap-2">
+                {!q && i < 9 ? (
+                  <Kbd className="shrink-0">
+                    {i + 1}
+                  </Kbd>
+                ) : null}
                 <span className="text-sm font-semibold">{c.title_ar}</span>
                 {c.key === suggestedKey ? (
                   <Chip tone="ready" size="sm">

@@ -1,7 +1,7 @@
 # Build wasit.pmtiles (+ labels.json) from Overture GeoJSON extracts.
 # usage: python3 build.py  (reads data/*.json from fetch.py; writes out/wasit.pmtiles and out/labels.json)
 import json, gzip, math, hashlib, os, sys, time
-import numpy as np, shapely, shapely.geometry as sg
+import numpy as np, shapely, shapely.affinity, shapely.geometry as sg
 from shapely.ops import substring, linemerge
 from shapely.strtree import STRtree
 import mapbox_vector_tile as mvt
@@ -107,28 +107,123 @@ for f in L(TOWN, 'land_use'):
     s = f['properties']['subtype']; g = sg.shape(f['geometry'])
     if s == 'residential': add('landuse', g, {'kind': 'urban'}, poly_zoom(g, 10))
     elif s in ('agriculture', 'horticulture'): add('landuse', g, {'kind': 'farm2'}, poly_zoom(g, 10))
-    elif s == 'park': add('palms', g, {}, poly_zoom(g, 11))
+    elif s == 'park': add('landuse', g, {'kind': 'green'}, poly_zoom(g, 12))
+    elif s == 'education': add('landuse', g, {'kind': 'school'}, poly_zoom(g, 12))
+    elif s == 'recreation': add('landuse', g, {'kind': 'green'}, poly_zoom(g, 12))
 
 # buildings (no heights in Overture here: 1-3 storeys from footprint + stable hash, as convert.py) ----
 lat0 = 32.9; mx = 111320 * math.cos(math.radians(lat0)); my = 110540
 pois = L(TOWN, 'place')
 mosq = [sg.shape(f['geometry']) for f in pois if 'worship' in (f['properties'].get('basic_category') or '')
         or any(k in (nm(f['properties']) or '') for k in ('جامع', 'مسجد', 'حسينية'))]
-nb = 0
+# bridges in 3D: the deck raised on piers with a rail each side, for the river crossings (long bridges only, so
+# a culvert over a canal stays a flat road). Drawn by the style only where the town stands up in 3D.
+seen = []
+for ly, g, p, *_ in list(F):
+    if ly != 'roads' or p.get('cls') != 'bridge': continue
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+    if gm.length < 80: continue
+    c = gm.interpolate(0.5, normalized=True)
+    if any(c.distance(o) < 20 for o in seen): continue
+    seen.append(c)
+    back = lambda q: shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0))
+    add('buildings', back(gm.buffer(6.5, cap_style='flat')), {'hm': 7.8, 'base': 6.6, 'kind': 'deck'}, 15)
+    for side in ('left', 'right'):
+        add('buildings', back(gm.parallel_offset(6.2, side).buffer(0.25, cap_style='flat')), {'hm': 8.7, 'base': 7.8, 'kind': 'rail'}, 15)
+    for i in range(1, int(gm.length // 28)):
+        add('buildings', back(gm.interpolate(i * 28).buffer(2.2, quad_segs=3)), {'hm': 6.6, 'base': 0, 'kind': 'pier'}, 15)
+print('bridge decks', len(seen), file=sys.stderr)
+
+# what a building is for, so heights follow use: school yards, clinics/hospitals, shop rows on main streets
+schools = [sg.shape(f['geometry']) for f in L(TOWN, 'land_use') if f['properties'].get('subtype') == 'education']
+civic = [sg.shape(f['geometry']) for f in pois if (f['properties'].get('basic_category') or '') in
+         ('hospital', 'health_care', 'specialized_medical_facility', 'college_university', 'place_of_learning', 'education')]
+mains = [g for (ly, g, p, *_ ) in F if ly == 'roads' and p.get('cls') in ('major', 'mid')]
+main_tree = STRtree(mains); school_tree = STRtree(schools) if schools else None; civic_tree = STRtree(civic) if civic else None
+def near(tree, g, m):
+    return tree is not None and len(tree.query(g, predicate='dwithin', distance=m / mx)) > 0
+def box(c, hx, hy):   # metres → a small lon/lat box around point c
+    return sg.box(c[0] - hx / mx, c[1] - hy / my, c[0] + hx / mx, c[1] + hy / my)
+# landmarks in 3D (landmarks.py): the main mosque, the hospital and the garages, each on its own lot; the houses
+# Overture has on those lots give way to them
+from landmarks import landmark_parts
+lm_parts, lm_lots = landmark_parts(mx, my)
+for gm_, p_ in lm_parts:
+    add('landmarks', shapely.affinity.scale(gm_, 1 / mx, 1 / my, origin=(0, 0)), p_, 14)
+lot_tree = STRtree([shapely.affinity.scale(l, 1 / mx, 1 / my, origin=(0, 0)).buffer(2 / mx) for l in lm_lots])
+print('landmark parts', len(lm_parts), file=sys.stderr)
+nb = nr = 0
 for f in L(TOWN, 'building'):
     g = sg.shape(f['geometry'])
     if g.geom_type != 'Polygon': continue
+    if len(lot_tree.query(g, predicate='intersects')): continue
     area = g.area * mx * my; h = H(f['properties']['id'])
     if area < 12: continue
     fl = 1 if area < 70 else ((2 if h % 10 < 6 else 1) if area < 350 else (2 if h % 10 < 7 else 3))
+    use = 'home'
+    if area > 150 and near(school_tree, g, 0): use, fl = 'school', 2            # schools: two tall storeys
+    elif area > 250 and near(civic_tree, g, 15): use, fl = 'civic', 3           # hospitals, clinics, colleges
+    elif area < 160 and near(main_tree, g, 7): use, fl = 'shop', 1               # shop rows face the main streets
     hm = [0, 3.6, 6.8, 10][fl]; kind = 'house'
-    if area > 120 and any(m.distance(g) * mx < 4 for m in mosq): kind = 'mosque'; hm = 7.5
-    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind}, 14); nb += 1
-    # a water tank on about a third of the roofs, 0.8-1.6 m across, so roofs read as Iraqi without looking busy
-    if kind == 'house' and 40 < area < 600 and h % 20 < 7:
-        c = g.representative_point(); s = 0.4 + ((h >> 8) % 5) * 0.1
-        t = sg.box(c.x - s / mx, c.y - s / my, c.x + s / mx, c.y + s / my)
-        if g.contains(t): add('buildings', t, {'hm': hm + 1.5, 'base': hm, 'kind': 'tankW' if h % 2 else 'tankB'}, 15)
+    if area > 120 and any(m.distance(g) * mx < 4 for m in mosq): kind = 'mosque'; hm = 7.5; use = 'mosque'
+    # tone: one of six real roof finishes (plaster, yellow brick, cream…), stable per building
+    lit = 1 if kind == 'house' and use == 'home' and (h >> 14) % 10 < 3 else None   # about 3 homes in 10 have lights on at night
+    add('buildings', g, {'hm': hm, 'base': 0, 'kind': kind, 'use': use, 'tone': h % 6, 'lit': lit}, 14); nb += 1
+    if lit: add('lights', g.representative_point(), {}, 15)
+    if kind != 'house' or use in ('school', 'civic'): continue
+    # rooftop life, only when the town is close (z15+ tiles): a water tank on about a third of the roofs, the stair hut
+    # (بيت الدرج) on most houses (every roof is used: sleeping in summer, washing, the tank), and a satellite dish on some
+    c = g.representative_point(); cx, cy = c.x, c.y
+    if 40 < area < 600 and h % 20 < 7:
+        s = 0.4 + ((h >> 8) % 5) * 0.1
+        t = box((cx, cy), s, s)
+        if g.contains(t): add('buildings', t, {'hm': hm + 1.5, 'base': hm, 'kind': 'tankW' if h % 2 else 'tankB'}, 15); nr += 1
+    if 60 < area < 500 and (h >> 4) % 10 < (8 if fl >= 2 else 6):
+        # work in metres: a 2.6 m square turned to the house's own walls, centred on a corner of the roof pulled
+        # 2.5 m inwards, so it always sits inside the parapet whatever way the street runs
+        gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+        inner = gm.buffer(-2.5, join_style='mitre')
+        if not inner.is_empty and inner.geom_type == 'Polygon':
+            rr = list(gm.minimum_rotated_rectangle.exterior.coords)
+            ang = math.degrees(math.atan2(rr[1][1] - rr[0][1], rr[1][0] - rr[0][0]))
+            pts = list(inner.exterior.coords)[:-1]; vx, vy = pts[(h >> 6) % len(pts)]
+            t = shapely.affinity.rotate(sg.box(vx - 1.3, vy - 1.3, vx + 1.3, vy + 1.3), ang, origin=(vx, vy))
+            if gm.contains(t): add('buildings', shapely.affinity.scale(t, 1 / mx, 1 / my, origin=(0, 0)), {'hm': hm + 2.4, 'base': hm, 'kind': 'hut'}, 15); nr += 1
+    if fl >= 1 and 50 < area < 600 and (h >> 10) % 10 < 3:
+        t = box((cx + 2.2 / mx * ((h >> 12) % 3 - 1), cy + 2.2 / my), 0.35, 0.35)
+        if g.contains(t): add('buildings', t, {'hm': hm + 0.9, 'base': hm, 'kind': 'dish'}, 15); nr += 1
+print('buildings', nb, 'roof pieces', nr, file=sys.stderr)
+
+# lantern strings (Ali, 2026-10-11: the Ramadan streets, kept all year): strings of fanous lanterns hang across the main
+# streets in the town centre, every ~26 m, sagging between the shop fronts. Each lantern is a small box in the air (base/hm)
+# with a colour index `c` (0 saffron, 1 gold, 2 coral) the style colours by light: painted glass by day, lit at night. A
+# `glow` point under each string lets the night style pool warm light on the street. Only close up (z16 tiles).
+LANTERN_CORE_M, LANTERN_EVERY_M, LANTERN_GAP_M = 1700, 26, 2.2
+LANTERN_HALF = {'major': 9.0, 'mid': 6.5}
+lan_mids = []; nlan = 0
+cxm, cym = CENTER[0] * mx, CENTER[1] * my
+for ly, g, p, z0, z1 in list(F):
+    if ly != 'roads' or p.get('cls') not in LANTERN_HALF or z0 < 12: continue
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
+    if gm.geom_type != 'LineString' or gm.length < 40: continue
+    half = LANTERN_HALF[p['cls']]
+    d = 14.0
+    while d < gm.length - 14:
+        c = gm.interpolate(d); a = gm.interpolate(d - 2); b = gm.interpolate(d + 2); d += LANTERN_EVERY_M
+        if math.hypot(c.x - cxm, c.y - cym) > LANTERN_CORE_M: continue
+        if any(abs(c.x - o[0]) < 16 and abs(c.y - o[1]) < 16 for o in lan_mids): continue   # dual carriageways, crossings
+        lan_mids.append((c.x, c.y))
+        ux, uy = b.x - a.x, b.y - a.y; L_ = math.hypot(ux, uy) or 1; nx, ny = -uy / L_, ux / L_   # across the street
+        n = int(2 * half // LANTERN_GAP_M)
+        k = len(lan_mids)
+        for i in range(n + 1):
+            t = i / n; off = -half + 2 * half * t
+            z = 6.4 - 1.5 * (1 - (2 * t - 1) ** 2)                                              # the string sags in the middle
+            q = sg.box(c.x + nx * off - 0.45, c.y + ny * off - 0.45, c.x + nx * off + 0.45, c.y + ny * off + 0.45)
+            add('lanterns', shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0)), {'kind': 'lamp', 'c': (i + k) % 3, 'base': round(z - 0.9, 2), 'hm': round(z, 2)}, 16)
+            nlan += 1
+        add('lanterns', sg.Point(c.x / mx, c.y / my), {'kind': 'glow'}, 16)
+print('lantern strings', len(lan_mids), 'lanterns', nlan, file=sys.stderr)
 
 # places (POIs) -----------------------------------------------------------------------
 for f in pois:
@@ -160,7 +255,7 @@ def merc(xy):
     y = (1 - np.log(np.tan(lat) + 1 / np.cos(lat)) / math.pi) / 2
     return np.column_stack([x, y])
 geoms_m = shapely.transform(np.array([f[1] for f in F], dtype=object), merc)
-LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'places', 'localities']
+LAYERS = ['landuse', 'palms', 'water', 'roads', 'buildings', 'landmarks', 'lights', 'lanterns', 'places', 'localities']
 LAYER_TYPES = {}
 lon2x = lambda lon: (lon + 180) / 360
 lat2y = lambda lat: (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2
@@ -175,7 +270,7 @@ for z in range(MINZ, MAXZ + 1):
     for g, i in zip(gs, idx):
         lay = F[i][0]
         if g.geom_type in ('Point', 'MultiPoint'): simp.append(g); continue
-        s = shapely.simplify(g, tol, preserve_topology=(lay == 'buildings'))
+        s = shapely.simplify(g, tol, preserve_topology=(lay in ('buildings', 'landmarks', 'lanterns')))
         if lay in ('landuse', 'palms', 'water') and s.geom_type in ('Polygon', 'MultiPolygon') and s.area < 64: s = None
         simp.append(s)
     keep = [j for j, s in enumerate(simp) if s is not None and not s.is_empty]

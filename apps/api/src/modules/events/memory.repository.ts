@@ -182,6 +182,22 @@ export class InMemoryEventsRepository implements EventsRepository {
     );
   }
 
+  async firstOccurredAt(actorId: string): Promise<Date | null> {
+    let first: Date | null = null;
+    for (const e of this.byActor.get(actorId) ?? []) if (!first || e.occurredAt < first) first = e.occurredAt;
+    return first;
+  }
+
+  async countUpTo(actorId: string, types: readonly string[], cap: number): Promise<number> {
+    const wanted = new Set(types);
+    let n = 0;
+    for (const e of this.byActor.get(actorId) ?? []) {
+      if (n >= cap) break;
+      if (wanted.has(e.type)) n += 1;
+    }
+    return n;
+  }
+
   /** The committed events of several orders, in recording order. */
   private byOrders(orderIds: ReadonlySet<string>): StoredEvent[] {
     const out: StoredEvent[] = [];
@@ -193,6 +209,12 @@ export class InMemoryEventsRepository implements EventsRepository {
 
   async outboxStats(): Promise<OutboxStats> {
     return { ...this.stats };
+  }
+
+  async oldestDueAt(now: Date): Promise<Date | null> {
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (r.nextAttemptAt <= now && (!oldest || r.nextAttemptAt < oldest)) oldest = r.nextAttemptAt;
+    return oldest;
   }
 
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {

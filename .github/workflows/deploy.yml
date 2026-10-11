@@ -197,7 +197,14 @@ jobs:
           flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
             --app "${{ vars.FLY_CONSOLE_APP }}" --remote-only \
             --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}" \
-            --build-arg NEXT_PUBLIC_SENTRY_DSN="${{ vars.SENTRY_DSN_CONSOLE || vars.SENTRY_DSN }}"
+            --build-arg NEXT_PUBLIC_SENTRY_DSN="${{ vars.SENTRY_DSN_CONSOLE || vars.SENTRY_DSN }}" \
+            --build-arg NEXT_PUBLIC_MAP_TILES_URL="$MAP_TILES_URL" \
+            --build-arg NEXT_PUBLIC_MAP_GLYPHS_URL="$MAP_GLYPHS_URL"
+        # The Golden hour map published by the Map tiles workflow on this environment's Supabase project
+        # (docs/deploy/map.md). No DATABASE_REF → empty → the original map.
+        env:
+          MAP_TILES_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/wasit.pmtiles', vars.DATABASE_REF) || '' }}
+          MAP_GLYPHS_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/fonts/{{fontstack}}/{{range}}.pbf', vars.DATABASE_REF) || '' }}
 
   web:
     name: deploy web (${{ matrix.app }})

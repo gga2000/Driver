@@ -35,7 +35,7 @@ function setup() {
     ev.uow,
     o.clock,
     { carriesOrderOf: courierCarriesOrderOf(o.orders, o.trips) },
-    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي', phoneMasked: '0770 ••• 0009' }])) },
+    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي', phoneMasked: '0770 ••• 0009' }])), isStaff: async () => false },
   );
   return { o, lh, svc };
 }

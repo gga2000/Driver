@@ -6,6 +6,7 @@ import {
   type BoardGroup,
   type BoardLine,
   type BoardOrder,
+  type DishKind,
   type LatLng,
   type MissedOrder,
   type MissedReason,
@@ -67,9 +68,10 @@ function modifiersValue(modifiers: readonly unknown[]): number {
  * "صاحب الطلب"), then each tagged person in the order the customer added them. People with nothing
  * left on the order (every line removed by a partial accept) are dropped.
  */
-export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNames: ReadonlyMap<string, string>): BoardGroup[] {
+export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNames: ReadonlyMap<string, string>, itemKinds?: ReadonlyMap<string, DishKind>): BoardGroup[] {
   const toLine = (l: Order['lines'][number]): BoardLine => {
     const unit = l.unitPriceIqd + modifiersValue(l.modifiers);
+    const kind = l.catalogItemId ? itemKinds?.get(l.catalogItemId) : undefined;
     return {
       lineId: l.id,
       name: (l.catalogItemId ? itemNames.get(l.catalogItemId) : null) ?? l.freeText ?? '—',
@@ -80,6 +82,8 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
       totalIqd: unit * l.qty,
       availability: l.availability,
       menuItemId: l.catalogItemId ?? null,
+      // k4/j6: the owner's own ticket kind for the dish; without one the app guesses from the name.
+      ...(kind ? { kind } : {}),
     };
   };
   const count = (lines: BoardLine[]) => lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);
@@ -145,18 +149,25 @@ export function courierView(orderId: string, f: CourierFacts): BoardCourier {
 export interface BoardOrderFacts {
   order: Order;
   itemNames: ReadonlyMap<string, string>;
+  /** k4/j6: the owner's ticket kinds by dish id (only dishes he set). */
+  itemKinds?: ReadonlyMap<string, DishKind>;
   courier: BoardCourier;
   acceptWindowSec: number;
   now: Date;
+  /** Whether the store was closed at a given moment (out of hours, or closed by hand since then). */
+  closedAt?: (at: Date) => boolean;
 }
 
 /** One card on the board, or null when the order is not the kitchen's business any more. */
-export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, now }: BoardOrderFacts): BoardOrder | null {
+export function toBoardOrder({ order: o, itemNames, itemKinds, courier, acceptWindowSec, now, closedAt }: BoardOrderFacts): BoardOrder | null {
   const column = boardColumn(o.state);
   if (!column) return null;
   // Joy w4: a household order waiting for the payer's yes is not the kitchen's business yet.
   if (o.heldForPayer && o.state === 'placed') return null;
-  const groups = groupLines(o, itemNames);
+  // A pre-order is not the kitchen's business until it is offered (T − prep − lead): it cannot be
+  // accepted before then, and the offer re-sends it to the board with its 90-s countdown.
+  if (o.state === 'placed' && !o.merchantOfferedAt) return null;
+  const groups = groupLines(o, itemNames, itemKinds);
   const itemCount = groups.reduce((a, g) => a + g.itemCount, 0);
   const acceptBy = column === 'new' && o.merchantOfferedAt ? new Date(o.merchantOfferedAt.getTime() + acceptWindowSec * 1000) : null;
   const prepMinutes = o.acceptedAt && o.promisedReadyAt ? Math.max(1, Math.round((o.promisedReadyAt.getTime() - o.acceptedAt.getTime()) / 60_000)) : null;
@@ -169,6 +180,7 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     placedAt: o.placedAt,
     offeredAt: o.merchantOfferedAt,
     acceptBy,
+    offeredWhileClosed: acceptBy !== null && o.merchantOfferedAt !== null && closedAt !== undefined && closedAt(o.merchantOfferedAt),
     acceptedAt: o.acceptedAt,
     promisedReadyAt: o.promisedReadyAt,
     readyAt: o.readyAt,

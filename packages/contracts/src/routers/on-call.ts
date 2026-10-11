@@ -4,6 +4,10 @@ import {
   AlertLadderInput,
   ConsolePresentInput,
   ConsoleWatch,
+  HandoverAckInput,
+  HandoverInput,
+  HandoverNote,
+  HandoverWriteInput,
   ON_CALL_EDIT_ROLES,
   ON_CALL_READ_ROLES,
   OnCallAddInput,
@@ -50,4 +54,17 @@ export const onCallRouter = router({
     .input(ConsolePresentInput)
     .output(ConsoleWatch)
     .mutation(({ ctx, input }) => ctx.onCall.present(ctx.actor, input)),
+  /** The shift handover note on Today (h5): every staff desk reads, writes and acknowledges it. */
+  handover: protectedProcedure(ON_CALL_READ_ROLES)
+    .input(HandoverInput)
+    .output(HandoverNote.nullable())
+    .query(({ ctx, input }) => ctx.onCall.handover(ctx.actor, input)),
+  handoverWrite: protectedProcedure(ON_CALL_READ_ROLES)
+    .input(HandoverWriteInput)
+    .output(HandoverNote)
+    .mutation(({ ctx, input }) => ctx.onCall.handoverWrite(ctx.actor, input)),
+  handoverAck: protectedProcedure(ON_CALL_READ_ROLES)
+    .input(HandoverAckInput)
+    .output(HandoverNote)
+    .mutation(({ ctx, input }) => ctx.onCall.handoverAck(ctx.actor, input)),
 });

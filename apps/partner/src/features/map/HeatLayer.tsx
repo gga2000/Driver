@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import type { DemandLevel } from '@driver/contracts';
 import { buildPlacedZonesGeoJSON, buildZonesGeoJSON } from '@driver/map';
@@ -13,15 +13,17 @@ const ZONES = buildZonesGeoJSON();
 const FILL: Record<DemandLevel, number> = { hot: 0.36, warm: 0.16, calm: 0 };
 
 /**
- * Where the orders are (maps program d5): busy zones filled in the accent — strong where there is more
- * work than drivers, light where there is some — drawn for the settled camera and carried to the live
- * one with a single transform, like the zone layer under it.
+ * Where the orders are (maps program d5, N17): busy zones filled in the accent — strong for the one
+ * picked for him, light where there is some — drawn for the settled camera and carried to the live
+ * one with a single transform, like the zone layer under it. A new picture cross-fades in (`at`); no
+ * pulse, and reduce motion swaps it at once.
  */
-export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones }: { drawn: Camera; cam: CameraValues; size: Size; zones: ReadonlyArray<{ zoneId: string; level: DemandLevel }> }) {
+export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones, at = 0 }: { drawn: Camera; cam: CameraValues; size: Size; zones: ReadonlyArray<{ zoneId: string; level: DemandLevel; forYou?: boolean }>; at?: number }) {
   const theme = useTheme();
   const liveZones = useZoneMap();
   const geometry = useMemo(() => liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES, [liveZones.data]);
   const level = useMemo(() => new Map(zones.map((z) => [z.zoneId, z.level])), [zones]);
+  const mine = zones.find((z) => z.forYou)?.zoneId ?? null;
   const shapes = useMemo(
     () =>
       geometry.features
@@ -40,11 +42,22 @@ export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones }: { 
   if (size.w === 0 || shapes.length === 0) return null;
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]} testID="heat-layer">
-      <Svg width={size.w} height={size.h}>
-        {shapes.map((z) => (
-          <Path key={z.id} testID={`heat-${z.id}`} d={z.d} fill={theme.colors.accent} fillOpacity={FILL[z.level]} stroke={theme.colors.accent} strokeOpacity={z.level === 'hot' ? 0.9 : 0.5} strokeWidth={z.level === 'hot' ? 2 : 1.2} />
-        ))}
-      </Svg>
+      <Animated.View key={at} style={StyleSheet.absoluteFill} entering={theme.reduceMotion ? undefined : FadeIn.duration(900)} exiting={theme.reduceMotion ? undefined : FadeOut.duration(900)}>
+        <Svg width={size.w} height={size.h}>
+          {shapes.map((z) => (
+            <Path
+              key={z.id}
+              testID={z.id === mine ? `heat-${z.id}-mine` : `heat-${z.id}`}
+              d={z.d}
+              fill={theme.colors.accent}
+              fillOpacity={FILL[z.level]}
+              stroke={theme.colors.accent}
+              strokeOpacity={z.level === 'hot' ? 0.9 : 0.5}
+              strokeWidth={z.id === mine ? 3 : z.level === 'hot' ? 2 : 1.2}
+            />
+          ))}
+        </Svg>
+      </Animated.View>
     </Animated.View>
   );
 });

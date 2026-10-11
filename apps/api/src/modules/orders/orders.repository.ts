@@ -268,6 +268,8 @@ export interface OrderSearchFilter {
   paymentMethod?: PaymentMethod | undefined;
   /** The customer's drop-off zone (`dropoff.zoneKey`). */
   zoneKey?: string | undefined;
+  /** Only these orderers (Console phone/name search); empty matches nothing. */
+  ordererIds?: readonly string[] | undefined;
   /** Case-insensitive substring of the order, orderer or merchant id, or the note. */
   text?: string | undefined;
   from?: Date | undefined;
@@ -419,14 +421,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
       if (order.clientRequestId && isUniqueViolation(err)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId, err);
       throw err;
     }
+    // SCALE-24: participants and lines go in one statement each. `find` reads them back by `created_at`,
+    // so each row gets the order's time plus its position in ms: the order they were given in is kept.
+    const base = row.createdAt.getTime();
     const byRef = new Map<string, string>();
-    for (const p of participants) {
-      const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
-      byRef.set(p.ref, created.id);
+    if (participants.length > 0) {
+      const created = await db.participant.createManyAndReturn({
+        data: participants.map((p, i) => ({ orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note, createdAt: new Date(base + i) })),
+        select: { id: true, createdAt: true },
+      });
+      const ids = [...created].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((c) => c.id);
+      participants.forEach((p, i) => byRef.set(p.ref, ids[i]!));
     }
-    for (const l of lines) {
-      await db.orderLine.create({
-        data: {
+    if (lines.length > 0) {
+      await db.orderLine.createMany({
+        data: lines.map((l, i) => ({
           orderId: row.id,
           catalogItemId: l.catalogItemId,
           freeText: l.freeText,
@@ -436,7 +445,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
-        },
+          createdAt: new Date(base + i),
+        })),
       });
     }
     return (await this.find(row.id, tx))!;
@@ -593,6 +603,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
     if (f.merchantOrgId) and.push({ merchantOrgId: f.merchantOrgId });
     if (f.paymentMethod) and.push({ paymentMethod: f.paymentMethod });
     if (f.zoneKey) and.push({ dropoff: { path: ['zoneKey'], equals: f.zoneKey } });
+    if (f.ordererIds) and.push({ ordererId: { in: [...f.ordererIds] } });
     if (f.from || f.to) and.push({ placedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } });
     if (f.text) {
       const contains = { contains: f.text, mode: 'insensitive' as const };
@@ -812,6 +823,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .filter((o) => !f.merchantOrgId || o.merchantOrgId === f.merchantOrgId)
       .filter((o) => !f.paymentMethod || o.paymentMethod === f.paymentMethod)
       .filter((o) => !f.zoneKey || o.dropoff?.zoneKey === f.zoneKey)
+      .filter((o) => !f.ordererIds || f.ordererIds.includes(o.ordererId))
       .filter((o) => (!f.from || o.placedAt >= f.from) && (!f.to || o.placedAt < f.to))
       .filter((o) => !text || [o.id, o.ordererId, o.merchantOrgId ?? '', o.note ?? ''].some((v) => v.toLowerCase().includes(text)))
       .filter((o) => !f.after || isAfterCursor(o, f.after))

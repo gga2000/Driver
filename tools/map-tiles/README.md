@@ -39,9 +39,11 @@ then point a MapLibre page at `pmtiles://http://127.0.0.1:8765/wasit.pmtiles` an
 |---|---|---|
 | `roads` | `cls` highway / major / mid / minor / alley / bridge, `name` | highways z7, secondary z9, tertiary (`mid`) z11, residential z12, service z13; bridges split out from z12 |
 | `water` | `kind` river (polygon) / canal (line) / centre (river centre line), `name` | big river polygons z7, canals z10–z12 |
-| `landuse` | `kind` urban / farm2 | z10, town box only |
+| `landuse` | `kind` urban / farm2 / school (school yards) / green (parks, pitches) | z10, town box only |
 | `palms` | — | z11, town box only (palm groves, parks) |
-| `buildings` | `hm` height m, `base`, `kind` house / mosque / tankW / tankB | houses z14, roof tanks z15 |
+| `landmarks` | 3D models of the main mosque, the hospital and the garages (`landmarks.py`): `lm` mosque / hospital / garage, `part` (stone, dome, gold, red, canopy, bus…), `hm`, `base`; the houses on their lots are dropped | z14 |
+| `lights` | night window lights (points on about 3 homes in 10) | z15 |
+| `buildings` | `hm` height m (3.6 / 6.8 / 10 by storeys; schools 2, clinics and hospitals 3, shops on main streets 1), `base`, `kind` house / mosque / tankW / tankB / hut (stair hut) / dish / deck, rail, pier (river bridges ≥ 80 m), `use` home / shop / school / civic / mosque, `tone` 0–5 roof finish, `lit` 1 when its lights are on at night | houses z14, roof pieces z15 |
 | `places` | `name`, `kind`, `rank` 1–3 | z14–z15 |
 | `localities` | `name`, `kind` city / town / village / hamlet / neighbourhood kinds, `rank`, `pop` | city z7 … hamlet z12 |
 
