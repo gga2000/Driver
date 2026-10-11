@@ -106,7 +106,7 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app' }}
-          # The customer web app: an emergency contact's SOS link opens its /sos/ page.
+          # The customer web app: SOS links open its /sos/ page, trip-share links its /share/ page.
           CUSTOMER_WEB: ${{ vars.SHARE_BASE_URL || 'https://driver-customer-iota.vercel.app' }}
           # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
           # and kept only as this environment's secret: never generated, printed or written anywhere here.
@@ -145,6 +145,8 @@ jobs:
           else echo "CONSOLE_BASE_URL: not set (set the variable FLY_CONSOLE_APP; the API only warns on staging)"; fi
           set_api+=("SAFETY_LINK_BASE_URL=${CUSTOMER_WEB%/}/sos/")
           echo "SAFETY_LINK_BASE_URL: ${CUSTOMER_WEB%/}/sos/"
+          set_api+=("SHARE_LINK_BASE_URL=${CUSTOMER_WEB%/}")
+          echo "SHARE_LINK_BASE_URL: ${CUSTOMER_WEB%/}"
           # The API host itself knows it is staging: staging-only sign-in helpers refuse to boot without it.
           set_api+=("DEPLOY_ENVIRONMENT=staging")
           if [ -n "$SENTRY_DSN" ]; then set_api+=("SENTRY_DSN=$SENTRY_DSN"); echo "error reports: on (vars.SENTRY_DSN)"
