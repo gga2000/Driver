@@ -145,7 +145,7 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
 ```
 
 Demo people: `0770 123 4567` owner of مطعم خالد (straight to the board), `0770 999 0000` staff at two
-stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate), `0770 777 0001`
+stores (picker), `0770 111 0000` علي, staff at مطعم خالد, `0770 555 0000` no store (gate), `0770 444 0000` حسين, no store but invited to مطعم خالد (the gate shows the invite to accept; مصطفى also has one on his picker, PRV-08), `0770 777 0001`
 أبو حسن, owner of a new shop that is not set up yet (see «جهّز محلك» below). مصطفى and
 علي accept, add time, reject and mark ready on the seeded orders and mark dishes sold out, so the
 owner's «مين سوّى شنو» card (يومك → اليوم) has names. The board section seeds 3 new orders (a group order

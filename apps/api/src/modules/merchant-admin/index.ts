@@ -4,4 +4,4 @@ export { composeCashAccount, composeMoneyToday, composeStatement, orderLines, ti
 export { activityActorIds, activityEntries, activityKindOf, composeActivity, ITEM_ACTIVITY_TYPES, ORDER_ACTIVITY_TYPES } from './activity.js';
 export { composeInsights, defaultOutcome, disputeKindOf, rejectionTrend, PREP_ON_TIME_GRACE_MIN } from './insights.js';
 export { MERCHANT_ADMIN_REPOSITORY, InMemoryMerchantAdminRepository, PrismaMerchantAdminRepository } from './merchant-admin.repository.js';
-export type { MerchantAdminRepository, DisputeResponseRecord } from './merchant-admin.repository.js';
+export type { MerchantAdminRepository, DisputeResponseRecord, StaffInviteRecord, StaffInviteStatus } from './merchant-admin.repository.js';

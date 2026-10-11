@@ -78,8 +78,8 @@ if (golden) {
 map.on('load', () => map.addLayer(routeLayer, golden ? GOLDEN_FIRST_LABEL : undefined));
 ```
 Rebuild the style when the light changes (check every 10 minutes; the change is a quiet cross-fade, no
-animation loop). On phones the native map needs a development build (`@maplibre/maplibre-react-native`);
-until then the web studio shows the real map and the phones keep the zone sketch.
+animation loop). On phones the native map (`@maplibre/maplibre-react-native`, development builds only;
+Expo Go keeps the zone sketch) draws the same style, street life, glint and flattened houses (see below).
 
 ## Trips on the map: routes and pins in the service colour
 `goldenRouteLayers({ service, light, routeSource, pinSource, id })` draws one trip, added before
@@ -143,6 +143,7 @@ from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-desig
   - Fewer at night, none in alleys.
   - `moving: false` on slow phones and with reduce-motion gives a still scene.
 - **For the screen owner:** read the roads with `querySourceFeatures(GOLDEN_SOURCE, { sourceLayer: 'roads' })` on `moveend`. Feed `lifeFrame()` to a GeoJSON source each animation frame while the map is at street zoom, and stop the loop below it or when the screen is hidden.
+- **Phones** (`StreetLifeLayers.tsx`): every frame would cross the bridge, so the scene is split. Parked cars and people standing go to one source once per camera stop. Moving cars and walkers go to a second source about 12 times a second, paused when the app is in the background. The road-ahead glint steps about 15 times a second for its 2.4 s. On the restaurant map the house layers are adopted by id, so the houses facing a chosen shop lie flat without reloading the style.
 
 ## Landmarks in 3D (Ali, 2026-10-09: "not real spot, make good looking design for each")
 
@@ -155,9 +156,13 @@ so they guide the eye from further out; the Console and cheap phones draw their 
   arch, a gilded dome on its drum with four small domes, two banded minarets with a call balcony. Floodlit at night.
 - **Hospital**: white L-shaped blocks with floor bands, a red crescent on a white roof disc, an entrance canopy with two
   ambulances and a red sign, parking and palms along the fence.
-- **Garages**: a paved yard, two long corrugated canopies on steel posts over rows of minibuses, a gate frame with a
-  saffron sign board, a ticket booth, benches with people waiting, taxis at the kerb.
+- **Garages** (the new terminal, Ali's pick of three looks on 2026-10-10): a wave of white fins over two rows of bays,
+  each fin edged in saffron that lights up at night (`led`), a middle island with palms and benches where people wait,
+  H-1 minibuses, GMCs and Coasters with bags on their racks, a glass waiting hall (`hall`, glowing at night), a tea
+  kiosk with chairs, a totem in the destination colours (`dest1..3`) and taxis at the kerb. At night `pool` parts throw
+  warm light on the ground through their own see-through layer (`golden-landmark-pools`); they are never solid.
 
-Spots are design spots (empty lots beside a main road, off the river), not surveyed ones; the houses Overture has on a
-lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
+The mosque and hospital spots are design spots (empty lots beside a main road, off the river), not surveyed ones; the
+garages stand at Ali's real spots (2026-10-10), each lot sized to fit between its streets (`GARAGE_SIZE`). The houses
+Overture has on a lot give way to the model. The garage pins the apps use (`GARAGES`, seed data, intercity config) still sit at the old
 demo spots; moving them onto the models belongs to the garage data owner.

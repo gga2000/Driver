@@ -12,7 +12,7 @@ import { errorText, useConsoleNetwork } from '@/lib/network';
 import { filterStores, parsePin, photoProblem, storeGaps, toFinish, uploadPhoto, type StoreGap } from '@/lib/pickup-spots';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC, useTRPCClient } from '@/lib/trpc';
-import { Button, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, NeedLogin, PageHeader, QueryError, Segmented, Skeleton, Spinner, Textarea, useToast } from './ui';
+import { Button, buttonCls, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, Meter, NeedLogin, PageHeader, QueryError, Segmented, Skeleton, Spinner, Textarea, useToast } from './ui';
 
 /**
  * Console › المطاعم (Ali 2026-10-07): every restaurant and grocer in the city with how its pickup
@@ -28,7 +28,7 @@ export function StoresPage({ storeId }: { storeId: string | null }) {
       {!signedIn ? (
         <NeedLogin />
       ) : (
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(260px,340px)_1fr]">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(300px,380px)_1fr]">
           <StoreList selected={storeId} />
           {storeId ? (
             // On a phone the picked store's spot comes first; the list follows.
@@ -36,11 +36,78 @@ export function StoresPage({ storeId }: { storeId: string | null }) {
               <PickupSpotEditor key={storeId} storeId={storeId} />
             </div>
           ) : (
-            <EmptyState icon={<IconStore size={20} />} title={t('console.stores.pick')} hint={t('console.stores.pick_hint')} />
+            // The short summary comes first on a phone too, above the long list.
+            <div className="order-first min-w-0 lg:order-none">
+              <CityOverview />
+            </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// ───────────────────────── nothing picked: what the city still lacks ─────────────────────────
+
+/**
+ * With no store picked, the wide side shows how complete the city's stores are and what is missing
+ * most, with one button to the store that needs the most work (instead of an empty "pick one" box).
+ */
+function CityOverview() {
+  const trpc = useTRPC();
+  const stores = useQuery(trpc.ops.pickupSpots.stores.queryOptions({ cityId: CITY_ID }, { retry: queryRetry }));
+  const pickHint = <p className="mt-4 text-xs text-muted">{t('console.stores.pick_hint')}</p>;
+  if (!stores.data) {
+    if (stores.error) return <EmptyState icon={<IconStore size={20} />} title={t('console.stores.pick')} hint={t('console.stores.pick_hint')} />;
+    return (
+      <Card title={t('console.stores.overview')}>
+        <div className="space-y-3" aria-busy>
+          <Skeleton className="h-2 w-full rounded-pill" />
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-6 w-full rounded-md" />
+          ))}
+        </div>
+      </Card>
+    );
+  }
+  const rows = stores.data;
+  const unfinished = toFinish(rows);
+  const done = rows.length - unfinished.length;
+  const gaps = rows.map(storeGaps);
+  const count = (g: StoreGap) => gaps.filter((list) => list.includes(g)).length;
+  const lines: Array<{ key: StoreGap; label: string; n: number }> = [
+    { key: 'shop_photo', label: t('console.stores.gap_shop_photo'), n: count('shop_photo') },
+    { key: 'spot', label: t('console.stores.spot_none'), n: count('spot') },
+    { key: 'menu', label: t('console.stores.gap_menu'), n: count('menu') },
+    { key: 'dish_photos', label: t('console.stores.ov_dishes'), n: count('dish_photos') },
+  ];
+  const next = unfinished[0];
+  return (
+    <Card title={t('console.stores.overview')} hint={t('console.stores.overview_done', { done, total: rows.length })}>
+      <Meter value={done} max={Math.max(rows.length, 1)} tone={unfinished.length === 0 ? 'ok' : 'warn'} label={t('console.stores.overview_done', { done, total: rows.length })} />
+      {unfinished.length === 0 ? (
+        <p className="mt-4 text-sm text-ok">{t('console.stores.finish_none')}</p>
+      ) : (
+        <>
+          <ul className="mt-4 divide-y divide-line/70">
+            {lines.map((l) => (
+              <li key={l.key} className="flex min-h-11 items-center justify-between gap-3 text-sm">
+                <span className={l.n > 0 ? 'text-text' : 'text-muted'}>{l.label}</span>
+                <span className={cx('num font-semibold', l.n > 0 ? 'text-warn' : 'text-faint')}>{l.n}</span>
+              </li>
+            ))}
+          </ul>
+          {next ? (
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+              <Link href={`/stores/${encodeURIComponent(next.merchantOrgId)}`} className={buttonCls('primary', 'lg')}>
+                {t('console.stores.open_next', { name: next.name })}
+              </Link>
+            </div>
+          ) : null}
+        </>
+      )}
+      {pickHint}
+    </Card>
   );
 }
 
@@ -130,7 +197,9 @@ function StoreRow({ row, active }: { row: PickupStoreRow; active: boolean }) {
       <span className="min-w-0 flex-1">
         <span className={cx('block truncate', active ? 'font-semibold text-text' : 'font-medium text-text')}>{row.name}</span>
         {gaps.length > 0 ? (
-          <span className="block text-xs text-warn">{gaps.map((g) => gapText(g, row)).join(' · ')}</span>
+          <span className="block truncate text-xs text-warn" title={gaps.map((g) => gapText(g, row)).join(' · ')}>
+            {gaps.map((g) => gapText(g, row)).join(' · ')}
+          </span>
         ) : row.note ? (
           <span className="block truncate text-xs text-muted">{row.note}</span>
         ) : null}

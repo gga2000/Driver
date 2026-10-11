@@ -7,7 +7,7 @@ import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
 import { clockOffset } from '@/lib/time';
-import { serverClock } from './clock';
+import { acceptWindow, serverClock } from './clock';
 import { isPractice, practice, usePractice } from './practice';
 import { applyRadar } from './radar';
 import { readyQueue, useReadyQueue, withQueuedReady } from './ready-queue';
@@ -65,6 +65,8 @@ export function useBoard(merchantOrgId: string | null) {
   });
   const offset = q.data ? clockOffset(q.data.now, q.dataUpdatedAt) : 0;
   useEffect(() => serverClock.setOffset(offset), [offset]);
+  const windowSec = q.data?.acceptWindowSec;
+  if (windowSec !== undefined) acceptWindow.setSec(windowSec);
   const trial = usePractice().order;
   const queue = useReadyQueue();
   const data = useMemo(() => {

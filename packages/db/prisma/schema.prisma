@@ -3268,6 +3268,31 @@ model MerchantDisputeResponse {
   @@schema("public")
 }
 
+/// A store's staff invite (PRV-08, Ali 2026-10-10): the owner types a number, the person joins only
+/// after accepting it in the Merchant app. Ids only: the number and name stay in `identity_vault`.
+model MerchantStaffInvite {
+  id            String    @id @default(cuid())
+  merchantOrgId String    @map("merchant_org_id")
+  personId      String    @map("person_id")
+  /// merchant_owner | merchant_staff
+  role          String
+  invitedById   String    @map("invited_by_id")
+  /// pending | accepted | declined | cancelled
+  status        String    @default("pending")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  /// The last time the invite went out (the invite, or the latest resend).
+  sentAt        DateTime  @map("sent_at")
+  answeredAt    DateTime? @map("answered_at")
+  /// created + 7 days; an expired pending invite can no longer be accepted.
+  expiresAt     DateTime  @map("expires_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([merchantOrgId, personId])
+  @@index([personId, status])
+  @@map("merchant_staff_invites")
+  @@schema("public")
+}
+
 // ═════════════════════════════ Notifications (domain §8, notify module) ═════════════════════════════
 
 /// A push token of one app install (Expo push token or raw FCM token). Tied to the session that
