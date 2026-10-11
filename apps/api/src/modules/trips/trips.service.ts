@@ -922,6 +922,16 @@ export class TripsService implements OnModuleInit {
     return Promise.all(trips.map((t) => this.view(t.id)));
   }
 
+  /**
+   * The خطوط runs that carry this child (a stop with its ref): unfinished ones, and the ones completed
+   * at or after `since`. For the guardian's own-child view only; callers check the guardian first.
+   */
+  async forChild(childRef: string, since: Date): Promise<Trip[]> {
+    const going = await this.repo.findTrips({ childRef, states: PROGRESS_STATES });
+    const done = await this.repo.findTrips({ childRef, states: ['completed'], completedSince: since });
+    return Promise.all([...going, ...done].filter((t) => t.vertical === 'khat').map((t) => this.view(t.id)));
+  }
+
   /** How many trips the driver completed, every vertical (the "1,240 مشوار" on his card). */
   completedCountFor(driverId: string): Promise<number> {
     return this.repo.completedCount(driverId);

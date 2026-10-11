@@ -16,7 +16,8 @@ import type { GoldenLight } from './sun.js';
 export const LIFE_MINZOOM = 16.6;
 
 type LngLat = [number, number];
-interface Road {
+/** A street as the tiles' `roads` layer carries it (`roadsFromFeatures` turns map features into these). */
+export interface Road {
   cls: string;
   coords: LngLat[];
 }
@@ -53,6 +54,19 @@ export interface StreetLife {
   people: Walker[];
   movers: Mover[];
   moving: boolean;
+}
+
+/** Map features from the tiles' `roads` layer (querySourceFeatures / queryRenderedFeatures) as streets. */
+export function roadsFromFeatures(features: readonly unknown[]): Road[] {
+  const out: Road[] = [];
+  for (const f of features as { properties?: Record<string, unknown> | null; geometry?: { type: string; coordinates: unknown } }[]) {
+    const cls = String(f.properties?.cls ?? '');
+    const g = f.geometry;
+    if (!g) continue;
+    if (g.type === 'LineString') out.push({ cls, coords: g.coordinates as LngLat[] });
+    else if (g.type === 'MultiLineString') for (const line of g.coordinates as LngLat[][]) out.push({ cls, coords: line });
+  }
+  return out;
 }
 
 // Half the drawn street width in metres at street-level zoom, per road class (the style's WIDTH at z18).

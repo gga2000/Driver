@@ -11,6 +11,7 @@ import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { NotifyModule } from '../notify/index.js';
 import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../places/index.js';
+import { RoutingModule } from '../routing/index.js';
 import { TripsModule } from '../trips/index.js';
 import { InMemoryKhatRepository, KHAT_REPOSITORY, PrismaKhatRepository, type KhatRepository } from './khat.repository.js';
 import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_PHOTOS, KHAT_QUEUE, KhatService, type KhatConfig, type KhatPhotosPort, type SweepCheckJob } from './khat.service.js';
@@ -32,7 +33,7 @@ function envMinutes(name: string, fallback: number): number {
  * (the dispatchers' WhatsApp link, as SOS).
  */
 @Module({
-  imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule, PlacesModule],
+  imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule, PlacesModule, RoutingModule],
   providers: [
     {
       provide: KHAT_REPOSITORY,
