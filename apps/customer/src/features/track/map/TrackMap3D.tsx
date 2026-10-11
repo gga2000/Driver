@@ -14,6 +14,7 @@ import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS } from './golden-setup';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { RecentreChip } from './RecentreChip';
+import { GlintLayer, StreetLifeLayers, type Road } from './StreetLifeLayers';
 import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
 
@@ -43,8 +44,8 @@ const pt = (p: LngLat): Pt => [p.lng, p.lat];
  * The live order map in 3D on phones (MapLibre Native), the same moments as the web
  * (TrackMap3D.web.tsx): the kitchen lit while it cooks, a tilted ride over a risen town, a closer
  * tilt as he nears, the house lit on arrival. Pins are the map's own markers, so they follow tilt
- * and turn. Street life and the glint along the road stay on the web for now (each frame would
- * cross the bridge); the route and the courier still move.
+ * and turn. Street life and the glint along the road ahead move too, at a pace the bridge can carry
+ * (StreetLifeLayers.tsx).
  */
 export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: TrackMap3DProps) {
   const ml = nativeMapLibre()!;
@@ -59,6 +60,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const [courier, setCourier] = useState<{ pos: LngLat; heading: number; d: number | null } | null>(null);
   const [houses, setHouses] = useState<{ ring: Pt[]; hm: number }[]>([]);
   const [bearing, setBearing] = useState(0);
+  const [roads, setRoads] = useState<Road[] | null>(null);
 
   const home = view.dropoff?.pin ?? view.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
   const kitchen = view.merchant?.pin ?? null;
@@ -78,6 +80,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   }, [light]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   const layers = useMemo(() => golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit }), [light]);
+  const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
 
   useEffect(() => {
     const id = setInterval(() => setLight(golden.resolveLight().light), LIGHT_CHECK_MS);
@@ -126,6 +129,27 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           else if (g.type === 'MultiPolygon') for (const poly of g.coordinates) out.push({ ring: poly[0] as Pt[], hm });
         }
         setHouses(out);
+      })
+      .catch(() => undefined);
+  };
+
+  /** The streets on screen for street life, once per camera stop (none when too far out for cars to read). */
+  const findRoads = (zoom: number) => {
+    if (zoom < golden.LIFE_MINZOOM - 0.3 || !roadLayers.length) {
+      setRoads(null);
+      return;
+    }
+    void map.current
+      ?.queryRenderedFeatures({ layers: roadLayers })
+      .then((fs) => {
+        const out: Road[] = [];
+        for (const f of fs) {
+          const cls = String(f.properties?.cls ?? '');
+          const g = f.geometry;
+          if (g.type === 'LineString') out.push({ cls, coords: g.coordinates as Pt[] });
+          else if (g.type === 'MultiLineString') for (const line of g.coordinates) out.push({ cls, coords: line as Pt[] });
+        }
+        setRoads(out);
       })
       .catch(() => undefined);
   };
@@ -185,16 +209,32 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         touchPitch={false}
         onDidFinishLoadingMap={() => setReady(true)}
         onDidFailLoadingMap={onFail}
-        onDidFinishRenderingMapFully={findHouses}
+        onDidFinishRenderingMapFully={() => {
+          findHouses();
+          void map.current?.getZoom().then(findRoads).catch(() => undefined);
+        }}
         onRegionWillChange={(e) => {
           if (e.nativeEvent.userInteraction) setFollow(false);
         }}
-        onRegionDidChange={(e) => setBearing(e.nativeEvent.bearing)}
+        onRegionDidChange={(e) => {
+          setBearing(e.nativeEvent.bearing);
+          findRoads(e.nativeEvent.zoom);
+        }}
       >
         <ml.Camera ref={camera} maxZoom={19} initialViewState={kitchen ?? home ? { center: pt((kitchen ?? home)!), zoom: 16 } : { zoom: 14 }} />
         <ml.Images images={images} />
+        {/* Street life under the route and pins (only from LIFE_MINZOOM). */}
+        <StreetLifeLayers roads={roads} light={light} still={theme.reduceMotion} beforeId={golden.GOLDEN_FIRST_LABEL} />
         <ml.GeoJSONSource id={SRC.route} data={route} lineMetrics>
-          {layers.filter((l) => 'source' in l && l.source === SRC.route).map((l) => <ml.Layer key={l.id} {...layerProps(l)} />)}
+          {layers
+            .filter((l) => 'source' in l && l.source === SRC.route)
+            .map((l) =>
+              l.id === 'track-ahead' ? (
+                <GlintLayer key={l.id} layer={layerProps(l)} light={light} pulse={fixKey} rest={theme.reduceMotion || !riding} />
+              ) : (
+                <ml.Layer key={l.id} {...layerProps(l)} />
+              ),
+            )}
         </ml.GeoJSONSource>
         <ml.GeoJSONSource id={SRC.glow} data={glow}>
           {layers.filter((l) => 'source' in l && l.source === SRC.glow).map((l) => <ml.Layer key={l.id} {...layerProps(l)} />)}

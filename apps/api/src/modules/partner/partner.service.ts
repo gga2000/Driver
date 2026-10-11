@@ -186,6 +186,8 @@ export class PartnerService implements PartnerPort {
       tier: cap.tier,
       verticals,
     });
+    // Just came online (not the 30-s beat): a job nobody took may be his now.
+    if (!present) await this.deps.dispatch.retryUnassigned?.(input.cityId);
     return { roles, registered, gate, presence, cap };
   }
 
@@ -225,6 +227,7 @@ export class PartnerService implements PartnerPort {
       wave: offer.wave,
       sentAt: offer.sentAt,
       expiresAt: offer.expiresAt,
+      serverNow: now,
       ringSec: Math.max(1, Math.round((offer.expiresAt.getTime() - offer.sentAt.getTime()) / 1000)),
       seen: offer.seenAt !== null || offer.state === 'seen',
       // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the

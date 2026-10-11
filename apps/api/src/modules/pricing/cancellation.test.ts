@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cancellationFee, type OrderCancellationSubject, type TripCancellationSubject } from './cancellation.js';
+import { arrivalCountsForFees, cancellationFee, FEE_ARRIVAL_RADIUS_M, type OrderCancellationSubject, type TripCancellationSubject } from './cancellation.js';
 
 const T0 = new Date('2026-10-03T12:00:00Z');
 const sec = (s: number) => new Date(T0.getTime() + s * 1000);
@@ -90,6 +90,12 @@ describe('cancellationFee — rides (spec §4)', () => {
     expect(arrived.amountIqd).toBe(1000);
   });
 
+  it('customer: a "وصلت" tapped outside the pickup geofence is not an arrival (no arrival time = the en-route rule)', () => {
+    const far = cancellationFee(ride({ state: 'arrived_pickup', acceptedAt: T0, arrivedPickupAt: null }), sec(61));
+    expect(far).toMatchObject({ amountIqd: 500, reason_ar: 'السايق تحرك عليك' });
+    expect(cancellationFee(ride({ state: 'arrived_pickup', acceptedAt: T0, arrivedPickupAt: null }), sec(30)).free).toBe(true);
+  });
+
   it('customer cannot cancel mid-ride (completes instead)', () => {
     expect(cancellationFee(ride({ state: 'in_transit', acceptedAt: T0, arrivedPickupAt: sec(1) }), sec(300)).allowed).toBe(false);
   });
@@ -110,4 +116,25 @@ describe('cancellationFee — rides (spec §4)', () => {
     const f = cancellationFee(food({ state: 'preparing', itemsTotalIqd: 15100, totalIqd: 20000 }), T0);
     expect(f.amountIqd % 250).toBe(0);
   });
+});
+
+describe('arrivalCountsForFees — the fee-only arrival radius', () => {
+  const at = new Date('2026-10-03T09:00:00Z');
+  const tap = (arrivalDistanceM: number | null, arrivalAccuracyM: number | null = null) => ({ arrivedAt: at, arrivedOutsideGeofence: arrivalDistanceM !== null && arrivalDistanceM > 60, arrivalDistanceM, arrivalAccuracyM });
+  it('defaults to 150 m', () => expect(FEE_ARRIVAL_RADIUS_M).toBe(150));
+  it('counts a tap inside the 60 m geofence, or with nothing to compare', () => {
+    expect(arrivalCountsForFees(tap(20))).toBe(true);
+    expect(arrivalCountsForFees(tap(null))).toBe(true);
+  });
+  it('counts a 90 m and a 150 m tap, not a 151 m or a 400 m one', () => {
+    expect(arrivalCountsForFees(tap(90))).toBe(true);
+    expect(arrivalCountsForFees(tap(150))).toBe(true);
+    expect(arrivalCountsForFees(tap(151))).toBe(false);
+    expect(arrivalCountsForFees(tap(400))).toBe(false);
+  });
+  it('counts a 100 m tap with a 50 m accuracy; a huge accuracy never stretches it past 60 + 90 m', () => {
+    expect(arrivalCountsForFees(tap(100, 50))).toBe(true);
+    expect(arrivalCountsForFees(tap(400, 1000))).toBe(false);
+  });
+  it('no tap is no arrival', () => expect(arrivalCountsForFees({ ...tap(10), arrivedAt: null })).toBe(false));
 });
