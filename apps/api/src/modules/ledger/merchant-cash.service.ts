@@ -35,7 +35,15 @@ export interface CashAttributionInput {
   windows?: ReadonlyMap<string, { since: Date | null; cash: number; pay: number }>;
 }
 
-const byTime = (a: LedgerEvent, b: LedgerEvent) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime() || a.id.localeCompare(b.id);
+/**
+ * Lines that take cash out of a courier's hand or a restaurant's balance. At one instant (a fake
+ * clock, or two lines in the same millisecond) they come after the lines that create that cash: a
+ * hand-over is never replayed before the order it pays for, whatever its id.
+ */
+const CONSUMING = new Set<string>(['merchant_paid_by_courier', 'driver_settlement', 'merchant_payout', 'driver_payout']);
+const rank = (e: LedgerEvent) => (CONSUMING.has(e.type) ? 1 : 0);
+const byTime = (a: LedgerEvent, b: LedgerEvent) =>
+  a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime() || rank(a) - rank(b) || a.id.localeCompare(b.id);
 
 /**
  * Which couriers hold which restaurant's cash, from the ledger alone, across every restaurant at once.
@@ -278,6 +286,10 @@ export class MerchantCashService {
     }
     // The other restaurants those couriers collected for in their windows: their entries come from the
     // couriers' own order groups, their hand-overs from the couriers' own lines.
+    // Known gap (follow-up): their own `merchant_payout` lines are not read here, so a payout by the
+    // company to another restaurant leaves its entries looking open, and a hand-in may be weighed
+    // against them instead of the asked restaurant's. That under-counts the asked restaurant (a
+    // hand-over is refused as more than owed): it fails safe, never shows cash he gave.
     const others = courierGroups.size ? await this.ledger.eventsForGroups([...courierGroups]) : [];
     for (const l of others) {
       const m = l.type === 'merchant_payable' ? idOf(l.toAccount, 'merchant_cash') : undefined;
