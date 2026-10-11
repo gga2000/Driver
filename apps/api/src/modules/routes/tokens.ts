@@ -22,8 +22,9 @@ export interface RiderNamesReader {
 }
 
 /**
- * Launch kill switches (`modules/controls`): a switched-off corridor or the intercity vertical refuses
- * new seat holds and request posts (`service_paused`). Optional: harnesses run without it.
+ * Launch scope and kill switches (`modules/controls`): intercity missing from the city's launched
+ * services, a switched-off corridor or the intercity vertical refuses new seat holds and request posts
+ * (`service_paused`). Optional: harnesses run without it.
  */
 export const ROUTES_CONTROLS = Symbol('ROUTES_CONTROLS');
 

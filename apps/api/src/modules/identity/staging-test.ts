@@ -1,4 +1,4 @@
-import type { RoleKind } from '@driver/contracts';
+import { STAFF_ROLE_KINDS, type RoleKind } from '@driver/contracts';
 
 /**
  * Staging test numbers (docs/api/staging-test-numbers.md). Staging has no SMS gateway, so a small
@@ -26,7 +26,7 @@ function isWeakFixedCode(code: string): boolean {
 const STAGING_TEST_NUMBER = /^\+96477000001\d{2}$/;
 
 /** The Console's roles: a test number never signs in as staff and is never made staff. */
-export const STAFF_ROLES: readonly RoleKind[] = ['field_ops', 'dispatcher', 'support', 'finance', 'admin'];
+export const STAFF_ROLES: readonly RoleKind[] = STAFF_ROLE_KINDS;
 
 /** Whether an E.164 number is in the staging test range (whether or not the range is switched on). */
 export function isStagingTestNumber(phoneE164: string): boolean {

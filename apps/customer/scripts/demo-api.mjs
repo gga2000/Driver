@@ -59,6 +59,13 @@ const { ControlsService } = await load('modules/controls/index.js');
 const PORT = Number(process.env.PORT ?? 3200);
 const KITCHEN_MS = Number(process.env.DEMO_KITCHEN_MS ?? 20_000);
 const app = await createApp();
+// The studio opens every service so all screens stay reviewable; launch day itself is the city file's
+// `launchedVerticals` (food, taxi, tuktuk). DEMO_LAUNCH_SCOPE=1 keeps the launch-day scope instead.
+if (process.env.DEMO_LAUNCH_SCOPE !== '1') {
+  const { ConfigService } = await load('modules/config/index.js');
+  const config = app.get(ConfigService);
+  config.setLaunchedVerticals('aziziyah', config.city('aziziyah').verticals.map((v) => v.vertical));
+}
 
 const orgs = app.get(OrgsService);
 const catalog = app.get(CatalogService);

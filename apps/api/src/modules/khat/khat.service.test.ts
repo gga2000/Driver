@@ -3,7 +3,8 @@ import { appRouter } from '@driver/contracts/router';
 import { KHAT_RULES, KhatSweepCloseInput, type AppContext, type DispatchBoard, type SessionClaims } from '@driver/contracts';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { InMemoryQueue } from '../../shared/queue.js';
-import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
+import { ConfigService } from '../config/index.js';
+import { AuditLogService, ControlsService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { DispatchService } from '../dispatch/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
@@ -12,6 +13,7 @@ import { InMemoryNotifyRepository } from '../notify/notify.repository.js';
 import { NotifyService } from '../notify/notify.service.js';
 import { DevPushProvider } from '../notify/providers/push.js';
 import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
+import { OrgsService } from '../orgs/index.js';
 import { PINS, tripsHarness } from '../trips/test-harness.js';
 import { InMemoryKhatRepository } from './khat.repository.js';
 import { DEFAULT_KHAT_CONFIG, GUARDIAN_BUS_PRIVACY_M, KhatService, type SweepCheckJob } from './khat.service.js';
@@ -104,6 +106,39 @@ describe('khat.tapIn / tapOut', () => {
   it('only the run’s own driver may tap', async () => {
     const h = await setup();
     await expect(h.khat.tapIn(h.guardian, { tripId: h.trip.id, stopId: h.trip.stops[0]!.id })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('khat launch scope', () => {
+  /** The same run, with the real launch gate: خطوط is not in Aziziyah's launched services. */
+  async function gated() {
+    const h = await setup();
+    const config = new ConfigService();
+    const names = new StaffNames(h.id.service, h.t.clock);
+    const ctlRepo = new InMemoryControlsRepository();
+    const controls = new ControlsService(ctlRepo, config, new OrgsService(h.ev.events, h.t.clock), h.ev.events, new AuditLogService(ctlRepo, names, h.t.clock), names, h.t.uow, h.t.clock);
+    const dispatch = { board: async () => h.board } as unknown as DispatchService;
+    const khat = new KhatService(h.repo, h.t.trips, h.id.service, dispatch, h.ev.events, h.t.uow, h.t.clock, null, null, DEFAULT_KHAT_CONFIG, undefined, undefined, null, null, controls);
+    return { ...h, khat, config };
+  }
+
+  it('takes no new boarding or absence until the city launches خطوط', async () => {
+    const h = await gated();
+    const [p1] = h.trip.stops;
+    const notOpen = { code: 'service_paused', envelope: { message_ar: 'خدمة الخطوط بعدها ما انفتحت. نبلشها قريب' } };
+    await expect(h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home })).rejects.toMatchObject(notOpen);
+    await expect(h.khat.reportAbsence(h.driver, { tripId: h.trip.id, childRef: h.ali, reason: 'sick' })).rejects.toMatchObject(notOpen);
+    h.config.setLaunchedVerticals('aziziyah', ['food', 'taxi', 'tuktuk', 'khat']);
+    expect((await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home })).onBoard).toBe(1);
+  });
+
+  it('a child already in the car can always be tapped out, even after خطوط is closed again', async () => {
+    const h = await gated();
+    const [p1, , d1] = h.trip.stops;
+    h.config.setLaunchedVerticals('aziziyah', ['khat']);
+    await h.khat.tapIn(h.driver, { tripId: h.trip.id, stopId: p1!.id, pin: PINS.home });
+    h.config.setLaunchedVerticals('aziziyah', ['food']);
+    expect((await h.khat.tapOut(h.driver, { tripId: h.trip.id, stopId: d1!.id, pin: PINS.school })).onBoard).toBe(0);
   });
 });
 
