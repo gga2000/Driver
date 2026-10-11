@@ -31,7 +31,10 @@ scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (P
 الرجعة demo: demo-api.mjs seeds departures on both corridors and sides plus demand posts, and adds
 POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…), and
 `/demo/rajaa/arrived?personId=…[&told=1]` (a whole Kut → Aziziyah trip that just arrived: the pass shows
-«الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on). `SHOTS=rajaa`
+«الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on).
+`POST /demo/rajaa/garage[?garageId=mp_garage_bab1]` stands three more Baghdad cars in that garage, some
+seats taken, for «شوف الكراج» (`app/rajaa/garage/[id].tsx`, map idea N12: the 3D garage with each car's
+seats over it, gold free and brown taken; tap a car to book it; web needs the map files). `SHOTS=rajaa`
 limits web-shots.mjs to the rajaa-*.png set (board, blocked seat, hold, pass, demand, request, home).
 Lock-screen pass (audit d-8): `src/features/rajaa/lockscreen/` — Android only (a no-op on the web
 and iOS), so it shows on a development build, not in the web studio; `content.test.ts` covers what it says.

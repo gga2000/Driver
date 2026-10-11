@@ -1142,6 +1142,36 @@ const rajaa = await (async () => {
     }
   });
 
+  // POST /demo/rajaa/garage[?garageId=mp_garage_bab1] — map idea N12 «شوف الكراج»: three more cars to
+  // Baghdad standing in that garage (in 20, 70 and 110 minutes), some seats already taken, so the lot
+  // shows a full-ish car, a half one and an empty one.
+  let garageSeq = 0;
+  app.use('/demo/rajaa/garage', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/rajaa/garage[?garageId=…]' });
+      const garageId = new URL(req.url ?? '/', 'http://x').searchParams.get('garageId') || 'mp_garage_bab1';
+      const cars = [
+        { inMin: 20, vehicle: saloon('70412 واسط', 'كامري', 'بيضاء'), taken: [['back_left', 'back_middle'], ['front']] },
+        { inMin: 70, vehicle: { kind: 'van', layout: 7, plate: '81123 واسط', modelKey: 'starex', color: 'فضية' }, taken: [['middle_left', 'middle_middle']] },
+        { inMin: 110, vehicle: saloon('66508 واسط', 'كورولا', 'رصاصي'), taken: [] },
+      ];
+      const ids = [];
+      for (const c of cars) {
+        const driverId = `drv_GAR${(++garageSeq).toString(36).toUpperCase()}`;
+        const departAt = new Date(Math.ceil((Date.now() + c.inMin * MIN) / (5 * MIN)) * 5 * MIN);
+        const dep = await deps.announce(driverId, { garageId, corridorId: 'aziziyah_baghdad', departAt, latestDepartureAt: new Date(departAt.getTime() + 45 * MIN), vehicle: c.vehicle, familyOnly: false });
+        for (const seatIds of c.taken) {
+          const held = await deps.hold(`demo-garage-rider-${garageSeq}-${seatIds[0]}`, { departureId: dep.id, selection: { kind: 'seats', seatIds }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+          await deps.book(held.riderId, held.id, 'cash');
+        }
+        ids.push(dep.id);
+      }
+      json(res, 200, { departureIds: ids });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   // POST /demo/rajaa/return?personId=… — step 5 «رايح وراجع» (demo switch on): a cash seat on a car to
   // Baghdad in 3 h and two cars back from النهضة later today, so the pass offers the way back for 10 %.
   let returnSeq = 0;
