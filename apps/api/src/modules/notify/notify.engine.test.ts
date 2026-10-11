@@ -343,6 +343,27 @@ describe('retries and token pruning', () => {
     expect((await h.repo.delivery(row!.id))).toMatchObject({ status: 'sent', attempts: 3, reason: null });
   });
 
+  it('a job rerun after the send went out (writing "sent" failed) never sends the message again', async () => {
+    const push = new ScriptedPush();
+    const h = notifyHarness({ push });
+    await h.register('cust');
+    const update = h.repo.updateDelivery.bind(h.repo);
+    let failOnce = true;
+    h.repo.updateDelivery = async (id, patch, now) => {
+      if (patch.status === 'sent' && failOnce) {
+        failOnce = false;
+        throw new Error('database timeout');
+      }
+      return update(id, patch, now);
+    };
+    const [row] = await h.service.dispatch({ eventId: 'ev1', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+    await expect(h.run()).rejects.toThrow('database timeout'); // one attempt: the queue does not rerun it by itself
+    expect(push.sent).toHaveLength(1);
+    await h.engine.process({ kind: 'send', deliveryId: row!.id }); // the queue (or a stalled-job check) runs it again
+    await h.run(10 * SEC); // and no retry of notify's own is waiting either
+    expect(push.sent).toHaveLength(1);
+  });
+
   it('gives up after maxAttempts, and fails a permanent error at once', async () => {
     const push = new ScriptedPush();
     for (let i = 0; i < 3; i += 1) push.throwNext.push(new ProviderError('expo', 'http_503', 'down', false));
