@@ -23,6 +23,8 @@ export default function HouseholdLayout() {
       <Stack.Screen name="invite" options={{ title: t('household.invite'), headerLeft: () => <HeaderBack fallback="/household" /> }} />
       <Stack.Screen name="member" options={{ title: t('household.limit_title'), headerLeft: () => <HeaderBack fallback="/household" /> }} />
       <Stack.Screen name="children" options={{ title: t('household.children_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
+      {/* «وين الباص» (N14): a full-screen map with its own top bar. */}
+      <Stack.Screen name="bus/[childRef]" options={{ headerShown: false }} />
     </Stack>
   );
 }

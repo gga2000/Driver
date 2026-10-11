@@ -83,7 +83,7 @@ const CASES: Array<[string, (c: Call) => Promise<unknown>, RoleKind, RoleKind]> 
   ['ops.recordCashReceipt', (c) => c.ops.recordCashReceipt({ courierId: 'k1', amountIqd: 1000, code: '1234' }), 'field_ops', 'finance'],
   [
     'ops.merchantOnboarding',
-    (c) => c.ops.merchantOnboarding({ cityId: 'aziziyah', name: 'مطعم', type: 'restaurant', contact: { name: 'a', phone: '07700000001' }, location: { zoneKey: 'centre' } }),
+    (c) => c.ops.merchantOnboarding({ cityId: 'aziziyah', name: 'مطعم', type: 'restaurant', contact: { name: 'a', phone: '07700000001' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } } }),
     'field_ops',
     'merchant_owner',
   ],

@@ -356,15 +356,15 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
-    let n = 0;
+    const ids: string[] = [];
     for (const s of this.sessions) {
       if (s.personId === personId && !s.revokedAt) {
         this.keep(tx, s);
         s.revokedAt = now;
-        n += 1;
+        ids.push(s.id);
       }
     }
-    return n;
+    return ids;
   }
 
   async latestOtp(phoneHash: string, purpose: OtpPurpose) {

@@ -10,6 +10,10 @@ import { storage as platformStorage, type KeyValueStorage } from './storage';
  * - Refreshes are single-flight: the API rotates refresh tokens and treats a reused one as theft
  *   (`refresh_reused` revokes the session), so two parallel refreshes would sign the person out.
  * - A refresh refused by the server (401) signs out; a network failure keeps the session.
+ * - On the web every tab shares the stored pair, so a refresh also holds a lock all tabs share
+ *   (`driver-refresh`) and re-reads the stored pair inside it: when another tab already rotated it, this
+ *   tab takes that pair instead of spending the retired token (which would end the session for both).
+ *   Another tab's new tokens, sign-in or sign-out reach this one through the storage `watch`.
  */
 
 export interface TokenPairLike {
@@ -47,6 +51,8 @@ export interface SessionStoreOptions {
 }
 
 export const SESSION_KEY = 'driver.merchant.session';
+/** The lock every tab of the site takes around a refresh (web). */
+export const REFRESH_LOCK = 'driver-refresh';
 
 /** tRPC puts the HTTP status on `error.data.httpStatus`; our envelope adds `code`. */
 export function isAuthError(err: unknown): boolean {
@@ -110,6 +116,31 @@ export function createSessionStore(opts: SessionStoreOptions) {
     if (s) await opts.storage.setItem(key, JSON.stringify(s));
     else await opts.storage.removeItem(key);
   }
+
+  const shared = typeof opts.storage.lock === 'function';
+  const withLock = <T,>(fn: () => Promise<T>): Promise<T> => (opts.storage.lock ? opts.storage.lock(REFRESH_LOCK, fn) : fn());
+
+  /** Signed out here because another tab signed out (its storage is already empty). */
+  function endedElsewhere() {
+    const wasSignedIn = snapshot.status === 'signedIn';
+    generation += 1;
+    inflight = null;
+    set({ status: 'signedOut', session: null });
+    if (wasSignedIn) for (const l of signOutListeners) l();
+  }
+
+  // Another tab signed in, refreshed or signed out: take its pair (or its sign-out).
+  opts.storage.watch?.(key, (raw) => {
+    const next = parseStored(raw);
+    if (!next || refreshExpired(next)) {
+      if (snapshot.status !== 'signedOut') endedElsewhere();
+      return;
+    }
+    if (snapshot.session?.refreshToken === next.refreshToken) return;
+    generation += 1;
+    inflight = null;
+    set({ status: 'signedIn', session: next });
+  });
 
   const store = {
     getSnapshot: (): SessionSnapshot => snapshot,
@@ -179,16 +210,40 @@ export function createSessionStore(opts: SessionStoreOptions) {
       }
       const gen = generation;
       const run = refresher;
+      // A newer pair than the one this refresh started from (another tab's), already in place.
+      const replaced = () => snapshot.session !== null && snapshot.session.refreshToken !== s.refreshToken;
       inflight = (async () => {
         try {
-          const tokens = await run(s.refreshToken);
-          if (gen !== generation) return false;
-          const next = toStored(tokens, s.personId);
+          const got = await withLock(async (): Promise<{ adopt: StoredSession } | { gone: true } | { tokens: TokenPairLike } | null> => {
+            if (shared) {
+              // Inside the lock: another tab may have rotated the pair, or signed out, while this one waited.
+              let latest: StoredSession | null = null;
+              try {
+                latest = parseStored(await opts.storage.getItem(key));
+              } catch {
+                latest = s;
+              }
+              if (gen !== generation) return null;
+              if (!latest) return { gone: true };
+              if (latest.refreshToken !== s.refreshToken) return { adopt: latest };
+            }
+            return { tokens: await run(s.refreshToken) };
+          });
+          if (gen !== generation || !got) return replaced();
+          if ('gone' in got) {
+            endedElsewhere();
+            return false;
+          }
+          if ('adopt' in got) {
+            set({ status: 'signedIn', session: got.adopt });
+            return !refreshExpired(got.adopt);
+          }
+          const next = toStored(got.tokens, s.personId);
           set({ status: 'signedIn', session: next });
           await persist(next).catch(() => {});
           return true;
         } catch (err) {
-          if (gen !== generation) return false;
+          if (gen !== generation) return replaced();
           if (authError(err)) await store.signOut();
           return false;
         } finally {

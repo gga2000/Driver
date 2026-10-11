@@ -11,7 +11,7 @@ trips.reportPosition ─► (after commit) PositionFanout, ≤ 1 fix / 2 s / dri
 ```
 
 - **Events are compact**: ids plus `invalidate {keys[]}` (the queries to re-read) or a minimal patch —
-  `order_state`, `position` (courier fix), `driver_pin`, `new_order` (the kitchen's ring), `chat`.
+  `order_state`, `position` (courier fix), `driver_pin`, `new_order` (the kitchen's ring), `cancelled` (an order the kitchen had accepted was cancelled: the board shows a red card), `chat`.
   Every stream starts with `hello`. Data is always re-read through the ordinary queries, with their
   own auth and scoping: a lost event costs freshness, never correctness.
 - **Channels**: `order:<id>`, `driver:<personId>`, `merchant:<orgId>`, `chat:<orderId>:<kind>`,

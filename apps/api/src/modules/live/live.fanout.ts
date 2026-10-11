@@ -1,6 +1,7 @@
 import {
   ChatThreadKind,
   OrderState,
+  kitchenHeld,
   liveChannel,
   type LiveBusEvent,
   type LiveKey,
@@ -220,6 +221,12 @@ export async function fanout(e: FanoutInput, look: FanoutLookups): Promise<Publi
       if (e.type === 'order.offered_to_merchant' && p['autoAccept'] !== true)
         out.patch(liveChannel.merchant(order.merchantOrgId), {
           type: 'new_order',
+          orderId: id,
+          merchantOrgId: order.merchantOrgId,
+        });
+      if (e.type === 'order.cancelled' && kitchenHeld(p['from']))
+        out.patch(liveChannel.merchant(order.merchantOrgId), {
+          type: 'cancelled',
           orderId: id,
           merchantOrgId: order.merchantOrgId,
         });

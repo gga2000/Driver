@@ -338,6 +338,9 @@ export const aziziyah: CityPricingConfig = {
     intercity: scheduled,
     khat: preAssigned,
   },
+  // Launch day: food with taxis and tuktuks (Ali). الرجعة (intercity), خطوط, grocery, errands and
+  // parcels open later by adding them here; until then the server refuses their new work.
+  launchedVerticals: ['food', 'taxi', 'tuktuk'],
   creditCapsIqd: { bronze: 75000, silver: 150000, gold: 300000 },
   // Launch: every merchant deal waits for platform approval (domain §11); flip to false to self-serve.
   merchantDeals: { requirePlatformApproval: true, maxPercent: 50, maxDays: 60 },
