@@ -8,7 +8,8 @@ import { BAGHDAD_OFFSET_MIN } from '../../shared/local-time.js';
  * `graceAfterEndMin` ago). Anything else is refused: an SOS names the caller's own trip.
  */
 export interface SafetySources {
-  order(orderId: string): Promise<Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> | null>;
+  /** `riderId`: the person riding when a ride was booked for someone else (docs/api/ride-for-someone.md), else null. */
+  order(orderId: string): Promise<(Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> & { riderId: string | null }) | null>;
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string } | null>;
   trip(tripId: string): Promise<Pick<Trip, 'id' | 'cityId' | 'vertical' | 'state' | 'courierId' | 'vehicleId' | 'completedAt' | 'cancelledAt' | 'stops'> | null>;
   departure(departureId: string): Promise<{
@@ -32,6 +33,8 @@ export interface SafetySources {
     cityId: string | null;
     state: string;
     pickedDriverId: string | null;
+    /** The others in the car: friends who joined or paid for a place on a shared car, and the person fetched («جيب واحد»). */
+    passengerIds: string[];
     from: string;
     to: string;
     closedAt: Date | null;
@@ -39,6 +42,17 @@ export interface SafetySources {
   vehicle(courierId: string, vehicleId: string | null): Promise<{ plate: string; label: string | null } | null>;
   /** The trip's last driver fix (the API's fallback when the pressing phone has no GPS). */
   tripFix(tripId: string): Promise<{ lat: number; lng: number; at: Date } | null>;
+}
+
+/** The person riding a ride booked for someone else (its `rider` participant), else null. */
+export function rideRiderOf(participants: ReadonlyArray<{ role: string; personId: string | null }>): string | null {
+  return participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
+}
+
+/** The others in a private car: friends holding or having paid a place on the shared car, and the person fetched. */
+export function requestPassengers(r: { riderId: string; fetchPersonId: string | null; share: { members: ReadonlyArray<{ personId: string; state: string }> } | null }): string[] {
+  const sharers = (r.share?.members ?? []).filter((m) => m.state === 'joined' || m.state === 'paid').map((m) => m.personId);
+  return [...new Set([...sharers, ...(r.fetchPersonId ? [r.fetchPersonId] : [])])].filter((p) => p !== r.riderId);
 }
 
 export interface ResolvedSubject {
@@ -102,7 +116,8 @@ export async function resolveSubject(src: SafetySources, personId: string, subje
       const carried = await src.courierOf(order.id);
       let role: SosRole;
       let counterpartId: string | null;
-      if (order.ordererId === personId) [role, counterpartId] = ['customer', carried?.courierId ?? null];
+      // The booker, or the rider of a ride he booked for someone else: both are the customer side.
+      if (order.ordererId === personId || order.riderId === personId) [role, counterpartId] = ['customer', carried?.courierId ?? null];
       else if (carried?.courierId === personId) [role, counterpartId] = ['driver', order.ordererId];
       else throw new DriverError('sos_not_party');
       assertLive(order.deliveredAt ?? order.closedAt, CANCELLED_ORDER.has(order.state), now);
@@ -122,11 +137,11 @@ export async function resolveSubject(src: SafetySources, personId: string, subje
       let orderId: string | null = firstOrder?.id ?? null;
       if (trip.courierId === personId) [role, counterpartId] = ['driver', firstOrder?.ordererId ?? null];
       else {
-        // A customer of one of the trip's orders (a ride's rider; one of a batch's customers).
+        // A customer of one of the trip's orders (a ride's booker or rider; one of a batch's customers).
         let mine: string | null = null;
         for (const id of orderIds) {
           const o = id === firstOrder?.id ? firstOrder : await src.order(id);
-          if (o?.ordererId === personId) mine = o.id;
+          if (o && (o.ordererId === personId || o.riderId === personId)) mine = o.id;
         }
         if (!mine) throw new DriverError('sos_not_party');
         [role, counterpartId, orderId] = ['customer', trip.courierId, mine];
@@ -168,7 +183,7 @@ export async function resolveSubject(src: SafetySources, personId: string, subje
       if (!req) throw new DriverError('sos_not_party');
       let role: SosRole;
       let counterpartId: string | null;
-      if (req.riderId === personId) [role, counterpartId] = ['customer', req.pickedDriverId];
+      if (req.riderId === personId || req.passengerIds.includes(personId)) [role, counterpartId] = ['customer', req.pickedDriverId];
       else if (req.pickedDriverId && req.pickedDriverId === personId) [role, counterpartId] = ['driver', req.riderId];
       else throw new DriverError('sos_not_party');
       const done = req.state === 'completed';

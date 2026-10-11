@@ -47,7 +47,7 @@ const VERDICT_CLS: Record<GlanceTone, string> = {
 export function GlancePage() {
   const signedIn = useSignedIn();
   return (
-    <div className="mx-auto max-w-[440px]">
+    <div className="max-w-[440px]">
       <PageHeader title={t('console.glance.title')} subtitle={t('console.glance.subtitle')} />
       {!signedIn ? <NeedLogin /> : <Glance />}
     </div>

@@ -394,6 +394,8 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
 
   async open(actor: Actor, input: z.output<typeof OpenTicketInput>): Promise<TicketSummary> {
     const order = input.orderId ? await this.orders.get(input.orderId) : null;
+    // A ticket on an order is that order's customer's: another person named on it is refused.
+    if (order && input.customerId && input.customerId !== order.ordererId) throw new DriverError('invalid_input');
     const courier = input.orderId ? await this.trips.courierOf(input.orderId).catch(() => null) : null;
     const ticket = await this.uow.run(async (tx) => {
       const t = await this.create(
@@ -807,6 +809,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     if (!ticket.customerId) throw new DriverError('refund_no_customer');
     const customerId = ticket.customerId;
     const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
+    await this.assertRefundable(actor.personId, ticket, customerId, order, input.faultParty);
     const tier = await this.tierOf(actor.personId);
     // Without the second-OK queue an admin may go above 25,000 alone and everyone else is refused.
     if (!this.approvals && tier !== 'admin' && input.amountIqd > SUPPORT_LIMITS.escalateAboveIqd) throw new DriverError('refund_needs_escalation');
@@ -826,6 +829,17 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       await this.post({ actorId: actor.personId, auditorId: actor.personId, approvedBy: null, ticket, customerId, order, amountIqd: input.amountIqd, method: input.method, faultParty: input.faultParty, note: input.note ?? null, key: input.idempotencyKey, funder, now }, tx);
     });
     return this.get(actor, { ticketId: ticket.id });
+  }
+
+  /**
+   * Who may get a refund, checked when it is given and again when a second OK posts it: never the
+   * staff member giving it nor any staff account; on an order, only that order's customer; and the
+   * courier or the kitchen pays only when the ticket's fault was put on them first (with its note).
+   */
+  private async assertRefundable(actorId: string, ticket: TicketRecord, customerId: string, order: Order | null, faultParty: FaultParty): Promise<void> {
+    if (customerId === actorId || (await this.identity.holdsStaffRole(customerId))) throw new DriverError('staff_own_account');
+    if (order && order.ordererId !== customerId) throw new DriverError('invalid_input');
+    if ((faultParty === 'courier' || faultParty === 'merchant') && (!order || ticket.faultParty !== faultParty)) throw new DriverError('refund_fault_not_attributed');
   }
 
   /**
@@ -875,6 +889,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     if (!ticket.customerId) throw new DriverError('refund_no_customer');
     const p = row.payload as { method: 'wallet' | 'points'; faultParty: FaultParty; note: string | null; idempotencyKey: string };
     const order = ticket.orderId ? await this.orders.get(ticket.orderId).catch(() => null) : null;
+    await this.assertRefundable(row.requestedBy, ticket, ticket.customerId, order, p.faultParty);
     await this.repo.lockCustomer(ticket.customerId, tx);
     if (await this.repo.entryByKey(`refund:${p.idempotencyKey}`, tx)) return;
     if (order && (await this.refundedOnOrder(order.id, tx)) + row.amountIqd > order.totalIqd) throw new DriverError('refund_exceeds_order');

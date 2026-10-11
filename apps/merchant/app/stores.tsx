@@ -3,11 +3,15 @@ import { Pressable, View } from 'react-native';
 import { StatusPill, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { Page } from '@/components/Page';
+import { MyInvites } from '@/features/staff/MyInvites';
 import { useCurrentStore } from '@/features/store/queries';
 import { useT } from '@/lib/i18n';
 import { prefs, usePrefs } from '@/lib/prefs';
 
-/** Store picker: shown when a person works at more than one store, and from "بدّل المحل". */
+/**
+ * Store picker: shown when a person works at more than one store, and from "بدّل المحل". Invites
+ * waiting for him (PRV-08) show on top: accepting one opens that store.
+ */
 export default function Stores() {
   const theme = useTheme();
   const t = useT();
@@ -16,6 +20,7 @@ export default function Stores() {
   return (
     <Page title={t('merchant.stores.title')} subtitle={t('merchant.stores.subtitle')} back={access === 'ready'} maxWidth={640} testID="stores">
       <View style={{ gap: theme.space[3] }}>
+        <MyInvites testID="stores" />
         {stores.map((s) => {
           const current = s.orgId === p.storeId;
           return (
@@ -54,6 +59,14 @@ export default function Stores() {
             </Pressable>
           );
         })}
+        {stores.length > 1 ? (
+          <View testID="stores-ring-note" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingHorizontal: theme.space[2] }}>
+            <MIcon name="bell" size={18} color="textMuted" />
+            <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
+              {t('merchant.stores.ring_note')}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Page>
   );

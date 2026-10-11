@@ -6,6 +6,11 @@ import { OUTBOX_LEASE_MS } from './timestamps.js';
 import { fromEnvelope, toEnvelope, type Aggregate, type OutboxPatch, type OutboxRecord, type OutboxStats, type OutboxStatus, type StoredEvent } from './events.types.js';
 
 export interface EventFilter {
+  /**
+   * `actorId`/`tripId`/`orderId` read the indexed `actor_id`/`trip_id`/`order_id` columns, so they
+   * find the events of a person, trip or order that is a row. An id that is not a row (a system
+   * actor such as `system:ledger`, a test id) is stored with a NULL column and found by aggregate only.
+   */
   actorId?: string;
   tripId?: string;
   orderId?: string;
@@ -49,6 +54,10 @@ export interface EventsRepository {
   insert(event: StoredEvent, tx?: Tx): Promise<{ event: StoredEvent; inserted: boolean }>;
   /** Events in recording order. */
   find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]>;
+  /** `occurredAt` of the person's earliest event (indexed `actor_id`), or null when he has none. */
+  firstOccurredAt(actorId: string): Promise<Date | null>;
+  /** How many of the person's events have one of `types`, counting no further than `cap`. */
+  countUpTo(actorId: string, types: readonly string[], cap: number): Promise<number>;
   outboxStats(): Promise<OutboxStats>;
   /** When the most overdue pending row became due (`next_attempt_at <= now`); null when none is due. */
   oldestDueAt(now: Date): Promise<Date | null>;
@@ -117,7 +126,9 @@ interface ClaimRow {
  * Prisma/Postgres implementation. Events are written with raw SQL for `ON CONFLICT DO NOTHING`
  * and the geography column. `actor_id`/`trip_id`/`order_id` are foreign keys, so they are stored
  * only when they resolve (system actors such as `system:ledger` are not people); the outbox
- * `payload` always carries the full event, and reads come from it.
+ * `payload` always carries the full event, and reads come from it. Every writer names a person,
+ * trip or order it has just read or created in the same transaction, and none of those rows is ever
+ * deleted, so the columns are the lookup keys (no `payload->>` fallback: that scanned the outbox).
  */
 export class PrismaEventsRepository implements EventsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -164,15 +175,11 @@ export class PrismaEventsRepository implements EventsRepository {
     assertKeyedFilter(filter);
     if (filter.orderIds && filter.orderIds.length === 0) return [];
     const where: Prisma.Sql[] = [];
-    // Indexed column when the id resolved to a row, envelope otherwise (system actors, unknown trips).
-    const ref = (col: string, key: string, v: string) =>
-      Prisma.sql`(e.${Prisma.raw(`"${col}"`)} = ${v} OR (e.${Prisma.raw(`"${col}"`)} IS NULL AND o."payload"->>${key} = ${v}))`;
-    if (filter.actorId) where.push(ref('actor_id', 'actorId', filter.actorId));
-    if (filter.tripId) where.push(ref('trip_id', 'tripId', filter.tripId));
-    if (filter.orderId) where.push(ref('order_id', 'orderId', filter.orderId));
+    if (filter.actorId) where.push(Prisma.sql`e."actor_id" = ${filter.actorId}`);
+    if (filter.tripId) where.push(Prisma.sql`e."trip_id" = ${filter.tripId}`);
+    if (filter.orderId) where.push(Prisma.sql`e."order_id" = ${filter.orderId}`);
     if (filter.aggregate) where.push(Prisma.sql`e."aggregate" = ${filter.aggregate.name} AND e."aggregate_id" = ${filter.aggregate.id}`);
     if (filter.before) where.push(Prisma.sql`(e."recorded_at", e."id") < (${ts(filter.before.recordedAt)}, ${filter.before.id})`);
-    // Indexed `order_id` only (no envelope fallback: an OR there would scan every unresolved row).
     if (filter.orderIds) where.push(Prisma.sql`e."order_id" = ANY(${[...new Set(filter.orderIds)]}::text[])`);
     if (filter.types) where.push(filter.types.length === 0 ? Prisma.sql`FALSE` : Prisma.sql`e."type" = ANY(${[...new Set(filter.types)]}::text[])`);
     if (filter.from) where.push(Prisma.sql`e."occurred_at" >= ${ts(filter.from)}`);
@@ -182,6 +189,16 @@ export class PrismaEventsRepository implements EventsRepository {
       SELECT o."payload" FROM "public"."events" e JOIN "public"."outbox" o ON o."event_id" = e."id"
       ${cond} ORDER BY e."recorded_at", e."id"`;
     return rows.map((r) => fromEnvelope(r.payload));
+  }
+
+  async firstOccurredAt(actorId: string): Promise<Date | null> {
+    const first = await this.prisma.prisma.event.findFirst({ where: { actorId }, orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } });
+    return first?.occurredAt ?? null;
+  }
+
+  async countUpTo(actorId: string, types: readonly string[], cap: number): Promise<number> {
+    if (types.length === 0 || cap <= 0) return 0;
+    return this.prisma.prisma.event.count({ where: { actorId, type: { in: [...new Set(types)] } }, take: cap });
   }
 
   async outboxStats(): Promise<OutboxStats> {

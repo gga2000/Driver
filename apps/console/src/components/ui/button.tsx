@@ -26,8 +26,9 @@ const PRESSED =
   'aria-pressed:border-accent/70 aria-pressed:bg-accent-tint aria-pressed:font-semibold aria-pressed:text-text';
 
 const VARIANT: Record<ButtonVariant, string> = {
+  // Disabled saffron at half opacity read as washed-out text on cream; a quiet grey fill stays legible.
   primary:
-    'bg-accent font-semibold text-on-accent shadow-card hover:bg-accent-hover active:translate-y-px',
+    'bg-accent font-semibold text-on-accent shadow-card hover:bg-accent-hover active:translate-y-px disabled:bg-surface-3 disabled:text-muted disabled:opacity-100 disabled:shadow-none disabled:active:translate-y-0',
   secondary: `border border-line bg-surface text-text shadow-card hover:border-line-strong hover:bg-surface-2 ${PRESSED}`,
   ghost: `text-muted hover:bg-surface-2 hover:text-text ${PRESSED}`,
   danger: 'bg-bad-solid font-semibold text-on-bad shadow-card hover:opacity-90',

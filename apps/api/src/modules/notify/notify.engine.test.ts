@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderError } from '../../shared/messaging/http.js';
 import { inQuietHours, quietHoursEnd } from './notify.engine.js';
+import { twinStillWanted } from './notify.subscribers.js';
 import type { PromoHold } from '../controls/index.js';
 import { CallbackWhatsApp, notifyHarness, ScriptedPush } from './test-harness.js';
 
@@ -201,6 +202,22 @@ describe('SMS twins', () => {
     expect(rows.map((r) => [r.channel, r.status, r.twin])).toEqual([
       ['push', 'sent', false],
       ['sms', 'sent', true],
+    ]);
+  });
+
+  it('sends no new-order twin once the order no longer waits for the kitchen (accepted in the 30 s)', async () => {
+    const push = new ScriptedPush();
+    let waiting = true;
+    const h = notifyHarness({ push, twinWanted: (row) => twinStillWanted({ order: async (id) => (id === 'o1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'm1', totalIqd: 0, itemCount: 1, waitingForKitchen: waiting } : null) }, row) });
+    await h.register('owner', 'ExponentPushToken[owner-1]', 'merchant');
+    await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', orderId: 'o1', params: { id: 'X', items: '1', orderId: 'o1' } });
+    await h.run();
+    waiting = false;
+    await h.run(30 * SEC);
+    expect(h.sms.sent).toHaveLength(0);
+    expect((await h.rows({ orderId: 'o1' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'sent', null],
+      ['sms', 'suppressed', 'no_longer_needed'],
     ]);
   });
 

@@ -62,3 +62,12 @@ describe('merchant copy (voice guide)', () => {
     expect(translate('merchant.card.since', {}, 'ar-IQ')).toBe('من {minutes} دقيقة');
   });
 });
+
+describe('English copy (AXC-14)', () => {
+  it('has no Arabic script, except the name of the Arabic language itself', () => {
+    const arabic = /[؀-ۿ]/;
+    const allowed = new Set(['merchant.settings.lang_ar']);
+    const leaks = Object.entries(en).filter(([k, v]) => !allowed.has(k) && arabic.test(v ?? ''));
+    expect(leaks).toEqual([]);
+  });
+});

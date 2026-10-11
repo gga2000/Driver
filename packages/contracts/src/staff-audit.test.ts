@@ -67,6 +67,9 @@ const AUDITED = [
   'routes.ops.cancelDeparture',
   'routes.ops.arriveDeparture',
   'routes.ops.closeDeparture',
+  // Cash staff take in: a courier's hand-in on the round, a customer's top-up at the counter.
+  'ops.recordCashReceipt',
+  'ops.confirmTopUp',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */
@@ -86,17 +89,15 @@ const GAPS: Record<string, string> = {
   'onCall.present': 'heartbeat (a screen is open), not an action',
   'onCall.handoverAck': 'a read receipt on the handover note (who read it is the row itself), not an action',
   'ops.completeTask': 'stored on the task',
-  'ops.confirmTopUp': 'ledger entries only (cash, CON-10)',
   'ops.menuPhotos.addShot': 'stored on the shot',
   'ops.menuPhotos.markShot': 'stored on the shot',
   'ops.menuPhotos.schedule': 'stored on the schedule',
   'ops.merchantOnboarding': 'no trail',
-  'ops.recordCashReceipt': 'ledger entries only (cash receipt, CON-10)',
   'routes.ops.callPinAlertDriver': 'no trail',
   'safety.note': 'stored on the incident',
   'support.chatRead': 'read marker, not an action (may stay a gap)',
-  'system.simulator.start': 'dev tool, off in production',
-  'system.simulator.stop': 'dev tool, off in production',
+  'system.simulator.start': 'dev tool; the API refuses it on production (simulator.service test)',
+  'system.simulator.stop': 'dev tool; nothing runs on production to stop',
   'trips.cancel': 'trip event only (dispatcher path)',
   'trips.fail': 'trip event only (dispatcher path)',
 };

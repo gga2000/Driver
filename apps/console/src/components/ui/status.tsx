@@ -145,9 +145,10 @@ export function LiveBadge({
         data-testid="live-badge"
         data-state="live"
         title={label}
-        className="inline-flex h-8 w-8 items-center justify-center"
+        className="inline-flex h-8 items-center gap-1.5 text-xs font-medium text-muted"
       >
         <StatusDot tone="ok" pulse={fetching} />
+        <span aria-hidden>{t('console.live_short')}</span>
         <span className="sr-only">{label}</span>
       </span>
     );

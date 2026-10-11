@@ -20,6 +20,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
+import { AuditLogService } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
 import { Accounts, LedgerService, type PostingGroup } from '../ledger/index.js';
 import { ORDER_OUTCOME_RULES, type OrderOutcomeRules } from '../orders/index.js';
@@ -46,9 +47,10 @@ export function courierCarriesOrderOf(
   };
 }
 
-/** Names on the agent's screen: the customer's first name and masked phone (vault read, logged). */
+/** Names on the agent's screen: the customer's first name and masked phone (vault read, logged); whether he is staff. */
 export interface TopUpPeople {
   cards(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, { name: string | null; phoneMasked: string }>>;
+  isStaff(personId: string): Promise<boolean>;
 }
 
 /**
@@ -66,6 +68,8 @@ export const TOPUP_COURIER_CHECK = Symbol('TOPUP_COURIER_CHECK');
 export const TOPUP_PEOPLE = Symbol('TOPUP_PEOPLE');
 
 const HOUR_MS = 3_600_000;
+/** Top-ups carry no city of their own; one city today (the audit page reads by city). */
+const TOPUP_CITY = 'aziziyah';
 const QR_PREFIX = 'DRVTU:';
 
 /** `T-XXXX-XXXX` for the receipt; stable per top-up (Crockford base32, read aloud easily). */
@@ -103,6 +107,7 @@ export class TopUpService implements TopUpPort {
     @Inject(TOPUP_PEOPLE) private readonly people: TopUpPeople,
     /** THIN-12 / M-13: `agentCashAccounts` (off by default) keeps an agent's top-up cash on his own account. */
     @Optional() @Inject(ORDER_OUTCOME_RULES) private readonly outcomes?: Pick<OrderOutcomeRules, 'agentCashAccounts'>,
+    @Optional() private readonly audits?: AuditLogService,
   ) {
     this.requestLock = new DistributedKeyedLock(uow, 'topups.request');
   }
@@ -171,6 +176,8 @@ export class TopUpService implements TopUpPort {
       if (row.state === 'cancelled') throw new DriverError('topup_code_invalid');
       if (topUpState(row, now) === 'expired') throw new DriverError('topup_expired');
       if (input.amountIqd !== row.amountIqd) throw new DriverError('topup_amount_mismatch');
+      // Nobody confirms his own top-up, and field ops never confirm one on a staff account.
+      if (row.customerId === actor.personId || (channel === 'ops_agent' && (await this.people.isStaff(row.customerId)))) throw new DriverError('staff_own_account');
       if (channel === 'courier' && !(await this.couriers.carriesOrderOf(actor.personId, row.customerId))) throw new DriverError('topup_courier_not_assigned');
       const reference = topUpReference(row.id);
       const ok = await this.repo.confirm(row.id, { confirmedAt: now, confirmedById: actor.personId, channel, reference, idempotencyKey: input.idempotencyKey ?? null }, tx);
@@ -198,6 +205,12 @@ export class TopUpService implements TopUpPort {
         },
         { name: 'wallet_topup', id: row.id },
       );
+      if (channel === 'ops_agent') {
+        await this.audits?.record(
+          { cityId: TOPUP_CITY, actorId: actor.personId, action: 'wallet.topup_confirm', subjectKind: 'wallet_topup', subjectId: row.id, summaryAr: `ثبّت شحن محفظة ${row.amountIqd.toLocaleString('en-US')} دينار كاش`, detail: { customerId: row.customerId, amountIqd: row.amountIqd, reference, from } },
+          tx,
+        );
+      }
       return { ...row, state: 'confirmed' as const, confirmedAt: now, confirmedById: actor.personId, channel, reference, idempotencyKey: input.idempotencyKey ?? null };
     });
     const card = (await this.people.cards([done.customerId], actor.personId, 'wallet_topup'))[done.customerId];
