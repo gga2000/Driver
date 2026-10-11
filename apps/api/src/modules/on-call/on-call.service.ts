@@ -38,6 +38,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
@@ -66,8 +67,8 @@ const DESK_AR: Record<OnCallDesk, string> = { sos: 'الطوارئ', cash: 'ال
 const DESKS: readonly OnCallDesk[] = ['sos', 'cash'];
 
 export interface OnCallConfig {
-  /** The Console origin, for the link in the WhatsApp ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The Console origin, for the link in the WhatsApp ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
   /** How often the ladder sweep runs (0: off; tests drive `tick()` themselves). */
   tickMs: number;
 }
@@ -479,7 +480,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
       name: await this.raiserName(l),
       role: ROLE_AR[l.brief.role ?? ''] ?? 'شخص',
       what: this.what(l.brief),
-      link: `${this.config.consoleBase.replace(/\/$/, '')}/safety/${l.alertId}`,
+      link: consoleLinkParam(this.config.consoleBase, `/safety/${l.alertId}`, l.alertId),
       incidentId: l.alertId,
     };
     for (const personId of to) {

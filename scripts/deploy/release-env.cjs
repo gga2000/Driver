@@ -5,6 +5,10 @@
 //     refuses a missing address, one on this computer or a private network, one that is not https
 //     or not /trpc, and the customer app refuses without EXPO_PUBLIC_SHARE_BASE_URL (on a phone,
 //     share and invite links need it);
+//   - the partner and merchant apps may carry EXPO_PUBLIC_CONSOLE_URL, the Console a staff safety alert
+//     opens. It is optional (without it the alert screen says to open the Console on a computer and shows
+//     no link, so no unowned address ever ships in a safety link): a release without it only warns, and
+//     a set one must be a public https address;
 //   - any other production bundle (`expo export`) with no EXPO_PUBLIC_API_URL only warns: screenshot,
 //     size and speed checks export on purpose without a real server and are never shipped.
 // So a bare `eas update` is the one path left unchecked: always publish through the script.
@@ -30,6 +34,8 @@ function urlProblem(name, raw) {
 }
 
 const NO_API = 'EXPO_PUBLIC_API_URL is not set: every phone would call localhost';
+const NO_CONSOLE = 'EXPO_PUBLIC_CONSOLE_URL is not set: a staff safety alert tapped on this app says to open the Console on a computer, with no link';
+const STAFF_APPS = new Set(['partner', 'merchant']);
 
 /** What is wrong with this app's environment for a release ([] = nothing, and always [] outside a release). */
 function releaseEnvProblems(app, env) {
@@ -50,7 +56,21 @@ function releaseEnvProblems(app, env) {
       if (p) problems.push(p);
     }
   }
+  if (STAFF_APPS.has(app)) {
+    const consoleUrl = (env.EXPO_PUBLIC_CONSOLE_URL || '').trim();
+    if (consoleUrl) {
+      const p = urlProblem('EXPO_PUBLIC_CONSOLE_URL', consoleUrl);
+      if (p) problems.push(p);
+    }
+  }
   return problems;
+}
+
+/** Optional settings a release goes without (warned, never refused). */
+function releaseEnvWarnings(app, env) {
+  if (!isRelease(env)) return [];
+  if (STAFF_APPS.has(app) && !(env.EXPO_PUBLIC_CONSOLE_URL || '').trim()) return [NO_CONSOLE];
+  return [];
 }
 
 function assertReleaseEnv(app, env = process.env, warn = console.warn) {
@@ -58,6 +78,7 @@ function assertReleaseEnv(app, env = process.env, warn = console.warn) {
     if (env.NODE_ENV === 'production' && !(env.EXPO_PUBLIC_API_URL || '').trim()) warn(`! Driver ${app}: ${NO_API} (fine for a size or screenshot check, never ship this bundle)`);
     return;
   }
+  for (const w of releaseEnvWarnings(app, env)) warn(`! Driver ${app}: ${w}`);
   const problems = releaseEnvProblems(app, env);
   if (!problems.length) return;
   throw new Error(
@@ -88,7 +109,7 @@ function webBuildProblems(app, env) {
   return problems;
 }
 
-module.exports = { releaseEnvProblems, assertReleaseEnv, isRelease, webBuildProblems };
+module.exports = { releaseEnvProblems, releaseEnvWarnings, assertReleaseEnv, isRelease, webBuildProblems };
 
 // `node scripts/deploy/release-env.cjs web <app>`: the web build's check, run by vercel-build.sh.
 if (require.main === module && process.argv[2] === 'web') {

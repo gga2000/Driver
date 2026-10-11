@@ -239,7 +239,7 @@ describe('khat substitutes', () => {
 });
 
 /** The run above with the sweep timer, the masked-call bridge, notify and the audit log wired. */
-async function sweepSetup() {
+async function sweepSetup(consoleBase: string | null = null) {
   const h = await setup();
   const queue = new InMemoryQueue<SweepCheckJob>('khat.timers', () => h.t.clock.now());
   const opened: Array<{ orderId: string; callerId: string; calleeId: string }> = [];
@@ -262,7 +262,7 @@ async function sweepSetup() {
   const notify = new NotifyService(undefined, engine, nrepo, h.t.clock);
   const controls = new InMemoryControlsRepository();
   const audits = new AuditLogService(controls, new StaffNames(h.id.service, h.t.clock), h.t.clock);
-  const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls, queue, DEFAULT_KHAT_CONFIG, notify, audits);
+  const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls, queue, { ...DEFAULT_KHAT_CONFIG, consoleBase }, notify, audits);
   khat.onModuleInit();
   // The desk: a dispatcher and an admin (paged, as for SOS), support (sees the strip, not paged).
   const dispatcher = (await h.id.login('07700000900')).actor;
@@ -443,8 +443,8 @@ describe('khat sweep alert: page and close', () => {
   const MIN = 60_000;
   const AFTER = KHAT_RULES.sweepAlertAfterMin * MIN;
 
-  async function raised() {
-    const h = await sweepSetup();
+  async function raised(consoleBase: string | null = null) {
+    const h = await sweepSetup(consoleBase);
     await h.finishRun();
     await h.advance(AFTER);
     const [alert] = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
@@ -471,6 +471,17 @@ describe('khat sweep alert: page and close', () => {
     await h.advance(AFTER);
     expect(await h.paged(h.dispatcher.personId)).toHaveLength(2);
     expect(await h.paged(h.admin.personId)).toHaveLength(2);
+  });
+
+  it('links the WhatsApp to the Console only when its address is set; otherwise the alert number, no link', async () => {
+    const unset = await raised();
+    const body = (await unset.paged(unset.dispatcher.personId)).find((d) => d.channel === 'whatsapp')?.payload.body ?? '';
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain(`رقم التنبيه: ${unset.alert.alertId}، افتح الكونسول من الكمبيوتر`);
+
+    const linked = await raised('https://console.example.com/');
+    const wa = (await linked.paged(linked.dispatcher.personId)).find((d) => d.channel === 'whatsapp');
+    expect(wa?.payload.body).toContain('https://console.example.com/safety');
   });
 
   it('pages nobody when the driver confirmed the car is empty in time', async () => {
