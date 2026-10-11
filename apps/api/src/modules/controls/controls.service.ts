@@ -257,7 +257,7 @@ export class ControlsService implements ControlsPort {
    * without a switch (`service_paused`, "not open yet").
    */
   assertLaunched(cityId: string, vertical: Vertical): void {
-    if (!this.config.isLaunched(cityId, vertical)) throw new DriverError('service_paused', { messageAr: t('console.ctl_refusal_not_launched', { name: VERTICAL_AR[vertical] }) });
+    if (!this.config.isLaunched(cityId, vertical)) throw new DriverError('service_paused', { messageAr: t('soon.not_open_yet', { name: VERTICAL_AR[vertical] }) });
   }
 
   /** الرجعة booking: not launched yet, or a switched-off corridor (or the intercity vertical), refuses new holds. */
