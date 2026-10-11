@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import type { CameraRef, LayerProps } from '@maplibre/maplibre-react-native';
 import * as golden from '@driver/map/golden';
+import * as pieces from '@driver/map/pieces';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
 import { barLiftPx, garageCars, LOT_GLIDE_MS, lotCamera, seatBarPaint, spreadBays } from './garage-cars';
@@ -25,7 +26,7 @@ export function GarageLot({ lotKey, garageId, departures, labelOf, selectedId, o
   const [ready, setReady] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const light = useMemo(() => golden.resolveLight().light, []);
-  const bays = golden.GARAGE_BAYS[lotKey];
+  const bays = pieces.GARAGE_BAYS[lotKey];
   const cam = useMemo(() => lotCamera(bays), [bays]);
   // The chips sit just over their car's bar once the camera has settled over the lot (it then holds still).
   const lift = cam && !lite ? Math.round(barLiftPx(cam.zoom, cam.pitch, cam.center[1])) : 0;
@@ -44,11 +45,11 @@ export function GarageLot({ lotKey, garageId, departures, labelOf, selectedId, o
     return { ...s, layers } as typeof s;
   }, [light, lite]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
-  const seats = useMemo(() => golden.garageSeatsGeoJSON(cars) as GeoJSON.FeatureCollection, [cars]);
+  const seats = useMemo(() => pieces.garageSeatsGeoJSON(cars) as GeoJSON.FeatureCollection, [cars]);
   // Over the garage's roof, not under it (see `seatBarPaint`).
   const layers = useMemo(
     () =>
-      golden.garageSeatLayers({ source: SOURCE, light }).map((l) =>
+      pieces.garageSeatLayers({ source: SOURCE, light }).map((l) =>
         l.type === 'fill-extrusion' ? { ...l, paint: { ...l.paint, 'fill-extrusion-base': seatBarPaint().base, 'fill-extrusion-height': seatBarPaint().height } } : l,
       ),
     [light],
@@ -153,7 +154,7 @@ export function GarageLot({ lotKey, garageId, departures, labelOf, selectedId, o
           })}
         </ml.Map>
       </View>
-      {legend ? legend(golden.garageSeatColours(light)) : null}
+      {legend ? legend(pieces.garageSeatColours(light)) : null}
     </>
   );
 }

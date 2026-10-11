@@ -9,7 +9,8 @@ import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { barLiftPx, garageCars, LOT_GLIDE_MS, lotCamera, seatBarPaint, spreadBays, type GarageBay } from './garage-cars';
 import type { GarageLotProps, LotCar, SeatColours } from './garage-lot-types';
 
-type Golden = typeof import('@driver/map/golden');
+// The map's base (`golden`) and the screens' pieces (`pieces`: the seat bars, its own entry so other screens don't carry it).
+type Golden = typeof import('@driver/map/golden') & typeof import('@driver/map/pieces');
 
 /** Whether this build can draw the garage (web, with our map files set up). */
 export const GARAGE_LOT_MAP = GOLDEN_MAP;
@@ -138,8 +139,9 @@ export function GarageLot({ lotKey, garageId, departures, labelOf, selectedId, o
     let cancelled = false;
     let map: MlMap | null = null;
     let stopFallback: (() => void) | undefined;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden')])
-      .then(async ([mod, golden]) => {
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces')])
+      .then(async ([mod, base, pieces]) => {
+        const golden: Golden = { ...base, ...pieces };
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
