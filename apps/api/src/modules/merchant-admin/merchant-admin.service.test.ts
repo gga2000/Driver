@@ -308,11 +308,12 @@ describe('merchantAdmin.deals', () => {
     expect(deal).toMatchObject({ state: 'pending_approval', state_ar: 'بانتظار موافقة المنصة', active: false, funder: 'merchant' });
 
     const admin = await h.person('07700000009', 'admin');
-    const approved = await h.svc.dealsReview(admin, { dealId: deal.dealId, approve: true });
+    // The platform approves through the Console queue (approvals.decide → promotions.review).
+    const approved = await h.promotions.review(deal.dealId, true, admin.personId);
     expect(approved).toMatchObject({ state: 'approved', active: true });
     const paused = await h.svc.dealsSetActive(h.owner, { merchantOrgId: h.orgId, dealId: deal.dealId, active: false });
     expect(paused).toMatchObject({ state: 'paused', active: false });
-    await expect(h.svc.dealsReview(admin, { dealId: deal.dealId, approve: true })).rejects.toMatchObject({ code: 'deal_state_conflict' });
+    await expect(h.promotions.review(deal.dealId, true, admin.personId)).rejects.toMatchObject({ code: 'deal_state_conflict' });
     expect((await h.svc.dealsList(h.staff, { merchantOrgId: h.orgId })).map((d) => d.dealId)).toEqual([deal.dealId]);
   });
 });
