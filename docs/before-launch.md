@@ -110,6 +110,7 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - A blocked or expired driver goes offline only at his next check-in (up to 30 seconds).
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
+- Field ops re-check the draft Baghdad-road meeting point «مفرق المدائن» (33.0985, 44.5802 in `apps/api/src/modules/routes/intercity.config.ts`): it is about 8 km off the fast road, which runs through الوحدة and الزعفرانية (found while drawing the N13 road map, 2026-10-11).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.
 
 ## 7. Platform (servers, tests, alerts): dated work and parked items
