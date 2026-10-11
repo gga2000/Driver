@@ -78,8 +78,8 @@ if (golden) {
 map.on('load', () => map.addLayer(routeLayer, golden ? GOLDEN_FIRST_LABEL : undefined));
 ```
 Rebuild the style when the light changes (check every 10 minutes; the change is a quiet cross-fade, no
-animation loop). On phones the native map needs a development build (`@maplibre/maplibre-react-native`);
-until then the web studio shows the real map and the phones keep the zone sketch.
+animation loop). On phones the native map (`@maplibre/maplibre-react-native`, development builds only;
+Expo Go keeps the zone sketch) draws the same style, street life, glint and flattened houses (see below).
 
 ## Trips on the map: routes and pins in the service colour
 `goldenRouteLayers({ service, light, routeSource, pinSource, id })` draws one trip, added before
@@ -143,6 +143,7 @@ from 3 concepts, a roast and a taste pass (frames: `/mnt/project-files/map-desig
   - Fewer at night, none in alleys.
   - `moving: false` on slow phones and with reduce-motion gives a still scene.
 - **For the screen owner:** read the roads with `querySourceFeatures(GOLDEN_SOURCE, { sourceLayer: 'roads' })` on `moveend`. Feed `lifeFrame()` to a GeoJSON source each animation frame while the map is at street zoom, and stop the loop below it or when the screen is hidden.
+- **Phones** (`StreetLifeLayers.tsx`): every frame would cross the bridge, so the scene is split. Parked cars and people standing go to one source once per camera stop. Moving cars and walkers go to a second source about 12 times a second, paused when the app is in the background. The road-ahead glint steps about 15 times a second for its 2.4 s. On the restaurant map the house layers are adopted by id, so the houses facing a chosen shop lie flat without reloading the style.
 
 ## Landmarks in 3D (Ali, 2026-10-09: "not real spot, make good looking design for each")
 
