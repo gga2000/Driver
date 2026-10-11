@@ -185,7 +185,12 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     expect(await service.storedFileRefs(res.personId, personId)).toEqual(['up_it_close']);
     expect((await service.accountCloseState(res.personId)).closable).toBe(true);
 
+    const sessionIds = (await prisma.prisma.session.findMany({ where: { personId: res.personId }, select: { id: true } })).map((x) => x.id);
+    expect(sessionIds.length).toBeGreaterThan(0);
     expect(await service.closeAccount(res.personId, personId)).toBe(true);
+    // Each deleted session is announced as signed out (notify drops its push tokens on it).
+    const signedOut = events.events.filter((e) => e.type === 'session.signed_out' && e.payload['personId'] === res.personId).map((e) => e.payload['sessionId']);
+    expect(signedOut.sort()).toEqual([...sessionIds].sort());
     const db = prisma.prisma;
     expect(await db.personIdentity.findUnique({ where: { personId: res.personId } })).toBeNull();
     expect(await db.session.count({ where: { personId: res.personId } })).toBe(0);

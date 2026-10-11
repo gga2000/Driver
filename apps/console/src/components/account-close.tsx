@@ -130,5 +130,7 @@ function blockerText(b: AccountCloseBlocker): string {
       return t('console.close_block_unpaid_settlement', { amount });
     case 'wallet_balance':
       return t('console.close_block_wallet_balance', { amount });
+    case 'sole_owner_of_open_store':
+      return t('console.close_block_sole_owner_of_open_store', { count: b.count ?? 0 });
   }
 }

@@ -37,6 +37,8 @@ export const AccountCloseBlockerKind = z.enum([
   'unpaid_settlement',
   /** Money in his own customer wallet. */
   'wallet_balance',
+  /** He is the only owner of a store that still takes orders: pause it (closed until reopened) or hand it to another owner first. */
+  'sole_owner_of_open_store',
 ]);
 export type AccountCloseBlockerKind = z.infer<typeof AccountCloseBlockerKind>;
 

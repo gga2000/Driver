@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DriverError, type AccountCloseBlocker, type AccountClosePort, type AccountCloseView, type Actor, type CloseAccountInput, type CloseAccountOutput } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { afterCommit, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
 import { IdentityService } from '../identity/index.js';
 import { Accounts, LedgerService } from '../ledger/index.js';
+import { NotifyService } from '../notify/index.js';
+import { closedNow, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { DeparturesService } from '../routes/index.js';
 import { SupportService } from '../support/index.js';
@@ -13,9 +15,11 @@ import { TripsService } from '../trips/index.js';
 /**
  * Console › close a partner's or merchant's account (docs/api/account-close.md), admin only. Owns no
  * tables: it asks the owning modules what stands in the way (cash he holds, a job he is on, money not
- * settled), deletes his document, selfie and photo files, then has identity close the account (vault
- * rows, sessions, roles) with the audit row and the deletion case's resolution in one transaction.
- * The ledger, trips, departures and documents' status rows stay, under his opaque id.
+ * settled, a store only he owns still taking orders), then in one transaction checks that again, has
+ * identity close the account (vault rows, sessions, roles; each session announced as signed out), has
+ * notify drop every push token of his, writes the audit row and resolves the deletion case. His
+ * document, selfie and photo files are deleted once that has committed. The ledger, trips, departures
+ * and documents' status rows stay, under his opaque id.
  */
 @Injectable()
 export class AccountCloseService implements AccountClosePort {
@@ -27,6 +31,8 @@ export class AccountCloseService implements AccountClosePort {
     private readonly trips: TripsService,
     private readonly departures: DeparturesService,
     private readonly support: SupportService,
+    private readonly orgs: OrgsService,
+    private readonly notify: NotifyService,
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
@@ -46,11 +52,14 @@ export class AccountCloseService implements AccountClosePort {
     if (state.closedAt) return { personId: input.personId, closable: true, closedAt: state.closedAt, blockers: [], filesRemoved: 0 };
     if ((await this.blockers(input.personId)).length > 0) throw new DriverError('account_close_blocked');
     if (input.ticketId && !(await this.support.deletionCaseOpen(input.ticketId, input.personId))) throw new DriverError('invalid_input');
-    // The bytes go first: once the vault row is gone nothing points at them any more.
-    const refs = await this.identity.storedFileRefs(input.personId, actor.personId);
-    for (const ref of refs) await this.blobs.remove(ref);
-    const closedAt = await this.uow.run(async (tx) => {
+    const done = await this.uow.run(async (tx) => {
+      // Checked again inside the transaction, right before anything is erased (his roles are still live).
+      if ((await this.blockers(input.personId)).length > 0) throw new DriverError('account_close_blocked');
+      // The refs are read before identity deletes the vault rows that hold them.
+      const refs = await this.identity.storedFileRefs(input.personId, actor.personId);
+      // Identity locks the person's row, so two admins pressing at once close him once.
       if (!(await this.identity.closeAccount(input.personId, actor.personId))) return null;
+      await this.notify.removePersonTokens(input.personId, tx);
       const now = this.clock.now();
       await this.audits.record(
         {
@@ -65,15 +74,28 @@ export class AccountCloseService implements AccountClosePort {
         tx,
       );
       if (input.ticketId) await this.support.resolveDeletion(actor, { ticketId: input.ticketId, personId: input.personId, resolution: input.note });
-      return now;
+      // The bytes go only once the close has committed: a rollback leaves him whole, files included.
+      afterCommit(tx, () => this.removeFiles(input.personId, refs));
+      return { closedAt: now, filesRemoved: refs.length };
     });
-    if (!closedAt) {
+    if (!done) {
       // Another admin closed it a moment ago; report what is there now.
       const now = await this.identity.accountCloseState(input.personId);
-      return { personId: input.personId, closable: true, closedAt: now.closedAt, blockers: [], filesRemoved: refs.length };
+      return { personId: input.personId, closable: true, closedAt: now.closedAt, blockers: [], filesRemoved: 0 };
     }
-    this.log.log(`account ${input.personId} closed by ${actor.personId} (${refs.length} files)`);
-    return { personId: input.personId, closable: true, closedAt, blockers: [], filesRemoved: refs.length };
+    this.log.log(`account ${input.personId} closed by ${actor.personId} (${done.filesRemoved} files)`);
+    return { personId: input.personId, closable: true, closedAt: done.closedAt, blockers: [], filesRemoved: done.filesRemoved };
+  }
+
+  /** After the commit; a file that fails to go is logged (nothing points at it any more). */
+  private async removeFiles(personId: string, refs: readonly string[]): Promise<void> {
+    for (const ref of refs) {
+      try {
+        await this.blobs.remove(ref);
+      } catch (err) {
+        this.log.error(`account ${personId}: stored file not removed (${(err as Error).message})`);
+      }
+    }
   }
 
   /** What stands in the way, each with its count or amount. */
@@ -91,11 +113,23 @@ export class AccountCloseService implements AccountClosePort {
     const jobs = trips.length + departures;
     if (jobs > 0) out.push({ kind: 'open_jobs', count: jobs });
     let unsettled = Math.abs(earnings.amount);
+    let soleOpen = 0;
+    const now = this.clock.now();
     for (const s of stores) {
-      const [now, old] = await Promise.all([this.ledger.balance(Accounts.merchantCash(s.orgId)), this.ledger.balance(Accounts.merchant(s.orgId))]);
-      unsettled += Math.abs(now.amount + old.amount);
+      const [cashNow, old, owners, settings] = await Promise.all([
+        this.ledger.balance(Accounts.merchantCash(s.orgId)),
+        this.ledger.balance(Accounts.merchant(s.orgId)),
+        this.identity.orgRoleHolders(s.orgId, ['merchant_owner']),
+        this.orgs.merchantSettings(s.orgId),
+      ]);
+      unsettled += Math.abs(cashNow.amount + old.amount);
+      // A store left with no owner must not keep taking orders: it is closed until reopened by hand, or another owner holds it.
+      const otherOwner = owners.some((o) => o.personId !== personId && !o.frozen);
+      const shut = closedNow(settings.closed, now);
+      if (!otherOwner && !(shut && !shut.until)) soleOpen += 1;
     }
     if (unsettled > 0) out.push({ kind: 'unpaid_settlement', amountIqd: unsettled });
+    if (soleOpen > 0) out.push({ kind: 'sole_owner_of_open_store', count: soleOpen });
     // A customer account is negative once he paid cash (contracts ledger.ts); only money we hold for him stops the close.
     if (wallet.amount > 0) out.push({ kind: 'wallet_balance', amountIqd: wallet.amount });
     return out;

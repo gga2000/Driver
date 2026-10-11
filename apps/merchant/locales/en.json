@@ -653,7 +653,7 @@
   "merchant.delete.stays_title": "Kept without your name",
   "merchant.delete.stays_body": "Order invoices and the store's money book, because the law requires them. They carry neither your name nor your number",
   "merchant.delete.before_title": "Before it is deleted",
-  "merchant.delete.before_body": "If you own the store, its money must be settled with us first. The store itself stays unless you ask support to close it",
+  "merchant.delete.before_body": "If you own the store, its money must be settled with us first. If you are its only owner, close the store until reopened by hand or hand it to another owner before your account is deleted",
   "merchant.delete.note": "Anything to tell us? (optional)",
   "merchant.delete.send": "Request account deletion",
   "merchant.delete.sent_title": "Request received",

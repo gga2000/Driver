@@ -653,7 +653,7 @@
   "merchant.delete.stays_title": "يبقى بدون اسمك",
   "merchant.delete.stays_body": "فواتير الطلبات ودفتر فلوس المحل، لأن القانون يطلبهن. ما بيهن اسمك ولا رقمك",
   "merchant.delete.before_title": "قبل الحذف",
-  "merchant.delete.before_body": "إذا إنت صاحب المحل، لازم تتسوّى فلوس المحل ويانا أول. المحل نفسه يبقى إلا إذا گلت للدعم يسكّره",
+  "merchant.delete.before_body": "إذا إنت صاحب المحل، لازم تتسوّى فلوس المحل ويانا أول. وإذا إنت صاحبه الوحيد، سكّر المحل لحد ما ينفتح باليد أو سلّمه لصاحب ثاني قبل ما ينحذف حسابك",
   "merchant.delete.note": "تريد تگول شي؟ (اختياري)",
   "merchant.delete.send": "اطلب حذف حسابي",
   "merchant.delete.sent_title": "وصل طلبك",

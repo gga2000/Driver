@@ -2483,6 +2483,7 @@
   "console.close_block_open_jobs": "Jobs still open: {count}",
   "console.close_block_unpaid_settlement": "Money not settled with us: {amount}",
   "console.close_block_wallet_balance": "{amount} in his wallet",
+  "console.close_block_sole_owner_of_open_store": "Only owner of a store still taking orders ({count}). Close it until reopened by hand, or hand it to another owner",
   "console.pause_hint": "He can't go online until one of you lifts it. A job he is on carries on",
   "console.pause_go": "Pause him",
   "console.pause_chip": "Paused",

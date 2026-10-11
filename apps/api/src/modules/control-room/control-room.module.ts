@@ -10,6 +10,7 @@ import { IdentityModule } from '../identity/index.js';
 import { LedgerModule } from '../ledger/index.js';
 import { OpsModule } from '../ops/index.js';
 import { OrdersModule } from '../orders/index.js';
+import { NotifyModule } from '../notify/index.js';
 import { OrgsModule } from '../orgs/index.js';
 import { PlacesModule } from '../places/index.js';
 import { PromotionsModule } from '../promotions/index.js';
@@ -38,6 +39,7 @@ import { LaunchMetricsService } from './metrics.service.js';
     FleetModule,
     IdentityModule,
     LedgerModule,
+    NotifyModule,
     OpsModule,
     OrdersModule,
     OrgsModule,

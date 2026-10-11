@@ -2483,6 +2483,7 @@
   "console.close_block_open_jobs": "عنده شغلات مفتوحة: {count}",
   "console.close_block_unpaid_settlement": "فلوس ما متسوّية ويانا: {amount}",
   "console.close_block_wallet_balance": "بمحفظته {amount}",
+  "console.close_block_sole_owner_of_open_store": "هو الصاحب الوحيد لمحل بعده يستلم طلبات ({count}). سكّروا لحد ما ينفتح باليد أو سلّموه لصاحب ثاني",
   "console.pause_hint": "ما يگدر يشتغل لحد ما واحد منكم يرجّعه. المشوار اللي بيده يكمّله",
   "console.pause_go": "وقّفه",
   "console.pause_chip": "موقوف",

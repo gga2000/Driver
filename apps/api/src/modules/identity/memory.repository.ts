@@ -452,7 +452,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async closeAccount(personId: string, now: Date, tx?: Tx) {
     const person = this.people.get(personId);
-    if (!person || person.deletedAt) return false;
+    if (!person || person.deletedAt) return null;
+    const sessionIds = this.sessions.filter((x) => x.personId === personId).map((x) => x.id);
     const idn = this.identities.get(personId);
     if (idn) {
       this.removeWhere(tx, this.otps, (o) => o.phoneHash === idn.phoneHash);
@@ -480,6 +481,6 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     }
     this.keep(tx, person);
     person.deletedAt = now;
-    return true;
+    return { sessionIds };
   }
 }

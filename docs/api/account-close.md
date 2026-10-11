@@ -34,19 +34,26 @@ Blockers (the close is refused with `account_close_blocked` while any is present
 | `open_jobs` | a trip in progress as courier/driver, or a الرجعة departure of his not finished (scheduled, boarding, departed) |
 | `unpaid_settlement` | his `driver:` earnings are not zero (we owe him, or he owes us), or a store he owns has a `merchant_cash:` / `merchant:` balance |
 | `wallet_balance` | money in his own customer wallet (`customer:` positive) |
+| `sole_owner_of_open_store` | he is the only live owner of a store that still takes orders (`count` = stores). Close it until reopened by hand (a short pause that reopens by itself is not enough) or give it another owner first |
 
 `close({ personId, note (5–500), ticketId? })`:
 
 1. Refused for the admin himself (`forbidden`), for a non-partner account (`account_close_not_work`),
    with blockers (`account_close_blocked`), or with a `ticketId` that is not this person's open
    `deletion` case (`invalid_input`). Already closed: returns the closed state, nothing done.
-2. Deletes the storage files the vault points at: document photos, check-in selfies, his main photo,
-   photos of children he enrolled (a logged staff vault read, purpose `account_close`).
-3. In one transaction: identity closes the account (`people.deleted_at` set; `identity_vault`
-   person identity, children he enrolled, names he gave or was given deleted; sessions, devices,
-   sign-in codes and guardian links deleted; every live role revoked, `role.revoked` events), a
-   `console_audit_log` row `account.close` with the note, and the case resolved with the note (no
-   «هل انحلت مشكلتك؟» survey).
+2. In one transaction:
+   - the blockers are checked again (refused with `account_close_blocked` if any appeared);
+   - identity closes the account (`people.deleted_at` set; `identity_vault` person identity, children he
+     enrolled, names he gave or was given deleted; sessions, devices, sign-in codes and guardian links
+     deleted, each deleted session announced as `session.signed_out`; every live role revoked,
+     `role.revoked` events);
+   - notify deletes every push token of his (`push_tokens`, with or without a session);
+   - a `console_audit_log` row `account.close` with the note;
+   - the case resolved with the note (no «هل انحلت مشكلتك؟» survey).
+3. After that commits, the storage files the vault pointed at are deleted: document photos, check-in
+   selfies, his main photo, photos of children he enrolled (their refs were read in the transaction, a
+   logged staff vault read, purpose `account_close`). A rollback leaves everything, files included; a
+   file that fails to delete after the commit is logged.
 4. Output: the closed state plus `filesRemoved`.
 
 Kept, under his opaque id that no longer leads to a name or a number: the ledger, trips and orders,

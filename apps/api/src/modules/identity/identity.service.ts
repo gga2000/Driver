@@ -1003,7 +1003,12 @@ export class IdentityService implements IdentityPort {
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
       const roles = await this.repo.rolesOf(personId, tx);
-      if (!(await this.repo.closeAccount(personId, now, tx))) return false;
+      const closed = await this.repo.closeAccount(personId, now, tx);
+      if (!closed) return false;
+      // Each deleted session is announced as signed out, as a logout is: notify drops its push tokens.
+      for (const sessionId of closed.sessionIds) {
+        await this.events.emit(tx, { actorId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
       for (const r of roles) {
         await this.events.emit(tx, { actorId, type: 'role.revoked', occurredAt: now, payload: { personId, kind: r.kind, orgId: r.orgId, revokedBy: actorId } }, { name: 'person', id: personId });
       }

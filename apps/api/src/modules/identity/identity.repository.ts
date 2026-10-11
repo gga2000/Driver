@@ -248,10 +248,11 @@ export interface IdentityRepository {
   /**
    * Closes the account in one go (the person row locked): `deleted_at` set, the vault rows (his
    * identity, the children he enrolled, the names he gave others or was given), devices, sessions,
-   * sign-in codes and guardian links deleted, live roles revoked. False when the person is unknown or
-   * already closed (nothing changed). Storage files are the caller's: read their refs first.
+   * sign-in codes and guardian links deleted, live roles revoked. Returns the ids of the sessions it
+   * deleted (the caller announces each as signed out); null when the person is unknown or already
+   * closed (nothing changed). Storage files are the caller's: read their refs first.
    */
-  closeAccount(personId: string, now: Date, tx?: Tx): Promise<boolean>;
+  closeAccount(personId: string, now: Date, tx?: Tx): Promise<{ sessionIds: string[] } | null>;
 }
 
 export interface RosterPage {
@@ -651,7 +652,8 @@ export class PrismaIdentityRepository implements IdentityRepository {
     const locked = await db.$queryRaw<Array<{ deleted_at: Date | null }>>`
       SELECT "deleted_at" FROM "public"."people" WHERE "id" = ${personId} FOR UPDATE`;
     const person = locked[0];
-    if (!person || person.deleted_at) return false;
+    if (!person || person.deleted_at) return null;
+    const sessions = await db.session.findMany({ where: { personId }, select: { id: true } });
     const idn = await db.personIdentity.findUnique({ where: { personId }, select: { phoneHash: true } });
     if (idn) {
       await db.otpChallenge.deleteMany({ where: { phoneHash: idn.phoneHash } });
@@ -664,7 +666,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
     await db.device.deleteMany({ where: { personId } });
     await db.role.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: now } });
     await db.person.update({ where: { id: personId }, data: { deletedAt: now } });
-    return true;
+    return { sessionIds: sessions.map((s) => s.id) };
   }
 }
 
