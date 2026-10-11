@@ -9,7 +9,9 @@ import { lateStages, passPhase } from '@/features/rajaa/pass';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { LateBar, LeaveHomeCard } from '@/features/rajaa/PassParts';
 import { endGarageFor, roadLine, type RoadPoint } from '@/features/rajaa/road';
-import { RoadCard, type Watching } from '@/features/rajaa/RoadParts';
+import { RoadCard, type CardLine, type Watching } from '@/features/rajaa/RoadParts';
+import { bookingRoadTrip } from '@/features/rajaa/road-trip';
+import { RoadStrip, timelineStops, roadWords } from '@/features/rajaa/RoadTripParts';
 import { useMe } from '@/features/account/queries';
 import { KeptStub, Perforation } from '@/features/rajaa/PassTicket';
 import { SafeArrival } from '@/features/rajaa/SafeArrival';
@@ -147,6 +149,23 @@ export default function BoardingPassScreen() {
           now,
         })
       : null;
+  // N13 «طريق بغداد»: the same line on the real road, its towns with their times, and a strip of map on top.
+  const trip =
+    road && endGarage
+      ? bookingRoadTrip({
+          departure: b.departure,
+          pickup: b.pickup,
+          network: network.data,
+          endGarageId: endGarage.id,
+          car: p?.car ?? null,
+          now,
+          startName: garage,
+          stopName,
+          checkpointName: publicPlaceName,
+        })
+      : null;
+  const cardLine: CardLine | null = trip ? { stops: timelineStops(trip), carFrac: trip.carM === null ? null : trip.carM / trip.road.totalM, arriveAt: trip.arriveAt, minutesLeft: trip.minutesLeft } : road;
+  const words = roadWords(trip, t, locale);
   // r3: who follows the trip, by name (the trusted people get its link when the rider gets in).
   const trusted = (me.data?.trustedContacts ?? []).map((c) => c.name);
   // Unknown (null) until the profile is in: never «nobody follows» just because the read failed.
@@ -357,7 +376,10 @@ export default function BoardingPassScreen() {
           onPress={() => router.push({ pathname: '/rajaa', params: { corridor: b.departure.corridorId, direction: flip(b.departure.direction) } })}
         />
       ) : null}
-      {road && toCity ? <RoadCard line={road} city={cityName(t, toCity)} onRoad={departed} watching={watching}
+      {cardLine && toCity ? <RoadCard line={cardLine} city={cityName(t, toCity)} onRoad={departed} watching={watching}
+          strip={trip ? <RoadStrip trip={trip} driverName={driverCard?.firstName ?? null} onOpen={() => router.push({ pathname: '/rajaa/road/[id]', params: { id: b.id } })} /> : undefined}
+          subtitle={words?.subtitle}
+          summary={words?.summary}
           unknown={
             <QueryBoundary query={me} size="inline" skeleton={<Skeleton height={44} radius={12} />} testID="rajaa-watching-read">
               {() => null}
