@@ -1940,5 +1940,7 @@
   "merchant.gate.invite_title": "A store has invited you",
   "merchant.gate.invite_body": "Accept it and you’ll see the store’s orders with this same number. If you don’t know the store, tap No thanks",
   "merchant.invites.strip_many": "You have {count} invites from other stores",
-  "merchant.invites.see": "See"
+  "merchant.invites.see": "See",
+  "merchant.staff_alert.no_link": "Open the Console on a computer to see the alert and take it.",
+  "merchant.staff_alert.ref": "Alert number: {id}"
 }

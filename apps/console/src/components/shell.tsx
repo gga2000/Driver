@@ -8,7 +8,6 @@ import { useHotkeys } from '@/lib/hotkeys';
 import { NAV } from '@/lib/nav';
 import { SafetyBanner } from './safety/banner';
 import { SweepAlertStrip } from './safety/sweep-strip';
-import { AlarmGate } from './safety/alarm-gate';
 import { Sidebar } from './shell/sidebar';
 import { TopBar } from './shell/topbar';
 import { GlobalTriageStrip } from './shell/triage-strip';
@@ -17,6 +16,8 @@ import { cx, NetworkBanner, ToastProvider } from './ui';
 
 // Opened on demand (Ctrl+K, "/"), so it loads after the page, not with it.
 const CommandPalette = dynamic(() => import('./shell/command-palette').then((m) => m.CommandPalette), { ssr: false });
+// The away-from-tab alarm (desktop notification, title flash, sound button) loads after the page.
+const AlarmGate = dynamic(() => import('./safety/alarm-gate').then((m) => m.AlarmGate), { ssr: false });
 // The shortcuts list is opened on demand too.
 const ShortcutsSheet = dynamic(() => import('./shell/shortcuts').then((m) => m.ShortcutsSheet), { ssr: false });
 // Loaded after first paint: it draws nothing until live updates have been down a minute (speed budget).

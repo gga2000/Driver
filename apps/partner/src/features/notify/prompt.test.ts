@@ -36,7 +36,13 @@ describe('staff safety alerts (SOS, sweep, Console watch)', () => {
   });
 
   it('points at the incident in the Console, or the safety desk', () => {
-    expect(consoleAlertUrl('https://console.driver.iq/', 'sos_123')).toBe('https://console.driver.iq/safety/sos_123');
-    expect(consoleAlertUrl('https://console.driver.iq', null)).toBe('https://console.driver.iq/safety');
+    expect(consoleAlertUrl('https://console.example.org/', 'sos_123')).toBe('https://console.example.org/safety/sos_123');
+    expect(consoleAlertUrl('https://console.example.org', null)).toBe('https://console.example.org/safety');
+  });
+
+  it('gives no link when the build has no Console address (no made-up default)', () => {
+    expect(consoleAlertUrl(null, 'sos_123')).toBeNull();
+    expect(consoleAlertUrl('', null)).toBeNull();
+    expect(consoleAlertUrl('  ', 'sos_123')).toBeNull();
   });
 });

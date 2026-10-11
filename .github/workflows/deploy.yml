@@ -232,6 +232,8 @@ jobs:
       EXPO_PUBLIC_SHARE_BASE_URL: ${{ vars.SHARE_BASE_URL }}
       # Crash reports (docs/deploy/hosting.md "Logs and errors"); unset = none are sent.
       EXPO_PUBLIC_SENTRY_DSN: ${{ vars[matrix.sentry_var] || vars.SENTRY_DSN }}
+      # Partner/merchant staff safety alerts link to the Console (docs/deploy/mobile.md); unset = no link.
+      EXPO_PUBLIC_CONSOLE_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
     steps:
       - name: Skip when no Pages project is named for this app
         if: env.PROJECT == ''

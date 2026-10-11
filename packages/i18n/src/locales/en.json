@@ -8957,5 +8957,7 @@
   "partner.staff_alert_title": "Staff emergency alert",
   "partner.staff_alert_body": "This alert is handled in the Console. Open it now to see the details and take it.",
   "partner.staff_alert_open": "Open in the Console",
-  "partner.staff_alert_back": "Back"
+  "partner.staff_alert_back": "Back",
+  "partner.staff_alert_no_link": "Open the Console on a computer to see the alert and take it.",
+  "partner.staff_alert_ref": "Alert number: {id}"
 }

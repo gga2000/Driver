@@ -11,7 +11,9 @@ import { useT } from '@/lib/i18n';
 /**
  * A staff safety alert (SOS, the خطوط sweep, the Console watching itself) tapped on this device. Staff
  * answer it in the Console, so on a phone or tablet the tap goes straight there (the incident when the
- * push names one); this screen stays behind with the same button, in case the browser did not open.
+ * push names one); this screen stays behind with the same button, in case the browser did not open. A
+ * build without a Console address (`EXPO_PUBLIC_CONSOLE_URL`) shows no link: it says to open the Console
+ * on a computer, with the alert number.
  */
 export default function StaffAlert() {
   const theme = useTheme();
@@ -19,7 +21,7 @@ export default function StaffAlert() {
   const { incident } = useLocalSearchParams<{ incident?: string }>();
   const url = consoleAlertUrl(CONSOLE_URL, incident ?? null);
   useEffect(() => {
-    if (Platform.OS !== 'web') void Linking.openURL(url).catch(() => undefined);
+    if (url && Platform.OS !== 'web') void Linking.openURL(url).catch(() => undefined);
   }, [url]);
   return (
     <SafeAreaView testID="staff-alert" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -32,11 +34,16 @@ export default function StaffAlert() {
             {t('merchant.staff_alert.title')}
           </Text>
           <Text variant="body" color="textMuted" align="center">
-            {t('merchant.staff_alert.body')}
+            {url ? t('merchant.staff_alert.body') : t('merchant.staff_alert.no_link')}
           </Text>
+          {incident ? (
+            <Text testID="staff-alert-ref" variant="label" align="center" selectable>
+              {t('merchant.staff_alert.ref', { id: incident })}
+            </Text>
+          ) : null}
         </View>
         <View style={{ gap: theme.space[2], width: '100%', maxWidth: 400 }}>
-          <Button testID="staff-alert-open" label={t('merchant.staff_alert.open')} size="lg" fullWidth onPress={() => void Linking.openURL(url).catch(() => undefined)} />
+          {url ? <Button testID="staff-alert-open" label={t('merchant.staff_alert.open')} size="lg" fullWidth onPress={() => void Linking.openURL(url).catch(() => undefined)} /> : null}
           <Button testID="staff-alert-back" label={t('merchant.staff_alert.back')} variant="ghost" onPress={() => router.replace('/')} style={{ alignSelf: 'center' }} />
         </View>
       </View>

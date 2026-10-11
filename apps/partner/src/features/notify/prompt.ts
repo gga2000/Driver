@@ -40,8 +40,12 @@ export function staffAlertPath(link: unknown): string | null {
   return m[1] ? `/staff-alert?incident=${encodeURIComponent(m[1])}` : '/staff-alert';
 }
 
-/** The Console page for a staff alert: the incident when there is one, else the safety desk. */
-export function consoleAlertUrl(base: string, incident: string | null | undefined): string {
-  const root = base.replace(/\/+$/, '');
+/**
+ * The Console page for a staff alert: the incident when there is one, else the safety desk. `null` when
+ * this build has no Console address (the screen then shows no link).
+ */
+export function consoleAlertUrl(base: string | null | undefined, incident: string | null | undefined): string | null {
+  const root = (base ?? '').trim().replace(/\/+$/, '');
+  if (!root) return null;
   return incident ? `${root}/safety/${encodeURIComponent(incident)}` : `${root}/safety`;
 }
