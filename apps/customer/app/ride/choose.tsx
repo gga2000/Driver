@@ -14,12 +14,15 @@ import { useWalletBalance } from '@/features/account/queries';
 import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
 import { WhenPicker } from '@/features/ride/LaterPicker';
 import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions } from '@/features/ride/queries';
+import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions, useZoneFor } from '@/features/ride/queries';
 import { riderInput } from '@/features/ride/rider';
 import { RiderRow, RiderSheet } from '@/features/ride/RiderParts';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { useWalkStop } from '@/features/ride/useWalkStop';
+import { fasterBy, isWalkStop, showWalkOffer, stopLatLng, walkMetres, walkMinutes, walkStopSpot } from '@/features/ride/walk-stop';
+import { WalkChosenNote, WalkToStopCard } from '@/features/ride/WalkToStop';
 import { useSimpleMode } from '@/features/simple/pref';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -105,6 +108,26 @@ export default function RideChoose() {
   // x1: «اليوم حار، نبعثلك سيارة مكيّفة» on the server's clock (the nearby read carries it), rides for now.
   const climate = when === 'now' ? rideClimate(nearby.taxi.data?.at ?? null, vertical) : null;
 
+  // Map idea N10 «امشي دقيقة للشارع العام»: the pin is in an alley and a main road is a short walk away.
+  // Walking moves the pickup to the stop (in its own zone, which prices the ride); «رجّعها لمكاني» undoes it.
+  const walk = isWalkStop(pickup) ? d.walk : null;
+  const walking = walk !== null;
+  const safe = useWalkStop(walking ? null : (pickup?.pin ?? null));
+  const [walkDismissed, setWalkDismissed] = useState<string | null>(null);
+  const stopPin = safe.stop ? stopLatLng(safe.stop) : null;
+  const stopZone = useZoneFor(stopPin);
+  const stopNear = useNearbyVehicles(stopPin, vertical);
+  // Either read failing only means no offer (or no clocks on it): his own spot still works.
+  const stopZoneId = !stopZone.isError && stopZone.data && !stopZone.isPlaceholderData && stopZone.data.inService ? stopZone.data.zoneId : null;
+  const offerWalk = showWalkOffer({ stop: safe.stop, mode, simple, dismissed: walkDismissed === pickup?.id, walking }) && stopZoneId !== null;
+  // The clocks are for a ride now; a ride booked for later only gets the walk.
+  const stopMinutes = when === 'now' && !stopNear.isError ? (stopNear.data?.nearestMinutes ?? null) : null;
+  const walkFaster = when === 'now' ? fasterBy(nearby[vertical].data?.nearestMinutes, stopMinutes) : null;
+  const backToSpot = (patch: { doorPickup?: boolean } = {}) => {
+    if (walk) rideStore.update({ pickup: walk.from, walk: null, ...patch });
+    else rideStore.update(patch);
+  };
+
   useEffect(() => {
     // The wallet stopped covering the fare (door pickup, night): back to cash.
     if (d.payment === 'wallet' && quote && balance !== null && !walletOk) rideStore.update({ payment: 'cash' });
@@ -117,6 +140,13 @@ export default function RideChoose() {
   const taxiTotal = quotes.grid.taxi[mode]?.total;
   const tukTotal = quotes.grid.tuktuk[mode]?.total;
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
+
+  const walkTo = () => {
+    if (!safe.stop || !stopZoneId) return;
+    const m = walkMetres(safe.stop.walkM);
+    const title = safe.stop.landmarkName ? t('ride.walk_stop_title', { place: safe.stop.landmarkName }) : t('ride.walk_stop_title_road');
+    rideStore.update({ pickup: walkStopSpot(safe.stop, stopZoneId, title, t('ride.walk_stop_sub', { m })), walk: { from: pickup, landmark: safe.stop.landmarkName, walkM: safe.stop.walkM } });
+  };
 
   const openLive = (orderId: string) => {
     if (router.canDismiss()) router.dismissAll();
@@ -181,6 +211,14 @@ export default function RideChoose() {
           topInset={insets.top}
           bottomInset={theme.space[6]}
           nearby={{ data: nearby[vertical].data, kind: vertical === 'tuktuk' ? 'tuktuk' : 'car' }}
+          walk={
+            walk
+              ? { from: walk.from.pin, to: pickup.pin, youLabel: t('ride.walk_you'), stopLabel: t('ride.walk_stop_pin') }
+              : offerWalk && stopPin
+                ? { from: pickup.pin, to: stopPin, youLabel: t('ride.walk_you'), stopLabel: t('ride.walk_stop_pin') }
+                : null
+          }
+          onRoads={safe.onRoads}
           testID="ride-map"
         />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row' }}>
@@ -211,6 +249,20 @@ export default function RideChoose() {
             </Text>
           ) : null}
           <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {offerWalk && safe.stop ? (
+            <WalkToStopCard
+              walkMin={walkMinutes(safe.stop.walkM)}
+              walkM={walkMetres(safe.stop.walkM)}
+              landmark={safe.stop.landmarkName}
+              arrivesMin={stopMinutes}
+              faster={walkFaster}
+              doorLabel={extra ? `${t('ride.walk_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.walk_door')}
+              onWalk={walkTo}
+              onDoor={() => rideStore.update({ doorPickup: true })}
+              onStay={() => setWalkDismissed(pickup.id)}
+            />
+          ) : null}
+          {walk && !simple ? <WalkChosenNote walkM={walkMetres(walk.walkM)} landmark={walk.landmark} onUndo={() => backToSpot()} /> : null}
           {again ? (
             <View testID="ride-again-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
               <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
@@ -337,7 +389,7 @@ export default function RideChoose() {
             <SegmentedControl
               accessibilityLabel={t('ride.pickup_mode')}
               value={mode}
-              onChange={(m) => rideStore.update({ doorPickup: m === 'door' })}
+              onChange={(m) => (m === 'door' ? backToSpot({ doorPickup: true }) : rideStore.update({ doorPickup: false }))}
               options={[
                 { value: 'street', label: t('ride.pickup_street') },
                 { value: 'door', label: extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door') },
