@@ -72,9 +72,13 @@ function rideNearState(trip: TripRecord): boolean {
 
 export type TripTimerJob =
   | { tripId: string; stopId: string | null; startedAtMs: number }
-  | { tripId: string; positionAtMs: number };
+  /** `positionAtMs`: the fix (device time) the ride auto-complete waits on; `armedAtMs`: when the server got it. */
+  | { tripId: string; positionAtMs: number; armedAtMs?: number };
 
 export const TRIP_JOBS = { ...UNREACHABLE_JOBS, rideAutoComplete: 'ride.autoComplete' } as const;
+
+/** The ride auto-complete's one durable timer per trip (re-armed in place, not one per position fix). */
+const rideAutoCompleteKey = (tripId: string) => jobKey('trip', tripId, 'autocomplete');
 
 /** Vehicle classes ranked by what they can carry (edge-case review A.16). Intercity cars carry like a car. */
 const VEHICLE_RANK: Record<VehicleClass, number> = { bike: 0, tuktuk: 1, car: 2, intercity: 2, suv: 3, van: 4 };
@@ -137,10 +141,11 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIPS_QUEUE) queue: Queue<TripTimerJob>,
     @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
   ) {
-    this.timers = new DurableTimers(queue, clock, () => uow.current());
+    this.timers = new DurableTimers(queue, clock, uow);
+    this.timers.rearming(TRIP_JOBS.rideAutoComplete, (data) => rideAutoCompleteKey(data.tripId));
   }
 
-  /** FLW-22: the ride auto-complete and the unreachable protocol's timers have a durable copy. */
+  /** FLW-22: the ride auto-complete (one per trip, re-arming) and the unreachable protocol's timers have a durable copy. */
   private readonly timers: DurableTimers<TripTimerJob>;
 
   /** The module binds the durable timer table and the sweeper at start-up. */
@@ -543,8 +548,9 @@ export class TripsService implements OnModuleInit {
         if (RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'in_transit' || trip.state === 'arrived_dropoff')) {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
-            const atMs = input.at.getTime();
-            await this.timers.schedule(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
+            // Arms the trip's one timer; while it is armed this does nothing, and the timer, when it
+            // fires, waits on for the fixes that came since (`handleTimer`).
+            await this.timers.schedule(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: input.at.getTime(), armedAtMs: now.getTime() }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: rideAutoCompleteKey(trip.id) });
           }
         }
       }
@@ -1054,8 +1060,25 @@ export class TripsService implements OnModuleInit {
         const trip = await this.repo.findTrip(data.tripId, tx);
         if (!trip || !['in_transit', 'arrived_dropoff'].includes(trip.state) || !trip.courierId) return;
         const last = await this.repo.lastTrailPoint({ tripId: trip.id }, tx);
-        if (!last || last.at.getTime() !== data.positionAtMs) return; // the driver moved or spoke since
-        await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+        if (!last) return;
+        if (last.at.getTime() === data.positionAtMs) {
+          await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+          return;
+        }
+        // The driver moved or spoke since. Still inside the drop-off geofence: wait 10 minutes from his
+        // last fix (it reached the server as long after the fix this run waited on as their device
+        // times say). Outside it: nothing until a fix inside arms the timer again.
+        const stops = await this.repo.stopsOf(trip.id, tx);
+        const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
+        const atMs = last.at.getTime();
+        if (atMs < data.positionAtMs || !lastDropoff?.target || haversineMeters(last.pin, lastDropoff.target) > GEOFENCE_RADIUS_M) return;
+        const nowMs = this.clock.now().getTime();
+        const armedAtMs = (data.armedAtMs ?? nowMs - RIDE_AUTOCOMPLETE_AFTER_MS) + (atMs - data.positionAtMs);
+        await this.timers.schedule(
+          TRIP_JOBS.rideAutoComplete,
+          { tripId: trip.id, positionAtMs: atMs, armedAtMs },
+          { delayMs: Math.max(0, armedAtMs + RIDE_AUTOCOMPLETE_AFTER_MS - nowMs), jobId: rideAutoCompleteKey(trip.id) },
+        );
       });
       return;
     }

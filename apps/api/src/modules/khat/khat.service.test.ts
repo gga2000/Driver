@@ -578,7 +578,8 @@ describe('khat sweep check survives Redis (FLW-22)', () => {
   it('a check that runs twice raises one alert', async () => {
     const h = await durable();
     await h.finishRun();
-    vi.spyOn(h.timerStore, 'markFired').mockRejectedValue(new Error('database timeout'));
+    // The job runs without finding its copy, which stays pending, so the sweeper runs the check again.
+    vi.spyOn(h.timerStore, 'take').mockResolvedValue('missing');
     await h.advance(AFTER);
     expect(await h.missed()).toHaveLength(1);
     await h.advance(TIMER_SWEEP_GRACE_MS);

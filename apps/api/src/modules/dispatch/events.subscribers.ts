@@ -95,7 +95,8 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   dispatch's own calls) settle the offer; `trip.timed_out` is the echo of dispatch's own timer
  *   (dispatch owns offer timers) and is ignored; `trip.completed` frees the courier (`jobFinished`);
  *   `trip.cancelled` withdraws offers and frees him (`cancel`); a completed pickup marks the job
- *   picked up for batching.
+ *   picked up for batching; a drop-off that took cash holds that cash against his cap until the
+ *   ledger posts it (`cashCollected`).
  */
 export class DispatchSubscribers {
   private readonly logger = new Logger(DispatchSubscribers.name);
@@ -253,6 +254,7 @@ export class DispatchSubscribers {
       case 'stop.completed': {
         const p = decodeDomainEvent('stop.completed', e.payload);
         if (p.stopType === 'pickup' || p.stopType === 'shop') await this.orchestrator.markPickedUp(tripId);
+        else if (p.stopType === 'dropoff' && p.cashCollectedIqd) await this.orchestrator.cashCollected(tripId, p.stopId, p.cashCollectedIqd);
         return;
       }
       default:

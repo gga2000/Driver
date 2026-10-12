@@ -269,7 +269,7 @@ export class OrdersService implements OnModuleInit {
   ) {
     this.promotions = promotions ?? new NoPromotions();
     this.parcelReturnLock = new DistributedKeyedLock(uow, 'orders.parcel_return');
-    this.timers = new DurableTimers(queue, clock, () => uow.current());
+    this.timers = new DurableTimers(queue, clock, uow);
   }
 
   /** FLW-22: every order timer has a durable copy (written with the order), so a lost Redis job only delays it. */

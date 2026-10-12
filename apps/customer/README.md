@@ -32,6 +32,10 @@ scripts/                 demo-api.mjs (in-memory API on :3200), web-shots.mjs (P
 POST /demo/rajaa/claim, /demo/rajaa/offers and /demo/rajaa/topup (?personId=…), and
 `/demo/rajaa/arrived?personId=…[&told=1]` (a whole Kut → Aziziyah trip that just arrived: the pass shows
 «الحمد لله على السلامة»; `told=1` first adds a trusted person with «بلّغهم من أوصل» on).
+`POST /demo/rajaa/road?bookingId=…&km=52[&ageMin=6]` (map idea N13 «طريق بغداد») puts a departed car
+(`/demo/rajaa/onboard?personId=…&road=1` gives one, with a named driver) `km` along the real road with a fix
+there (`ageMin` old): the pass's road card shows the strip, «الطريق كله» opens `app/rajaa/road/[id].tsx`
+(the whole road, «شوف قدامك» for the window seat), and the trip's share link shows the road to the family.
 `POST /demo/rajaa/garage[?garageId=mp_garage_bab1]` stands three more Baghdad cars in that garage, some
 seats taken, for «شوف الكراج» (`app/rajaa/garage/[id].tsx`, map idea N12: the 3D garage with each car's
 seats over it, gold free and brown taken; tap a car to book it; web needs the map files). `SHOTS=rajaa`
