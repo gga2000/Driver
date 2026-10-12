@@ -206,6 +206,10 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
     p.unreachableSec = 0;
     p.parcelRefused = parcels.chance(refusedShare);
   }
+  // A short day still has a refusal to check (and to break on purpose): the last parcel is refused when
+  // none was. No random draw, so the rest of the plan stays the same.
+  const parcelPlans = planned.filter((p) => p.kind === 'parcel');
+  if (refusedShare > 0 && parcelPlans.length > 0 && !parcelPlans.some((p) => p.parcelRefused)) parcelPlans[parcelPlans.length - 1]!.parcelRefused = true;
 
   // Kitchen behaviour (plan Step 7): exactly 3 % of food orders rejected, 2 % partially accepted
   // (those need two lines or more).
