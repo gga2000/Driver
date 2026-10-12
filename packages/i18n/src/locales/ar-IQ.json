@@ -8105,6 +8105,8 @@
   "console.today.stuck_ride_driver_no_show": "السايق ما وصل للراكب",
   "console.today.stuck_ride_not_closed": "المشوار خلص بس ما تسكّر",
   "console.today.cash_cap_detail": "بيده {cash} والحد {cap} دينار",
+  "console.today.kind_over_ceiling": "دوّرلي فوق حد الزبون",
+  "console.today.over_ceiling_detail": "الوصل {receipt} والحد {ceiling} دينار",
   "console.today.rating_stars": "التقييم {n} من 5",
   "console.today.rating_food": "الأكل {n} من 5",
   "console.today.rating_courier": "الدليفري {n} من 5",

@@ -59,6 +59,7 @@ export const INBOX_START_EVENTS = [
   'merchant.onboarding_drafted',
   'order.rated',
   'departure.overdue',
+  'order.errand_receipt',
 ] as const;
 
 /** The events that end a problem (the row closes by itself, outcome `auto`), or take it. */
@@ -102,6 +103,7 @@ const KIND_AR: Record<InboxKind, string> = {
   pin_alert: 'رمز مقعد غلط',
   approval: 'موافقة',
   late_departure: 'سيارة رجعة متأخرة',
+  over_ceiling: 'وصل دوّرلي فوق الحد',
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -211,6 +213,19 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
               subjectKind: 'order',
               subjectId: id,
               facts: facts({ merchantOrgId: p['merchantOrgId'] }),
+            }
+          : null;
+      }
+      case 'order.errand_receipt': {
+        // «دوّرلي»: only a receipt over the customer's ceiling needs the desk (call before he pays).
+        const id = e.orderId ?? str(p['orderId']);
+        return id && p['overCeiling'] === true
+          ? {
+              ...base,
+              kind: 'over_ceiling',
+              subjectKind: 'order',
+              subjectId: id,
+              facts: facts({ receiptIqd: p['receiptIqd'], ceilingIqd: p['ceilingIqd'] }),
             }
           : null;
       }
@@ -346,6 +361,12 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
   }
 
   private async onStart(e: PublishedEvent, tx: Tx): Promise<void> {
+    // «دوّرلي»: a later receipt under the ceiling (the shopper put something back) ends the problem.
+    if (e.type === 'order.errand_receipt' && e.payload['overCeiling'] === false) {
+      const item = await this.repo.bySubject('over_ceiling', e.orderId ?? str(e.payload['orderId']) ?? '', tx);
+      if (item) await this.autoClose(item, e.occurredAt, tx);
+      return;
+    }
     const s = this.sightingOf(e);
     if (s) await this.repo.sight(s, tx);
   }
@@ -401,6 +422,7 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
           'late',
           'no_driver',
           'unreachable',
+          'over_ceiling',
         ]);
       case 'khat.sweep_alert_cleared':
       case 'khat.sweep_alert_closed':

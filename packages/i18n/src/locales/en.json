@@ -8105,6 +8105,8 @@
   "console.today.stuck_ride_driver_no_show": "Driver didn't reach the rider",
   "console.today.stuck_ride_not_closed": "Ride over but not closed",
   "console.today.cash_cap_detail": "Holding {cash} of a {cap} dinar cap",
+  "console.today.kind_over_ceiling": "Shop-for-me over the customer's limit",
+  "console.today.over_ceiling_detail": "Receipt {receipt}, limit {ceiling} dinar",
   "console.today.rating_stars": "Rated {n} of 5",
   "console.today.rating_food": "Food {n} of 5",
   "console.today.rating_courier": "Courier {n} of 5",
