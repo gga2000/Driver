@@ -455,6 +455,28 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect((await h.list('done')).map((r) => [r.subjectId, r.outcome])).toEqual([['dep_1', 'auto']]);
   });
 
+  it('a «دوّرلي» receipt over the customer\'s ceiling opens one row; a receipt back under it, or the order ending, closes it', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
+    await h.emit('order.errand_receipt', { orderId: 'ord_ok', tripId: 'trp_ok' }, { orderId: 'ord_ok', receiptIqd: 9000, overCeiling: false });
+    await h.emit('order.errand_receipt', { orderId: 'ord_e', tripId: 'trp_e' }, { orderId: 'ord_e', receiptIqd: 31000, overCeiling: true, ceilingIqd: 25000, dispatcherCard: true });
+    await h.emit('order.errand_receipt', { orderId: 'ord_e2', tripId: 'trp_e2' }, { orderId: 'ord_e2', receiptIqd: 12000, overCeiling: true, ceilingIqd: 10000, dispatcherCard: true });
+
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId])).toEqual([
+      ['over_ceiling', 'ord_e'],
+      ['over_ceiling', 'ord_e2'],
+      ['late', 'ord_l'],
+    ]);
+    expect(rows[0]).toMatchObject({ subjectKind: 'order', orderId: 'ord_e', facts: { receiptIqd: 31000, ceilingIqd: 25000 } });
+
+    h.later(60);
+    await h.emit('order.errand_receipt', { orderId: 'ord_e', tripId: 'trp_e' }, { orderId: 'ord_e', receiptIqd: 24000, overCeiling: false });
+    await h.emit('order.cancelled', { orderId: 'ord_e2' });
+    expect((await h.list()).map((r) => r.subjectId)).toEqual(['ord_l']);
+    expect((await h.list('done')).map((r) => [r.subjectId, r.outcome]).sort()).toEqual([['ord_e', 'auto'], ['ord_e2', 'auto']]);
+  });
+
   it('keeps the event lists apart and in step with the handlers', () => {
     expect(
       INBOX_START_EVENTS.filter((t) => (INBOX_END_EVENTS as readonly string[]).includes(t)),
