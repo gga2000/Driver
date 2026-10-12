@@ -540,7 +540,9 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!orgId) return [];
       const [owners, shop] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId)]);
       const base_ = deps.merchantAppUrl?.trim().replace(/\/+$/, '');
-      const next = base_ ? t('sms.merchant_activated_link', { link: `${base_}/setup` }, 'ar-IQ') : t('sms.merchant_activated_app', {}, 'ar-IQ');
+      // أكل بيت: a cook's kitchen opens on «أكلاتي», not shop setup; any other or missing type keeps /setup.
+      const path = p['type'] === 'home_kitchen' ? '/home-kitchen' : '/setup';
+      const next = base_ ? t('sms.merchant_activated_link', { link: `${base_}${path}` }, 'ar-IQ') : t('sms.merchant_activated_app', {}, 'ar-IQ');
       return owners.map((to) => ({ ...base, template: 'merchant_activated' as const, to, params: { shop: shop ?? '', next } }));
     }
     case 'merchant.paid_by_courier': {

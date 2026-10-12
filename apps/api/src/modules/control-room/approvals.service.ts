@@ -77,6 +77,11 @@ const fmt = (n: number) => n.toLocaleString('en-US');
  * its own state and events) and every one writes the console audit log. Nobody decides on his own
  * item: the owning services refuse it and the list marks it.
  */
+
+/** What a drafted store is, in the queue's words (أكل بيت: «مطبخ بيت»). */
+function onboardingKindAr(type: string): string {
+  return type === 'grocer' ? 'محل' : type === 'home_kitchen' ? 'مطبخ بيت' : 'مطعم';
+}
 @Injectable()
 export class ApprovalsService {
   private readonly refCache = new Map<string, { at: number; refs: Array<{ ref: string; kind: string; recordId: string; at: string }> }>();
@@ -261,7 +266,7 @@ export class ApprovalsService {
         kind_ar: APPROVAL_KIND_AR.merchant_onboarding,
         refId: o.id,
         title_ar: o.name,
-        subtitle_ar: `${o.type === 'grocer' ? 'محل' : 'مطعم'} · ${this.zoneName(o.cityId, o.location.zoneKey)}`,
+        subtitle_ar: `${onboardingKindAr(o.type)} · ${this.zoneName(o.cityId, o.location.zoneKey)}`,
         submittedAt: o.createdAt,
         submittedBy: o.createdById,
         submittedByName: null,
@@ -269,7 +274,7 @@ export class ApprovalsService {
         photos: photos.slice(0, 1),
         compare: photos.slice(1),
         facts: [
-          { label_ar: 'النوع', value: o.type === 'grocer' ? 'محل' : 'مطعم' },
+          { label_ar: 'النوع', value: onboardingKindAr(o.type) },
           { label_ar: 'المنطقة', value: this.zoneName(o.cityId, o.location.zoneKey) },
           { label_ar: 'صور المنيو', value: String(o.menuPhotoRefs.length) },
           ...(o.notes ? [{ label_ar: 'ملاحظات', value: o.notes }] : []),

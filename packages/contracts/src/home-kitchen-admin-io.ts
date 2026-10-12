@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Iqd } from './common.js';
+import { Iqd, LatLng } from './common.js';
 import { HOME_KITCHEN_RULES, HomeDishView, ReserveRule } from './home-kitchens.js';
 import { MerchantScope } from './merchant-admin-io.js';
 
@@ -72,3 +72,28 @@ export const HomeKitchenView = z.object({
   reservations: z.array(HomeKitchenSlot),
 });
 export type HomeKitchenView = z.infer<typeof HomeKitchenView>;
+
+/**
+ * «سجّلي مطبخج» (أكل بيت, cook sign-up from the Merchant app): the kitchen's name, the cook's name
+ * (to the identity vault only) and her door. Never a commission, tier or price: the 10% home rate is
+ * set by the server after a staff reviewer approves (lane A). One application per person at a time.
+ */
+export const HomeKitchenApplyInput = z.object({
+  cityId: z.string().min(1),
+  kitchenName: z.string().trim().min(2).max(40),
+  cookName: z.string().trim().min(1).max(40),
+  /** Her door; the server reads the zone from it. Only couriers see it, at pickup. */
+  door: LatLng,
+  /** «قرب شنو؟»: a landmark that helps the courier find the door (optional). */
+  landmark: z.string().trim().max(80).optional(),
+});
+export type HomeKitchenApplyInput = z.infer<typeof HomeKitchenApplyInput>;
+
+/** Her application as she sees it: none yet, waiting for a call, or turned down (with why). */
+export const HomeKitchenApplication = z.object({
+  state: z.enum(['none', 'submitted', 'active', 'rejected']),
+  kitchenName: z.string().nullable(),
+  submittedAt: z.coerce.date().nullable(),
+  rejectReason: z.string().nullable(),
+});
+export type HomeKitchenApplication = z.infer<typeof HomeKitchenApplication>;
