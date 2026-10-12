@@ -112,6 +112,6 @@ export class ParcelsModule implements OnModuleInit {
 
   /** Trips asks parcels before a parcel drop-off completes (the receiver's code); trips never imports parcels. */
   onModuleInit(): void {
-    this.trips.bindDropoffGuard({ check: (orderId) => this.parcels.dropoffProblem(orderId) });
+    this.trips.bindDropoffGuard({ check: (orderId, stop) => this.parcels.dropoffProblem(orderId, stop) });
   }
 }

@@ -685,7 +685,7 @@ export class TripsService implements OnModuleInit {
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
       // طرود: a parcel's drop-off needs the receiver's code (or a release, or it is the trip back); read-only, before any write.
       if (this.dropoffGuard && trip.vertical === 'parcel' && stop.type === 'dropoff' && stop.orderId) {
-        const problem = await this.dropoffGuard.check(stop.orderId, stop.id);
+        const problem = await this.dropoffGuard.check(stop.orderId, { stopId: stop.id, target: stop.target });
         if (problem) throw new DriverError(problem);
       }
       // Maps program f11: a delivery photo is this courier's own stored upload.

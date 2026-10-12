@@ -348,7 +348,11 @@ export class ParcelsService implements ParcelsPort {
    */
   async refuse(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView> {
     const rec = await this.carried(actor, input.orderId);
-    if (rec.refusedAt) return this.courierView(rec, actor.personId);
+    // A replay (the trip back failed to start last time) asks orders again; orders' own marker makes that once.
+    if (rec.refusedAt) {
+      if (this.orders.returnTrip) await this.orders.returnTrip(actor.personId, input.orderId);
+      return this.courierView(rec, actor.personId);
+    }
     const carried = await this.orders.courierOf(input.orderId);
     const fix = carried ? await this.orders.lastFix(carried.tripId) : null;
     const door = rec.dropoff?.pin ?? null;
@@ -364,12 +368,15 @@ export class ParcelsService implements ParcelsPort {
   }
 
   /**
-   * Trips asks before a parcel drop-off completes: the receiver's code was verified, or this is the
-   * trip back after a refusal (no code then). A parcel order this module doesn't hold: allowed.
+   * Trips asks before a parcel drop-off completes: the receiver's code was verified, or, after a
+   * refusal, this is the hand-back stop at the sender's (no code then; its target is not the
+   * receiver's door). The receiver's door stop always needs the code. A parcel order this module
+   * doesn't hold: allowed.
    */
-  async dropoffProblem(orderId: string): Promise<'parcel_pin_not_verified' | null> {
+  async dropoffProblem(orderId: string, stop: { stopId: string; target: LatLng | null } | null = null): Promise<'parcel_pin_not_verified' | null> {
     const rec = await this.repo.byOrder(orderId);
-    if (!rec || rec.pinVerifiedAt || rec.refusedAt) return null;
+    if (!rec || rec.pinVerifiedAt) return null;
+    if (rec.refusedAt && stop && !isReceiverDoor(stop.target, rec.dropoff)) return null;
     return 'parcel_pin_not_verified';
   }
 
@@ -449,7 +456,7 @@ export class ParcelsService implements ParcelsPort {
 
   private async state(rec: ParcelRecord, order: Order | null): Promise<ParcelState> {
     if (rec.stage === 'cancelled') return 'cancelled';
-    if (rec.refusedAt) return 'returning';
+    if (rec.refusedAt) return order && DELIVERED.has(order.state) ? 'returned' : 'returning';
     if (rec.stage === 'waiting_door') return this.lapsedAt(rec, this.clock.now()) ? 'cancelled' : 'waiting_door';
     if (!order) return 'finding_courier';
     if (DELIVERED.has(order.state)) return 'delivered';
@@ -543,6 +550,13 @@ export function linkGoesAt(now: Date): Date {
   if (h >= 8 && h < 23) return now;
   const eight = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), 8) - BAGHDAD_OFFSET_MS);
   return h >= 23 ? new Date(eight.getTime() + 24 * HOUR) : eight;
+}
+
+/** The stop is the receiver's door: its target is the door pin (or none is known). Within a metre counts as the same point. */
+function isReceiverDoor(target: LatLng | null, dropoff: DeliveryPoint | null): boolean {
+  const door = dropoff?.door ?? dropoff?.pin ?? null;
+  if (!target || !door) return true;
+  return distanceM(target, door) < 1;
 }
 
 /** The sender's first name as the receiver sees it (never free text, at most 20 characters). */

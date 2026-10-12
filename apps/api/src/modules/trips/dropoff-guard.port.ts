@@ -1,3 +1,5 @@
+import type { LatLng } from '@driver/contracts';
+
 /**
  * طرود (2026-10-12): a parcel is handed over only with the receiver's code. Before a parcel trip's
  * drop-off is recorded, the module that owns parcels says whether it may complete (the code was
@@ -8,6 +10,6 @@
 export type DropoffGuardProblem = 'parcel_pin_not_verified';
 
 export interface DropoffGuardPort {
-  /** Null when the drop-off of `orderId` may complete. Asked only for parcel trips' drop-off stops. */
-  check(orderId: string, stopId: string): Promise<DropoffGuardProblem | null>;
+  /** Null when the drop-off of `orderId` may complete. Asked only for parcel trips' drop-off stops; `target` tells the receiver's door from a hand-back stop. */
+  check(orderId: string, stop: { stopId: string; target: LatLng | null }): Promise<DropoffGuardProblem | null>;
 }
