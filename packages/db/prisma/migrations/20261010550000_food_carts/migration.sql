@@ -25,11 +25,13 @@ CREATE TABLE "public"."food_carts" (
 );
 
 CREATE TABLE "public"."food_cart_follows" (
+    "id" TEXT NOT NULL,
     "person_id" TEXT NOT NULL,
     "cart_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "food_cart_follows_pkey" PRIMARY KEY ("person_id","cart_id")
+    CONSTRAINT "food_cart_follows_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "public"."food_cart_walkups" (
@@ -44,7 +46,7 @@ CREATE TABLE "public"."food_cart_walkups" (
     "total_iqd" INTEGER NOT NULL,
     "commission_iqd" INTEGER NOT NULL DEFAULT 0,
     "ready_by" TIMESTAMP(3) NOT NULL,
-    "placed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "ready_at" TIMESTAMP(3),
     "collected_at" TIMESTAMP(3),
     "cancelled_at" TIMESTAMP(3),
@@ -56,6 +58,8 @@ CREATE TABLE "public"."food_cart_walkups" (
 CREATE UNIQUE INDEX "food_carts_org_id_key" ON "public"."food_carts"("org_id");
 
 CREATE INDEX "food_carts_city_id_idx" ON "public"."food_carts"("city_id");
+
+CREATE UNIQUE INDEX "food_cart_follows_person_id_cart_id_key" ON "public"."food_cart_follows"("person_id", "cart_id");
 
 CREATE INDEX "food_cart_follows_cart_id_idx" ON "public"."food_cart_follows"("cart_id");
 

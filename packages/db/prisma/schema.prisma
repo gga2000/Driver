@@ -3953,11 +3953,13 @@ model FoodCart {
 
 /// «تابع»: a customer follows a cart and hears when it opens.
 model FoodCartFollow {
+  id        String   @id @default(cuid())
   personId  String   @map("person_id")
   cartId    String   @map("cart_id")
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@id([personId, cartId])
+  @@unique([personId, cartId])
   @@index([cartId])
   @@map("food_cart_follows")
   @@schema("public")
@@ -3977,7 +3979,8 @@ model FoodCartWalkup {
   totalIqd      Int       @map("total_iqd")
   commissionIqd Int       @default(0) @map("commission_iqd")
   readyBy       DateTime  @map("ready_by")
-  placedAt      DateTime  @default(now()) @map("placed_at")
+  /// When it was placed (the row's created_at).
+  placedAt      DateTime  @default(now()) @map("created_at")
   readyAt       DateTime? @map("ready_at")
   collectedAt   DateTime? @map("collected_at")
   cancelledAt   DateTime? @map("cancelled_at")
