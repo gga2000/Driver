@@ -216,6 +216,11 @@ export const NotifyTemplateId = z.enum([
   'order_dispute_void',
   'order_free_cancel',
   'order_courier_lost',
+  // طرود (parcels): the receiver's text with the door link, the receipt code once the door is set, and
+  // the sender's notice when the door was never set in time.
+  'parcel_door_link',
+  'parcel_pin',
+  'parcel_door_lapsed',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -1150,6 +1155,37 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // طرود: the receiver (a number, often not an account) gets the door link by SMS: the sender's first
+  // name from the vault and our own link only — never the parcel's own words, the sender's number or an
+  // address. Sent by the parcels module (its sweep holds a night link until 08:00, so `send` here);
+  // capped per sender and per receiver there, and counted in the day's SMS budget like every SMS.
+  parcel_door_link: {
+    id: 'parcel_door_link',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.t_door_sms' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the receipt code the receiver reads out to the courier, sent when the door is set (any hour).
+  parcel_pin: {
+    id: 'parcel_pin',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.pin_recipient_body' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the door was never set in time, so the parcel was cancelled with no fee — the sender hears it
+  // in his app and may send it again. No names, gender-free.
+  parcel_door_lapsed: {
+    id: 'parcel_door_lapsed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'parcel.t_lapsed_title', body: 'parcel.t_lapsed_body', androidChannel: 'orders', deepLink: 'driver://parcel/{parcelId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
 };

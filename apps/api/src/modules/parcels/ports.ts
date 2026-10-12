@@ -1,4 +1,5 @@
 import type { DeliveryPoint, LatLng, Order, PlaceOrderInput } from '@driver/contracts';
+import type { NotifyRequest } from '../notify/index.js';
 
 /** Orders, as parcels uses them: the server's fare, placing the courier order once the door is set. */
 export interface ParcelsOrdersPort {
@@ -35,7 +36,26 @@ export interface ParcelsPlacesPort {
 /** The base of the receiver's door link (`<base>/p/<token>`), the company's own customer web address; null when unset. */
 export type ParcelLinkBase = string | null;
 
+/**
+ * The receiver's texts and the sender's notice go through the notify engine (its templates, dedupe,
+ * delivery log and SMS budget count) — never the SMS provider directly. Notify reads the number from
+ * the vault at send time; parcels only ever names the person id.
+ */
+export interface ParcelsNotifyPort {
+  dispatch(req: NotifyRequest): Promise<unknown>;
+}
+
+/**
+ * The day's shared SMS budget (`OTP_SMS_DAILY_BUDGET`, audit #280): spent and throttling means no parcel
+ * text today (the parcel is marked capped and the sender shares the link). Notify counts every text it sends.
+ */
+export interface ParcelsSmsBudgetPort {
+  spent(): Promise<boolean>;
+}
+
 export const PARCELS_ORDERS = Symbol('PARCELS_ORDERS');
+export const PARCELS_NOTIFY = Symbol('PARCELS_NOTIFY');
+export const PARCELS_SMS_BUDGET = Symbol('PARCELS_SMS_BUDGET');
 export const PARCELS_PEOPLE = Symbol('PARCELS_PEOPLE');
 export const PARCELS_PLACES = Symbol('PARCELS_PLACES');
 export const PARCELS_RIDERS = Symbol('PARCELS_RIDERS');
@@ -44,3 +64,7 @@ export const PARCELS_LINK_BASE = Symbol('PARCELS_LINK_BASE');
 /** Vault reads: the receiver's name and number for the sender's parcel page; the sender's first name for the receiver's page. */
 export const PARCEL_READ_PURPOSE = 'parcel_view';
 export const PARCEL_DOOR_PURPOSE = 'parcel_door_page';
+/** Vault read: the sender's first name for the receiver's texts. */
+export const PARCEL_TEXT_PURPOSE = 'parcel_text';
+/** The accessor of the parcels module's own vault reads (the texts, the sweep). */
+export const PARCELS_SYSTEM = 'system:parcels';

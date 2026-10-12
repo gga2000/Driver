@@ -26,6 +26,14 @@ export const PARCEL_RULES = {
   pinTries: 5,
   /** «رفضت تستلم» counts only at the door: the courier's last fix within this of the drop pin (as a no-show). */
   refuseWithinM: 150,
+  /**
+   * Text messages to the receiver (the door link, the receipt code), counted per parcel on its first text:
+   * at most this many parcels a Baghdad day from one sender to people who are not his trusted contacts,
+   * household or earlier receivers, and at most `textsPerReceiverDay` to one receiver from everyone.
+   * Over either (or past the day's SMS budget) the parcel still works and the sender shares the link himself.
+   */
+  textsPerSenderDay: 5,
+  textsPerReceiverDay: 3,
 } as const;
 
 export const ParcelSize = z.enum(['small', 'medium', 'large']);
@@ -135,6 +143,14 @@ export const ParcelView = z.object({
   doorBy: z.enum(['receiver', 'sender']),
   /** When the door must be marked by, while waiting. */
   doorDueAt: z.coerce.date().nullable(),
+  /** When we text the receiver the door link (a link made 23:00–08:00 waits until 08:00); null when none will go. */
+  doorTextAt: z.coerce.date().nullable().optional(),
+  /** The receiver got the door link by text. */
+  doorLinkTexted: z.boolean().optional(),
+  /** The receiver got the receipt code by text. */
+  pinTexted: z.boolean().optional(),
+  /** No text goes to the receiver for this parcel (a daily limit): the sender shares the link and the code himself. */
+  textCapped: z.boolean().optional(),
   steps: z.array(ParcelStep),
   /** The courier order once placed (the live map and the courier card read it). */
   orderId: z.string().nullable(),

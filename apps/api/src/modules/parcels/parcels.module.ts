@@ -1,7 +1,10 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { baseUrlFromEnv } from '../../shared/public-url.js';
+import { SMS_DAY_KEY, SMS_DAY_MS, smsBudgetThrottlesFromEnv, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { NotifyModule, NotifyService } from '../notify/index.js';
 import { identityRiders, OrdersModule, OrdersService, orgsHouseholds } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, ownsStoredUpload, PlacesModule, SavedPlacesService, type BlobStore } from '../places/index.js';
@@ -9,16 +12,31 @@ import { TripsModule, TripsService } from '../trips/index.js';
 import { ParcelsJob } from './parcels.job.js';
 import { InMemoryParcelsRepository, PARCELS_REPOSITORY, PrismaParcelsRepository, type ParcelsRepository } from './parcels.repository.js';
 import { ParcelsService, orderInput } from './parcels.service.js';
-import { PARCELS_LINK_BASE, PARCELS_ORDERS, PARCELS_PEOPLE, PARCELS_PLACES, PARCELS_RIDERS, type ParcelsOrdersPort, type ParcelsPeoplePort, type ParcelsPlacesPort } from './ports.js';
+import {
+  PARCELS_LINK_BASE,
+  PARCELS_NOTIFY,
+  PARCELS_ORDERS,
+  PARCELS_PEOPLE,
+  PARCELS_PLACES,
+  PARCELS_RIDERS,
+  PARCELS_SMS_BUDGET,
+  type ParcelsNotifyPort,
+  type ParcelsOrdersPort,
+  type ParcelsPeoplePort,
+  type ParcelsPlacesPort,
+  type ParcelsSmsBudgetPort,
+} from './ports.js';
 
 const photoOf = (proof: Record<string, unknown> | undefined): string | null => (typeof proof?.['photoUploadId'] === 'string' ? proof['photoUploadId'] : null);
 
 /**
  * طرود: owns `parcel_sends`. Places courier orders through orders only; the receiver's name lives in the
- * identity vault (participant names, `parcel:<id>`). Env: SHARE_LINK_BASE_URL (the receiver's link; unset: no link).
+ * identity vault (participant names, `parcel:<id>`). Env: SHARE_LINK_BASE_URL (the receiver's link; unset: no link
+ * and no door-link text). The receiver's texts go through notify (`parcel_door_link`, `parcel_pin`) and count in
+ * the day's SMS budget (OTP_SMS_DAILY_BUDGET; past it, with OTP_BUDGET_MODE=throttle, parcels send none).
  */
 @Module({
-  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, PlacesModule],
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, PlacesModule, NotifyModule],
   providers: [
     {
       provide: PARCELS_REPOSITORY,
@@ -70,6 +88,17 @@ const photoOf = (proof: Record<string, unknown> | undefined): string | null => (
     },
     { provide: PARCELS_RIDERS, useFactory: (identity: IdentityService, orgs: OrgsService) => identityRiders(identity, orgsHouseholds(orgs)), inject: [IdentityService, OrgsService] },
     { provide: PARCELS_LINK_BASE, useFactory: () => baseUrlFromEnv('SHARE_LINK_BASE_URL') },
+    { provide: PARCELS_NOTIFY, useFactory: (notify: NotifyService): ParcelsNotifyPort => ({ dispatch: (req) => notify.dispatch(req) }), inject: [NotifyService] },
+    {
+      provide: PARCELS_SMS_BUDGET,
+      useFactory: (counter: WindowCounter): ParcelsSmsBudgetPort => {
+        const budget = smsDailyBudgetFromEnv();
+        const throttle = smsBudgetThrottlesFromEnv();
+        // The same rolling count notify and the OTP guard keep; a counter that can't be read never stops a text.
+        return { spent: async () => throttle && (await counter.count(SMS_DAY_KEY, SMS_DAY_MS).catch(() => 0)) >= budget };
+      },
+      inject: [WINDOW_COUNTER],
+    },
     ParcelsService,
     ParcelsJob,
   ],

@@ -1,6 +1,6 @@
 -- طرود (Ali 2026-10-12): parcels inside the city. One row per parcel: ids, the parcel's own words,
 -- the fare and the receipt code. The receiver's name and number stay in identity_vault; the door
--- link's token is kept only as its sha-256. A new table beside the older per-order `parcels` (unused so far). Additive only.
+-- link's token (and the texted link's own) is kept only as its sha-256; the texts' times sit beside them. A new table beside the older per-order `parcels` (unused so far). Additive only.
 
 -- CreateTable
 CREATE TABLE "public"."parcel_sends" (
@@ -28,6 +28,12 @@ CREATE TABLE "public"."parcel_sends" (
     "pin_fails" INTEGER NOT NULL DEFAULT 0,
     "pin_verified_at" TIMESTAMP(3),
     "refused_at" TIMESTAMP(3),
+    "door_text_due_at" TIMESTAMP(3),
+    "door_texted_at" TIMESTAMP(3),
+    "pin_texted_at" TIMESTAMP(3),
+    "text_token_hash" TEXT,
+    "text_capped" BOOLEAN NOT NULL DEFAULT false,
+    "receiver_known" BOOLEAN NOT NULL DEFAULT false,
     "stage" TEXT NOT NULL,
     "cancelled_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL,
@@ -44,6 +50,15 @@ CREATE INDEX "parcel_sends_sender_id_created_at_idx" ON "public"."parcel_sends"(
 
 -- CreateIndex
 CREATE INDEX "parcel_sends_stage_door_due_at_idx" ON "public"."parcel_sends"("stage", "door_due_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "parcel_sends_text_token_hash_key" ON "public"."parcel_sends"("text_token_hash");
+
+-- CreateIndex
+CREATE INDEX "parcel_sends_stage_door_text_due_at_idx" ON "public"."parcel_sends"("stage", "door_text_due_at");
+
+-- CreateIndex
+CREATE INDEX "parcel_sends_recipient_person_id_created_at_idx" ON "public"."parcel_sends"("recipient_person_id", "created_at");
 
 -- CreateIndex
 CREATE INDEX "parcel_sends_order_id_idx" ON "public"."parcel_sends"("order_id");

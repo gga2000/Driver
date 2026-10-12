@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   DriverError,
   PARCEL_RULES,
@@ -25,22 +25,30 @@ import {
   type SetParcelDoorInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
+import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { startOfLocalDay } from '../../shared/local-time.js';
 import { newStartCode, type OrdersRidersPort, type ResolvedRider } from '../orders/index.js';
 import { distanceM } from '../places/index.js';
 import { PARCELS_REPOSITORY, type ParcelRecord, type ParcelsRepository } from './parcels.repository.js';
 import {
   PARCEL_DOOR_PURPOSE,
   PARCEL_READ_PURPOSE,
+  PARCEL_TEXT_PURPOSE,
   PARCELS_LINK_BASE,
+  PARCELS_NOTIFY,
   PARCELS_ORDERS,
   PARCELS_PEOPLE,
   PARCELS_PLACES,
   PARCELS_RIDERS,
+  PARCELS_SMS_BUDGET,
+  PARCELS_SYSTEM,
   type ParcelLinkBase,
+  type ParcelsNotifyPort,
   type ParcelsOrdersPort,
   type ParcelsPeoplePort,
   type ParcelsPlacesPort,
+  type ParcelsSmsBudgetPort,
 } from './ports.js';
 
 const HOUR = 3_600_000;
@@ -49,6 +57,8 @@ const LINK_LIFE_MS = 48 * HOUR;
 /** The token in the link: 144 random bits, base64url (24 characters). Only its hash is stored. */
 const TOKEN_BYTES = 18;
 const MINE_LIMIT = 20;
+/** A receipt code whose text did not go (notify was down) is retried by the sweep for this long after the door was set. */
+const PIN_RETRY_MS = 6 * HOUR;
 
 const DELIVERED: ReadonlySet<OrderState> = new Set(['delivered', 'completed', 'closed']);
 const ENDED: ReadonlySet<OrderState> = new Set(['customer_cancelled', 'platform_cancelled', 'merchant_rejected', 'refunded', 'failed']);
@@ -65,6 +75,8 @@ const participantKey = (parcelId: string): string => `parcel:${parcelId}`;
  */
 @Injectable()
 export class ParcelsService implements ParcelsPort {
+  private readonly logger = new Logger('Parcels');
+
   constructor(
     @Inject(PARCELS_REPOSITORY) private readonly repo: ParcelsRepository,
     @Inject(PARCELS_ORDERS) private readonly orders: ParcelsOrdersPort,
@@ -73,6 +85,8 @@ export class ParcelsService implements ParcelsPort {
     @Inject(PARCELS_RIDERS) private readonly riders: OrdersRidersPort,
     @Inject(PARCELS_LINK_BASE) private readonly linkBase: ParcelLinkBase,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(PARCELS_NOTIFY) private readonly notify: ParcelsNotifyPort,
+    @Inject(PARCELS_SMS_BUDGET) private readonly smsBudget: ParcelsSmsBudgetPort,
   ) {}
 
   async quote(actor: Actor, input: z.output<typeof ParcelQuoteInput>): Promise<ParcelQuote> {
@@ -106,6 +120,9 @@ export class ParcelsService implements ParcelsPort {
     const rider = await this.receiver(senderId, input.recipient);
     const token = door.by === 'receiver' ? randomBytes(TOKEN_BYTES).toString('base64url') : null;
     const now = this.clock.now();
+    // Trusted contacts and household members are picked from the sender's own lists; a typed number is
+    // known once it took a parcel from him before. Only strangers count toward his daily text cap.
+    const receiverKnown = input.recipient.from !== 'typed' || (await this.repo.deliveredTo(senderId, rider.personId));
     const rec = await this.repo.create({
       cityId: input.cityId,
       senderId,
@@ -130,13 +147,21 @@ export class ParcelsService implements ParcelsPort {
       pinFails: 0,
       pinVerifiedAt: null,
       refusedAt: null,
+      // The door-link text: now, or 08:00 for a link made 23:00–08:00. No link address set: no text.
+      doorTextDueAt: token && this.linkBase ? linkGoesAt(now) : null,
+      doorTextedAt: null,
+      pinTextedAt: null,
+      textTokenHash: null,
+      textCapped: false,
+      receiverKnown,
       stage: 'waiting_door',
       cancelledAt: null,
       createdAt: now,
     });
     await this.riders.remember(participantKey(rec.id), rider, senderId);
     const placed = dropoff ? await this.placeOrder(rec, dropoff, now) : rec;
-    return this.view(placed, senderId, token);
+    const texted = dropoff ? await this.quietly(() => this.textPin(placed)) : await this.quietly(() => this.textDoor(placed));
+    return this.view(texted ?? placed, senderId, token);
   }
 
   async get(actor: Actor, input: ParcelIdInput): Promise<ParcelView> {
@@ -179,17 +204,100 @@ export class ParcelsService implements ParcelsPort {
     if (zoneKey !== rec.zoneKey && (await this.orders.fare(rec.senderId, { cityId: rec.cityId, pickup: rec.pickup, dropoff })) !== rec.fareIqd) {
       throw new DriverError('parcel_door_outside_zone');
     }
-    return this.page(await this.placeOrder({ ...rec, courierNote: joinNote(rec.courierNote, input.doorNote) }, dropoff, now));
+    const placed = await this.placeOrder({ ...rec, courierNote: joinNote(rec.courierNote, input.doorNote) }, dropoff, now);
+    // The receipt code goes as soon as the door is set (any hour: the receiver just asked for the parcel).
+    return this.page((await this.quietly(() => this.textPin(placed))) ?? placed);
   }
 
-  /** Parcels whose door was never set in time: cancelled, no fee (no order exists). Returns how many. */
+  /**
+   * Every minute (the parcels job, reading the table so nothing is lost on a restart): parcels whose
+   * door was never set in time are cancelled with no fee (no order exists) and the sender hears it;
+   * door-link texts held for the morning go out at 08:00; a receipt-code text that failed is retried.
+   * Returns how many parcels were cancelled.
+   */
   async sweep(): Promise<number> {
     const now = this.clock.now();
     let n = 0;
     for (const rec of await this.repo.lapsed(now)) {
-      if (await this.repo.update(rec.id, 'waiting_door', { stage: 'cancelled', cancelledAt: now })) n++;
+      const done = await this.repo.update(rec.id, 'waiting_door', { stage: 'cancelled', cancelledAt: now });
+      if (!done) continue;
+      n++;
+      await this.quietly(() => this.notify.dispatch({ eventId: `parcel:${rec.id}:lapsed`, template: 'parcel_door_lapsed', to: rec.senderId, params: { parcelId: rec.id }, data: { parcelId: rec.id } }));
     }
+    for (const rec of await this.repo.doorTextsDue(now)) await this.quietly(() => this.textDoor(rec));
+    for (const rec of await this.repo.pinTextsDue(new Date(now.getTime() - PIN_RETRY_MS))) await this.quietly(() => this.textPin(rec));
     return n;
+  }
+
+  // ── the receiver's texts ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * The door-link text, once per parcel (dedupe `parcel:<id>:door`), when it is due. The link in it has
+   * its own token, made now (only hashes are stored, so a text held for the morning cannot reuse the
+   * sender's); the sender's shared link keeps working. Over a cap: no text, the parcel is marked capped.
+   */
+  private async textDoor(rec: ParcelRecord): Promise<ParcelRecord | null> {
+    const now = this.clock.now();
+    if (rec.stage !== 'waiting_door' || rec.doorTextedAt || rec.textCapped || !rec.doorTextDueAt || rec.doorTextDueAt > now || this.lapsedAt(rec, now) || !this.linkBase) return null;
+    if (await this.overTextCap(rec, now)) return this.repo.update(rec.id, 'waiting_door', { textCapped: true }, 'doorTextedAt');
+    const token = randomBytes(TOKEN_BYTES).toString('base64url');
+    const claimed = await this.repo.update(rec.id, 'waiting_door', { doorTextedAt: now, textTokenHash: hashDoorToken(token) }, 'doorTextedAt');
+    if (!claimed) return null;
+    try {
+      const sender = await this.senderForText(rec);
+      await this.notify.dispatch({ eventId: `parcel:${rec.id}:door`, template: 'parcel_door_link', to: rec.recipientPersonId, params: { sender, link: `${this.linkBase}/p/${token}` }, data: { parcelId: rec.id } });
+      return claimed;
+    } catch (err) {
+      // Not handed to notify: let the next sweep try again with a fresh token.
+      await this.repo.update(rec.id, 'waiting_door', { doorTextedAt: null, textTokenHash: null });
+      throw err;
+    }
+  }
+
+  /**
+   * The receipt-code text, once per parcel (dedupe `parcel:<id>:pin`), as soon as the door is set. A
+   * parcel whose door-link text already went is not counted again; a parcel over a cap gets no texts.
+   */
+  private async textPin(rec: ParcelRecord): Promise<ParcelRecord | null> {
+    const now = this.clock.now();
+    if (rec.stage !== 'placed' || rec.pinTextedAt || rec.textCapped || rec.refusedAt || rec.pinVerifiedAt) return null;
+    if (!rec.doorTextedAt && (await this.overTextCap(rec, now))) return this.repo.update(rec.id, 'placed', { textCapped: true }, 'pinTextedAt');
+    const claimed = await this.repo.update(rec.id, 'placed', { pinTextedAt: now }, 'pinTextedAt');
+    if (!claimed) return null;
+    try {
+      const sender = await this.senderForText(rec);
+      await this.notify.dispatch({ eventId: `parcel:${rec.id}:pin`, template: 'parcel_pin', to: rec.recipientPersonId, params: { sender, pin: rec.pin }, data: { parcelId: rec.id } });
+      return claimed;
+    } catch (err) {
+      await this.repo.update(rec.id, 'placed', { pinTextedAt: null });
+      throw err;
+    }
+  }
+
+  /**
+   * The caps, counted per parcel on its first text, by Baghdad day: `textsPerSenderDay` from one sender
+   * to strangers, `textsPerReceiverDay` to one receiver from everyone, and the day's shared SMS budget.
+   */
+  private async overTextCap(rec: ParcelRecord, now: Date): Promise<boolean> {
+    const day = startOfLocalDay(now);
+    if (!rec.receiverKnown && (await this.repo.textedSince({ senderId: rec.senderId, strangersOnly: true }, day)) >= PARCEL_RULES.textsPerSenderDay) return true;
+    if ((await this.repo.textedSince({ recipientPersonId: rec.recipientPersonId }, day)) >= PARCEL_RULES.textsPerReceiverDay) return true;
+    return this.smsBudget.spent();
+  }
+
+  /** The sender's first name from the vault, at most 20 characters — never free text. */
+  private async senderForText(rec: ParcelRecord): Promise<string> {
+    return shortName(await this.people.firstName(rec.senderId, PARCELS_SYSTEM, PARCEL_TEXT_PURPOSE)) || t('parcel.t_sender_fallback', {}, 'ar-IQ');
+  }
+
+  /** A text that fails never fails the parcel: logged (ids only), and the sweep tries again. */
+  private async quietly<T>(fn: () => Promise<T>): Promise<T | null> {
+    try {
+      return await fn();
+    } catch (err) {
+      this.logger.warn(`parcel text not handed to notify: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /** A new link for the receiver (the sender shares it himself, or the old one was lost); the old one stops opening. */
@@ -384,6 +492,10 @@ export class ParcelsService implements ParcelsPort {
       doorLink: token && this.linkBase ? `${this.linkBase}/p/${token}` : null,
       doorBy: rec.doorBy,
       doorDueAt: state === 'waiting_door' ? rec.doorDueAt : null,
+      doorTextAt: state === 'waiting_door' && !rec.doorTextedAt && !rec.textCapped ? rec.doorTextDueAt : null,
+      doorLinkTexted: rec.doorTextedAt !== null,
+      pinTexted: rec.pinTextedAt !== null,
+      textCapped: rec.textCapped,
       steps: [
         { key: 'sent', at: rec.createdAt },
         { key: 'door_set', at: rec.doorSetAt },
