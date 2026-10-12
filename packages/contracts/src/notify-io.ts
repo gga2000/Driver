@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import type { MessageKey } from '@driver/i18n';
 import type { Actor } from './identity-io.js';
+import type { AndroidChannelId } from './android-channels.js';
+
+export {
+  ANDROID_CHANNELS,
+  AndroidChannelId,
+  OFFER_SOUND,
+  type AndroidChannelDef,
+} from './android-channels.js';
 
 /**
  * Notifications (domain §8, notifications & support spec §1): push first; WhatsApp for money and
@@ -23,38 +31,6 @@ export type PushPlatform = z.infer<typeof PushPlatform>;
 /** `expo`: an `ExponentPushToken[…]` (Expo push service); `fcm`: a raw FCM registration token. */
 export const PushTokenKind = z.enum(['expo', 'fcm']);
 export type PushTokenKind = z.infer<typeof PushTokenKind>;
-
-// ───────────────────────── Android channels ─────────────────────────
-
-/**
- * Android notification channels the apps create at start. `offers` rings loud with the custom
- * `offer.wav` (partner job offers, merchant new orders); `marketing` is silent and its server-side
- * preference is off by default.
- */
-export const AndroidChannelId = z.enum(['offers', 'orders', 'chat', 'marketing']);
-export type AndroidChannelId = z.infer<typeof AndroidChannelId>;
-
-export interface AndroidChannelDef {
-  id: AndroidChannelId;
-  nameKey: MessageKey;
-  descriptionKey?: MessageKey;
-  /** expo-notifications `AndroidImportance` name. */
-  importance: 'MAX' | 'HIGH' | 'DEFAULT' | 'LOW';
-  /** Bundled sound file name (`offer.wav`), `default`, or null for silent. */
-  sound: string | null;
-  vibrationPattern: readonly number[] | null;
-  /** Which apps create the channel. */
-  apps: readonly NotifyApp[];
-}
-
-export const OFFER_SOUND = 'offer.wav';
-
-export const ANDROID_CHANNELS: Readonly<Record<AndroidChannelId, AndroidChannelDef>> = {
-  offers: { id: 'offers', nameKey: 'notify.channel.offers', descriptionKey: 'notify.channel.offers_desc', importance: 'MAX', sound: OFFER_SOUND, vibrationPattern: [0, 400, 200, 400, 200, 400], apps: ['partner', 'merchant'] },
-  orders: { id: 'orders', nameKey: 'notify.channel.orders', importance: 'HIGH', sound: 'default', vibrationPattern: [0, 250], apps: ['customer', 'partner', 'merchant'] },
-  chat: { id: 'chat', nameKey: 'notify.channel.chat', importance: 'HIGH', sound: 'default', vibrationPattern: [0, 150], apps: ['customer', 'partner', 'merchant'] },
-  marketing: { id: 'marketing', nameKey: 'notify.channel.marketing', importance: 'LOW', sound: null, vibrationPattern: null, apps: ['customer'] },
-};
 
 // ───────────────────────── preferences ─────────────────────────
 
@@ -91,7 +67,16 @@ export const NotifyPreferences = z.object({
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = {
+  orderUpdates: true,
+  chat: true,
+  whatsappReceipts: true,
+  smsFallback: true,
+  marketing: false,
+  dishPots: true,
+  regularTrips: true,
+  sameRide: true,
+};
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -108,7 +93,19 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride']);
+export const NotifyCategory = z.enum([
+  'otp',
+  'order_updates',
+  'chat',
+  'receipts',
+  'money',
+  'work',
+  'safety',
+  'marketing',
+  'dish_pot',
+  'regular_trip',
+  'same_ride',
+]);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
@@ -117,7 +114,11 @@ export type NotifyCategory = z.infer<typeof NotifyCategory>;
  * `regular_trip` (joy r5, the «تأكد رحلتك؟» reminder) follows the same quiet rules — the app still
  * shows the occurrence to confirm when the push is held — and is never counted in the cap.
  */
-export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip']);
+export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>([
+  'marketing',
+  'dish_pot',
+  'regular_trip',
+]);
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
@@ -258,7 +259,12 @@ export interface NotifyTemplateDef {
    * message has no `link` param (the link's address is not configured). Absent: the SMS is the
    * WhatsApp text, else "title — body".
    */
-  sms?: { key: MessageKey; withCode?: MessageKey; noLink?: MessageKey; withCodeNoLink?: MessageKey };
+  sms?: {
+    key: MessageKey;
+    withCode?: MessageKey;
+    noLink?: MessageKey;
+    withCodeNoLink?: MessageKey;
+  };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -270,7 +276,13 @@ export interface NotifyTemplateDef {
   quietHours: 'defer' | 'send';
 }
 
-const wa = (name: string, key: MessageKey, params: readonly string[], examples: readonly string[], metaCategory: WhatsAppTemplateDef['metaCategory'] = 'UTILITY'): WhatsAppTemplateDef => ({ name, key, params, examples, metaCategory });
+const wa = (
+  name: string,
+  key: MessageKey,
+  params: readonly string[],
+  examples: readonly string[],
+  metaCategory: WhatsAppTemplateDef['metaCategory'] = 'UTILITY',
+): WhatsAppTemplateDef => ({ name, key, params, examples, metaCategory });
 
 /** WhatsApp falls back to SMS after 60 s undelivered (domain §8). */
 export const WHATSAPP_SMS_FALLBACK_SEC = 60;
@@ -280,7 +292,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_accepted',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_accepted.title', body: 'push.order_accepted.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_accepted.title',
+      body: 'push.order_accepted.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -289,7 +306,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_prep_extended',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_prep_extended.title', body: 'push.order_prep_extended.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_prep_extended.title',
+      body: 'push.order_prep_extended.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -299,7 +321,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_late_apology',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_late_apology.title', body: 'push.order_late_apology.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_late_apology.title',
+      body: 'push.order_late_apology.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -308,7 +335,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_picked_up',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_picked_up.title', body: 'push.order_picked_up.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_picked_up.title',
+      body: 'push.order_picked_up.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -317,7 +349,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_on_the_way',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_on_the_way.title', body: 'push.order_on_the_way.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_on_the_way.title',
+      body: 'push.order_on_the_way.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -326,7 +363,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_rejected',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_rejected.title', body: 'push.order_rejected.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_rejected.title',
+      body: 'push.order_rejected.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -336,7 +378,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_rejected_credit',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_rejected_credit.title', body: 'push.order_rejected_credit.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_rejected_credit.title',
+      body: 'push.order_rejected_credit.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -345,7 +392,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_kitchen_no_answer',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_kitchen_no_answer.title', body: 'push.order_kitchen_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_kitchen_no_answer.title',
+      body: 'push.order_kitchen_no_answer.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -356,7 +408,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_partial_ask',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_partial_ask.title', body: 'push.order_partial_ask.body', androidChannel: 'orders', deepLink: 'driver://kitchen/{orderId}' },
+    push: {
+      title: 'push.order_partial_ask.title',
+      body: 'push.order_partial_ask.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://kitchen/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: 20,
     quietHours: 'send',
@@ -365,7 +422,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_partial_no_answer',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_partial_no_answer.title', body: 'push.order_partial_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_partial_no_answer.title',
+      body: 'push.order_partial_no_answer.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -375,7 +437,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_cancelled',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_cancelled.title', body: 'push.order_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_cancelled.title',
+      body: 'push.order_cancelled.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -384,7 +451,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_payer_declined',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_payer_declined.title', body: 'push.order_payer_declined.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_payer_declined.title',
+      body: 'push.order_payer_declined.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -393,7 +465,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_payer_no_answer',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_payer_no_answer.title', body: 'push.order_payer_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_payer_no_answer.title',
+      body: 'push.order_payer_no_answer.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -405,7 +482,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_at_door',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.courier_at_door.title', body: 'push.courier_at_door.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.courier_at_door.title',
+      body: 'push.courier_at_door.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -413,7 +495,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_unreachable',
     category: 'safety',
     app: 'customer',
-    push: { title: 'push.unreachable.title', body: 'push.unreachable.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.unreachable.title',
+      body: 'push.unreachable.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     whatsapp: wa('courier_unreachable', 'wa.courier_unreachable', ['courier'], ['حيدر']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
@@ -423,7 +510,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_unreachable_reminder',
     category: 'safety',
     app: 'customer',
-    push: { title: 'push.unreachable_reminder.title', body: 'push.unreachable_reminder.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.unreachable_reminder.title',
+      body: 'push.unreachable_reminder.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -434,7 +526,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'support_reply',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.support_reply.title', body: 'push.support_reply.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    push: {
+      title: 'push.support_reply.title',
+      body: 'push.support_reply.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://{link}',
+    },
     primary: ['push'],
     smsTwinAfterSec: 120,
     quietHours: 'defer',
@@ -443,7 +540,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'support_refund',
     category: 'money',
     app: 'customer',
-    push: { title: 'push.support_refund.title', body: 'push.support_refund.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    push: {
+      title: 'push.support_refund.title',
+      body: 'push.support_refund.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://{link}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'defer',
@@ -452,7 +554,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'support_resolved',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.support_resolved.title', body: 'push.support_resolved.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    push: {
+      title: 'push.support_resolved.title',
+      body: 'push.support_resolved.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://{link}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -460,8 +567,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_arriving',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.courier_arriving.title', body: 'push.courier_arriving.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('courier_arriving', 'wa.courier_arriving', ['name', 'courier', 'merchant', 'amount'], ['علي', 'حيدر', 'مطعم خالد', '12,500']),
+    push: {
+      title: 'push.courier_arriving.title',
+      body: 'push.courier_arriving.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
+    whatsapp: wa(
+      'courier_arriving',
+      'wa.courier_arriving',
+      ['name', 'courier', 'merchant', 'amount'],
+      ['علي', 'حيدر', 'مطعم خالد', '12,500'],
+    ),
     primary: ['push', 'whatsapp'],
     quietHours: 'send',
   },
@@ -470,8 +587,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_arriving_paid',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.courier_arriving.title', body: 'push.courier_arriving_paid.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('courier_arriving_paid', 'wa.courier_arriving_paid', ['name', 'courier', 'merchant'], ['علي', 'حيدر', 'مطعم خالد']),
+    push: {
+      title: 'push.courier_arriving.title',
+      body: 'push.courier_arriving_paid.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
+    whatsapp: wa(
+      'courier_arriving_paid',
+      'wa.courier_arriving_paid',
+      ['name', 'courier', 'merchant'],
+      ['علي', 'حيدر', 'مطعم خالد'],
+    ),
     primary: ['push', 'whatsapp'],
     quietHours: 'send',
   },
@@ -479,8 +606,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_receipt',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.order_delivered.title', body: 'push.order_delivered.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://app.example.com/r/ord_123']),
+    push: {
+      title: 'push.order_delivered.title',
+      body: 'push.order_delivered.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
+    whatsapp: wa(
+      'order_receipt',
+      'wa.order_delivered',
+      ['merchant', 'amount', 'receiptUrl'],
+      ['مطعم خالد', '12,500', 'https://app.example.com/r/ord_123'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -489,8 +626,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_receipt',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.ride_completed.title', body: 'push.ride_completed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://app.example.com/r/ord_123']),
+    push: {
+      title: 'push.ride_completed.title',
+      body: 'push.ride_completed.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
+    whatsapp: wa(
+      'ride_receipt',
+      'wa.trip_completed',
+      ['amount', 'driver', 'receiptUrl'],
+      ['4,000', 'حيدر', 'https://app.example.com/r/ord_123'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -500,7 +647,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_matched',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_matched.title', body: 'push.ride_matched.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_matched.title',
+      body: 'push.ride_matched.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -508,7 +660,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'driver_arrived',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.driver_arrived.title', body: 'push.driver_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.driver_arrived.title',
+      body: 'push.driver_arrived.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -517,7 +674,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_near',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_near.title', body: 'push.ride_near.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_near.title',
+      body: 'push.ride_near.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -527,7 +689,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_safe_arrival',
     category: 'safety',
     app: 'customer',
-    push: { title: 'push.ride_safe_arrival.title', body: 'push.ride_safe_arrival.body', androidChannel: 'orders', deepLink: 'driver://' },
+    push: {
+      title: 'push.ride_safe_arrival.title',
+      body: 'push.ride_safe_arrival.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -553,7 +720,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'merchant_new_order',
     category: 'work',
     app: 'merchant',
-    push: { title: 'push.merchant_new_order.title', body: 'push.merchant_new_order.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    push: {
+      title: 'push.merchant_new_order.title',
+      body: 'push.merchant_new_order.body',
+      androidChannel: 'offers',
+      deepLink: 'driver-merchant://order/{orderId}',
+    },
     primary: ['push'],
     // Domain §8: "push + loud alert + optional SMS" — the SMS goes when the push is not confirmed in 30 s.
     smsTwinAfterSec: 30,
@@ -564,7 +736,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'merchant',
     // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
-    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    push: {
+      title: 'push.merchant_order_cancelled.title',
+      body: 'push.merchant_order_cancelled.body',
+      androidChannel: 'offers',
+      deepLink: 'driver-merchant://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -572,7 +749,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_new_job',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_new_job.title', body: 'push.partner_offer.body', androidChannel: 'offers', deepLink: 'driver-partner://offer' },
+    push: {
+      title: 'push.partner_new_job.title',
+      body: 'push.partner_offer.body',
+      androidChannel: 'offers',
+      deepLink: 'driver-partner://offer',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -581,7 +763,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_zone_nudge',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_zone_nudge.title', body: 'push.partner_zone_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    push: {
+      title: 'push.partner_zone_nudge.title',
+      body: 'push.partner_zone_nudge.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -591,7 +778,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_nudge',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.ride_nudge.title', body: 'push.ride_nudge.body', androidChannel: 'orders', deepLink: 'driver-partner://offer' },
+    push: {
+      title: 'push.ride_nudge.title',
+      body: 'push.ride_nudge.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://offer',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -602,7 +794,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'tip_received',
     category: 'money',
     app: 'partner',
-    push: { title: 'push.tip_received.title', body: 'push.tip_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
+    push: {
+      title: 'push.tip_received.title',
+      body: 'push.tip_received.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://earnings',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -612,7 +809,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'compliment_received',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.compliment_received.title', body: 'push.compliment_received.body', androidChannel: 'orders', deepLink: 'driver-partner://compliments' },
+    push: {
+      title: 'push.compliment_received.title',
+      body: 'push.compliment_received.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://compliments',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -620,7 +822,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'driver_pay_reply',
     category: 'money',
     app: 'partner',
-    push: { title: 'push.driver_pay_reply.title', body: 'push.driver_pay_reply.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    push: {
+      title: 'push.driver_pay_reply.title',
+      body: 'push.driver_pay_reply.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -628,7 +835,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'driver_pay_resolved',
     category: 'money',
     app: 'partner',
-    push: { title: 'push.driver_pay_resolved.title', body: 'push.driver_pay_resolved.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}' },
+    push: {
+      title: 'push.driver_pay_resolved.title',
+      body: 'push.driver_pay_resolved.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://earnings/receipt?key={key}&at={at}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -638,7 +850,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'menu_photos_ready',
     category: 'work',
     app: 'merchant',
-    push: { title: 'push.menu_photos_ready.title', body: 'push.menu_photos_ready.body', androidChannel: 'orders', deepLink: 'driver-merchant://menu-photos' },
+    push: {
+      title: 'push.menu_photos_ready.title',
+      body: 'push.menu_photos_ready.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-merchant://menu-photos',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -647,7 +864,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'merchant_activated',
     category: 'work',
     app: 'merchant',
-    push: { title: 'push.merchant_activated.title', body: 'push.merchant_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://setup' },
+    push: {
+      title: 'push.merchant_activated.title',
+      body: 'push.merchant_activated.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-merchant://setup',
+    },
     sms: { key: 'sms.merchant_activated' },
     primary: ['push', 'sms'],
     quietHours: 'defer',
@@ -656,8 +878,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'merchant_cash_handover',
     category: 'money',
     app: 'merchant',
-    push: { title: 'push.merchant_cash_handover.title', body: 'push.merchant_cash_handover.body', androidChannel: 'orders', deepLink: 'driver-merchant://money' },
-    whatsapp: wa('merchant_cash_handover', 'wa.merchant_cash_handover', ['store', 'amount', 'courier', 'date', 'balance', 'reference'], ['مطعم خالد', '45,000', 'حيدر', '2026-10-04', '0', 'MH-2610-0001']),
+    push: {
+      title: 'push.merchant_cash_handover.title',
+      body: 'push.merchant_cash_handover.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-merchant://money',
+    },
+    whatsapp: wa(
+      'merchant_cash_handover',
+      'wa.merchant_cash_handover',
+      ['store', 'amount', 'courier', 'date', 'balance', 'reference'],
+      ['مطعم خالد', '45,000', 'حيدر', '2026-10-04', '0', 'MH-2610-0001'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -666,8 +898,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'courier_cash_receipt',
     category: 'money',
     app: 'partner',
-    push: { title: 'push.partner_cash_received.title', body: 'push.partner_cash_received.body', androidChannel: 'orders', deepLink: 'driver-partner://earnings' },
-    whatsapp: wa('courier_cash_receipt', 'wa.partner_settlement_receipt', ['amount', 'date', 'balance'], ['60,000', '2026-10-04', '-15,000']),
+    push: {
+      title: 'push.partner_cash_received.title',
+      body: 'push.partner_cash_received.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://earnings',
+    },
+    whatsapp: wa(
+      'courier_cash_receipt',
+      'wa.partner_settlement_receipt',
+      ['amount', 'date', 'balance'],
+      ['60,000', '2026-10-04', '-15,000'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -677,7 +919,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'cash_change_credit',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.cash_change_credit.title', body: 'push.cash_change_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
+    push: {
+      title: 'push.cash_change_credit.title',
+      body: 'push.cash_change_credit.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://wallet',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -686,7 +933,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_late_credit',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.order_late_credit.title', body: 'push.order_late_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
+    push: {
+      title: 'push.order_late_credit.title',
+      body: 'push.order_late_credit.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://wallet',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -694,8 +946,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'wallet_topup_receipt',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.topup_done.title', body: 'push.topup_done.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
-    whatsapp: wa('wallet_topup_receipt', 'wa.topup_receipt', ['amount', 'date', 'reference'], ['25,000', '2026-10-04', 'TU-2610-0007']),
+    push: {
+      title: 'push.topup_done.title',
+      body: 'push.topup_done.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://wallet',
+    },
+    whatsapp: wa(
+      'wallet_topup_receipt',
+      'wa.topup_receipt',
+      ['amount', 'date', 'reference'],
+      ['25,000', '2026-10-04', 'TU-2610-0007'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -706,7 +968,13 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'rajaa_pass_update',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.rajaa_pass_update.title', body: 'push.rajaa_pass_update.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}', silent: true },
+    push: {
+      title: 'push.rajaa_pass_update.title',
+      body: 'push.rajaa_pass_update.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://rajaa/pass/{bookingId}',
+      silent: true,
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -714,8 +982,26 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'rajaa_boarding_pass',
     category: 'receipts',
     app: 'customer',
-    push: { title: 'push.seat_booked.title', body: 'push.seat_booked.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}' },
-    whatsapp: wa('rajaa_boarding_pass', 'wa.rajaa_boarding_pass', ['route', 'date', 'time', 'seat', 'vehicle', 'place', 'pin'], ['العزيزية ← بغداد', '2026-10-05', '7:30', 'A1', 'كيا بونگو · 12345 واسط', 'كراج البوابة 1', '4821']),
+    push: {
+      title: 'push.seat_booked.title',
+      body: 'push.seat_booked.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://rajaa/pass/{bookingId}',
+    },
+    whatsapp: wa(
+      'rajaa_boarding_pass',
+      'wa.rajaa_boarding_pass',
+      ['route', 'date', 'time', 'seat', 'vehicle', 'place', 'pin'],
+      [
+        'العزيزية ← بغداد',
+        '2026-10-05',
+        '7:30',
+        'A1',
+        'كيا بونگو · 12345 واسط',
+        'كراج البوابة 1',
+        '4821',
+      ],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -724,8 +1010,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'khat_child_arrived',
     category: 'safety',
     app: 'customer',
-    push: { title: 'push.khat_dropped.title', body: 'push.khat_dropped.body', androidChannel: 'orders', deepLink: 'driver://' },
-    whatsapp: wa('khat_child_arrived', 'wa.khat_dropped', ['child', 'place', 'time'], ['زينب', 'مدرسة الرافدين', '7:40']),
+    push: {
+      title: 'push.khat_dropped.title',
+      body: 'push.khat_dropped.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://',
+    },
+    whatsapp: wa(
+      'khat_child_arrived',
+      'wa.khat_dropped',
+      ['child', 'place', 'time'],
+      ['زينب', 'مدرسة الرافدين', '7:40'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -735,7 +1031,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'khat_sweep_reminder',
     category: 'safety',
     app: 'partner',
-    push: { title: 'push.khat_sweep_reminder.title', body: 'push.khat_sweep_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://khat' },
+    push: {
+      title: 'push.khat_sweep_reminder.title',
+      body: 'push.khat_sweep_reminder.body',
+      androidChannel: 'offers',
+      deepLink: 'driver-partner://khat',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -745,8 +1046,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'khat_sweep_dispatch_alert',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.khat_sweep_dispatch.title', body: 'push.khat_sweep_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.example.com/safety']),
+    push: {
+      title: 'push.khat_sweep_dispatch.title',
+      body: 'push.khat_sweep_dispatch.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety',
+    },
+    whatsapp: wa(
+      'khat_sweep_dispatch_alert',
+      'wa.khat_sweep_dispatch',
+      ['name', 'route', 'minutes', 'link'],
+      ['حيدر ك.', '#4821', '5 دقايق', 'https://console.example.com/safety'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -756,8 +1067,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_dispatch_alert',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.sos_dispatch.title', body: 'push.sos_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
-    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.example.com/safety/sos_123']),
+    push: {
+      title: 'push.sos_dispatch.title',
+      body: 'push.sos_dispatch.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety/{incidentId}',
+    },
+    whatsapp: wa(
+      'sos_dispatch_alert',
+      'wa.sos_dispatch',
+      ['name', 'role', 'what', 'link'],
+      ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.example.com/safety/sos_123'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -768,7 +1089,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_desk_ring',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.sos_ring.title', body: 'push.sos_ring.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
+    push: {
+      title: 'push.sos_ring.title',
+      body: 'push.sos_ring.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety/{incidentId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -779,8 +1105,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'console_unwatched_alert',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.console_unwatched.title', body: 'push.console_unwatched.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.example.com']),
+    push: {
+      title: 'push.console_unwatched.title',
+      body: 'push.console_unwatched.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety',
+    },
+    whatsapp: wa(
+      'console_unwatched_alert',
+      'wa.console_unwatched',
+      ['minutes', 'link'],
+      ['5 دقيقة', 'https://console.example.com'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -789,8 +1125,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'console_live_down_alert',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.console_live_down.title', body: 'push.console_live_down.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.example.com']),
+    push: {
+      title: 'push.console_live_down.title',
+      body: 'push.console_live_down.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety',
+    },
+    whatsapp: wa(
+      'console_live_down_alert',
+      'wa.console_live_down',
+      ['minutes', 'link'],
+      ['1 دقيقة', 'https://console.example.com'],
+    ),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -800,7 +1146,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'staff_new_device',
     category: 'safety',
     app: 'any',
-    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    push: {
+      title: 'push.staff_new_device.title',
+      body: 'push.staff_new_device.body',
+      androidChannel: 'offers',
+      deepLink: 'driver://safety',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -809,7 +1160,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_emergency_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://app.example.com/sos/abc.def']),
+    whatsapp: wa(
+      'sos_emergency_contact',
+      'wa.sos_contact',
+      ['name', 'link'],
+      ['علي', 'https://app.example.com/sos/abc.def'],
+    ),
     primary: ['whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -820,7 +1176,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'rajaa_arrived_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('rajaa_arrived_contact', 'wa.rajaa_arrived_contact', ['name', 'route', 'time'], ['زينب', 'بغداد ← العزيزية', '7:42 المسا']),
+    whatsapp: wa(
+      'rajaa_arrived_contact',
+      'wa.rajaa_arrived_contact',
+      ['name', 'route', 'time'],
+      ['زينب', 'بغداد ← العزيزية', '7:42 المسا'],
+    ),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -830,7 +1191,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'trip_shared_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://app.example.com/share/shr_abc']),
+    whatsapp: wa(
+      'trip_shared_contact',
+      'wa.trip_shared_contact',
+      ['name', 'what', 'link'],
+      ['زينب', 'الرجعة بغداد ← العزيزية', 'https://app.example.com/share/shr_abc'],
+    ),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -842,8 +1208,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_for_rider',
     category: 'safety',
     app: 'customer',
-    push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code', noLink: 'sms.ride_for_rider_nolink', withCodeNoLink: 'sms.ride_for_rider_code_nolink' },
+    push: {
+      title: 'push.ride_for_rider.title',
+      body: 'push.ride_for_rider.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
+    sms: {
+      key: 'sms.ride_for_rider',
+      withCode: 'sms.ride_for_rider_code',
+      noLink: 'sms.ride_for_rider_nolink',
+      withCodeNoLink: 'sms.ride_for_rider_code_nolink',
+    },
     primary: ['push', 'sms'],
     quietHours: 'send',
   },
@@ -852,7 +1228,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_rider_arrived',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_rider_arrived.title', body: 'push.ride_rider_arrived.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_rider_arrived.title',
+      body: 'push.ride_rider_arrived.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -860,7 +1241,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'chat_message',
     category: 'chat',
     app: 'any',
-    push: { title: 'push.chat_message.title_support', body: 'push.chat_message.photo', androidChannel: 'chat', deepLink: 'driver://chat/{orderId}' },
+    push: {
+      title: 'push.chat_message.title_support',
+      body: 'push.chat_message.photo',
+      androidChannel: 'chat',
+      deepLink: 'driver://chat/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -868,7 +1254,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'marketing_offer',
     category: 'marketing',
     app: 'customer',
-    push: { title: 'push.promo.title', body: 'push.promo.body', androidChannel: 'marketing', deepLink: 'driver://home' },
+    push: {
+      title: 'push.promo.title',
+      body: 'push.promo.body',
+      androidChannel: 'marketing',
+      deepLink: 'driver://home',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -877,7 +1268,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'dish_pot_today',
     category: 'dish_pot',
     app: 'customer',
-    push: { title: 'push.dish_pot.title', body: 'push.dish_pot.body', androidChannel: 'marketing', deepLink: 'driver://restaurant/{merchantOrgId}' },
+    push: {
+      title: 'push.dish_pot.title',
+      body: 'push.dish_pot.body',
+      androidChannel: 'marketing',
+      deepLink: 'driver://restaurant/{merchantOrgId}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -886,7 +1282,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'household_approval',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.household_approval.title', body: 'push.household_approval.body', androidChannel: 'orders', deepLink: 'driver://household' },
+    push: {
+      title: 'push.household_approval.title',
+      body: 'push.household_approval.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://household',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -895,7 +1296,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'month_ready',
     category: 'marketing',
     app: 'customer',
-    push: { title: 'push.month_ready.title', body: 'push.month_ready.body', androidChannel: 'marketing', deepLink: 'driver://month?month={month}' },
+    push: {
+      title: 'push.month_ready.title',
+      body: 'push.month_ready.body',
+      androidChannel: 'marketing',
+      deepLink: 'driver://month?month={month}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -904,7 +1310,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'regular_trip_reminder',
     category: 'regular_trip',
     app: 'customer',
-    push: { title: 'push.regular_trip.title', body: 'push.regular_trip.body', androidChannel: 'orders', deepLink: 'driver://regular/{regularTripId}?date={day}' },
+    push: {
+      title: 'push.regular_trip.title',
+      body: 'push.regular_trip.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://regular/{regularTripId}?date={day}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -914,7 +1325,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_booked_reminder',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_booked.title', body: 'push.ride_booked.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    push: {
+      title: 'push.ride_booked.title',
+      body: 'push.ride_booked.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/booked/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -924,7 +1340,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'garage_taxi_late',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.garage_taxi_late.title', body: 'push.garage_taxi_late.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.garage_taxi_late.title',
+      body: 'push.garage_taxi_late.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -933,7 +1354,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'rajaa_rider_taxi_late',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.rajaa_rider_taxi_late.title', body: 'push.rajaa_rider_taxi_late.body', androidChannel: 'orders', deepLink: 'driver-partner://intercity/departure/{departureId}' },
+    push: {
+      title: 'push.rajaa_rider_taxi_late.title',
+      body: 'push.rajaa_rider_taxi_late.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://intercity/departure/{departureId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -942,7 +1368,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'garage_taxi_placed',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.garage_taxi_placed.title', body: 'push.garage_taxi_placed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.garage_taxi_placed.title',
+      body: 'push.garage_taxi_placed.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -951,7 +1382,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'garage_taxi_dropped',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.garage_taxi_dropped.title', body: 'push.garage_taxi_dropped.body', androidChannel: 'orders', deepLink: 'driver://rajaa/pass/{bookingId}' },
+    push: {
+      title: 'push.garage_taxi_dropped.title',
+      body: 'push.garage_taxi_dropped.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://rajaa/pass/{bookingId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -960,7 +1396,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'garage_taxi_failed',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.garage_taxi_failed.title', body: 'push.garage_taxi_failed.body', androidChannel: 'orders', deepLink: 'driver://ride' },
+    push: {
+      title: 'push.garage_taxi_failed.title',
+      body: 'push.garage_taxi_failed.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -970,7 +1411,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'same_ride_offer',
     category: 'same_ride',
     app: 'customer',
-    push: { title: 'push.same_ride.title', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    push: {
+      title: 'push.same_ride.title',
+      body: 'push.same_ride.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -979,7 +1425,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'same_ride_after_weekend',
     category: 'same_ride',
     app: 'customer',
-    push: { title: 'push.same_ride.title_weekend', body: 'push.same_ride.body', androidChannel: 'orders', deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}' },
+    push: {
+      title: 'push.same_ride.title_weekend',
+      body: 'push.same_ride.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/again?from={from}&to={to}&v={vertical}&door={door}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -990,7 +1441,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'booked_ride_confirmed',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.booked_confirmed.title', body: 'push.booked_confirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    push: {
+      title: 'push.booked_confirmed.title',
+      body: 'push.booked_confirmed.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/booked/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -998,7 +1454,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'booked_ride_unconfirmed',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.booked_unconfirmed.title', body: 'push.booked_unconfirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    push: {
+      title: 'push.booked_unconfirmed.title',
+      body: 'push.booked_unconfirmed.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/booked/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -1007,7 +1468,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'booked_ride_searching',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.booked_searching.title', body: 'push.booked_searching.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.booked_searching.title',
+      body: 'push.booked_searching.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1016,7 +1482,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_driver_cancelled',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_driver_cancelled.title',
+      body: 'push.ride_driver_cancelled.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1025,7 +1496,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_driver_cancelled_credit',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body_credit', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_driver_cancelled.title',
+      body: 'push.ride_driver_cancelled.body_credit',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1034,7 +1510,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'ride_no_driver',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.ride_no_driver.title', body: 'push.ride_no_driver.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.ride_no_driver.title',
+      body: 'push.ride_no_driver.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1042,7 +1523,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'booked_ride_released',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.booked_released.title', body: 'push.booked_released.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    push: {
+      title: 'push.booked_released.title',
+      body: 'push.booked_released.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://ride/booked/{orderId}',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -1053,7 +1539,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_booked_offer',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_booked_offer.title', body: 'push.partner_booked_offer.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    push: {
+      title: 'push.partner_booked_offer.title',
+      body: 'push.partner_booked_offer.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://booked',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -1061,7 +1552,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_booked_favourite',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_booked_favourite.title', body: 'push.partner_booked_favourite.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    push: {
+      title: 'push.partner_booked_favourite.title',
+      body: 'push.partner_booked_favourite.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://booked',
+    },
     primary: ['push'],
     quietHours: 'defer',
   },
@@ -1069,7 +1565,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_booked_reminder',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_booked_reminder.title', body: 'push.partner_booked_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://booked' },
+    push: {
+      title: 'push.partner_booked_reminder.title',
+      body: 'push.partner_booked_reminder.body',
+      androidChannel: 'offers',
+      deepLink: 'driver-partner://booked',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1077,7 +1578,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_booked_cancelled',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    push: {
+      title: 'push.partner_booked_cancelled.title',
+      body: 'push.partner_booked_cancelled.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://booked',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1085,7 +1591,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'partner_job_taken_off',
     category: 'work',
     app: 'partner',
-    push: { title: 'push.partner_job_taken_off.title', body: 'push.partner_job_taken_off.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    push: {
+      title: 'push.partner_job_taken_off.title',
+      body: 'push.partner_job_taken_off.body',
+      androidChannel: 'orders',
+      deepLink: 'driver-partner://',
+    },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -1093,7 +1604,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_ops_cancelled',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_ops_cancelled.title', body: 'push.order_ops_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_ops_cancelled.title',
+      body: 'push.order_ops_cancelled.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1102,7 +1618,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_dispute_refunded',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_dispute_refunded.title', body: 'push.order_dispute_refunded.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_dispute_refunded.title',
+      body: 'push.order_dispute_refunded.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1111,7 +1632,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_dispute_stands',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_dispute_stands.title', body: 'push.order_dispute_stands.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_dispute_stands.title',
+      body: 'push.order_dispute_stands.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1120,7 +1646,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_dispute_redelivery',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_dispute_redelivery.title', body: 'push.order_dispute_redelivery.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_dispute_redelivery.title',
+      body: 'push.order_dispute_redelivery.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1129,7 +1660,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_dispute_void',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_dispute_void.title', body: 'push.order_dispute_void.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_dispute_void.title',
+      body: 'push.order_dispute_void.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1138,7 +1674,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_free_cancel',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_free_cancel.title', body: 'push.order_free_cancel.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_free_cancel.title',
+      body: 'push.order_free_cancel.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1147,7 +1688,12 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'order_courier_lost',
     category: 'order_updates',
     app: 'customer',
-    push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    push: {
+      title: 'push.order_courier_lost.title',
+      body: 'push.order_courier_lost.body',
+      androidChannel: 'orders',
+      deepLink: 'driver://order/{orderId}',
+    },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -1155,20 +1701,31 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
 };
 
 /** Categories a preference can switch off, and which switch. */
-export function preferenceFor(category: NotifyCategory, channel: NotifyChannel): keyof NotifyPreferences | null {
+export function preferenceFor(
+  category: NotifyCategory,
+  channel: NotifyChannel,
+): keyof NotifyPreferences | null {
   if (category === 'marketing') return 'marketing';
   if (category === 'dish_pot') return 'dishPots';
   if (category === 'regular_trip') return 'regularTrips';
   if (category === 'same_ride') return 'sameRide';
-  if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
+  if ((category === 'order_updates' || category === 'receipts') && channel === 'push')
+    return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';
-  if ((category === 'receipts' || category === 'order_updates') && channel === 'sms') return 'smsFallback';
+  if ((category === 'receipts' || category === 'order_updates') && channel === 'sms')
+    return 'smsFallback';
   return null;
 }
 
 /** OTP over WhatsApp (domain §8 "SMS, WhatsApp fallback"): an AUTHENTICATION template, listed for approval. */
-export const WHATSAPP_OTP_TEMPLATE: WhatsAppTemplateDef = wa('driver_otp', 'wa.otp', ['code'], ['482915'], 'AUTHENTICATION');
+export const WHATSAPP_OTP_TEMPLATE: WhatsAppTemplateDef = wa(
+  'driver_otp',
+  'wa.otp',
+  ['code'],
+  ['482915'],
+  'AUTHENTICATION',
+);
 
 // ───────────────────────── device registration ─────────────────────────
 
@@ -1188,7 +1745,10 @@ export const RegisterDeviceOutput = z.object({ registered: z.boolean() });
 export type RegisterDeviceOutput = z.infer<typeof RegisterDeviceOutput>;
 
 /** The app opened (or received in the foreground) a push: confirms delivery for the SMS-twin rule. */
-export const AckDeliveryInput = z.object({ deliveryId: z.string().min(1), opened: z.boolean().default(false) });
+export const AckDeliveryInput = z.object({
+  deliveryId: z.string().min(1),
+  opened: z.boolean().default(false),
+});
 export type AckDeliveryInput = z.infer<typeof AckDeliveryInput>;
 
 // ───────────────────────── delivery log ─────────────────────────
@@ -1198,7 +1758,16 @@ export type AckDeliveryInput = z.infer<typeof AckDeliveryInput>;
  * ack) → `read` (opened). `deferred`: waiting for quiet hours to end. `suppressed`: a preference,
  * the marketing cap or a duplicate stopped it. `skipped`: nowhere to send (no device, no phone).
  */
-export const DeliveryStatus = z.enum(['queued', 'deferred', 'sent', 'delivered', 'read', 'failed', 'suppressed', 'skipped']);
+export const DeliveryStatus = z.enum([
+  'queued',
+  'deferred',
+  'sent',
+  'delivered',
+  'read',
+  'failed',
+  'suppressed',
+  'skipped',
+]);
 export type DeliveryStatus = z.infer<typeof DeliveryStatus>;
 
 export const DeliveryLogRow = z.object({
