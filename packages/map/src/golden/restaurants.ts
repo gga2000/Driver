@@ -13,6 +13,7 @@ import { TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
  * - home food (أكل بيت): a house behind its courtyard wall and a palm, pots steaming by the gate;
  * - tea (چايخانة): a wide low front under a tin canopy, wooden benches and the samovar;
  * - juice: a small kiosk walled in fruit crates;
+ * - burger: a one-storey fast-food front with a giant burger on the roof, a stand-up counter and high stools;
  * - restaurant: a big two-storey family restaurant.
  * All share the Iraqi street details: a full-width لافتة in the kind's colour, roller-shutter drums, a dark
  * base, a coloured cornice, off-white tanks on stands, AC boxes, white plastic chairs on terrazzo under
@@ -28,8 +29,8 @@ import { TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
  * (the front is y = 0, the pavement is y < 0), then turned to face the street (`facing`, the compass
  * bearing from the shop to the road; `faceRoad` works it out from the streets on screen).
  */
-export type RestaurantKind = 'grill' | 'bakery' | 'shawarma' | 'sweets' | 'home' | 'cafe' | 'juice' | 'restaurant';
-export const RESTAURANT_KINDS: readonly RestaurantKind[] = ['grill', 'bakery', 'shawarma', 'sweets', 'home', 'cafe', 'juice', 'restaurant'];
+export type RestaurantKind = 'grill' | 'bakery' | 'shawarma' | 'sweets' | 'home' | 'cafe' | 'juice' | 'burger' | 'restaurant';
+export const RESTAURANT_KINDS: readonly RestaurantKind[] = ['grill', 'bakery', 'shawarma', 'sweets', 'home', 'cafe', 'juice', 'burger', 'restaurant'];
 
 type LngLat = [number, number];
 export interface MapRestaurant {
@@ -68,7 +69,8 @@ type Part = RestaurantPart;
 
 type KindPart = 'sign' | 'signText' | 'accent' | 'awningA' | 'awningB' | 'neon';
 // Each kind has its own saturated sign colour, like the real shop signs: grills red, bakeries wheat,
-// shawarma olive, sweets rose, home food date brown, tea dark coffee, juice orange, restaurants saffron.
+// shawarma olive, sweets rose, home food date brown, tea dark coffee, juice orange, burgers charcoal with
+// mustard letters, restaurants saffron.
 const KIND_LOOK: Record<RestaurantKind, { sign: string; signText: string }> = {
   grill: { sign: '#B3261E', signText: '#FFE9B8' },
   bakery: { sign: '#C98A2E', signText: '#3A2208' },
@@ -77,6 +79,7 @@ const KIND_LOOK: Record<RestaurantKind, { sign: string; signText: string }> = {
   home: { sign: '#8A4A12', signText: '#FFE2A8' },
   cafe: { sign: '#5A3418', signText: '#F6C47A' },
   juice: { sign: '#EF7A12', signText: '#FFF6DC' },
+  burger: { sign: '#2B2420', signText: '#FFC93A' },
   restaurant: { sign: '#E08A1E', signText: '#2B1A0A' },
 };
 
@@ -187,6 +190,7 @@ const BODY: Record<RestaurantKind, Body> = {
   home: { w: 10, d: 11, h: 7.2, back: 3.2 },
   cafe: { w: 11, d: 9, h: 4.4, back: 0 },
   juice: { w: 6, d: 8, h: 4.2, back: 0 },
+  burger: { w: 9, d: 10, h: 4.8, back: 0 },
   restaurant: { w: 12, d: 12, h: 7.6, back: 0 },
 };
 
@@ -494,7 +498,30 @@ function restaurant(c: Ctx): Piece[] {
   return [...p, ...seating([-2.6, 0.4, 3.4]), ...bulbs(hw, 4.4), ...bike(-hw + 1.8)];
 }
 
-const KIND_MODEL: Record<RestaurantKind, (c: Ctx) => Piece[]> = { grill, bakery, shawarma, sweets, home, cafe, juice, restaurant };
+function burger(c: Ctx): Piece[] {
+  const hw = c.b.w / 2, H = c.b.h;
+  const p = [apron(hw), ...building(c, OPEN), ...shopFront(c)];
+  // the giant burger on the roof, on a steel stand: bun, patty, cheese, lettuce, a domed top bun with seeds
+  const [bx, by] = [0, c.b.d / 2];
+  p.push(box(bx - 0.9, bx + 0.9, by - 0.9, by + 0.9, H, H + 0.7, 'steel'));
+  p.push(cyl(bx, by, 1.6, H + 0.7, H + 1.25, 'bread', 18), cyl(bx, by, 1.78, H + 1.25, H + 1.7, 'meat', 18));
+  p.push(box(bx - 1.55, bx + 1.55, by - 1.55, by + 1.55, H + 1.7, H + 1.8, 'crate4'), cyl(bx, by, 1.85, H + 1.8, H + 1.94, 'plant', 18));
+  p.push(cyl(bx, by, 1.66, H + 1.94, H + 2.5, 'bread', 18), cyl(bx, by, 1.36, H + 2.5, H + 2.9, 'bread', 16), cyl(bx, by, 0.86, H + 2.9, H + 3.12, 'bread', 14));
+  p.push(...near(Array.from({ length: 6 }, (_, i) => {
+    const a = (i / 6) * Math.PI * 2;
+    return box(bx + Math.cos(a) * 1.05 - 0.07, bx + Math.cos(a) * 1.05 + 0.07, by + Math.sin(a) * 1.05 - 0.07, by + Math.sin(a) * 1.05 + 0.07, H + 2.88, H + 2.96, 'sack');
+  })));
+  // a stand-up counter along the front with high stools, and the fryer by the door
+  p.push(box(-hw + 0.5, hw - 2.0, -0.75, -0.3, 1.0, 1.1, 'steel'), box(-hw + 0.6, hw - 2.1, -0.4, -0.3, 0.12, 1.0, 'frame'));
+  p.push(...near(Array.from({ length: Math.floor((c.b.w - 2.6) / 1.1) }, (_, i) => {
+    const x = -hw + 1.1 + i * 1.1;
+    return [cyl(x, -1.25, 0.05, 0.12, 0.75, 'steel', 6), cyl(x, -1.25, 0.22, 0.75, 0.82, 'seat', 10)];
+  }).flat()));
+  p.push(box(hw - 1.7, hw - 0.6, -0.9, -0.2, 0.12, 1.0, 'steel'), box(hw - 1.6, hw - 0.7, -0.8, -0.3, 1.0, 1.04, 'ember'));
+  return [...p, ...seating([-1.4, 1.6], -3.6, false), ...bulbs(hw, 4.4), ...bike(-hw + 1.6)];
+}
+
+const KIND_MODEL: Record<RestaurantKind, (c: Ctx) => Piece[]> = { grill, bakery, shawarma, sweets, home, cafe, juice, burger, restaurant };
 
 /** Light tubes in the shop's colour along the roof edges, the corners and round the sign: at night, and on the chosen shop. */
 function neon(b: Body, s0: number): Piece[] {
@@ -691,7 +718,9 @@ export function restaurantKindOf(tags: readonly string[]): RestaurantKind {
   if (has('فرن', 'صمون', 'خبز', 'معجنات', 'bakery', 'bread')) return 'bakery';
   if (has('حلويات', 'كنافة', 'بقلاوة', 'آيس', 'sweets', 'dessert', 'ice')) return 'sweets';
   if (has('عصير', 'juice')) return 'juice';
-  if (has('قهوة', 'شاي', 'كافيه', 'coffee', 'tea', 'cafe')) return 'cafe';
+  // «وجبات سريعة» and «كافتريا» in Aziziyah mean burgers, fried chicken and sandwiches: the same fast-food front
+  if (has('برگر', 'بركر', 'برجر', 'برغر', 'سريع', 'كافتريا', 'كافيتريا', 'burger', 'burgers')) return 'burger';
+  if (has('قهوة', 'شاي', 'كافيه', 'مقهى', 'چايخانة', 'coffee', 'tea', 'cafe')) return 'cafe';
   if (has('أكل بيت', 'تمن', 'مرق', 'باچة', 'باجة', 'home')) return 'home';
   return 'restaurant';
 }

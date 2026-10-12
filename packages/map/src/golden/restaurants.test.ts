@@ -84,6 +84,12 @@ describe('placing', () => {
     expect(restaurantKindOf(['كنافة'])).toBe('sweets');
     expect(restaurantKindOf(['عصير'])).toBe('juice');
     expect(restaurantKindOf(['شاي'])).toBe('cafe');
+    expect(restaurantKindOf(['همبركر فيصل'])).toBe('burger');
+    expect(restaurantKindOf(['مناف برگر'])).toBe('burger');
+    expect(restaurantKindOf(['Burger House'])).toBe('burger');
+    expect(restaurantKindOf(['مطعم صاجي للوجبات السريعة'])).toBe('burger');
+    expect(restaurantKindOf(['كافتريا الباشا'])).toBe('burger');
+    expect(restaurantKindOf(['مقهى ومطعم المسبح'])).toBe('cafe');
     expect(restaurantKindOf(['تمن ومرق'])).toBe('home');
     expect(restaurantKindOf(['بيتزا'])).toBe('restaurant');
     // «rice» is not «ice»: the breakfast house stays a house, not a sweets shop.
