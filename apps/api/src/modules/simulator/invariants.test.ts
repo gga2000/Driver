@@ -127,3 +127,31 @@ describe('merchant_cash_held_within_courier_cash', () => {
     expect(check({ ...snapshot([], ledger), merchants: merchants(0, 0) })).toMatchObject({ violations: 1 });
   });
 });
+
+describe('refused_parcel_two_fares (طرود, Ali 2026-10-12)', () => {
+  const parcel = order({ id: 'p1', type: 'parcel', ordererId: 's1', totalIqd: 6000, returnFareIqd: 3000 } as Partial<Order> & { id: string });
+  const trip = {
+    id: 't1',
+    state: 'completed',
+    courierId: 'd1',
+    orders: [{ orderId: 'p1' }],
+    stops: [
+      { orderId: 'p1', type: 'pickup', seq: 0, state: 'completed' },
+      { orderId: 'p1', type: 'dropoff', seq: 1, state: 'skipped', skipReason: 'parcel_refused' },
+      { orderId: 'p1', type: 'dropoff', seq: 2, state: 'completed' },
+    ],
+  } as unknown as SimSnapshot['trips'][number];
+  const fee = (over: Partial<LedgerEvent> = {}): LedgerEvent => lateCredit('p1', 6000, { id: 'pf', type: 'parcel_fee', fromAccount: 'customer:s1', toAccount: 'driver:d1', postingGroupId: 'trip:t1:money', memo: 'parcel', ...over });
+  const check = (ledger: LedgerEvent[], trips = [trip]) => checkInvariants({ ...snapshot([parcel], ledger), trips }).find((r) => r.name === 'refused_parcel_two_fares')!;
+
+  it('passes one parcel fee for both trips from the sender to the courier', () => {
+    expect(check([fee()])).toMatchObject({ checked: 1, violations: 0 });
+  });
+
+  it('flags only the trip out charged, a receiver charged, the wrong driver, and a second trip', () => {
+    expect(check([fee({ amount: 3000 })]).examples[0]).toMatch(/sender's parcel fee 3000 ≠ total 6000/);
+    expect(check([fee({ amount: 3000 }), fee({ id: 'r', amount: 3000, fromAccount: 'customer:receiver' })]).examples.join('\n')).toMatch(/touches customer:receiver/);
+    expect(check([fee({ toAccount: 'driver:d2' })]).examples[0]).toMatch(/not the trip's courier/);
+    expect(check([fee()], [trip, { ...trip, id: 't2' }]).examples[0]).toMatch(/on 2 trips/);
+  });
+});

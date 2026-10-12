@@ -3,7 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DriverError, type SimulatorStartInput, type SimulatorStatus } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, FakeClock, type Clock } from '../../shared/clock.js';
-import { deployEnvironmentFromEnv } from '../config/index.js';
+import { ConfigService, deployEnvironmentFromEnv } from '../config/index.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { DISPATCH_QUEUE, DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
@@ -15,7 +15,7 @@ import { CatalogService } from '../catalog/index.js';
 import { PricingService } from '../pricing/index.js';
 import { TRIPS_QUEUE, TripsService } from '../trips/index.js';
 import type { DeskOverride } from './actors/dispatcher.js';
-import type { DrainableQueue, SimServices } from './context.js';
+import { CITY, type DrainableQueue, type SimServices } from './context.js';
 import { Simulation, type Progress } from './engine.js';
 import { injectFault } from './faults.js';
 import type { SimSnapshot } from './invariants.js';
@@ -132,6 +132,9 @@ export class SimulatorService implements OnModuleDestroy {
     const world = buildWorld({ seed: opts.seed, drivers: opts.drivers ?? 60, restaurants: opts.restaurants ?? 10, customers: opts.customers ?? Math.max(100, Math.ceil(opts.orders / 4)), dayMinutes: DAY_MINUTES });
     const plan = buildScenario(world, { orders: opts.orders });
     clock.set(DEFAULT_DAY_START);
+    // طرود: the in-process city also opens parcels (the plan has some; not yet launched in Aziziyah's file).
+    const config = this.moduleRef.get(ConfigService, { strict: false });
+    if (!config.isLaunched(CITY, 'parcel')) config.setLaunchedVerticals(CITY, [...config.launchedVerticals(CITY), 'parcel']);
     const sim = new Simulation(this.services(), {
       world,
       plan,

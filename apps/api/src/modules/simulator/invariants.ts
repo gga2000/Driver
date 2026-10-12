@@ -630,6 +630,40 @@ export const INVARIANTS: readonly Definition[] = [
     },
   },
   {
+    name: 'refused_parcel_two_fares',
+    description:
+      'طرود «رفضت تستلم» (Ali, 2026-10-12): a parcel the receiver refused is one order on one trip with one courier — its door stop skipped for the refusal and a hand-back stop after it; the sender pays both trips: once closed, the parcel fee from customer:<sender> is the order total (out + back, the trip back > 0), all of it to that trip’s courier, and no ledger line of the order touches any other customer (the receiver is never charged)',
+    run: (s) => {
+      const bad: string[] = [];
+      const rows = byOrder(s.ledger);
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.returnFareIqd == null) continue;
+        checked += 1;
+        if (o.type !== 'parcel') bad.push(`${o.id} (${o.type}): a trip back on a non-parcel order`);
+        if (o.returnFareIqd <= 0 || o.returnFareIqd >= o.totalIqd) bad.push(`${o.id}: trip back ${o.returnFareIqd} of a ${o.totalIqd} total (both trips must be in it)`);
+        const trips = s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id));
+        if (trips.length !== 1) {
+          bad.push(`${o.id}: on ${trips.length} trips (one trip out and back)`);
+          continue;
+        }
+        const trip = trips[0]!;
+        const drops = trip.stops.filter((st) => st.orderId === o.id && st.type === 'dropoff').sort((a, b) => a.seq - b.seq);
+        const door = drops.find((st) => st.state === 'skipped' && st.skipReason === 'parcel_refused');
+        if (!door || !drops.some((st) => st.seq > door.seq)) bad.push(`${o.id}: trip ${trip.id} has no refused door stop with a hand-back after it`);
+        const sender = `customer:${o.ordererId}`;
+        const r = rows.get(o.id) ?? [];
+        for (const e of r) for (const a of [e.fromAccount, e.toAccount]) if (a.startsWith('customer:') && a !== sender) bad.push(`${o.id}: ledger ${e.type} touches ${a}, not the sender`);
+        if (o.state !== 'closed') continue;
+        const fees = r.filter((e) => e.type === 'parcel_fee');
+        const paid = sum(fees, (e) => e.fromAccount === sender);
+        if (paid !== o.totalIqd) bad.push(`${o.id}: sender's parcel fee ${paid} ≠ total ${o.totalIqd} (out ${o.totalIqd - o.returnFareIqd} + back ${o.returnFareIqd})`);
+        for (const e of fees) if (!trip.courierId || e.toAccount !== `driver:${trip.courierId}`) bad.push(`${o.id}: parcel fee to ${e.toAccount}, not the trip's courier (${trip.courierId ?? 'none'})`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
     name: 'no_unexpected_errors',
     description: 'no service threw anything but a domain refusal',
     run: (s) => ({ checked: s.errors.length, bad: s.errors.map((e) => `${e.where}: ${e.message}`) }),
