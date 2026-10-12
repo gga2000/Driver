@@ -31,7 +31,7 @@ export function DoorPinPanel({ initial, onSet, onClose }: { initial: LatLng; onS
         <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + theme.space[3], start: theme.space[16], end: theme.space[16], alignItems: 'center' }}>
           <View style={{ paddingHorizontal: theme.space[3], paddingVertical: 6, borderRadius: theme.radius.pill, backgroundColor: withAlpha(theme.colors.inverse, 0.86) }}>
             <Text variant="caption" weight={600} color="onInverse" align="center">
-              {t('parcel.c_pin_hint')}
+              {t('place.map_hint_custom')}
             </Text>
           </View>
         </View>

@@ -55,8 +55,8 @@ export function ParcelTag({ facts, testID = 'parcel-tag' }: { facts: TagFacts; t
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
         <View style={{ flex: 1, minWidth: 0, gap: theme.space[3] }}>
-          <End label={t('parcel.c_tag_from')} value={facts.from} testID={`${testID}-from`} />
-          <End label={t('parcel.c_tag_to')} value={facts.to} testID={`${testID}-to`} />
+          <End label={t('ride.from')} value={facts.from} testID={`${testID}-from`} />
+          <End label={t('ride.to')} value={facts.to} testID={`${testID}-to`} />
         </View>
         {facts.pin ? <WaxSeal pin={facts.pin} size={104} /> : null}
       </View>

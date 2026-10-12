@@ -9,8 +9,8 @@ import { parcelSwatch } from './palette';
 const STEP_KEY: Record<ParcelStep['key'], MessageKey> = {
   sent: 'parcel.c_step_sent',
   door_set: 'parcel.c_step_door_set',
-  picked_up: 'parcel.c_step_picked_up',
-  delivered: 'parcel.c_step_delivered',
+  picked_up: 'track.kitchen_picked_up_any',
+  delivered: 'orders.short.delivered',
 };
 
 /**

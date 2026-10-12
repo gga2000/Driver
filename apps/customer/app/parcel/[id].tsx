@@ -22,8 +22,8 @@ const CHIP: Record<ParcelState, MessageKey> = {
   waiting_door: 'parcel.c_step_sent',
   finding_courier: 'parcel.c_step_door_set',
   to_pickup: 'parcel.c_step_door_set',
-  on_the_way: 'parcel.c_step_picked_up',
-  delivered: 'parcel.c_step_delivered',
+  on_the_way: 'track.kitchen_picked_up_any',
+  delivered: 'orders.short.delivered',
   returning: 'parcel.c_state_returning',
   returned: 'parcel.c_state_returned',
   cancelled: 'parcel.c_state_cancelled',
@@ -166,7 +166,7 @@ function Loaded({ p, back }: { p: ParcelView; back: () => void }) {
           <Text variant="body" color="textMuted">
             {t(p.state === 'waiting_door' ? 'parcel.c_cancel_body_waiting' : 'parcel.c_cancel_body_finding')}
           </Text>
-          <Button label={t('parcel.c_cancel_yes')} variant="destructive" fullWidth loading={cancelling} onPress={() => void cancel()} testID="parcel-cancel-yes" />
+          <Button label={t('orders.booked_cancel_yes')} variant="destructive" fullWidth loading={cancelling} onPress={() => void cancel()} testID="parcel-cancel-yes" />
           <Button label={t('parcel.c_cancel_keep')} variant="secondary" fullWidth onPress={() => setCancelOpen(false)} testID="parcel-cancel-keep" />
         </BottomPanel>
       ) : null}

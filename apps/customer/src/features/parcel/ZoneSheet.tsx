@@ -25,7 +25,7 @@ export function ZoneSheet({ value, onPick, onClose }: { value: string | null; on
       <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ gap: theme.space[3] }}>
         <ChipGroup accessibilityLabel={t('parcel.c_area_title')} mode="single" items={items} value={value ? [value] : []} onChange={(next) => (next[0] ? onPick(next[0]) : undefined)} />
       </ScrollView>
-      {!all ? <Button label={t('parcel.c_area_more')} variant="ghost" fullWidth onPress={() => setAll(true)} testID="parcel-zone-more" /> : null}
+      {!all ? <Button label={t('onboarding.place_more_zones')} variant="ghost" fullWidth onPress={() => setAll(true)} testID="parcel-zone-more" /> : null}
     </BottomPanel>
   );
 }

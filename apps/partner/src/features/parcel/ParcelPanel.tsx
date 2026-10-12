@@ -25,7 +25,7 @@ export default function ParcelPanel({ orderId, stop }: { orderId: string | null;
 
   if (!q.data) {
     if (q.isError) {
-      return <RetryState size="inline" kind={retryKindFor({ net, error: q.error })} title={t('parcel.k_load_error')} onRetry={() => void q.refetch()} testID="parcel-retry" />;
+      return <RetryState size="inline" kind={retryKindFor({ net, error: q.error })} title={t('partner.parcel_load_error')} onRetry={() => void q.refetch()} testID="parcel-retry" />;
     }
     return (
       <View testID="parcel-loading">
@@ -41,11 +41,11 @@ export default function ParcelPanel({ orderId, stop }: { orderId: string | null;
       <ParcelCard view={view} />
       {atDoor ? <PayLine view={view} /> : null}
       {stage === 'pickup' && orderId ? <PickupPhoto orderId={orderId} onParcel={view.pickupPhoto === true} /> : null}
-      {stage === 'to_door' ? <Note testID="parcel-pin-at-door" icon="lock" title={t('parcel.k_pin_at_door')} bg={theme.colors.accentTint} ink={theme.colors.accentText} /> : null}
+      {stage === 'to_door' ? <Note testID="parcel-pin-at-door" icon="lock" title={t('partner.parcel_pin_at_door')} bg={theme.colors.accentTint} ink={theme.colors.accentText} /> : null}
       {stage === 'pin' && orderId ? <PinStep orderId={orderId} view={view} /> : null}
-      {stage === 'verified' ? <Note testID="parcel-pin-verified" icon="check" title={t('parcel.pin_verified')} body={t('parcel.k_verified_sub')} bg={theme.colors.successTint} ink={theme.colors.successText} /> : null}
+      {stage === 'verified' ? <Note testID="parcel-pin-verified" icon="check" title={t('parcel.pin_verified')} body={t('partner.parcel_verified_sub')} bg={theme.colors.successTint} ink={theme.colors.successText} /> : null}
       {stage === 'locked' ? (
-        <Note testID="parcel-pin-locked" icon="lock" title={t('parcel.k_locked_title')} body={t('parcel.k_locked_body', { n: PARCEL_RULES.pinTries })} bg={theme.colors.dangerTint} ink={theme.colors.dangerText} />
+        <Note testID="parcel-pin-locked" icon="lock" title={t('partner.parcel_locked_title')} body={t('partner.parcel_locked_body', { n: PARCEL_RULES.pinTries })} bg={theme.colors.dangerTint} ink={theme.colors.dangerText} />
       ) : null}
       {(stage === 'pin' || stage === 'locked') && orderId ? <RefuseStep orderId={orderId} /> : null}
       {stage === 'refused' ? <Returning /> : null}
@@ -70,17 +70,17 @@ function ParcelCard({ view }: { view: CourierParcelView }) {
       )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="caption" color="textMuted">
-          {t('parcel.k_title')}
+          {t('partner.parcel_title')}
         </Text>
         <Text variant="label" weight={700} testID="parcel-what">
           {view.what}
         </Text>
         <Text variant="caption" color="textMuted" tabular>
-          {`${size} · ${t('parcel.k_value', { amount: amountParam(view.declaredValueIqd) })}`}
+          {`${size} · ${t('parcel.c_tag_value', { amount: amountParam(view.declaredValueIqd) })}`}
         </Text>
         {view.receiverName ? (
           <Text variant="caption" weight={600} color="text">
-            {t('parcel.k_for', { name: view.receiverName })}
+            {t('item.for_person', { name: view.receiverName })}
           </Text>
         ) : null}
       </View>
@@ -93,9 +93,9 @@ function PayLine({ view }: { view: CourierParcelView }) {
   const theme = useTheme();
   const t = useT();
   return view.collectAtDoorIqd > 0 ? (
-    <Note testID="parcel-collect" icon="cash" title={t('parcel.k_collect', { amount: amountParam(view.collectAtDoorIqd) })} body={t('parcel.k_collect_sub')} bg={theme.colors.warningTint} ink={theme.colors.warningText} />
+    <Note testID="parcel-collect" icon="cash" title={t('partner.parcel_collect', { amount: amountParam(view.collectAtDoorIqd) })} body={t('partner.parcel_collect_sub')} bg={theme.colors.warningTint} ink={theme.colors.warningText} />
   ) : (
-    <Note testID="parcel-paid" icon="check" title={t('parcel.k_paid')} body={t('parcel.k_paid_sub')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} />
+    <Note testID="parcel-paid" icon="check" title={t('parcel.c_door_paid')} body={t('partner.parcel_paid_sub')} bg={theme.colors.surfaceSunken} ink={theme.colors.text} />
   );
 }
 
@@ -161,22 +161,22 @@ function PickupPhoto({ orderId, onParcel }: { orderId: string; onParcel: boolean
           </Text>
           {state.kind === 'none' ? (
             <Text variant="caption" color="textMuted">
-              {t('parcel.k_photo_hint')}
+              {t('partner.parcel_photo_hint')}
             </Text>
           ) : state.kind === 'uploading' ? (
             <Text variant="caption" color="textMuted" accessibilityLiveRegion="polite" testID="parcel-photo-uploading">
-              {t('parcel.k_photo_uploading')}
+              {t('parcel.c_photo_uploading')}
             </Text>
           ) : state.kind === 'saved' ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} accessibilityLiveRegion="polite" testID="parcel-photo-saved">
               <Icon name="check" size={16} color="successText" strokeWidth={2.6} />
               <Text variant="caption" weight={600} color="successText">
-                {t('parcel.k_photo_saved')}
+                {t('household.child_photo_saved')}
               </Text>
             </View>
           ) : (
             <Text variant="caption" weight={600} color="dangerText" accessibilityLiveRegion="assertive" testID="parcel-photo-failed">
-              {t('parcel.k_photo_failed')}
+              {t('partner.parcel_photo_failed')}
             </Text>
           )}
         </View>
@@ -184,20 +184,20 @@ function PickupPhoto({ orderId, onParcel }: { orderId: string; onParcel: boolean
       {state.kind === 'failed' ? (
         <View style={{ gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.dangerTint }}>
           <Text variant="caption" color="dangerText">
-            {t('parcel.k_photo_failed_sub')}
+            {t('partner.parcel_photo_failed_sub')}
           </Text>
           <Button testID="parcel-photo-retry" label={t('action.retry')} icon="refresh" variant="secondary" size="md" fullWidth onPress={() => void upload(state.photo, state.uploadId)} />
         </View>
       ) : null}
       {denied ? (
         <Text variant="caption" color="dangerText" testID="parcel-photo-denied">
-          {t('parcel.k_photo_denied')}
+          {t('partner.parcel_photo_denied')}
         </Text>
       ) : null}
       {state.kind === 'none' ? (
         <Button testID="parcel-photo-take" label={t('parcel.pickup_photo')} icon="camera" variant="ink" size="md" fullWidth onPress={() => void take()} />
       ) : state.kind !== 'uploading' ? (
-        <Button testID="parcel-photo-retake" label={t('parcel.k_photo_retake')} icon="camera" variant="ghost" size="md" fullWidth onPress={() => void take()} />
+        <Button testID="parcel-photo-retake" label={t('partner.photo_retake')} icon="camera" variant="ghost" size="md" fullWidth onPress={() => void take()} />
       ) : null}
     </View>
   );
@@ -254,10 +254,10 @@ function PinStep({ orderId, view }: { orderId: string; view: CourierParcelView }
           {t('parcel.pin_title')}
         </Text>
         <Text variant="label" color="textMuted">
-          {t('parcel.k_pin_hint')}
+          {t('partner.parcel_pin_hint')}
         </Text>
       </View>
-      {offline ? <Note testID="parcel-pin-offline" icon="wifi-off" title={t('parcel.k_pin_offline')} bg={theme.colors.warningTint} ink={theme.colors.warningText} /> : null}
+      {offline ? <Note testID="parcel-pin-offline" icon="wifi-off" title={t('partner.parcel_pin_offline')} bg={theme.colors.warningTint} ink={theme.colors.warningText} /> : null}
       {wrong && !offline ? (
         <View testID="parcel-pin-wrong" accessibilityLiveRegion="assertive" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], backgroundColor: theme.colors.dangerTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
           <Icon name="x" size={18} color="dangerText" />
@@ -266,7 +266,7 @@ function PinStep({ orderId, view }: { orderId: string; view: CourierParcelView }
               {t('parcel.pin_wrong')}
             </Text>
             <Text variant="caption" color="dangerText" tabular>
-              {t('parcel.k_tries_left', { n: view.pinTriesLeft })}
+              {t('partner.parcel_tries_left', { n: view.pinTriesLeft })}
             </Text>
           </View>
         </View>
@@ -274,7 +274,7 @@ function PinStep({ orderId, view }: { orderId: string; view: CourierParcelView }
       <PinPad pin={pin} onKey={press} busy={busy || offline} error={wrong} />
       {busy ? (
         <Text variant="caption" color="textMuted" align="center" accessibilityLiveRegion="polite" testID="parcel-pin-checking">
-          {t('parcel.k_checking')}
+          {t('onboarding.verifying')}
         </Text>
       ) : null}
     </View>
@@ -320,10 +320,10 @@ function RefuseStep({ orderId }: { orderId: string }) {
         <Icon name="swap" size={20} color="dangerText" strokeWidth={2.2} />
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" weight={700} color="dangerText">
-            {t('parcel.k_refuse')}
+            {t('partner.parcel_refuse')}
           </Text>
           <Text variant="caption" color="textMuted">
-            {t('parcel.k_refuse_sub')}
+            {t('partner.parcel_refuse_sub')}
           </Text>
         </View>
         <Icon name="chevron-forward" size={18} color="textMuted" strokeWidth={2.2} />
@@ -334,11 +334,11 @@ function RefuseStep({ orderId }: { orderId: string }) {
   return (
     <Animated.View entering={theme.reduceMotion ? undefined : FadeIn.duration(160)} testID="parcel-refuse-confirm" style={{ gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, borderWidth: 1.5, borderColor: theme.colors.danger, backgroundColor: theme.colors.surface }}>
       <Text variant="title" accessibilityRole="header">
-        {t('parcel.k_refuse_title')}
+        {t('partner.parcel_refuse_title')}
       </Text>
       {preview.data ? (
         <Text variant="body" weight={600} tabular testID="parcel-refuse-amounts">
-          {t('parcel.k_refuse_body', { amount: amountParam(preview.data.returnFareIqd), total: amountParam(preview.data.totalForSenderIqd) })}
+          {t('partner.parcel_refuse_body', { amount: amountParam(preview.data.returnFareIqd), total: amountParam(preview.data.totalForSenderIqd) })}
         </Text>
       ) : preview.isError ? (
         <RetryState size="inline" kind={retryKindFor({ net, error: preview.error })} onRetry={() => void preview.refetch()} testID="parcel-refuse-retry" />
@@ -348,10 +348,10 @@ function RefuseStep({ orderId }: { orderId: string }) {
       {!net.online ? <Note testID="parcel-refuse-offline" icon="wifi-off" title={t('net.needs_internet')} bg={theme.colors.warningTint} ink={theme.colors.warningText} /> : null}
       {problem ? <Note testID="parcel-refuse-problem" icon="map-pin" title={problem} bg={theme.colors.dangerTint} ink={theme.colors.dangerText} /> : null}
       <View style={{ gap: theme.space[2] }}>
-        <Button testID="parcel-refuse-yes" label={t('parcel.k_refuse_yes')} variant="destructive" size="lg" fullWidth loading={actions.refuse.isPending} disabled={!preview.data || !net.online} haptic="medium" onPress={refuse} />
+        <Button testID="parcel-refuse-yes" label={t('partner.parcel_refuse_yes')} variant="destructive" size="lg" fullWidth loading={actions.refuse.isPending} disabled={!preview.data || !net.online} haptic="medium" onPress={refuse} />
         <Button
           testID="parcel-refuse-no"
-          label={t('parcel.k_refuse_no')}
+          label={t('partner.parcel_refuse_no')}
           variant="secondary"
           size="lg"
           fullWidth
@@ -384,10 +384,10 @@ function Returning() {
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="title" color={ink}>
-          {t('parcel.k_returning_title')}
+          {t('partner.parcel_returning_title')}
         </Text>
         <Text variant="caption" color={ink}>
-          {t('parcel.k_returning_body')}
+          {t('partner.parcel_returning_body')}
         </Text>
       </View>
     </View>

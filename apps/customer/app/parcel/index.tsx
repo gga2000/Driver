@@ -197,7 +197,7 @@ export default function SendParcel() {
               <Pressable accessibilityRole="button" onPress={() => void addPhoto(Platform.OS === 'web' ? 'library' : 'camera')} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }} testID="parcel-photo-change">
                 <Icon name="camera" size={18} color={sw.text} />
                 <Text variant="label" weight={700} color={sw.text}>
-                  {t('parcel.c_photo_change')}
+                  {t('household.child_change_photo')}
                 </Text>
               </Pressable>
             ) : (
@@ -290,7 +290,7 @@ export default function SendParcel() {
         </View>
 
         <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup">
-          <SectionLabel>{t('parcel.c_door_label')}</SectionLabel>
+          <SectionLabel>{t('checkout.deliver_to')}</SectionLabel>
           <OptionCard title={t('parcel.c_door_receiver')} sub={t('parcel.c_door_receiver_sub')} selected={doorBy === 'receiver'} onPress={() => setDoorBy('receiver')} testID="parcel-door-receiver">
             <PickRow
               icon="map-pin"
@@ -305,7 +305,7 @@ export default function SendParcel() {
             <PickRow
               icon={door ? 'check' : 'map-pin'}
               label={door ? t('parcel.c_pin_done', { area: zoneName(door.zoneKey, locale) }) : t('parcel.c_pin_open')}
-              caption={door ? t('parcel.c_pin_change') : null}
+              caption={door ? t('checkout.row_change') : null}
               missing={checked && !door}
               onPress={() => setPinOpen(true)}
               testID="parcel-pin"
@@ -385,14 +385,14 @@ function PhotoTile({ uri, uploading, onCamera, onLibrary }: { uri: string | null
       <Pressable
         testID="parcel-photo-add"
         accessibilityRole="button"
-        accessibilityLabel={web ? t('parcel.c_photo_pick') : t('parcel.c_photo_add')}
+        accessibilityLabel={web ? t('parcel.c_photo_pick') : t('household.child_pick_camera')}
         disabled={uploading}
         onPress={web ? onLibrary : onCamera}
         style={({ pressed }) => [box, { alignItems: 'center', justifyContent: 'center', gap: theme.space[1], borderWidth: 1.5, borderStyle: 'dashed', borderColor: sw.fill, backgroundColor: pressed ? sw.wash : theme.colors.surfaceSunken }]}
       >
         <Icon name="camera" size={26} color={sw.text} strokeWidth={2} />
         <Text variant="label" weight={700} color={sw.text}>
-          {web ? t('parcel.c_photo_pick') : t('parcel.c_photo_add')}
+          {web ? t('parcel.c_photo_pick') : t('household.child_pick_camera')}
         </Text>
       </Pressable>
       {!web ? (
