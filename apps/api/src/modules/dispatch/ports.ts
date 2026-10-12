@@ -57,10 +57,14 @@ export interface JobExposure {
 /**
  * Ledger (money & ops §4, G-80): caps by role and tier. Over cap = finish the current job, no new
  * offers; a cash job must also fit under the cap (or be a single job worth ≤ 50 % of it).
+ * `unpostedIqd` is cash he collected on a job that finished but that the ledger has not posted yet
+ * (dispatch's cash holds); it counts like posted cash. `cashPosted`: has the trip's money reached
+ * his cash account (the hold can go).
  */
 export interface CapsPort {
-  isOverCap(driverId: string): Promise<boolean>;
-  canOffer(driverId: string, job?: JobExposure): Promise<boolean>;
+  isOverCap(driverId: string, unpostedIqd?: number): Promise<boolean>;
+  canOffer(driverId: string, job?: JobExposure, unpostedIqd?: number): Promise<boolean>;
+  cashPosted(driverId: string, tripId: string): Promise<boolean>;
 }
 export const CAPS = Symbol('CAPS');
 
@@ -166,20 +170,32 @@ export class FakeTripOffers implements TripOffersPort {
 export class FakeCaps implements CapsPort {
   readonly over = new Set<string>();
 
-  /** Cap room left per driver; absent = unlimited. */
+  /** Cap room left per driver; absent = unlimited. Unposted cash comes off it. */
   readonly remaining = new Map<string, number>();
 
   readonly asked: Array<{ driverId: string; job: JobExposure | undefined }> = [];
 
-  async isOverCap(driverId: string): Promise<boolean> {
-    return this.over.has(driverId);
+  /** Trips whose cash the ledger has posted, as `${driverId}:${tripId}`. */
+  readonly posted = new Set<string>();
+
+  async isOverCap(driverId: string, unpostedIqd = 0): Promise<boolean> {
+    // Unposted cash that uses up the room left puts him over, as posted cash would.
+    return this.over.has(driverId) || (unpostedIqd > 0 && this.room(driverId, unpostedIqd) <= 0);
   }
 
-  async canOffer(driverId: string, job?: JobExposure): Promise<boolean> {
+  async canOffer(driverId: string, job?: JobExposure, unpostedIqd = 0): Promise<boolean> {
     this.asked.push({ driverId, job });
-    if (this.over.has(driverId)) return false;
+    if (await this.isOverCap(driverId, unpostedIqd)) return false;
     if (!job || job.prepaid) return true;
-    return job.valueIqd <= (this.remaining.get(driverId) ?? Number.POSITIVE_INFINITY);
+    return job.valueIqd <= this.room(driverId, unpostedIqd);
+  }
+
+  async cashPosted(driverId: string, tripId: string): Promise<boolean> {
+    return this.posted.has(`${driverId}:${tripId}`);
+  }
+
+  private room(driverId: string, unpostedIqd: number): number {
+    return (this.remaining.get(driverId) ?? Number.POSITIVE_INFINITY) - unpostedIqd;
   }
 }
 

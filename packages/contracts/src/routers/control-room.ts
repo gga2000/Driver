@@ -44,6 +44,10 @@ import {
   PayoutResult,
   SystemBannerView,
   ZoneCapacityView,
+  COMMISSION_TIER_ROLES,
+  MerchantCommissionInput,
+  MerchantCommissionView,
+  SetCommissionTierInput,
 } from '../control-room-io.js';
 import { DriverError } from '../errors.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
@@ -222,6 +226,16 @@ export const financeRouter = router({
     .input(AdjustInput)
     .output(AdjustResult)
     .mutation(({ ctx, input }) => ctx.controlRoom.adjust(ctx.actor, input)),
+  /** A restaurant's commission tier and rate, and whether its starter period needs a decision. */
+  commission: protectedProcedure(COMMISSION_TIER_ROLES)
+    .input(MerchantCommissionInput)
+    .output(MerchantCommissionView)
+    .query(({ ctx, input }) => ctx.controlRoom.commission(ctx.actor, input)),
+  /** Puts a restaurant on a tier (Console store page / finance desk); written to the audit log. */
+  setCommissionTier: protectedProcedure(COMMISSION_TIER_ROLES)
+    .input(SetCommissionTierInput)
+    .output(MerchantCommissionView)
+    .mutation(({ ctx, input }) => ctx.controlRoom.setCommissionTier(ctx.actor, input)),
 });
 
 /** `metrics.wall` — the week-one launch metrics (playbook §6). */
