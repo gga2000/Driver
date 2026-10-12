@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
@@ -75,4 +75,14 @@ const photoOf = (proof: Record<string, unknown> | undefined): string | null => (
   ],
   exports: [ParcelsService],
 })
-export class ParcelsModule {}
+export class ParcelsModule implements OnModuleInit {
+  constructor(
+    private readonly trips: TripsService,
+    private readonly parcels: ParcelsService,
+  ) {}
+
+  /** Trips asks parcels before a parcel drop-off completes (the receiver's code); trips never imports parcels. */
+  onModuleInit(): void {
+    this.trips.bindDropoffGuard({ check: (orderId) => this.parcels.dropoffProblem(orderId) });
+  }
+}

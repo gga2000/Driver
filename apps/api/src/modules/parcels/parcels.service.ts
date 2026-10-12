@@ -124,7 +124,7 @@ export class ParcelsService implements ParcelsPort {
       courierNote: input.courierNote ?? null,
       pin: newStartCode(),
       doorTokenHash: token ? hashDoorToken(token) : null,
-      doorDueAt: token ? new Date(now.getTime() + PARCEL_RULES.doorWaitHours * HOUR) : null,
+      doorDueAt: token ? new Date(linkGoesAt(now).getTime() + PARCEL_RULES.doorWaitHours * HOUR) : null,
       doorSetAt: token ? null : now,
       orderId: null,
       pinFails: 0,
@@ -236,7 +236,23 @@ export class ParcelsService implements ParcelsPort {
     const door = rec.dropoff?.pin ?? null;
     if (!fix || !door || distanceM(fix, door) > PARCEL_RULES.refuseWithinM) throw new DriverError('parcel_refuse_too_far');
     const next = await this.repo.update(rec.id, 'placed', { refusedAt: this.clock.now() });
+    if (this.orders.returnTrip) await this.orders.returnTrip(actor.personId, input.orderId);
     return this.courierView(next ?? rec, actor.personId);
+  }
+
+  /** Orders asks before it builds the trip back: the courier marked this parcel refused at the door. */
+  async refusalRecorded(orderId: string): Promise<boolean> {
+    return Boolean((await this.repo.byOrder(orderId))?.refusedAt);
+  }
+
+  /**
+   * Trips asks before a parcel drop-off completes: the receiver's code was verified, or this is the
+   * trip back after a refusal (no code then). A parcel order this module doesn't hold: allowed.
+   */
+  async dropoffProblem(orderId: string): Promise<'parcel_pin_not_verified' | null> {
+    const rec = await this.repo.byOrder(orderId);
+    if (!rec || rec.pinVerifiedAt || rec.refusedAt) return null;
+    return 'parcel_pin_not_verified';
   }
 
   // ── internals ─────────────────────────────────────────────────────────────────────────────────
@@ -394,6 +410,16 @@ export function orderInput(rec: Pick<ParcelRecord, 'id' | 'cityId' | 'pickup' | 
     clientRequestId: `parcel-${rec.id}`.slice(0, 64),
     ...(rec.courierNote ? { courierNote: rec.courierNote } : {}),
   } as PlaceOrderInput;
+}
+
+/** Baghdad is UTC+3 all year. A link made 23:00–08:00 goes out at 08:00 (quiet hours), and the wait starts then. */
+const BAGHDAD_OFFSET_MS = 3 * HOUR;
+export function linkGoesAt(now: Date): Date {
+  const local = new Date(now.getTime() + BAGHDAD_OFFSET_MS);
+  const h = local.getUTCHours();
+  if (h >= 8 && h < 23) return now;
+  const eight = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), 8) - BAGHDAD_OFFSET_MS);
+  return h >= 23 ? new Date(eight.getTime() + 24 * HOUR) : eight;
 }
 
 /** The sender's first name as the receiver sees it (never free text, at most 20 characters). */

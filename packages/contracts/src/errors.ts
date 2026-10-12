@@ -414,6 +414,7 @@ export const ERROR_TABLE = {
   parcel_not_cancellable: { retryHint: 'never', status: 'CONFLICT' },
   parcel_receiver_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
   parcel_pin_locked: { retryHint: 'support', status: 'FORBIDDEN' },
+  parcel_pin_not_verified: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
   parcel_refuse_too_far: { retryHint: 'never', status: 'CONFLICT' },
   // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
   update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },

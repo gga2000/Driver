@@ -32,6 +32,7 @@ import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
 import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
+import type { DropoffGuardPort } from './dropoff-guard.port.js';
 import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
@@ -166,6 +167,13 @@ export class TripsService implements OnModuleInit {
   /** Orders binds its hand-over check here at start-up (orders imports trips, so trips cannot inject it). */
   bindHandoverCheck(check: TripHandoverCheck): void {
     this.handoverCheck = check;
+  }
+
+  /** طرود: the parcel drop-off guard (the receiver's code); none bound, drop-offs complete as before. */
+  private dropoffGuard: DropoffGuardPort | null = null;
+
+  bindDropoffGuard(guard: DropoffGuardPort): void {
+    this.dropoffGuard = guard;
   }
 
   /** s1: the night-ride codes live on the orders; until orders binds them no ride needs one. */
@@ -675,6 +683,11 @@ export class TripsService implements OnModuleInit {
         return this.view(tripId, tx);
       }
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
+      // طرود: a parcel's drop-off needs the receiver's code (or a release, or it is the trip back); read-only, before any write.
+      if (this.dropoffGuard && trip.vertical === 'parcel' && stop.type === 'dropoff' && stop.orderId) {
+        const problem = await this.dropoffGuard.check(stop.orderId, stop.id);
+        if (problem) throw new DriverError(problem);
+      }
       // Maps program f11: a delivery photo is this courier's own stored upload.
       if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });

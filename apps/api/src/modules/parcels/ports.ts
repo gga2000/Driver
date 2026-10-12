@@ -11,6 +11,8 @@ export interface ParcelsOrdersPort {
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string } | null>;
   /** The courier's last live fix on that trip (server-known, never the client's word). */
   lastFix(tripId: string): Promise<LatLng | null>;
+  /** The trip back after a refusal (orders' `returnParcel`, lane A); absent until bound: the refusal is only recorded. */
+  returnTrip?(courierId: string, orderId: string): Promise<void>;
   /** The courier's photo upload ids at pickup and at the door, once taken (trip stop proofs). */
   proofs(orderId: string): Promise<{ pickup: string | null; dropoff: string | null }>;
 }
