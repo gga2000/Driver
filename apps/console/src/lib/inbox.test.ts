@@ -43,6 +43,7 @@ describe('Today service chips (h7)', () => {
     expect(serviceOf(row('no_driver', { vertical: 'tuktuk' }))).toBe('ride');
     expect(serviceOf(row('no_driver', { vertical: 'intercity' }))).toBe('intercity');
     expect(serviceOf(row('late_departure'))).toBe('intercity');
+    expect(serviceOf(row('over_ceiling'))).toBe('delivery');
     expect(serviceOf(row('sweep'))).toBe('khat');
     expect(serviceOf(row('low_rating', { orderType: 'ride' }))).toBe('ride');
   });
