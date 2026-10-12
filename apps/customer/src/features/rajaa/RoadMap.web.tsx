@@ -112,10 +112,15 @@ export function RoadMap(props: RoadMapProps) {
       }
       const w = el.offsetWidth, h = el.offsetHeight;
       el.style.visibility = '';
-      // Its own side of the road first, then the other side (off the screen's edge, or on another mark).
-      const sides = c.side === 'left' ? [p.x - 10 - w, p.x + 10] : [p.x + 10, p.x - 10 - w];
-      const fits = sides.map((x) => ({ x, y: p.y - h / 2, w, h })).filter((q) => q.x >= 4 && q.x + w <= width - 4);
-      const r = fits.find((q) => !overlaps(q)) ?? fits[0] ?? { x: sides[0]!, y: p.y - h / 2, w, h };
+      // Its own side of the road first, then the other side, then above or below its dot (off the
+      // screen's edge, or on another mark).
+      const left = { x: p.x - 10 - w, y: p.y - h / 2, w, h };
+      const right = { x: p.x + 10, y: p.y - h / 2, w, h };
+      const above = { x: p.x - w / 2, y: p.y - 10 - h, w, h };
+      const below = { x: p.x - w / 2, y: p.y + 10, w, h };
+      const tries = [...(c.side === 'left' ? [left, right] : [right, left]), above, below];
+      const fits = tries.filter((q) => q.x >= 4 && q.x + w <= width - 4);
+      const r = fits.find((q) => !overlaps(q)) ?? fits[0] ?? tries[0]!;
       const off = p.x < 0 || p.x > width || p.y < live.current.topInset || p.y > height - live.current.bottomInset;
       // The next town always shows, even over another chip (not under the strip's own «الطريق كله»).
       const hide = off || (overlaps(r) && (c.tone !== 'next' || live.current.mode === 'strip'));
