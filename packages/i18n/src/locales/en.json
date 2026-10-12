@@ -2247,7 +2247,7 @@
   "console.sup_fault_set": "On {party}",
   "console.sup_escalate": "Escalate to Ali",
   "console.sup_resolve": "Resolve & close",
-  "console.sup_resolve_hint": "Resolving sends the customer “هل انحلت مشكلتك؟”",
+  "console.sup_resolve_hint": "Resolving sends the customer “انحلت مشكلتك؟”",
   "console.sup_chats": "Order chats",
   "console.sup_chats_hint": "Read only: support does not write in order chats.",
   "console.sup_chat_customer_courier": "Customer ↔ courier",

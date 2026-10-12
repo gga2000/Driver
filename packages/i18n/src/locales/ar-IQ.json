@@ -2247,7 +2247,7 @@
   "console.sup_fault_set": "على {party}",
   "console.sup_escalate": "صعّد لعلي",
   "console.sup_resolve": "حلّها وسكّر",
-  "console.sup_resolve_hint": "عند الحل يوصل للزبون «هل انحلت مشكلتك؟»",
+  "console.sup_resolve_hint": "لمن تحلها يوصل للزبون «انحلت مشكلتك؟»",
   "console.sup_chats": "محادثات الطلب",
   "console.sup_chats_hint": "قراءة بس: الدعم ما يكتب بمحادثات الطلب.",
   "console.sup_chat_customer_courier": "الزبون ↔ الدليفري",
