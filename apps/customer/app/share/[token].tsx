@@ -8,6 +8,7 @@ import { Avatar, EmptyState, formatClock, Icon, ltr, RetryState, retryKindFor, S
 import { Wordmark } from '@/components/Wordmark';
 import { useSharedTrip } from '@/features/share/queries';
 import { ShareMap } from '@/features/share/ShareMap';
+import { ShareRoadBlock, ShareRoadMap, useSharedRoad } from '@/features/share/ShareRoad';
 import { apiErrorMessage } from '@/lib/api';
 import { publicPageFailure } from '@/lib/errors';
 import { useLocale, useT } from '@/lib/i18n';
@@ -46,6 +47,8 @@ export default function SharePage() {
   const net = useNetwork();
   const [slow, restartSlow] = useLoadTimeout(q.isPending);
   const trip = q.data;
+  // N13: a الرجعة trip on the real road (the whole road, gold as far as the car has come).
+  const shared = useSharedRoad(trip, now);
   // "Ended" only on the server's word (audit FLOW-07): a failed poll keeps the live view, marked as old.
   const failure = q.isError ? publicPageFailure(q.error) : null;
   if (failure === 'invalid' || failure === 'final' || (trip && trip.status === 'ended')) {
@@ -84,7 +87,11 @@ export default function SharePage() {
       <Stack.Screen options={{ headerShown: false, title: t(trip ? TITLE[trip.subject] : 'share.page_title') }} />
       <View style={{ height: '50%' }}>
         {trip ? (
-          <ShareMap token={token} trip={trip} stale={stale} live={q.live} minutes={trip.position && etaMin !== null && !stale ? t('track.map_minutes', { minutes: etaMin }) : null} />
+          shared ? (
+            <ShareRoadMap shared={shared} trip={trip} fallback={<ShareMap token={token} trip={trip} stale={stale} live={q.live} minutes={null} />} />
+          ) : (
+            <ShareMap token={token} trip={trip} stale={stale} live={q.live} minutes={trip.position && etaMin !== null && !stale ? t('track.map_minutes', { minutes: etaMin }) : null} />
+          )
         ) : (
           <View style={{ flex: 1, backgroundColor: theme.colors.surfaceSunken }} />
         )}
@@ -122,9 +129,11 @@ export default function SharePage() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                 <View style={{ flex: 1, gap: theme.space[1] }}>
                   <StatusPill size="sm" tone={status.tone} live={status.live} label={status.live ? t('share.live') : t(statusKey ?? status.key)} style={{ alignSelf: 'flex-start' }} />
-                  <Text variant="heading" testID="share-status">
-                    {t(statusKey ?? status.key)}
-                  </Text>
+                  {shared ? null : (
+                    <Text variant="heading" testID="share-status">
+                      {t(statusKey ?? status.key)}
+                    </Text>
+                  )}
                   {trip.storeName ? (
                     <Text variant="label" color="textMuted" numberOfLines={1} testID="share-store">
                       {t('share.store', { name: trip.storeName })}
@@ -136,7 +145,7 @@ export default function SharePage() {
                     </Text>
                   ) : null}
                 </View>
-                {trip.eta && etaMin !== null ? (
+                {trip.eta && etaMin !== null && !shared?.trip ? (
                   <View testID="share-eta" style={{ alignItems: 'center', paddingHorizontal: theme.space[3], paddingVertical: theme.space[1], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accentTint, minWidth: 92 }}>
                     <Text variant="caption" color="accentText" style={{ lineHeight: 16 }}>
                       {trip.status === 'to_pickup' && !delivery ? t('share.pickup_label') : t('share.eta_label')}
@@ -150,7 +159,8 @@ export default function SharePage() {
                   </View>
                 ) : null}
               </View>
-              {trip.position && ageMin >= 2 ? (
+              {shared ? <ShareRoadBlock shared={shared} trip={trip} ageMin={trip.position ? ageMin : null} /> : null}
+              {trip.position && ageMin >= 2 && !shared ? (
                 <Text variant="caption" color="warningText" testID="share-stale">
                   {t('share.last_fix', { minutes: ageMin })}
                 </Text>

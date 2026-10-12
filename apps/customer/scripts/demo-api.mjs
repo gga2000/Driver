@@ -801,6 +801,7 @@ app.use('/demo/usuals', async (req, res) => {
 //   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
 //   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…][&arrived=1][&board=self|driver]   share a private car by link (step 6, demo switch on; way C boarding)
 //   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
+//   POST /demo/rajaa/road?bookingId=…&km=52[&ageMin=…]   N13 «طريق بغداد»: a departed car put km along the real road
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1095,7 +1096,7 @@ const rajaa = await (async () => {
     }
   });
 
-  // POST /demo/rajaa/onboard?personId=… — this person is in the car: a seat on a car leaving bab 1
+  // POST /demo/rajaa/onboard?personId=…[&corridorId=…][&garageId=…] — this person is in the car: a seat on a car leaving bab 1 (or that garage)
   // in 10 minutes, booked (cash) and checked in with the PIN. Their boarding pass then carries طوارئ.
   let onboardSeq = 0;
   app.use('/demo/rajaa/onboard', async (req, res) => {
@@ -1103,21 +1104,42 @@ const rajaa = await (async () => {
       const personId = personOf(req);
       if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/onboard?personId=…' });
       const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
-      // A fresh driver each call (a driver cannot announce two overlapping departures).
-      const driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      const params = new URL(req.url ?? '/', 'http://x').searchParams;
+      const road = params.get('road') === '1';
+      // `&corridorId=aziziyah_kut` / `&garageId=mp_garage_nahdha` (a car back to Aziziyah) for the other roads.
+      const garageId = params.get('garageId') ?? (params.get('corridorId') === 'aziziyah_kut' ? 'mp_garage_bab2' : 'mp_garage_bab1');
+      const corridorId = params.get('corridorId') ?? 'aziziyah_baghdad';
+      // A fresh driver each call (a driver cannot announce two overlapping departures); on the road
+      // (`road=1`) a named one, so the pass, the road map's car and the family page show his name.
+      let driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      if (road) {
+        const phone = `07719${String(990000 + onboardSeq).padStart(6, '0')}`;
+        await identity.requestOtp({ phone, purpose: 'login' });
+        const { code: otp } = await identity.devLastOtp(phone);
+        driverId = (await identity.verifyOtp({ phone, code: otp })).personId;
+        await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'intercity_driver' });
+        await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
+      }
       const dep = await deps.announce(driverId, {
-        garageId: 'mp_garage_bab1',
-        corridorId: 'aziziyah_baghdad',
+        garageId,
+        corridorId,
         departAt,
         latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
         vehicle: saloon('58120 واسط', 'كامري', 'بيضاء'),
         familyOnly: false,
       });
-      const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      // A car announced in Baghdad is filled at once by the demo's riders waiting there: let them go
+      // (in-memory demo riders only), so this person's seat is free.
+      for (const b of routesRepo.bookings?.values() ?? []) if (b.departureId === dep.id && b.origin === 'demand_claim') b.state = 'cancelled';
+      let held = null;
+      for (const seatId of ['back_right', 'back_left', 'back_middle', 'front']) {
+        held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false }).catch((e) => (String(e).includes('took that seat') ? null : Promise.reject(e)));
+        if (held) break;
+      }
+      if (!held) return json(res, 409, { error: 'no seat left on that car' });
       const booked = await deps.book(personId, held.id, 'cash');
       // `&road=1` (r1–r3): his mother and Zainab follow every trip; the car has just left, 12 % of
       // the way to Baghdad, so the pass shows the road line, the arrival and who is watching.
-      const road = new URL(req.url ?? '/', 'http://x').searchParams.get('road') === '1';
       if (road) {
         await app.get(IdentityService).updateProfile(
           { personId, sessionId: 'demo' },
@@ -1128,13 +1150,47 @@ const rajaa = await (async () => {
       if (road) {
         // Before its time only a full car leaves: the other seats are walk-ups.
         await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
-        for (const seatId of ['front', 'back_left', 'back_middle']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
+        for (const seatId of ['front', 'back_left', 'back_middle', 'back_right']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' }).catch(() => undefined);
         await deps.depart(driverId, dep.id);
         const bab1 = { lat: 32.91575, lng: 45.0405 };
         const nahdha = { lat: 33.3344, lng: 44.4165 };
         await deps.driverPosition(driverId, dep.id, { lat: bab1.lat + (nahdha.lat - bab1.lat) * 0.12, lng: bab1.lng + (nahdha.lng - bab1.lng) * 0.12 });
       }
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/road?bookingId=…&km=52[&ageMin=5] — N13 «طريق بغداد»: that booking's car (already
+  // departed, e.g. /demo/rajaa/onboard?road=1) is put `km` along the real road from its garage, with a
+  // fix there (`ageMin` minutes old, for the «آخر تحديث» state), and its departure time moved back so the
+  // corridor's minutes reach that far (the times on the road read like a car keeping its pace).
+  app.use('/demo/rajaa/road', async (req, res) => {
+    try {
+      const q = new URL(req.url ?? '/', 'http://x').searchParams;
+      const bookingId = q.get('bookingId');
+      const km = Number(q.get('km') ?? '0');
+      const ageMin = Number(q.get('ageMin') ?? '0');
+      if (req.method !== 'POST' || !bookingId || !Number.isFinite(km)) return json(res, 400, { error: 'POST /demo/rajaa/road?bookingId=…&km=…[&ageMin=…]' });
+      const booking = routesRepo.bookings?.get(bookingId);
+      const d = booking ? routesRepo.departures?.get(booking.departureId) : null;
+      if (!d || d.state !== 'departed') return json(res, 409, { error: 'that booking\'s car has not left (try /demo/rajaa/onboard?road=1 first)' });
+      const { INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const { intercityRoad, roadGeoJSON } = await import('@driver/map/pieces/road');
+      const corridor = INTERCITY_NETWORK.corridors.find((c) => c.id === d.corridorId);
+      const keyOf = { mp_garage_bab1: 'bab1', mp_garage_bab2: 'bab2', mp_garage_souq: 'souq' };
+      const direction = d.garageId in keyOf ? 'from_aziziyah' : 'to_aziziyah';
+      const road = intercityRoad(keyOf[d.garageId] ?? (corridor.cityId === 'kut' ? 'bab2' : 'bab1'), corridor.cityId, direction);
+      const m = Math.max(0, Math.min(road.totalM - 50, km * 1000));
+      const car = roadGeoJSON(road, { m }).features.find((f) => f.properties.part === 'car')?.geometry.coordinates ?? road.path[0];
+      await deps.driverPosition(d.driverId, d.id, { lat: car[1], lng: car[0] });
+      // The write stored a new record: move its times on that one.
+      const rec = routesRepo.departures.get(d.id);
+      const now = Date.now();
+      rec.lastPosition = { ...rec.lastPosition, at: new Date(now - ageMin * MIN) };
+      rec.departedAt = new Date(now - ageMin * MIN - (m / road.totalM) * corridor.travelMin * MIN);
+      json(res, 200, { bookingId, departureId: d.id, km: Math.round(m / 100) / 10, totalKm: Math.round(road.totalM / 100) / 10, at: { lat: car[1], lng: car[0] } });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
