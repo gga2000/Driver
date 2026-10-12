@@ -19,6 +19,7 @@ import { SupportModule } from '../support/index.js';
 import { TripsModule } from '../trips/index.js';
 import { AccountCloseService } from './account-close.service.js';
 import { ApprovalsService } from './approvals.service.js';
+import { CommissionTierService } from './commission.service.js';
 import { ControlRoomService } from './control-room.service.js';
 import { CASH_ROUND_FROM_HOUR, cashRoundFromHourEnv, FinanceDeskService } from './finance.service.js';
 import { LaunchMetricsService } from './metrics.service.js';
@@ -53,6 +54,7 @@ import { MoneyOutService } from './money-out.service.js';
   providers: [
     AccountCloseService,
     ApprovalsService,
+    CommissionTierService,
     FinanceDeskService,
     LaunchMetricsService,
     MoneyOutService,

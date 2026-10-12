@@ -502,6 +502,13 @@ const fleetOwner = await person('07750000001', 'أبو حسنين');
 const fleetOrg = await orgs.create({ type: 'fleet', name: 'تكاتك الربيعي', cityId: 'aziziyah', ownerId: fleetOwner });
 await identity.grantRole(SYSTEM, { personId: fleetOwner, kind: 'fleet_owner', orgId: fleetOrg.id });
 await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk', model: 'باجاج', colour: 'red' });
+// Starter commission (Ali 2026-10-11): a restaurant added 50 days ago with no tier on file, so still on
+// the 5 % starter rate — the finance desk's «سعر البداية قرّب يخلص» reminder and its store page card.
+{
+  const { ORGS_REPOSITORY } = await load('modules/orgs/index.js');
+  const owner = await person('07740000003', 'أبو زهراء');
+  await app.get(ORGS_REPOSITORY, { strict: false }).create({ type: 'restaurant', name: 'فلافل الزهراء', cityId: 'aziziyah', members: [{ personId: owner, role: 'member', spendingLimitIqd: null }], createdAt: new Date(Date.now() - 50 * 86_400_000) });
+}
 
 // ───────────────────────── support desk ─────────────────────────
 

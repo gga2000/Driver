@@ -400,6 +400,8 @@
   "merchant.statement.pdf_note": "A PDF copy reaches you on WhatsApp every Sunday",
   "merchant.statement.order_ref": "#{ref}",
   "merchant.statement.commission_line": "{pct}% commission",
+  "merchant.statement.rate": "Your commission now: {rate}",
+  "merchant.statement.rate_starter": "Your commission now: {rate} · starter rate since {date}",
   "merchant.disputes.kind_cold_or_late": "Cold or late",
   "merchant.disputes.kind_missing_item": "Missing item",
   "merchant.disputes.kind_wrong_item": "Wrong item",

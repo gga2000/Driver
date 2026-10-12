@@ -99,6 +99,14 @@ export function StatementView({
             <Text variant="footnote" color="textMuted" tabular>
               {t('merchant.statement.day_total', { orders: tot.orders, net: iqd(tot.netIqd, { locale }) })}
             </Text>
+            {statement.rate ? (
+              <Text variant="footnote" color="textMuted" tabular testID="statement-rate">
+                {/* The rate is isolated LTR so «12%» keeps its sign on the right inside Arabic. */}
+                {statement.rate.starterSince
+                  ? t('merchant.statement.rate_starter', { rate: `\u2066${statement.rate.pct}%\u2069`, date: dates.dayMonth(statement.rate.starterSince) })
+                  : t('merchant.statement.rate', { rate: `\u2066${statement.rate.pct}%\u2069` })}
+              </Text>
+            ) : null}
           </View>
           <View style={{ flex: wide ? 2 : undefined, flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             <Cell label={t('merchant.statement.items')} value={iqd(tot.itemsIqd, { locale })} />
