@@ -55,6 +55,8 @@ const photoOf = (proof: Record<string, unknown> | undefined): string | null => (
           return c ? { tripId: c.tripId, courierId: c.courierId } : null;
         },
         lastFix: async (tripId) => (await trips.lastPosition(tripId))?.pin ?? null,
+        // «رفضت تستلم»: the trip back to the sender, priced and added to the sender's total by orders.
+        returnTrip: (courierId, orderId) => orders.returnParcel(courierId, orderId),
         proofs: async (orderId) => {
           const carried = await trips.courierOf(orderId);
           if (!carried) return { pickup: null, dropoff: null };
