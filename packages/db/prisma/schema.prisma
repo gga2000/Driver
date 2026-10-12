@@ -3374,6 +3374,8 @@ model NotifyDelivery {
   @@index([personId, createdAt])
   @@index([orderId, createdAt])
   @@index([providerRef])
+  /// Stuck-send count every minute (status queued/deferred, sentAt older than 5 min).
+  @@index([status, sentAt])
   @@map("notify_deliveries")
   @@schema("public")
 }
