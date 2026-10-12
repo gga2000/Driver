@@ -3,13 +3,13 @@ import type { BakeryOwnerView, StallOwnerView } from '@driver/contracts/shopping
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 
-/** Is this store a produce stall or a bakery (السوق)? Null for a restaurant. It never changes. */
-export function useShopMode(merchantOrgId: string | null) {
+/** Is this store a produce stall or a bakery (السوق)? Asked only for a grocer (`on`); it never changes. */
+export function useShopMode(merchantOrgId: string | null, on = true) {
   const api = useApi();
   const signedIn = useSignedIn();
   return useQuery({
     ...api.shopping.owner.mode.queryOptions({ merchantOrgId: merchantOrgId ?? '' }),
-    enabled: signedIn && !!merchantOrgId,
+    enabled: on && signedIn && !!merchantOrgId,
     staleTime: Infinity,
   });
 }

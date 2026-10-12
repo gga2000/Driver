@@ -57,7 +57,7 @@ export function ShopScreen() {
   const toast = useCounterToast();
   const { wide } = useLayout();
   const { store, stores, canSeeMoney } = useCurrentStore();
-  const shopKind = useShopMode(store?.orgId ?? null).data?.kind ?? null;
+  const shopKind = useShopMode(store?.orgId ?? null, store?.type === 'grocer').data?.kind ?? null;
   const orgId = store?.orgId ?? null;
   const status = useStoreStatus(orgId);
   const hours = useStoreHours(orgId);
