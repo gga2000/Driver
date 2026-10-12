@@ -53,8 +53,8 @@ describe('W3 switches', () => {
 });
 
 describe('orders.ops.switches', () => {
-  it('tells the Console which money outcomes are on: all off by default, void always allowed', () => {
-    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform', remakePay: true });
+  it('tells the Console which money outcomes are on: all off by default, void and stands always allowed', () => {
+    expect(make().staff.switches()).toEqual({ disputeOutcomes: ['void', 'stands'], agentLimitIqd: 25_000, courierLostRefund: false, courierLostCharge: false, freeCancel: false, cookedFoodPayer: 'platform', remakePay: true });
     const on = make({ disputes: { outcomes: ['stands', 'refund_full'], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } }, courierLost: { refund: true, chargeCourier: false } });
     expect(on.staff.switches()).toMatchObject({ disputeOutcomes: ['stands', 'refund_full', 'void'], courierLostRefund: true, courierLostCharge: false });
   });
@@ -170,8 +170,22 @@ describe('orders.ops.resolveDispute (NTF-01, M-1)', () => {
     const h = make();
     const { order } = await h.delivered();
     await h.orders.openDispute('c1', { orderId: order.id, kind: 'cold_or_late' });
-    expect(await code(h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'stands', reason: 'مراجعة', faultParty: 'platform' }))).toBe('money_rule_off');
+    expect(await code(h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'refund_full', reason: 'مراجعة', faultParty: 'platform' }))).toBe('money_rule_off');
+    expect(await code(h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'redelivery', reason: 'مراجعة', faultParty: 'platform' }))).toBe('money_rule_off');
     expect((await h.orders.get(order.id)).state).toBe('disputed');
+  });
+
+  it('a complaint can always be rejected: stands closes the order with every money switch off', async () => {
+    const h = make();
+    const { order } = await h.delivered();
+    await h.orders.openDispute('c1', { orderId: order.id, kind: 'cold_or_late' });
+    expect(h.staff.switches().disputeOutcomes).toEqual(expect.arrayContaining(['stands', 'void']));
+    const r = await h.staff.resolveDispute(ops, { orderId: order.id, outcome: 'stands', reason: 'الأكل وصل زين', faultParty: 'platform' });
+    expect(r).toMatchObject({ state: 'closed', changed: true, postedIqd: 0 });
+    await h.settle();
+    // The sale settles as normal: the courier is paid his fee, nothing goes back.
+    expect(await h.balance('driver:d1')).toBe(1_000);
+    expect(h.events.last('order.dispute_resolved')!.payload).toMatchObject({ outcome: 'stands', refundIqd: 0 });
   });
 
   it('stands: the order closes and money settles as normal (merchant and courier paid, wallet charged once)', async () => {

@@ -15,6 +15,7 @@ import {
   checkoutTotals,
   clock12,
   overNewCustomerCap,
+  owedOnOrder,
   placeProblem,
   priorCashOrders,
   validTender,
@@ -30,6 +31,7 @@ import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
 import { dinnerStore, useDinnerPick } from '@/features/ride-habits/dinner-store';
 import { dinnerLine, withDinnerSlot } from '@/features/ride-habits/logic';
 import { useDinnerTime } from '@/features/ride-habits/queries';
+import { takeIftarOrder } from '@/features/season/iftar-order';
 import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
 import { useTimetable } from '@/features/season/use-timetable';
 import { useSeason } from '@/lib/use-season';
@@ -80,8 +82,6 @@ export default function CheckoutScreen() {
   const [street, setStreet] = useState(false);
   // W-02 «استخدم نقاطك»: the server decides how many points apply (delivery fee first, then service fee).
   const [usePoints, setUsePoints] = useState(false);
-  const quote = useCartQuote(cart, dropoff, street);
-  const orderQuote = useOrderQuote(cart, dropoff, street, usePoints);
   const menu = useMenu(cart.merchant?.id);
   const mine = useMyOrders();
   const placeOrder = usePlaceOrder();
@@ -120,6 +120,12 @@ export default function CheckoutScreen() {
   const dinnerAtMs = dinnerAt?.getTime() ?? null;
   const slots = useMemo(() => withDinnerSlot(plainSlots, dinnerAtMs !== null && dinnerDay === day ? new Date(dinnerAtMs) : null, (at) => ({ at, iftar: false })), [plainSlots, dinnerAtMs, dinnerDay, day]);
   const [slot, setSlot] = useState<string | null>(null);
+  const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
+  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
+  // FOOD-01/19: the fees are priced for the chosen slot (a pre-order after midnight is a different
+  // night), and the ones placed are `orders.quote`'s, priced on the server's clock.
+  const quote = useCartQuote(cart, dropoff, street, scheduledFor);
+  const orderQuote = useOrderQuote(cart, dropoff, street, usePoints, scheduledFor);
   const preset = useRef(false);
   useEffect(() => {
     const r = menu.data?.restaurant;
@@ -141,6 +147,21 @@ export default function CheckoutScreen() {
     setDay(dinnerDay);
     setSlot(String(dinnerAtMs));
   }, [dinnerAtMs, dinnerDay]);
+  // Home's «على الفطور» (home roast 4, concept C): a dish added for iftar comes here on today's iftar
+  // slot. The mark is taken once, for this cart's kitchen only; a closed kitchen's first slot still
+  // wins, a time already picked stays, and with no iftar slot left it stays on "now".
+  const iftarPreset = useRef(false);
+  useEffect(() => {
+    const r = menu.data?.restaurant;
+    if (!r || !cart.merchant || iftarPreset.current) return;
+    iftarPreset.current = true;
+    if (!takeIftarOrder(cart.merchant.id) || !r.open || when !== 'now' || slot !== null) return;
+    const at = plainSlots.find((sl) => sl.iftar)?.at;
+    if (!at) return;
+    setWhen('later');
+    setDay(0);
+    setSlot(String(at.getTime()));
+  }, [menu.data, cart.merchant, plainSlots, when, slot]);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');
@@ -210,10 +231,11 @@ export default function CheckoutScreen() {
 
   // The server's deal (orders.quote) is part of the total; place sends it back as an expectation.
   const totals = ready && quote.data ? checkoutTotals(cart, quote.data, orderQuote.data, payment) : null;
-  const tender = validTender(tenderPick, totals?.totalIqd ?? null, payment);
+  // M-3: an earlier unpaid amount rides on a cash order; the courier takes the total plus it.
+  const owed = owedOnOrder(orderQuote.data?.debtCollectIqd, payment, Boolean(fromHome && home));
+  const dueIqd = totals ? totals.totalIqd + owed : null;
+  const tender = validTender(tenderPick, dueIqd, payment);
   const restaurant = menu.data?.restaurant;
-  const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
-  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
   const { groups } = groupByPerson(cart);
   const capHit = totals ? overNewCustomerCap(totals.totalIqd, priorCashOrders(mine.data ?? []), payment) : false;
   const closedNow = restaurant ? !restaurant.open && !scheduledFor : false;
@@ -288,6 +310,7 @@ export default function CheckoutScreen() {
           statedTenderIqd: tender,
           usePoints: usePoints && totals.pointsIqd > 0,
           pointsIqd: totals.pointsIqd,
+          ...(orderQuote.data ? { debtCollectIqd: owed } : {}),
           householdOrgId: fromHome && home ? home.id : null,
           gift: giftInput(gift, payment),
         }),
@@ -351,7 +374,7 @@ export default function CheckoutScreen() {
   onPlaceRef.current = onPlace;
 
   const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
-  const payLine = payCopy(amountParam(totals?.totalIqd ?? 0), payment, receiver);
+  const payLine = payCopy(amountParam(dueIqd ?? 0), payment, receiver);
   const etaMax = restaurant?.etaMaxMinutes ?? null;
   const whenValue = !scheduledFor
     ? t('checkout.when_now')
@@ -589,12 +612,15 @@ export default function CheckoutScreen() {
             />
           </Card>
         ) : null}
-        {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd} value={tender} onChange={setTenderPick} /> : null}
+        {payment === 'cash' && totals ? <PayWith totalIqd={totals.totalIqd + owed} value={tender} onChange={setTenderPick} /> : null}
       </Section>
 
       <Section title={t('checkout.price_breakdown')}>
         {totals ? (
-          <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} note={t('quote.quote_locked')} testID="checkout-price" />
+          <View style={{ gap: theme.space[3] }}>
+            <PriceBreakdown items={priceItems(totals, t, locale)} total={totals.totalIqd} change={totals.changeIqd} note={t('quote.quote_locked')} testID="checkout-price" />
+            {owed > 0 ? <OwedLine owedIqd={owed} dueIqd={totals.totalIqd + owed} /> : null}
+          </View>
         ) : (
           <View style={{ gap: theme.space[2] }}>
             <Skeleton height={16} />
@@ -774,6 +800,27 @@ function NoteLink({ label, onPress, testID }: { label: string; onPress: () => vo
  * courier sees "الزبون يدفع بـ 25,000 · جهّز 7,250 خردة"; without change on him the rest goes to the
  * wallet.
  */
+/** M-3: the earlier unpaid amount, under the total and apart from it (it isn't this order's price). */
+function OwedLine({ owedIqd, dueIqd }: { owedIqd: number; dueIqd: number }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View style={{ gap: theme.space[1], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border }} testID="checkout-owed">
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: theme.space[2] }}>
+        <Text variant="body" style={{ flex: 1 }}>
+          {t('checkout.owed_line')}
+        </Text>
+        <Text variant="body" tabular testID="checkout-owed-amount">
+          {t('unit.iqd', { amount: amountParam(owedIqd) })}
+        </Text>
+      </View>
+      <Text variant="footnote" color="textMuted">
+        {t('checkout.owed_hint', { amount: amountParam(dueIqd) })}
+      </Text>
+    </View>
+  );
+}
+
 function PayWith({ totalIqd, value, onChange }: { totalIqd: number; value: number | null; onChange: (v: number | null) => void }) {
   const theme = useTheme();
   const t = useT();

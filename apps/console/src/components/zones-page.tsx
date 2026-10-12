@@ -241,7 +241,7 @@ export interface ZonesBoardProps {
   onCreate?: () => void;
   onRename?: (zone: ZonePlacementView) => void;
   onRemove?: (zone: ZonePlacementView) => void;
-  /** «تم الفحص» on a flagged zone (Ali, 2026-10-06): the team looked and the outline is right. */
+  /** «انفحصت» on a flagged zone (Ali, 2026-10-06): the team looked and the outline is right. */
   onMarkChecked?: (zone: ZonePlacementView) => void;
   markingChecked?: boolean;
   map: ReactNode;

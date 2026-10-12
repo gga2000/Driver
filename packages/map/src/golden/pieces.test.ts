@@ -24,6 +24,12 @@ import {
   myTripsGeoJSON,
   myTripsLayers,
   type MyTrips,
+  intercityRoad,
+  roadBounds,
+  roadGeoJSON,
+  roadKm,
+  roadLayers,
+  roadProgress,
   type Road,
 } from './pieces.js';
 import { roadsFromFeatures as fromGolden } from './index.js';
@@ -225,6 +231,72 @@ describe('your trips map (stats «خريطتك»)', () => {
     for (const light of ['golden', 'day'] as const) {
       expect(valid(myTripsLayers({ source: 't', light }), ['t'])).toEqual([]);
       noBlue(myTripsLayers({ source: 't', light }));
+    }
+  });
+});
+
+describe('the road to Baghdad and Kut (N13)', () => {
+  const towns = (r: ReturnType<typeof intercityRoad>) => r.towns.map((t) => t.nameAr);
+  it('follows the real road from every garage, with its towns in order', () => {
+    for (const g of ['bab1', 'bab2', 'souq'] as const) {
+      const b = intercityRoad(g, 'baghdad');
+      expect(b.totalM / 1000).toBeGreaterThan(70); expect(b.totalM / 1000).toBeLessThan(90);
+      expect(towns(b)).toEqual(['الحفرية', 'الوحدة', 'بسماية', 'جسر ديالى', 'الزعفرانية', 'بغداد']);
+      const k = intercityRoad(g, 'kut');
+      expect(k.totalM / 1000).toBeGreaterThan(80); expect(k.totalM / 1000).toBeLessThan(95);
+      expect(towns(k)).toEqual(['الدبوني', 'الكوت']);
+      // starts at its garage and ends at the city garage
+      expect(metresBetween(b.path[0]!, ({ bab1: [45.0405, 32.91575], bab2: [45.0641, 32.9155], souq: [45.0666, 32.9021] } as const)[g])).toBeLessThan(60);
+      expect(metresBetween(b.path.at(-1)!, [44.4165, 33.3344])).toBeLessThan(150);
+      expect(metresBetween(k.path.at(-1)!, [45.8189, 32.5126])).toBeLessThan(150);
+    }
+  });
+  it('the way back runs the other way and ends in Aziziyah', () => {
+    const out = intercityRoad('bab2', 'baghdad');
+    const back = intercityRoad('bab2', 'baghdad', 'to_aziziyah');
+    expect(back.path[0]).toEqual(out.path.at(-1));
+    expect(back.totalM).toBeCloseTo(out.totalM, 3);
+    expect(towns(back)).toEqual(['الزعفرانية', 'جسر ديالى', 'بسماية', 'الوحدة', 'الحفرية', 'العزيزية']);
+  });
+  it('says the next town and its km from a position or from km driven', () => {
+    const r = intercityRoad('bab2', 'baghdad');
+    const start = roadProgress(r, { m: 0 });
+    expect(start.next!.town.nameAr).toBe('الحفرية');
+    expect(start.passed).toEqual([]);
+    const hafriya = r.towns[0]!;
+    // just past الحفرية: the next is الوحدة
+    const past = roadProgress(r, { m: hafriya.m + 1000 });
+    expect(past.next!.town.nameAr).toBe('الوحدة');
+    expect(past.passed.map((t) => t.nameAr)).toEqual(['الحفرية']);
+    expect(roadKm(past.next!.inM)).toBe(Math.round((r.towns[1]!.m - hafriya.m - 1000) / 1000));
+    // a GPS fix 40 m off the road lands on it
+    const mid = r.path[Math.floor(r.path.length / 2)]!;
+    const fix = roadProgress(r, offsetMetres(mid, 40, 0));
+    expect(Math.abs(fix.m - roadProgress(r, mid).m)).toBeLessThan(60);
+    // at the end there is nothing next
+    expect(roadProgress(r, { m: r.totalM }).next).toBeNull();
+    expect(roadProgress(r, { m: r.totalM + 5000 }).leftM).toBe(0);
+    expect(roadKm(0)).toBe(0); expect(roadKm(200)).toBe(1); expect(roadKm(12_600)).toBe(13);
+  });
+  it('splits driven from ahead and marks the next town with the app words', () => {
+    const r = intercityRoad('souq', 'kut');
+    const fc = roadGeoJSON(r, { m: 20_000, labelOf: (t, inM) => `${t.nameAr} · ${roadKm(inM)} كم` });
+    const part = (p: string) => fc.features.filter((f) => f.properties.part === p);
+    expect(part('driven')).toHaveLength(1); expect(part('ahead')).toHaveLength(1); expect(part('car')).toHaveLength(1);
+    const next = part('town').find((f) => f.properties.next)!;
+    expect(next.properties.name).toBe('الدبوني');
+    expect(next.properties.label).toMatch(/^الدبوني · \d+ كم$/);
+    expect(part('town').find((f) => f.properties.kind === 'city')!.properties.label).toBe('الكوت');
+    // nothing driven yet: no gold line and no car
+    const fresh = roadGeoJSON(r);
+    expect(fresh.features.some((f) => f.properties.part === 'driven' || f.properties.part === 'car')).toBe(false);
+    const [[w, s], [e, n]] = roadBounds(r);
+    expect(w).toBeLessThan(45.1); expect(e).toBeGreaterThan(45.8); expect(s).toBeLessThan(32.52); expect(n).toBeGreaterThan(32.9);
+  });
+  it('makes valid layers in both lights, never blue', () => {
+    for (const light of ['golden', 'night'] as const) {
+      expect(valid(roadLayers({ source: 'r', light }), ['r'])).toEqual([]);
+      noBlue(roadLayers({ source: 'r', light }));
     }
   });
 });

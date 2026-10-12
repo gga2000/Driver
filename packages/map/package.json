@@ -48,6 +48,14 @@
       "types": "./dist/golden/my-trips.d.ts",
       "default": "./dist/golden/my-trips.js"
     },
+    "./pieces/road": {
+      "types": "./dist/golden/road.d.ts",
+      "default": "./dist/golden/road.js"
+    },
+    "./pieces/carts": {
+      "types": "./dist/golden/carts.d.ts",
+      "default": "./dist/golden/carts.js"
+    },
     "./pieces/closed-streets": {
       "types": "./dist/golden/closed-streets.d.ts",
       "default": "./dist/golden/closed-streets.js"

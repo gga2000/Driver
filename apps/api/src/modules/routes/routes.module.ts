@@ -6,7 +6,7 @@ import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
-import { LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
+import { LedgerModule, LedgerService, NightlyJob, WalletHolds } from '../ledger/index.js';
 import { AgreementsService } from './agreements.service.js';
 import { TripChatSubjects } from './trip-chat.subjects.js';
 import { DemandService } from './demand.service.js';
@@ -126,10 +126,16 @@ import { RoutesWriter } from './writer.js';
   exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler, TripChatSubjects],
 })
 export class RoutesModule implements OnModuleInit {
-  constructor(private readonly controls: ControlsService) {}
+  constructor(
+    private readonly controls: ControlsService,
+    private readonly departures: DeparturesService,
+    private readonly nightly: NightlyJob,
+  ) {}
 
   /** The console's corridor switches name and validate the corridors this module serves. */
   onModuleInit(): void {
     this.controls.registerCorridors(INTERCITY_NETWORK.corridors.map((c) => ({ id: c.id, name_ar: c.nameAr })));
+    // The nightly close checks every seat settled the day before posted exactly one money group.
+    this.nightly.watchClosures({ closedBetween: async (from, to) => (await this.departures.settledSeatsBetween(from, to)).map((id) => ({ kind: 'seat' as const, id })) });
   }
 }

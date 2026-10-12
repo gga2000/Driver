@@ -474,7 +474,8 @@ export class PartnerService implements PartnerPort {
       vertical: trip.vertical,
       orders,
       feeComponents: this.feeComponents(trip.cityId, request, orders[0]),
-      batchedSecond: false,
+      // The batch rate his offer showed, kept once he took it (the ledger pays the same).
+      batchedSecond: trip.batchId !== null && trip.batchId !== trip.id,
       batchShare: this.deps.money.batchShare,
       compensationIqd: 0,
       take: this.deps.money.take(trip.vertical),

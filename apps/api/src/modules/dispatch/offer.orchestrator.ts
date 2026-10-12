@@ -113,6 +113,11 @@ export const DISPATCH_QUEUE_NAME = 'dispatch';
 
 /** The first-accept lock is the assignment claim; it outlives any trip. */
 const LOCK_TTL_MS = 24 * 3600 * 1000;
+/**
+ * How long a finished job's cash counts toward the driver's cap if its ledger posting is never seen
+ * (a trip that collected nothing). The posting normally lands within a second through the outbox.
+ */
+export const CASH_HOLD_MS = 10 * 60_000;
 const SYSTEM = 'system';
 /** A ride still looking for its driver: the rider may watch the offered drivers and nudge one (ride step 3). */
 const SEARCHING: ReadonlySet<DispatchStatus> = new Set(['searching', 'rebroadcast', 'awaiting_dispatcher', 'needs_dispatcher']);
@@ -654,7 +659,7 @@ export class OfferOrchestrator {
   private async offerRouteDriver(r: DispatchRequest, cfg: DispatchConfig): Promise<void> {
     const driverId = r.routeDriverId;
     const p = driverId ? await this.presence.get(driverId) : null;
-    if (!driverId || !p || (await this.caps.isOverCap(driverId))) {
+    if (!driverId || !p || (await this.isOverCap(driverId))) {
       await this.openSubstituteWave(r, cfg, 1);
       return;
     }
@@ -860,7 +865,7 @@ export class OfferOrchestrator {
   /** Online, no job in hand, the vehicle and cap fit: he can head to the pickup now. */
   private async readyToStart(r: DispatchRequest, driverId: string): Promise<boolean> {
     const p = await this.presence.get(driverId);
-    if (!p || (await this.store.driverJobs(driverId)).length > 0 || (await this.caps.isOverCap(driverId))) return false;
+    if (!p || (await this.store.driverJobs(driverId)).length > 0 || (await this.isOverCap(driverId))) return false;
     return (await this.bookedFit(r, p)) > 0;
   }
 
@@ -900,7 +905,7 @@ export class OfferOrchestrator {
   private async bookedFit(r: DispatchRequest, p: DriverPresence): Promise<number> {
     const fit = this.staticFit(r, p);
     if (fit === 0) return 0;
-    return (await this.caps.canOffer(p.driverId, this.exposure(r))) ? fit : 0;
+    return (await this.canOffer(p.driverId, this.exposure(r))) ? fit : 0;
   }
 
   /** The confirm lock lives until a day after the ride. */
@@ -1061,7 +1066,7 @@ export class OfferOrchestrator {
   /** Runs under the driver's lock: everything below reads his jobs as they are now. */
   private async acceptOffer(driverId: string, offerId: string): Promise<{ outcome: 'assigned'; tripId: string; compensationIqd: number }> {
     const { offer, r } = await this.openOfferOf(driverId, offerId);
-    if (await this.caps.isOverCap(driverId)) throw new DriverError('over_cap');
+    if (await this.isOverCap(driverId)) throw new DriverError('over_cap');
     if (!(await this.fitsCurrentJobs(r, offer, driverId))) {
       // Two offers reached him while he was free and he took the other one first: this one is
       // declined for him (the request moves on) instead of becoming an unchecked batch or a second ride.
@@ -1257,7 +1262,7 @@ export class OfferOrchestrator {
     const p = await this.presence.get(input.driverId);
     const warnings: string[] = [];
     if (!p) warnings.push('offline');
-    if (await this.caps.isOverCap(input.driverId)) warnings.push('over_cap');
+    if (await this.isOverCap(input.driverId)) warnings.push('over_cap');
     // Review #20: his roles on his registered vehicle do not cover this vertical — the same warning.
     if (p && (vehicleFit(r.vertical, p.vehicle) === 0 || (p.verticals && !p.verticals.includes(r.vertical)))) warnings.push('vehicle_fit');
     if (p && this.edgeBlocked(r, p)) warnings.push('edge_zone');
@@ -1319,6 +1324,27 @@ export class OfferOrchestrator {
     });
   }
 
+  /**
+   * Trips tells us cash was taken at a drop-off (`stop.completed`, before `trip.completed`): it is in
+   * his hand from now on, and counts toward his cap until the ledger posts it (a cash hold). The hold is
+   * the drop-off's order's (`orderId`), so on a trip with two cash drop-offs each order's cash stays held
+   * until that order's posting lands. Idempotent per stop, so a redelivered event changes nothing.
+   */
+  async cashCollected(tripId: string, stopId: string, amountIqd: number, orderId?: string): Promise<void> {
+    if (amountIqd <= 0) return;
+    const r = await this.store.getRequest(tripId);
+    const driverId = r?.assignedDriverId;
+    if (!driverId) return;
+    const held = (await this.store.cashHolds(driverId)).find((h) => h.tripId === tripId && h.orderId === orderId);
+    const collected = { ...held?.collected, [stopId]: amountIqd };
+    const sum = Object.values(collected).reduce((n, v) => n + v, 0);
+    await this.store.addCashHold(
+      driverId,
+      { tripId, ...(orderId ? { orderId } : {}), amountIqd: Math.max(held?.amountIqd ?? 0, sum), collected, until: this.now() + CASH_HOLD_MS },
+      CASH_HOLD_MS,
+    );
+  }
+
   /** Trips tells us the courier has the order in the bag (batching skips its pickup from now on). */
   async markPickedUp(tripId: string): Promise<void> {
     const r = await this.store.getRequest(tripId);
@@ -1332,6 +1358,18 @@ export class OfferOrchestrator {
     const r = await this.store.getRequest(tripId);
     if (!r) return;
     if (r.assignedDriverId) {
+      // The cash he took reaches the ledger after this event (order → ledger through the outbox).
+      // Until it does it still counts toward his cap, or the gap would let an over-cap driver be offered.
+      // The cash recorded at the door when trips told us (a whole note with change to the wallet, owed
+      // fees) can be more than the order's total; never count less than either.
+      // Drop-offs that told us their cash hold it per order; the request's cash is its order's when the
+      // request names one, else it is the trip's and only what no order's hold already covers is added.
+      const orderId = r.orderId ?? undefined;
+      const holds = (await this.store.cashHolds(r.assignedDriverId)).filter((h) => h.tripId === tripId);
+      const held = holds.find((h) => h.orderId === orderId);
+      const heldByOrders = orderId ? 0 : holds.reduce((n, h) => n + (h.orderId ? h.amountIqd : 0), 0);
+      const cash = Math.max((r.cashIqd ?? 0) - heldByOrders, held?.amountIqd ?? 0);
+      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { ...held, tripId, ...(orderId ? { orderId } : {}), amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
@@ -1643,7 +1681,7 @@ export class OfferOrchestrator {
       const jobs = await this.store.driverJobs(p.driverId);
       if (f.requireIdle && jobs.length > 0) continue;
       if (jobs.length > 0 && jobs.length >= batchLimit(p.vehicle, cfg.maxBatch)) continue;
-      if (!(await this.caps.canOffer(p.driverId, this.exposure(r)))) continue;
+      if (!(await this.canOffer(p.driverId, this.exposure(r)))) continue;
       pool.push({ presence: p, jobs, distanceKm, fit });
     }
     const byId = new Map(pool.map((c) => [c.presence.driverId, c]));
@@ -1747,6 +1785,25 @@ export class OfferOrchestrator {
   }
 
   /** Cash the job puts in the driver's hand (a cash order's total); none = prepaid. */
+  /** Over his cash cap, counting the cash of finished jobs the ledger has not posted yet. */
+  async isOverCap(driverId: string): Promise<boolean> {
+    return this.caps.isOverCap(driverId, await this.unpostedCash(driverId));
+  }
+
+  private async canOffer(driverId: string, job: JobExposure): Promise<boolean> {
+    return this.caps.canOffer(driverId, job, await this.unpostedCash(driverId));
+  }
+
+  /** Cash of his finished jobs still waiting for its ledger posting; holds that are posted or expired go. */
+  private async unpostedCash(driverId: string): Promise<number> {
+    let total = 0;
+    for (const h of await this.store.cashHolds(driverId)) {
+      if (h.until <= this.now() || (await this.caps.cashPosted(driverId, h.tripId, h.orderId))) await this.store.removeCashHold(driverId, h.tripId, h.orderId);
+      else total += h.amountIqd;
+    }
+    return total;
+  }
+
   private exposure(r: DispatchRequest): JobExposure {
     const cash = r.cashIqd ?? 0;
     return cash > 0 ? { valueIqd: cash, prepaid: false } : { valueIqd: 0, prepaid: true };

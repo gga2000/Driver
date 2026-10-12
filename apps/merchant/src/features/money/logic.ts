@@ -264,3 +264,19 @@ export function weekLines(s: Pick<WeeklyStatement, 'openingIqd' | 'closingIqd' |
   });
   return { lines, adds };
 }
+
+/**
+ * «استلمت منه»: the amount the restaurant takes from a courier at the counter. Whole dinars, above 0
+ * and not more than he holds for this restaurant (the server checks it again with his daily code).
+ */
+export function receiveAmount(text: string, heldIqd: number): { amountIqd: number; problem: 'empty' | 'too_much' | null } {
+  const digits = text.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[,،٬\s]/g, '');
+  const amountIqd = /^\d{1,9}$/.test(digits) ? Number(digits) : 0;
+  if (amountIqd <= 0) return { amountIqd: 0, problem: 'empty' };
+  return { amountIqd, problem: amountIqd > heldIqd ? 'too_much' : null };
+}
+
+/** The courier's daily code is 4 digits, read aloud from his app. */
+export function receiveCodeReady(code: string): boolean {
+  return /^\d{4}$/.test(code);
+}

@@ -50,6 +50,7 @@ describe('book by phone (e2e)', () => {
   };
 
   beforeAll(async () => {
+    vi.stubEnv('SHARE_LINK_BASE_URL', 'https://app.example.com'); // the trip link in the caller's SMS
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ['error'] });
@@ -62,6 +63,7 @@ describe('book by phone (e2e)', () => {
   afterAll(async () => {
     await app.close();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it('support books, a driver takes it, the caller is texted, and his history has the ride', async () => {
@@ -110,7 +112,7 @@ describe('book by phone (e2e)', () => {
     const sms = log.filter((d) => d.template === 'phone_ride_matched');
     expect(sms).toHaveLength(1);
     expect(sms[0]).toMatchObject({ channel: 'sms', status: 'sent' });
-    expect(sms[0]!.body).toMatch(/^درايفر: عباس جاي ياخذك: كيا سيراتو · فضي، لوحة 23456 واسط\. يوصلك بعد (دقيقة|دقيقتين|\d+ دقايق|\d+ دقيقة)\. تابعه: https:\/\/driver\.iq\/share\//);
+    expect(sms[0]!.body).toMatch(/^درايفر: عباس جاي ياخذك: كيا سيراتو · فضي، لوحة 23456 واسط\. يوصلك بعد (دقيقة|دقيقتين|\d+ دقايق|\d+ دقيقة)\. تابعه: https:\/\/app\.example\.com\/share\//);
 
     // He arrives at the pickup: the second SMS, with the cash fare.
     const pickup = (await app.get(TripsService).get(trip!.id)).stops.find((s) => s.type === 'pickup')!;

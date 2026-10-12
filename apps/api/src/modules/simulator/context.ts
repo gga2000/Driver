@@ -143,7 +143,11 @@ export interface DriverRun {
   seq: number;
   nextSettleCheckT: number;
   /** Food orders in his bag: orderId → when it was ready (ms) for the hot-wait check. */
-  bag: Map<string, { readyAtMs: number; lateMs: number; batched: boolean; pickedUpT: number; offline: boolean; departed: boolean }>;
+  /**
+   * `heldMs`: how long a late kitchen held him there beyond its promised time (0 when it was on time);
+   * `heldFromMs`: when that hold began (the later of his arrival and the promise).
+   */
+  bag: Map<string, { readyAtMs: number; lateMs: number; heldMs: number; heldFromMs: number; batched: boolean; pickedUpT: number; offline: boolean; departed: boolean }>;
 }
 
 /** Offers the observer saw being sent, with the driver's cap position at that moment. */
@@ -187,10 +191,14 @@ export interface HotWaitRecord {
   /** The later of the promised and the actual ready time: what batching plans against, unless the kitchen ran late. */
   readyAtMs: number;
   departAtMs: number;
-  /** Wait from ready to leaving the last kitchen, less any lateness of the kitchens picked up after it. */
+  /**
+   * Wait from ready to leaving the last kitchen, less what late kitchens cost it: the lateness of the
+   * kitchens picked up after it, and the time a late kitchen picked up before it held the courier
+   * (after this order was ready). Batching plans with promised ready times, so neither is its doing.
+   */
   waitMin: number;
   rawWaitMin: number;
-  /** How late (vs its promise) the latest later kitchen in the batch was: the courier had to wait for it. */
+  /** What was taken off for late kitchens (see `waitMin`). */
   kitchenLateMin: number;
   /** His phone went dark while the food was in the bag: an incident, not a batching decision. */
   courierOffline: boolean;
@@ -209,6 +217,14 @@ export interface DoorCashRecord {
   collectedIqd: number;
   /** Of `collectedIqd`, what went to the customer's wallet (0 = he gave change). */
   changeToWalletIqd: number;
+}
+
+/** An offer a courier accepted, and whether its card showed the batched-second rate (Partner's `currentOffer`). */
+export interface AcceptedOfferRecord {
+  tripId: string;
+  driverId: string;
+  /** He held another job when he took it: the card showed the batch share of the delivery fee. */
+  batched: boolean;
 }
 
 /** Shared state actors read and write. */
@@ -232,6 +248,8 @@ export interface SimContext {
   readonly handovers: HandoverRecord[];
   /** Cash drop-offs the server accepted, by order (replays overwrite with the same figures). */
   readonly doorCash: Map<string, DoorCashRecord>;
+  /** Offers the couriers accepted, with the pay their card showed. */
+  readonly acceptedOffers: AcceptedOfferRecord[];
   /** Service calls refused with a DriverError, by code (expected in a busy city). */
   readonly refusals: Map<string, number>;
   /** Anything else a service threw (a bug). */

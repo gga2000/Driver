@@ -1,5 +1,6 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import { buildPay } from '../partner/index.js';
+import type { AcceptedOfferRecord, DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -39,7 +40,10 @@ export interface SimSnapshot {
   handovers: HandoverRecord[];
   /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
   doorCash?: DoorCashRecord[];
-  merchants: Array<{ merchantId: string; balanceIqd: number }>;
+  /** Offers the couriers accepted and whether the card showed the batch rate (absent in hand-built snapshots). */
+  acceptedOffers?: AcceptedOfferRecord[];
+  /** `holders`: couriers the merchant's live balance says hold its cash (absent in hand-built snapshots). */
+  merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
   /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
@@ -339,6 +343,90 @@ export const INVARIANTS: readonly Definition[] = [
     },
   },
   {
+    name: 'merchant_cash_held_within_courier_cash',
+    description:
+      'Σ of restaurants’ cash shown as held by a courier ≤ the cash he still holds, and ≥ what he collected for them less what he handed over, handed in and the company paid them (each hand-in counted once across restaurants)',
+    run: (s) => {
+      const bad: string[] = [];
+      const withHolders = s.merchants.filter((m) => m.holders !== undefined);
+      const shown = new Map<string, number>();
+      for (const m of withHolders) for (const h of m.holders ?? []) shown.set(h.courierId, (shown.get(h.courierId) ?? 0) + h.amountIqd);
+      const held = (courierId: string) => {
+        const acct = `cash:${courierId}`;
+        return Math.max(0, sum(s.ledger, (e) => e.fromAccount === acct) - sum(s.ledger, (e) => e.toAccount === acct));
+      };
+      for (const [courierId, amount] of shown) {
+        const h = held(courierId);
+        if (amount > h) bad.push(`${courierId}: restaurants show ${amount} with him, he holds ${h}`);
+      }
+      // The floor: restaurant cash he collected (net per order), less his hand-overs to them, less every
+      // hand-in to the company (each counted once, however many restaurants he carried for), less
+      // whatever the company paid those restaurants or they are owed short of what couriers hold.
+      const known = new Set(withHolders.map((m) => m.merchantId));
+      const groups = new Map<string, LedgerEvent[]>();
+      for (const e of s.ledger) if (e.postingGroupId) groups.set(e.postingGroupId, [...(groups.get(e.postingGroupId) ?? []), e]);
+      const raw = new Map<string, Map<string, number>>();
+      const add = (k: string, m: string, by: number) => {
+        const row = raw.get(k) ?? new Map<string, number>();
+        row.set(m, (row.get(m) ?? 0) + by);
+        raw.set(k, row);
+      };
+      for (const e of s.ledger) {
+        if (e.type === 'cash_collected' && e.fromAccount.startsWith('cash:') && e.postingGroupId) {
+          const k = e.fromAccount.slice(5);
+          const net = new Map<string, number>();
+          for (const l of groups.get(e.postingGroupId) ?? []) {
+            if (l.toAccount.startsWith('merchant_cash:')) net.set(l.toAccount.slice(14), (net.get(l.toAccount.slice(14)) ?? 0) + l.amount);
+            if (l.fromAccount.startsWith('merchant_cash:')) net.set(l.fromAccount.slice(14), (net.get(l.fromAccount.slice(14)) ?? 0) - l.amount);
+          }
+          for (const [m, n] of net) if (n > 0) add(k, m, n);
+        }
+        if (e.type === 'merchant_paid_by_courier' && e.fromAccount.startsWith('merchant_cash:') && e.toAccount.startsWith('cash:')) add(e.toAccount.slice(5), e.fromAccount.slice(14), -e.amount);
+      }
+      const owedTo = new Map<string, number>();
+      for (const row of raw.values()) for (const [m, n] of row) owedTo.set(m, (owedTo.get(m) ?? 0) + Math.max(0, n));
+      const slack = (m: string) => {
+        const acct = `merchant_cash:${m}`;
+        const payouts = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_payout');
+        const balance = withHolders.find((x) => x.merchantId === m)?.balanceIqd ?? 0;
+        return payouts + Math.max(0, (owedTo.get(m) ?? 0) - Math.max(0, balance));
+      };
+      let floors = 0;
+      for (const [k, row] of raw) {
+        const ms = [...row.entries()].filter(([m, n]) => n > 0 && known.has(m));
+        if (ms.length === 0) continue;
+        floors += 1;
+        const handIns = sum(s.ledger, (e) => e.type === 'driver_settlement' && e.toAccount === `cash:${k}`);
+        const floor = Math.min(held(k), ms.reduce((n, [, v]) => n + v, 0) - handIns - ms.reduce((n, [m]) => n + slack(m), 0));
+        const got = shown.get(k) ?? 0;
+        if (got < floor) bad.push(`${k}: restaurants show ${got} with him, at least ${floor} of their cash is still in his hand`);
+      }
+      return { checked: shown.size + floors, bad };
+    },
+  },
+  {
+    name: 'driver_payout_within_owed',
+    description: 'a payout to a driver never leaves him owing the company (cash + earnings ≥ 0 right after each driver_payout line)',
+    run: (s) => {
+      const bad: string[] = [];
+      const payees = new Set(s.ledger.filter((e) => e.type === 'driver_payout').map((e) => e.fromAccount.slice('driver:'.length)));
+      for (const id of payees) {
+        const mine = s.ledger
+          .filter((e) => [e.fromAccount, e.toAccount].some((a) => a === `driver:${id}` || a === `cash:${id}`))
+          .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+        let net = 0;
+        for (const e of mine) {
+          for (const acct of [`driver:${id}`, `cash:${id}`]) {
+            if (e.toAccount === acct) net += e.amount;
+            if (e.fromAccount === acct) net -= e.amount;
+          }
+          if (e.type === 'driver_payout' && net < 0) bad.push(`${id}: paid ${e.amount} and now owes ${-net}`);
+        }
+      }
+      return { checked: payees.size, bad };
+    },
+  },
+  {
     name: 'points_per_food_order_capped',
     description: 'points earned ≤ 50 per food order',
     run: (s) => {
@@ -380,6 +468,34 @@ export const INVARIANTS: readonly Definition[] = [
         }
       }
       return { checked: byGroup.size, bad };
+    },
+  },
+  {
+    name: 'courier_delivery_line_matches_offer',
+    description:
+      "the delivery fee the ledger pays a courier on a food or grocery order, and the errand fee it pays a shopper, is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %, errands too since Ali 2026-10-12) when he took it while holding another job; an errand's receipt is not part of it",
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const orders = new Map(s.orders.map((o) => [o.id, o]));
+      const trips = new Map(s.trips.map((t) => [t.id, t]));
+      for (const a of s.acceptedOffers ?? []) {
+        const trip = trips.get(a.tripId);
+        if (!trip || trip.courierId !== a.driverId) continue;
+        for (const link of trip.orders) {
+          const o = orders.get(link.orderId);
+          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog' && o.type !== 'errand')) continue;
+          const feeType = o.type === 'errand' ? 'errand_fee' : 'delivery_fee';
+          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === feeType && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
+          if (paid.length === 0) continue;
+          checked += 1;
+          const offer = buildPay({ vertical: trip.vertical, orders: [o], batchedSecond: a.batched, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null });
+          const shown = offer.components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation').reduce((n, c) => n + c.amountIqd, 0);
+          const got = paid.reduce((n, e) => n + e.amount, 0);
+          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} ${o.type === 'errand' ? 'errand fee' : 'delivery'}, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
+        }
+      }
+      return { checked, bad };
     },
   },
   {

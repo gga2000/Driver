@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DeliveryPoint, Iqd, LatLng } from './common.js';
-import { CapTier, SettlementMode } from './ledger-rules.js';
+import { CapTier, MerchantCommissionTier, SettlementMode } from './ledger-rules.js';
 import type { Actor } from './identity-io.js';
 
 /**
@@ -76,6 +76,8 @@ export const MerchantOnboardingInput = z.object({
   notes: z.string().trim().max(500).optional(),
   /** How the merchant wants his cash back (decisions §3); the city default when absent. */
   settlementMode: SettlementMode.optional(),
+  /** Its commission tier (money §1); a new restaurant starts on `starter` (5 %, Ali 2026-10-11). */
+  commissionTier: MerchantCommissionTier.default('starter'),
 });
 export type MerchantOnboardingInput = z.input<typeof MerchantOnboardingInput>;
 

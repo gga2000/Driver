@@ -107,6 +107,8 @@ function fakePort(): ConsolePort {
       orgs: { org_1: { name: 'مطعم الكبة', type: 'restaurant' } },
       items: {},
     })),
+    requeueOutbox: vi.fn(async () => ({ requeued: 1 })),
+    moneyAlarm: vi.fn(async () => ({ ledgerFailed: 0, oldestPendingSec: 0, alarm: false })),
     simulatorStatus: vi.fn(async () => ({ available: false })),
     simulatorStart: vi.fn(async () => ({ available: false })),
     simulatorStop: vi.fn(async () => ({ available: false })),
@@ -158,6 +160,21 @@ describe('console read procedures: role gating', () => {
 
   it.each(READS)('%s is open to dispatcher, support, finance and admin', async (_name, run) => {
     for (const role of CONSOLE_READ_ROLES) await expect(run(caller([role]).call)).resolves.toBeDefined();
+  });
+
+  it('outbox requeue: admin only, by ids or by type and time range, against the admin', async () => {
+    for (const role of ['dispatcher', 'support', 'finance'] as const) expect(await codeOf(caller([role]).call.system.requeueOutbox({ ids: ['ob_1'] }))).toBe('FORBIDDEN');
+    const { call, port } = caller(['admin']);
+    await expect(call.system.requeueOutbox({ ids: ['ob_1'] })).resolves.toEqual({ requeued: 1 });
+    expect(port.requeueOutbox).toHaveBeenCalledWith({ ids: ['ob_1'] }, 'p_staff');
+    await expect(call.system.requeueOutbox({ type: 'order.closed', from: AT, to: new Date(AT.getTime() + 60_000) })).resolves.toEqual({ requeued: 1 });
+    expect(await codeOf(call.system.requeueOutbox({ type: 'order.closed', from: AT, to: AT }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.system.requeueOutbox({ ids: [] }))).toBe('BAD_REQUEST');
+  });
+
+  it('money alarm: finance and admin', async () => {
+    expect(await codeOf(caller(['dispatcher', 'support']).call.system.moneyAlarm())).toBe('FORBIDDEN');
+    await expect(caller(['finance']).call.system.moneyAlarm()).resolves.toMatchObject({ alarm: false });
   });
 
   it('simulator start/stop: admin and dispatcher only', async () => {

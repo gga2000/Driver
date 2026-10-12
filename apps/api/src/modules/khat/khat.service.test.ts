@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { appRouter } from '@driver/contracts/router';
 import { KHAT_RULES, KhatSweepCloseInput, type AppContext, type DispatchBoard, type SessionClaims } from '@driver/contracts';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { InMemoryTimerStore, TIMER_SWEEP_GRACE_MS, TimerSweeper } from '../../shared/timers/index.js';
 import { ConfigService } from '../config/index.js';
 import { AuditLogService, ControlsService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { DispatchService } from '../dispatch/index.js';
@@ -238,7 +239,7 @@ describe('khat substitutes', () => {
 });
 
 /** The run above with the sweep timer, the masked-call bridge, notify and the audit log wired. */
-async function sweepSetup() {
+async function sweepSetup(consoleBase: string | null = null) {
   const h = await setup();
   const queue = new InMemoryQueue<SweepCheckJob>('khat.timers', () => h.t.clock.now());
   const opened: Array<{ orderId: string; callerId: string; calleeId: string }> = [];
@@ -261,7 +262,7 @@ async function sweepSetup() {
   const notify = new NotifyService(undefined, engine, nrepo, h.t.clock);
   const controls = new InMemoryControlsRepository();
   const audits = new AuditLogService(controls, new StaffNames(h.id.service, h.t.clock), h.t.clock);
-  const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls, queue, DEFAULT_KHAT_CONFIG, notify, audits);
+  const khat = new KhatService(h.repo, h.t.trips, h.id.service, {} as DispatchService, h.ev.events, h.t.uow, h.t.clock, calls, queue, { ...DEFAULT_KHAT_CONFIG, consoleBase }, notify, audits);
   khat.onModuleInit();
   // The desk: a dispatcher and an admin (paged, as for SOS), support (sees the strip, not paged).
   const dispatcher = (await h.id.login('07700000900')).actor;
@@ -442,8 +443,8 @@ describe('khat sweep alert: page and close', () => {
   const MIN = 60_000;
   const AFTER = KHAT_RULES.sweepAlertAfterMin * MIN;
 
-  async function raised() {
-    const h = await sweepSetup();
+  async function raised(consoleBase: string | null = null) {
+    const h = await sweepSetup(consoleBase);
     await h.finishRun();
     await h.advance(AFTER);
     const [alert] = await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' });
@@ -470,6 +471,17 @@ describe('khat sweep alert: page and close', () => {
     await h.advance(AFTER);
     expect(await h.paged(h.dispatcher.personId)).toHaveLength(2);
     expect(await h.paged(h.admin.personId)).toHaveLength(2);
+  });
+
+  it('links the WhatsApp to the Console only when its address is set; otherwise the alert number, no link', async () => {
+    const unset = await raised();
+    const body = (await unset.paged(unset.dispatcher.personId)).find((d) => d.channel === 'whatsapp')?.payload.body ?? '';
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain(`رقم التنبيه: ${unset.alert.alertId}، افتح الكونسول من الكمبيوتر`);
+
+    const linked = await raised('https://console.example.com/');
+    const wa = (await linked.paged(linked.dispatcher.personId)).find((d) => d.channel === 'whatsapp');
+    expect(wa?.payload.body).toContain('https://console.example.com/safety');
   });
 
   it('pages nobody when the driver confirmed the car is empty in time', async () => {
@@ -537,6 +549,43 @@ describe('khat sweep alert: page and close', () => {
     await expect(caller('p_drv', ['khat_driver']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller('p_cust', ['customer']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     for (const role of ['dispatcher', 'support', 'admin']) await expect(caller(`p_${role}`, [role]).khat.closeSweepAlert(input)).resolves.toBeDefined();
+  });
+});
+
+describe('khat sweep check survives Redis (FLW-22)', () => {
+  const AFTER = KHAT_RULES.sweepAlertAfterMin * 60_000;
+
+  async function durable() {
+    const h = await sweepSetup();
+    const timerStore = new InMemoryTimerStore();
+    const sweeper = new TimerSweeper(timerStore, h.t.clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
+    h.khat.bindDurableTimers(timerStore, sweeper);
+    return { ...h, timerStore, sweeper };
+  }
+
+  it('the "child may still be on board" check still alerts when its job was lost', async () => {
+    const h = await durable();
+    await h.finishRun();
+    expect(h.timerStore.rows.some((r) => r.queue === 'khat.timers' && r.status === 'pending')).toBe(true);
+    await h.queue.close(); // Redis lost the job
+    await h.advance(AFTER + TIMER_SWEEP_GRACE_MS);
+    expect(await h.missed()).toEqual([]);
+    expect((await h.sweeper.sweep()).fired).toBeGreaterThanOrEqual(1);
+    expect(await h.missed()).toHaveLength(1);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toHaveLength(1);
+  });
+
+  it('a check that runs twice raises one alert', async () => {
+    const h = await durable();
+    await h.finishRun();
+    // The job runs without finding its copy, which stays pending, so the sweeper runs the check again.
+    vi.spyOn(h.timerStore, 'take').mockResolvedValue('missing');
+    await h.advance(AFTER);
+    expect(await h.missed()).toHaveLength(1);
+    await h.advance(TIMER_SWEEP_GRACE_MS);
+    expect((await h.sweeper.sweep()).fired).toBeGreaterThanOrEqual(1);
+    expect(await h.missed()).toHaveLength(1);
+    expect(await h.khat.sweepAlerts(h.dispatcher, { cityId: 'aziziyah' })).toHaveLength(1);
   });
 });
 

@@ -24,6 +24,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
 import { arrivalCountsForFees } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
@@ -68,12 +69,21 @@ function rideNearState(trip: TripRecord): boolean {
 
 export type TripTimerJob =
   | { tripId: string; stopId: string | null; startedAtMs: number }
-  | { tripId: string; positionAtMs: number };
+  /** `positionAtMs`: the fix (device time) the ride auto-complete waits on; `armedAtMs`: when the server got it. */
+  | { tripId: string; positionAtMs: number; armedAtMs?: number };
 
 export const TRIP_JOBS = { ...UNREACHABLE_JOBS, rideAutoComplete: 'ride.autoComplete' } as const;
 
+/** The ride auto-complete's one durable timer per trip (re-armed in place, not one per position fix). */
+const rideAutoCompleteKey = (tripId: string) => jobKey('trip', tripId, 'autocomplete');
+
 /** Vehicle classes ranked by what they can carry (edge-case review A.16). Intercity cars carry like a car. */
 const VEHICLE_RANK: Record<VehicleClass, number> = { bike: 0, tuktuk: 1, car: 2, intercity: 2, suv: 3, van: 4 };
+
+/** The trip rode along one its courier took first (money §2: he earns the batch share of its delivery fee). */
+export function isBatchedSecond(trip: Pick<TripRecord, 'id' | 'batchId'>): boolean {
+  return trip.batchId !== null && trip.batchId !== trip.id;
+}
 
 export function vehicleFits(vehicle: VehicleClass, required: VehicleClass | null): boolean {
   return required === null || VEHICLE_RANK[vehicle] >= VEHICLE_RANK[required];
@@ -130,15 +140,26 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIP_EVENTS) private readonly events: TripEventEmitter,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
+    @Inject(TRIPS_QUEUE) queue: Queue<TripTimerJob>,
     @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
-  ) {}
+  ) {
+    this.timers = new DurableTimers(queue, clock, uow);
+    this.timers.rearming(TRIP_JOBS.rideAutoComplete, (data) => rideAutoCompleteKey(data.tripId));
+  }
+
+  /** FLW-22: the ride auto-complete (one per trip, re-arming) and the unreachable protocol's timers have a durable copy. */
+  private readonly timers: DurableTimers<TripTimerJob>;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers.bind(store, sweeper);
+  }
 
   /** Dispatch's open-offer check (M2 review follow-up); fail closed until dispatch binds it. */
   private offerCheck: TripOfferCheck = new DenyAllOfferCheck();
 
   onModuleInit(): void {
-    this.queue.process((job) => this.handleTimer(job.name, job.data));
+    this.timers.process((job) => this.handleTimer(job.name, job.data));
   }
 
   /**
@@ -289,12 +310,16 @@ export class TripsService implements OnModuleInit {
       // the order he works them in is the order dispatch's batching check planned.
       const latest = Math.max(0, ...holding.map((t) => t.acceptedAt?.getTime() ?? 0));
       const now = new Date(Math.max(this.clock.now().getTime(), latest + 1));
+      // Money §2: a trip taken while he holds another rides along it — the batched second. It joins
+      // the batch of the job he took first; the courier's offer showed (and the ledger pays) the batch rate.
+      const first = [...holding].sort((a, b) => (a.acceptedAt?.getTime() ?? 0) - (b.acceptedAt?.getTime() ?? 0))[0];
+      const batchId = first ? (first.batchId ?? first.id) : null;
       const accepted = await this.move(
         trip,
         'accepted',
         driverId,
         tx,
-        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now },
+        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now, batchId },
         { driverId, vehicleClass: input.vehicleClass, orderIds: links.map((l) => l.orderId) },
         false,
         input,
@@ -522,8 +547,9 @@ export class TripsService implements OnModuleInit {
         if (RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'in_transit' || trip.state === 'arrived_dropoff')) {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
-            const atMs = input.at.getTime();
-            await this.queue.add(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
+            // Arms the trip's one timer; while it is armed this does nothing, and the timer, when it
+            // fires, waits on for the fixes that came since (`handleTimer`).
+            await this.timers.schedule(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: input.at.getTime(), armedAtMs: now.getTime() }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: rideAutoCompleteKey(trip.id) });
           }
         }
       }
@@ -772,8 +798,8 @@ export class TripsService implements OnModuleInit {
         { orderId: stop.orderId ?? undefined, ...input },
       );
       const job = { tripId, stopId, startedAtMs: now.getTime() };
-      await this.queue.add(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
-      await this.queue.add(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
       return this.view(tripId, tx);
     });
   }
@@ -795,7 +821,7 @@ export class TripsService implements OnModuleInit {
       const failAllowedAt = failAt(trip.unreachableStartedAt, now);
       await this.emit(tx, 'trip.unreachable_extended', customerId, tripId, { stopId: atDoor.id, byCustomer: customerId, extraMs: UNREACHABLE_EXTEND_MS, failAllowedAt: failAllowedAt.toISOString() }, { orderId });
       const startedAtMs = trip.unreachableStartedAt.getTime();
-      await this.queue.add(
+      await this.timers.schedule(
         UNREACHABLE_JOBS.allowFail,
         { tripId, stopId: atDoor.id, startedAtMs },
         { delayMs: Math.max(0, failAllowedAt.getTime() - now.getTime()), jobId: unreachableJobId('allowFail', tripId, startedAtMs, true) },
@@ -953,12 +979,12 @@ export class TripsService implements OnModuleInit {
    * Who carried (or is carrying) an order: the most recent trip it is still attached to that has a
    * driver. Orders uses it to settle money on `closed` (the courier's delivery fee, the ride's driver).
    */
-  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null> {
+  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical; batchedSecond: boolean } | null> {
     return this.uow.run(async (tx) => {
       const links = (await this.repo.linksForOrder(orderId, tx)).filter((l) => l.detachedAt === null).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime());
       for (const l of links) {
         const trip = await this.repo.findTrip(l.tripId, tx);
-        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical };
+        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical, batchedSecond: isBatchedSecond(trip) };
       }
       return null;
     });
@@ -989,8 +1015,25 @@ export class TripsService implements OnModuleInit {
         const trip = await this.repo.findTrip(data.tripId, tx);
         if (!trip || !['in_transit', 'arrived_dropoff'].includes(trip.state) || !trip.courierId) return;
         const last = await this.repo.lastTrailPoint({ tripId: trip.id }, tx);
-        if (!last || last.at.getTime() !== data.positionAtMs) return; // the driver moved or spoke since
-        await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+        if (!last) return;
+        if (last.at.getTime() === data.positionAtMs) {
+          await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+          return;
+        }
+        // The driver moved or spoke since. Still inside the drop-off geofence: wait 10 minutes from his
+        // last fix (it reached the server as long after the fix this run waited on as their device
+        // times say). Outside it: nothing until a fix inside arms the timer again.
+        const stops = await this.repo.stopsOf(trip.id, tx);
+        const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
+        const atMs = last.at.getTime();
+        if (atMs < data.positionAtMs || !lastDropoff?.target || haversineMeters(last.pin, lastDropoff.target) > GEOFENCE_RADIUS_M) return;
+        const nowMs = this.clock.now().getTime();
+        const armedAtMs = (data.armedAtMs ?? nowMs - RIDE_AUTOCOMPLETE_AFTER_MS) + (atMs - data.positionAtMs);
+        await this.timers.schedule(
+          TRIP_JOBS.rideAutoComplete,
+          { tripId: trip.id, positionAtMs: atMs, armedAtMs },
+          { delayMs: Math.max(0, armedAtMs + RIDE_AUTOCOMPLETE_AFTER_MS - nowMs), jobId: rideAutoCompleteKey(trip.id) },
+        );
       });
       return;
     }
@@ -1004,7 +1047,8 @@ export class TripsService implements OnModuleInit {
         await this.emit(tx, 'trip.unreachable_escalated', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId, dispatcherCard: true });
       } else if (name === UNREACHABLE_JOBS.allowFail && canFail(trip.unreachableStartedAt, now, 'driver', trip.unreachableExtendedAt)) {
         // After «أني نازل» the 5:00 job finds it too early and stays quiet; the 7:00 one announces.
-        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId });
+        // Once per protocol run, however often its timer runs (FLW-22: BullMQ and the sweeper may both fire it).
+        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId }, { idempotencyKey: String(data.startedAtMs) });
       }
     });
   }

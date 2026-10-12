@@ -11,6 +11,7 @@ import {
   postCancellation,
   postDepartureCancelled,
   postDriverCancelled,
+  postErrand,
   postLateMeter,
   postMerchantLateReject,
   postOrderClosed,
@@ -60,6 +61,15 @@ describe('order closed — money §2 worked example', () => {
   it('commission base is the item subtotal after merchant-funded discounts, never service fee or delivery (G-87)', () => {
     const p = postOrderClosed(workedExample({ itemsSubtotalIqd: 10000, commissionTier: 'base', deliveryFeeIqd: 1500 }), rules);
     expect(p.money.lines.find((l) => l.type === 'commission_accrued')?.amount).toBe(1200);
+  });
+
+  it('starter (Ali 2026-10-11): a 20,000 food order takes 1,000 (5 %); featured takes 3,000 (15 %)', () => {
+    const commission = (tier: OrderMoneyPayload['commissionTier']) => postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: tier }), rules).money.lines.find((l) => l.type === 'commission_accrued');
+    expect(commission('starter')).toMatchObject({ amount: 1000, memo: 'commission:starter' });
+    expect(commission('featured')).toMatchObject({ amount: 3000, memo: 'commission:featured' });
+    const n = nets(postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: 'starter' }), rules).money);
+    expect(n['merchant_cash:m1']).toBe(19000);
+    expect(n['platform']).toBe(1000 + 500);
   });
 
   it('batched second order: courier earns 70 % of its fee, the customer pays it in full', () => {
@@ -155,6 +165,36 @@ describe('order closed — money §2 worked example', () => {
     const n = nets(postOrderClosed(workedExample({ platformPromo: { promotionId: 'free3', amountIqd: 1000 } }), rules).money);
     expect(n['promo:free3']).toBe(-1000);
     expect(n['cash:k1']).toBe(-15500);
+  });
+});
+
+describe('errand — batched second (money §2, Ali 2026-10-12)', () => {
+  const errand = (over: Partial<Parameters<typeof postErrand>[0]> = {}) =>
+    postErrand({ orderId: 'e1', tripId: 't1', occurredAt: at, customerId: 'c1', payment: 'wallet', shopperId: 's1', actualCostIqd: 7000, errandFeeIqd: 2000, serviceFeeIqd: 500, ...over }, rules);
+
+  it('a batched second errand with a 2,000 fee pays the shopper 1,400 and books 600 as batched_margin; the receipt goes in full', () => {
+    const p = errand({ batchedSecond: true, tipIqd: 1000 });
+    validateGroup(p.money);
+    const lines = p.money.lines;
+    expect(lines.filter((l) => l.type === 'errand_cost_actual')).toEqual([expect.objectContaining({ amount: 7000, toAccount: 'driver:s1', memo: 'receipt' })]);
+    expect(lines.filter((l) => l.type === 'errand_fee')).toEqual([
+      expect.objectContaining({ amount: 1400, toAccount: 'driver:s1' }),
+      expect.objectContaining({ amount: 600, toAccount: 'platform', memo: 'batched_margin' }),
+    ]);
+    expect(lines.filter((l) => l.type === 'tip')).toEqual([expect.objectContaining({ amount: 1000, toAccount: 'driver:s1' })]);
+    const n = nets(p.money);
+    expect(n['driver:s1']).toBe(7000 + 1400 + 1000);
+    expect(n['platform']).toBe(500 + 600);
+    // The customer pays the same as a single errand.
+    expect(p.totalIqd).toBe(errand({ tipIqd: 1000 }).totalIqd);
+  });
+
+  it('a single errand is unchanged: the whole fee to the shopper, no margin line', () => {
+    const p = errand();
+    validateGroup(p.money);
+    expect(p.money.lines.filter((l) => l.type === 'errand_fee')).toEqual([expect.objectContaining({ amount: 2000, fromAccount: 'customer:c1', toAccount: 'driver:s1' })]);
+    expect(p.money.lines.some((l) => l.memo === 'batched_margin')).toBe(false);
+    expect(nets(p.money)['driver:s1']).toBe(9000);
   });
 });
 

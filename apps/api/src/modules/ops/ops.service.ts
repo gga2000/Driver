@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   type Actor,
   type AddLandmarkPhotoInput,
@@ -157,7 +158,7 @@ export class OpsService implements OpsPort, OnModuleInit {
       if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return this.receiptView(prior);
       if (prior) throw new DriverError('invalid_input');
     }
-    await this.checkHandoverCode(actor, input.courierId, input.code);
+    await this.verifyCourierCode(actor, input.courierId, input.code);
     // One courier's receipts are serialised (in process, and across instances by an advisory lock in
     // the transaction): the held-cash check, the reference sequence and the posting see each other.
     const receipt = await this.cashLock.run(input.courierId, () => this.uow.run(async (tx) => {
@@ -169,6 +170,8 @@ export class OpsService implements OpsPort, OnModuleInit {
       }
       const before = await this.caps.status(input.courierId);
       if (input.amountIqd > Math.max(0, -before.cashIqd)) throw new DriverError('cash_receipt_exceeds_held');
+      // Only what he owes the company: the rest of the cash in his hand is his own pay.
+      if (input.amountIqd > before.owedIqd) throw new DriverError('cash_receipt_exceeds_owed');
       const now = this.clock.now();
       const reference = settlementReference('D', input.courierId, now, await this.repo.countCashReceipts(input.courierId, tx));
       const cashAfter = await this.merchantCash.recordDriverSettlement({ driverId: input.courierId, amountIqd: input.amountIqd, channel: 'ops_round', reference });
@@ -201,9 +204,10 @@ export class OpsService implements OpsPort, OnModuleInit {
    * The courier's 4-digit daily code is his confirmation of the hand-over; 10,000 values are quick to
    * walk, so after `HANDOVER_CODE_MAX_FAILURES` wrong codes for one courier in a local day the code is
    * locked until local midnight (and ops is alerted). Counted on the shared window counter (Redis
-   * with REDIS_URL), so the limit holds behind several API instances.
+   * with REDIS_URL), so the limit holds behind several API instances. A restaurant taking a courier's
+   * cash on its tablet checks the same code under the same lock (`merchantAdmin.money.receiveCourierCash`).
    */
-  private async checkHandoverCode(actor: Actor, courierId: string, code: string): Promise<void> {
+  async verifyCourierCode(actor: Actor, courierId: string, code: string): Promise<void> {
     const now = this.clock.now();
     const key = `${courierId}:${localDateKey(now)}`;
     // The counter is shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); the
@@ -237,10 +241,12 @@ export class OpsService implements OpsPort, OnModuleInit {
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
     const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    await this.orgs.setMerchantSettings(org.id, { location });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
+      // A new restaurant starts on `starter` unless the visit named another tier; the rate commits with its
+      // audit row below (the nested run joins this transaction).
+      await this.orgs.setMerchantSettings(org.id, { location, commissionTier: input.commissionTier });
       const row = await this.repo.addOnboarding(
         {
           orgId: org.id,
@@ -278,6 +284,18 @@ export class OpsService implements OpsPort, OnModuleInit {
         tx,
         { actorId: actor.personId, type: 'merchant.onboarding_drafted', occurredAt: now, payload: { onboardingId: row.id, merchantOrgId: org.id, cityId: input.cityId, type: input.type, menuPhotos: input.menuPhotoUploadIds.length } },
         { name: 'org', id: org.id },
+      );
+      await this.audits?.record(
+        {
+          cityId: input.cityId,
+          actorId: actor.personId,
+          action: 'store.commission_tier_set',
+          subjectKind: 'store',
+          subjectId: org.id,
+          summaryAr: `سجّل ${input.name} بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission[input.commissionTier] * 10_000) / 100}%`,
+          detail: { from: null, to: input.commissionTier, onboardingId: row.id },
+        },
+        tx,
       );
       return { onboardingId: row.id, merchantOrgId: org.id, state: row.state, menuPhotos: row.menuPhotoRefs.length, taskId: task.id, createdAt: row.createdAt };
     });
