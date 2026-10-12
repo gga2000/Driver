@@ -25,6 +25,7 @@ import { speakOffer, stopSpeaking } from '@/features/offer/speak';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
 import { PickupSpotCard } from '@/features/work/PickupSpotCard';
+import { JobKindPanel } from '@/features/work/JobKindPanel';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
 import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
@@ -557,6 +558,7 @@ function JobView({
 
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
               {stop.type === 'pickup' && stop.pickupSpot ? <PickupSpotCard spot={stop.pickupSpot} /> : null}
+              <JobKindPanel job={job} />
 
               {/* Maps program f6, a5: the saved place's door photos (its words and landmark lead the headline). */}
               {stop.type === 'dropoff' && stop.door ? (
