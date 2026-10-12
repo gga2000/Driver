@@ -12,6 +12,7 @@ import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
 import { doorSwatch } from './palette';
 import { Shutter } from './Shutter';
+import { FeaturedStamp } from '@/features/food/FeaturedStamp';
 
 const WINDOW = 84;
 const AWNING = 22;
@@ -54,12 +55,13 @@ export function ShopFront({ r }: { r: RestaurantSummary }) {
       : formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale);
   const closedLabel = r.opensAt ? t('list.closed_opens_at', { time: r.opensAt }) : t('list.closed');
   const lamp = theme.colors.star;
+  const featured = r.open && r.featured === true;
   return (
     <Animated.View style={press.style}>
       <Pressable
         testID={`shop-front-${r.id}`}
         accessibilityRole="button"
-        accessibilityLabel={[r.name, r.cuisine, r.open ? t('list.minutes', { range: time }) : closedLabel].filter(Boolean).join('، ')}
+        accessibilityLabel={[r.name, featured ? t('list.featured') : null, r.cuisine, r.open ? t('list.minutes', { range: time }) : closedLabel].filter(Boolean).join('، ')}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: r.id } })}
@@ -102,9 +104,12 @@ export function ShopFront({ r }: { r: RestaurantSummary }) {
             </View>
           </View>
           <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
-            <Text variant="title" weight={700} numberOfLines={1}>
-              {r.name}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+              <Text variant="title" weight={700} numberOfLines={1} style={{ flexShrink: 1 }}>
+                {r.name}
+              </Text>
+              {featured ? <FeaturedStamp testID={`shop-front-${r.id}-featured`} /> : null}
+            </View>
             <Text variant="footnote" color="textMuted" numberOfLines={1}>
               {r.cuisine}
             </Text>
