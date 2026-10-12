@@ -148,6 +148,18 @@ describe('errand_paid_equals_receipt_plus_fees («دوّرلي»)', () => {
     expect(check({ ...snapshot([errand], elsewhere), errandReceipts: receipts }).examples[0]).toMatch(/shopper k1 credited 0 ≠ 21700/);
     expect(check({ ...snapshot([errand], ledger), errandReceipts: [] }).examples[0]).toMatch(/e1: delivered with no receipt/);
   });
+
+  it('a batched second errand (#312): the shopper gets the receipt, 70 % of the fee and the tip; the rest is batched_margin', () => {
+    // Fee 2,000 → shopper 1,400, platform 600; the customer still pays the whole 2,000.
+    const trip = { id: 't1', vertical: 'food', state: 'completed', courierId: 'k1', stops: [], orders: [{ orderId: 'e1', detachedAt: null }] } as unknown as SimSnapshot['trips'][number];
+    const split = [line('errand_cost_actual', 18_700, 'driver:k1'), line('errand_fee', 1_400, 'driver:k1'), { ...line('errand_fee', 600, 'platform'), id: 'le_margin', memo: 'batched_margin' }, line('service_fee', 500, 'platform'), line('tip', 1_000, 'driver:k1')];
+    const batched = (ledger: LedgerEvent[]) => ({ ...snapshot([errand], ledger), errandReceipts: receipts, trips: [trip], acceptedOffers: [{ tripId: 't1', driverId: 'k1', batched: true }] });
+    expect(check(batched(split))).toMatchObject({ checked: 1, violations: 0 });
+    // The shopper paid the whole fee on a batched second: the margin is missing and he is over-credited.
+    expect(check(batched(ledger)).examples.join('\n')).toMatch(/batched_margin 0 ≠ 600[\s\S]*shopper k1 credited 21700 ≠ 21100/);
+    // Not batched, the margin line must not be there.
+    expect(check({ ...snapshot([errand], split), errandReceipts: receipts }).examples.join('\n')).toMatch(/batched_margin 600 ≠ 0/);
+  });
 });
 
 describe('courier_delivery_line_matches_offer (money §2 batch rate)', () => {

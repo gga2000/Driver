@@ -279,6 +279,8 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     await h.trips.offer(t2.id);
     await h.trips.accept(t2.id, 'd1', { vehicleClass: 'tuktuk' }, { assignedByDispatch: true });
     await h.deliver();
+    // The shops stop needs the receipt first (errand pickup guard); staff record it, as the photo is optional there.
+    await h.orders.opsErrandReceipt('s1', { orderId: e.id, totalIqd: 7000 });
     await h.pickup(t2.id);
     await h.dropoff(t2.id, { cashCollectedIqd: (await h.orders.get(e.id)).totalIqd });
     const collected = h.events.ofType('order.cash_collected').find((x) => x.orderId === e.id)!.payload['errand'] as ErrandMoneyPayload;
@@ -290,6 +292,7 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     // A single errand (a courier holding nothing else) keeps the whole fee.
     const solo = await errand('c3');
     const t3 = await h.tripFor(solo.id, { driverId: 'd2' });
+    await h.orders.opsErrandReceipt('s1', { orderId: solo.id, totalIqd: 7000 });
     await h.pickup(t3.id, 'd2');
     await h.dropoff(t3.id, { cashCollectedIqd: (await h.orders.get(solo.id)).totalIqd, driverId: 'd2' });
     const soloFact = h.events.ofType('order.cash_collected').find((x) => x.orderId === solo.id)!.payload['errand'] as ErrandMoneyPayload;
