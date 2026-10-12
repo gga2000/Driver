@@ -13,6 +13,8 @@ import {
   SetBakeryStateInput,
   ShopInput,
   ShopModeView,
+  ShoppingDoor,
+  ShoppingDoorInput,
   ShoppingFront,
   ShoppingFrontInput,
   StallOwnerView,
@@ -35,6 +37,7 @@ function readerOf(ctx: AppContext): ShoppingReader {
  * Baskets and hot bread are placed with `orders.place` (grocery_catalog); دوّرلي with `orders.place` (errand).
  */
 export const shoppingRouter = router({
+  door: publicProcedure.input(ShoppingDoorInput).output(ShoppingDoor).query(({ ctx, input }) => ctx.shopping.door(readerOf(ctx), input)),
   front: publicProcedure.input(ShoppingFrontInput).output(ShoppingFront).query(({ ctx, input }) => ctx.shopping.front(readerOf(ctx), input)),
   stall: publicProcedure.input(ShopInput).output(StallView).query(({ ctx, input }) => ctx.shopping.stall(readerOf(ctx), input)),
   bakery: publicProcedure.input(ShopInput).output(BakeryView).query(({ ctx, input }) => ctx.shopping.bakery(readerOf(ctx), input)),

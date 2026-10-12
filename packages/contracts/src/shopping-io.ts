@@ -20,7 +20,6 @@ import { SHOPPING_RULES } from './shop-lines.js';
 /** Weights, limits and timings; it lives with the order lines so the apps' barrel carries it alone. */
 export { SHOPPING_RULES };
 
-
 export const ShopKind = z.enum(['produce_stall', 'bakery']);
 export type ShopKind = z.infer<typeof ShopKind>;
 export const SoldBy = z.enum(['kg', 'piece', 'lot']);
@@ -98,6 +97,20 @@ export const ShoppingFront = z.object({
 });
 export type ShoppingFront = z.infer<typeof ShoppingFront>;
 
+/**
+ * The home screen's «السوق» door (for the home thread, 2026-10-12): whether the city sells it yet (the
+ * `grocery` service is launched), and two live facts for the door's line, e.g. «الصمون طالع هسه» when a
+ * bakery is open, «أسعار اليوم نزلت» when a stall posted this morning. The door opens `/shopping`.
+ */
+export const ShoppingDoor = z.object({
+  launched: z.boolean(),
+  bakeriesOpen: z.number().int().nonnegative(),
+  stallsPricedToday: z.number().int().nonnegative(),
+});
+export type ShoppingDoor = z.infer<typeof ShoppingDoor>;
+export const ShoppingDoorInput = z.object({ cityId: CityId });
+export type ShoppingDoorInput = z.infer<typeof ShoppingDoorInput>;
+
 export const ShoppingFrontInput = z.object({
   cityId: CityId,
   /** The customer's place, for the minutes; the town centre when absent. */
@@ -105,7 +118,11 @@ export const ShoppingFrontInput = z.object({
 });
 export type ShoppingFrontInput = z.infer<typeof ShoppingFrontInput>;
 
-export const ShopInput = z.object({ cityId: CityId, id: z.string().min(1), near: DeliveryPoint.optional() });
+export const ShopInput = z.object({
+  cityId: CityId,
+  id: z.string().min(1),
+  near: DeliveryPoint.optional(),
+});
 export type ShopInput = z.infer<typeof ShopInput>;
 
 /** A shop دوّرلي can name («محل بالتطبيق»): any open storefront in town, restaurants included. */
@@ -119,8 +136,16 @@ export const AppShopsInput = z.object({ cityId: CityId, search: z.string().max(6
  * order is refused unless it is the orderer's own finished upload (`upload_invalid`).
  */
 export const ErrandUploadInput = z
-  .object({ contentType: z.union([PhotoContentType, VoiceContentType]), sizeBytes: z.number().int().positive() })
-  .refine((v) => v.sizeBytes <= (VoiceContentType.safeParse(v.contentType).success ? VOICE_RULES.maxBytes : PHOTO_MAX_BYTES), { message: 'file too big' });
+  .object({
+    contentType: z.union([PhotoContentType, VoiceContentType]),
+    sizeBytes: z.number().int().positive(),
+  })
+  .refine(
+    (v) =>
+      v.sizeBytes <=
+      (VoiceContentType.safeParse(v.contentType).success ? VOICE_RULES.maxBytes : PHOTO_MAX_BYTES),
+    { message: 'file too big' },
+  );
 export type ErrandUploadInput = z.infer<typeof ErrandUploadInput>;
 
 // ───────────────────────── «صمون كل يوم» ─────────────────────────
@@ -245,6 +270,7 @@ export interface ShoppingReader {
 }
 
 export interface ShoppingPort {
+  door(reader: ShoppingReader, input: ShoppingDoorInput): Promise<ShoppingDoor>;
   front(reader: ShoppingReader, input: ShoppingFrontInput): Promise<ShoppingFront>;
   stall(reader: ShoppingReader, input: ShopInput): Promise<StallView>;
   bakery(reader: ShoppingReader, input: ShopInput): Promise<BakeryView>;

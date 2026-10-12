@@ -1,6 +1,41 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { AZIZIYAH_ZONES, DriverError, localClock, type Actor, type PhotoUploadTicket, type DeliveryPoint, type MerchantScope } from '@driver/contracts';
-import { SHOPPING_RULES, type AppShopView, type AppShopsInput, type BakeryOwnerView, type BakeryView, type DailyBreadInput, type DailyBreadPatch, type DailyBreadRef, type DailyBreadTime, type DailyBreadView, type ErrandUploadInput, type PostPricesInput, type ProduceItemView, type SetBakeryStateInput, type ShopInput, type ShopKind, type ShopModeView, type ShoppingFront, type ShoppingFrontInput, type ShoppingPort, type ShoppingReader, type ShopState, type StallOwnerView, type StallView } from '@driver/contracts/shopping';
+import {
+  AZIZIYAH_ZONES,
+  DriverError,
+  localClock,
+  type Actor,
+  type PhotoUploadTicket,
+  type DeliveryPoint,
+  type MerchantScope,
+} from '@driver/contracts';
+import {
+  SHOPPING_RULES,
+  type AppShopView,
+  type AppShopsInput,
+  type BakeryOwnerView,
+  type BakeryView,
+  type DailyBreadInput,
+  type DailyBreadPatch,
+  type DailyBreadRef,
+  type DailyBreadTime,
+  type DailyBreadView,
+  type ErrandUploadInput,
+  type PostPricesInput,
+  type ProduceItemView,
+  type SetBakeryStateInput,
+  type ShopInput,
+  type ShopKind,
+  type ShopModeView,
+  type ShoppingDoor,
+  type ShoppingDoorInput,
+  type ShoppingFront,
+  type ShoppingFrontInput,
+  type ShoppingPort,
+  type ShoppingReader,
+  type ShopState,
+  type StallOwnerView,
+  type StallView,
+} from '@driver/contracts/shopping';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
@@ -18,6 +53,7 @@ import {
   type PhotoLinks,
   type StorefrontRecord,
 } from '../catalog/index.js';
+import { ConfigService } from '../config/index.js';
 import { IdentityService } from '../identity/index.js';
 import { OrdersService } from '../orders/index.js';
 import { OrgsService, closedNow } from '../orgs/index.js';
@@ -94,6 +130,7 @@ export class ShoppingService implements ShoppingPort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
+    @Optional() private readonly config: ConfigService | null = null,
   ) {
     this.photo = photoLink(photos);
   }
@@ -143,6 +180,24 @@ export class ShoppingService implements ShoppingPort {
       contentType: input.contentType,
       sizeBytes: input.sizeBytes,
     });
+  }
+
+  /** The home door: launched or not, open bakeries and stalls priced this morning (no per-shop views). */
+  async door(_reader: ShoppingReader, input: ShoppingDoorInput): Promise<ShoppingDoor> {
+    const now = this.clock.now();
+    const today = localClock(now, TIMEZONE).date;
+    let bakeriesOpen = 0;
+    let stallsPricedToday = 0;
+    for (const s of await this.shopsIn(input.cityId)) {
+      if (s.kind === 'bakery') {
+        if ((await this.stateOf(s.front, now)).state === 'open') bakeriesOpen++;
+      } else if ((await this.repo.postsOn(s.front.orgId, [today])).length > 0) stallsPricedToday++;
+    }
+    return {
+      launched: this.config ? this.config.isLaunched(input.cityId, 'grocery') : false,
+      bakeriesOpen,
+      stallsPricedToday,
+    };
   }
 
   async front(_reader: ShoppingReader, input: ShoppingFrontInput): Promise<ShoppingFront> {

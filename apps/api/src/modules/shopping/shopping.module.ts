@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule, STOREFRONT_PHOTOS } from '../catalog/index.js';
+import { ConfigModule } from '../config/index.js';
 import { IdentityModule } from '../identity/index.js';
 import { OrdersModule } from '../orders/index.js';
 import { OrgsModule } from '../orgs/index.js';
@@ -17,7 +18,15 @@ import { ShoppingService } from './shopping.service.js';
 
 /** The shopping side «السوق»: stalls, bakeries, «صمون كل يوم» and the Merchant app's shop mode. */
 @Module({
-  imports: [CatalogModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, ShopItemsModule],
+  imports: [
+    CatalogModule,
+    ConfigModule,
+    IdentityModule,
+    OrdersModule,
+    OrgsModule,
+    PlacesModule,
+    ShopItemsModule,
+  ],
   providers: [
     {
       provide: SHOPPING_REPOSITORY,

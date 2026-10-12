@@ -41,7 +41,9 @@ export const KnownShopName = z
   .trim()
   .min(1)
   .max(60)
-  .refine((v) => !/[0-9\u0660-\u0669\u06F0-\u06F9]{4,}/.test(v), { message: 'a shop name, not a number' });
+  .refine((v) => !/[0-9\u0660-\u0669\u06F0-\u06F9]{4,}/.test(v), {
+    message: 'a shop name, not a number',
+  });
 
 /** An id in our own upload store (never an outside link). */
 const UploadId = z.string().regex(/^[A-Za-z0-9_-]{8,80}$/);
@@ -57,7 +59,13 @@ export const ErrandItemSpec = z
     where: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('near') }),
       z.object({ kind: z.literal('app'), shopId: z.string().min(1).max(80) }),
-      z.object({ kind: z.literal('known'), name: KnownShopName, pin: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).nullable() }),
+      z.object({
+        kind: z.literal('known'),
+        name: KnownShopName,
+        pin: z
+          .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
+          .nullable(),
+      }),
     ]),
     ifMissing: IfMissing,
     maxIqd: Iqd.positive().nullable(),
@@ -67,7 +75,9 @@ export const ErrandItemSpec = z
     /** The whole list's ceiling (the same on every line of the order): over it the shopper calls first. */
     listMaxIqd: Iqd.positive().nullable().optional(),
   })
-  .refine((v) => (v.voiceUploadId === null) === (v.voiceSec === null), { message: 'voiceSec goes with voiceUploadId' });
+  .refine((v) => (v.voiceUploadId === null) === (v.voiceSec === null), {
+    message: 'voiceSec goes with voiceUploadId',
+  });
 export type ErrandItemSpec = z.infer<typeof ErrandItemSpec>;
 
 /** The shopping side's weights, limits and timings (`shopping-io.ts` re-exports it). No money rule here. */
