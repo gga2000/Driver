@@ -63,6 +63,20 @@ describe('CapsService (CapsPort for dispatch)', () => {
     expect(await h.caps.canOffer('k1', { valueIqd: 40000, prepaid: false })).toBe(false);
   });
 
+  it('cash dispatch holds for a finished job counts like posted cash until its posting lands', async () => {
+    const h = ledgerHarness();
+    for (let i = 0; i < 4; i++) await h.posting.orderMoney(workedExample({ orderId: `o${i}`, tripId: `t${i}` }));
+    expect((await h.caps.status('k1')).owedIqd).toBe(62000);
+    expect(await h.caps.isOverCap('k1')).toBe(false);
+    expect(await h.caps.isOverCap('k1', 16500)).toBe(true); // 62,000 + 16,500 in hand ≥ 75,000
+    expect(await h.caps.canOffer('k1', { valueIqd: 5000, prepaid: false })).toBe(true);
+    expect(await h.caps.canOffer('k1', { valueIqd: 5000, prepaid: false }, 16500)).toBe(false);
+    expect(await h.caps.cashPosted('k1', 't4')).toBe(false);
+    await h.posting.orderMoney(workedExample({ orderId: 'o4', tripId: 't4' }));
+    expect(await h.caps.cashPosted('k1', 't4')).toBe(true);
+    expect(await h.caps.cashPosted('k2', 't4')).toBe(false); // another driver's cash account
+  });
+
   it('role and tier come from the profile resolver; prepaid rides only add earnings', async () => {
     const h = ledgerHarness();
     h.profiles.set('d9', { role: 'intercity_driver', tier: 'bronze' });

@@ -5,3 +5,4 @@ export { CASH_ROUND_FROM_HOUR, cashRoundFromHourEnv, FinanceDeskService, ROUND_H
 export { LaunchMetricsService, WEEK_ONE_TARGETS, median, yesterdayValues } from './metrics.service.js';
 export { MoneyOutService } from './money-out.service.js';
 export { AccountCloseService } from './account-close.service.js';
+export { CommissionTierService, COMMISSION_TIER_AUDIT, starterPeriod, tierRatePct } from './commission.service.js';
