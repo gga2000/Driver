@@ -37,7 +37,7 @@ import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService, FOOD_CART_TAG, itemOnSale, type CatalogItemRecord } from '../catalog/index.js';
-import { ConfigService } from '../config/index.js';
+import { ControlsService } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
@@ -94,8 +94,11 @@ export class FoodCartsService implements FoodCartsPort {
     private readonly events: EventsService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly config: ConfigService,
-  ) {}
+    private readonly controls: ControlsService,
+  ) {
+    // A cart's delivery order meets the carts launch gate inside orders' controls check (quote and place).
+    controls.bindLaunchMember(async (orgId) => ((await this.repo.byOrg(orgId)) ? 'food_carts' : null));
+  }
 
   // ───────────────────────── setup ─────────────────────────
 
@@ -128,7 +131,7 @@ export class FoodCartsService implements FoodCartsPort {
   // ───────────────────────── customer ─────────────────────────
 
   async list(reader: FoodCartsReader, input: z.output<typeof CartsInput>): Promise<CartsList> {
-    if (!this.config.foodCartsOpen(input.cityId)) return { open: [], closed: [], followedIds: [], launched: false };
+    if (!(await this.controls.launchOpen(input.cityId, 'food_carts'))) return { open: [], closed: [], followedIds: [], launched: false };
     const now = this.clock.now();
     const carts = await this.repo.inCity(input.cityId);
     const ids = carts.map((c) => c.id);
@@ -350,10 +353,10 @@ export class FoodCartsService implements FoodCartsPort {
     throw new DriverError('forbidden');
   }
 
-  /** A cart customers may reach: carts must be open in its city (`foodCarts.launched`), else `service_paused`. */
+  /** A cart customers may reach: carts must be open in its city (the Console's switch, else the city file), else `service_paused`. */
   private async launchedCart(cartId: string): Promise<FoodCartRecord> {
     const c = await this.cartOrThrow(cartId);
-    if (!this.config.foodCartsOpen(c.cityId)) throw new DriverError('service_paused');
+    await this.controls.assertLaunchOpen(c.cityId, 'food_carts');
     return c;
   }
 

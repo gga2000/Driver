@@ -20,6 +20,7 @@ const AUDITED = [
   'ops.merchantOnboarding',
   'ops.controls.setSwitch',
   'ops.controls.setScreen',
+  'ops.controls.setLaunch',
   'ops.controls.setCapacity',
   'system.setBanner',
   'system.clearBanner',

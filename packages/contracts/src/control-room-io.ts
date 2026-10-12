@@ -251,6 +251,37 @@ export const SetScreenSwitchInput = z.object({
 });
 export type SetScreenSwitchInput = z.input<typeof SetScreenSwitchInput>;
 
+// ───────────────────────── opening a new service (Ali 2026-10-12) ─────────────────────────
+
+/**
+ * New services that live inside a launched vertical and open on their own: food carts sit inside food,
+ * so `launchedVerticals` can't open them. Stored as a `launch` row in the kill-switch table (active =
+ * open); with no row the city file decides. Opening is an admin's call; any controller may close.
+ */
+export const LaunchSwitch = z.enum(['food_carts']);
+export type LaunchSwitch = z.infer<typeof LaunchSwitch>;
+
+export const LaunchSwitchView = z.object({
+  cityId: z.string(),
+  key: LaunchSwitch,
+  open: z.boolean(),
+  /** No row yet: `open` is the city file's default. */
+  fromDefault: z.boolean(),
+  reason: z.string().nullable(),
+  setBy: z.string().nullable(),
+  setByName: z.string().nullable(),
+  setAt: z.coerce.date().nullable(),
+});
+export type LaunchSwitchView = z.infer<typeof LaunchSwitchView>;
+
+export const SetLaunchSwitchInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  key: LaunchSwitch,
+  open: z.boolean(),
+  reason: z.string().trim().min(3).max(300),
+});
+export type SetLaunchSwitchInput = z.input<typeof SetLaunchSwitchInput>;
+
 // ───────────────────────── quiet days and the season (customer joy J1a) ─────────────────────────
 
 /** The longest quiet stretch set in one go (Muharram 1–13 is 13 days). */
@@ -762,6 +793,8 @@ export interface ControlsPort {
   screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens>;
   screenSwitches(cityId: string): Promise<ScreenSwitchView[]>;
   setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView>;
+  launchSwitches(cityId: string): Promise<LaunchSwitchView[]>;
+  setLaunch(actor: Actor, input: z.output<typeof SetLaunchSwitchInput>): Promise<LaunchSwitchView>;
   /** Admins: every session of a staff member ends on every device (`identity.endAllSessions`), audited. */
   endAllSessions(actor: Actor, input: z.output<typeof EndAllSessionsInput>): Promise<z.output<typeof EndAllSessionsOutput>>;
 }
