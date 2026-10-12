@@ -2194,7 +2194,7 @@ export class OrdersService implements OnModuleInit {
       // أكل بيت: nothing to dispute — the cook and the courier are paid and he owes both (Ali, 2026-10-11/12).
       // The courier is the one this order's trip is linked to, and only for the trip that gave up.
       const carrier = await this.trips.courierOf(order.id);
-      const courier = carrier && carrier.tripId === e.tripId ? { courierId: carrier.courierId, ...(carrier.batchedSecond ? { batchedSecond: true } : {}) } : null;
+      const courier = carrier && carrier.tripId === e.tripId ? { courierId: carrier.courierId, tripId: carrier.tripId, ...(carrier.batchedSecond ? { batchedSecond: true } : {}) } : null;
       const owedIqd = homeNoShowOwedIqd(order, courier !== null);
       const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd });
       await this.platformFailure!.homeNoShow!(failed, tx, courier);

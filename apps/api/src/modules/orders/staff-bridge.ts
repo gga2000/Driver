@@ -29,5 +29,5 @@ export interface OrdersStaffBridge {
 export interface PlatformFailurePort {
   freeFeeFor(order: OrderRecord, trip: Trip | null, fee: CancellationFee): Promise<CancellationFee | null>;
   /** أكل بيت: a reservation nobody took at the door — the cook and the courier paid, the customer owes both (Ali, 2026-10-11/12). */
-  homeNoShow?(order: OrderRecord, tx: Tx, courier?: { courierId: string; batchedSecond?: boolean } | null): Promise<number>;
+  homeNoShow?(order: OrderRecord, tx: Tx, courier?: { courierId: string; tripId?: string | null; batchedSecond?: boolean } | null): Promise<number>;
 }

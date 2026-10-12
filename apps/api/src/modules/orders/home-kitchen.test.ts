@@ -204,7 +204,7 @@ describe('home reservation no-show (unreachable at the door)', () => {
     const o = await h.orders.place('c1', reserveInput(h));
     expect(o.itemsTotalIqd).toBe(16_000);
     await h.advance(TONIGHT.getTime() - h.clock.now().getTime() - 5 * MIN);
-    await unreachable(h, o.id);
+    const t = await unreachable(h, o.id);
     await h.settle();
 
     const after = await h.orders.get(o.id);
@@ -217,6 +217,8 @@ describe('home reservation no-show (unreachable at the door)', () => {
     expect(lines[0]).toMatchObject({ type: 'cancellation_fee', amount: 16_000, fromAccount: 'customer:c1', toAccount: 'merchant_cash:rest_1', memo: 'home_no_show' });
     // The courier on the trip that gave up: his earnings, never his cash account.
     expect(lines[1]).toMatchObject({ type: 'delivery_fee', amount: fee, fromAccount: 'customer:c1', toAccount: 'driver:d1', memo: 'home_no_show' });
+    // The trip goes on the group so his earnings show it as that job.
+    expect(lines.every((l) => l.tripId === t.id)).toBe(true);
     expect(h.events.last('order.failed')?.payload).toMatchObject({ kind: 'home_no_show', owedIqd: 16_000 + fee });
     expect(await h.balance('customer:c1')).toBe(-(16_000 + fee));
     expect(await h.balance('cash:d1')).toBe(0);

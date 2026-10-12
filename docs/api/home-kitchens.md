@@ -13,7 +13,7 @@ call.
 ## Model
 - A kitchen is a `restaurant` org whose storefront has `home: { monogram }` (null monogram → the first
   letter of the name's last word, `kitchenMonogram`).
-- Each dish's `homeSale` lives on `catalog_items.home_sale` (migration `20261010540000`):
+- Each dish's `homeSale` lives on `catalog_items.home_sale` (migration `20261010590000`):
   `{ mode: 'ready', cooked, cookedOn, setAt }` or `{ mode: 'reserve', rule: ReserveRule }`.
 - Limits are in `HOME_KITCHEN_RULES` (`packages/contracts/src/home-kitchens.ts`): subtitle ≤ 60 letters,
   portion ≤ 30, book ahead 4 h / 1 day / 2 days, ≤ 4 pickup times, ≤ 50 plates per time, booking up to
