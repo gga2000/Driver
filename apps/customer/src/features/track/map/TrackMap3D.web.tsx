@@ -10,6 +10,7 @@ import { distanceM, type LngLat } from '../geo';
 import { SLOW_COPY } from '../late-promise';
 import { closuresOnMap, litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
 import { glidePos } from '../motion';
+import { bindHouseWindows } from './house-windows-web';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
@@ -148,8 +149,8 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     let lightTimer: ReturnType<typeof setInterval> | undefined;
     let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/moments'), import('@driver/map/pieces/closed-streets')])
-      .then(async ([mod, golden, pieces, closedPieces]) => {
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/moments'), import('@driver/map/pieces/windows'), import('@driver/map/pieces/closed-streets')])
+      .then(async ([mod, golden, pieces, win, closedPieces]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
@@ -181,6 +182,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         m.keyboard.disableRotation();
         m.on('error', () => undefined);
         stopFallback = golden.fallBackToOriginalMap(m as never, { onFallback: () => failRef.current() });
+        const windows = bindHouseWindows(m, golden, win);
 
         m.on('style.load', () => {
           const light = lightRef.current!;
@@ -196,6 +198,8 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           m.addSource(SRC.life, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.slow, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.closed, { type: 'geojson', data: EMPTY });
+          // Windows, doors and roof walls up close, under the street life, the route and the pins.
+          windows.add(light);
           const before = m.getLayer(golden.GOLDEN_FIRST_LABEL) ? golden.GOLDEN_FIRST_LABEL : undefined;
           // Street life under the route and pins (spec "Street life"; only from LIFE_MINZOOM).
           for (const layer of golden.goldenLifeLayers({ source: SRC.life })) m.addLayer(layer as never, before);

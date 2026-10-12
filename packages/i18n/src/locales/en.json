@@ -6888,6 +6888,7 @@
   "console.adj_send_plain": "Correct",
   "console.adj_posted": "Correction recorded: {amount} IQD",
   "console.adj_waiting": "The correction ({amount} IQD) waits for a second OK",
+  "console.adj_daily_cap": "Your corrections today without a second OK have reached the {amount} IQD limit, so this one waits for a second finance person",
   "console.adj_failed": "The correction was not recorded",
   "console.fin_collect_due_hint": "He owes the company {due} IQD. {pay} IQD in his hand is his own pay and stays with him",
   "console.wall_vs_yesterday_up": "Up on yesterday",

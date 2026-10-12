@@ -82,3 +82,6 @@ export function adjustProblem(d: AdjustDraft): 'accounts' | 'same' | 'amount' | 
 
 /** Above this a correction waits for a second finance person (`MoneyRules.adjustments.secondApproverAboveIqd`). */
 export const SECOND_OK_ABOVE_IQD = AZIZIYAH_MONEY_RULES.adjustments.secondApproverAboveIqd;
+
+/** One person's corrections posted alone in a Baghdad day stay within this (`MoneyRules.adjustments.soloDailyMaxIqd`). */
+export const SOLO_DAILY_MAX_IQD = AZIZIYAH_MONEY_RULES.adjustments.soloDailyMaxIqd;

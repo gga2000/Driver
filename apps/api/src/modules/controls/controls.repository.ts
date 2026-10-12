@@ -135,6 +135,16 @@ export interface ControlsRepository {
   audit(filter: { cityId?: string | undefined; subjectKind?: string | undefined; subjectId?: string | undefined; limit: number }, tx?: Tx): Promise<AuditRecord[]>;
   /** v10: newest first, rows after `after` (the last row of the previous page), and how many match in all. */
   auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }>;
+  /** One person's rows of one action on one subject kind with `from <= at < to` (any city); read in `tx`. */
+  auditByActor(filter: AuditByActorFilter, tx?: Tx): Promise<AuditRecord[]>;
+}
+
+export interface AuditByActorFilter {
+  actorId: string;
+  action: string;
+  subjectKind: string;
+  from: Date;
+  to: Date;
 }
 
 export interface AuditPageFilter {
@@ -262,6 +272,12 @@ export class InMemoryControlsRepository implements ControlsRepository {
       .slice(0, filter.limit)
       .map((a) => ({ ...a }));
   }
+  async auditByActor(filter: AuditByActorFilter): Promise<AuditRecord[]> {
+    return this.auditRows
+      .filter((a) => a.actorId === filter.actorId && a.action === filter.action && a.subjectKind === filter.subjectKind && a.at >= filter.from && a.at < filter.to)
+      .map((a) => ({ ...a }));
+  }
+
   async auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }> {
     const order = (a: AuditRecord, b: AuditRecord) => b.at.getTime() - a.at.getTime() || Number(b.id.slice(3)) - Number(a.id.slice(3));
     const matching = this.auditRows
@@ -429,6 +445,14 @@ export class PrismaControlsRepository implements ControlsRepository {
     });
     return rows.map(auditFrom);
   }
+  async auditByActor(filter: AuditByActorFilter, tx?: Tx): Promise<AuditRecord[]> {
+    // Served by the (subject_kind, at) index; one person's corrections in a day are a handful of rows.
+    const rows = await this.db(tx).consoleAuditLog.findMany({
+      where: { subjectKind: filter.subjectKind, at: { gte: filter.from, lt: filter.to }, actorId: filter.actorId, action: filter.action },
+    });
+    return rows.map(auditFrom);
+  }
+
   async auditPage(filter: AuditPageFilter): Promise<{ rows: AuditRecord[]; total: number }> {
     const match: object[] = [{ OR: [{ cityId: filter.cityId }, { cityId: null }] }];
     if (filter.prefixes) match.push({ OR: filter.prefixes.map((p) => ({ action: { startsWith: p } })) });
