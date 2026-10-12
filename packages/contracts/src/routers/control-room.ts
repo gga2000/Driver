@@ -37,6 +37,11 @@ import {
   SetZoneCapacityInput,
   SettlementExport,
   SettlementExportInput,
+  AdjustInput,
+  AdjustResult,
+  PayDriverInput,
+  PayMerchantInput,
+  PayoutResult,
   SystemBannerView,
   ZoneCapacityView,
 } from '../control-room-io.js';
@@ -58,6 +63,8 @@ export const SCREEN_ON_ROLES: readonly RoleKind[] = ['admin'];
 const SCREEN_STAFF_ROLES: readonly RoleKind[] = CONSOLE_READ_ROLES;
 /** Settlement exports leave the system: finance and admin only. */
 export const FINANCE_EXPORT_ROLES: readonly RoleKind[] = ['finance', 'admin'];
+/** Money out (paying a restaurant or a driver, a ledger correction): finance only. Every one is audited. */
+export const FINANCE_MONEY_OUT_ROLES: readonly RoleKind[] = ['finance'];
 
 /** `ops.controls.*` — kill switches per vertical / zone / restaurant / corridor and the zone throttle. */
 export const opsControlsRouter = router({
@@ -200,6 +207,21 @@ export const financeRouter = router({
     .input(SettlementExportInput)
     .output(SettlementExport)
     .mutation(({ ctx, input }) => ctx.controlRoom.exportSettlement(ctx.actor, input)),
+  /** The company pays a restaurant (never more than it is owed). */
+  payMerchant: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(PayMerchantInput)
+    .output(PayoutResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.payMerchant(ctx.actor, input)),
+  /** The company pays a driver what it owes him (never more). */
+  payDriver: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(PayDriverInput)
+    .output(PayoutResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.payDriver(ctx.actor, input)),
+  /** A ledger correction; above 25,000 it waits for a second finance person's OK. */
+  adjust: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(AdjustInput)
+    .output(AdjustResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.adjust(ctx.actor, input)),
 });
 
 /** `metrics.wall` — the week-one launch metrics (playbook §6). */

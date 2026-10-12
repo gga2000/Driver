@@ -6,6 +6,7 @@ import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
 import { LedgerModule } from '../ledger/index.js';
 import { MerchantModule } from '../merchant/index.js';
+import { OpsModule } from '../ops/index.js';
 import { OrdersModule } from '../orders/index.js';
 import { OrgsModule } from '../orgs/index.js';
 import { PlacesModule } from '../places/index.js';
@@ -18,7 +19,7 @@ import { MerchantAdminService } from './merchant-admin.service.js';
  * insights, disputes) and identity (staff). Owns `merchant_dispute_responses` and `merchant_staff_invites`.
  */
 @Module({
-  imports: [CatalogModule, ConfigModule, EventsModule, IdentityModule, LedgerModule, MerchantModule, OrdersModule, OrgsModule, PlacesModule, PromotionsModule],
+  imports: [CatalogModule, ConfigModule, EventsModule, IdentityModule, LedgerModule, MerchantModule, OpsModule, OrdersModule, OrgsModule, PlacesModule, PromotionsModule],
   providers: [
     {
       provide: MERCHANT_ADMIN_REPOSITORY,

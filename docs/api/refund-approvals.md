@@ -38,13 +38,21 @@ aggregate `refund_approval:<id>`). A decision also writes a Console audit row,
 ## API (`support.refundApprovals.*`)
 
 - `list({ state?: 'pending' | 'decided', cityId? })`: desk roles. Pending rows are oldest first; decided
-  rows are newest first (200 at most). Each row is `RefundApproval`: `{ id, kind: 'ticket' | 'dispute',
-  cityId, ticketId, orderId, amountIqd, method, faultParty, note, limit, requestedBy { id, name },
-  requestedAt, state, decidedBy, decidedAt, declineNote }`.
+  rows are newest first (200 at most). Each row is `RefundApproval`: `{ id, kind: 'ticket' | 'dispute' |
+  'adjustment', cityId, ticketId, orderId, amountIqd, method, faultParty, note, limit, requestedBy { id, name },
+  requestedAt, state, decidedBy, decidedAt, declineNote, adjustment { fromAccount, toAccount, incidentId } | null }`.
 - `approve({ id })`, `decline({ id, note })`: finance and admin.
 - `cancel({ id })`: desk roles, but only the person who asked.
 
 `support.get`'s `limits.availableIqd` is what the agent may give **without** a second OK.
+
+## Ledger corrections (`kind: 'adjustment'`)
+
+A hand-written ledger correction above 25,000 (`finance.adjust`, limit `adjustment`,
+`MoneyRules.adjustments.secondApproverAboveIqd`) waits in the same queue, so it survives a restart and
+any API machine can approve it. Only **finance** approves it (an admin who is not finance gets
+`forbidden` and the request stays pending), never the person who asked. On approval the correction
+posts in the decision's transaction. See `docs/api/money-out.md`.
 
 ## Where
 

@@ -331,7 +331,11 @@ export const ERROR_TABLE = {
   override_reason_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   // ledger (M2 Step 6)
   payout_exceeds_balance: { retryHint: 'never', status: 'CONFLICT' },
+  // finance.payDriver: more than the platform owes him right now
+  payout_exceeds_due: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
+  // a payout or hand-over retried under the same key but with a different amount, channel or person
+  idempotency_key_reused: { retryHint: 'never', status: 'CONFLICT' },
   // account close (docs/api/account-close.md): something still stands in the way; not an account closed there
   account_close_blocked: { retryHint: 'never', status: 'CONFLICT' },
   account_close_not_work: { retryHint: 'never', status: 'BAD_REQUEST' },

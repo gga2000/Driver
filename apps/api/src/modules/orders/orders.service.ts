@@ -590,6 +590,10 @@ export class OrdersService implements OnModuleInit {
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
           // Step 4 (o4): door pickup too, so ride habits can offer the same ride the same way.
           ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true, doorPickup: input.options?.doorPickup ?? false } } : {}),
+          // Errands and parcels: no merchant accepts them, so dispatch starts the courier on placement
+          // (`dispatch:courier-placed`) from the order's own pickup (the sender's door, the shop), the
+          // way `order.accepted` carries the merchant's point and the customer's.
+          ...(order.type === 'parcel' || order.type === 'errand' ? { pickup: input.pickup ?? null, dropoff: order.dropoff } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });

@@ -10,6 +10,8 @@
 //   POST /demo/money/request     "اطلب فلوسك" now (the courier holding most of the cash is routed)
 //   POST /demo/money/handover    that courier hands it over with the PIN → the timeline completes
 //   POST /demo/money/owe         everything handed over and overpaid: the balance reads −4,250 (M-07)
+//   GET  /demo/money/courier-code the daily hand-over code of the courier holding most of the cash, as his
+//                                app shows it (for «استلمت منه» on the Money screen)
 import { Buffer } from 'node:buffer';
 import { deflateSync } from 'node:zlib';
 import { khalidHistory } from './lib/khalid-history.mjs';
@@ -121,6 +123,14 @@ export default async function register(ctx) {
     if (!courierId || amount <= 0) return { handedOver: 0 };
     const out = await cash.confirmHandover({ handoverId: `hv-live-${Date.now().toString(36)}`, courierId, merchantId: khalid.orgId, amountIqd: amount, merchantConfirmedIqd: amount, pin: HANDOVER_PIN });
     return { courierId, ...out };
+  });
+  ctx.route('/demo/money/courier-code', async () => {
+    const { DriverAccountService } = await ctx.load('modules/driver-account/index.js');
+    const holders = await cash.holders(khalid.orgId);
+    const top = [...holders].sort((a, b) => b.amountIqd - a.amountIqd)[0];
+    if (!top) return { courierId: null, code: null };
+    const { code } = await ctx.app.get(DriverAccountService).handoverCode({ personId: top.courierId, sessionId: 'demo' });
+    return { courierId: top.courierId, amountIqd: top.amountIqd, code };
   });
   // M-07 (audit): the negative state — couriers hand everything over and Driver's ZainCash transfer
   // overpays by a day's commission, so the balance reads −4,250 ("عليك 4,250 دينار عمولة").
