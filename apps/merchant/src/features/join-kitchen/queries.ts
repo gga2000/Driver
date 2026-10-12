@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 
-/** Her «اطبخي ويانا» application: none yet, waiting, approved or not (read again every minute while she waits). */
+/** The cook's «سجّل مطبخك» application: none yet, waiting, approved or not (read again every minute while waiting). */
 export function useMyKitchenApplication() {
   const api = useApi();
   const signedIn = useSignedIn();

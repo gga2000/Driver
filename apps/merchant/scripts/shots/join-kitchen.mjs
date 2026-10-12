@@ -1,5 +1,5 @@
-// أكل بيت, a cook asks to join: «تطبخين ببيتج؟» on the gate (her number has no store yet), the
-// «اطبخي ويانا» sheet (kitchen name, her name, her door on the day map), and the waiting tile after.
+// أكل بيت, a cook asks to join: «تطبخ من البيت؟» on the gate (the number has no store yet), the
+// «سجّل مطبخك» sheet (kitchen name, the cook's name, the door on the day map), and the waiting tile after.
 // Map pictures need the map's files in the export (EXPO_PUBLIC_MAP_TILES_URL / _GLYPHS_URL); without
 // them the sheet asks «قرب شنو؟» instead. A fresh number each run, so the gate shows no application.
 export default {

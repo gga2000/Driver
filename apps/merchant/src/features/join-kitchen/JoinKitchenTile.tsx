@@ -13,7 +13,7 @@ const CITY_ID = 'aziziyah';
 const MAP_HEIGHT = 220;
 
 /**
- * أكل بيت: «اطبخي ويانا» on the gate (no store yet). A cook asks to open her home kitchen here: its
+ * أكل بيت: «سجّل مطبخك» on the gate (no store yet). A cook asks to open a home kitchen here: its
  * name, her own name (staff only) and her door. The form is a sheet, not a route, because every route
  * leads back to the gate until she works at a store. Once staff approve, her kitchen opens in «أكلاتي».
  */
