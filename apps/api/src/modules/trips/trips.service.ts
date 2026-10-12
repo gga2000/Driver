@@ -31,7 +31,7 @@ import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.
 import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
-import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
+import { NoChangeToWallet, type TripHandoverCheck, type TripPickupGuard } from './handover-check.port.js';
 import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
@@ -110,6 +110,9 @@ export interface DeviceStamp {
   idempotencyKey?: string | undefined;
 }
 
+/** Trips whose pickups are people boarding (الرجعة seats, خطوط children): no pickup guard applies. */
+const SEAT_RUNS: ReadonlySet<string> = new Set(['intercity', 'khat']);
+
 /**
  * Trips (plan Step 4): the logistics object. Every courier or driver job is a Trip with ordered
  * Stops; once accepted, the trip's state is derived from its stops. Arrival is armed by the 60 m
@@ -162,6 +165,12 @@ export class TripsService implements OnModuleInit {
 
   /** "الخردة علينا": the orders module's check of a drop-off's cash; until bound, no change-to-wallet passes. */
   private handoverCheck: TripHandoverCheck = new NoChangeToWallet();
+  private pickupGuard: TripPickupGuard | null = null;
+
+  /** «دوّرلي»: orders binds its pickup guard here at start-up (an errand's receipt before its shops stop completes). */
+  bindPickupGuard(guard: TripPickupGuard): void {
+    this.pickupGuard = guard;
+  }
 
   /** Orders binds its hand-over check here at start-up (orders imports trips, so trips cannot inject it). */
   bindHandoverCheck(check: TripHandoverCheck): void {
@@ -679,6 +688,12 @@ export class TripsService implements OnModuleInit {
       if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
+      // «دوّرلي»: the shops stop waits for the shopper's receipt. Orders decides from the order alone (trips
+      // passes the stop's order, never a kind); read-only, before any write. Seat runs (الرجعة, خطوط) never ask.
+      if (stop.type === 'pickup' && stop.orderId && this.pickupGuard && !SEAT_RUNS.has(trip.vertical)) {
+        const refused = await this.pickupGuard.problem(stop.orderId);
+        if (refused) throw new DriverError(refused);
+      }
       // "الخردة علينا": cash above the order's total is only the customer's change going to his wallet,
       // checked against the order (cash, recomputed, capped) before anything is written.
       if (handover.changeToWalletIqd !== undefined || (stop.type === 'dropoff' && handover.cashCollectedIqd !== undefined)) {

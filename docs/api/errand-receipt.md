@@ -1,0 +1,51 @@
+# «دوّرلي»: the shopper's receipt
+
+The customer pays for the goods the shopper actually bought, plus the errand's fees. The shopper writes this down from the receipt at the shops, and the photo of the receipt is the proof.
+
+## Procedures
+
+`partner.errandReceipt({ tripId, stopId, totalIqd, photoUploadId })` → `{ receiptIqd, cashDueIqd, overCeiling }`.
+
+It calls `OrdersService.recordErrandReceipt(courierId, { orderId, totalIqd, photoUploadId })`, which checks:
+
+- The caller is the trip's courier (otherwise `forbidden`).
+- The order is an errand, and its shops stop is `arrived`. Before the stop is arrived, or after it is completed, the call returns `order_state_conflict`.
+- The photo is the courier's own stored upload, the same kind `places.photoUpload` returns (otherwise `upload_invalid`).
+- `totalIqd` is a positive whole number of dinars (otherwise `invalid_input`).
+
+When the checks pass, the server:
+
+- Sets `receiptTotalIqd`, and sets `itemsTotalIqd` to the same amount.
+- Recomputes the total on the server: receipt + delivery fee + service fee + tip. A cash order is rounded up to 250, as every cash order is.
+- Updates the order conditionally on its state (`updateIf`), so a race can't apply the receipt twice.
+- Means the door collects the new `cashDueIqd`, and the ledger's errand `actualCostIqd` reads the receipt.
+
+A second entry before the pickup replaces the first. Every entry is an `order.errand_receipt` event carrying `receiptIqd`, `previousIqd`, `photoUploadId` and `overCeiling`.
+
+Over the customer's list ceiling, the receipt still records. The event then also carries `ceilingIqd` and `dispatcherCard: true`. The Console inbox row for this is lane E's work.
+
+## The pickup guard
+
+Trips asks orders before it completes a pickup, through `TripsService.bindPickupGuard`, which orders binds at start-up.
+
+- An errand order with no receipt is refused with `errand_receipt_missing`. Nothing is written.
+- Trips passes only the stop's order. Orders decides from the order whether it's an errand.
+- الرجعة and خطوط runs (`intercity` and `khat`) never ask the guard.
+- A replayed tap on a completed stop returns early, before the guard is asked.
+
+In the partner app, «اشتريت الليستة» stays tappable. Before a receipt is in, it says what's missing and points to «الوصل».
+
+## When the receipt can't be sent from the shop
+
+The shopper must never be stuck at a pickup. These are the ways out:
+
+1. **No network.** The amount and the photo stay on the phone. «سجّل الوصل» sends them once the network is back, and the phone treats a queued receipt as recorded. The server guard still decides in the end, so the pickup completes once the upload lands.
+2. **The shop had nothing.** The courier («مشكلة») or ops can cancel the trip at the shops with no receipt. The existing errand cancel path applies.
+3. **The photo keeps failing.** Today the courier reports it through «مشكلة», and support cancels the trip as in 2.
+
+**Open:** a Console action where ops record the receipt for the courier, with the amount he reads out and the photo sent to support. This needs lane E (Console) and lane A (an ops variant of `recordErrandReceipt`), and it should be in place before دوّرلي launches.
+
+## Open with Ali
+
+- The rule itself: the customer pays the receipt, and over the ceiling the shopper calls first and the receipt is never blocked.
+- Wallet errands: the server allows them today. The customer app only sends cash.

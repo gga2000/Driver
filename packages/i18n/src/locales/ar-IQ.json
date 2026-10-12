@@ -9667,5 +9667,9 @@
   "partner.errand.receipt_failed": "الوصل ما تسجّل، جرّب مرة ثانية",
   "partner.errand.receipt_locked": "طلعت من المحلات، ما تگدر تغيّر الوصل. احجي ويا الدعم",
   "partner.errand.receipt_camera_denied": "لازم تسمح للكاميرا حتى تصوّر الوصل",
-  "partner.errand.receipt_offline": "ماكو نت: الوصل يتسجّل أول ما يرجع النت"
+  "partner.errand.receipt_offline": "ماكو نت: الوصل يتسجّل أول ما يرجع النت",
+  "error.errand_receipt_missing": "سجّل الوصل قبل لا تطلع من المحلات",
+  "partner.errand.receipt_first": "سجّل الوصل أول، بعدين اشتريت الليستة",
+  "partner.errand.receipt_queued": "انحفظ الوصل بالتلفون، يندز أول ما يرجع النت",
+  "partner.errand.receipt_waiting": "ينتظر النت حتى يندز"
 }

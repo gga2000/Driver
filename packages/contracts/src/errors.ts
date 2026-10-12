@@ -316,6 +316,8 @@ export const ERROR_TABLE = {
   not_trip_courier: { retryHint: 'never', status: 'FORBIDDEN' },
   vehicle_too_small: { retryHint: 'never', status: 'CONFLICT' },
   child_handover_required: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «دوّرلي»: the shops stop completes only once the shopper recorded the receipt (orders' pickup guard)
+  errand_receipt_missing: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_not_started: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_too_early: { retryHint: 'later', status: 'CONFLICT' },
   unreachable_not_active: { retryHint: 'never', status: 'CONFLICT' },

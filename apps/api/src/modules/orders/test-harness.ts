@@ -231,6 +231,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   orders.bindRiders(identityRiders(riderIdentity, orgsHouseholds(orgs)));
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
+  trips.bindPickupGuard({ problem: (orderId) => orders.errandPickupProblem(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   // FLW-22: the durable copies of both modules' timers, as the modules bind them; `sweeper.sweep()` fires

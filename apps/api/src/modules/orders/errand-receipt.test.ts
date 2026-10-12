@@ -103,3 +103,57 @@ describe('«دوّرلي» receipt (lane A spec)', () => {
     expect(h.events.last('order.errand_receipt')!.payload).toMatchObject({ overCeiling: true, ceilingIqd: 30_000, dispatcherCard: true });
   });
 });
+
+describe('«دوّرلي» pickup guard (the shops stop waits for the receipt)', () => {
+  it('without a receipt the pickup is refused and nothing is written; with one it completes; a replay is fine', async () => {
+    const { h, o, t, pickup } = await errandAtShops();
+    expect(await code(h.trips.completeStop(t.id, pickup.id, 'd1'))).toBe('errand_receipt_missing');
+    expect((await h.trips.get(t.id)).stops.find((s) => s.id === pickup.id)!.state).toBe('arrived');
+    expect((await h.orders.get(o.id)).state).not.toBe('picked_up');
+    await h.orders.recordErrandReceipt('d1', { orderId: o.id, totalIqd: 8_000, photoUploadId: 'up_receipt_d1' });
+    await h.trips.completeStop(t.id, pickup.id, 'd1');
+    await h.deliver();
+    expect((await h.trips.get(t.id)).stops.find((s) => s.id === pickup.id)!.state).toBe('completed');
+    // The same tap sent again (a retry from the phone) returns the trip as it is.
+    await expect(h.trips.completeStop(t.id, pickup.id, 'd1')).resolves.toBeTruthy();
+  });
+
+  it('a courier or ops can still drop an errand at the shops with no receipt (the shop had nothing)', async () => {
+    const byCourier = await errandAtShops();
+    await byCourier.h.trips.cancel(byCourier.t.id, 'driver', 'd1', 'المحل مسكّر');
+    await byCourier.h.deliver();
+    expect((await byCourier.h.trips.get(byCourier.t.id)).state).toMatch(/cancelled$/);
+    const byOps = await errandAtShops();
+    await byOps.h.trips.cancel(byOps.t.id, 'platform', 'ops_1', 'ماكو أغراض');
+    await byOps.h.deliver();
+    expect((await byOps.h.trips.get(byOps.t.id)).state).toMatch(/cancelled$/);
+  });
+
+  it('food and parcel pickups pass; الرجعة and خطوط pickups never ask the guard', async () => {
+    const h = ordersHarness();
+    expect(await h.orders.errandPickupProblem((await h.orders.place('c1', h.foodInput())).id)).toBeNull();
+    expect(await h.orders.errandPickupProblem((await h.orders.place('c1', { cityId: 'aziziyah', type: 'parcel', pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [] })).id)).toBeNull();
+    expect(await h.orders.errandPickupProblem('no_such_order')).toBeNull();
+
+    const asked: string[] = [];
+    h.trips.bindPickupGuard({ problem: async (orderId) => (asked.push(orderId), null) });
+    for (const [vertical, driver] of [['intercity', 'd8'], ['khat', 'd9']] as const) {
+      const o = await h.orders.place('c1', h.foodInput());
+      const t = await h.trips.createForOrders({
+        cityId: 'aziziyah',
+        vertical,
+        orders: [{ orderId: o.id, minVehicleClass: null }],
+        stops: [
+          { orderId: o.id, type: 'pickup', zoneKey: SHOPS.zoneKey, target: SHOPS.pin },
+          { orderId: o.id, type: 'dropoff', zoneKey: 'zakur', target: HOME },
+        ],
+      });
+      await h.trips.offer(t.id);
+      await h.trips.accept(t.id, driver, { vehicleClass: 'car' });
+      const s = (await h.trips.get(t.id)).stops.find((x) => x.type === 'pickup')!;
+      await h.trips.arrive(t.id, s.id, driver, { pin: SHOPS.pin });
+      await h.trips.completeStop(t.id, s.id, driver).catch(() => undefined);
+    }
+    expect(asked).toEqual([]);
+  });
+});

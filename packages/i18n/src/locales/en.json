@@ -9667,5 +9667,9 @@
   "partner.errand.receipt_failed": "The receipt wasn't recorded, try again",
   "partner.errand.receipt_locked": "You've left the shops, the receipt can't change. Talk to support",
   "partner.errand.receipt_camera_denied": "Allow the camera to photograph the receipt",
-  "partner.errand.receipt_offline": "No internet: the receipt records once it's back"
+  "partner.errand.receipt_offline": "No internet: the receipt records once it's back",
+  "error.errand_receipt_missing": "Record the receipt before you leave the shops",
+  "partner.errand.receipt_first": "Record the receipt first, then mark the list bought",
+  "partner.errand.receipt_queued": "Receipt saved on the phone; it sends when the internet is back",
+  "partner.errand.receipt_waiting": "Waiting for the internet to send"
 }

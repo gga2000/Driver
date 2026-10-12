@@ -1216,6 +1216,12 @@ export class OrdersService implements OnModuleInit {
     });
   }
 
+  /** Trips' pickup guard: an errand's shops stop completes only once its receipt is recorded; anything else passes. */
+  async errandPickupProblem(orderId: string): Promise<'errand_receipt_missing' | null> {
+    const agg = await this.repo.find(orderId);
+    return agg?.order.type === 'errand' && agg.order.receiptTotalIqd === null ? 'errand_receipt_missing' : null;
+  }
+
   // ───────────────────────── customer side ─────────────────────────
 
   /** Partial-accept answer (review A.4): approve the reduced order, or cancel free. */
