@@ -117,18 +117,7 @@ function Oven({ view }: { view: BakeryOwnerView }) {
       <Panel title={t('merchant.market.oven.pause_title')}>
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
           {SHOPPING_RULES.pauseMinutes.map((m) => (
-            <Pressable
-              key={m}
-              testID={`oven-pause-${m}`}
-              accessibilityRole="button"
-              disabled={oven.isPending}
-              onPress={() => set('paused', m)}
-              style={({ pressed }) => ({ flex: 1, minHeight: 52, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, opacity: pressed ? 0.85 : 1 })}
-            >
-              <Text variant="label" weight={700} numberOfLines={1}>
-                {t(`merchant.market.oven.pause_${m}` as TKey)}
-              </Text>
-            </Pressable>
+            <Button key={m} testID={`oven-pause-${m}`} label={t(`merchant.market.oven.pause_${m}` as TKey)} size="sm" variant="secondary" disabled={oven.isPending} onPress={() => set('paused', m)} style={{ flex: 1 }} />
           ))}
         </View>
         <Text variant="footnote" color="textMuted">

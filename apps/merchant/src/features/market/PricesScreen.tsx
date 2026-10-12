@@ -113,17 +113,13 @@ function Prices({ view, owner }: { view: StallOwnerView; owner: boolean }) {
       </View>
 
       {owner && left.length > 0 ? (
-        <Pressable
+        <Button
           testID="prices-all-same"
-          accessibilityRole="button"
+          label={t('merchant.market.prices.all_same')}
+          icon="refresh"
+          variant="secondary"
           onPress={() => setDrafts((all) => Object.fromEntries([...Object.entries(all), ...left.map((id) => [id, { ...all[id], choice: { kind: 'same' } } as RowDraft])]))}
-          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[2], minHeight: 52, borderRadius: theme.radius.pill, backgroundColor: COUNTER.sand, opacity: pressed ? 0.85 : 1 })}
-        >
-          <MIcon name="refresh" size={20} color="text" />
-          <Text variant="label" weight={700}>
-            {t('merchant.market.prices.all_same')}
-          </Text>
-        </Pressable>
+        />
       ) : null}
 
       <View style={{ backgroundColor: COUNTER.paper, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: theme.space[4] }}>
@@ -190,18 +186,8 @@ function PriceRow({ row, draft, first, owner, uploading, onPhoto, onDraft }: { r
   const showSame = choice.kind === 'same' || (choice.kind === 'untouched' && row.postedToday);
   const samePrice = choice.kind === 'same' ? (row.yesterdayIqd ?? row.priceIqd) : row.priceIqd;
 
-  const chip = (label: string, onPress: () => void, solid = false, testID?: string) => (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      disabled={!owner}
-      onPress={onPress}
-      style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: solid ? COUNTER.date : theme.colors.surface, borderWidth: solid ? 0 : 1, borderColor: theme.colors.border, opacity: pressed ? 0.85 : 1 })}
-    >
-      <Text variant="label" weight={700} style={solid ? { color: COUNTER.onDate } : undefined}>
-        {label}
-      </Text>
-    </Pressable>
+  const chip = (label: string, onPress: () => void, solid: boolean, testID: string) => (
+    <Button testID={testID} label={label} size="sm" variant={solid ? 'ink' : 'secondary'} disabled={!owner} onPress={onPress} />
   );
 
   return (

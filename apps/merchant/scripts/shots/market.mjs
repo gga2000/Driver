@@ -22,6 +22,10 @@ export default {
 
     // The stall, first thing in the morning: nothing posted yet.
     await signIn('0770 778 0001');
+    await byTestId('board').waitFor();
+    if (await byTestId('day-ok').isVisible().catch(() => false)) await byTestId('day-ok').click();
+    await page.locator('[data-testid="market-chip"]:visible').first().waitFor({ timeout: 15_000 }).catch(() => undefined);
+    await shot('board-chip-prices', { wait: 900 });
     await open();
     await page.locator('[data-testid="market-prices"]:visible').waitFor();
     await page.locator('[data-testid^="price-row-"]:visible').first().waitFor();
@@ -53,6 +57,11 @@ export default {
     if (phone) await shot('oven-open-full', { full: true });
     await tap('oven-pause-30');
     await shot('oven-paused', { wait: 1200 });
+    await tap('oven-orders');
+    await shot('board-oven-paused', { wait: 900 });
+    await tab('more');
+    await tap('more-market');
+    await page.locator('[data-testid="oven-card"]:visible').waitFor();
     await tap('oven-closed');
     await shot('oven-closed', { wait: 1200 });
     await tap('oven-open');

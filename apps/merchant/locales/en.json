@@ -2001,5 +2001,6 @@
   "merchant.market.oven.load_failed": "We couldn't load the oven",
   "merchant.market.tile.prices_hint": "Photograph and price every morning",
   "merchant.market.tile.oven_hint": "Open, pause, close",
-  "merchant.market.prices.posted": "Posted"
+  "merchant.market.prices.posted": "Posted",
+  "merchant.market.chip.prices": "Today's prices {n} of {total}"
 }

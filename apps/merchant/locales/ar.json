@@ -2001,5 +2001,6 @@
   "merchant.market.oven.load_failed": "ما گدرنا نجيب حالة الفرن",
   "merchant.market.tile.prices_hint": "صوّر وسعّر كل صبح",
   "merchant.market.tile.oven_hint": "مفتوح، وقّف شوية، سدّ",
-  "merchant.market.prices.posted": "منشور"
+  "merchant.market.prices.posted": "منشور",
+  "merchant.market.chip.prices": "أسعار اليوم {n} من {total}"
 }

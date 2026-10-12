@@ -33,6 +33,7 @@ import { photoDownNotice, usePhotoDownSeen } from '@/features/menu/PhotoDown';
 import { useMenu } from '@/features/menu/queries';
 import { beforeFirstOrder } from '@/features/money/logic';
 import { useCashAccount, useOrderWho } from '@/features/money/queries';
+import { useMarketChip } from '@/features/market/MarketChip';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { StoreHeader, type HeaderAlert } from '@/features/store/StoreHeader';
 import { FirstOrderRibbon, SetupBoardCard, SetupBoardWaiting } from '@/features/setup/BoardSetup';
@@ -191,6 +192,7 @@ export function Board() {
   const prefs = usePrefs();
   const { wide, width } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
+  const marketChip = useMarketChip(store?.orgId ?? null);
   const storeId = store?.orgId ?? null;
   const board = useBoard(storeId);
   const status = useStoreStatus(storeId);
@@ -650,6 +652,7 @@ export function Board() {
       : null,
     !gateOpen && soundOff ? { key: 'sound', testID: 'sound-off-chip', icon: 'volume-off', tone: 'danger', dot: true, label: t('merchant.sound.off_chip'), onPress: () => void soundOn() } : null,
     inSetup && setupLine ? { key: 'setup', testID: 'setup-chip', icon: 'store', tone: 'warning', label: t('merchant.setup.header_chip', { percent: setupLine.percent }), onPress: () => router.push(canSeeMoney ? '/setup' : '/more') } : null,
+    marketChip,
     // S-M4 on a phone: a courier at the pass is seen from any tab of the board, in the bar (o3).
     !wide && segment !== 'ready' && atPass[0]
       ? {
