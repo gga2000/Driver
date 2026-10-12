@@ -231,7 +231,8 @@ export async function seedDemoShops(
   orgs: Pick<OrgsService, 'create' | 'setMerchantSettings'>,
   catalog: Pick<CatalogService, 'addItem'>,
   shopping: Pick<ShoppingService, 'register' | 'saveItem' | 'seedPost'>,
-  opts: { cityId?: string; ownerId?: string; now?: Date } = {},
+  /** `morning`: the stalls have not posted today yet (yesterday's prices stand), for the Merchant app's «أسعار اليوم». */
+  opts: { cityId?: string; ownerId?: string; now?: Date; morning?: boolean } = {},
 ): Promise<{ key: string; orgId: string; kind: ShopKind }[]> {
   const cityId = opts.cityId ?? 'aziziyah';
   const now = opts.now ?? new Date();
@@ -275,7 +276,7 @@ export async function seedDemoShops(
         id,
         orgId: org.id,
         nameAr: it.nameAr,
-        priceIqd: it.priceIqd,
+        priceIqd: opts.morning && d.kind === 'produce_stall' ? (it.yesterdayIqd ?? it.priceIqd) : it.priceIqd,
         photoUrl: photo,
         prepTimeMin: d.prepMin,
         sortOrder: sortOrder++,
@@ -314,7 +315,7 @@ export async function seedDemoShops(
       }
     }
     if (yesterday.length) await shopping.seedPost(yesterday, new Date(now.getTime() - 86_400_000));
-    if (today.length) await shopping.seedPost(today, now);
+    if (today.length && !opts.morning) await shopping.seedPost(today, now);
     out.push({ key: d.key, orgId: org.id, kind: d.kind });
   }
   return out;
