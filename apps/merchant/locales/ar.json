@@ -399,6 +399,8 @@
   "merchant.statement.share_failed": "ما گدرنا نشارك هسة، جرّب بعدين",
   "merchant.statement.pdf_note": "نسخة PDF توصلك على واتساب كل يوم أحد",
   "merchant.statement.order_ref": "⁦#{ref}⁩",
+  "merchant.statement.walkup_ref": "زبون عالعربانة",
+  "merchant.statement.walkup_paid": "استلمت الفلوس بإيدك",
   "merchant.statement.commission_line": "عمولة {pct}%",
   "merchant.statement.rate": "عمولتك هسة {rate}",
   "merchant.statement.rate_starter": "عمولتك هسة {rate} · سعر البداية من {date}",
