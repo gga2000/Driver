@@ -106,7 +106,7 @@ export function ShopScreen() {
   const cell = wide ? { flexBasis: '31%' as const, flexGrow: 1 } : undefined;
   const tiles: { id: string; icon: MIconName; title: string; hint: string; href: Parameters<typeof router.push>[0]; owner?: boolean }[] = [
     // أكل بيت: a home kitchen's dishes, today's plates and reservations.
-    ...(store?.home ? [{ id: 'home-kitchen', icon: 'utensils' as const, title: t('home_kitchen.title'), hint: t('home_kitchen.tile_hint'), href: '/home-kitchen' as const }] : []),
+    ...(store?.home ? [{ id: 'home-kitchen', icon: 'utensils' as const, title: t('merchant.home_kitchen.title'), hint: t('merchant.home_kitchen.tile_hint'), href: '/home-kitchen' as const }] : []),
     { id: 'staff', icon: 'people', title: t('merchant.more.staff'), hint: t('merchant.more.staff_hint'), href: '/staff', owner: true },
     { id: 'printer', icon: 'printer', title: t('merchant.printer.title'), hint: t('merchant.more.printer_hint'), href: '/printer' },
     { id: 'deals', icon: 'tag', title: t('merchant.more.deals'), hint: t('merchant.more.deals_hint'), href: '/deals' },

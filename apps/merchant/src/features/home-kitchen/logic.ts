@@ -16,9 +16,9 @@ export function dayWhen(at: Date, now: Date, t: T): { day: string; time: string 
   const dow = new Date(localDay(at) * DAY_MS).getUTCDay();
   const day =
     diff === 0
-      ? t('home_kitchen.today' as never)
+      ? t('merchant.home_kitchen.today' as never)
       : diff === 1
-        ? t('home_kitchen.tomorrow' as never)
+        ? t('merchant.home_kitchen.tomorrow' as never)
         : t(`merchant.date.dow_${dow}` as never);
   return { day, time: clock12(at) };
 }
@@ -64,13 +64,13 @@ export function servesOf(min: number | null, max: number | null): Serves {
 export function ruleLine(rule: ReserveRule, t: T): string {
   const days =
     rule.days.length === 7
-      ? t('home_kitchen.every_day' as never)
+      ? t('merchant.home_kitchen.every_day' as never)
       : WEEK_ORDER.filter((d) => rule.days.includes(d))
           .map((d) => t(`merchant.date.dow_${d}` as never))
           .join('، ');
   const times = [...rule.times]
     .sort()
-    .map((hm) => t(`home_kitchen.time_${hm.slice(0, 2)}` as never))
-    .join(t('home_kitchen.and' as never));
-  return [t(`home_kitchen.ahead_line_${rule.aheadMin}` as never), days, times].join(' · ');
+    .map((hm) => t(`merchant.home_kitchen.time_${hm.slice(0, 2)}` as never))
+    .join(t('merchant.home_kitchen.and' as never));
+  return [t(`merchant.home_kitchen.ahead_line_${rule.aheadMin}` as never), days, times].join(' · ');
 }

@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Text, useTheme } from '@driver/ui';
 import { MIcon } from '@/components/MIcon';
 import { Wordmark } from '@/components/Wordmark';
+import { JoinKitchenTile } from '@/features/join-kitchen/JoinKitchenTile';
 import { MyInvites } from '@/features/staff/MyInvites';
 import { useMyInvites } from '@/features/staff/queries';
 import { useApi } from '@/lib/api';
@@ -44,6 +45,7 @@ export default function NotActivated() {
         <View style={{ width: '100%', maxWidth: 460 }}>
           <MyInvites testID="gate" />
         </View>
+        <JoinKitchenTile hidden={invited} />
         <View style={{ gap: theme.space[2], width: '100%', maxWidth: 400 }}>
           <Button testID="gate-call" label={t('merchant.gate.call')} icon="phone" size="lg" fullWidth onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`)} />
           <Button

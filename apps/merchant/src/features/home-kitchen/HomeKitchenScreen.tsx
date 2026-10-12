@@ -60,7 +60,7 @@ export function HomeKitchenScreen() {
     body = view.isError ? (
       <EmptyState
         icon="x"
-        title={t('home_kitchen.load_failed')}
+        title={t('merchant.home_kitchen.load_failed')}
         action={{ label: t('merchant.menu.retry'), onPress: () => void view.refetch() }}
       />
     ) : (
@@ -76,11 +76,11 @@ export function HomeKitchenScreen() {
     body = (
       <View style={{ gap: theme.space[4] }}>
         {view.data.dishes.length === 0 ? (
-          <EmptyState icon="food" title={t('home_kitchen.empty')} />
+          <EmptyState icon="food" title={t('merchant.home_kitchen.empty')} />
         ) : null}
         {ready.length > 0 ? (
           <Panel testID="home-kitchen-ready">
-            <PanelTitle title={t('home_kitchen.ready_title')} hint={t('home_kitchen.ready_hint')} />
+            <PanelTitle title={t('merchant.home_kitchen.ready_title')} hint={t('merchant.home_kitchen.ready_hint')} />
             {ready.map((d) => {
               const on = d.sale.mode === 'ready' && d.sale.cookingToday;
               const left = d.view.mode === 'ready' ? d.view.left : 0;
@@ -96,15 +96,15 @@ export function HomeKitchenScreen() {
                     line={
                       on
                         ? cooked
-                          ? t('home_kitchen.left_of', { left, cooked })
-                          : t('home_kitchen.left', { left })
-                        : t('home_kitchen.not_today')
+                          ? t('merchant.home_kitchen.left_of', { left, cooked })
+                          : t('merchant.home_kitchen.left', { left })
+                        : t('merchant.home_kitchen.not_today')
                     }
                   >
                     <Switch
                       value={on}
                       onValueChange={(v) => setLeft(d, v ? (cooked ?? FIRST_PLATES) : null)}
-                      accessibilityLabel={t('home_kitchen.cooking_a11y', { name: d.nameAr })}
+                      accessibilityLabel={t('merchant.home_kitchen.cooking_a11y', { name: d.nameAr })}
                       testID={`home-kitchen-on-${d.id}`}
                     />
                   </DishRow>
@@ -119,14 +119,14 @@ export function HomeKitchenScreen() {
                       }}
                     >
                       <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
-                        {t('home_kitchen.plates_now')}
+                        {t('merchant.home_kitchen.plates_now')}
                       </Text>
                       <Stepper
                         value={left}
                         min={0}
                         max={200}
                         onChange={(n) => setLeft(d, n)}
-                        accessibilityLabel={t('home_kitchen.plates_now')}
+                        accessibilityLabel={t('merchant.home_kitchen.plates_now')}
                       />
                     </View>
                   ) : null}
@@ -138,8 +138,8 @@ export function HomeKitchenScreen() {
         {reserve.length > 0 ? (
           <Panel testID="home-kitchen-reserve">
             <PanelTitle
-              title={t('home_kitchen.reserve_title')}
-              hint={t('home_kitchen.reserve_hint')}
+              title={t('merchant.home_kitchen.reserve_title')}
+              hint={t('merchant.home_kitchen.reserve_hint')}
             />
             {reserve.map((d) => (
               <DishRow
@@ -147,8 +147,8 @@ export function HomeKitchenScreen() {
                 dish={d}
                 line={
                   d.view.mode === 'reserve' && d.view.next
-                    ? t('home_kitchen.next_free', dayWhen(d.view.next.at, new Date(), t))
-                    : t('home_kitchen.week_full')
+                    ? t('merchant.home_kitchen.next_free', dayWhen(d.view.next.at, new Date(), t))
+                    : t('merchant.home_kitchen.week_full')
                 }
               >
                 {d.booked > 0 ? (
@@ -167,7 +167,7 @@ export function HomeKitchenScreen() {
                       color={theme.scheme === 'dark' ? pom.card.dot : pom.fill}
                       tabular
                     >
-                      {t('home_kitchen.booked', { n: d.booked })}
+                      {t('merchant.home_kitchen.booked', { n: d.booked })}
                     </Text>
                   </View>
                 ) : null}
@@ -177,12 +177,12 @@ export function HomeKitchenScreen() {
         ) : null}
         <Panel testID="home-kitchen-reservations">
           <PanelTitle
-            title={t('home_kitchen.reservations_title')}
-            hint={t('home_kitchen.reservations_hint')}
+            title={t('merchant.home_kitchen.reservations_title')}
+            hint={t('merchant.home_kitchen.reservations_hint')}
           />
           {view.data.reservations.length === 0 ? (
             <Text variant="body" color="textMuted">
-              {t('home_kitchen.reservations_none')}
+              {t('merchant.home_kitchen.reservations_none')}
             </Text>
           ) : (
             view.data.reservations.map((r) => {
@@ -202,7 +202,7 @@ export function HomeKitchenScreen() {
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text variant="bodyStrong" tabular>{`${w.day} ${w.time}`}</Text>
                     <Text variant="footnote" color="textMuted">
-                      {t('home_kitchen.slot_line', { dish: r.nameAr, orders: r.orders })}
+                      {t('merchant.home_kitchen.slot_line', { dish: r.nameAr, orders: r.orders })}
                     </Text>
                   </View>
                   <Text
@@ -210,7 +210,7 @@ export function HomeKitchenScreen() {
                     face="display"
                     tabular
                     color={theme.scheme === 'dark' ? pom.card.dot : pom.fill}
-                    accessibilityLabel={t('home_kitchen.plates_a11y', { n: r.plates })}
+                    accessibilityLabel={t('merchant.home_kitchen.plates_a11y', { n: r.plates })}
                   >
                     {String(r.plates)}
                   </Text>
@@ -225,7 +225,7 @@ export function HomeKitchenScreen() {
 
   return (
     <Page
-      title={t('home_kitchen.title')}
+      title={t('merchant.home_kitchen.title')}
       subtitle={store?.name}
       back
       testID="home-kitchen"
@@ -237,7 +237,7 @@ export function HomeKitchenScreen() {
           fullWidth
           size="lg"
           icon="plus"
-          label={t('home_kitchen.add')}
+          label={t('merchant.home_kitchen.add')}
           onPress={() => router.push('/home-kitchen/dish')}
           testID="home-kitchen-add"
         />

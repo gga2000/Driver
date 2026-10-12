@@ -88,11 +88,11 @@ export function DishEditor() {
 
   if (id && !dish) {
     return (
-      <Page title={t('home_kitchen.dish_title')} back testID="home-dish" maxWidth={720}>
+      <Page title={t('merchant.home_kitchen.dish_title')} back testID="home-dish" maxWidth={720}>
         {view.isError || view.data ? (
           <EmptyState
             icon="x"
-            title={t('home_kitchen.load_failed')}
+            title={t('merchant.home_kitchen.load_failed')}
             action={{ label: t('merchant.menu.retry'), onPress: () => void view.refetch() }}
           />
         ) : (
@@ -108,7 +108,7 @@ export function DishEditor() {
       {
         onSuccess: () => {
           theme.haptic('success');
-          toast.show({ message: t('home_kitchen.saved'), tone: 'success' });
+          toast.show({ message: t('merchant.home_kitchen.saved'), tone: 'success' });
           router.back();
         },
         onError: (err) =>
@@ -175,15 +175,15 @@ function DishForm({
 
   if (!owner) {
     return (
-      <Page title={t('home_kitchen.dish_title')} back testID="home-dish" maxWidth={720}>
-        <EmptyState icon="lock" title={t('home_kitchen.owner_only')} />
+      <Page title={t('merchant.home_kitchen.dish_title')} back testID="home-dish" maxWidth={720}>
+        <EmptyState icon="lock" title={t('merchant.home_kitchen.owner_only')} />
       </Page>
     );
   }
 
   return (
     <Page
-      title={dish ? dish.nameAr : t('home_kitchen.new_title')}
+      title={dish ? dish.nameAr : t('merchant.home_kitchen.new_title')}
       back
       testID="home-dish"
       maxWidth={wide ? 1160 : 720}
@@ -198,93 +198,93 @@ function DishForm({
         <Panel testID="home-dish-details" style={wide ? { flex: 1 } : undefined}>
           <TextField
             testID="home-dish-name"
-            label={t('home_kitchen.name')}
-            placeholder={t('home_kitchen.name_placeholder')}
+            label={t('merchant.home_kitchen.name')}
+            placeholder={t('merchant.home_kitchen.name_placeholder')}
             value={form.nameAr}
             onChangeText={(v) => set('nameAr', v)}
             maxLength={40}
-            error={tried && !nameOk ? t('home_kitchen.name_missing') : undefined}
+            error={tried && !nameOk ? t('merchant.home_kitchen.name_missing') : undefined}
           />
           <TextField
             testID="home-dish-line"
-            label={t('home_kitchen.line')}
-            placeholder={t('home_kitchen.line_placeholder')}
+            label={t('merchant.home_kitchen.line')}
+            placeholder={t('merchant.home_kitchen.line_placeholder')}
             value={form.description}
             onChangeText={(v) => set('description', v)}
             maxLength={HOME_KITCHEN_RULES.descriptionMax}
-            hint={t('home_kitchen.chars_left', {
+            hint={t('merchant.home_kitchen.chars_left', {
               n: HOME_KITCHEN_RULES.descriptionMax - form.description.length,
             })}
           />
           <View style={{ gap: theme.space[2] }}>
-            <Text variant="label">{t('home_kitchen.serves')}</Text>
+            <Text variant="label">{t('merchant.home_kitchen.serves')}</Text>
             <ChipGroup
               mode="single"
               required
               items={(Object.keys(SERVES) as Serves[]).map((s) => ({
                 id: s,
-                label: t(`home_kitchen.serves_${s.replace('-', '_')}` as never),
+                label: t(`merchant.home_kitchen.serves_${s.replace('-', '_')}` as never),
               }))}
               value={[form.serves]}
               onChange={(next) => next[0] && set('serves', next[0] as Serves)}
-              accessibilityLabel={t('home_kitchen.serves')}
+              accessibilityLabel={t('merchant.home_kitchen.serves')}
             />
           </View>
           <TextField
             testID="home-dish-portion"
-            label={t('home_kitchen.portion')}
-            placeholder={t('home_kitchen.portion_placeholder')}
+            label={t('merchant.home_kitchen.portion')}
+            placeholder={t('merchant.home_kitchen.portion_placeholder')}
             value={form.portion}
             onChangeText={(v) => set('portion', v)}
             maxLength={HOME_KITCHEN_RULES.portionMax}
-            hint={t('home_kitchen.portion_hint')}
+            hint={t('merchant.home_kitchen.portion_hint')}
           />
           <TextField
             testID="home-dish-price"
-            label={t('home_kitchen.price')}
+            label={t('merchant.home_kitchen.price')}
             placeholder="6,000"
             value={form.price}
             onChangeText={(v) => set('price', v)}
             keyboardType="number-pad"
-            error={tried && !priceOk ? t('home_kitchen.price_missing') : undefined}
+            error={tried && !priceOk ? t('merchant.home_kitchen.price_missing') : undefined}
           />
         </Panel>
 
         <Panel testID="home-dish-sale" style={wide ? { flex: 1 } : undefined}>
-          <PanelTitle title={t('home_kitchen.sells_title')} />
+          <PanelTitle title={t('merchant.home_kitchen.sells_title')} />
           <SegmentedControl
             options={[
-              { value: 'ready', label: t('home_kitchen.mode_ready') },
-              { value: 'reserve', label: t('home_kitchen.mode_reserve') },
+              { value: 'ready', label: t('merchant.home_kitchen.mode_ready') },
+              { value: 'reserve', label: t('merchant.home_kitchen.mode_reserve') },
             ]}
             value={form.mode}
             onChange={(v) => set('mode', v)}
-            accessibilityLabel={t('home_kitchen.sells_title')}
+            accessibilityLabel={t('merchant.home_kitchen.sells_title')}
             testIDPrefix="home-dish-mode"
           />
           <Text variant="footnote" color="textMuted">
             {form.mode === 'ready'
-              ? t('home_kitchen.mode_ready_hint')
-              : t('home_kitchen.mode_reserve_hint')}
+              ? t('merchant.home_kitchen.mode_ready_hint')
+              : t('merchant.home_kitchen.mode_reserve_hint')}
           </Text>
           {form.mode === 'reserve' ? (
             <View style={{ gap: theme.space[4] }}>
               <View style={{ gap: theme.space[2] }}>
-                <Text variant="label">{t('home_kitchen.ahead')}</Text>
+                <Text variant="label">{t('merchant.home_kitchen.ahead')}</Text>
                 <ChipGroup
                   mode="single"
                   required
                   items={AHEAD_CHOICES.map((m) => ({
                     id: String(m),
-                    label: t(`home_kitchen.ahead_${m}` as never),
+                    label: t(`merchant.home_kitchen.ahead_${m}` as never),
                   }))}
                   value={[String(form.rule.aheadMin)]}
                   onChange={(next) => next[0] && setRule({ aheadMin: Number(next[0]) })}
-                  accessibilityLabel={t('home_kitchen.ahead')}
+                  accessibilityLabel={t('merchant.home_kitchen.ahead')}
                 />
               </View>
               <View style={{ gap: theme.space[2] }}>
-                <Text variant="label">{t('home_kitchen.days')}</Text>
+                <Text variant="label">{t('merchant.home_kitchen.days')}</Text>
                 <ChipGroup
                   mode="multi"
                   items={WEEK_ORDER.map((d) => ({
@@ -293,42 +293,42 @@ function DishForm({
                   }))}
                   value={form.rule.days.map(String)}
                   onChange={(next) => setRule({ days: next.map(Number) })}
-                  accessibilityLabel={t('home_kitchen.days')}
+                  accessibilityLabel={t('merchant.home_kitchen.days')}
                 />
                 {tried && form.rule.days.length === 0 ? (
                   <Text variant="footnote" color="danger">
-                    {t('home_kitchen.days_missing')}
+                    {t('merchant.home_kitchen.days_missing')}
                   </Text>
                 ) : null}
               </View>
               <View style={{ gap: theme.space[2] }}>
-                <Text variant="label">{t('home_kitchen.times')}</Text>
+                <Text variant="label">{t('merchant.home_kitchen.times')}</Text>
                 <Text variant="caption" color="textMuted">
-                  {t('home_kitchen.times_hint', { n: HOME_KITCHEN_RULES.maxTimes })}
+                  {t('merchant.home_kitchen.times_hint', { n: HOME_KITCHEN_RULES.maxTimes })}
                 </Text>
                 <ChipGroup
                   mode="multi"
                   items={TIME_CHOICES.map((c) => ({
                     id: c,
-                    label: t(`home_kitchen.time_${c.slice(0, 2)}` as never),
+                    label: t(`merchant.home_kitchen.time_${c.slice(0, 2)}` as never),
                   }))}
                   value={form.rule.times}
                   onChange={(next) =>
                     setRule({ times: next.slice(0, HOME_KITCHEN_RULES.maxTimes) })
                   }
-                  accessibilityLabel={t('home_kitchen.times')}
+                  accessibilityLabel={t('merchant.home_kitchen.times')}
                 />
                 {tried && form.rule.times.length === 0 ? (
                   <Text variant="footnote" color="danger">
-                    {t('home_kitchen.times_missing')}
+                    {t('merchant.home_kitchen.times_missing')}
                   </Text>
                 ) : null}
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text variant="label">{t('home_kitchen.per_slot')}</Text>
+                  <Text variant="label">{t('merchant.home_kitchen.per_slot')}</Text>
                   <Text variant="caption" color="textMuted">
-                    {t('home_kitchen.per_slot_hint')}
+                    {t('merchant.home_kitchen.per_slot_hint')}
                   </Text>
                 </View>
                 <Stepper
@@ -336,7 +336,7 @@ function DishForm({
                   min={1}
                   max={HOME_KITCHEN_RULES.maxPerSlot}
                   onChange={(n) => setRule({ maxPerSlot: n })}
-                  accessibilityLabel={t('home_kitchen.per_slot')}
+                  accessibilityLabel={t('merchant.home_kitchen.per_slot')}
                 />
               </View>
               {ruleReady(form.rule) ? (
@@ -354,7 +354,7 @@ function DishForm({
                     weight={700}
                     color={theme.scheme === 'dark' ? pom.card.dot : pom.fill}
                   >
-                    {t('home_kitchen.customer_sees')}
+                    {t('merchant.home_kitchen.customer_sees')}
                   </Text>
                   <Text variant="body">{ruleLine(form.rule, t)}</Text>
                 </View>
@@ -368,7 +368,7 @@ function DishForm({
         <Button
           variant="ghost"
           icon="camera"
-          label={t('home_kitchen.photo')}
+          label={t('merchant.home_kitchen.photo')}
           onPress={() =>
             router.push({ pathname: '/menu/item', params: { id: dish.id, photo: '1' } })
           }
@@ -378,7 +378,7 @@ function DishForm({
       <Button
         fullWidth
         size="lg"
-        label={t('home_kitchen.save')}
+        label={t('merchant.home_kitchen.save')}
         loading={busy}
         onPress={submit}
         testID="home-dish-save"
