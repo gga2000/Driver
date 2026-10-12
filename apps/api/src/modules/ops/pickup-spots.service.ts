@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DriverError, type Actor, type ConsolePickupSpotView, type MerchantOrgInput, type MoveKitchenInput, type PickupSpotView, type PickupSpotsOpsPort, type PickupStoreRow, type PickupStoresInput, type SetPickupSpotInput } from '@driver/contracts';
+import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService } from '../catalog/index.js';
 import { AuditLogService } from '../controls/index.js';
 import { MerchantService } from '../merchant/index.js';
@@ -25,6 +26,7 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
     private readonly orgs: OrgsService,
     private readonly audits: AuditLogService,
     private readonly catalog: CatalogService,
+    private readonly uow: UnitOfWork,
   ) {}
 
   private readonly zones = new ZoneResolver();
@@ -87,15 +89,22 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
     const zoneKey = this.zones.resolve(org.cityId, input.pin);
     if (!zoneKey) throw new DriverError('outside_zone');
     const before = org.merchant?.location ?? null;
-    await this.orgs.setMerchantSettings(org.id, { location: { zoneKey, pin: input.pin } });
-    await this.audits.record({
-      cityId: org.cityId,
-      actorId: actor.personId,
-      action: KITCHEN_MOVE_AUDIT.action,
-      subjectKind: KITCHEN_MOVE_AUDIT.subjectKind,
-      subjectId: org.id,
-      summaryAr: `حرّك مكان ${org.name} لـ${this.zones.names(org.cityId, zoneKey).ar}`,
-      detail: { fromZone: before?.zoneKey ?? null, fromPin: before?.pin ?? null, toZone: zoneKey, toPin: input.pin },
+    // The pin and its audit row commit together: a failed audit write leaves the kitchen where it was
+    // (setMerchantSettings' own unit of work joins this one).
+    await this.uow.run(async (tx) => {
+      await this.orgs.setMerchantSettings(org.id, { location: { zoneKey, pin: input.pin } });
+      await this.audits.record(
+        {
+          cityId: org.cityId,
+          actorId: actor.personId,
+          action: KITCHEN_MOVE_AUDIT.action,
+          subjectKind: KITCHEN_MOVE_AUDIT.subjectKind,
+          subjectId: org.id,
+          summaryAr: `حرّك مكان ${org.name} لـ${this.zones.names(org.cityId, zoneKey).ar}`,
+          detail: { fromZone: before?.zoneKey ?? null, fromPin: before?.pin ?? null, toZone: zoneKey, toPin: input.pin },
+        },
+        tx,
+      );
     });
     return this.get(actor, { merchantOrgId: org.id });
   }

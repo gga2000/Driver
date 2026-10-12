@@ -19,7 +19,7 @@ export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './e
 export type { PauseWindow } from './pause.js';
 export { activePauseWindow } from './pause.js';
 export { busyExtraMinutes } from './busy.js';
-export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
+export { ORDERS_CATALOG, ORDERS_UPLOADS, ORDERS_WEIGHED_ITEMS, priceLines, type OrdersUploadsPort, type WeighedItemsPort } from './catalog.port.js';
 export type { CatalogPort, CatalogItemView } from './catalog.port.js';
 export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';
 export type { PromotionsPort, PromotionQuery, ResolvedPromotion, MerchantDealQuery, MerchantDealResult } from './promotions.port.js';

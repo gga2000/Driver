@@ -90,6 +90,23 @@ describe('scenario (plan Step 7)', () => {
     expect(plan.filter((o) => o.rideVertical === 'tuktuk').every((o) => AZIZIYAH_ZONES.find((z) => z.id === o.dropoffZone)!.tier !== 'edge')).toBe(true);
   });
 
+  it('«دوّرلي» on top: 3 % more, cash, a list with a ceiling and a receipt in 250s; the rest of the plan is unchanged', () => {
+    const plan = buildScenario(world, { orders: 2000 });
+    const errands = plan.filter((o) => o.kind === 'errand');
+    expect(errands).toHaveLength(60);
+    expect(plan.filter((o) => o.kind !== 'errand')).toEqual(buildScenario(world, { orders: 2000, errandShare: 0 }));
+    for (const e of errands) {
+      expect(e.payment).toBe('cash');
+      expect(e.errand!.lines.length).toBeGreaterThan(0);
+      expect(e.errand!.receiptIqd % 250).toBe(0);
+      expect(e.errand!.receiptIqd).toBeGreaterThan(0);
+    }
+    // Some go over the customer's ceiling (the desk is told) and some photos fail (ops record the receipt).
+    expect(errands.some((e) => e.errand!.receiptIqd > e.errand!.listMaxIqd)).toBe(true);
+    expect(errands.some((e) => e.errand!.photoFails)).toBe(true);
+    expect(buildScenario(world, { orders: 10 }).filter((o) => o.kind === 'errand')).toHaveLength(1);
+  });
+
   it('city peaks: lunch 13–15 and dinner 19:30–22:30 are busier per minute than the rest of the day', () => {
     expect(demandWeight(14 * 60, 'food')).toBeGreaterThan(demandWeight(11 * 60, 'food'));
     expect(demandWeight(20 * 60, 'food')).toBeGreaterThan(demandWeight(17 * 60, 'food'));

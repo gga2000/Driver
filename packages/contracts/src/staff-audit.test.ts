@@ -66,6 +66,7 @@ const AUDITED = [
   // W3 staff way-outs (lane A): each writes its console_audit_log row in the same transaction.
   'orders.ops.cancel',
   'orders.ops.markDelivered',
+  'orders.ops.recordErrandReceipt',
   'orders.ops.close',
   'orders.ops.courierLost',
   'orders.ops.chargeCourier',

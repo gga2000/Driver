@@ -110,6 +110,13 @@ export interface NotifyRepository {
    * False when another run already claimed it, so a retried job never sends the same message twice.
    */
   claimSend(id: string, at: Date): Promise<boolean>;
+  /**
+   * Rows claimed for a send before `before` that never came back: still queued or deferred with
+   * `sentAt` set. Every outcome of a send (sent, failed, skipped, a retry) moves the row on or clears
+   * `sentAt`, so such a row means the process died between the claim and the provider's answer — the
+   * message may or may not have gone. Read only: nothing resends it (a resend could double an SMS).
+   */
+  stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }>;
   /** Marketing messages that went (or are going) to a person since `since`, one per dedupe key. */
   countMarketingSince(personId: string, since: Date): Promise<number>;
   log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]>;
@@ -256,6 +263,17 @@ export class InMemoryNotifyRepository implements NotifyRepository {
     if (!r || (r.status !== 'queued' && r.status !== 'deferred') || r.sentAt !== null) return false;
     this.deliveries.set(id, { ...r, sentAt: at, updatedAt: at });
     return true;
+  }
+
+  async stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }> {
+    let count = 0;
+    let oldestClaimedAt: Date | null = null;
+    for (const r of this.deliveries.values()) {
+      if ((r.status !== 'queued' && r.status !== 'deferred') || r.sentAt === null || r.sentAt >= before) continue;
+      count += 1;
+      if (!oldestClaimedAt || r.sentAt < oldestClaimedAt) oldestClaimedAt = r.sentAt;
+    }
+    return { count, oldestClaimedAt };
   }
 
   async countMarketingSince(personId: string, since: Date): Promise<number> {
@@ -426,6 +444,11 @@ export class PrismaNotifyRepository implements NotifyRepository {
   async claimSend(id: string, at: Date): Promise<boolean> {
     const r = await this.db().notifyDelivery.updateMany({ where: { id, status: { in: ['queued', 'deferred'] }, sentAt: null }, data: { sentAt: at } });
     return r.count === 1;
+  }
+
+  async stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }> {
+    const r = await this.db().notifyDelivery.aggregate({ where: { status: { in: ['queued', 'deferred'] }, sentAt: { lt: before } }, _count: { _all: true }, _min: { sentAt: true } });
+    return { count: r._count._all, oldestClaimedAt: r._min.sentAt ?? null };
   }
 
   async updateDelivery(id: string, patch: DeliveryPatch): Promise<DeliveryRecord> {

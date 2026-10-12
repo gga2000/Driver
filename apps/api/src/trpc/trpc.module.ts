@@ -12,6 +12,7 @@ import { FleetModule, FleetService } from '../modules/fleet/index.js';
 import { OpsDishPhotosService, OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
 import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
+import { ShoppingModule, ShoppingService } from '../modules/shopping/index.js';
 import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { PartnerModule, PartnerService } from '../modules/partner/index.js';
@@ -77,6 +78,7 @@ export class TrpcService {
     private readonly dishPhotos: OpsDishPhotosService,
     private readonly merchantAdmin: MerchantAdminService,
     private readonly menuPhotos: MenuPhotosService,
+    private readonly shopping: ShoppingService,
     private readonly foodCarts: FoodCartsService,
     private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
@@ -164,6 +166,7 @@ export class TrpcService {
       dishPhotos: this.dishPhotos,
       merchantAdmin: this.merchantAdmin,
       menuPhotos: this.menuPhotos,
+      shopping: this.shopping,
       foodCarts: this.foodCarts,
       orders: this.orders,
       trips: this.trips,
@@ -238,5 +241,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, ShoppingModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

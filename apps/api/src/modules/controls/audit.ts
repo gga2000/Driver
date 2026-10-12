@@ -76,6 +76,11 @@ export class AuditLogService {
     return this.repo.addAudit({ ...input, detail: input.detail ?? {}, at: this.clock.now() }, tx);
   }
 
+  /** One person's rows of one action on one subject kind in `[from, to)`, read in `tx` (no names looked up). */
+  byActor(filter: { actorId: string; action: string; subjectKind: string; from: Date; to: Date }, tx?: Tx): Promise<AuditRecord[]> {
+    return this.repo.auditByActor(filter, tx);
+  }
+
   /** v10: one page of the audit page, newest first, with how many rows the chip matches. */
   async page(input: { cityId: string; category?: AuditCategory | undefined; cursor?: string | undefined; limit: number }): Promise<AuditPage> {
     const { rows, total } = await this.repo.auditPage({

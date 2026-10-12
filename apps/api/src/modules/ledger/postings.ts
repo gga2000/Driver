@@ -7,7 +7,9 @@ import {
   OrderCancelledPayload,
   OrderRejectedPayload,
   ErrandMoneyPayload,
+  FoodCartWalkupCollectedPayload,
   LateMeterPayload,
+  WALKUP_COMMISSION_MEMO,
   OrderMoneyPayload,
   RideMoneyPayload,
   SeatMoneyPayload,
@@ -266,13 +268,36 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   };
 }
 
+// ───────────────────────── food cart walk-over ticket ─────────────────────────
+
+/**
+ * A cart («عربانة») walk-over ticket collected: the customer paid the cart owner cash in person, so
+ * the sale itself never passes through the platform; the platform's share — the restaurants' pickup
+ * commission tier on the ticket total, computed and saved on the ticket by the food-carts module — is
+ * posted the way `postOrderClosed` posts a cash pickup order's commission: `commission_accrued` from
+ * the merchant's cash account to the platform, memo `commission:pickup`, here followed by the ticket
+ * (`:walkup:<id>`) so the statement can show it. The merchant account goes negative by it (he owes it,
+ * taken off his next money). One group per ticket (`food_cart_walkup:<id>:commission`): a redelivered
+ * event posts nothing twice. A ticket without commission posts nothing.
+ */
+export function postFoodCartWalkupCommission(input: FoodCartWalkupCollectedPayload): PostingGroup | null {
+  const w = FoodCartWalkupCollectedPayload.parse(input);
+  if (w.commissionIqd > w.totalIqd) throw new RangeError(`walk-up ${w.walkupId} commission ${w.commissionIqd} is more than its total ${w.totalIqd}`);
+  if (w.commissionIqd === 0) return null;
+  const merchant = Accounts.merchantCash(w.merchantOrgId);
+  return new GroupBuilder(`food_cart_walkup:${w.walkupId}:commission`, 'money', w.occurredAt, {})
+    .add('commission_accrued', w.commissionIqd, merchant, Accounts.platform, `${WALKUP_COMMISSION_MEMO}${w.walkupId}`)
+    .control(merchant, -w.commissionIqd)
+    .build();
+}
+
 function redeemGroup(id: string, personId: string, points: number, at: Date, refs: PostingRefs): PostingGroup {
   return new GroupBuilder(id, 'points', at, refs).add('points_redeemed', points, Accounts.points(personId), Accounts.pointsPool).control(Accounts.points(personId), -points).build();
 }
 
 // ───────────────────────── errand / shop-for-me ─────────────────────────
 
-/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4). */
+/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4); a batched second errand splits only the fee. */
 export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderPostings {
   const e = ErrandMoneyPayload.parse(input);
   const refs: PostingRefs = { orderId: e.orderId, tripId: e.tripId };
@@ -283,7 +308,11 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   const red = redemption(e.pointsRedeemed, serviceFee, e.errandFeeIqd, rules);
 
   b.add('errand_cost_actual', e.actualCostIqd, payer, shopper, 'receipt');
-  b.add('errand_fee', e.errandFeeIqd, payer, shopper);
+  // A batched second errand pays the shopper the batch share of the fee, the rest is the platform's,
+  // exactly as a batched second order (money §2, Ali 2026-10-12). The receipt is never split.
+  const shopperFee = e.batchedSecond ? Math.min(e.errandFeeIqd, pct(e.errandFeeIqd, rules.batchedSecondCourierShare)) : e.errandFeeIqd;
+  b.add('errand_fee', shopperFee, payer, shopper);
+  b.add('errand_fee', e.errandFeeIqd - shopperFee, payer, Accounts.platform, 'batched_margin');
   b.add('service_fee', serviceFee, payer, Accounts.platform);
   b.add('tip', e.tipIqd, payer, shopper);
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');

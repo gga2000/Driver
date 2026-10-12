@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AZIZIYAH_MONEY_RULES, DriverError, type OrderMoneyPayload } from '@driver/contracts';
-import { postOrderClosed } from '../ledger/postings.js';
+import { AZIZIYAH_MONEY_RULES, DriverError, type ErrandMoneyPayload, type OrderMoneyPayload } from '@driver/contracts';
+import { postErrand, postOrderClosed } from '../ledger/postings.js';
 import { KITCHEN, ordersHarness } from './test-harness.js';
 
 const code = async (p: Promise<unknown>) => {
@@ -257,6 +257,47 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     await h.advance(2 * 60 * 60_000 + 1000);
     const closed = h.events.ofType('order.closed').find((e) => e.orderId === b.id)!.payload['order'] as OrderMoneyPayload;
     expect(closed.batchedSecond).toBe(true);
+  });
+
+  it('money §2 (Ali 2026-10-12): a batched second errand carries the batch rate into its money fact; a single errand does not', async () => {
+    const h = ordersHarness();
+    const a = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: a.id, prepMinutes: 15 });
+    await h.tripFor(a.id);
+    const errand = (who: string) => h.orders.place(who, { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur', pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const e = await errand('c2');
+    // Dispatch hands him the errand while he still carries the food order.
+    const t2 = await h.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'food',
+      orders: [{ orderId: e.id }],
+      stops: [
+        { orderId: e.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: e.id, type: 'dropoff', zoneKey: 'zakur', target: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } },
+      ],
+    });
+    await h.trips.offer(t2.id);
+    await h.trips.accept(t2.id, 'd1', { vehicleClass: 'tuktuk' }, { assignedByDispatch: true });
+    await h.deliver();
+    // The shops stop needs the receipt first (errand pickup guard); staff record it, as the photo is optional there.
+    await h.orders.opsErrandReceipt('s1', { orderId: e.id, totalIqd: 7000 });
+    await h.pickup(t2.id);
+    await h.dropoff(t2.id, { cashCollectedIqd: (await h.orders.get(e.id)).totalIqd });
+    const collected = h.events.ofType('order.cash_collected').find((x) => x.orderId === e.id)!.payload['errand'] as ErrandMoneyPayload;
+    expect(collected.batchedSecond).toBe(true);
+    const fee = postErrand(collected, AZIZIYAH_MONEY_RULES).money.lines.filter((l) => l.type === 'errand_fee');
+    const share = Math.round(e.deliveryFeeIqd * 0.7);
+    expect(fee).toEqual([expect.objectContaining({ amount: share, toAccount: 'driver:d1' }), expect.objectContaining({ amount: e.deliveryFeeIqd - share, toAccount: 'platform', memo: 'batched_margin' })]);
+
+    // A single errand (a courier holding nothing else) keeps the whole fee.
+    const solo = await errand('c3');
+    const t3 = await h.tripFor(solo.id, { driverId: 'd2' });
+    await h.orders.opsErrandReceipt('s1', { orderId: solo.id, totalIqd: 7000 });
+    await h.pickup(t3.id, 'd2');
+    await h.dropoff(t3.id, { cashCollectedIqd: (await h.orders.get(solo.id)).totalIqd, driverId: 'd2' });
+    const soloFact = h.events.ofType('order.cash_collected').find((x) => x.orderId === solo.id)!.payload['errand'] as ErrandMoneyPayload;
+    expect(soloFact.batchedSecond ?? false).toBe(false);
+    expect(postErrand(soloFact, AZIZIYAH_MONEY_RULES).money.lines.filter((l) => l.type === 'errand_fee')).toEqual([expect.objectContaining({ amount: solo.deliveryFeeIqd, toAccount: 'driver:d2' })]);
   });
 
   it('the 25,000 new-customer cash cap applies to the server-computed total, not to client fees', async () => {

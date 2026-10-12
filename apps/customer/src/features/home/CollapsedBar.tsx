@@ -26,7 +26,7 @@ const PILL_H = 32;
 
 /**
  * Home's header folded into a slim bar (Ali's Yes, effects menu "collapse", 2026-10-07): once the
- * search has scrolled under the top, a cream bar slides down with a short search pill and the
+ * service boxes have scrolled under the top (not while they still show, home roast 4), a cream bar slides down with a short search pill and the
  * launched services (up to five) as small colour buttons, so search and a taxi are always one tap away. It answers like
  * the tiles (offline the ride buttons go grey; with every kitchen closed أكل goes quiet) and is out
  * of the way of touches and screen readers while hidden.

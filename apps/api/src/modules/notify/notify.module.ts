@@ -1,9 +1,10 @@
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
 import { smsBudgetThrottlesFromEnv, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
@@ -29,6 +30,10 @@ import { WhatsAppWebhookController } from './whatsapp.webhook.controller.js';
 
 export const NOTIFY_QUEUE = Symbol('NOTIFY_QUEUE');
 export const NOTIFY_QUEUE_NAME = 'notify';
+
+/** How often a job machine looks for stuck sends, and how often it repeats the error while they last. */
+export const NOTIFY_STUCK_CHECK_MS = 60_000;
+export const NOTIFY_STUCK_REPEAT_MS = 10 * 60_000;
 
 const ZONE_AR = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z.name_ar]));
 const zoneName = (key: string) => ZONE_AR.get(key) ?? cityNameAr(key);
@@ -277,6 +282,8 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
   private poller: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
   private draining = false;
+  private stuckTimer: NodeJS.Timeout | undefined;
+  private stuckLoggedAt = 0;
 
   constructor(
     @Inject(NOTIFY_QUEUE) private readonly queue: Queue<NotifyJob>,
@@ -284,6 +291,8 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
     @Inject(NOTIFY_REPOSITORY) private readonly repo: NotifyRepository,
     @Inject(NOTIFY_LOOKUPS) private readonly lookups: NotifyLookups,
     private readonly events: EventsService,
+    private readonly notify: NotifyService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
@@ -308,10 +317,39 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       }, 1000);
       this.poller.unref();
     }
+    if (runsJobs(this.role)) {
+      this.stuckTimer = setInterval(() => void this.checkStuckSends(), NOTIFY_STUCK_CHECK_MS);
+      this.stuckTimer.unref();
+    }
   }
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
     if (this.poller) clearInterval(this.poller);
+    if (this.stuckTimer) clearInterval(this.stuckTimer);
+  }
+
+  /**
+   * Stuck sends (job machines, every minute): a message claimed for a send more than 5 min ago with no
+   * outcome is logged as an error — so it reaches Sentry — when it starts and every 10 min while it
+   * lasts. The Console System page shows the same count (`system.notifyStuck`). Nothing is resent.
+   */
+  async checkStuckSends(now = Date.now()): Promise<boolean> {
+    try {
+      const s = await this.notify.stuckSends();
+      if (s.stuck === 0) {
+        if (this.stuckLoggedAt) this.logger.log('stuck sends cleared: no claimed message is waiting without an outcome');
+        this.stuckLoggedAt = 0;
+        return false;
+      }
+      if (now - this.stuckLoggedAt >= NOTIFY_STUCK_REPEAT_MS) {
+        this.stuckLoggedAt = now;
+        this.logger.error(`stuck sends: ${s.stuck} message(s) claimed for a send with no outcome, oldest claimed ${s.oldestSec} s ago — they may or may not have gone; not resent (check the delivery log)`);
+      }
+      return true;
+    } catch (err) {
+      this.logger.warn(`stuck sends: cannot tell (${(err as Error).message})`);
+      return false;
+    }
   }
 }

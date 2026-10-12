@@ -9,7 +9,8 @@ import { DISPATCH_QUEUE, DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService, ShiftGuaranteeService } from '../ledger/index.js';
-import { ORDERS_QUEUE, OrdersService, OrderTipsService } from '../orders/index.js';
+import { ORDERS_QUEUE, OrdersService, OrdersStaffService, OrderTipsService } from '../orders/index.js';
+import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { CatalogService } from '../catalog/index.js';
 import { PricingService } from '../pricing/index.js';
@@ -109,7 +110,22 @@ export class SimulatorService implements OnModuleDestroy {
       guarantee: this.guarantee,
       events: this.events,
       tips: this.tips,
+      uploads: this.moduleRef.get<BlobStore>(BLOB_STORE, { strict: false }),
+      ordersStaff: this.moduleRef.get(OrdersStaffService, { strict: false }),
     };
+  }
+
+  /**
+   * «دوّرلي» in the plan. The in-process run is the simulator's own app, so it opens errands in the
+   * city when the city file has not yet (Aziziyah launches with food, taxi and tuktuk); the live run
+   * plays them only where the running API already offers them.
+   */
+  private errandShare(openIfClosed: boolean): number | undefined {
+    const config = this.moduleRef.get(ConfigService, { strict: false });
+    if (config.isLaunched(CITY, 'errand')) return undefined;
+    if (!openIfClosed) return 0;
+    config.setLaunchedVerticals(CITY, [...config.launchedVerticals(CITY), 'errand']);
+    return undefined;
   }
 
   /** The app's timer queues, which an in-process run drains on its fake clock. */
@@ -130,7 +146,8 @@ export class SimulatorService implements OnModuleDestroy {
     if (!(clock instanceof FakeClock)) throw new Error('the in-process simulator needs the app booted on a FakeClock');
     const wallStart = Date.now();
     const world = buildWorld({ seed: opts.seed, drivers: opts.drivers ?? 60, restaurants: opts.restaurants ?? 10, customers: opts.customers ?? Math.max(100, Math.ceil(opts.orders / 4)), dayMinutes: DAY_MINUTES });
-    const plan = buildScenario(world, { orders: opts.orders });
+    const errandShare = this.errandShare(true);
+    const plan = buildScenario(world, { orders: opts.orders, ...(errandShare !== undefined ? { errandShare } : {}) });
     clock.set(DEFAULT_DAY_START);
     // طرود: the in-process city also opens parcels (the plan has some; not yet launched in Aziziyah's file).
     const config = this.moduleRef.get(ConfigService, { strict: false });
@@ -192,7 +209,8 @@ export class SimulatorService implements OnModuleDestroy {
     const speed = input.speed ?? DEFAULT_LIVE_SPEED;
     const seed = input.seed ?? 1;
     const world = buildWorld({ seed, drivers: input.drivers, restaurants: 10, customers: 200, dayMinutes: DAY_MINUTES });
-    const plan = buildScenario(world, { orders: Math.max(1, Math.round((input.ordersPerHour * DAY_MINUTES) / 60)) });
+    const errandShare = this.errandShare(false);
+    const plan = buildScenario(world, { orders: Math.max(1, Math.round((input.ordersPerHour * DAY_MINUTES) / 60)), ...(errandShare !== undefined ? { errandShare } : {}) });
     const now = this.clock.now();
     const sim = new Simulation(this.services(), { world, plan, dayStart: now, speed, appNow: () => this.clock.now() });
     await sim.setup();

@@ -1,6 +1,6 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
 import { buildPay } from '../partner/index.js';
-import type { AcceptedOfferRecord, DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import type { AcceptedOfferRecord, DispatchMoment, DoorCashRecord, ErrandReceiptRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -46,6 +46,8 @@ export interface SimSnapshot {
   merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
+  /** «دوّرلي» receipts the server accepted (absent in hand-built snapshots). */
+  errandReceipts?: ErrandReceiptRecord[];
   /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
   rideStarts?: RideStartRecord[];
   errors: Array<{ where: string; message: string }>;
@@ -80,6 +82,10 @@ const MAX_EXAMPLES = 5;
 const LATE_PROMISE_GROUP = 'late_promise:';
 /** Posting group prefix of the tip after a good rating (`afterTipGroupId`). */
 const AFTER_TIP_GROUP = 'tip:';
+/** What a «دوّرلي» customer pays for (`postErrand`): the goods, the errand's delivery fee, the service fee, the tip. */
+const ERRAND_CHARGE_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'service_fee', 'tip']);
+/** What the shopper is credited: the goods he paid for at the shops, the delivery fee and the tip. */
+const ERRAND_SHOPPER_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'tip']);
 const TERMINAL_TRIPS = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
 
 export const isPointsAccount = (a: string) => a.startsWith('points:') || a.startsWith('points_pending:') || a === 'points_pool';
@@ -473,7 +479,7 @@ export const INVARIANTS: readonly Definition[] = [
   {
     name: 'courier_delivery_line_matches_offer',
     description:
-      "the delivery fee the ledger pays a courier on a food or grocery order is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %) when he took it while holding another job",
+      "the delivery fee the ledger pays a courier on a food or grocery order, and the errand fee it pays a shopper, is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %, errands too since Ali 2026-10-12) when he took it while holding another job; an errand's receipt is not part of it",
     run: (s) => {
       const bad: string[] = [];
       let checked = 0;
@@ -484,14 +490,15 @@ export const INVARIANTS: readonly Definition[] = [
         if (!trip || trip.courierId !== a.driverId) continue;
         for (const link of trip.orders) {
           const o = orders.get(link.orderId);
-          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog')) continue;
-          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === 'delivery_fee' && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
+          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog' && o.type !== 'errand')) continue;
+          const feeType = o.type === 'errand' ? 'errand_fee' : 'delivery_fee';
+          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === feeType && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
           if (paid.length === 0) continue;
           checked += 1;
           const offer = buildPay({ vertical: trip.vertical, orders: [o], batchedSecond: a.batched, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null });
           const shown = offer.components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation').reduce((n, c) => n + c.amountIqd, 0);
           const got = paid.reduce((n, e) => n + e.amount, 0);
-          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} delivery, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
+          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} ${o.type === 'errand' ? 'errand fee' : 'delivery'}, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
         }
       }
       return { checked, bad };
@@ -689,6 +696,52 @@ export const INVARIANTS: readonly Definition[] = [
         const paid = sum(fees, (e) => e.fromAccount === sender);
         if (paid !== o.totalIqd) bad.push(`${o.id}: sender's parcel fee ${paid} ≠ total ${o.totalIqd} (out ${o.totalIqd - o.returnFareIqd} + back ${o.returnFareIqd})`);
         for (const e of fees) if (!trip.courierId || e.toAccount !== `driver:${trip.courierId}`) bad.push(`${o.id}: parcel fee to ${e.toAccount}, not the trip's courier (${trip.courierId ?? 'none'})`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'errand_paid_equals_receipt_plus_fees',
+    description:
+      '«دوّرلي»: every delivered errand costs the customer exactly its receipt + delivery fee + service fee + tip (a cash total rounded up to 250, the rest change to his wallet); the order\'s goods and the ledger\'s errand cost are the receipt, and the shopper who recorded it is credited the receipt, his offer\'s share of the fee (all of it, or 70 % on a batched second with the rest booked as batched_margin) and the tip',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const receipts = new Map((s.errandReceipts ?? []).map((r) => [r.orderId, r]));
+      const rows = byOrder(s.ledger);
+      const step = RULES.cashStepIqd;
+      for (const o of s.orders) {
+        if (o.type !== 'errand' || o.deliveredAt === null || (o.state !== 'delivered' && o.state !== 'closed')) continue;
+        checked += 1;
+        const rec = receipts.get(o.id);
+        if (!rec) {
+          bad.push(`${o.id}: delivered with no receipt recorded`);
+          continue;
+        }
+        const price = rec.receiptIqd + o.deliveryFeeIqd + o.serviceFeeIqd + o.tipIqd;
+        const due = o.paymentMethod === 'cash' ? Math.ceil(price / step) * step : price;
+        if (o.itemsTotalIqd !== rec.receiptIqd) bad.push(`${o.id}: goods ${o.itemsTotalIqd} ≠ receipt ${rec.receiptIqd}`);
+        if (o.totalIqd !== due) bad.push(`${o.id}: total ${o.totalIqd} ≠ ${due} (receipt ${rec.receiptIqd} + delivery ${o.deliveryFeeIqd} + service ${o.serviceFeeIqd} + tip ${o.tipIqd}, ${o.paymentMethod})`);
+        const r = rows.get(o.id) ?? [];
+        const cost = sum(r, (e) => e.type === 'errand_cost_actual');
+        if (cost !== rec.receiptIqd) bad.push(`${o.id}: ledger errand cost ${cost} ≠ receipt ${rec.receiptIqd}`);
+        const charged = sum(r, (e) => ERRAND_CHARGE_TYPES.has(e.type)) - sum(r, (e) => e.type === 'promo_funded');
+        if (charged !== price) bad.push(`${o.id}: customer charged ${charged} ≠ ${price}`);
+        // A batched second errand (Ali 2026-10-12, #312) pays the shopper his offer's share of the fee
+        // (buildPay, 70 %); the rest is the platform's batched_margin. Both errand_fee lines are the customer's.
+        const shopper = `driver:${rec.courierId}`;
+        const trip = s.trips.find((t) => t.courierId === rec.courierId && t.orders.some((l) => l.orderId === o.id && !l.detachedAt));
+        const batched = trip ? (s.acceptedOffers ?? []).some((a) => a.tripId === trip.id && a.driverId === rec.courierId && a.batched) : false;
+        const share = batched
+          ? buildPay({ vertical: trip!.vertical, orders: [o], batchedSecond: true, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null })
+              .components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation')
+              .reduce((n, c) => n + c.amountIqd, 0)
+          : o.deliveryFeeIqd;
+        const margin = sum(r, (e) => e.type === 'errand_fee' && e.toAccount === 'platform' && e.memo === 'batched_margin');
+        if (margin !== o.deliveryFeeIqd - share) bad.push(`${o.id}: batched_margin ${margin} ≠ ${o.deliveryFeeIqd - share} (fee ${o.deliveryFeeIqd}, shopper share ${share}${batched ? ', batched second' : ''})`);
+        const credited = sum(r, (e) => ERRAND_SHOPPER_TYPES.has(e.type) && e.toAccount === shopper);
+        const owed = rec.receiptIqd + share + o.tipIqd;
+        if (credited !== owed) bad.push(`${o.id}: shopper ${rec.courierId} credited ${credited} ≠ ${owed}`);
       }
       return { checked, bad };
     },

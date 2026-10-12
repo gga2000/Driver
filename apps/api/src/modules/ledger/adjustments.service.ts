@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { DriverError, type MoneyRules, type RoleKind } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { nextLocalMidnight, startOfLocalDay } from '../../shared/local-time.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { LedgerIncidentPort } from './incidents.js';
 import { LedgerService } from './ledger.service.js';
@@ -31,12 +32,28 @@ export interface Adjustment extends AdjustmentRequest {
   postedAt: Date | null;
 }
 
-/** Where a request above the second-approver line waits (the Console's persisted second-OK queue). */
-export type ParkAdjustment = (adj: Adjustment) => Promise<Adjustment>;
+/** Why a request waits for a second OK: above the per-correction line, or over the person's daily solo cap. */
+export type ParkReason = 'above_line' | 'daily_cap';
+
+/** Where a request that needs a second OK waits (the Console's persisted second-OK queue). */
+export type ParkAdjustment = (adj: Adjustment, why: ParkReason) => Promise<Adjustment>;
+
+export interface AdjustmentRequestOptions {
+  /**
+   * What this person has posted alone (no second OK) in `[from, to)`, this Baghdad calendar day. The
+   * caller reads it under a per-person lock, inside `tx`, so two requests at once can't both fit.
+   */
+  soloPostedToday?: (day: { from: Date; to: Date }) => Promise<number>;
+  /** The caller's transaction (the lock's): the posting joins it. */
+  tx?: Tx;
+}
 
 /**
  * Hand-written corrections (edge-case G-85): only finance may post one, with a reason and a linked
  * incident; above 25,000 a second, different finance person must approve before anything posts.
+ * One person's corrections posted alone in a Baghdad day stay within 50,000 (Ali, 2026-10-12): a
+ * request that would go over waits for the second OK too, whatever its own size. Corrections a
+ * colleague approved don't count toward it.
  *
  * The service keeps no pending state: a request above the line is handed to `park` (the caller's
  * persisted queue) and posts only when `approve` is called with it. Posting is idempotent per
@@ -64,8 +81,11 @@ export class AdjustmentService {
     return false;
   }
 
-  /** Posts at once up to the second-approver line; above it, nothing posts and `park` keeps the request. */
-  async request(actor: FinanceActor, input: AdjustmentRequest, park: ParkAdjustment): Promise<Adjustment> {
+  /**
+   * Posts at once up to the second-approver line and within the person's daily solo cap; otherwise
+   * nothing posts and `park` keeps the request.
+   */
+  async request(actor: FinanceActor, input: AdjustmentRequest, park: ParkAdjustment, opts: AdjustmentRequestOptions = {}): Promise<Adjustment> {
     if (!actor.roles.includes('finance')) throw new DriverError('forbidden');
     if (input.reason.trim().length < 5 || !input.incidentId || !(await this.incidentKnown(input.incidentId))) throw new DriverError('adjustment_incident_required');
     if (!Number.isInteger(input.amountIqd) || input.amountIqd <= 0 || input.fromAccount === input.toAccount) throw new DriverError('invalid_input');
@@ -80,8 +100,10 @@ export class AdjustmentService {
       requestedAt: now,
       postedAt: null,
     };
-    if (input.amountIqd > this.rules.adjustments.secondApproverAboveIqd) return park(adj);
-    return this.post(adj, null);
+    if (input.amountIqd > this.rules.adjustments.secondApproverAboveIqd) return park(adj, 'above_line');
+    const soloToday = opts.soloPostedToday ? await opts.soloPostedToday({ from: startOfLocalDay(now), to: nextLocalMidnight(now) }) : 0;
+    if (soloToday + input.amountIqd > this.rules.adjustments.soloDailyMaxIqd) return park(adj, 'daily_cap');
+    return this.post(adj, null, opts.tx);
   }
 
   /** A second, different finance person lets a parked request post. */

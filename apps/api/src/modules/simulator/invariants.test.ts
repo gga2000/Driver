@@ -156,6 +156,40 @@ describe('refused_parcel_two_fares (طرود, Ali 2026-10-12)', () => {
   });
 });
 
+describe('errand_paid_equals_receipt_plus_fees («دوّرلي»)', () => {
+  // Receipt 18,700 + delivery 2,000 + service 500 + tip 1,000 = 22,200 → cash 22,250.
+  const errand = order({ id: 'e1', type: 'errand', state: 'closed', paymentMethod: 'cash', itemsTotalIqd: 18_700, deliveryFeeIqd: 2_000, serviceFeeIqd: 500, tipIqd: 1_000, totalIqd: 22_250, deliveredAt: AT });
+  const line = (type: LedgerEvent['type'], amount: number, toAccount: string): LedgerEvent => ({ id: `le_${type}`, kind: 'money', type, amount, currency: 'IQD', fromAccount: 'customer:c1', toAccount, orderId: 'e1', postingGroupId: 'order:e1:money', occurredAt: AT, recordedAt: AT });
+  const ledger = [line('errand_cost_actual', 18_700, 'driver:k1'), line('errand_fee', 2_000, 'driver:k1'), line('service_fee', 500, 'platform'), line('tip', 1_000, 'driver:k1')];
+  const receipts = [{ orderId: 'e1', courierId: 'k1', receiptIqd: 18_700, byStaff: false }];
+  const check = (s: SimSnapshot) => checkInvariants(s).find((r) => r.name === 'errand_paid_equals_receipt_plus_fees')!;
+
+  it('passes a receipt charged with its fees, the cash rounded up to 250, and the shopper credited', () => {
+    expect(check({ ...snapshot([errand, order({ id: 'o1' })], ledger), errandReceipts: receipts })).toMatchObject({ checked: 1, violations: 0 });
+  });
+
+  it('flags a total off the receipt, a ledger cost that is not the receipt, the wrong shopper and a missing receipt', () => {
+    expect(check({ ...snapshot([{ ...errand, totalIqd: 21_000 }], ledger), errandReceipts: receipts }).examples[0]).toMatch(/e1: total 21000 ≠ 22250/);
+    const cheap = ledger.map((e) => (e.type === 'errand_cost_actual' ? { ...e, amount: 15_000 } : e));
+    expect(check({ ...snapshot([errand], cheap), errandReceipts: receipts }).examples.join('\n')).toMatch(/ledger errand cost 15000 ≠ receipt 18700/);
+    const elsewhere = ledger.map((e) => (e.toAccount === 'driver:k1' ? { ...e, toAccount: 'driver:k2' } : e));
+    expect(check({ ...snapshot([errand], elsewhere), errandReceipts: receipts }).examples[0]).toMatch(/shopper k1 credited 0 ≠ 21700/);
+    expect(check({ ...snapshot([errand], ledger), errandReceipts: [] }).examples[0]).toMatch(/e1: delivered with no receipt/);
+  });
+
+  it('a batched second errand (#312): the shopper gets the receipt, 70 % of the fee and the tip; the rest is batched_margin', () => {
+    // Fee 2,000 → shopper 1,400, platform 600; the customer still pays the whole 2,000.
+    const trip = { id: 't1', vertical: 'food', state: 'completed', courierId: 'k1', stops: [], orders: [{ orderId: 'e1', detachedAt: null }] } as unknown as SimSnapshot['trips'][number];
+    const split = [line('errand_cost_actual', 18_700, 'driver:k1'), line('errand_fee', 1_400, 'driver:k1'), { ...line('errand_fee', 600, 'platform'), id: 'le_margin', memo: 'batched_margin' }, line('service_fee', 500, 'platform'), line('tip', 1_000, 'driver:k1')];
+    const batched = (ledger: LedgerEvent[]) => ({ ...snapshot([errand], ledger), errandReceipts: receipts, trips: [trip], acceptedOffers: [{ tripId: 't1', driverId: 'k1', batched: true }] });
+    expect(check(batched(split))).toMatchObject({ checked: 1, violations: 0 });
+    // The shopper paid the whole fee on a batched second: the margin is missing and he is over-credited.
+    expect(check(batched(ledger)).examples.join('\n')).toMatch(/batched_margin 0 ≠ 600[\s\S]*shopper k1 credited 21700 ≠ 21100/);
+    // Not batched, the margin line must not be there.
+    expect(check({ ...snapshot([errand], split), errandReceipts: receipts }).examples.join('\n')).toMatch(/batched_margin 600 ≠ 0/);
+  });
+});
+
 describe('courier_delivery_line_matches_offer (money §2 batch rate)', () => {
   const trip = (id: string) => ({ id, vertical: 'food', state: 'completed', courierId: 'd1', stops: [], orders: [{ orderId: `o_${id}`, detachedAt: null }] }) as unknown as SimSnapshot['trips'][number];
   const line = (tripId: string, amount: number): LedgerEvent => ({ id: `dl_${tripId}`, kind: 'money', type: 'delivery_fee', amount, currency: 'IQD', fromAccount: 'customer:c1', toAccount: 'driver:d1', tripId, orderId: `o_${tripId}`, occurredAt: AT, recordedAt: AT });
@@ -174,5 +208,22 @@ describe('courier_delivery_line_matches_offer (money §2 batch rate)', () => {
     const r = check([line('t1', 2000), line('t2', 2000)], [false, true]);
     expect(r.violations).toBe(1);
     expect(r.examples[0]).toMatch(/o_t2: courier d1 paid 2000 delivery, his offer showed 1400/);
+  });
+
+  it('errands too (Ali 2026-10-12): the errand fee line matches the offer, 70 % on a batched second, the receipt aside', () => {
+    const errandLine = (tripId: string, amount: number, type: LedgerEvent['type'] = 'errand_fee'): LedgerEvent => ({ ...line(tripId, amount), id: `${type}_${tripId}`, type });
+    const run = (ledger: LedgerEvent[]) =>
+      checkInvariants({
+        ...snapshot([order({ id: 'o_t1', type: 'errand', deliveryFeeIqd: 2000 } as Partial<Order> & { id: string }), order({ id: 'o_t2', type: 'errand', deliveryFeeIqd: 2000 } as Partial<Order> & { id: string })], ledger),
+        trips: [trip('t1'), trip('t2')],
+        acceptedOffers: [
+          { tripId: 't1', driverId: 'd1', batched: false },
+          { tripId: 't2', driverId: 'd1', batched: true },
+        ],
+      }).find((r) => r.name === 'courier_delivery_line_matches_offer')!;
+    expect(run([errandLine('t1', 2000), errandLine('t2', 1400), errandLine('t2', 7000, 'errand_cost_actual')])).toMatchObject({ checked: 2, violations: 0 });
+    const r = run([errandLine('t1', 2000), errandLine('t2', 2000)]);
+    expect(r.violations).toBe(1);
+    expect(r.examples[0]).toMatch(/o_t2: courier d1 paid 2000 errand fee, his offer showed 1400/);
   });
 });

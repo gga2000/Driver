@@ -1,4 +1,4 @@
-import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
+import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass, type ErrandItemSpec } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -142,6 +142,11 @@ export interface OrderLineRecord {
   note: string | null;
   pointsEligible: boolean;
   substitution: LineUnavailability | null;
+  /** A weighed shop line (2026-10-11): grams and the kilo price snapshotted at placement; `unitPriceIqd` is the weighed price. */
+  weightG?: number | null;
+  perKgIqd?: number | null;
+  /** A «دوّرلي» item's details (errand orders). */
+  errandItem?: ErrandItemSpec | null;
 }
 
 export interface ParticipantRecord {
@@ -394,6 +399,9 @@ function lineFromRow(r: any): OrderLineRecord {
     note: r.note,
     pointsEligible: r.pointsEligible,
     substitution: (r.substitution as LineUnavailability | null) ?? null,
+    weightG: r.weightG ?? null,
+    perKgIqd: r.perKgIqd ?? null,
+    errandItem: (r.errandItem as ErrandItemSpec | null) ?? null,
   };
 }
 
@@ -462,6 +470,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
+          weightG: l.weightG ?? null,
+          perKgIqd: l.perKgIqd ?? null,
+          errandItem: l.errandItem ? (l.errandItem as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
           createdAt: new Date(base + i),
         })),
       });

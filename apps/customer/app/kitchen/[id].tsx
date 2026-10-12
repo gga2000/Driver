@@ -22,6 +22,7 @@ import { GiftHeadsUpCard } from '@/features/gift/GiftHeadsUp';
 import { useGift } from '@/features/gift/gift-store';
 import { PushAskCard, usePushAsk } from '@/features/notify/PrePrompt';
 import { shareUrl } from '@/features/rajaa/share';
+import { placeKind, placeWord, type PlaceKind } from '@/features/track/place-kind';
 import { isBookedAhead } from '@/features/food/booked-ahead';
 import { clock12 } from '@/features/food/checkout';
 import { apiErrorMessage, useApi, useApiClient } from '@/lib/api';
@@ -55,6 +56,8 @@ export default function KitchenScreen() {
   const api = useApi();
   const [sending, setSending] = useState(false);
   const o = order.data;
+  // A stall or bakery says «المحل», a restaurant «المطعم» (the order's type, from the server).
+  const kind = placeKind(o ?? { type: 'food' });
   // Joy f1: the notification ask lives here, in the dead time before the kitchen answers — never over the map.
   const pushAsk = usePushAsk(o?.state === 'placed');
   const mineCart = placed?.orderId === id ? placed.cart : null;
@@ -182,7 +185,7 @@ export default function KitchenScreen() {
     );
   }
 
-  if (isKitchenRejection(o)) return <Rejected orderId={o.id} reason={o.cancellationReason} />;
+  if (isKitchenRejection(o)) return <Rejected orderId={o.id} reason={o.cancellationReason} kind={kind} />;
   // FOOD-02: booked for later — the kitchen sees it shortly before its time, so nothing to wait for here.
   if (o.scheduledFor && isBookedAhead(o, now)) return <BookedAhead at={o.scheduledFor} shop={name} cancelling={cancel.isPending} onCancel={() => void onCancel()} />;
 
@@ -202,7 +205,7 @@ export default function KitchenScreen() {
             <View style={{ gap: theme.space[1] }}>
               <Button testID="kitchen-cancel" variant="secondary" fullWidth label={t('kitchen.cancel')} loading={cancel.isPending} onPress={() => void onCancel()} />
               <Text variant="caption" color="textMuted" align="center">
-                {t('kitchen.cancel_free')}
+                {t(placeWord('kitchen.cancel_free', kind))}
               </Text>
             </View>
           ) : null
@@ -219,18 +222,18 @@ export default function KitchenScreen() {
           {ask ? (
             <PartialAskCard ask={ask} shop={shop} now={now} />
           ) : yes ? (
-            <AcceptedCard name={name || t('order.status.placed')} time={yes.time} animate={!theme.reduceMotion} />
+            <AcceptedCard name={name || t(placeWord('order.status.placed', kind))} time={yes.time} animate={!theme.reduceMotion} />
           ) : (
             <View style={{ alignItems: 'center', gap: theme.space[2] }}>
               <Text variant="heading" align="center" testID="kitchen-title">
-                {name ? t('kitchen.sent_title', { name }) : t('order.status.placed')}
+                {name ? t('kitchen.sent_title', { name }) : t(placeWord('order.status.placed', kind))}
               </Text>
               <Text variant="body" color={slow ? 'warningText' : 'textMuted'} align="center" testID="kitchen-hint" accessibilityLiveRegion="polite">
-                {slow ? t('kitchen.slow_hint') : t('kitchen.sent_hint')}
+                {slow ? t(placeWord('kitchen.slow_hint', kind)) : t('kitchen.sent_hint')}
               </Text>
             </View>
           )}
-          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} />
+          <WaitingSteps steps={waitingSteps(Boolean(yes) || !waiting)} kind={kind} />
           {ask ? null : <PersonLinesCard groups={groups} myName={myName} totalLine={t(o.paymentMethod === 'wallet' ? 'kitchen.total_wallet' : 'kitchen.total_cash', { amount: amountParam(o.totalIqd) })} />}
           {gift && id && !yes && !ask ? <GiftHeadsUpCard orderId={id} gift={gift} merchant={name} /> : null}
           {recipient && !gift && !yes && !ask ? (
@@ -246,7 +249,7 @@ export default function KitchenScreen() {
               </View>
             </Card>
           ) : null}
-          {pushAsk.visible && !yes && !ask ? <PushAskCard kind="food" busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
+          {pushAsk.visible && !yes && !ask ? <PushAskCard kind="food" place={kind} busy={pushAsk.busy} onAllow={pushAsk.allow} onLater={pushAsk.later} /> : null}
         </View>
       </Screen>
     </Animated.View>
@@ -297,7 +300,7 @@ function BookedAhead({ at, shop, cancelling, onCancel }: { at: Date; shop: strin
   );
 }
 
-function Rejected({ orderId, reason }: { orderId: string; reason: string | null }) {
+function Rejected({ orderId, reason, kind }: { orderId: string; reason: string | null; kind: PlaceKind }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -347,7 +350,7 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
           <SketchScene name="rejected" />
         </View>
         <Text variant="heading" align="center" testID="kitchen-rejected-title">
-          {cart?.merchant?.name ? t('kitchen.rejected_title', { name: cart.merchant.name }) : t('order.status.merchant_rejected')}
+          {cart?.merchant?.name ? t('kitchen.rejected_title', { name: cart.merchant.name }) : t(placeWord('order.status.merchant_rejected', kind))}
         </Text>
         {why ? (
           <Text variant="body" weight={600} align="center" testID="kitchen-rejected-reason">
@@ -355,7 +358,7 @@ function Rejected({ orderId, reason }: { orderId: string; reason: string | null 
           </Text>
         ) : null}
         <Text variant="body" color="textMuted" align="center">
-          {t('order.status.merchant_rejected_hint')}
+          {t(placeWord('order.status.merchant_rejected_hint', kind))}
         </Text>
       </View>
 

@@ -135,6 +135,11 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a refused parcel', (x) => x.type === 'parcel' && x.returnFareIqd != null);
     s.ledger.push(row({ type: 'parcel_fee', amount: o.returnFareIqd!, fromAccount: 'customer:fault_receiver', toAccount: 'driver:fault', orderId: o.id }));
   },
+  errand_paid_equals_receipt_plus_fees: (s) => {
+    // The receipt recorded but the total still priced on the customer's guess (no server recompute).
+    const o = first(s.orders, 'a delivered errand', (x) => x.type === 'errand' && x.deliveredAt !== null);
+    o.totalIqd += 1_000;
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 

@@ -24,6 +24,7 @@ import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
+import type { ShoppingPort } from './shopping-io.js';
 import type { FoodCartsPort } from './food-carts-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
@@ -138,6 +139,8 @@ export interface AppContext {
   rideHabits: RideHabitsPort;
   /** Parcels طرود: quote, send, the parcel's page, her door page (`modules/parcels`). */
   parcels: ParcelsPort;
+  /** The shopping side «السوق»: stalls, bakeries, daily bread, shop mode (`modules/shopping`). */
+  shopping: ShoppingPort;
   /** Food carts «عربانات»: list, follow, walk-over tickets, cart mode (`modules/food-carts`). */
   foodCarts: FoodCartsPort;
   /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */

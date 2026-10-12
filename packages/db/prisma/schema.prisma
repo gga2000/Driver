@@ -1186,6 +1186,11 @@ model OrderLine {
   pointsEligible Boolean  @default(true) @map("points_eligible")
   /// Substitution flow (domain §4): proposed → accepted/declined.
   substitution   Json?
+  /// Shopping (2026-10-11): a weighed line's grams and the kilo price it was sold at (priced by the server).
+  weightG        Int?     @map("weight_g")
+  perKgIqd       Int?     @map("per_kg_iqd")
+  /// دوّرلي: the shopper's item card {where, ifMissing, maxIqd?, voiceUrl?, photoUrl?}; no names or phones.
+  errandItem     Json?    @map("errand_item")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -3988,6 +3993,74 @@ model ParcelSend {
   @@index([recipientPersonId, createdAt])
   @@index([orderId])
   @@map("parcel_sends")
+  @@schema("public")
+}
+
+/// Shopping «السوق» (2026-10-11): how a stall's or bakery's catalog item sells.
+model ShopItem {
+  id         String   @id @default(cuid())
+  itemId     String   @unique @map("item_id")
+  orgId      String   @map("org_id")
+  /// 'kg' | 'piece' | 'lot'
+  soldBy     String   @map("sold_by")
+  piecesMin  Int?     @map("pieces_min")
+  piecesMax  Int?     @map("pieces_max")
+  piecesWord String?  @map("pieces_word")
+  /// Bakery lots: pieces for one lot's price (4 صمون بـ 1,000).
+  perLot     Int?     @map("per_lot")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@map("shop_items")
+  @@schema("public")
+}
+
+/// A stall's morning «أسعار اليوم», one row per item and local day.
+model ShopDayPost {
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
+  itemId        String   @map("item_id")
+  localDate     String   @map("local_date")
+  priceIqd      Int      @map("price_iqd")
+  photoUrl      String?  @map("photo_url")
+  fromYesterday Boolean  @default(false) @map("from_yesterday")
+  available     Boolean  @default(true)
+  postedAt      DateTime @map("posted_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([itemId, localDate])
+  @@index([orgId, localDate])
+  @@map("shop_day_posts")
+  @@schema("public")
+}
+
+/// «صمون كل يوم»: a standing bread order placed by the server each chosen day.
+model ShopDailyBread {
+  id           String   @id @default(cuid())
+  personId     String   @map("person_id")
+  cityId       String   @map("city_id")
+  orgId        String   @map("org_id")
+  itemId       String   @map("item_id")
+  packs        Int
+  /// Local hh:mm delivery time: '06:30' | '13:00' | '19:00'.
+  time         String
+  /// 0 = Sunday … 6 = Saturday.
+  days         Int[]
+  /// DeliveryPoint {zoneKey, pin?}.
+  dropoff      Json
+  courierNote  String?  @map("courier_note")
+  paused       Boolean  @default(false)
+  /// Local date of the last day an order was placed (one per day).
+  lastPlacedOn String?  @map("last_placed_on")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([personId])
+  @@index([time, paused])
+  @@index([orgId])
+  @@map("shop_daily_bread")
   @@schema("public")
 }
 

@@ -38,6 +38,16 @@ describe('work logic', () => {
     expect(jobAction({ type: 'pickup', state: 'arrived', collectIqd: 0 }, 'tuktuk').label).toBe('partner.action_rider_in');
   });
 
+  it('a دوّرلي job says shops at its pickup; food and ride words stay', () => {
+    expect(jobAction({ type: 'pickup', state: 'pending', collectIqd: 0 }, 'errand')).toMatchObject({ kind: 'arrive', label: 'partner.action_arrived_shop', title: 'partner.task_go_shops' });
+    expect(jobAction({ type: 'pickup', state: 'arrived', collectIqd: 0 }, 'errand')).toMatchObject({ kind: 'complete', label: 'partner.action_bought_list', title: 'partner.task_at_shops' });
+    expect(jobAction({ type: 'dropoff', state: 'pending', collectIqd: 9_000 }, 'errand')).toEqual(jobAction({ type: 'dropoff', state: 'pending', collectIqd: 9_000 }, 'food'));
+    expect(jobAction({ type: 'dropoff', state: 'arrived', collectIqd: 9_000 }, 'errand')).toEqual(jobAction({ type: 'dropoff', state: 'arrived', collectIqd: 9_000 }, 'food'));
+    expect(jobAction({ type: 'pickup', state: 'pending', collectIqd: 0 }, 'food')).toMatchObject({ label: 'partner.action_arrived_pickup', title: 'partner.task_go_pickup' });
+    expect(jobAction({ type: 'pickup', state: 'arrived', collectIqd: 0 }, 'taxi')).toMatchObject({ label: 'partner.action_rider_in', title: 'partner.task_wait_rider' });
+    expect(jobAction({ type: 'pickup', state: 'arrived', collectIqd: 0 }, 'parcel')).toMatchObject({ label: 'partner.action_picked_up', title: 'partner.task_at_pickup' });
+  });
+
   it('task progress counts the current stop among the run', () => {
     const stops = [
       { stopId: 'a', state: 'completed' },

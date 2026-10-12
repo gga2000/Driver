@@ -1,3 +1,4 @@
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { createHash } from 'node:crypto';
 import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
@@ -160,7 +161,7 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
  * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
  * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort } = {}) {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort; uploads?: OrdersUploadsPort } = {}) {
   const clock = new FakeClock(start);
   const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
@@ -223,13 +224,14 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
       const resolve = placeZones.resolve;
       return resolve ? { resolve } : undefined;
     },
-  }, orgsHouseholds(orgs), eta);
+  }, orgsHouseholds(orgs), eta, undefined, opts.uploads);
   orders.onModuleInit();
   // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
   const riderIdentity = new FakeRiderIdentity(people);
   orders.bindRiders(identityRiders(riderIdentity, orgsHouseholds(orgs)));
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
+  trips.bindPickupGuard({ problem: (orderId) => orders.errandPickupProblem(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   // FLW-22: the durable copies of both modules' timers, as the modules bind them; `sweeper.sweep()` fires

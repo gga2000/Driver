@@ -700,6 +700,8 @@ export const AdjustResult = z.object({
   amountIqd: Iqd,
   /** Above the second-approver line: the request waiting in the second-OK queue (`support.refundApprovals`). */
   approvalId: z.string().nullable(),
+  /** Why it waits: above the per-correction line, or it would take today's solo total above the daily cap. Null when posted. */
+  queuedBecause: z.enum(['above_line', 'daily_cap']).nullable().default(null),
 });
 export type AdjustResult = z.infer<typeof AdjustResult>;
 
