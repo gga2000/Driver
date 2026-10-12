@@ -242,6 +242,8 @@ export interface OrdersRepository {
   householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]>;
   /** Joy w6: everyone who placed an order in `[from, to)` that was delivered or completed (distinct). */
   orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
+  /** Ids of the orders that reached `closed` in `[from, to)` (the nightly money-group check). */
+  closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
@@ -565,6 +567,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((r) => r.ordererId);
   }
 
+  async closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
+    const rows = await this.db(tx).order.findMany({ where: { state: 'closed', closedAt: { gte: from, lt: to } }, orderBy: [{ closedAt: 'asc' }, { id: 'asc' }], select: { id: true } });
+    return rows.map((r) => r.id);
+  }
+
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]> {
     const rows = await this.db(tx).order.findMany({
       where: { placedAt: { gte: from, lt: to }, OR: [{ householdOrgId }, ...(memberIds.length > 0 ? [{ familyTable: true, ordererId: { in: [...memberIds] } }] : [])] },
@@ -816,6 +823,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       if (o.placedAt >= from && o.placedAt < to && (o.deliveredAt !== null || o.state === 'completed' || o.state === 'closed')) out.add(o.ordererId);
     }
     return [...out];
+  }
+
+  async closedBetween(from: Date, to: Date): Promise<string[]> {
+    return [...this.orders.values()]
+      .filter((o) => o.state === 'closed' && o.closedAt !== null && o.closedAt >= from && o.closedAt < to)
+      .sort((a, b) => a.closedAt!.getTime() - b.closedAt!.getTime() || a.id.localeCompare(b.id))
+      .map((o) => o.id);
   }
 
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {

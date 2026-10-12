@@ -132,8 +132,13 @@ export async function driverOffers(ctx: SimContext, d: DriverRun, offers: Readon
     // The desk picked him because he was free; if he has taken another job since, he tells it no
     // (a manual offer skips dispatch's batching rules, so accepting would be an unplanned batch).
     const accept = p.decision === 'accept' && !(ctx.deskOffers.has(p.offerId) && d.trips.size > 0);
+    // What his offer card shows: the batch rate when he already holds another job (Partner `currentOffer`).
+    const held = accept ? await ctx.call('driver.jobs', () => ctx.s.trips.forDriver(d.personId)) : null;
     const res = await ctx.call('driver.respond', () => ctx.s.dispatch.respond(actorOf(d), { offerId: p.offerId, accept }));
-    if (res?.outcome === 'assigned') await takeTrip(ctx, d, res.tripId);
+    if (res?.outcome === 'assigned') {
+      ctx.acceptedOffers.push({ tripId: res.tripId, driverId: d.personId, batched: (held ?? []).some((t) => t.id !== res.tripId) });
+      await takeTrip(ctx, d, res.tripId);
+    }
   }
 }
 

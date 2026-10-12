@@ -87,6 +87,8 @@ export interface RoutesRepository {
   driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord>;
   /** Bookings with a written review, newest review first. */
   reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]>;
+  /** Bookings completed, or marked no-show, in `[from, to)` (the ledger's nightly money-group check). */
+  settledBetween(from: Date, to: Date, tx?: Tx): Promise<BookingRecord[]>;
 
   saveDemand(p: DemandPostRecord, tx?: Tx): Promise<void>;
   getDemand(id: string, tx?: Tx): Promise<DemandPostRecord | null>;
@@ -250,6 +252,11 @@ export class InMemoryRoutesRepository implements RoutesRepository {
       .sort((a, b) => b.review!.at.getTime() - a.review!.at.getTime())
       .slice(0, f.limit)
       .map(clone);
+  }
+
+  async settledBetween(from: Date, to: Date): Promise<BookingRecord[]> {
+    const within = (at: Date | null) => at !== null && at >= from && at < to;
+    return [...this.bookings.values()].filter((b) => within(b.completedAt) || within(b.noShowAt)).map(clone);
   }
 
   async saveDemand(p: DemandPostRecord): Promise<void> {

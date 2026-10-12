@@ -2,16 +2,18 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { OUTBOX_REQUEUE_ROLES } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { outboxHealth } from '@/lib/board';
 import { formatClock, formatDayClock, formatIqd, shortId } from '@/lib/format';
 import { netWords } from '@/lib/control-room';
 import { CITY_ID, queryRetry } from '@/lib/live';
+import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
-import { Button, Card, Chip, cx, IconAlert, IconCheckCircle, IconClock, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Row, Skeleton, useToast } from './ui';
+import { Button, Card, Chip, cx, Dialog, IconAlert, IconCheckCircle, IconClock, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Row, Skeleton, useToast } from './ui';
 
 /** Engineering health lives here (K-23): the API and its stores, the nightly close, the outbox and the simulator. */
 export function SystemPage() {
@@ -143,8 +145,13 @@ function OutboxCard() {
   const outbox = useQuery(trpc.system.outbox.queryOptions(undefined, { enabled: signedIn, refetchInterval: 5_000, retry: queryRetry }));
   const o = outbox.data;
   const health = o ? outboxHealth(o) : 'ok';
+  const { roles } = useMyRoles();
+  // Admin only (audited on the server): failed rows go back on the queue once the cause is fixed.
+  const canRequeue = hasAny(roles, OUTBOX_REQUEUE_ROLES);
+  const [requeue, setRequeue] = useState<string[] | null>(null);
   return (
     <Card title={t('console.outbox')} hint={t('console.outbox_hint')} tone={health === 'failing' ? 'bad' : 'default'} actions={signedIn ? <LiveBadge seconds={5} updatedAt={outbox.dataUpdatedAt} fetching={outbox.isFetching} compact /> : undefined}>
+      <RequeueDialog ids={requeue} onClose={() => setRequeue(null)} />
       {!signedIn && <NeedLogin />}
       {outbox.error && <QueryError error={outbox.error} onRetry={() => void outbox.refetch()} />}
       {signedIn && !o && outbox.isPending && <Skeleton className="h-16" />}
@@ -157,7 +164,14 @@ function OutboxCard() {
           </dl>
           {o.recentFailed.length > 0 ? (
             <div className="mt-4">
-              <p className="text-dense font-medium">{t('console.outbox_recent_failed')}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-dense font-medium">{t('console.outbox_recent_failed')}</p>
+                {canRequeue && (
+                  <Button variant="secondary" needsNet onClick={() => setRequeue(o.recentFailed.map((f) => f.id))} data-testid="outbox-requeue-all">
+                    {t('console.outbox_requeue_all', { n: o.recentFailed.length })}
+                  </Button>
+                )}
+              </div>
               <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto text-sm">
                 {o.recentFailed.map((f) => (
                   <li key={f.id} className="rounded-md border border-bad/40 bg-bad-tint px-3 py-2">
@@ -175,6 +189,11 @@ function OutboxCard() {
                         {f.lastError}
                       </p>
                     )}
+                    {canRequeue && (
+                      <Button variant="secondary" needsNet className="mt-2" onClick={() => setRequeue([f.id])} data-testid={`outbox-requeue-${f.id}`}>
+                        {t('console.outbox_requeue')}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -188,6 +207,45 @@ function OutboxCard() {
         </>
       )}
     </Card>
+  );
+}
+
+/** Confirms an admin requeue of failed outbox rows (`system.requeueOutbox`, audited on the server). */
+function RequeueDialog({ ids, onClose }: { ids: string[] | null; onClose: () => void }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const run = useMutation(
+    trpc.system.requeueOutbox.mutationOptions({
+      onSuccess: (r) => {
+        void qc.invalidateQueries({ queryKey: trpc.system.outbox.queryKey() });
+        void qc.invalidateQueries({ queryKey: trpc.system.moneyAlarm.queryKey() });
+        toast({ title: t('console.outbox_requeued', { n: r.requeued }), tone: 'ok' });
+        onClose();
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
+  const n = ids?.length ?? 0;
+  return (
+    <Dialog
+      open={ids !== null}
+      onClose={onClose}
+      width="sm"
+      title={t('console.outbox_requeue_title', { n })}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('console.cancel')}
+          </Button>
+          <Button variant="primary" needsNet loading={run.isPending} onClick={() => ids && run.mutate({ ids })} data-testid="outbox-requeue-confirm">
+            {t('console.outbox_requeue_confirm')}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-text">{t('console.outbox_requeue_body')}</p>
+    </Dialog>
   );
 }
 

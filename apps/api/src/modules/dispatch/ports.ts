@@ -59,12 +59,13 @@ export interface JobExposure {
  * offers; a cash job must also fit under the cap (or be a single job worth ≤ 50 % of it).
  * `unpostedIqd` is cash he collected on a job that finished but that the ledger has not posted yet
  * (dispatch's cash holds); it counts like posted cash. `cashPosted`: has the trip's money reached
- * his cash account (the hold can go).
+ * his cash account (the hold can go); with `orderId`, that order's money (a trip with two cash
+ * drop-offs releases each order's hold on its own posting).
  */
 export interface CapsPort {
   isOverCap(driverId: string, unpostedIqd?: number): Promise<boolean>;
   canOffer(driverId: string, job?: JobExposure, unpostedIqd?: number): Promise<boolean>;
-  cashPosted(driverId: string, tripId: string): Promise<boolean>;
+  cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean>;
 }
 export const CAPS = Symbol('CAPS');
 
@@ -175,7 +176,7 @@ export class FakeCaps implements CapsPort {
 
   readonly asked: Array<{ driverId: string; job: JobExposure | undefined }> = [];
 
-  /** Trips whose cash the ledger has posted, as `${driverId}:${tripId}`. */
+  /** Trips whose cash the ledger has posted, as `${driverId}:${tripId}`, or one order's as `${driverId}:${tripId}:${orderId}`. */
   readonly posted = new Set<string>();
 
   async isOverCap(driverId: string, unpostedIqd = 0): Promise<boolean> {
@@ -190,8 +191,8 @@ export class FakeCaps implements CapsPort {
     return job.valueIqd <= this.room(driverId, unpostedIqd);
   }
 
-  async cashPosted(driverId: string, tripId: string): Promise<boolean> {
-    return this.posted.has(`${driverId}:${tripId}`);
+  async cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean> {
+    return this.posted.has(`${driverId}:${tripId}`) || (orderId !== undefined && this.posted.has(`${driverId}:${tripId}:${orderId}`));
   }
 
   private room(driverId: string, unpostedIqd: number): number {

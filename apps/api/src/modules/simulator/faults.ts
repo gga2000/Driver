@@ -88,6 +88,15 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'credit_issued', amount: 1000, fromAccount: 'platform', toAccount: `customer:${o.ordererId}`, orderId: o.id, postingGroupId: `late_promise:${o.id}` }));
   },
+  courier_delivery_line_matches_offer: (s) => {
+    // A batched second paid the whole delivery fee (the batch never reached the money fact).
+    const fees = new Map(s.orders.filter((o) => o.type === 'food').map((o) => [o.id, o.deliveryFeeIqd]));
+    const line = first(s.ledger, "a courier's whole delivery fee on a food order", (e) => e.type === 'delivery_fee' && e.toAccount.startsWith('driver:') && Boolean(e.tripId) && e.amount === fees.get(e.orderId ?? ''));
+    const driverId = line.toAccount.slice('driver:'.length);
+    const trip = first(s.trips, 'its trip', (t) => t.id === line.tripId);
+    trip.courierId = driverId;
+    (s.acceptedOffers ??= []).push({ tripId: trip.id, driverId, batched: true });
+  },
   tip_after_rating_once_and_to_the_driver: (s) => {
     // The tip posted for a courier who never carried the order (a client-chosen driver id).
     const o = first(s.orders, 'a delivered food order', (x) => x.type === 'food' && x.deliveredAt !== null);

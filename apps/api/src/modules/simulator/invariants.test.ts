@@ -155,3 +155,24 @@ describe('refused_parcel_two_fares (طرود, Ali 2026-10-12)', () => {
     expect(check([fee()], [trip, { ...trip, id: 't2' }]).examples[0]).toMatch(/on 2 trips/);
   });
 });
+
+describe('courier_delivery_line_matches_offer (money §2 batch rate)', () => {
+  const trip = (id: string) => ({ id, vertical: 'food', state: 'completed', courierId: 'd1', stops: [], orders: [{ orderId: `o_${id}`, detachedAt: null }] }) as unknown as SimSnapshot['trips'][number];
+  const line = (tripId: string, amount: number): LedgerEvent => ({ id: `dl_${tripId}`, kind: 'money', type: 'delivery_fee', amount, currency: 'IQD', fromAccount: 'customer:c1', toAccount: 'driver:d1', tripId, orderId: `o_${tripId}`, occurredAt: AT, recordedAt: AT });
+  const check = (ledger: LedgerEvent[], batched: boolean[]) =>
+    checkInvariants({
+      ...snapshot([order({ id: 'o_t1', deliveryFeeIqd: 2000 }), order({ id: 'o_t2', deliveryFeeIqd: 2000 })], ledger),
+      trips: [trip('t1'), trip('t2')],
+      acceptedOffers: batched.map((b, i) => ({ tripId: `t${i + 1}`, driverId: 'd1', batched: b })),
+    }).find((r) => r.name === 'courier_delivery_line_matches_offer')!;
+
+  it('passes the whole fee on a first job and 70 % on a batched second', () => {
+    expect(check([line('t1', 2000), line('t2', 1400)], [false, true])).toMatchObject({ checked: 2, violations: 0 });
+  });
+
+  it('flags a batched second paid the whole fee', () => {
+    const r = check([line('t1', 2000), line('t2', 2000)], [false, true]);
+    expect(r.violations).toBe(1);
+    expect(r.examples[0]).toMatch(/o_t2: courier d1 paid 2000 delivery, his offer showed 1400/);
+  });
+});
