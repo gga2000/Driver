@@ -512,7 +512,7 @@ function JobView({
             <>
               {queued ? <QueuedStrip sending={sending} text="partner.queued" /> : null}
               {gpsWeak ? <GpsWeakStrip weak={gpsWeak} /> : null}
-              <ProgressRail stage={stage} ride={ride} />
+              <ProgressRail stage={stage} ride={ride} errand={job.vertical === 'errand'} />
               <View style={{ gap: 2 }}>
                 {multi ? (
                   <Text variant="caption" color="textMuted" tabular>

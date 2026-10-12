@@ -9,6 +9,7 @@ export default async function run(s) {
   const c = await s.signIn(COURIER);
   await c.goto('/job');
   await c.wait('errand-list');
+  await c.shot('rail', { settle: 1500 });
   await c.byTestId('errand-list').scrollIntoViewIfNeeded();
   await c.shot('list', { settle: 1500 });
   await c.byTestId('errand-tick-2').click();

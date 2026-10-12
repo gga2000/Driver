@@ -9469,5 +9469,11 @@
   "partner.errand.photo_dead": "Photo didn't load",
   "partner.errand.photo_open": "Open the photo of {what}",
   "partner.errand.tick": "Bought {what}",
-  "partner.errand.offline": "No internet: photos and voice come back with it"
+  "partner.errand.offline": "No internet: photos and voice come back with it",
+  "partner.task_go_shops": "Head to the shops",
+  "partner.task_at_shops": "Buy the list",
+  "partner.action_arrived_shop": "I'm at the shop",
+  "partner.action_bought_list": "Bought the list",
+  "partner.rail_shops": "Shops",
+  "partner.rail_buy": "Buying"
 }

@@ -186,12 +186,13 @@ export interface JobAction {
 
 export function jobAction(stop: Pick<PartnerJobStop, 'type' | 'state' | 'collectIqd'>, vertical: Vertical): JobAction {
   const ride = isRide(vertical);
+  const errand = vertical === 'errand';
   const pickup = stop.type === 'pickup' || stop.type === 'shop';
   const arrived = stop.state === 'arrived';
   if (pickup) {
     return arrived
-      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
-      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
+      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : errand ? 'partner.action_bought_list' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : errand ? 'partner.task_at_shops' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
+      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : errand ? 'partner.action_arrived_shop' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : errand ? 'partner.task_go_shops' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
   }
   return arrived
     ? {

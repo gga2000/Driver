@@ -9469,5 +9469,11 @@
   "partner.errand.photo_dead": "الصورة ما فتحت",
   "partner.errand.photo_open": "افتح صورة {what}",
   "partner.errand.tick": "اشتريت {what}",
-  "partner.errand.offline": "ماكو نت: الصور والصوت يرجعن وية النت"
+  "partner.errand.offline": "ماكو نت: الصور والصوت يرجعن وية النت",
+  "partner.task_go_shops": "روح للمحلات",
+  "partner.task_at_shops": "اشتري الليستة",
+  "partner.action_arrived_shop": "وصلت للمحل",
+  "partner.action_bought_list": "اشتريت الليستة",
+  "partner.rail_shops": "المحلات",
+  "partner.rail_buy": "الشراء"
 }
