@@ -6316,7 +6316,7 @@
   "console.zones_checks_hint": "تتأكد المنطقة بـ {need} أجوبة «إي» من {minDrivers} سواق أو أكثر · عدد السواق لحد هسة: {drivers}",
   "console.zones_flagged": "سايق قال لا",
   "console.zones_flagged_hint": "سايق جاوب إنه مو بهالمنطقة. روحوا شوفوها: إذا الحدود غلط صلّحها واحفظها، وإذا صحيحة دوس «تم الفحص»",
-  "console.zones_mark_checked": "انفحصت",
+  "console.zones_mark_checked": "تم الفحص",
   "console.zones_confirm_checked": "فحصتوا {name} والحدود صحيحة؟ بلاغ السايق يختفي، ويرجع إذا سايق قال لا مرة ثانية.",
   "console.zones_checked_toast": "انشال البلاغ عن {name}",
   "console.zones_checked_confirmed_toast": "انشال البلاغ وتأكدت {name}",
