@@ -6,7 +6,8 @@ import { pinIn, zoneSeed, type World } from './world.js';
 /**
  * The demand plan (plan Step 7): when each order is placed, by whom, for what, and how its
  * customer behaves. Default mix 70 % food (auto-assign), 25 % city rides (broadcast), 5 % orders
- * the customer cancels at a random stage; about one ride in ten is booked «بعدين» (step 4, c10). City peaks shape the day: lunch 13:00–15:00 and dinner
+ * the customer cancels at a random stage; about one ride in ten is booked «بعدين» (step 4, c10). «دوّرلي»
+ * errands come on top (3 % of the orders, from their own stream). City peaks shape the day: lunch 13:00–15:00 and dinner
  * 19:30–22:30 (Asia/Baghdad). Built up front from the seed, so it never depends on how the run
  * unfolds.
  */
@@ -25,11 +26,35 @@ export interface PlannedLine {
   unitPriceIqd: number;
 }
 
+/** One «دوّرلي» item on the customer's list: his words, how many, and what he guesses it costs. */
+export interface PlannedErrandLine {
+  freeText: string;
+  qty: number;
+  estimateIqd: number;
+}
+
+/** A «دوّرلي» run: the shops, the list, and what really happens at the shops (sim truth, from the seed). */
+export interface PlannedErrand {
+  pickupZone: string;
+  pickupPin: LatLng;
+  lines: PlannedErrandLine[];
+  /** The whole list's ceiling the customer set (over it the shopper calls first; the receipt still records). */
+  listMaxIqd: number;
+  /** Minutes the shopper spends buying the list once he is at the shops. */
+  shopMin: number;
+  /** What the receipt says: the estimate, off by what the shops really charged (a multiple of 250). */
+  receiptIqd: number;
+  /** The customer's tip at checkout (0 most of the time). */
+  tipIqd: number;
+  /** The receipt photo would not send: the shopper reads the amount out and ops record it (`orders.ops.recordErrandReceipt`). */
+  photoFails: boolean;
+}
+
 export interface PlannedOrder {
   key: string;
   /** Minutes after the day opens. */
   atMin: number;
-  kind: 'food' | 'ride';
+  kind: 'food' | 'ride' | 'errand';
   customer: number;
   payment: 'cash' | 'wallet';
   /** Food: restaurant index and lines. */
@@ -49,6 +74,8 @@ export interface PlannedOrder {
   bookAheadMin: number | null;
   /** What the kitchen will do with it (food): exactly 3 % rejected, 2 % partially accepted. */
   kitchen: 'accept' | 'reject' | 'partial';
+  /** «دوّرلي» only: the shops, the list and the receipt. */
+  errand: PlannedErrand | null;
 }
 
 export interface ScenarioOptions {
@@ -58,6 +85,77 @@ export interface ScenarioOptions {
   rideShare?: number;
   /** Share of the rides not cancelled that are booked ahead; default 0.1. */
   bookedShare?: number;
+  /**
+   * «دوّرلي» errands on top of the mix, as a share of `orders` (default 0.03, at least one when
+   * above 0; 0 when the city has not opened errands). Planned from their own stream, so the rest of
+   * the plan is the same with or without them.
+   */
+  errandShare?: number;
+}
+
+/** What people send a shopper for in Aziziyah, with a fair guess of the price (dinars, per unit). */
+const ERRAND_ITEMS: ReadonlyArray<{ freeText: string; estimateIqd: number; maxQty: number }> = [
+  { freeText: 'صمون', estimateIqd: 250, maxQty: 20 },
+  { freeText: 'بنادول', estimateIqd: 1_500, maxQty: 3 },
+  { freeText: 'حليب نيدو', estimateIqd: 9_000, maxQty: 2 },
+  { freeText: 'طماطة كيلو', estimateIqd: 1_000, maxQty: 3 },
+  { freeText: 'بيض طبقة', estimateIqd: 5_500, maxQty: 2 },
+  { freeText: 'دفتر وقلم', estimateIqd: 1_500, maxQty: 4 },
+  { freeText: 'رصيد آسيا', estimateIqd: 5_000, maxQty: 2 },
+  { freeText: 'شاي محمود', estimateIqd: 3_500, maxQty: 2 },
+  { freeText: 'ركي', estimateIqd: 3_000, maxQty: 1 },
+  { freeText: 'دوه كحة', estimateIqd: 4_000, maxQty: 1 },
+];
+
+/** «دوّرلي» runs from their own stream (`scenario:errands`): when, who, which shops, the list and the receipt. */
+function planErrands(world: World, n: number): PlannedOrder[] {
+  const rand = createRand(world.seed).fork('scenario:errands');
+  const shopsZones = AZIZIYAH_ZONES.filter((z) => z.tier !== 'edge');
+  const out: PlannedOrder[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const customer = rand.int(0, world.customers.length - 1);
+    const c = world.customers[customer]!;
+    const shops = rand.pick(shopsZones);
+    const count = rand.int(1, 4);
+    const lines: PlannedErrandLine[] = [];
+    for (let k = 0; k < count; k += 1) {
+      const item = rand.pick(ERRAND_ITEMS);
+      if (lines.some((l) => l.freeText === item.freeText)) continue;
+      lines.push({ freeText: item.freeText, qty: rand.int(1, item.maxQty), estimateIqd: item.estimateIqd });
+    }
+    const estimate = lines.reduce((sum, l) => sum + l.qty * l.estimateIqd, 0);
+    // The shops charge a little more or less than he guessed; now and then a lot more (over his ceiling).
+    const factor = rand.chance(0.06) ? rand.range(1.6, 2) : rand.range(0.85, 1.2);
+    const receiptIqd = Math.max(250, Math.round((estimate * factor) / 250) * 250);
+    out.push({
+      key: `e${i + 1}`,
+      atMin: sampleMinute(rand, 'ride'),
+      kind: 'errand',
+      customer,
+      payment: 'cash',
+      restaurant: null,
+      lines: [],
+      rideVertical: null,
+      dropoffZone: c.zoneId,
+      dropoffPin: c.home,
+      cancel: null,
+      unreachableSec: 0,
+      boardingSec: 0,
+      bookAheadMin: null,
+      kitchen: 'accept',
+      errand: {
+        pickupZone: shops.id,
+        pickupPin: pinIn(shops.id, rand),
+        lines,
+        listMaxIqd: Math.ceil((estimate * 1.5) / 1000) * 1000,
+        shopMin: rand.int(5, 20),
+        receiptIqd,
+        tipIqd: rand.chance(0.2) ? 1_000 : 0,
+        photoFails: rand.chance(0.15),
+      },
+    });
+  }
+  return out;
 }
 
 /** Rides booked ahead are booked 30–90 minutes ahead (some get the half-hour reminder, some do not). */
@@ -172,6 +270,7 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
       boardingSec: rand.int(0, 60),
       bookAheadMin: null,
       kitchen: 'accept' as const,
+      errand: null,
     };
   });
 
@@ -192,7 +291,12 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
   const nReject = Math.round(food.length * 0.03);
   food.slice(0, nReject).forEach((p) => (p.kitchen = 'reject'));
   food.slice(nReject).filter((p) => p.lines.length >= 2).slice(0, Math.round(food.length * 0.02)).forEach((p) => (p.kitchen = 'partial'));
-  return planned;
+
+  // «دوّرلي»: on top of the mix, merged in by time (a stable sort keeps the others in their order).
+  const errandShare = opts.errandShare ?? 0.03;
+  const nErrands = errandShare > 0 ? Math.max(1, Math.round(opts.orders * errandShare)) : 0;
+  if (nErrands === 0) return planned;
+  return [...planned, ...planErrands(world, nErrands)].sort((a, b) => a.atMin - b.atMin);
 }
 
 function shuffle<T>(items: T[], rand: Rand): void {

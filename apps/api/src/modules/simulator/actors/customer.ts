@@ -2,7 +2,7 @@ import { PriceRequest, RIDE_HABIT_RULES, rideSearchStartsAt, type Order } from '
 import { CITY, type OrderRun, type SimContext } from '../context.js';
 import { zoneAt } from '../world.js';
 
-/** Customer behaviour: places food and ride orders, cancels at random stages (~5 %), answers partial proposals, rates and tips. */
+/** Customer behaviour: places food, ride and «دوّرلي» orders, cancels at random stages (~5 %), answers partial proposals, rates and tips. */
 export const CUSTOMER_BEHAVIOUR = {
   partialApprove: 0.7,
   partialDecline: 0.2,
@@ -16,6 +16,8 @@ export const CUSTOMER_BEHAVIOUR = {
   fiveStars: 0.85,
   /** A wallet payer who gave 4–5 stars tips one of the offered chips (Ali, 2026-10-06). */
   tipAfterGoodRating: 0.4,
+  /** «دوّرلي» nobody took this long: the customer cancels (free: no shopper yet). */
+  errandPatienceMin: 40,
 };
 
 /** Places the planned order through `orders.place` (rides also get their trip and a broadcast request). */
@@ -24,6 +26,10 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
   const c = ctx.world.customers[p.customer]!;
   run.placedT = ctx.t;
   run.stageT.placed = ctx.t;
+  if (p.kind === 'errand') {
+    await placeErrand(ctx, run);
+    return;
+  }
   if (p.kind === 'food') {
     const r = run.restaurant!;
     const quote = ctx.s.pricing.quote(
@@ -122,6 +128,38 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
   );
 }
 
+/**
+ * «دوّرلي»: the customer app's list (free-text items with his guess of each price and the whole
+ * list's ceiling), cash at the door. The server prices the fees; dispatch starts on `order.placed`.
+ */
+async function placeErrand(ctx: SimContext, run: OrderRun): Promise<void> {
+  const p = run.plan;
+  const e = p.errand!;
+  const order = await ctx.call('customer.place_errand', () =>
+    ctx.s.orders.place(run.customerId, {
+      cityId: CITY,
+      type: 'errand',
+      pickup: { zoneKey: e.pickupZone, pin: e.pickupPin },
+      dropoff: { zoneKey: p.dropoffZone, pin: p.dropoffPin },
+      lines: e.lines.map((l) => ({
+        freeText: l.freeText,
+        qty: l.qty,
+        unitPriceIqd: l.estimateIqd,
+        errandItem: { unit: 'piece', where: { kind: 'near' }, ifMissing: 'call', maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: e.listMaxIqd },
+      })),
+      paymentMethod: p.payment,
+      tipIqd: e.tipIqd,
+    }),
+  );
+  if (!order) {
+    run.placeError = 'refused';
+    run.terminal = true;
+    return;
+  }
+  run.orderId = order.id;
+  run.state = order.state;
+}
+
 /** One customer step for a live order, given its current view. */
 export async function customerStep(ctx: SimContext, run: OrderRun, order: Order): Promise<void> {
   const p = run.plan;
@@ -184,6 +222,15 @@ export async function customerStep(ctx: SimContext, run: OrderRun, order: Order)
     if (cancel) {
       run.cancelTried = true;
       await ctx.call('customer.cancel_wait', () => ctx.s.orders.cancel(run.customerId, { orderId: run.orderId!, reason: 'no_driver' }));
+    }
+    return;
+  }
+
+  // A «دوّرلي» nobody has taken.
+  if (order.type === 'errand' && order.state === 'placed' && run.lastCourierId === null && !run.cancelTried) {
+    if (ctx.t - run.placedT >= CUSTOMER_BEHAVIOUR.errandPatienceMin * 60_000) {
+      run.cancelTried = true;
+      await ctx.call('customer.cancel_wait', () => ctx.s.orders.cancel(run.customerId, { orderId: run.orderId!, reason: 'no_courier' }));
     }
     return;
   }

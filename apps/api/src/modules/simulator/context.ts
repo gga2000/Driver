@@ -4,7 +4,8 @@ import type { EventsService } from '../events/index.js';
 import type { IdentityService } from '../identity/index.js';
 import type { CatalogService } from '../catalog/index.js';
 import type { CapsService, LedgerService, MerchantCashService, ShiftGuaranteeService } from '../ledger/index.js';
-import type { OrdersService, OrderTipsService } from '../orders/index.js';
+import type { OrdersService, OrdersStaffService, OrderTipsService } from '../orders/index.js';
+import type { BlobStore } from '../places/index.js';
 import type { OrgsService } from '../orgs/index.js';
 import type { PricingService } from '../pricing/index.js';
 import type { TripsService } from '../trips/index.js';
@@ -34,6 +35,10 @@ export interface SimServices {
   events: EventsService;
   /** «تحب تكرم عباس؟»: the tip after a 4–5 rating (wallet → driver). */
   tips: OrderTipsService;
+  /** «دوّرلي»: where the shopper's receipt photo goes (places' upload store). */
+  uploads: BlobStore;
+  /** «دوّرلي» way-out: ops record the receipt when the photo won't send (`orders.ops.recordErrandReceipt`). */
+  ordersStaff: OrdersStaffService;
 }
 
 /** In-memory timer queues the in-process run drains on the fake clock (empty in live mode: the app polls its own). */
@@ -79,6 +84,8 @@ export interface OrderRun {
   answersAt: number | null;
   /** Sim-time the courier became the one carrying it (food) or the driver accepted (ride). */
   lastCourierId: string | null;
+  /** «دوّرلي»: when the shopper is done buying (set when he first stands at the shops). */
+  shoppedT: number | null;
 }
 
 export interface RestaurantRun {
@@ -211,6 +218,14 @@ export interface DoorCashRecord {
   changeToWalletIqd: number;
 }
 
+/** A «دوّرلي» receipt the server accepted: by the shopper with its photo, or by ops for him. */
+export interface ErrandReceiptRecord {
+  orderId: string;
+  courierId: string;
+  receiptIqd: number;
+  byStaff: boolean;
+}
+
 /** Shared state actors read and write. */
 export interface SimContext {
   readonly s: SimServices;
@@ -232,6 +247,8 @@ export interface SimContext {
   readonly handovers: HandoverRecord[];
   /** Cash drop-offs the server accepted, by order (replays overwrite with the same figures). */
   readonly doorCash: Map<string, DoorCashRecord>;
+  /** «دوّرلي» receipts the server accepted, by order (a later entry replaces an earlier one). */
+  readonly errandReceipts: Map<string, ErrandReceiptRecord>;
   /** Service calls refused with a DriverError, by code (expected in a busy city). */
   readonly refusals: Map<string, number>;
   /** Anything else a service threw (a bug). */

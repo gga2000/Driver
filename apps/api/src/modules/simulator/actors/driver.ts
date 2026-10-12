@@ -1,6 +1,6 @@
-import { jobOrder, tenderOptions, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
+import { jobOrder, tenderOptions, type Actor, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
-import type { ActionKind, DriverAction, DriverRun, DriverTrip, ReplayRecord, SimContext } from '../context.js';
+import type { ActionKind, DriverAction, DriverRun, DriverTrip, OrderRun, ReplayRecord, SimContext } from '../context.js';
 import { CITY } from '../context.js';
 import { servedVerticals } from '../../dispatch/index.js';
 import { VEHICLE_SPEED_KMH, simDriverRoles } from '../world.js';
@@ -192,7 +192,10 @@ function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
   // batching rules planned: the batch leaves the last kitchen together); then drop-offs, nearest first.
   const arrived = open.find((o) => o.trip.local.get(o.stop.id) === 'arrived' || o.stop.state === 'arrived');
   if (arrived) return arrived;
-  const pickups = open.filter((o) => o.stop.type !== 'dropoff');
+  // A shopper never goes buying a «دوّرلي» list with hot food in his bag: the food goes to its doors first.
+  const shopLater = (o: Target) => o.trip.vertical === 'errand' && o.stop.type !== 'dropoff' && d.bag.size > 0;
+  const workable = open.some((o) => !shopLater(o)) ? open.filter((o) => !shopLater(o)) : open;
+  const pickups = workable.filter((o) => o.stop.type !== 'dropoff');
   // Standing at a kitchen where another of his bags is already ready: he takes it now rather than
   // driving off and coming back for it.
   const readyHere = (o: Target) => {
@@ -210,7 +213,7 @@ function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
       return a < b || (a === b && o.stop.seq < first.stop.seq) ? o : first;
     });
   }
-  return open.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
+  return workable.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
 }
 
 function moveToward(d: DriverRun, to: LatLng, dtSec: number): number {
@@ -251,6 +254,12 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       if (ctx.t >= arrivedT + (run?.plan.boardingSec ?? 0) * 1000) await act(ctx, d, trip, 'complete', stop);
       return;
     }
+    // «دوّرلي»: he buys the list, records the receipt, then leaves the shops (the server waits for the receipt).
+    if (trip.vertical === 'errand') {
+      if (!d.online || !run || !stop.orderId) return;
+      if (await errandReceipt(ctx, d, run, stop.orderId, arrivedT)) await act(ctx, d, trip, 'complete', stop);
+      return;
+    }
     // Food: the bag is handed over when the kitchen is really done; never picked up while the phone is offline.
     if (!d.online || !run || run.readyT === null || ctx.t < run.readyT) return;
     const ok = await act(ctx, d, trip, 'complete', stop);
@@ -277,6 +286,42 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
   const cash = run && run.plan.payment === 'cash' ? await cashToCollect(ctx, stop.orderId!) : undefined;
   const ok = await act(ctx, d, trip, 'complete', stop, cash?.cashIqd, cash?.changeToWalletIqd);
   if (ok && stop.orderId) d.bag.delete(stop.orderId);
+}
+
+/** The smallest JPEG header the upload store's sniffer accepts: the receipt photo's bytes in the sim. */
+const RECEIPT_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+
+/**
+ * «دوّرلي» at the shops: once he has bought the list (`shopMin` after he arrived), the receipt goes in
+ * — his photo through the upload store, then `orders.recordErrandReceipt`. When the photo will not
+ * send (planned, or the store refuses it) he reads the amount out and ops record it for him
+ * (`orders.ops.recordErrandReceipt`). True once the server has the receipt.
+ */
+async function errandReceipt(ctx: SimContext, d: DriverRun, run: OrderRun, orderId: string, arrivedT: number): Promise<boolean> {
+  const e = run.plan.errand;
+  if (!e || ctx.errandReceipts.has(orderId)) return true;
+  run.shoppedT ??= arrivedT + e.shopMin * 60_000;
+  if (ctx.t < run.shoppedT) return false;
+  const photo = e.photoFails ? null : await ctx.call('driver.receipt_photo', () => uploadReceiptPhoto(ctx, d.personId));
+  if (photo) {
+    const r = await ctx.call('driver.errand_receipt', () => ctx.s.orders.recordErrandReceipt(d.personId, { orderId, totalIqd: e.receiptIqd, photoUploadId: photo }));
+    if (!r) return false;
+    ctx.errandReceipts.set(orderId, { orderId, courierId: d.personId, receiptIqd: r.receiptIqd, byStaff: false });
+    return true;
+  }
+  const ops = { personId: ctx.dispatcherId, sessionId: 'sim-dispatcher' } as unknown as Actor;
+  const r = await ctx.call('ops.errand_receipt', () => ctx.s.ordersStaff.errandReceipt(ops, { orderId, totalIqd: e.receiptIqd, reason: 'صورة الوصل ما دتنرسل من السوق، المتسوّق قرا المبلغ', photoUploadId: null }));
+  if (!r) return false;
+  ctx.errandReceipts.set(orderId, { orderId, courierId: d.personId, receiptIqd: e.receiptIqd, byStaff: true });
+  return true;
+}
+
+/** The Partner app's photo upload: a ticket, then the bytes PUT to its signed URL. */
+async function uploadReceiptPhoto(ctx: SimContext, ownerId: string): Promise<string> {
+  const ticket = await ctx.s.uploads.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: RECEIPT_JPEG.length });
+  const url = new URL(ticket.uploadUrl, 'http://sim.local');
+  await ctx.s.uploads.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/jpeg', bytes: RECEIPT_JPEG });
+  return ticket.uploadId;
 }
 
 /**

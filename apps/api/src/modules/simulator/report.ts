@@ -76,6 +76,9 @@ export interface SimulationReport {
     /** G-91 shift-guarantee top-ups the Sunday settlement paid for the day's shifts (06:00–15:00 and 15:00–02:00). */
     guaranteeTopUps: number;
     guaranteeTopUpIqd: number;
+    /** «دوّرلي» receipts recorded, and how many of them ops recorded for the shopper. */
+    errandReceipts: number;
+    errandReceiptsByStaff: number;
   };
   invariants: InvariantResult[];
   violations: Array<{ invariant: string; count: number; examples: string[] }>;
@@ -120,6 +123,8 @@ export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: 
   const accept = { food: [] as number[], ride: [] as number[] };
   const deliver = { food: [] as number[], ride: [] as number[] };
   for (const o of orders) {
+    // «دوّرلي» waits on the shopping, not a kitchen: kept out of the food timings.
+    if (o.type === 'errand') continue;
     const k = isRide(o) ? 'ride' : 'food';
     const acc = acceptedAt(snapshot.trips, o.id);
     if (acc !== null) accept[k].push((acc - waitStartsAt(o)) / 1000);
@@ -192,6 +197,8 @@ export function buildReport(snapshot: SimSnapshot, run: RunInfo, plannedOrders: 
       owedFeesSettledIqd: snapshot.ledger.filter(isOwedFeeSettled).reduce((s, e) => s + e.amount, 0),
       guaranteeTopUps: snapshot.ledger.filter(isGuaranteeTopUp).length,
       guaranteeTopUpIqd: snapshot.ledger.filter(isGuaranteeTopUp).reduce((s, e) => s + e.amount, 0),
+      errandReceipts: snapshot.errandReceipts?.length ?? 0,
+      errandReceiptsByStaff: snapshot.errandReceipts?.filter((r) => r.byStaff).length ?? 0,
     },
     invariants,
     violations,
@@ -224,6 +231,7 @@ export function summaryTable(r: SimulationReport): string {
     ['تسليم فلوس المطاعم', 'Merchant hand-overs', `${fmt(r.activity.merchantHandovers)} (${fmt(r.activity.merchantHandoverIqd)} IQD)`],
     ['باقي الكاش للمحفظة', 'No-change credits to wallets', `${fmt(r.activity.noChangeCredits)} (${fmt(r.activity.noChangeCreditIqd)} IQD)`],
     ['رسوم انسددت ويا طلب', 'Owed fees paid with an order', `${fmt(r.activity.owedFeesSettled)} (${fmt(r.activity.owedFeesSettledIqd)} IQD)${r.activity.owedFeesSettled === 0 ? ' · switched off or none owed' : ''}`],
+    ['وصولات دوّرلي', '«دوّرلي» receipts', `${fmt(r.activity.errandReceipts)} (${fmt(r.activity.errandReceiptsByStaff)} by ops)`],
     ['تكملة ضمان الشفت', 'Shift-guarantee top-ups', `${fmt(r.activity.guaranteeTopUps)} (${fmt(r.activity.guaranteeTopUpIqd)} IQD)${AZIZIYAH_MONEY_RULES.guarantee.enabled ? '' : ' · switched off'}`],
     ['الثوابت', 'Invariants passed', `${r.invariants.length - r.violations.length}/${r.invariants.length}`],
   ];

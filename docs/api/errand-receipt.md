@@ -45,6 +45,16 @@ The shopper must never be stuck at a pickup. These are the ways out:
 
 **Open:** the Console button for `orders.ops.recordErrandReceipt` (lane E). The server side is in.
 
+## In the simulator
+
+`pnpm sim` plays «دوّرلي» runs on top of the order mix (3 % of `--orders`, cash, from their own seed stream). The in-process run opens errands in the city for its own app, since Aziziyah launches without them. The shopper buys the list, uploads the receipt photo and records the receipt, then completes the pickup. About one run in seven, the photo fails and ops record the receipt (`orders.ops.recordErrandReceipt`). The door collects the order's cash due.
+
+The invariant `errand_paid_equals_receipt_plus_fees` checks each delivered errand:
+
+- The total is receipt + delivery fee + service fee + tip, rounded up to 250 for cash.
+- The order's goods and the ledger's `errand_cost_actual` both equal the receipt.
+- The shopper who recorded it is credited the receipt, the delivery fee and the tip.
+
 ## Open with Ali
 
 - The rule itself: the customer pays the receipt, and over the ceiling the shopper calls first and the receipt is never blocked.
