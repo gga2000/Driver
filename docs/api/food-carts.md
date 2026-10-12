@@ -6,9 +6,10 @@ people who follow the cart hear «أبو حيدر فتح». A customer walks ove
 or has the food delivered like any restaurant order.
 
 ## Money (no new rule)
-A cart is a restaurant org on the `base` commission tier plus a storefront tagged `food_cart` and a
-`food_carts` row. A delivery order goes through the normal basket and checkout and is commissioned by
-the orders path (12 %). Collecting a walk-over ticket records the pickup tier
+A cart is a restaurant org plus a storefront tagged `food_cart` and a `food_carts` row. Like any new
+restaurant it starts on the `starter` tier (5 %, Ali 2026-10-12; #300): the Console reminds finance on
+day 49 and a person picks the next tier. A delivery order goes through the normal basket and checkout
+and is commissioned by the orders path at the store's tier. Collecting a walk-over ticket records the pickup tier
 (`AZIZIYAH_MONEY_RULES.commission.pickup`, 5 %) of its cash total. `FOOD_CART_RULES` holds only timings
 and limits.
 

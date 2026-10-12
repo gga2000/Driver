@@ -123,7 +123,7 @@ export async function seedDemoCarts(
   const out: { key: string; orgId: string; cartId: string }[] = [];
   for (const d of DEMO_CARTS) {
     const org = await orgs.create({ type: 'restaurant', name: d.nameAr, cityId, ownerId: opts.ownerId ?? 'seed-cart-owner' });
-    await orgs.setMerchantSettings(org.id, { defaultPrepMin: d.prepMin, commissionTier: 'base', closed: { reason: 'cart_closed', note: null, at: new Date() } });
+    await orgs.setMerchantSettings(org.id, { defaultPrepMin: d.prepMin, commissionTier: 'starter', closed: { reason: 'cart_closed', note: null, at: new Date() } });
     let sortOrder = 0;
     for (const dish of d.dishes) {
       await catalog.addItem({ id: `${org.id}_${dish.key}`, orgId: org.id, nameAr: dish.nameAr, nameEn: dish.nameEn, description: null, priceIqd: dish.priceIqd, prepTimeMin: d.prepMin, categoryAr: null, sortOrder: sortOrder++, ...(dish.groups ? { modifierGroups: dish.groups } : {}) });

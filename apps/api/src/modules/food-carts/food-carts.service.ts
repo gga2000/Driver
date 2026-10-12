@@ -77,7 +77,7 @@ function zoneKeyAt(at: LatLng): string {
 }
 
 /**
- * Food carts «عربانات» (2026-10-11). A cart is a restaurant org (base tier) with a `food_carts` row: the
+ * Food carts «عربانات» (2026-10-11). A cart is a restaurant org (starter tier while new) with a `food_carts` row: the
  * owner opens it where he stands tonight («فتحت هنا»), which also moves the org's pickup point and
  * opens it for delivery orders; closing closes both. Followers hear the first opening of a Baghdad day
  * once (`food_cart.opened`, deduped by day). A walk-over ticket is priced here from the catalog (never
@@ -103,7 +103,8 @@ export class FoodCartsService implements FoodCartsPort {
   async register(input: { orgId: string; cityId: string; kind: CartKind; usual?: { from: string; to: string } | null; awayNote?: string | null }): Promise<FoodCartRecord> {
     const existing = await this.repo.byOrg(input.orgId);
     if (existing) return existing;
-    await this.orgs.setMerchantSettings(input.orgId, { commissionTier: 'base' });
+    // No tier set here: a new cart starts on the restaurants' starter rate like any new restaurant (Ali,
+    // 2026-10-12: carts too; #300), and finance picks the next one.
     // A storefront tagged `food_cart`, so a delivery order goes through the menu, basket and checkout
     // every kitchen uses; the restaurant lists leave `food_cart` storefronts out (carts have their own).
     const org = await this.orgs.get(input.orgId);
