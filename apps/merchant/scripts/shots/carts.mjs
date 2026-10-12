@@ -1,6 +1,6 @@
 // Food carts (عربانات, Ali 2026-10-11), the owner's side: «فتحت هنا» with the day map (v1), tonight's
 // orders with no ticket yet, three walk-over tickets coming in («جديدة»), the same after a reload (one
-// ready, one late), «سدّيت الليلة؟», then «أوقاتك والإجازة» (usual hours and an away note).
+// ready, one late), «سدّيت الليلة؟», then «أوقاتك والإجازة» (usual hours and an away note), «شنو تبيع؟» and adding a dish with sizes and extras.
 // Seeded by scripts/demo/carts.mjs (`/demo/carts/close`, `/demo/carts/open`, `/demo/carts/tickets`).
 export default {
   name: 'carts',
@@ -55,5 +55,27 @@ export default {
     await byTestId('cart-hours-save').click();
     await byTestId('cart-open').waitFor({ timeout: 15_000 });
     await shot('open-away', { full: true });
+
+    // «شنو تبيع؟» and the cart's own editor: anything, with sizes and extras.
+    await byTestId('cart-dish-all').click();
+    await byTestId('cart-menu').waitFor({ timeout: 15_000 });
+    await shot('menu', { full: true });
+    await byTestId('cart-menu-add').click();
+    await byTestId('cart-item').waitFor({ timeout: 15_000 });
+    await shot('item-empty', { full: true });
+    await page.locator('[data-testid="cart-item-name"]').fill('سندويچ كبدة بالدهن');
+    await byTestId('cart-size-add').click();
+    await page.locator('[data-testid="cart-size-0-name"]').fill('نص');
+    await page.locator('[data-testid="cart-size-0-price"]').fill('1500');
+    await page.locator('[data-testid="cart-size-1-name"]').fill('كامل');
+    await page.locator('[data-testid="cart-size-1-price"]').fill('2500');
+    await byTestId('cart-extra-idea-egg').click();
+    await page.locator('[data-testid="cart-extra-0-price"]').fill('500');
+    await byTestId('cart-extra-idea-hot').click();
+    await shot('item-filled', { full: true });
+    await byTestId('cart-item-save').click();
+    await byTestId('cart-menu').waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(1500);
+    await shot('menu-after', { full: true });
   },
 };

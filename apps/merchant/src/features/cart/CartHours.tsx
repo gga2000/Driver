@@ -1,22 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import type { CartOwnerView, CartUsualHours } from '@driver/contracts';
 import { Button, Chip, Text, TextField, useTheme } from '@driver/ui';
-import { timeChoices, timeLabel } from '@/features/hours/logic';
+import { timeLabel } from '@/features/hours/logic';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useCounterToast } from '@/lib/toast';
 import { useCartActions } from './queries';
+import { UsualHoursPicker } from './UsualHoursPicker';
 
-type Side = 'from' | 'to';
-
-/** A cart's evening starts the list: most carts open after noon. */
-const HOURS = (() => {
-  const all = timeChoices(60);
-  const noon = all.indexOf('12:00');
-  return [...all.slice(noon), ...all.slice(0, noon)];
-})();
 const STARTING: CartUsualHours = { from: '18:00', to: '00:00' };
 const AWAY_IDEAS = ['merchant.cart.away_idea_travel', 'merchant.cart.away_idea_eid', 'merchant.cart.away_idea_fix'] as const;
 
@@ -36,7 +29,6 @@ export function CartHours({ view }: { view: CartOwnerView }) {
   const c = theme.services.carts;
 
   const [usual, setUsual] = useState<CartUsualHours | null>(cart.usual);
-  const [side, setSide] = useState<Side>('from');
   const [away, setAway] = useState(cart.awayNote ?? '');
   const note = away.trim();
   const preview = note ? note : usual ? t('merchant.cart.preview_usual', { time: timeLabel(t, usual.from) }) : t('merchant.cart.preview_closed');
@@ -78,51 +70,7 @@ export function CartHours({ view }: { view: CartOwnerView }) {
         </Text>
         {usual ? (
           <>
-            <View style={{ flexDirection: 'row', gap: theme.space[2] }} accessibilityRole="tablist">
-              {(['from', 'to'] as const).map((k) => {
-                const selected = side === k;
-                return (
-                  <Pressable
-                    key={k}
-                    testID={`cart-usual-${k}`}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected }}
-                    onPress={() => setSide(k)}
-                    style={{ flex: 1, minHeight: 64, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, borderWidth: selected ? 2 : 1, borderColor: selected ? c.fill : theme.colors.border, backgroundColor: theme.colors.surface, gap: 2, justifyContent: 'center' }}
-                  >
-                    <Text variant="caption" color="textMuted" weight={600}>
-                      {k === 'from' ? t('merchant.cart.usual_from') : t('merchant.cart.usual_to')}
-                    </Text>
-                    <Text variant="title" tabular>
-                      {timeLabel(t, usual[k])}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }} testID={`cart-usual-hours-${side}`}>
-              {HOURS.map((h) => {
-                const selected = usual[side] === h;
-                return (
-                  <Pressable
-                    key={h}
-                    testID={`cart-usual-hour-${h.slice(0, 2)}`}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    onPress={() => {
-                      theme.haptic('selection');
-                      setUsual({ ...usual, [side]: h });
-                      if (side === 'from') setSide('to');
-                    }}
-                    style={({ pressed }) => ({ width: '22%', minWidth: 76, flexGrow: 1, height: 44, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: selected ? 2 : 1, borderColor: selected ? c.fill : theme.colors.border, backgroundColor: selected || pressed ? theme.colors.surfaceSunken : theme.colors.surface })}
-                  >
-                    <Text variant="label" weight={selected ? 700 : 500}>
-                      {timeLabel(t, h)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <UsualHoursPicker value={usual} onChange={setUsual} />
             <Button label={t('merchant.cart.usual_none')} variant="ghost" onPress={() => setUsual(null)} testID="cart-usual-none" />
           </>
         ) : (

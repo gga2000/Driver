@@ -137,7 +137,8 @@ export function OpenHere({ view }: { view: CartOwnerView }) {
               testID={`cart-dish-${d.itemId}`}
             />
           ))}
-          <Chip label={t('merchant.cart.dishes_more')} icon="plus" role="button" onPress={() => router.push('/menu')} testID="cart-dish-more" />
+          <Chip label={t('merchant.cart.dishes_more')} icon="plus" role="button" onPress={() => router.push('/cart/item')} testID="cart-dish-more" />
+          <Chip label={t('merchant.cart.dishes_all')} icon="food" role="button" onPress={() => router.push('/cart/menu')} testID="cart-dish-all" />
         </View>
       </View>
 
