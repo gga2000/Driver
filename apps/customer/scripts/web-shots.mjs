@@ -246,8 +246,7 @@ try {
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await settle(1600);
       await shot('app-welcome-home');
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => errors.push('welcome-home did not close'));
+      if (!(await dismissWelcome())) errors.push('welcome-home did not close');
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -471,8 +470,7 @@ async function simpleShots() {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
     await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -547,7 +545,7 @@ async function tripsShots(khalid) {
 
 /**
  * Food carts «عربانات»: a fresh account standing near the souq garage (position granted) follows the
- * liver and corn carts; the list, the liver cart with two dishes picked, the walk-over ticket cooking
+ * liver and corn carts; the list, the liver cart with a size and an extra picked («شلون تريده؟»), the walk-over ticket cooking
  * and ready, a closed cart, and the carts on the golden map.
  */
 async function cartsShots() {
@@ -568,10 +566,21 @@ async function cartsShots() {
   await shot('carts-cart');
   const liver = seed.carts.find((c) => c.key === 'liver');
   const plus = (item) => page.locator(`[data-testid="cart-dish-${liver.orgId}_${item}"]`).locator('[data-testid="cart-dish-add"], [data-testid="stepper-inc"]').first();
-  await plus('laffa').click();
-  await plus('laffa').click();
+  // A dish with sizes or extras asks «شلون تريده؟» first (Ali 2026-10-12).
+  const choose = async (item, names, name) => {
+    await plus(item).click();
+    await byTestId('cart-choice').waitFor({ timeout: 10_000 });
+    for (const n of names) await page.locator('[data-testid^="cart-choice-"]').filter({ hasText: n }).first().click();
+    if (name) await shot(name);
+    await byTestId('cart-choice-add').click();
+    await byTestId('cart-choice').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  };
+  await choose('plate', ['صحن كامل'], 'carts-choice-size');
+  await choose('laffa', ['بيض'], 'carts-choice-extras');
+  await choose('laffa', [], null);
   await plus('maalak').click();
   await shot('carts-cart-picked');
+  await fullShot('carts-cart-picked-full');
   await byTestId('cart-order').click();
   await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
   await shot('carts-ticket');
@@ -591,6 +600,15 @@ async function cartsShots() {
   await byTestId('carts-map-card').waitFor({ timeout: 30_000 }).catch(() => {});
   await settle(4000);
   await shot('carts-map');
+}
+
+/** The sunrise welcome (map N4) can take a few taps while its map loads: tap until it goes, up to 30 s. */
+async function dismissWelcome() {
+  for (let i = 0; i < 10; i++) {
+    await byTestId('welcome-home').click({ timeout: 3_000 }).catch(() => {});
+    if (await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 3_000 }).then(() => true).catch(() => false)) return true;
+  }
+  return false;
 }
 
 /** Signs out, then in as that number (name and area on a first sign-in); the person's id. */
@@ -619,8 +637,7 @@ async function freshSignIn(phoneNumber) {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -944,8 +961,7 @@ async function laterShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -1057,8 +1073,7 @@ async function statsShots() {
     await settle(1000);
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -1127,8 +1142,7 @@ async function habitsShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });

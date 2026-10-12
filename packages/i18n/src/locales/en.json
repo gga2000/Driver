@@ -9299,5 +9299,11 @@
   "notify.pref.food_carts": "Carts you follow",
   "notify.pref.food_carts_hint": "When a cart you follow opens. Once a day per cart, never at night.",
   "carts.soon_title": "Carts are coming soon",
-  "carts.soon_body": "They're not open in Aziziyah yet. When they open, you'll find them here."
+  "carts.soon_body": "They're not open in Aziziyah yet. When they open, you'll find them here.",
+  "carts.price_from": "From {amount} IQD",
+  "carts.choice_add": "Add · {amount} IQD",
+  "carts.choice_one": "Pick one",
+  "carts.choice_maybe": "If you like",
+  "carts.choice_any": "Pick any",
+  "carts.choice_free": "Free"
 }

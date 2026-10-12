@@ -36,9 +36,16 @@ export default async function register(ctx) {
   ctx.route('/demo/carts/tickets', async () => {
     if (!(await isOpen())) await carts.openHere(owner, { ...scope, at: { lat: spot.lat, lng: spot.lng }, label: spot.label });
     const item = (key) => `${liver.orgId}_${key}`;
+    // A size or an extra by its name, as the customer app sends it.
+    const [plate] = await catalog.itemsOf(liver.orgId, [item('plate')]);
+    const [laffa] = await catalog.itemsOf(liver.orgId, [item('laffa')]);
+    const pick = (dish, name) => {
+      const g = dish.modifierGroups.find((x) => x.modifiers.some((m) => m.nameAr === name));
+      return { groupId: g.id, optionId: g.modifiers.find((m) => m.nameAr === name).id };
+    };
     const orders = [
-      { phone: '07704560001', lines: [{ itemId: item('laffa'), qty: 2 }, { itemId: item('maalak'), qty: 1 }], note: 'بدون طماطة', ready: true },
-      { phone: '07704560002', lines: [{ itemId: item('plate'), qty: 1 }], late: true },
+      { phone: '07704560001', lines: [{ itemId: item('laffa'), qty: 2, choices: [pick(laffa, 'بيض')] }, { itemId: item('maalak'), qty: 1 }], note: 'بدون طماطة', ready: true },
+      { phone: '07704560002', lines: [{ itemId: item('plate'), qty: 1, choices: [pick(plate, 'صحن كامل')] }], late: true },
       { phone: '07704560003', lines: [{ itemId: item('samoon'), qty: 3 }] },
     ];
     const out = [];

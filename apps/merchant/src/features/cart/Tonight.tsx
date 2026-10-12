@@ -170,7 +170,7 @@ function Ticket({ w, fresh, busy, onReady, onReject, onCollect }: { w: OwnerWalk
     : left >= 0
       ? t('merchant.cart.wants_in', { minutes: Math.max(1, left) })
       : t('merchant.cart.late', { minutes: -left });
-  const lines = w.lines.map((l) => `${l.qty} × ${l.nameAr}`).join('، ');
+  const lines = w.lines.map((l) => `${l.qty} × ${l.nameAr}${l.choices.length ? ` (${l.choices.join('، ')})` : ''}`).join('، ');
 
   return (
     <View testID={`cart-ticket-${w.code}`} style={{ borderRadius: theme.radius.xl, backgroundColor: theme.colors.surface, padding: theme.space[4], gap: theme.space[3], borderWidth: ready ? 2 : 0, borderColor: c.fill, ...theme.elevation[1] }}>

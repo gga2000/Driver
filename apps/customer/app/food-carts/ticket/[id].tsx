@@ -65,7 +65,7 @@ function TicketCard({ w }: { w: WalkupView }) {
   const left = Math.max(0, Math.ceil((w.readyBy.getTime() - now.getTime()) / 60_000));
   const open = w.state === 'placed' || w.state === 'ready';
   const ready = w.state === 'ready' || (w.state === 'placed' && left === 0);
-  const what = w.lines.map((l) => (l.qty > 1 ? `${l.qty} ${l.nameAr}` : l.nameAr)).join('، ');
+  const what = w.lines.map((l) => `${l.qty > 1 ? `${l.qty} ${l.nameAr}` : l.nameAr}${l.choices.length ? ` (${l.choices.join('، ')})` : ''}`).join('، ');
 
   const head =
     w.state === 'ready'

@@ -9299,5 +9299,11 @@
   "notify.pref.food_carts": "العربانات اللي تتابعها",
   "notify.pref.food_carts_hint": "لمن عربانة تتابعها تفتح. مرة وحدة باليوم لكل عربانة، وماكو بالليل",
   "carts.soon_title": "العربانات جاية قريب",
-  "carts.soon_body": "بعدها ما فاتحة بالعزيزية. أول ما تفتح تلگاها هنا."
+  "carts.soon_body": "بعدها ما فاتحة بالعزيزية. أول ما تفتح تلگاها هنا.",
+  "carts.price_from": "من {amount} دينار",
+  "carts.choice_add": "ضيف · {amount} دينار",
+  "carts.choice_one": "اختار واحد",
+  "carts.choice_maybe": "إذا تريد",
+  "carts.choice_any": "اختار اللي تريده",
+  "carts.choice_free": "ببلاش"
 }

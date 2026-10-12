@@ -9,6 +9,8 @@ import { Screen } from '@/components/Screen';
 import { cartStore } from '@/features/food/cart-store';
 import { CartBell } from '@/features/food-carts/CartBell';
 import { CartPhoto } from '@/features/food-carts/CartPhoto';
+import { ChoiceSheet } from '@/features/food-carts/ChoiceSheet';
+import { addPick, pickKey, priceFrom, setQty, unitPrice, type CartPick } from '@/features/food-carts/choices';
 import { cartPalette } from '@/features/food-carts/palette';
 import { useFoodCart, usePlaceWalkup } from '@/features/food-carts/queries';
 import { cartStatus } from '@/features/food-carts/status';
@@ -66,11 +68,13 @@ function CartPage({ card }: { card: CartCard }) {
   const insets = useSafeAreaInsets();
   const signedIn = useSignedIn();
   const place = usePlaceWalkup();
-  const [qty, setQty] = useState<Record<string, number>>({});
+  const [picks, setPicks] = useState<CartPick[]>([]);
+  const [choosing, setChoosing] = useState<CartDish | null>(null);
   const near = card.walkMin !== null && card.walkMin <= 15;
   const [way, setWay] = useState<Way>(card.delivery && !near ? 'delivery' : 'walk');
-  const lines = useMemo(() => card.dishes.filter((d) => (qty[d.itemId] ?? 0) > 0).map((d) => ({ dish: d, qty: qty[d.itemId]! })), [card.dishes, qty]);
-  const total = lines.reduce((s, l) => s + l.qty * l.dish.priceIqd, 0);
+  // Dishes the owner switched off since keep out of the order.
+  const lines = useMemo(() => picks.filter((p) => card.dishes.some((d) => d.itemId === p.dish.itemId && d.available)), [card.dishes, picks]);
+  const total = lines.reduce((s, l) => s + l.qty * unitPrice(l.dish, l.choices), 0);
   const since = card.openedAt ? formatHourPart(card.openedAt, { locale }) : null;
   const where = card.spot?.label ?? null;
 
@@ -86,7 +90,7 @@ function CartPage({ card }: { card: CartCard }) {
     }
     theme.haptic('medium');
     place.mutate(
-      { cartId: card.id, lines: lines.map((l) => ({ itemId: l.dish.itemId, qty: l.qty })) },
+      { cartId: card.id, lines: lines.map((l) => ({ itemId: l.dish.itemId, qty: l.qty, choices: l.choices.map((c) => ({ groupId: c.groupId, optionId: c.optionId })) })) },
       {
         onSuccess: (w) => router.replace({ pathname: '/food-carts/ticket/[id]', params: { id: w.id } }),
         onError: () => toast.show({ message: t('carts.order_failed'), tone: 'danger' }),
@@ -97,7 +101,8 @@ function CartPage({ card }: { card: CartCard }) {
   const toBasket = (replace = false) => {
     const merchant = { id: card.merchantOrgId, name: card.name, cityId: 'aziziyah', pickup: card.pickup, minOrderIqd: 0 };
     for (const [i, l] of lines.entries()) {
-      const res = cartStore.add(merchant, { itemId: l.dish.itemId, name: l.dish.nameAr, basePriceIqd: l.dish.priceIqd, modifiers: [], qty: l.qty, note: null, personId: 'me' }, { replace: replace && i === 0 });
+      const modifiers = l.choices.map((c) => ({ groupId: c.groupId, modifierId: c.optionId, name: c.nameAr, priceIqd: c.priceIqd }));
+      const res = cartStore.add(merchant, { itemId: l.dish.itemId, name: l.dish.nameAr, basePriceIqd: l.dish.priceIqd, modifiers, qty: l.qty, note: null, personId: 'me' }, { replace: replace && i === 0 });
       if (!res.ok) {
         toast.show({ message: t('carts.basket_other', { name: res.current.name }), tone: 'warning', action: { label: t('carts.basket_replace'), onPress: () => toBasket(true) } });
         return;
@@ -152,8 +157,24 @@ function CartPage({ card }: { card: CartCard }) {
 
         <View testID="cart-menu">
           {card.dishes.map((d, i) => (
-            <DishRow key={d.itemId} dish={d} first={i === 0} qty={qty[d.itemId] ?? 0} open={card.open} onQty={(n) => setQty((q) => ({ ...q, [d.itemId]: n }))} />
+            <DishRow
+              key={d.itemId}
+              dish={d}
+              first={i === 0}
+              picks={picks.filter((p) => p.dish.itemId === d.itemId)}
+              open={card.open}
+              onAdd={() => (d.groups.length > 0 ? setChoosing(d) : setPicks((l) => addPick(l, d, [])))}
+              onQty={(key, n) => setPicks((l) => setQty(l, key, n))}
+            />
           ))}
+          <ChoiceSheet
+            dish={choosing}
+            onClose={() => setChoosing(null)}
+            onAdd={(d, choices) => {
+              setPicks((l) => addPick(l, d, choices));
+              setChoosing(null);
+            }}
+          />
         </View>
 
         {card.open ? (
@@ -193,30 +214,54 @@ function InfoChip({ label, dot, color, walk }: { label: string; dot?: string; co
   );
 }
 
-function DishRow({ dish, qty, open, first, onQty }: { dish: CartDish; qty: number; open: boolean; first: boolean; onQty: (n: number) => void }) {
+/**
+ * One dish on the cart: name, «من 3,000» when its size changes the price, and «+». A plain dish counts up
+ * on the row; a dish with sizes or extras opens «شلون تريده؟», and each way it was picked shows under it
+ * («صحن كامل · بيض») with its own count.
+ */
+function DishRow({ dish, picks, open, first, onAdd, onQty }: { dish: CartDish; picks: CartPick[]; open: boolean; first: boolean; onAdd: () => void; onQty: (key: string, n: number) => void }) {
   const theme = useTheme();
+  const pal = cartPalette(theme);
   const t = useT();
   const off = !dish.available;
+  const choices = dish.groups.length > 0;
+  const plain = choices ? null : (picks.find((p) => p.key === pickKey(dish, [])) ?? null);
+  const price = priceFrom(dish);
   return (
-    <View
-      testID={`cart-dish-${dish.itemId}`}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 72, paddingVertical: theme.space[3], borderTopWidth: first ? 1 : 0, borderBottomWidth: 1, borderColor: theme.colors.border }}
-    >
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text variant="bodyStrong" numberOfLines={2} color={off ? 'textMuted' : 'text'}>
-          {dish.nameAr}
-        </Text>
-        <Text variant="footnote" color="textMuted" tabular>
-          {off ? t('carts.dish_off') : t('carts.price', { amount: amountParam(dish.priceIqd) })}
-        </Text>
+    <View testID={`cart-dish-${dish.itemId}`} style={{ paddingVertical: theme.space[3], gap: theme.space[2], borderTopWidth: first ? 1 : 0, borderBottomWidth: 1, borderColor: theme.colors.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 48 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text variant="bodyStrong" numberOfLines={2} color={off ? 'textMuted' : 'text'}>
+            {dish.nameAr}
+          </Text>
+          <Text variant="footnote" color="textMuted" tabular numberOfLines={2}>
+            {off ? t('carts.dish_off') : price.from ? t('carts.price_from', { amount: amountParam(price.priceIqd) }) : t('carts.price', { amount: amountParam(price.priceIqd) })}
+            {!off && choices ? ` · ${dish.groups.flatMap((g) => g.options.filter((o) => o.available).map((o) => o.nameAr)).join('، ')}` : ''}
+          </Text>
+        </View>
+        {open && !off ? (
+          plain ? (
+            <Stepper value={plain.qty} onChange={(n) => onQty(plain.key, n)} min={0} max={20} size="sm" accessibilityLabel={dish.nameAr} />
+          ) : (
+            <IconButton icon="plus" variant="outline" size={44} accessibilityLabel={t('carts.add_a11y', { dish: dish.nameAr })} onPress={onAdd} testID="cart-dish-add" />
+          )
+        ) : null}
       </View>
-      {open && !off ? (
-        qty === 0 ? (
-          <IconButton icon="plus" variant="outline" size={44} accessibilityLabel={t('carts.add_a11y', { dish: dish.nameAr })} onPress={() => onQty(1)} testID="cart-dish-add" />
-        ) : (
-          <Stepper value={qty} onChange={onQty} min={0} max={20} size="sm" accessibilityLabel={dish.nameAr} />
-        )
-      ) : null}
+      {choices && open && !off
+        ? picks.map((p) => (
+            <View key={p.key} testID={`cart-pick-${p.key}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingStart: theme.space[3], borderStartWidth: 3, borderStartColor: pal.fill }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text variant="body" numberOfLines={2}>
+                  {p.choices.length ? p.choices.map((c) => c.nameAr).join(' · ') : dish.nameAr}
+                </Text>
+                <Text variant="footnote" color="textMuted" tabular>
+                  {t('carts.price', { amount: amountParam(unitPrice(p.dish, p.choices)) })}
+                </Text>
+              </View>
+              <Stepper value={p.qty} onChange={(n) => onQty(p.key, n)} min={0} max={20} size="sm" accessibilityLabel={`${dish.nameAr} ${p.choices.map((c) => c.nameAr).join(' ')}`} />
+            </View>
+          ))
+        : null}
     </View>
   );
 }

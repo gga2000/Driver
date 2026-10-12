@@ -27,6 +27,7 @@ import {
   type OpenCartHereInput,
   type OwnerWalkupInput,
   type PlaceWalkupInput,
+  type WalkupChoice,
   type WalkupLine,
   type WalkupRef,
   type WalkupState,
@@ -171,12 +172,25 @@ export class FoodCartsService implements FoodCartsPort {
     const mine = await this.settle(await this.repo.walkupsOfPerson(actor.personId, new Date(now.getTime() - MINE_WINDOW_MS)), now);
     if (mine.filter((w) => OPEN_WALKUP_STATES.includes(w.state)).length >= FOOD_CART_RULES.maxOpenTickets) throw new DriverError('walkup_too_many');
 
-    // One line per dish, priced from the catalog (never the client's figure).
-    const qty = new Map<string, number>();
-    for (const l of input.lines) qty.set(l.itemId, Math.min(FOOD_CART_RULES.maxQty, (qty.get(l.itemId) ?? 0) + l.qty));
-    const items = await this.catalog.itemsOf(c.orgId, [...qty.keys()]);
-    if (items.length !== qty.size || items.some((i) => !itemOnSale(i, now))) throw new DriverError('cart_dish_unavailable');
-    const lines: WalkupLine[] = items.map((i) => ({ itemId: i.id, nameAr: i.nameAr, qty: qty.get(i.id)!, priceIqd: i.priceIqd }));
+    // One line per dish and choice of size and extras, priced from the catalog (never the client's figure).
+    const ids = [...new Set(input.lines.map((l) => l.itemId))];
+    const items = new Map((await this.catalog.itemsOf(c.orgId, ids)).map((i) => [i.id, i]));
+    if (items.size !== ids.length || [...items.values()].some((i) => !itemOnSale(i, now))) throw new DriverError('cart_dish_unavailable');
+    const merged = new Map<string, WalkupLine>();
+    for (const l of input.lines) {
+      const item = items.get(l.itemId)!;
+      const picked = pickChoices(item, l.choices ?? []);
+      const key = `${item.id}|${picked.map((p) => p.id).sort().join(',')}`;
+      const was = merged.get(key);
+      merged.set(key, {
+        itemId: item.id,
+        nameAr: item.nameAr,
+        qty: Math.min(FOOD_CART_RULES.maxQty, (was?.qty ?? 0) + l.qty),
+        priceIqd: item.priceIqd + picked.reduce((s, p) => s + p.priceIqd, 0),
+        choices: picked.map((p) => p.nameAr),
+      });
+    }
+    const lines = [...merged.values()];
     const totalIqd = lines.reduce((s, l) => s + l.qty * l.priceIqd, 0);
 
     const open = await this.repo.walkupsOfCart(c.id, OPEN_WALKUP_STATES);
@@ -384,7 +398,22 @@ export class FoodCartsService implements FoodCartsPort {
   private async card(c: FoodCartRecord, o: { now: Date; near: LatLng | null; following: boolean; followers: number; dishes: number | null }): Promise<CartCard> {
     const [org, menu, readyMin] = await Promise.all([this.orgs.get(c.orgId), this.catalog.menu(c.orgId), this.readyMin(c)]);
     const open = cartOpen(c, o.now);
-    const dishes: CartDish[] = menu.map((i: CatalogItemRecord) => ({ itemId: i.id, nameAr: i.nameAr, priceIqd: i.priceIqd, available: itemOnSale(i, o.now), photoUrl: i.photoUrl }));
+    const dishes: CartDish[] = menu.map((i: CatalogItemRecord) => ({
+      itemId: i.id,
+      nameAr: i.nameAr,
+      priceIqd: i.priceIqd,
+      available: itemOnSale(i, o.now),
+      photoUrl: i.photoUrl,
+      description: i.description,
+      groups: i.modifierGroups.map((g) => ({
+        id: g.id,
+        nameAr: g.nameAr,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        required: g.required,
+        options: g.modifiers.map((m) => ({ id: m.id, nameAr: m.nameAr, priceIqd: m.priceIqd, available: m.available })),
+      })),
+    }));
     return {
       id: c.id,
       merchantOrgId: c.orgId,
@@ -438,4 +467,27 @@ export class FoodCartsService implements FoodCartsPort {
       ),
     );
   }
+}
+
+/**
+ * A walk-over line's size and extras, checked against the dish like a delivery order's modifiers:
+ * each pick must be one of the dish's own, on sale and not twice; each group within its min and max
+ * (a required size is always picked). Refused as `modifier_invalid`.
+ */
+export function pickChoices(item: Pick<CatalogItemRecord, 'modifierGroups'>, picked: readonly WalkupChoice[]): Array<{ id: string; groupId: string; nameAr: string; priceIqd: number }> {
+  const out: Array<{ id: string; groupId: string; nameAr: string; priceIqd: number }> = [];
+  for (const p of picked) {
+    const group = item.modifierGroups.find((g) => g.id === p.groupId);
+    const mod = group?.modifiers.find((m) => m.id === p.optionId);
+    if (!group || !mod || !mod.available || out.some((o) => o.id === mod.id)) throw new DriverError('modifier_invalid');
+    out.push({ id: mod.id, groupId: group.id, nameAr: mod.nameAr, priceIqd: mod.priceIqd });
+  }
+  // In the dish's own order: the size first, then the extras as he listed them.
+  const order = item.modifierGroups.flatMap((g) => g.modifiers.map((m) => m.id));
+  out.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  for (const g of item.modifierGroups) {
+    const n = out.filter((o) => o.groupId === g.id).length;
+    if (n < Math.max(g.minSelect, g.required ? 1 : 0) || n > g.maxSelect) throw new DriverError('modifier_invalid');
+  }
+  return out;
 }

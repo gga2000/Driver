@@ -56,12 +56,31 @@ export const CartUsualHours = z.object({
 });
 export type CartUsualHours = z.infer<typeof CartUsualHours>;
 
+/**
+ * A dish's choices as its owner wrote them (Ali 2026-10-12): sizes are a required pick-one group
+ * («نص» / «كامل», each option adds to the dish price), extras a pick-any one («بيض +500»).
+ */
+export const CartDishOption = z.object({ id: z.string(), nameAr: z.string(), priceIqd: Iqd, available: z.boolean() });
+export type CartDishOption = z.infer<typeof CartDishOption>;
+export const CartDishGroup = z.object({
+  id: z.string(),
+  nameAr: z.string(),
+  minSelect: z.number().int(),
+  maxSelect: z.number().int(),
+  required: z.boolean(),
+  options: z.array(CartDishOption),
+});
+export type CartDishGroup = z.infer<typeof CartDishGroup>;
+
 export const CartDish = z.object({
   itemId: z.string(),
   nameAr: z.string(),
+  /** Before any size or extra (a dish with sizes starts at its smallest). */
   priceIqd: Iqd,
   available: z.boolean(),
   photoUrl: z.string().nullable(),
+  description: z.string().nullable().default(null),
+  groups: z.array(CartDishGroup).default([]),
 });
 export type CartDish = z.infer<typeof CartDish>;
 
@@ -114,7 +133,14 @@ export const WalkupState = z.enum(['placed', 'ready', 'collected', 'cancelled', 
 export type WalkupState = z.infer<typeof WalkupState>;
 export const OPEN_WALKUP_STATES: readonly WalkupState[] = ['placed', 'ready'];
 
-export const WalkupLineInput = z.object({ itemId: z.string().min(1), qty: z.number().int().min(1).max(FOOD_CART_RULES.maxQty) });
+export const WalkupChoice = z.object({ groupId: z.string().min(1), optionId: z.string().min(1) });
+export type WalkupChoice = z.infer<typeof WalkupChoice>;
+export const WalkupLineInput = z.object({
+  itemId: z.string().min(1),
+  qty: z.number().int().min(1).max(FOOD_CART_RULES.maxQty),
+  /** The size and extras picked; the server checks them against the dish and prices them. */
+  choices: z.array(WalkupChoice).max(30).default([]),
+});
 export const PlaceWalkupInput = z.object({
   cartId: z.string().min(1),
   lines: z.array(WalkupLineInput).min(1).max(FOOD_CART_RULES.maxLines),
@@ -125,7 +151,8 @@ export type PlaceWalkupInput = z.infer<typeof PlaceWalkupInput>;
 export const WalkupRef = z.object({ walkupId: z.string().min(1) });
 export type WalkupRef = z.infer<typeof WalkupRef>;
 
-export const WalkupLine = z.object({ itemId: z.string(), nameAr: z.string(), qty: z.number().int().positive(), priceIqd: Iqd });
+/** `priceIqd` is one, with its size and extras; `choices` their names («كامل», «بيض»). */
+export const WalkupLine = z.object({ itemId: z.string(), nameAr: z.string(), qty: z.number().int().positive(), priceIqd: Iqd, choices: z.array(z.string()).default([]) });
 export type WalkupLine = z.infer<typeof WalkupLine>;
 
 /** A walk-over ticket as its customer sees it: the code he shows at the cart, cash on collection. */

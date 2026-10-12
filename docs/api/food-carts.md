@@ -25,6 +25,11 @@ works either way, so carts can be set up before they open. Demo APIs open them (
 - Customer: `list({ near? })`, `get({ cartId, near? })` (public); `follow({ cartId, on })`;
   `walkups.place({ cartId, lines, note? })` (priced on the server, 3-digit code, at most 3 open
   tickets), `walkups.mine()`, `walkups.cancel({ walkupId })` (only before the cart starts it).
+- Sizes and extras (Ali 2026-10-12): a dish's menu modifier groups. The cart's own editor writes sizes
+  as a required pick-one group priced from the cheapest size and extras as a pick-any group. `CartDish`
+  carries them as `groups`; a walk-over line sends `choices: [{ groupId, optionId }]`, which the server
+  checks (`modifier_invalid`) and prices like a delivery order's modifiers. `WalkupLine.priceIqd` is one
+  unit with its picks, and `choices` gives their names.
 - Owner (Merchant app cart mode, `MERCHANT_ADMIN_ROLES`): `owner.mode`, `owner.get`,
   `owner.openHere({ at, label?, closesAt? })`, `owner.close`, `owner.settings({ usual?, awayNote? })`,
   `owner.ready`, `owner.reject`, `owner.collect({ walkupId, code })`.

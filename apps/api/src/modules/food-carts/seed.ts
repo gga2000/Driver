@@ -1,5 +1,5 @@
 import type { CartKind } from '@driver/contracts';
-import type { CatalogService } from '../catalog/index.js';
+import type { CatalogService, NewCatalogItem } from '../catalog/index.js';
 import type { OrgsService } from '../orgs/index.js';
 import type { FoodCartsService } from './food-carts.service.js';
 
@@ -13,7 +13,8 @@ export interface DemoCart {
   last?: { lat: number; lng: number; label: string; facing: number };
   awayNote?: string;
   prepMin: number;
-  dishes: { key: string; nameAr: string; nameEn: string; priceIqd: number }[];
+  /** `groups`: sizes (required, pick one) and extras (pick any), as the owner writes them. */
+  dishes: { key: string; nameAr: string; nameEn: string; priceIqd: number; groups?: NonNullable<NewCatalogItem['modifierGroups']> }[];
 }
 
 /**
@@ -29,9 +30,21 @@ export const DEMO_CARTS: readonly DemoCart[] = [
     open: { lat: 32.90235, lng: 45.06585, label: 'جنب كراج السوق', facing: 200 },
     prepMin: 6,
     dishes: [
-      { key: 'laffa', nameAr: 'لفة كبدة', nameEn: 'Liver wrap', priceIqd: 2000 },
+      {
+        key: 'laffa',
+        nameAr: 'لفة كبدة',
+        nameEn: 'Liver wrap',
+        priceIqd: 2000,
+        groups: [{ nameAr: 'إضافات', minSelect: 0, maxSelect: 2, required: false, modifiers: [{ nameAr: 'بيض', priceIqd: 500 }, { nameAr: 'حار', priceIqd: 0 }] }],
+      },
       { key: 'maalak', nameAr: 'لفة معلاك', nameEn: 'Mixed offal wrap', priceIqd: 2000 },
-      { key: 'plate', nameAr: 'صحن كبدة', nameEn: 'Liver plate', priceIqd: 5000 },
+      {
+        key: 'plate',
+        nameAr: 'صحن كبدة',
+        nameEn: 'Liver plate',
+        priceIqd: 3000,
+        groups: [{ nameAr: 'الحجم', minSelect: 1, maxSelect: 1, required: true, modifiers: [{ nameAr: 'نص صحن', priceIqd: 0 }, { nameAr: 'صحن كامل', priceIqd: 2000 }] }],
+      },
       { key: 'samoon', nameAr: 'صمونة كبدة', nameEn: 'Liver samoon', priceIqd: 1500 },
     ],
   },
@@ -113,7 +126,7 @@ export async function seedDemoCarts(
     await orgs.setMerchantSettings(org.id, { defaultPrepMin: d.prepMin, commissionTier: 'base', closed: { reason: 'cart_closed', note: null, at: new Date() } });
     let sortOrder = 0;
     for (const dish of d.dishes) {
-      await catalog.addItem({ id: `${org.id}_${dish.key}`, orgId: org.id, nameAr: dish.nameAr, nameEn: dish.nameEn, description: null, priceIqd: dish.priceIqd, prepTimeMin: d.prepMin, categoryAr: null, sortOrder: sortOrder++ });
+      await catalog.addItem({ id: `${org.id}_${dish.key}`, orgId: org.id, nameAr: dish.nameAr, nameEn: dish.nameEn, description: null, priceIqd: dish.priceIqd, prepTimeMin: d.prepMin, categoryAr: null, sortOrder: sortOrder++, ...(dish.groups ? { modifierGroups: dish.groups } : {}) });
     }
     const cart = await carts.register({ orgId: org.id, cityId, kind: d.kind, usual: d.usual, awayNote: d.awayNote ?? null });
     if (d.last) await carts.placeAt(cart.id, d.last);
