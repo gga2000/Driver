@@ -156,7 +156,7 @@ export default function BoardingPassScreen() {
           departure: b.departure,
           pickup: b.pickup,
           network: network.data,
-          endGarageId: endGarage.id,
+         
           car: p?.car ?? null,
           now,
           startName: garage,

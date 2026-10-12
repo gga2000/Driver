@@ -18,12 +18,15 @@ export const STRIP_HALF_M = 10_000;
 
 type LngLat = [number, number];
 
-/** The road for a trip: the Aziziyah garage (where it leaves from, or where a trip back ends), the far city and the way. */
-export function roadKeyOf({ garageId, endGarageId, cityId, direction }: { garageId: string; endGarageId: string | null; cityId: string; direction: RoadDirection }): { garage: RoadGarage; city: RoadCity; direction: RoadDirection } | null {
+/**
+ * The road for a trip: from the garage it leaves (a trip out of Aziziyah), and each city's own garage at
+ * home for a trip back (the departure does not say where in Aziziyah it parks: «كراج بغداد» is البوابة 1,
+ * «كراج الكوت» البوابة 2).
+ */
+export function roadKeyOf({ garageId, cityId, direction }: { garageId: string; cityId: string; direction: RoadDirection }): { garage: RoadGarage; city: RoadCity; direction: RoadDirection } | null {
   if (cityId !== 'baghdad' && cityId !== 'kut') return null;
-  const home = direction === 'from_aziziyah' ? garageId : endGarageId;
-  // Each city's own garage at home when the trip names none we know («كراج بغداد», «كراج الكوت»).
-  const garage = garageKey(home ?? '') ?? (cityId === 'kut' ? 'bab2' : 'bab1');
+  const own: RoadGarage = cityId === 'kut' ? 'bab2' : 'bab1';
+  const garage = direction === 'from_aziziyah' ? (garageKey(garageId) ?? own) : own;
   return { garage, city: cityId, direction };
 }
 
@@ -31,12 +34,15 @@ export function roadKeyOf({ garageId, endGarageId, cityId, direction }: { garage
 export function roadForCities(fromCityId: string, toCityId: string): IntercityRoad | null {
   const direction: RoadDirection = fromCityId === 'aziziyah' ? 'from_aziziyah' : 'to_aziziyah';
   const city = direction === 'from_aziziyah' ? toCityId : fromCityId;
-  const key = roadKeyOf({ garageId: '', endGarageId: null, cityId: city, direction });
+  const key = roadKeyOf({ garageId: '', cityId: city, direction });
   return key ? intercityRoad(key.garage, key.city, key.direction) : null;
 }
 
 export type TripStopKind = 'start' | 'town' | 'checkpoint' | 'my_stop' | 'end';
 export type TripPoint = LatLngLike & { id: string; kind: 'checkpoint' | 'my_stop'; name: string };
+/** A stop the car is within this far of counts as reached (the road piece's own rule for towns). */
+const AT_STOP_M = 300;
+
 export type TripStop = { id: string; kind: TripStopKind; name: string; m: number; at: Date; passed: boolean; checkpoint?: boolean };
 
 export interface RoadTrip {
@@ -161,7 +167,7 @@ export function roadTrip({
     const left = departedAt ? departedAt.getTime() : t0;
     return carFrac === 0 ? left : left + (frac / carFrac) * (now.getTime() - left);
   };
-  const stop = (id: string, kind: TripStopKind, name: string, m: number): TripStop => ({ id, kind, name, m, at: new Date(at(m)), passed: carM !== null && m <= carM });
+  const stop = (id: string, kind: TripStopKind, name: string, m: number): TripStop => ({ id, kind, name, m, at: new Date(at(m)), passed: carM !== null && m - carM <= AT_STOP_M });
 
   const stops: TripStop[] = [stop('start', 'start', startName, 0)];
   road.towns.forEach((tw, i) => stops.push(stop(`town_${i}`, tw.kind === 'city' ? 'end' : 'town', tw.nameAr, tw.m)));
@@ -183,7 +189,7 @@ export function roadTrip({
   const progress = carM === null ? null : roadProgress(road, { m: carM });
   // The next stop: the first one ahead of the car (a town the car is at counts as passed, like the piece's).
   const nextM = progress?.next?.town.m ?? null;
-  const next = carM === null ? (stops[1] ?? null) : (stops.find((s) => !s.passed && s.m > carM && (nextM === null || s.m <= nextM)) ?? null);
+  const next = carM === null ? (stops[1] ?? null) : (stops.find((s) => !s.passed && (nextM === null || s.m <= nextM)) ?? null);
   const behind = stops.filter((s) => s.passed && s.kind !== 'checkpoint');
   const lastPassed = carM === null ? null : (behind[behind.length - 1] ?? stops[0]!);
   // The car's own average since it left, against the corridor's: only said when it is clear either way.
@@ -233,13 +239,12 @@ export interface RoadNetwork {
 
 /**
  * The real road for a الرجعة booking, or null when its corridor has none (or the network is not read
- * yet). `endGarageId` is the far end's garage (the trip back ends at one of Aziziyah's).
+ * yet).
  */
 export function bookingRoadTrip({
   departure,
   pickup,
   network,
-  endGarageId,
   car,
   now,
   startName,
@@ -249,7 +254,6 @@ export function bookingRoadTrip({
   departure: { garageId: string; corridorId: string; direction: RoadDirection; departAt: Date; departedAt: Date | null; state: string };
   pickup: LatLngLike & { kind: string };
   network: RoadNetwork | null | undefined;
-  endGarageId: string | null;
   car: LatLngLike | null;
   now: Date;
   startName: string;
@@ -258,7 +262,7 @@ export function bookingRoadTrip({
 }): RoadTrip | null {
   const corridor = network?.corridors.find((c) => c.id === departure.corridorId);
   if (!corridor) return null;
-  const key = roadKeyOf({ garageId: departure.garageId, endGarageId, cityId: corridor.cityId, direction: departure.direction });
+  const key = roadKeyOf({ garageId: departure.garageId, cityId: corridor.cityId, direction: departure.direction });
   if (!key) return null;
   const road = intercityRoad(key.garage, key.city, key.direction);
   const points: TripPoint[] = [

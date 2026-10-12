@@ -67,7 +67,7 @@ export default function RoadScreen() {
   const stopName = b ? stopNameOf(b.pickup, garage, { pin: t('rajaa.agree_pin_title'), door: t('rajaa.pickup_door'), place: publicPlaceName }) : '';
   const trip =
     b && endGarage
-      ? bookingRoadTrip({ departure: b.departure, pickup: b.pickup, network: network.data, endGarageId: endGarage.id, car: p?.car ?? null, now, startName: garage, stopName, checkpointName: publicPlaceName })
+      ? bookingRoadTrip({ departure: b.departure, pickup: b.pickup, network: network.data, car: p?.car ?? null, now, startName: garage, stopName, checkpointName: publicPlaceName })
       : null;
   const words = roadWords(trip, t, locale);
   const phase = b ? passPhase(b, now) : null;
@@ -223,7 +223,7 @@ export default function RoadScreen() {
       </>
     ) : (
       // No map on this build, or it failed: the sheet alone says it all.
-      <View style={{ flex: 1, justifyContent: 'flex-end', paddingTop: insets.top + TOP_BAR + theme.space[2] }}>{sheet}</View>
+      <View style={{ flex: 1, paddingTop: insets.top + TOP_BAR + theme.space[2] }}>{sheet}</View>
     );
   }
 
