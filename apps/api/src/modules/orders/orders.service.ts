@@ -431,6 +431,7 @@ export class OrdersService implements OnModuleInit {
       if (!this.riders) throw new DriverError('internal');
     }
     const preferredDriverId = await this.rideBooking(ordererId, input, now);
+    assertNotScheduledCourierOrder(input);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
@@ -752,6 +753,7 @@ export class OrdersService implements OnModuleInit {
    */
   async quote(ordererId: string, raw: PlaceInput): Promise<OrderQuote> {
     const input = PlaceOrderInput.parse(raw);
+    assertNotScheduledCourierOrder(input);
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
     await this.assertControls(input, p.merchantType, p.profile);
@@ -2172,17 +2174,23 @@ export class OrdersService implements OnModuleInit {
         if (by !== 'customer') {
           // Dispatch requests a new courier from this (it used to go nowhere and the order waited forever).
           const profile = o.merchantOrgId ? await this.merchants.profile(o.merchantOrgId) : null;
+          // Errands and parcels have no merchant: the new courier starts at the order's own pickup (the
+          // sender's door, the shop), the point the placed courier trip was built from. One already
+          // picked up is never searched again: staff settle it at the courier-lost desk.
+          const courierOrder = o.type === 'parcel' || o.type === 'errand';
+          const ownPickup = courierOrder && trip ? courierPickupOf(o.id, trip) : null;
+          const redispatch = !courierOrder || (o.state === 'placed' && !pickedUp.has(o.id) && ownPickup !== null);
           const unassigned: DomainEventInput<'order.courier_unassigned'> = {
             tripId: e.tripId,
             by,
             reason: typeof p['reason'] === 'string' ? p['reason'] : null,
-            redispatch: true,
+            redispatch,
             orderType: o.type,
             cityId: o.cityId,
             merchantOrgId: o.merchantOrgId,
             promisedReadyAt: o.promisedReadyAt,
             minVehicleClass: o.minVehicleClass,
-            pickup: profile?.location ?? null,
+            pickup: courierOrder ? ownPickup : (profile?.location ?? null),
             dropoff: o.dropoff,
             paymentMethod: o.paymentMethod,
             totalIqd: o.totalIqd,
@@ -2313,6 +2321,14 @@ export class OrdersService implements OnModuleInit {
 
 /** The receipt line of a platform promo code (money §5 launch package). */
 const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' } as const;
+
+/**
+ * Errands and parcels start their courier search when placed (`dispatch:courier-placed`) and nothing
+ * searches for one booked for later yet, so a scheduled one is refused rather than left waiting.
+ */
+function assertNotScheduledCourierOrder(input: { type: OrderType; scheduledFor?: Date | undefined }): void {
+  if ((input.type === 'parcel' || input.type === 'errand') && input.scheduledFor) throw new DriverError('invalid_input');
+}
 
 /** "سلّمته" (S-M4) is recorded on a ready order, or right after the courier confirmed the pickup himself. */
 const HAND_OVER_STATES: readonly OrderState[] = ['ready', 'picked_up'];
@@ -2681,6 +2697,12 @@ export function later<T>(promise: Promise<T>): () => Promise<T> {
     if (!r.ok) throw r.error;
     return r.value;
   };
+}
+
+/** An errand's or parcel's own pickup point, read from its courier trip's pickup stop (null when it has none). */
+function courierPickupOf(orderId: string, trip: Trip): DeliveryPoint | null {
+  const stop = trip.stops.find((s) => s.type === 'pickup' && s.orderId === orderId);
+  return stop ? { zoneKey: stop.zoneKey, ...(stop.target ? { pin: stop.target } : {}) } : null;
 }
 
 /**
