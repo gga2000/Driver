@@ -67,5 +67,10 @@ CREATE INDEX "parcel_sends_order_id_idx" ON "public"."parcel_sends"("order_id");
 -- CreateIndex
 CREATE UNIQUE INDEX "parcel_sends_sender_id_client_request_id_key" ON "public"."parcel_sends"("sender_id", "client_request_id");
 
+-- Parcel trip back (Ali, 2026-10-12): when the receiver refuses, the courier brings the parcel back and
+-- the sender pays both trips. The fare of the trip back, priced by the server at the refusal and added to
+-- the order's total (null = no trip back). Kept as the last change before the lock-down below.
+ALTER TABLE "public"."orders" ADD COLUMN "return_fare_iqd" INTEGER;
+
 -- Supabase lock-down for the new table (row level security on, nothing granted to anon / authenticated).
 SELECT * FROM "public"."driver_harden"(ARRAY['public', 'identity_vault'], 'identity_vault');

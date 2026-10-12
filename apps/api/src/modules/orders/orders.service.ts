@@ -2648,6 +2648,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     statedTenderIqd: order.statedTenderIqd ?? null,
     ...((order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     changeToWalletIqd: order.changeToWalletIqd ?? null,
+    ...(order.returnFareIqd != null ? { returnFareIqd: order.returnFareIqd } : {}),
     gift: giftView(order),
   };
 }

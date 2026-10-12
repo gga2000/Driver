@@ -398,6 +398,11 @@ export const Order = z.object({
    * ("باقي الكاش"), on top of the rounding `changeIqd`; null/absent = none.
    */
   changeToWalletIqd: Iqd.nullable().optional(),
+  /**
+   * طرود (Ali, 2026-10-12): the receiver refused and the courier is bringing the parcel back. The fare of
+   * the trip back, already in `totalIqd` (the sender pays both trips at the hand-back); null/absent = none.
+   */
+  returnFareIqd: z.number().int().nullable().optional(),
   /** «عزيمة» (joy g1): a gift for the recipient participant; null/absent = an ordinary order. */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
   /**
