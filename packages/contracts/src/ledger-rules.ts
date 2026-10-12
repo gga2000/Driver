@@ -155,7 +155,12 @@ export const MoneyRules = z.object({
   }),
   newCustomerCash: z.object({ maxOrderIqd: Iqd.positive(), firstOrders: z.number().int().positive() }),
   merchant: z.object({ exposureCapIqd: Iqd.positive(), defaultMode: SettlementMode }),
-  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative() }),
+  /**
+   * G-85 corrections: one above `secondApproverAboveIqd` waits for a second finance person; so does one
+   * that would take what this person posted alone today (Baghdad day) above `soloDailyMaxIqd`
+   * (Ali, 2026-10-12: 50,000 a day).
+   */
+  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative(), soloDailyMaxIqd: Iqd.nonnegative().default(50_000) }),
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
   /**
@@ -330,7 +335,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   },
   newCustomerCash: { maxOrderIqd: 25000, firstOrders: 3 },
   merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
-  adjustments: { secondApproverAboveIqd: 25000 },
+  adjustments: { secondApproverAboveIqd: 25000, soloDailyMaxIqd: 50000 },
   driverPayoutAboveIqd: 20000,
   // G-91 switched off by Ali on 2026-10-06 (open decision): no top-ups, nothing shown in the apps.
   guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_GUARANTEE_SHIFTS], roles: ['courier'] },
