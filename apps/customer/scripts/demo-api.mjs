@@ -1100,8 +1100,18 @@ const rajaa = await (async () => {
       const personId = personOf(req);
       if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/onboard?personId=…' });
       const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
-      // A fresh driver each call (a driver cannot announce two overlapping departures).
-      const driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      const road = new URL(req.url ?? '/', 'http://x').searchParams.get('road') === '1';
+      // A fresh driver each call (a driver cannot announce two overlapping departures); on the road
+      // (`road=1`) a named one, so the pass, the road map's car and the family page show his name.
+      let driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      if (road) {
+        const phone = `07719${String(990000 + onboardSeq).padStart(6, '0')}`;
+        await identity.requestOtp({ phone, purpose: 'login' });
+        const { code: otp } = await identity.devLastOtp(phone);
+        driverId = (await identity.verifyOtp({ phone, code: otp })).personId;
+        await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'intercity_driver' });
+        await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
+      }
       const dep = await deps.announce(driverId, {
         garageId: 'mp_garage_bab1',
         corridorId: 'aziziyah_baghdad',
@@ -1114,7 +1124,6 @@ const rajaa = await (async () => {
       const booked = await deps.book(personId, held.id, 'cash');
       // `&road=1` (r1–r3): his mother and Zainab follow every trip; the car has just left, 12 % of
       // the way to Baghdad, so the pass shows the road line, the arrival and who is watching.
-      const road = new URL(req.url ?? '/', 'http://x').searchParams.get('road') === '1';
       if (road) {
         await app.get(IdentityService).updateProfile(
           { personId, sessionId: 'demo' },
@@ -1160,9 +1169,11 @@ const rajaa = await (async () => {
       const m = Math.max(0, Math.min(road.totalM - 50, km * 1000));
       const car = roadGeoJSON(road, { m }).features.find((f) => f.properties.part === 'car')?.geometry.coordinates ?? road.path[0];
       await deps.driverPosition(d.driverId, d.id, { lat: car[1], lng: car[0] });
+      // The write stored a new record: move its times on that one.
+      const rec = routesRepo.departures.get(d.id);
       const now = Date.now();
-      d.lastPosition = { ...d.lastPosition, at: new Date(now - ageMin * MIN) };
-      d.departedAt = new Date(now - ageMin * MIN - (m / road.totalM) * corridor.travelMin * MIN);
+      rec.lastPosition = { ...rec.lastPosition, at: new Date(now - ageMin * MIN) };
+      rec.departedAt = new Date(now - ageMin * MIN - (m / road.totalM) * corridor.travelMin * MIN);
       json(res, 200, { bookingId, departureId: d.id, km: Math.round(m / 100) / 10, totalKm: Math.round(road.totalM / 100) / 10, at: { lat: car[1], lng: car[0] } });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
