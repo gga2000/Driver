@@ -49,6 +49,34 @@ describe('nightly close (02:00 Asia/Baghdad)', () => {
     expect(h.bus.last('incident.opened')?.payload).toMatchObject({ kind: 'ledger_imbalance' });
   });
 
+  it('every order closed and seat settled the day before has exactly one money group, or an incident is opened', async () => {
+    const h = ledgerHarness({ start: '2026-10-03T23:00:00Z' });
+    await h.posting.orderClosed(workedExample());
+    await h.posting.ride({ tripId: 't1', orderId: 'r1', occurredAt: new Date('2026-10-03T12:00:00Z'), customerId: 'c2', payment: 'wallet', driverId: 'd1', takeClass: 'car', fareIqd: 5000 });
+    await h.posting.seat({ seatId: 'bk_1.front', departureId: 'dep_1', occurredAt: new Date('2026-10-03T12:00:00Z'), customerId: 'c3', payment: 'cash', driverId: 'd2', fareIqd: 8000 }, { completed: true });
+    const windows: Array<[string, string]> = [];
+    const closed = [
+      { kind: 'order' as const, id: 'o1' },
+      { kind: 'order' as const, id: 'r1' },
+      { kind: 'seat' as const, id: 'bk_1.front' },
+    ];
+    h.nightly.watchClosures({ closedBetween: async (from, to) => (windows.push([from.toISOString(), to.toISOString()]), closed) });
+    const clean = await h.nightly.run();
+    expect(clean.incidentId).toBeNull();
+    expect(h.incidents.opened()).toEqual([]);
+    // The 24 h ending half an hour before the 02:00 run.
+    expect(windows).toEqual([['2026-10-02T22:30:00.000Z', '2026-10-03T22:30:00.000Z']]);
+
+    // An order whose posting never ran, and a seat the ledger never heard of.
+    closed.push({ kind: 'order', id: 'o2' }, { kind: 'seat', id: 'bk_2.back' });
+    const report = await h.nightly.run();
+    expect(report.ok).toBe(true);
+    expect(report.incidentId).toMatch(/^inc_ledger_/);
+    const [incident] = h.incidents.opened();
+    expect(incident).toMatchObject({ id: report.incidentId, kind: 'ledger_money_group_missing' });
+    expect(h.bus.last('incident.opened')?.payload).toMatchObject({ kind: 'ledger_money_group_missing', evidence: { checked: 5, problems: ['seat:bk_2.back:money missing', 'order o2: 0 money groups'] } });
+  });
+
   it('next run is 02:00 Baghdad (23:00 UTC), strictly in the future', () => {
     expect(nextNightlyRunAt(new Date('2026-10-03T12:00:00Z'), rules).toISOString()).toBe('2026-10-03T23:00:00.000Z');
     expect(nextNightlyRunAt(new Date('2026-10-03T21:30:00Z'), rules).toISOString()).toBe('2026-10-03T23:00:00.000Z');

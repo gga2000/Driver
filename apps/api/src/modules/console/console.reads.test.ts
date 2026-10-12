@@ -369,3 +369,27 @@ describe('ConsoleReadService.names (K-01)', () => {
     expect(w.id.repo.accessLogs).toHaveLength(0);
   });
 });
+
+describe('ConsoleReadService — outbox requeue and the money alarm', () => {
+  it('requeues failed rows against the admin, with the audit row written in the same unit of work', async () => {
+    const w = await world();
+    const audited: Array<{ entry: Record<string, unknown>; tx: unknown }> = [];
+    const audits = { record: async (entry: Record<string, unknown>, tx: unknown) => void audited.push({ entry, tx }) };
+    const reads = new ConsoleReadService(w.d.service, w.id.service, w.o.orders, w.l.caps, w.l.ledger, w.l.merchantCash, w.ev.events, w.orgs, new ScoringService(w.ev.events), w.d.clock, {} as never, {} as never, w.catalog, undefined, undefined, undefined, audits as never, w.ev.uow);
+    w.ev.events.subscribe('ledger:order.closed', ['order.closed'], async () => {
+      throw new Error('posting refused');
+    });
+    await w.ev.events.emit(undefined, { type: 'order.closed', actorId: 'system', occurredAt: w.d.clock.now(), orderId: 'o1' }, { name: 'order', id: 'o1' });
+    for (let i = 0; i < 10; i++) {
+      const [row] = await w.ev.repo.outbox();
+      if (row!.status === 'pending') w.d.clock.set(row!.nextAttemptAt);
+      await w.ev.publisher.drainOnce();
+    }
+    expect(await reads.moneyAlarm()).toMatchObject({ ledgerFailed: 1, alarm: true });
+    const [row] = await w.ev.repo.outbox();
+    expect(await reads.requeueOutbox({ ids: [row!.id] }, 'admin_1')).toEqual({ requeued: 1 });
+    expect(audited).toHaveLength(1);
+    expect(audited[0]!.entry).toMatchObject({ actorId: 'admin_1', action: 'outbox.requeue', subjectKind: 'outbox', subjectId: row!.id, detail: { requeued: 1, ids: [row!.id] } });
+    expect(audited[0]!.tx).toBeDefined();
+  });
+});

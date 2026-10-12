@@ -47,14 +47,16 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
     // Nobody pays out to a shop he belongs to: a colleague does.
     if (await this.memberOf(actor.personId, input.merchantId)) throw new DriverError('staff_own_account');
     const reference = keyedSettlementReference('M', input.merchantId, input.idempotencyKey);
-    const left = await this.merchantCash.recordPayout({ merchantId: input.merchantId, amountIqd: input.amountIqd, channel: input.channel, reference });
     const name = await this.orgs.get(input.merchantId).then((o) => o.name).catch(() => input.merchantId);
-    await this.uow.run((tx) =>
-      this.audits.record(
-        { cityId: input.cityId, actorId: actor.personId, action: 'finance.merchant_payout', subjectKind: 'merchant', subjectId: input.merchantId, summaryAr: `دفع لـ${name} ${iqd(input.amountIqd)} دينار (${reference})`, detail: { amountIqd: input.amountIqd, channel: input.channel, reference, leftIqd: left } },
+    // The posting and its audit row commit together: no payout without its row on the audit log.
+    const left = await this.uow.run(async (tx) => {
+      const leftIqd = await this.merchantCash.recordPayout({ merchantId: input.merchantId, amountIqd: input.amountIqd, channel: input.channel, reference });
+      await this.audits.record(
+        { cityId: input.cityId, actorId: actor.personId, action: 'finance.merchant_payout', subjectKind: 'merchant', subjectId: input.merchantId, summaryAr: `دفع لـ${name} ${iqd(input.amountIqd)} دينار (${reference})`, detail: { amountIqd: input.amountIqd, channel: input.channel, reference, leftIqd } },
         tx,
-      ),
-    );
+      );
+      return leftIqd;
+    });
     return { reference, amountIqd: input.amountIqd, leftIqd: left };
   }
 
@@ -62,13 +64,14 @@ export class MoneyOutService implements OnModuleInit, OnModuleDestroy {
     // A finance person who also drives is paid by a colleague.
     if (input.driverId === actor.personId) throw new DriverError('staff_own_account');
     const reference = keyedSettlementReference('D', input.driverId, input.idempotencyKey);
-    const left = await this.merchantCash.recordDriverPayout({ driverId: input.driverId, amountIqd: input.amountIqd, channel: input.channel, reference });
-    await this.uow.run((tx) =>
-      this.audits.record(
-        { cityId: input.cityId, actorId: actor.personId, action: 'finance.driver_payout', subjectKind: 'driver', subjectId: input.driverId, summaryAr: `دفع للسايق ${iqd(input.amountIqd)} دينار (${reference})`, detail: { amountIqd: input.amountIqd, channel: input.channel, reference, leftIqd: left } },
+    const left = await this.uow.run(async (tx) => {
+      const leftIqd = await this.merchantCash.recordDriverPayout({ driverId: input.driverId, amountIqd: input.amountIqd, channel: input.channel, reference });
+      await this.audits.record(
+        { cityId: input.cityId, actorId: actor.personId, action: 'finance.driver_payout', subjectKind: 'driver', subjectId: input.driverId, summaryAr: `دفع للسايق ${iqd(input.amountIqd)} دينار (${reference})`, detail: { amountIqd: input.amountIqd, channel: input.channel, reference, leftIqd } },
         tx,
-      ),
-    );
+      );
+      return leftIqd;
+    });
     return { reference, amountIqd: input.amountIqd, leftIqd: left };
   }
 
