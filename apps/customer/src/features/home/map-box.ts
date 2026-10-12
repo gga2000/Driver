@@ -12,16 +12,16 @@ export interface MapCard {
   id: 'map' | MapShop;
   title: MessageKey;
   line: MessageKey;
-  /** The picture's address on the website, or null for the drawn town. */
+  /** The picture's path on the API (`/media/food/…`), or null for the drawn town. */
   picture: string | null;
 }
 
 /**
- * Shops on the 3D map in the late-afternoon sun and with their lights on at night. The cards show only
- * where the map runs (the website for now), so the pictures live with the website's files in public/
- * and phones don't carry them; bump the `.v1` when a picture changes.
+ * Shops on the 3D map in the late-afternoon sun and with their lights on at night. Served by the API
+ * with the dish photos (`apps/api/media/food`), so the phone download doesn't carry them; a changed
+ * picture gets the next number (`-2`), since phones keep each name for a year.
  */
-export const mapPicture = (shop: MapShop, night: boolean) => `/pictures/home-map-${shop}-${night ? 'night' : 'day'}.v1.webp`;
+export const mapPicture = (shop: MapShop, night: boolean) => `/media/food/home-map-${shop}-${night ? 'night' : 'day'}-1.webp`;
 
 /** The pictures show the town after dark from 18:00 to 06:00 (Aziziyah's sunset is 17:00–19:30 over the year). */
 export const mapBoxNight = (hour: number) => hour >= 18 || hour < 6;
