@@ -77,7 +77,8 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   trip and the live request and changes nothing.
  * - `dispatch:redispatch` on `order.courier_unassigned` with `redispatch`: the courier's trip ended
  *   before pickup (taken off an unreachable courier, dropped, released): a new courier trip and a
- *   new request, timed to the promised ready time as on acceptance.
+ *   new request, timed to the promised ready time as on acceptance. A parcel / errand searches again
+ *   from its own pickup point (orders sends it; one without it, or already picked up, is not re-sent).
  * - `dispatch:ride-request` on `order.placed` for rides: builds the ride's trip and starts the
  *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher. A
  *   ride booked for later (joy J7d) is offered to drivers the evening before (review #28) and otherwise waits until 30 min before; one that asked for the rider's
@@ -210,7 +211,14 @@ export class DispatchSubscribers {
   async onCourierUnassigned(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
     const p = decodeDomainEvent('order.courier_unassigned', e.payload);
     if (!p.redispatch) return;
-    await this.requestCourier(e.orderId ?? e.aggregateId, { ...p, readyAt: p.promisedReadyAt ?? undefined });
+    const orderId = e.orderId ?? e.aggregateId;
+    const placedVertical = PLACED_VERTICAL_OF[p.orderType];
+    if (placedVertical) {
+      // A parcel / errand searches again from its own pickup, never a stand-in point (or a merchant's).
+      if (!p.pickup) return this.logger.warn(`order ${orderId}: ${p.orderType} dropped without its pickup point, not re-dispatched`);
+      return this.requestCourier(orderId, { ...p, readyAt: undefined }, placedVertical);
+    }
+    await this.requestCourier(orderId, { ...p, readyAt: p.promisedReadyAt ?? undefined });
   }
 
   /** Idempotent: an order already on a live trip keeps it, and a live request for that trip is returned as is. */

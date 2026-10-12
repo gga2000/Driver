@@ -203,4 +203,40 @@ describe('dispatch on order.placed for parcels and errands', () => {
     await subs.onCourierPlaced(placed('ord_a1', { type: 'food', merchantOrgId: 'rest_1' }));
     expect(requested(h)).toHaveLength(1);
   });
+
+  it('a parcel its courier dropped before pickup gets exactly one new request from its own pickup; one dropped after pickup gets none', async () => {
+    const h = dispatchHarness();
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    const unassigned = (orderId: string, extra: Partial<DomainEventInput<'order.courier_unassigned'>> = {}) => ({
+      orderId,
+      aggregateId: orderId,
+      payload: encodeDomainEvent('order.courier_unassigned', {
+        tripId: 'trip-old',
+        by: 'driver',
+        reason: null,
+        redispatch: true,
+        orderType: 'parcel',
+        cityId: 'aziziyah',
+        merchantOrgId: null,
+        promisedReadyAt: null,
+        minVehicleClass: null,
+        pickup: SENDER_DOOR,
+        dropoff: { zoneKey: 'street_30' },
+        paymentMethod: 'cash',
+        totalIqd: 3_500,
+        ...extra,
+      }),
+    });
+    const before = unassigned('ord_p2');
+    await subs.onCourierUnassigned(before);
+    await subs.onCourierUnassigned(before); // outbox redelivery: same live trip, same live request
+    expect(h.trips.created[0]).toEqual(expect.objectContaining({ orderId: 'ord_p2', vertical: 'parcel', pickup: SENDER_DOOR }));
+    expect(requested(h)).toHaveLength(1);
+    expect(await h.service.getRequest('trip-ord_p2')).toMatchObject({ vertical: 'parcel', zoneId: 'zakur', pickup: north(1), hot: false, readyAt: null });
+
+    // Already picked up (orders sends redispatch: false), or no pickup point on file: no new search.
+    await subs.onCourierUnassigned(unassigned('ord_p3', { redispatch: false }));
+    await subs.onCourierUnassigned(unassigned('ord_e3', { orderType: 'errand', pickup: null }));
+    expect(requested(h)).toHaveLength(1);
+  });
 });
