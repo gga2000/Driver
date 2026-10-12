@@ -679,11 +679,9 @@ export class MerchantAdminService implements MerchantAdminPort {
     return { orderId: order.id, entries: activityEntries(events, names) };
   }
 
-  // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
-
-  /** Today's pot (even past its «لحد» time), last week's same day and the recent ones, follower counts. */
   // ───────────────────────── أكل بيت: the cook's side ─────────────────────────
 
+  /** «أكلاتي» (owner and staff): her dishes with today's plates, and the reservations coming. A store that isn't a home kitchen gets home: false. */
   async homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView> {
     await this.roleAt(actor, input.merchantOrgId);
     if (!(await this.catalog.storefront(input.merchantOrgId))?.home) return { home: false, dishes: [], reservations: [] };
@@ -765,6 +763,9 @@ export class MerchantAdminService implements MerchantAdminPort {
     };
   }
 
+  // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
+
+  /** Today's pot (even past its «لحد» time), last week's same day and the recent ones, follower counts. */
   async potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView> {
     await this.roleAt(actor, input.merchantOrgId);
     return this.potView(input.merchantOrgId);
