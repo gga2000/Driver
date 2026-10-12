@@ -9298,5 +9298,6 @@
   "error.parcel_not_cancellable": "The courier has the parcel, it can't be cancelled now",
   "error.parcel_receiver_is_you": "That's your own number. Choose who receives the parcel",
   "error.parcel_pin_locked": "The code is locked after too many wrong tries. Call support to finish the hand-over",
-  "error.parcel_refuse_too_far": "You need to be at the receiver's door to mark it refused"
+  "error.parcel_refuse_too_far": "You need to be at the receiver's door to mark it refused",
+  "error.parcel_pin_not_verified": "Enter the receiver's code first, then hand the parcel over"
 }

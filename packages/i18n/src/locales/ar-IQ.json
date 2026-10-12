@@ -9298,5 +9298,6 @@
   "error.parcel_not_cancellable": "الدليفري أخذ الطرد، ما ينلغي هسه",
   "error.parcel_receiver_is_you": "هذا رقمك. اختار الشخص اللي يستلم الطرد",
   "error.parcel_pin_locked": "الرمز انگفل بعد كم محاولة غلط. اتصل بالدعم حتى نكمل التسليم",
-  "error.parcel_refuse_too_far": "لازم تكون يم باب المستلم حتى تسجل إنه رفض"
+  "error.parcel_refuse_too_far": "لازم تكون يم باب المستلم حتى تسجل إنه رفض",
+  "error.parcel_pin_not_verified": "اكتب رمز المستلم أول، بعدين سلّم الطرد"
 }
