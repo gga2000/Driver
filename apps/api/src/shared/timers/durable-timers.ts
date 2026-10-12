@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Clock } from '../clock.js';
-import { afterCommit, type Tx } from '../db/unit-of-work.js';
+import { afterCommit, type UnitOfWork } from '../db/unit-of-work.js';
 import { assertJobId, type JobHandler, type Queue } from '../queue.js';
 import type { TimerStore } from './timer.store.js';
 import type { TimerSweeper } from './timer.sweeper.js';
@@ -20,9 +20,11 @@ export interface DurableTimerOptions {
  * `schedule` writes the copy in the caller's transaction (`current()`), and enqueues the BullMQ job
  * only after that transaction commits, without waiting for it and without ever throwing: Redis being
  * down never fails or slows the request, and a job never runs before the row it reads is committed.
- * The job's handler marks the copy fired; a copy still pending `TIMER_SWEEP_GRACE_MS` after its due
- * time (the job was never enqueued, was lost, or failed every attempt) is fired by the `TimerSweeper`
- * through the same handler. So a timer may run twice: every handler re-checks the state it changes.
+ * A copy still pending `TIMER_SWEEP_GRACE_MS` after its due time (the job was never enqueued, was
+ * lost, or failed every attempt) is fired by the `TimerSweeper` through the same handler. Either way
+ * the handler runs in a transaction that first takes the copy (`TimerStore.take`: row locked, marked
+ * fired, put back on rollback), so a BullMQ retry and the sweeper firing one timer at once run it
+ * once. Handlers still re-check the state they change (a timer whose copy is missing runs unguarded).
  *
  * Until `bind` (unit tests and narrow harnesses) there is no copy: the job alone, still after commit.
  */
@@ -36,7 +38,7 @@ export class DurableTimers<T> {
   constructor(
     private readonly queue: Queue<T>,
     private readonly clock: Clock,
-    private readonly current: () => Tx | undefined,
+    private readonly uow: Pick<UnitOfWork, 'current' | 'run'>,
   ) {
     this.logger = new Logger(`DurableTimers(${queue.name})`);
   }
@@ -52,44 +54,44 @@ export class DurableTimers<T> {
     this.register();
   }
 
-  /** The queue's handler: run by BullMQ (then the copy is marked fired) and by the sweeper. */
+  /** The queue's handler: run by BullMQ and by the sweeper, each time inside `run`. */
   process(handler: JobHandler<T>): void {
     this.handler = handler;
-    this.queue.process(async (job) => {
-      await handler(job);
-      await this.markFired(job.id);
-    });
+    this.queue.process((job) => this.run(job));
     this.register();
   }
 
   async schedule(name: string, data: T, opts: DurableTimerOptions): Promise<void> {
     assertJobId(opts.jobId);
     const dueAt = this.clock.now().getTime() + Math.max(0, opts.delayMs);
-    const tx = this.current();
+    const jobId = opts.jobId;
+    const tx = this.uow.current();
     if (this.store) await this.store.schedule({ queue: this.queue.name, name, jobId: opts.jobId, data, dueAt: new Date(dueAt + TIMER_SWEEP_GRACE_MS) }, tx);
     const enqueue = async () => {
       try {
-        await this.queue.add(name, data, { jobId: opts.jobId, delayMs: Math.max(0, dueAt - this.clock.now().getTime()) });
+        await this.queue.add(name, data, { jobId, delayMs: Math.max(0, dueAt - this.clock.now().getTime()) });
       } catch (err) {
-        this.logger.warn(`timer ${name} (${opts.jobId}) not queued${this.store ? ', the sweeper fires it' : ''}: ${(err as Error).message}`);
+        this.logger.warn(`timer ${name} (${jobId}) not queued${this.store ? ', the sweeper fires it' : ''}: ${(err as Error).message}`);
       }
     };
     if (!afterCommit(tx, () => void enqueue())) void enqueue();
   }
 
-  private register(): void {
-    if (this.registered || !this.handler || !this.sweeper) return;
-    this.sweeper.register(this.queue.name, this.handler);
-    this.registered = true;
+  /** One run of a timer (its BullMQ job or the sweeper): takes its copy and runs the handler in one transaction. */
+  private async run(job: { id: string; name: string; data: T }): Promise<void> {
+    const handler = this.handler;
+    if (!handler) return;
+    const store = this.store;
+    if (!store) return handler(job);
+    await this.uow.run(async (tx) => {
+      if ((await store.take(this.queue.name, job.id, this.clock.now(), tx)) === 'done') return;
+      await handler(job);
+    });
   }
 
-  private async markFired(jobId: string): Promise<void> {
-    if (!this.store) return;
-    try {
-      await this.store.markFired(this.queue.name, jobId, this.clock.now());
-    } catch (err) {
-      // The job ran; its copy will run once more through the sweeper, which changes nothing.
-      this.logger.warn(`timer ${jobId} ran but its durable copy was not marked fired: ${(err as Error).message}`);
-    }
+  private register(): void {
+    if (this.registered || !this.handler || !this.sweeper) return;
+    this.sweeper.register<T>(this.queue.name, (job) => this.run(job));
+    this.registered = true;
   }
 }

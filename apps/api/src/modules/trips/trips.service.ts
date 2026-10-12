@@ -134,7 +134,7 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIPS_QUEUE) queue: Queue<TripTimerJob>,
     @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
   ) {
-    this.timers = new DurableTimers(queue, clock, () => uow.current());
+    this.timers = new DurableTimers(queue, clock, uow);
   }
 
   /** FLW-22: the ride auto-complete and the unreachable protocol's timers have a durable copy. */

@@ -296,7 +296,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     /** Launch scope: خطوط takes no new pickups or absences until the city lists it. Absent in narrow harnesses. */
     @Optional() private readonly controls?: ControlsService,
   ) {
-    this.timers = queue ? new DurableTimers(queue, clock, () => uow.current()) : null;
+    this.timers = queue ? new DurableTimers(queue, clock, uow) : null;
   }
 
   /** FLW-22: the sweep check has a durable copy, so a lost Redis job or a failed run only delays it. */

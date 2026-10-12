@@ -2,6 +2,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { FakeClock } from '../clock.js';
 import { PrismaService } from '../db/prisma.service.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
+import type { JobHandler, Queue } from '../queue.js';
+import { DurableTimers, TIMER_SWEEP_GRACE_MS } from './durable-timers.js';
 import { PrismaTimerStore } from './timer.store.prisma.js';
 import { TimerSweeper, type TimerSweeperOptions } from './timer.sweeper.js';
 
@@ -10,6 +12,17 @@ import { TimerSweeper, type TimerSweeperOptions } from './timer.sweeper.js';
  * fires from the sweeper with no Redis at all; two workers sweeping at once fire each timer exactly
  * once; a rolled-back transaction leaves no timer. Needs DATABASE_URL with the migrations deployed.
  */
+
+/** A queue whose jobs the test runs by hand: `run` is what BullMQ would call on a worker. */
+class HandQueue<T> implements Queue<T> {
+  run: JobHandler<T> = async () => undefined;
+  constructor(readonly name: string) {}
+  async add(): Promise<void> {}
+  process(handler: JobHandler<T>): void {
+    this.run = handler;
+  }
+  async close(): Promise<void> {}
+}
 const url = process.env['DATABASE_URL'];
 const OPTS: TimerSweeperOptions = { enabled: true, intervalMs: 5_000, batch: 25, leaseMs: 60_000 };
 
@@ -107,6 +120,61 @@ describe.skipIf(!url)('durable timers on Postgres (needs DATABASE_URL)', () => {
     expect([...counts.values()].every((n) => n === 1)).toBe(true);
     expect((await rows(queue)).every((r) => r.status === 'fired')).toBe(true);
     await other.onModuleDestroy();
+  });
+
+  /** Two worker machines, each with its own connections, running the same timers' handler. */
+  function twoWorkers(queue: string, clock: FakeClock, handler: JobHandler<{ i: number }>) {
+    const other = new PrismaService(url);
+    return {
+      workers: [
+        { prisma, uow, store },
+        { prisma: other, uow: new UnitOfWork(other), store: new PrismaTimerStore(other) },
+      ].map((w) => {
+        const q = new HandQueue<{ i: number }>(queue);
+        const sweeper = new TimerSweeper(w.store, clock, 'worker', OPTS);
+        const timers = new DurableTimers(q, clock, w.uow);
+        timers.process(handler);
+        timers.bind(w.store, sweeper);
+        return { ...w, q, sweeper, timers };
+      }),
+      close: () => other.onModuleDestroy(),
+    };
+  }
+
+  it('runs a timer once when two workers fire it at the same moment (a BullMQ retry racing the first run)', async () => {
+    const clock = new FakeClock(new Date());
+    const queue = q('take');
+    let runs = 0;
+    const { workers, close } = twoWorkers(queue, clock, async () => {
+      runs += 1;
+      await new Promise((r) => setTimeout(r, 200)); // long enough for the other worker to arrive meanwhile
+    });
+    const [a, b] = workers as [(typeof workers)[number], (typeof workers)[number]];
+    await a.uow.run(() => a.timers.schedule('t', { i: 0 }, { delayMs: 0, jobId: 'j0' }));
+    const job = { id: 'j0', name: 't', data: { i: 0 } };
+    await Promise.all([a.q.run(job), b.q.run(job)]);
+    expect(runs).toBe(1);
+    expect((await rows(queue))[0]).toMatchObject({ status: 'fired' });
+    await close();
+  });
+
+  it('runs each of 50 timers once when their jobs and a sweeper on another worker fire them at the same time', async () => {
+    const clock = new FakeClock(new Date());
+    const queue = q('take_sweep');
+    const counts = new Map<number, number>();
+    const { workers, close } = twoWorkers(queue, clock, async (job) => {
+      counts.set(job.data.i, (counts.get(job.data.i) ?? 0) + 1);
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    const [a, b] = workers as [(typeof workers)[number], (typeof workers)[number]];
+    for (let i = 0; i < 50; i++) await a.uow.run(() => a.timers.schedule('t', { i }, { delayMs: 0, jobId: `j${i}` }));
+    clock.advance(TIMER_SWEEP_GRACE_MS + 1_000); // the jobs are late: the sweeper wants every one too
+    const [swept] = await Promise.all([b.sweeper.sweep(), ...Array.from({ length: 50 }, (_, i) => a.q.run({ id: `j${i}`, name: 't', data: { i } }))]);
+    expect(swept.failed + swept.retried).toBe(0);
+    expect(counts.size).toBe(50);
+    expect([...counts.values()].every((n) => n === 1)).toBe(true);
+    expect((await rows(queue)).every((r) => r.status === 'fired')).toBe(true);
+    await close();
   });
 
   it('retries with backoff, fails for good after max attempts, and reports it in the stats', async () => {
