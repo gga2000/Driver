@@ -14,6 +14,7 @@ import {
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
+  type AcceptedOfferRecord,
   type OrderRun,
   type ReplayRecord,
   type RestaurantRun,
@@ -75,6 +76,7 @@ export class Simulation implements SimContext {
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
   readonly errandReceipts = new Map<string, ErrandReceiptRecord>();
+  readonly acceptedOffers: AcceptedOfferRecord[] = [];
   readonly offers: ObservedOffer[] = [];
 
   readonly dispatchLog: DispatchMoment[] = [];
@@ -499,6 +501,7 @@ export class Simulation implements SimContext {
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
       errandReceipts: [...this.errandReceipts.values()],
+      acceptedOffers: [...this.acceptedOffers],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },
       rideStarts,

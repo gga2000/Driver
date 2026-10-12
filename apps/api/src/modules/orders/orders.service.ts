@@ -126,7 +126,8 @@ export interface OrdersTripsPort {
   /** «أني نازل» (J-D8): 2 more minutes before "فشل" at this order's door, once. */
   extendUnreachable(tripId: string, orderId: string, customerId: string): Promise<{ extended: boolean; trip: Trip }>;
   /** Who carried the order (for settlement on `closed`); null when no driver ever took it. */
-  courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
+  /** `batchedSecond`: the trip rode along one the courier took first (money §2: the batch share of the fee). */
+  courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical; batchedSecond?: boolean } | null>;
   /** A trip as it stands (a dropped ride's pickup and drop-off for its new search). */
   get?(tripId: string): Promise<Trip>;
 }
@@ -1848,6 +1849,11 @@ export class OrdersService implements OnModuleInit {
     return this.repo.householdOrdersBetween(householdId, memberIds, from, to);
   }
 
+  /** The orders that closed in `[from, to)`: the ledger's nightly check that each settled once. */
+  closedBetween(from: Date, to: Date): Promise<string[]> {
+    return this.repo.closedBetween(from, to);
+  }
+
   /** Joy w6: who had orders served in `[from, to)` (the month-start card's audience). */
   orderersServedBetween(from: Date, to: Date): Promise<string[]> {
     return this.repo.orderersServedBetween(from, to);
@@ -2009,7 +2015,12 @@ export class OrdersService implements OnModuleInit {
     if (order.state !== 'picked_up') return;
     const now = this.clock.now();
     const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now, ...(extra > 0 ? { changeToWalletIqd: extra } : {}) }, { tripId: e.tripId, courierId: e.actorId });
-    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? cashDueIqd(order), tx, extra);
+    if (order.paymentMethod === 'cash') {
+      // The money posts with the cash: it must carry the same batch rate `closed` will (money §2).
+      const carrier = await this.trips.courierOf(order.id);
+      const batchedSecond = carrier?.tripId === e.tripId && carrier.batchedSecond === true;
+      await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e), batchedSecond }, cash ?? cashDueIqd(order), tx, extra);
+    }
     await this.scheduleClose(next, now);
     return next;
   }
@@ -2113,6 +2124,8 @@ export class OrdersService implements OnModuleInit {
         order: {
           orderId: order.id,
           ...(courier ? { tripId: courier.tripId, courierId: courier.courierId } : {}),
+          // The batch rate his offer showed when this trip rode along another (money §2).
+          ...(courier?.batchedSecond ? { batchedSecond: true } : {}),
           orderType: order.type,
           occurredAt: now,
           ...payer,
@@ -2626,6 +2639,7 @@ interface Courier {
   tripId: string;
   courierId: string;
   vertical: Vertical;
+  batchedSecond?: boolean | undefined;
 }
 
 /** The kind-tagged money fact shared by `order.cash_collected` and `order.closed`. */

@@ -1,5 +1,5 @@
 export { TripsModule } from './trips.module.js';
-export { TripsService, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
+export { TripsService, isBatchedSecond, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
 export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob, PositionReport } from './trips.service.js';
 export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS } from './trips.rpc.js';
 export type { RoleChecker, ChildNamesPort, DriverCardsPort } from './trips.rpc.js';

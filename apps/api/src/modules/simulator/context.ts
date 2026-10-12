@@ -234,6 +234,14 @@ export interface ErrandReceiptRecord {
   byStaff: boolean;
 }
 
+/** An offer a courier accepted, and whether its card showed the batched-second rate (Partner's `currentOffer`). */
+export interface AcceptedOfferRecord {
+  tripId: string;
+  driverId: string;
+  /** He held another job when he took it: the card showed the batch share of the delivery fee. */
+  batched: boolean;
+}
+
 /** Shared state actors read and write. */
 export interface SimContext {
   readonly s: SimServices;
@@ -257,6 +265,8 @@ export interface SimContext {
   readonly doorCash: Map<string, DoorCashRecord>;
   /** «دوّرلي» receipts the server accepted, by order (a later entry replaces an earlier one). */
   readonly errandReceipts: Map<string, ErrandReceiptRecord>;
+  /** Offers the couriers accepted, with the pay their card showed. */
+  readonly acceptedOffers: AcceptedOfferRecord[];
   /** Service calls refused with a DriverError, by code (expected in a busy city). */
   readonly refusals: Map<string, number>;
   /** Anything else a service threw (a bug). */

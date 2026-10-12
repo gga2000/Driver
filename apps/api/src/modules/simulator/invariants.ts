@@ -1,5 +1,6 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DispatchMoment, DoorCashRecord, ErrandReceiptRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import { buildPay } from '../partner/index.js';
+import type { AcceptedOfferRecord, DispatchMoment, DoorCashRecord, ErrandReceiptRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -39,6 +40,8 @@ export interface SimSnapshot {
   handovers: HandoverRecord[];
   /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
   doorCash?: DoorCashRecord[];
+  /** Offers the couriers accepted and whether the card showed the batch rate (absent in hand-built snapshots). */
+  acceptedOffers?: AcceptedOfferRecord[];
   /** `holders`: couriers the merchant's live balance says hold its cash (absent in hand-built snapshots). */
   merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
@@ -471,6 +474,33 @@ export const INVARIANTS: readonly Definition[] = [
         }
       }
       return { checked: byGroup.size, bad };
+    },
+  },
+  {
+    name: 'courier_delivery_line_matches_offer',
+    description:
+      "the delivery fee the ledger pays a courier on a food or grocery order is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %) when he took it while holding another job",
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const orders = new Map(s.orders.map((o) => [o.id, o]));
+      const trips = new Map(s.trips.map((t) => [t.id, t]));
+      for (const a of s.acceptedOffers ?? []) {
+        const trip = trips.get(a.tripId);
+        if (!trip || trip.courierId !== a.driverId) continue;
+        for (const link of trip.orders) {
+          const o = orders.get(link.orderId);
+          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog')) continue;
+          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === 'delivery_fee' && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
+          if (paid.length === 0) continue;
+          checked += 1;
+          const offer = buildPay({ vertical: trip.vertical, orders: [o], batchedSecond: a.batched, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null });
+          const shown = offer.components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation').reduce((n, c) => n + c.amountIqd, 0);
+          const got = paid.reduce((n, e) => n + e.amount, 0);
+          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} delivery, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
+        }
+      }
+      return { checked, bad };
     },
   },
   {

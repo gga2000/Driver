@@ -337,6 +337,18 @@ export class DeparturesService {
     );
   }
 
+  /**
+   * The seats whose money settled in `[from, to)` (the ledger's nightly check that each posted once):
+   * every seat of a booking completed then, and of a prepaid booking marked no-show then — the seats
+   * `seat.completed` / `seat.no_show` carried, by the same seat money id.
+   */
+  async settledSeatsBetween(from: Date, to: Date): Promise<string[]> {
+    const within = (at: Date | null) => at !== null && at >= from && at < to;
+    return (await this.repo.settledBetween(from, to))
+      .filter((b) => within(b.completedAt) || (b.prepaid && within(b.noShowAt)))
+      .flatMap((b) => b.seatIds.map((seatId) => `${b.id}.${seatId}`));
+  }
+
   async seatsFilled(departureId: string): Promise<number | null> {
     const dep = await this.repo.getDeparture(departureId);
     if (!dep) return null;
