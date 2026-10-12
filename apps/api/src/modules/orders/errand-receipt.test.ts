@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError } from '@driver/contracts';
+import { DriverError, type Actor } from '@driver/contracts';
+import { ledgerHarness } from '../ledger/test-harness.js';
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { cashDueIqd, orderPriceIqd, payable } from './orders.service.js';
+import { staffHarness } from './staff-harness.js';
 import { HOME, ordersHarness } from './test-harness.js';
 
 const SHOPS = { zoneKey: 'street_30', pin: { lat: 32.905, lng: 45.07 } };
@@ -8,7 +11,10 @@ const UPLOADS: Record<string, { ownerId: string; state: 'pending' | 'stored' }> 
   up_receipt_d1: { ownerId: 'd1', state: 'stored' },
   up_receipt_d1b: { ownerId: 'd1', state: 'stored' },
   up_receipt_c1: { ownerId: 'c1', state: 'stored' },
+  up_receipt_ops: { ownerId: 'ops_1', state: 'stored' },
+  up_receipt_pending: { ownerId: 'd1', state: 'pending' },
 };
+const uploads: OrdersUploadsPort = { get: async (id) => UPLOADS[id] ?? null, getVoice: async () => null };
 
 async function code(p: Promise<unknown>): Promise<string> {
   const err = await p.then(
@@ -21,7 +27,10 @@ async function code(p: Promise<unknown>): Promise<string> {
 
 /** A cash «دوّرلي» with a 30,000 list ceiling, taken by d1 and (unless `arrive` is false) at the shops. */
 async function errandAtShops(opts: { arrive?: boolean } = {}) {
-  const h = ordersHarness(undefined, { uploads: { get: async (id) => UPLOADS[id] ?? null, getVoice: async () => null } });
+  return errandOn(ordersHarness(undefined, { uploads }), opts);
+}
+
+async function errandOn<H extends ReturnType<typeof ordersHarness>>(h: H, opts: { arrive?: boolean } = {}) {
   const errandItem = (listMaxIqd: number) => ({ unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd });
   const o = await h.orders.place('c1', {
     cityId: 'aziziyah',
@@ -155,5 +164,53 @@ describe('«دوّرلي» pickup guard (the shops stop waits for the receipt)',
       await h.trips.completeStop(t.id, s.id, driver).catch(() => undefined);
     }
     expect(asked).toEqual([]);
+  });
+});
+
+describe('«دوّرلي» receipt by staff (orders.ops.recordErrandReceipt)', () => {
+  const ops: Actor = { personId: 'ops_1', roles: ['dispatcher'] } as unknown as Actor;
+  const staffAtShops = async (opts: { arrive?: boolean } = {}) => {
+    const h = staffHarness({}, { ledger: ledgerHarness(), uploads });
+    return { ...(await errandOn(h, opts)), h };
+  };
+
+  it('sets the receipt and the server total like the shopper\'s own entry, audited with the amount and the reason', async () => {
+    const { h, o } = await staffAtShops();
+    const placed = await h.orders.get(o.id);
+    const r = await h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 18_750, reason: 'الصورة ما دتنرسل من السوق' });
+    const after = (await h.repo.find(o.id))!.order;
+    expect(after.receiptTotalIqd).toBe(18_750);
+    expect(after.totalIqd).toBe(payable('errand', 'cash', 18_750 + placed.deliveryFeeIqd + placed.serviceFeeIqd + placed.tipIqd).totalIqd);
+    expect(r).toMatchObject({ orderId: o.id, state: after.state, changed: true, postedIqd: 0, auditId: 'au_1' });
+    expect(h.events.last('order.errand_receipt')).toMatchObject({ actorId: 'ops_1', payload: { courierId: 'd1', receiptIqd: 18_750, previousIqd: null, photoUploadId: null, byStaff: true, staffId: 'ops_1' } });
+    expect(h.audits).toEqual([expect.objectContaining({ id: 'au_1', action: 'order.errand_receipt_by_staff', actorId: 'ops_1', subjectId: o.id })]);
+    expect(h.audits[0]!.detail).toMatchObject({ receiptIqd: 18_750, totalIqd: after.totalIqd, cashDueIqd: cashDueIqd(after), reason: 'الصورة ما دتنرسل من السوق' });
+    expect(h.audits[0]!.summaryAr).toContain('18,750 دينار');
+    expect(h.audits[0]!.summaryAr).toContain('الصورة ما دتنرسل من السوق');
+  });
+
+  it('the pickup then completes; after it the receipt is locked for staff too', async () => {
+    const { h, o, t, pickup } = await staffAtShops();
+    await h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 9_000, reason: 'تلفونه خربان', photoUploadId: 'up_receipt_ops' });
+    await h.trips.completeStop(t.id, pickup.id, 'd1');
+    await h.deliver();
+    expect(await code(h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 9_500, reason: 'تصحيح' }))).toBe('order_state_conflict');
+    expect((await h.repo.find(o.id))!.order.receiptTotalIqd).toBe(9_000);
+    expect(h.audits).toHaveLength(1);
+  });
+
+  it('works before «وصلت» reached us; refused for a food order, a bad photo, or before anyone took the errand', async () => {
+    const early = await staffAtShops({ arrive: false });
+    expect(await early.h.staff.errandReceipt(ops, { orderId: early.o.id, totalIqd: 7_000, reason: 'ماكو نت عنده' })).toMatchObject({ changed: true });
+
+    const { h, o } = await staffAtShops();
+    expect(await code(h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 7_000, reason: 'صورة غلط', photoUploadId: 'up_receipt_c1' }))).toBe('upload_invalid');
+    expect(await code(h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 7_000, reason: 'صورة ناقصة', photoUploadId: 'up_receipt_pending' }))).toBe('upload_invalid');
+    const food = await h.orders.place('c1', h.foodInput());
+    expect(await code(h.staff.errandReceipt(ops, { orderId: food.id, totalIqd: 7_000, reason: 'مو دوّرلي' }))).toBe('order_state_conflict');
+    const untaken = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'خبز', qty: 1 }] });
+    expect(await code(h.staff.errandReceipt(ops, { orderId: untaken.id, totalIqd: 7_000, reason: 'ماكو متسوّق' }))).toBe('order_state_conflict');
+    expect(h.audits).toEqual([]);
+    expect(h.events.ofType('order.errand_receipt')).toEqual([]);
   });
 });

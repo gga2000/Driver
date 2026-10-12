@@ -5,7 +5,7 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
-import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffErrandReceiptInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
 import { ErrandItemSpec, WeightG } from './shop-lines.js';
@@ -637,6 +637,8 @@ export interface OrdersPort {
   /** W3 staff way-out (docs/api/staff-ops.md): audited, with a reason; money outcomes behind their switches. */
   opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult>;
   opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult>;
+  /** «دوّرلي»: ops record the shopper's receipt when his photo would not send (audited; same rules as his own entry). */
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult>;
   opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult>;
   opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult>;
   opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;
