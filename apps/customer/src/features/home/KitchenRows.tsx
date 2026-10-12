@@ -12,6 +12,7 @@ import { LongRide } from '@/features/food/RestaurantRow';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
+import { countKey } from '@/lib/plural';
 import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
 import type { FoodPhotoSource } from '@/features/food-landing/photos';
 import { kitchenPhotos } from './dish-photos';
@@ -35,13 +36,11 @@ const OVERLAP = 12;
 export function KitchenRows({
   title,
   kitchens,
-  count,
   showing = [],
   testID = 'rail-open',
 }: {
   title: string;
   kitchens: readonly RestaurantSummary[];
-  count: string;
   /** The stand-in photos' kinds already on the page (the hour's dishes): rows pick others. */
   showing?: readonly Motif[];
   testID?: string;
@@ -79,14 +78,17 @@ export function KitchenRows({
           <KitchenRow key={r.id} r={r} motif={motifs[i]!} photo={photos[i] ?? null} ownFee={fee === null} testID={`restaurant-${r.id}`} />
         ))}
       </View>
-      {kitchens.length > HOME_KITCHENS ? <AllKitchens count={count} faces={faces} testID={`${testID}-all`} /> : null}
+      {/* How many more, not the open count again: the food box above already says it (home roast 4). */}
+      {kitchens.length > HOME_KITCHENS ? (
+        <AllKitchens count={t(countKey('home.all_kitchens_more', kitchens.length - HOME_KITCHENS), { n: kitchens.length - HOME_KITCHENS })} faces={faces} testID={`${testID}-all`} />
+      ) : null}
     </View>
   );
 }
 
 /**
  * «كل المحلات» (Ali 2026-10-08: "a clear beautiful box"): a Soft Tint box in the food card's own
- * colours, so it reads as the way into the rest: the words and how many are open, a few of the other
+ * colours, so it reads as the way into the rest: the words and how many more there are, a few of the other
  * kitchens' photos, and a round ink arrow. It sinks a little under the finger, like the cards above.
  */
 function AllKitchens({ count, faces, testID }: { count: string; faces: readonly (string | number)[]; testID: string }) {

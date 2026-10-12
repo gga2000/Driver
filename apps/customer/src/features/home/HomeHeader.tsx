@@ -9,14 +9,15 @@ import { selectedPlace, useProfile, zoneName } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { greetingKey, type Daypart } from './daypart';
 import { pointsChip } from './points-chip';
+import type { RamadanPhase } from './ramadan-day';
 
 /**
  * The top of home (Date & Saffron, Ali 2026-10-06): where we deliver first («التوصيل إلى / البيت ·
  * شارع 30 ▾», opens /places) with the points chip on the other side (D-07: no bell until a real inbox,
- * h9), then the hour's greeting («علي، شنو عشانا اليوم؟», joy h1; plain on quiet days) in the calm
+ * h9), then the hour's greeting («علي، شنو عشانا اليوم؟», joy h1; plain on quiet days; the fast's in Ramadan) in the calm
  * heading face, on the plain warm page (Ali, 2026-10-07: no hand-lettering and no sky tint up here).
  */
-export function HomeHeader({ daypart, quiet, closed }: { daypart: Pick<Daypart, 'key' | 'friday'>; quiet: boolean; closed: boolean }) {
+export function HomeHeader({ daypart, quiet, closed, ramadan = null }: { daypart: Pick<Daypart, 'key' | 'friday'>; quiet: boolean; closed: boolean; ramadan?: RamadanPhase | null }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -27,7 +28,7 @@ export function HomeHeader({ daypart, quiet, closed }: { daypart: Pick<Daypart, 
   const chip = pointsChip(signedIn, balance.data);
   const place = selectedPlace(prof);
   const placeText = place ? `${place.title ?? t(placeLabelKey(place.label))} · ${zoneName(place.zoneId, locale)}` : t('home.deliver_to_none');
-  const key = greetingKey(daypart, { quiet, named: Boolean(prof.name), closed });
+  const key = greetingKey(daypart, { quiet, named: Boolean(prof.name), closed, ramadan });
   const hello = t(key, { name: prof.name ?? '' });
 
   return (

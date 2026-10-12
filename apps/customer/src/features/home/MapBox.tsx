@@ -16,8 +16,9 @@ export { mapBoxNight } from './map-box';
 
 export interface MapBoxProps {
   night: boolean;
-  /** The live line on the drawn town: «8 فاتحين هسة», or when they open. */
-  fact: string;
+  /** The live line on the drawn town while every kitchen is closed (when they open); none while they're
+   * open, since the food box already says how many (home roast 4). */
+  fact: string | null;
   /** The page's scroll; the box must be a direct child of the page, so its layout is page-relative. */
   scrollY: SharedValue<number>;
   width: number;
@@ -166,7 +167,7 @@ export function MapBox({ night, fact, scrollY, width }: MapBoxProps) {
                 stopTour();
                 goTo(index - 1);
               }}
-              label={`${t(c.title)}، ${i === 0 ? `${fact}، ` : ''}${t(c.line)}، ${t('restaurant_map.count', { n: i + 1, total: n })}`}
+              label={`${t(c.title)}، ${i === 0 && fact ? `${fact}، ` : ''}${t(c.line)}، ${t('restaurant_map.count', { n: i + 1, total: n })}`}
             />
           ))}
         </View>
@@ -296,8 +297,9 @@ function CardView({
             {t(card.line)}
           </Text>
         </View>
-        <View style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
-          <Icon name="chevron-forward" size={22} color={theme.colors.onAccent} strokeWidth={2.4} />
+        {/* A way somewhere is a round arrow, ink on the light boxes; here on the dark, the same in cream (home roast 4). */}
+        <View style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: on }}>
+          <Icon name="chevron-forward" size={22} color={ink} strokeWidth={2.4} />
         </View>
       </View>
     </Animated.View>
