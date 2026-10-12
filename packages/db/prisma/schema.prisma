@@ -3996,6 +3996,9 @@ model ShopDailyBread {
   @@index([time, paused])
   @@index([orgId])
   @@map("shop_daily_bread")
+  @@schema("public")
+}
+
 /// A food cart «عربانة» (2026-10-11): a restaurant org that moves. Where it opened tonight, its usual
 /// hours and its away note; delivery orders go to the org like any kitchen.
 model FoodCart {
