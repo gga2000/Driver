@@ -7,6 +7,7 @@ import { Badge, Button, Icon, ModalSheet, Text, useTheme, type IconName } from '
 import { useFullBrightness } from '@/lib/brightness';
 import { useT } from '@/lib/i18n';
 import { RAIL_KEYS, waitClock, type RailStage } from './job-steps';
+import { ReportClosedRow } from './ReportClosed';
 
 /**
  * The job screen's parts (partner redesign j1–j9, r6): the step rail, the place as a headline, the big
@@ -310,6 +311,7 @@ export function ProblemSheet({ visible, items, onClose }: { visible: boolean; it
             <Icon name="chevron-forward" size={18} color="textMuted" />
           </Pressable>
         ))}
+        <ReportClosedRow onDone={onClose} />
       </Animated.View>
     </ModalSheet>
   );
