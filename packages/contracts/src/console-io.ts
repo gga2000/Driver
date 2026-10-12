@@ -307,6 +307,17 @@ export const MoneyAlarm = z.object({
 });
 export type MoneyAlarm = z.infer<typeof MoneyAlarm>;
 
+/** A message claimed for a send longer ago than this, with no answer recorded, is stuck. */
+export const NOTIFY_STUCK_AFTER_SEC = 300;
+/** Outgoing messages (push, SMS, WhatsApp) claimed for a send that never recorded an outcome. Read only. */
+export const NotifyStuck = z.object({
+  /** Rows claimed more than `NOTIFY_STUCK_AFTER_SEC` ago and still queued: the send may or may not have gone. */
+  stuck: z.number().int().nonnegative(),
+  /** Seconds since the oldest of them was claimed (0 when none). */
+  oldestSec: z.number().int().nonnegative(),
+});
+export type NotifyStuck = z.infer<typeof NotifyStuck>;
+
 /** SMS sent in the last 24 hours (sign-in codes and notification texts together) against the day's budget. */
 export const SmsDayView = z.object({
   sent: z.number().int().nonnegative(),
@@ -502,6 +513,7 @@ export interface ConsolePort {
   /** Failed rows back to pending; the audit row (against `actorId`, the admin) commits with the change. */
   requeueOutbox(input: OutboxRequeueInput, actorId: string): Promise<OutboxRequeueResult>;
   moneyAlarm(): Promise<MoneyAlarm>;
+  notifyStuck(): Promise<NotifyStuck>;
   smsDay(): Promise<SmsDayView>;
   merchants(cityId: string): Promise<MerchantRow[]>;
   simulatorStatus(): Promise<z.input<typeof SimulatorStatus>>;
