@@ -473,7 +473,7 @@ export const INVARIANTS: readonly Definition[] = [
   {
     name: 'courier_delivery_line_matches_offer',
     description:
-      "the delivery fee the ledger pays a courier on a food or grocery order is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %) when he took it while holding another job",
+      "the delivery fee the ledger pays a courier on a food or grocery order, and the errand fee it pays a shopper, is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %, errands too since Ali 2026-10-12) when he took it while holding another job; an errand's receipt is not part of it",
     run: (s) => {
       const bad: string[] = [];
       let checked = 0;
@@ -484,14 +484,15 @@ export const INVARIANTS: readonly Definition[] = [
         if (!trip || trip.courierId !== a.driverId) continue;
         for (const link of trip.orders) {
           const o = orders.get(link.orderId);
-          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog')) continue;
-          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === 'delivery_fee' && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
+          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog' && o.type !== 'errand')) continue;
+          const feeType = o.type === 'errand' ? 'errand_fee' : 'delivery_fee';
+          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === feeType && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
           if (paid.length === 0) continue;
           checked += 1;
           const offer = buildPay({ vertical: trip.vertical, orders: [o], batchedSecond: a.batched, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null });
           const shown = offer.components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation').reduce((n, c) => n + c.amountIqd, 0);
           const got = paid.reduce((n, e) => n + e.amount, 0);
-          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} delivery, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
+          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} ${o.type === 'errand' ? 'errand fee' : 'delivery'}, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
         }
       }
       return { checked, bad };

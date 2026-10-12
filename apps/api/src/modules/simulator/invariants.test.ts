@@ -147,4 +147,21 @@ describe('courier_delivery_line_matches_offer (money §2 batch rate)', () => {
     expect(r.violations).toBe(1);
     expect(r.examples[0]).toMatch(/o_t2: courier d1 paid 2000 delivery, his offer showed 1400/);
   });
+
+  it('errands too (Ali 2026-10-12): the errand fee line matches the offer, 70 % on a batched second, the receipt aside', () => {
+    const errandLine = (tripId: string, amount: number, type: LedgerEvent['type'] = 'errand_fee'): LedgerEvent => ({ ...line(tripId, amount), id: `${type}_${tripId}`, type });
+    const run = (ledger: LedgerEvent[]) =>
+      checkInvariants({
+        ...snapshot([order({ id: 'o_t1', type: 'errand', deliveryFeeIqd: 2000 } as Partial<Order> & { id: string }), order({ id: 'o_t2', type: 'errand', deliveryFeeIqd: 2000 } as Partial<Order> & { id: string })], ledger),
+        trips: [trip('t1'), trip('t2')],
+        acceptedOffers: [
+          { tripId: 't1', driverId: 'd1', batched: false },
+          { tripId: 't2', driverId: 'd1', batched: true },
+        ],
+      }).find((r) => r.name === 'courier_delivery_line_matches_offer')!;
+    expect(run([errandLine('t1', 2000), errandLine('t2', 1400), errandLine('t2', 7000, 'errand_cost_actual')])).toMatchObject({ checked: 2, violations: 0 });
+    const r = run([errandLine('t1', 2000), errandLine('t2', 2000)]);
+    expect(r.violations).toBe(1);
+    expect(r.examples[0]).toMatch(/o_t2: courier d1 paid 2000 errand fee, his offer showed 1400/);
+  });
 });
