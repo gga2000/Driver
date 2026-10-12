@@ -16,7 +16,7 @@ function setup() {
   const queue = new InMemoryQueue<Job>('orders.timers', () => clock.now());
   const store = new InMemoryTimerStore();
   const sweeper = new TimerSweeper(store, clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
-  const timers = new DurableTimers(queue, clock, () => uow.current());
+  const timers = new DurableTimers(queue, clock, uow);
   const ran: string[] = [];
   timers.process(async (job) => {
     ran.push(`${job.name}:${job.data.id}`);
@@ -83,22 +83,81 @@ describe('DurableTimers (FLW-22)', () => {
     expect(ran).toEqual(['t:o1']);
   });
 
-  it('a job whose copy could not be marked fired still succeeds (the sweeper re-runs it, harmlessly)', async () => {
+  it('its job and the sweeper firing one timer at once run it once', async () => {
     const { clock, uow, queue, store, sweeper, timers, ran } = setup();
     await uow.run(() => timers.schedule('t', { id: 'o1' }, { delayMs: 1_000, jobId: 'order.o1.t' }));
-    vi.spyOn(store, 'markFired').mockRejectedValueOnce(new Error('database timeout'));
+    clock.advance(1_000 + TIMER_SWEEP_GRACE_MS); // the job is late enough that the sweeper wants it too
+    const [drained, swept] = await Promise.all([queue.drain(), sweeper.sweep()]);
+    expect(drained).toBe(1);
+    expect(swept.failed + swept.retried).toBe(0);
+    expect(ran).toEqual(['t:o1']);
+    expect(store.rows[0]).toMatchObject({ status: 'fired' });
+  });
+
+  it('a run that fails puts its copy back with its own work, so the retry runs it', async () => {
+    const clock = new FakeClock('2026-10-11T09:00:00Z');
+    const uow = new UnitOfWork(new NoDatabaseRunner());
+    const queue = new InMemoryQueue<Job>('orders.timers', () => clock.now());
+    const store = new InMemoryTimerStore();
+    const sweeper = new TimerSweeper(store, clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
+    const timers = new DurableTimers(queue, clock, uow);
+    let fail = true;
+    const ran: string[] = [];
+    timers.process(async (job) => {
+      if (fail) {
+        fail = false;
+        throw new Error('kitchen row locked');
+      }
+      ran.push(job.data.id);
+    });
+    timers.bind(store, sweeper);
+    await uow.run(() => timers.schedule('t', { id: 'o1' }, { delayMs: 1_000, jobId: 'order.o1.t' }));
     clock.advance(1_000);
-    expect(await queue.drain()).toBe(1);
+    await queue.drain(); // the first attempt throws; BullMQ's retry finds the copy pending again
+    expect(ran).toEqual(['o1']);
+    expect(store.rows[0]).toMatchObject({ status: 'fired' });
     clock.advance(TIMER_SWEEP_GRACE_MS);
-    expect((await sweeper.sweep()).fired).toBe(1);
-    expect(ran).toEqual(['t:o1', 't:o1']);
+    expect((await sweeper.sweep()).fired).toBe(0);
+  });
+
+  it('a re-arming timer keeps one copy per subject: armed again while pending it changes nothing; its handler re-arms it in place', async () => {
+    const clock = new FakeClock('2026-10-11T09:00:00Z');
+    const uow = new UnitOfWork(new NoDatabaseRunner());
+    const queue = new InMemoryQueue<Job>('trips.timers', () => clock.now());
+    const added = vi.spyOn(queue, 'add');
+    const store = new InMemoryTimerStore();
+    const timers = new DurableTimers(queue, clock, uow);
+    const key = (data: Job) => `trip.${data.id}.wait`;
+    timers.rearming('wait', key);
+    let again = 1;
+    timers.process(async (job) => {
+      if (again-- > 0) await timers.schedule('wait', job.data, { delayMs: 60_000, jobId: key(job.data) });
+    });
+    timers.bind(store, null);
+    for (let i = 0; i < 5; i++) {
+      await uow.run(() => timers.schedule('wait', { id: 't1' }, { delayMs: 600_000, jobId: 'trip.t1.wait' }));
+      clock.advance(10_000);
+    }
+    expect(store.rows).toHaveLength(1);
+    expect(added).toHaveBeenCalledTimes(1);
+    await expect(timers.schedule('wait', { id: 't1' }, { delayMs: 0, jobId: 'trip.t1.other' })).rejects.toThrow(/row key/);
+
+    clock.advance(600_000);
+    expect(await queue.drain()).toBe(1); // fired and re-armed itself
+    expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]).toMatchObject({ jobId: 'trip.t1.wait', status: 'pending' });
+    expect(added).toHaveBeenCalledTimes(2);
+    expect(added.mock.calls.map((c) => c[2]?.jobId)).toEqual([`trip.t1.wait.${Date.parse('2026-10-11T09:10:00Z')}`, `trip.t1.wait.${clock.now().getTime() + 60_000}`]);
+    clock.advance(60_000);
+    expect(await queue.drain()).toBe(1);
+    expect(store.rows[0]).toMatchObject({ status: 'fired' });
   });
 
   it('registers with the sweeper whichever comes first, bind or process', async () => {
     const clock = new FakeClock();
     const store = new InMemoryTimerStore();
     const sweeper = new TimerSweeper(store, clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
-    const timers = new DurableTimers(new InMemoryQueue<Job>('trips.timers', () => clock.now()), clock, () => undefined);
+    const timers = new DurableTimers(new InMemoryQueue<Job>('trips.timers', () => clock.now()), clock, new UnitOfWork(new NoDatabaseRunner()));
     timers.bind(store, sweeper);
     const ran: string[] = [];
     timers.process(async (job) => void ran.push(job.data.id));
@@ -118,7 +177,7 @@ describe('DurableTimers (FLW-22)', () => {
     const uow = new UnitOfWork(new NoDatabaseRunner());
     const factory = new BullMqQueueFactory('redis://127.0.0.1:1', 'durable-test');
     const store = new InMemoryTimerStore();
-    const timers = new DurableTimers(factory.queue<Job>('orders.timers'), clock, () => uow.current());
+    const timers = new DurableTimers(factory.queue<Job>('orders.timers'), clock, uow);
     timers.bind(store, null);
     const started = Date.now();
     try {
