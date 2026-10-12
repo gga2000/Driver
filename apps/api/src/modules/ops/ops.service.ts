@@ -246,6 +246,8 @@ export class OpsService implements OpsPort, OnModuleInit {
     const zoneKey = this.zones.resolve(input.cityId, input.location.pin);
     if (!zoneKey) throw new DriverError('outside_zone');
     const location = { zoneKey, pin: input.location.pin };
+    // The home rate is a home kitchen's only; refused before anything is written.
+    if (input.type !== 'home_kitchen' && input.commissionTier === 'home') throw new DriverError('commission_tier_home_only');
     for (const id of [...input.menuPhotoUploadIds, ...(input.shopPhotoUploadId ? [input.shopPhotoUploadId] : [])]) await this.assertUpload(actor.personId, id);
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);

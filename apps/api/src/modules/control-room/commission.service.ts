@@ -70,7 +70,8 @@ export class CommissionTierService {
       starterDays: starter?.days ?? null,
       reviewDue: starter?.due ?? false,
       lastChange: last && to ? { at: last.at, byName: last.actorName, from: tierOf(last.detail['from']), to } : null,
-      options: MerchantCommissionTier.options.map((t) => ({ tier: t, pct: tierRatePct(t) })),
+      // A home kitchen's only rate is `home`; every other store picks from the rest.
+      options: MerchantCommissionTier.options.filter((t) => (t === 'home') === (tier === 'home')).map((t) => ({ tier: t, pct: tierRatePct(t) })),
     };
   }
 
@@ -79,6 +80,9 @@ export class CommissionTierService {
     // Nobody sets the rate of a shop he belongs to: a colleague does.
     if (org.members.some((m) => m.personId === actor.personId)) throw new DriverError('staff_own_account');
     const from = org.merchant?.commissionTier ?? null;
+    // أكل بيت: the home rate is only a home kitchen's, and a home kitchen stays on it (moving a cook off
+    // 10 % is Ali's call, not finance's).
+    if ((input.tier === 'home') !== (from === 'home')) throw new DriverError('commission_tier_home_only');
     if (from !== input.tier) {
       // The rate and its audit row commit together: a failed audit write leaves the rate as it was.
       await this.uow.run(async (tx) => {

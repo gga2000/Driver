@@ -853,17 +853,17 @@ export class OrdersService implements OnModuleInit {
     return { balance: available, usable, valueIqd: usable * ORDERS_RULES.pointValueIqd };
   }
 
-  /**
-   * أكل بيت: at a home kitchen, ready plates still free today and reserved plates within what she takes
-   * at that pickup time (`homeOrderProblem`); other kitchens pass untouched.
-   */
   /** A food order reserved at a home kitchen (أكل بيت), with the no-show rule bound. */
   private async isHomeReservation(order: OrderRecord): Promise<boolean> {
     if (order.type !== 'food' || !order.scheduledFor || !order.merchantOrgId || !this.platformFailure?.homeNoShow) return false;
     return Boolean((await this.catalog.storefront?.(order.merchantOrgId))?.home);
   }
 
-  /** أكل بيت at placement: closed city, owed reservation, plates left. True when the kitchen is a home kitchen. */
+  /**
+   * أكل بيت at placement: the city switch, an owed reservation, then ready plates still free today and
+   * reserved plates within what she takes at that pickup time (`homeOrderProblem`). Other kitchens pass
+   * untouched; true when the kitchen is a home kitchen.
+   */
   private async assertHomePlates(ordererId: string, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
     if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return false;
     // A home kitchen takes no orders until أكل بيت opens in the city, even by a direct link.

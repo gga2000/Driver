@@ -538,6 +538,20 @@ describe('ops.merchantOnboarding of a home kitchen (field ops visit)', () => {
     expect((await h.orgs.merchantSettings(named.merchantOrgId)).commissionTier).toBe('home');
   });
 
+  it('the home rate is only for a home kitchen: a restaurant or grocer visit naming it is refused and nothing is made', async () => {
+    const h = await setup();
+    for (const [type, phone] of [['restaurant', '07800000144'], ['grocer', '07800000145']] as const) {
+      await expect(h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, name: 'كباب الزهراء', type, contact: { name: 'أبو علي', phone }, commissionTier: 'home' }))).rejects.toMatchObject({ code: 'commission_tier_home_only' });
+    }
+    // No store org is left behind for a refused visit, and the contact is not added to the vault.
+    expect(await h.orgs.inCity('aziziyah')).toEqual([]);
+    expect(await h.id.service.personIdByPhone('07800000144')).toBeNull();
+    expect(h.repo.onboardings).toEqual([]);
+    expect(h.repo.tasks).toEqual([]);
+    expect(h.audits).toEqual([]);
+    expect(await h.ev.events.forActor(h.staff.personId)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'merchant.onboarding_drafted' })]));
+  });
+
   it('an ordinary restaurant visit is unchanged: starter by default', async () => {
     const h = await setup();
     const v = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, name: 'كباب الزهراء', type: 'restaurant', contact: { name: 'أبو علي', phone: '07800000143' } }));
