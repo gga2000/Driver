@@ -375,3 +375,174 @@ describe('ops.merchantOnboarding commission tier (Ali 2026-10-11)', () => {
     expect(MerchantOnboardingInput.safeParse({ ...visit, commissionTier: 'pickup' }).success).toBe(false);
   });
 });
+
+describe('ops.homeKitchenApply (أكل بيت «سجّل مطبخك»)', () => {
+  const DOOR = { lat: 32.887, lng: 45.0765 }; // Zakur
+  const apply = { cityId: 'aziziyah', kitchenName: 'مطبخ أم حسين', cookName: 'أم حسين', door: DOOR, landmark: 'قرب جامع الزكور' };
+  const cook = async (h: Awaited<ReturnType<typeof setup>>, phone = '07700000501') => (await h.id.login(phone)).actor;
+
+  it('creates her restaurant org (no role yet), a submitted home_kitchen onboarding, a follow-up task and the home rate with one audit row', async () => {
+    const h = await setup();
+    const me = await cook(h);
+    const v = await h.ops.homeKitchenApply(me, apply);
+    expect(v).toEqual({ state: 'submitted', kitchenName: 'مطبخ أم حسين', submittedAt: h.clock.now(), rejectReason: null });
+    expect(h.repo.onboardings).toHaveLength(1);
+    const row = h.repo.onboardings[0]!;
+    expect(row).toMatchObject({ type: 'home_kitchen', state: 'submitted', name: 'مطبخ أم حسين', cityId: 'aziziyah', createdById: me.personId, contactPersonId: me.personId, notes: 'قرب جامع الزكور', menuPhotoRefs: [], shopPhotoRef: null, location: { zoneKey: 'zakur', pin: DOOR } });
+    expect(await h.orgs.get(row.orgId)).toMatchObject({ type: 'restaurant', name: 'مطبخ أم حسين', cityId: 'aziziyah', members: [expect.objectContaining({ personId: me.personId })] });
+    // Nothing opens for her until staff approve it.
+    expect(await h.id.service.hasRole(me.personId, 'merchant_owner', row.orgId)).toBe(false);
+    expect(await h.id.service.hasRole(me.personId, 'merchant_owner')).toBe(false);
+    const settings = await h.orgs.merchantSettings(row.orgId);
+    expect(settings).toMatchObject({ commissionTier: 'home', location: { zoneKey: 'zakur', pin: DOOR } });
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'store.commission_tier_set', actorId: me.personId, subjectId: row.orgId, detail: { from: null, to: 'home', onboardingId: row.id } })]);
+    expect(h.repo.tasks.filter((t) => t.refId === row.id)).toEqual([expect.objectContaining({ kind: 'merchant_followup', state: 'open', assigneeId: null, payload: { merchantOrgId: row.orgId, homeKitchen: true } })]);
+    expect((await h.ev.events.forActor(me.personId)).filter((e) => e.type === 'merchant.onboarding_drafted').map((e) => e.payload)).toEqual([expect.objectContaining({ onboardingId: row.id, merchantOrgId: row.orgId, type: 'home_kitchen' })]);
+  });
+
+  it('no landmark leaves the notes empty', async () => {
+    const h = await setup();
+    await h.ops.homeKitchenApply(await cook(h), { ...apply, landmark: undefined });
+    expect(h.repo.onboardings[0]!.notes).toBeNull();
+  });
+
+  it('asking again while one waits returns it and creates nothing new (one pending per person)', async () => {
+    const h = await setup();
+    const me = await cook(h);
+    const first = await h.ops.homeKitchenApply(me, apply);
+    h.clock.advance(60_000);
+    const again = await h.ops.homeKitchenApply(me, { ...apply, kitchenName: 'اسم ثاني' });
+    expect(again).toEqual(first);
+    expect(h.repo.onboardings).toHaveLength(1);
+    expect(h.repo.tasks).toHaveLength(1);
+    expect(h.audits).toHaveLength(1);
+  });
+
+  it('a double tap (two calls at once) makes one application', async () => {
+    const h = await setup();
+    const me = await cook(h);
+    const [a, b] = await Promise.all([h.ops.homeKitchenApply(me, apply), h.ops.homeKitchenApply(me, apply)]);
+    expect(a).toEqual(b);
+    expect(h.repo.onboardings).toHaveLength(1);
+    expect(h.repo.tasks).toHaveLength(1);
+    expect(h.audits).toHaveLength(1);
+  });
+
+  it('a door outside the zones is refused and nothing is made', async () => {
+    const h = await setup();
+    const me = await cook(h);
+    await expect(h.ops.homeKitchenApply(me, { ...apply, door: { lat: 33.3, lng: 44.4 } })).rejects.toMatchObject({ code: 'outside_zone' });
+    expect(h.repo.onboardings).toEqual([]);
+    expect(h.audits).toEqual([]);
+    expect((await h.id.repo.readIdentity(me.personId))?.name ?? null).toBeNull();
+  });
+
+  it("her name goes to the vault only when it has none; it never overwrites one", async () => {
+    const h = await setup();
+    const fresh = await cook(h, '07700000502');
+    await h.ops.homeKitchenApply(fresh, apply);
+    expect((await h.id.repo.readIdentity(fresh.personId))?.name).toBe('أم حسين');
+
+    const named = await cook(h, '07700000503');
+    await h.id.service.setName({ personId: named.personId, sessionId: 's' }, 'زهراء');
+    await h.ops.homeKitchenApply(named, { ...apply, cookName: 'اسم آخر' });
+    expect((await h.id.repo.readIdentity(named.personId))?.name).toBe('زهراء');
+    // The name lives only in the vault, never on the onboarding row.
+    expect(JSON.stringify(h.repo.onboardings)).not.toContain('اسم آخر');
+  });
+  it("a pending ordinary restaurant onboarding with her as contact doesn't count as her kitchen application", async () => {
+    const h = await setup();
+    const me = await cook(h, '07700000504');
+    await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ cityId: 'aziziyah', name: 'كباب الزهراء', type: 'restaurant', contact: { name: 'أم حسين', phone: '07700000504' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } } }));
+    expect(h.repo.onboardings).toEqual([expect.objectContaining({ type: 'restaurant', state: 'draft', contactPersonId: me.personId })]);
+    h.clock.advance(60_000);
+    const v = await h.ops.homeKitchenApply(me, apply);
+    expect(v).toEqual({ state: 'submitted', kitchenName: 'مطبخ أم حسين', submittedAt: h.clock.now(), rejectReason: null });
+    expect(h.repo.onboardings.map((o) => [o.type, o.state])).toEqual([
+      ['restaurant', 'draft'],
+      ['home_kitchen', 'submitted'],
+    ]);
+    expect(await h.ops.myHomeKitchenApplication(me)).toMatchObject({ state: 'submitted', kitchenName: 'مطبخ أم حسين' });
+  });
+});
+
+describe('ops.myHomeKitchenApplication', () => {
+  const apply = { cityId: 'aziziyah', kitchenName: 'مطبخ أم حسين', cookName: 'أم حسين', door: { lat: 32.887, lng: 45.0765 } };
+
+  it('none, then submitted, then active once staff approve it', async () => {
+    const h = await setup();
+    const me = (await h.id.login('07700000511')).actor;
+    expect(await h.ops.myHomeKitchenApplication(me)).toEqual({ state: 'none', kitchenName: null, submittedAt: null, rejectReason: null });
+    const at = h.clock.now();
+    await h.ops.homeKitchenApply(me, apply);
+    expect(await h.ops.myHomeKitchenApplication(me)).toEqual({ state: 'submitted', kitchenName: 'مطبخ أم حسين', submittedAt: at, rejectReason: null });
+    await h.ops.reviewOnboarding(h.staff, { onboardingId: h.repo.onboardings[0]!.id, approve: true });
+    expect(await h.ops.myHomeKitchenApplication(me)).toMatchObject({ state: 'active', kitchenName: 'مطبخ أم حسين', rejectReason: null });
+  });
+
+  it('rejected with the reason; a new application after that is the one she sees', async () => {
+    const h = await setup();
+    const me = (await h.id.login('07700000512')).actor;
+    await h.ops.homeKitchenApply(me, apply);
+    await h.ops.reviewOnboarding(h.staff, { onboardingId: h.repo.onboardings[0]!.id, approve: false, reason: 'ما ردّت على الاتصال' });
+    expect(await h.ops.myHomeKitchenApplication(me)).toEqual({ state: 'rejected', kitchenName: 'مطبخ أم حسين', submittedAt: expect.any(Date), rejectReason: 'ما ردّت على الاتصال' });
+    h.clock.advance(3_600_000);
+    await h.ops.homeKitchenApply(me, { ...apply, kitchenName: 'مطبخ زهراء' });
+    expect(h.repo.onboardings).toHaveLength(2);
+    expect(await h.ops.myHomeKitchenApplication(me)).toMatchObject({ state: 'submitted', kitchenName: 'مطبخ زهراء', rejectReason: null });
+  });
+});
+
+describe('approving a home kitchen (ops.reviewOnboarding)', () => {
+  const apply = { cityId: 'aziziyah', kitchenName: 'مطبخ أم حسين', cookName: 'أم حسين', door: { lat: 32.887, lng: 45.0765 } };
+
+  it('the cook can never approve her own application, even holding a staff role', async () => {
+    const h = await setup();
+    const me = (await h.id.login('07700000521')).actor;
+    await h.id.service.grantRole({ personId: 'system:test' }, { personId: me.personId, kind: 'field_ops' });
+    await h.ops.homeKitchenApply(me, apply);
+    const row = h.repo.onboardings[0]!;
+    await expect(h.ops.reviewOnboarding(me, { onboardingId: row.id, approve: true })).rejects.toMatchObject({ code: 'approval_own_item' });
+    await expect(h.ops.reviewOnboarding(me, { onboardingId: row.id, approve: false })).rejects.toMatchObject({ code: 'approval_own_item' });
+    expect(h.repo.onboardings[0]!.state).toBe('submitted');
+    expect(await h.id.service.hasRole(me.personId, 'merchant_owner', row.orgId)).toBe(false);
+  });
+
+  it("another staff member's approval makes her the owner and says merchant.activated with type home_kitchen", async () => {
+    const h = await setup();
+    const me = (await h.id.login('07700000522')).actor;
+    await h.ops.homeKitchenApply(me, apply);
+    const row = h.repo.onboardings[0]!;
+    const decided = await h.ops.reviewOnboarding(h.staff, { onboardingId: row.id, approve: true });
+    expect(decided).toMatchObject({ state: 'active', reviewedById: h.staff.personId });
+    expect(await h.id.service.hasRole(me.personId, 'merchant_owner', row.orgId)).toBe(true);
+    const activated = (await h.ev.events.forActor(h.staff.personId)).filter((e) => e.type === 'merchant.activated');
+    expect(activated.map((e) => e.payload)).toEqual([{ onboardingId: row.id, merchantOrgId: row.orgId, cityId: 'aziziyah', contactPersonId: me.personId, type: 'home_kitchen', reason: null }]);
+    // Her follow-up task closes with the decision; a second decision is a conflict.
+    expect(h.repo.tasks.find((t) => t.refId === row.id)).toMatchObject({ state: 'done', payload: expect.objectContaining({ decision: 'activated' }) });
+    await expect(h.ops.reviewOnboarding(h.staff, { onboardingId: row.id, approve: true })).rejects.toMatchObject({ code: 'approval_state_conflict' });
+  });
+});
+
+describe('ops.merchantOnboarding of a home kitchen (field ops visit)', () => {
+  const visit = { cityId: 'aziziyah', name: 'مطبخ أم علي', contact: { name: 'أم علي', phone: '07800000141' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } } };
+
+  it('is a restaurant org on the home tier, never starter, whatever tier the visit named', async () => {
+    const h = await setup();
+    const v = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, type: 'home_kitchen' }));
+    expect(await h.orgs.get(v.merchantOrgId)).toMatchObject({ type: 'restaurant', name: 'مطبخ أم علي' });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).commissionTier).toBe('home');
+    expect(h.repo.onboardings.at(-1)).toMatchObject({ type: 'home_kitchen', state: 'draft' });
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'store.commission_tier_set', subjectId: v.merchantOrgId, detail: expect.objectContaining({ from: null, to: 'home' }) })]);
+    const named = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, type: 'home_kitchen', contact: { name: 'أم علي', phone: '07800000142' }, commissionTier: 'featured' }));
+    expect((await h.orgs.merchantSettings(named.merchantOrgId)).commissionTier).toBe('home');
+  });
+
+  it('an ordinary restaurant visit is unchanged: starter by default', async () => {
+    const h = await setup();
+    const v = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, name: 'كباب الزهراء', type: 'restaurant', contact: { name: 'أبو علي', phone: '07800000143' } }));
+    expect(await h.orgs.get(v.merchantOrgId)).toMatchObject({ type: 'restaurant' });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).commissionTier).toBe('starter');
+    expect(h.repo.onboardings.at(-1)).toMatchObject({ type: 'restaurant' });
+  });
+});

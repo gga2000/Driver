@@ -300,6 +300,8 @@ export class OrdersService implements OnModuleInit {
   private readonly placeLock = new KeyedLock();
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
+  /** أكل بيت: one order at a time per home kitchen while its plates are counted. */
+  private readonly homePlatesLock = new KeyedLock();
   /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
   private readonly shopLoad = new ShopLoad(this.repoForLoad());
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
@@ -448,7 +450,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
-    if (merchantType && input.merchantOrgId) await this.assertHomePlates(ordererId, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now);
+    const homeKitchen = merchantType && input.merchantOrgId ? await this.assertHomePlates(ordererId, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now) : false;
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -510,6 +512,13 @@ export class OrdersService implements OnModuleInit {
           if (prior) return prior;
         }
         if (spendsOwnWallet && this.wallet && (await this.walletAvailable(ordererId, null, tx)) < total) throw new DriverError('wallet_insufficient');
+        // أكل بيت: two orders for the last plates are placed one after the other (this instance's lock
+        // below, every instance's advisory lock here), and the second counts the first.
+        if (homeKitchen && input.merchantOrgId) {
+          await advisoryXactLock(tx, `orders.home_plates:${input.merchantOrgId}`);
+          const late = await this.homePlatesProblem(input.merchantOrgId, input.lines, input.scheduledFor ?? null, this.clock.now(), tx);
+          if (late) throw new DriverError(late);
+        }
         // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
         if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
@@ -617,7 +626,8 @@ export class OrdersService implements OnModuleInit {
         }
         return this.view(order.id, tx);
       });
-    return spendKey ? this.householdLock.run(spendKey, write) : write();
+    const run = () => (spendKey ? this.householdLock.run(spendKey, write) : write());
+    return homeKitchen && input.merchantOrgId ? this.homePlatesLock.run(input.merchantOrgId, run) : run();
   }
 
   /**
@@ -853,18 +863,26 @@ export class OrdersService implements OnModuleInit {
     return Boolean((await this.catalog.storefront?.(order.merchantOrgId))?.home);
   }
 
-  private async assertHomePlates(ordererId: string, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<void> {
-    if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return;
+  /** أكل بيت at placement: closed city, owed reservation, plates left. True when the kitchen is a home kitchen. */
+  private async assertHomePlates(ordererId: string, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
+    if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return false;
     // A home kitchen takes no orders until أكل بيت opens in the city, even by a direct link.
     if (this.homeOpen && !this.homeOpen.open(cityId)) throw new DriverError('service_paused');
     // A reservation he never took is owed first (Ali, 2026-10-11): no new one until his wallet is back at 0.
     if (scheduledFor && this.wallet && (await this.wallet.balanceIqd({ customerId: ordererId, householdId: null })) < 0) throw new DriverError('home_reservation_owed');
+    const problem = await this.homePlatesProblem(merchantOrgId, lines, scheduledFor, now);
+    if (problem) throw new DriverError(problem);
+    return true;
+  }
+
+  /** The plates check alone; inside the placing transaction it runs again under the kitchen's lock. */
+  private async homePlatesProblem(merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date, tx?: Tx) {
     const ids = [...new Set(lines.map((l) => l.catalogItemId).filter((id): id is string => Boolean(id)))];
     const items = new Map((await this.catalog.itemsOf(merchantOrgId, ids)).map((i) => [i.id, i]));
-    const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now), now);
+    // Up to and including this millisecond: an order placed in the same instant counts too.
+    const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), new Date(now.getTime() + 1), tx), now);
     const home = lines.filter((l) => l.catalogItemId).map((l) => ({ itemId: l.catalogItemId!, qty: l.qty, sale: items.get(l.catalogItemId!)?.homeSale ?? null, stock: items.get(l.catalogItemId!)?.stock ?? null }));
-    const problem = homeOrderProblem(home, scheduledFor, now, tally);
-    if (problem) throw new DriverError(problem);
+    return homeOrderProblem(home, scheduledFor, now, tally);
   }
 
   /**

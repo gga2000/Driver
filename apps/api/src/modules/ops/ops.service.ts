@@ -322,7 +322,8 @@ export class OpsService implements OpsPort, OnModuleInit {
    */
   async homeKitchenApply(actor: Actor, input: HomeKitchenApplyInput): Promise<HomeKitchenApplication> {
     return this.applyLock.run(actor.personId, async () => {
-      const waiting = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.state === 'draft' || o.state === 'submitted');
+      // Only her own kitchen application counts: a shop field ops is still drafting with her as contact is another thing.
+      const waiting = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.type === 'home_kitchen' && (o.state === 'draft' || o.state === 'submitted'));
       if (waiting) return applicationView(waiting);
       const zoneKey = this.zones.resolve(input.cityId, input.door);
       if (!zoneKey) throw new DriverError('outside_zone');

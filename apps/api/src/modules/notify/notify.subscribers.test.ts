@@ -571,3 +571,22 @@ describe('staff.new_device', () => {
     expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'web', adminIds: [] }))).toEqual([]);
   });
 });
+
+describe('notify subscribers: أكل بيت activation link', () => {
+  const merchantAppUrl = 'https://merchant.driver.iq/';
+  const activated = (extra: Record<string, unknown>) => event('merchant.activated', { onboardingId: 'onb_h', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'owner', reason: null, ...extra });
+
+  it("a home kitchen's welcome opens «أكلاتي» (/home-kitchen), not shop setup", async () => {
+    const h = notifyHarness();
+    const got = await requestsFor(activated({ type: 'home_kitchen' }), { ...deps(h), merchantAppUrl });
+    expect(got.map((r) => ({ template: r.template, to: r.to, params: r.params }))).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'كمّل تجهيز محلك من هنا: https://merchant.driver.iq/home-kitchen' } }]);
+  });
+
+  it('a missing or any other type keeps the /setup link', async () => {
+    const h = notifyHarness();
+    for (const extra of [{}, { type: 'restaurant' }, { type: 'grocer' }, { type: 'HOME_KITCHEN' }, { type: null }]) {
+      const got = await requestsFor(activated(extra), { ...deps(h), merchantAppUrl });
+      expect(got.map((r) => r.params?.['next'])).toEqual(['كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup']);
+    }
+  });
+});
