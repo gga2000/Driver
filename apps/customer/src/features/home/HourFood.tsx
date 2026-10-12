@@ -9,7 +9,7 @@ import { apiPhoto } from '@/lib/photo';
 import type { BandBasket } from './DaypartBand';
 import { dishPhoto } from './dish-photos';
 import { DishGallery, galleryHeight, type DishPhoto } from './DishGallery';
-import { hourFood, type HourDish } from './gallery';
+import { hourFood, type HourDish, type PotPlace } from './gallery';
 import { usePots } from './habit-queries';
 import { MoreDishes } from './MoreDishes';
 import type { RestaurantSummary } from './restaurant-summary';
@@ -22,6 +22,8 @@ export function useHourFood({
   later,
   taken,
   now,
+  potPlace,
+  only = null,
 }: {
   picks: readonly CatalogSearchDish[] | undefined;
   picksPending: boolean;
@@ -30,12 +32,16 @@ export function useHourFood({
   /** The usual card's dish photo, so the gallery doesn't show it a second time. */
   taken: number | string | null;
   now: Date;
+  /** Where the day's pots go at this hour (`potPlace`). */
+  potPlace: PotPlace;
+  /** Only these kitchens' food (`hourFood`'s `only`). */
+  only?: ReadonlySet<string> | null;
 }) {
   const pots = usePots();
   // Each dish's picture: its kitchen's photo, else the library's photo of that dish; none, and it stays on its menu.
   const food = useMemo(
-    () => hourFood({ pots: pots.data, picks, now, later, words, pictureOf: (d) => apiPhoto(d.photoUrl) ?? dishPhoto(d.name), taken: taken === null ? [] : [taken] }),
-    [pots.data, picks, now, later, words, taken],
+    () => hourFood({ pots: pots.data, picks, now, later, words, potPlace, only, pictureOf: (d) => apiPhoto(d.photoUrl) ?? dishPhoto(d.name), taken: taken === null ? [] : [taken] }),
+    [pots.data, picks, now, later, words, taken, potPlace, only],
   );
   return { food, pending: picksPending || pots.isPending };
 }
@@ -57,6 +63,8 @@ export function HourFood({
   now,
   scrollY,
   width,
+  spaced = false,
+  forIftar = false,
 }: {
   title: string;
   food: { slides: HourDish[]; more: HourDish[] };
@@ -68,6 +76,10 @@ export function HourFood({
   /** The page's scroll; this section must be a direct child of the page, so its layout is page-relative. */
   scrollY: SharedValue<number>;
   width: number;
+  /** It starts a new part of the page (late at night, under the kitchens): more room above it. */
+  spaced?: boolean;
+  /** The gallery's one-tap dishes are added for iftar (`iftarOrderOpen`, concept C). */
+  forIftar?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -95,7 +107,7 @@ export function HourFood({
   const loading = food.slides.length === 0 && pending;
   if (!loading && food.slides.length === 0) return null;
   return (
-    <View testID="home-hour-food" style={{ gap: theme.space[6] }} onLayout={(e) => setTop(e.nativeEvent.layout.y)}>
+    <View testID="home-hour-food" style={{ gap: theme.space[6], marginTop: spaced ? theme.space[4] : 0 }} onLayout={(e) => setTop(e.nativeEvent.layout.y)}>
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader big title={title} />
         <View onLayout={(e) => setGalleryY(e.nativeEvent.layout.y)}>
@@ -104,7 +116,7 @@ export function HourFood({
               <Skeleton width={width} height={height} radius={theme.radius['2xl']} />
             </View>
           ) : (
-            <DishGallery key={food.slides.map((h) => h.dish.id).join()} slides={food.slides} photos={photos} minutesOf={minutesOf} width={width} visible={inView} basket={basket} now={now} />
+            <DishGallery key={food.slides.map((h) => h.dish.id).join()} slides={food.slides} photos={photos} minutesOf={minutesOf} width={width} visible={inView} basket={basket} now={now} forIftar={forIftar} />
           )}
         </View>
       </View>
