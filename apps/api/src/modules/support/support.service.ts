@@ -1025,9 +1025,9 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const money = row.amountIqd.toLocaleString('en-US');
     const verb = { approved: 'انوافق على', declined: 'انرفض', cancelled: 'انلغى', pending: '' }[row.state];
     await this.approvalEvent(tx, row, actorId, now);
-    const subject = row.kind === 'ticket' ? { subjectKind: 'ticket', subjectId: row.ticketId! } : { subjectKind: 'order', subjectId: row.orderId! };
+    const subject = row.kind === 'ticket' ? { subjectKind: 'ticket', subjectId: row.ticketId! } : row.kind === 'adjustment' ? { subjectKind: 'ledger_adjustment', subjectId: String(row.payload['id'] ?? row.id) } : { subjectKind: 'order', subjectId: row.orderId! };
     await this.audits.record(
-      { cityId: row.cityId, actorId, action: `refund_approval.${row.state}`, ...subject, summaryAr: `${verb} تعويض ${money} دينار${row.declineNote ? ` — ${row.declineNote}` : ''}`, detail: { refundApprovalId: row.id, kind: row.kind, amountIqd: row.amountIqd, requestedBy: row.requestedBy, limit: row.limitKind } },
+      { cityId: row.cityId, actorId, action: `refund_approval.${row.state}`, ...subject, summaryAr: `${verb} ${row.kind === 'adjustment' ? 'تصحيح دفتر' : 'تعويض'} ${money} دينار${row.declineNote ? ` — ${row.declineNote}` : ''}`, detail: { refundApprovalId: row.id, kind: row.kind, amountIqd: row.amountIqd, requestedBy: row.requestedBy, limit: row.limitKind } },
       tx,
     );
     if (row.kind === 'ticket' && row.ticketId && row.state !== 'approved') {
@@ -1046,7 +1046,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   private async approvalViews(rows: RefundApprovalRecord[]): Promise<RefundApproval[]> {
     const names = await this.staff.of([...new Set(rows.flatMap((r) => [r.requestedBy, ...(r.decidedBy ? [r.decidedBy] : [])]))]);
     return rows.map((r) => {
-      const p = r.payload as { method?: 'wallet' | 'points'; faultParty?: FaultParty; note?: string | null; reason?: string };
+      const p = r.payload as { method?: 'wallet' | 'points'; faultParty?: FaultParty; note?: string | null; reason?: string; fromAccount?: string; toAccount?: string; incidentId?: string };
       return {
         id: r.id,
         kind: r.kind,
@@ -1064,8 +1064,14 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
         decidedBy: r.decidedBy ? { id: r.decidedBy, name: names[r.decidedBy] ?? null } : null,
         decidedAt: r.decidedAt,
         declineNote: r.declineNote,
+        adjustment: r.kind === 'adjustment' ? { fromAccount: p.fromAccount ?? '', toAccount: p.toAccount ?? '', incidentId: p.incidentId ?? '' } : null,
       };
     });
+  }
+
+  /** Whether a support ticket exists (a ledger correction may link one as its incident, G-85). */
+  async ticketExists(ticketId: string): Promise<boolean> {
+    return Boolean(await this.repo.get(ticketId).catch(() => null));
   }
 
   /** Wallet refunds are funded by the party at fault (the courier's earnings, the merchant's cash account); points always by the platform. */
@@ -1145,6 +1151,7 @@ const LIMIT_AR: Record<RefundApprovalLimit, string> = {
   agent_daily: 'فوق حدّك اليومي 10,000',
   customer_month: 'فوق 25,000 للزبون بالشهر',
   dispute: 'فوق 25,000 للشكوى',
+  adjustment: 'تصحيح دفتر فوق 25,000',
 };
 
 function faultAr(f: FaultParty): string {

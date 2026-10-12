@@ -258,6 +258,64 @@ describe('payouts never exceed what the merchant is owed (backend review 2026-10
   });
 });
 
+describe('company → driver payouts (G-86)', () => {
+  it('pays what the platform owes him, never more; a retried reference posts once', async () => {
+    const h = ledgerHarness();
+    // A wallet-paid job: he holds no cash and the platform owes him his fee and tip.
+    await h.ledger.record({ type: 'tip', amount: 30_000, fromAccount: 'customer:c1', toAccount: 'driver:k1', occurredAt: minutes(0), idempotencyKey: 'pay:k1' });
+    await expect(h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 30_250, channel: 'zaincash', reference: 'D-PAY-0' })).rejects.toMatchObject({ code: 'payout_exceeds_due' });
+    expect(await h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-1' })).toBe(10_000);
+    expect(await h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-1' })).toBe(10_000);
+    expect((await h.ledger.balance('driver:k1')).amount).toBe(10_000);
+    // Cash he holds counts against it: with 16,500 of customers' cash in hand the platform owes him nothing.
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(1) }));
+    await expect(h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 1_000, channel: 'zaincash', reference: 'D-PAY-2' })).rejects.toMatchObject({ code: 'payout_exceeds_due' });
+  });
+
+  it('two payouts at once cannot together pay more than is owed', async () => {
+    const h = ledgerHarness();
+    await h.ledger.record({ type: 'tip', amount: 30_000, fromAccount: 'customer:c1', toAccount: 'driver:k1', occurredAt: minutes(0), idempotencyKey: 'pay:k1' });
+    const results = await Promise.allSettled([
+      h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'zaincash', reference: 'D-PAY-A' }),
+      h.merchantCash.recordDriverPayout({ driverId: 'k1', amountIqd: 20_000, channel: 'bank', reference: 'D-PAY-B' }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await h.ledger.balance('driver:k1')).amount).toBe(10_000);
+  });
+});
+
+describe('a retry under the same key is the same money, or it is refused', () => {
+  it('a payout retried with another amount or channel is refused, not read as already posted', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1' }));
+    expect(await h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 5000, channel: 'zaincash', reference: 'M-KEY-1' })).toBe(7750);
+    await expect(h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 7750, channel: 'zaincash', reference: 'M-KEY-1' })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
+    await expect(h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 5000, channel: 'bank', reference: 'M-KEY-1' })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
+    expect(await h.merchantCash.recordPayout({ merchantId: 'm1', amountIqd: 5000, channel: 'zaincash', reference: 'M-KEY-1' })).toBe(7750);
+    expect((await h.merchantCash.balance('m1')).balanceIqd).toBe(7750);
+
+    await h.ledger.record({ type: 'tip', amount: 30_000, fromAccount: 'customer:c1', toAccount: 'driver:k9', occurredAt: minutes(0), idempotencyKey: 'pay:k9' });
+    expect(await h.merchantCash.recordDriverPayout({ driverId: 'k9', amountIqd: 10_000, channel: 'agent', reference: 'D-KEY-1' })).toBe(20_000);
+    await expect(h.merchantCash.recordDriverPayout({ driverId: 'k9', amountIqd: 20_000, channel: 'agent', reference: 'D-KEY-1' })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
+    expect((await h.ledger.balance('driver:k9')).amount).toBe(20_000);
+  });
+
+  it('a hand-over submitted twice at once under one id posts once and opens no incident', async () => {
+    const h = ledgerHarness();
+    await h.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1', occurredAt: minutes(0) }));
+    const input = { handoverId: 'h-same', courierId: 'k1', merchantId: 'm1', amountIqd: 12750, merchantConfirmedIqd: 12750, tabletTap: true };
+    const results = await Promise.all([h.merchantCash.confirmHandover(input), h.merchantCash.confirmHandover(input)]);
+    expect(results).toEqual([{ postedIqd: 12750, merchantBalanceIqd: 0 }, { postedIqd: 12750, merchantBalanceIqd: 0 }]);
+    expect(await h.merchantCash.confirmHandover(input)).toEqual({ postedIqd: 12750, merchantBalanceIqd: 0 });
+    expect((await h.ledger.eventsFor('cash:k1')).filter((e) => e.type === 'merchant_paid_by_courier')).toHaveLength(1);
+    expect(h.bus.types().filter((t) => t === 'merchant.paid_by_courier')).toHaveLength(1);
+    expect(h.incidents.opened()).toEqual([]);
+    // The same id with another amount is refused, and posts nothing.
+    await expect(h.merchantCash.confirmHandover({ ...input, amountIqd: 3750, merchantConfirmedIqd: 3750 })).rejects.toMatchObject({ code: 'idempotency_key_reused' });
+    expect((await h.caps.status('k1')).cashIqd).toBe(-3750);
+  });
+});
+
 describe('lines at one instant replay in money order, not id order', () => {
   it('a hand-over at the same instant as the orders it pays for still clears them, whatever the ids', async () => {
     const h = ledgerHarness();
