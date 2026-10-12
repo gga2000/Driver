@@ -4,6 +4,9 @@ import { formatMinutes } from '@driver/i18n';
 import { Card, Icon, Text, Timeline, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { clockLabel } from './logic';
+import { namesList } from './road-words';
+
+export { namesList };
 
 /** A stop on the card's timeline: the straight-line road (`road.ts`) or the real one (`road-trip.ts`). */
 export type CardStop = { id: string; kind: string; name: string; at: Date; passed: boolean; checkpoint?: boolean };
@@ -13,14 +16,6 @@ export type CardLine = { stops: readonly CardStop[]; carFrac: number | null; arr
  * On the road (Baghdad/Kut ideas r1, r2, r3, Ali 2026-10-07): the arrival time big, how long is left,
  * the road as a line with each stop's time and the car on it, and who is following the trip by name.
  */
-
-type TFn = ReturnType<typeof useT>;
-
-/** «أمك وزينب» / «أمك، زينب وعلي». */
-export function namesList(t: TFn, names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? '';
-  return t('rajaa.names_last', { list: names.slice(0, -1).join(t('rajaa.names_sep')), last: names[names.length - 1]! });
-}
 
 export type Watching = { kind: 'now' | 'soon'; names: string[] } | { kind: 'none' };
 
