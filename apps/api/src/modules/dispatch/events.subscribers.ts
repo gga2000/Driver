@@ -194,7 +194,7 @@ export class DispatchSubscribers {
     });
   }
 
-  async onTripEvent(e: Pick<PublishedEvent, 'type' | 'tripId' | 'aggregateId' | 'actorId' | 'payload'>): Promise<void> {
+  async onTripEvent(e: Pick<PublishedEvent, 'type' | 'tripId' | 'aggregateId' | 'actorId' | 'payload'> & Partial<Pick<PublishedEvent, 'orderId'>>): Promise<void> {
     const tripId = e.tripId ?? e.aggregateId;
     switch (e.type) {
       case 'trip.accepted':
@@ -210,7 +210,7 @@ export class DispatchSubscribers {
       case 'stop.completed': {
         const p = decodeDomainEvent('stop.completed', e.payload);
         if (p.stopType === 'pickup' || p.stopType === 'shop') await this.orchestrator.markPickedUp(tripId);
-        else if (p.stopType === 'dropoff' && p.cashCollectedIqd) await this.orchestrator.cashCollected(tripId, p.stopId, p.cashCollectedIqd);
+        else if (p.stopType === 'dropoff' && p.cashCollectedIqd) await this.orchestrator.cashCollected(tripId, p.stopId, p.cashCollectedIqd, e.orderId);
         return;
       }
       default:

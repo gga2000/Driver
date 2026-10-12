@@ -156,7 +156,7 @@ export interface CapsPort {
   isOverCap(driverId: string, unpostedIqd?: number): Promise<boolean>;
   canOffer(driverId: string, job?: JobExposure, unpostedIqd?: number): Promise<boolean>;
   status(driverId: string): Promise<CapStatus>;
-  cashPosted(driverId: string, tripId: string): Promise<boolean>;
+  cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean>;
 }
 
 /** What orders asks before accepting a cash order from a new account. */
@@ -232,10 +232,15 @@ export class CapsService implements CapsPort, CashRiskPort {
     return canOfferJob(s.owedIqd + Math.max(0, unpostedIqd), s.capIqd, job, this.rules);
   }
 
-  /** Whether the money for this trip has reached his `cash:` account (any line of the trip on it). */
-  async cashPosted(driverId: string, tripId: string): Promise<boolean> {
+  /**
+   * Whether the money for this trip has reached his `cash:` account (any line of the trip on it). With
+   * `orderId`, only that order's lines count: on a trip with two cash drop-offs the first order's posting
+   * must not release the second order's hold.
+   */
+  async cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean> {
     const cash = Accounts.cash(driverId);
-    return (await this.ledger.eventsForTrip(tripId)).some((e) => e.fromAccount === cash || e.toAccount === cash);
+    const events = orderId ? await this.ledger.eventsForOrder(orderId) : await this.ledger.eventsForTrip(tripId);
+    return events.some((e) => e.fromAccount === cash || e.toAccount === cash);
   }
 
   async newCustomerCash(customerId: string, orderTotalIqd: number) {
