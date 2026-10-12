@@ -566,6 +566,8 @@ export interface ServicePalette {
   trips: ServiceSwatch & { light: string; pattern: string };
   /** `light`: the pale top of the gold that deepens down to `fill`. */
   back: ServiceSwatch & { light: string };
+  /** طرود (2026-10-12): henna, the colour of the twine and the brown paper; `kraft` is the tag's paper. */
+  parcel: ServiceSwatch & { kraft: string };
   off: ServiceSwatch;
 }
 
@@ -596,6 +598,7 @@ const servicesDay: ServicePalette = {
     glow: '#E09A2A',
     card: { bg: '#FFEBC2', top: '#FFF6E0', on: '#24170E', sub: '#5E4632', dot: '#A8680A' },
   },
+  parcel: { fill: '#A9531C', on: '#FFFFFF', glow: '#A9531C', kraft: '#E4C9A4', card: { bg: '#F6E1D2', top: '#FBF0E7', on: '#24170E', sub: '#5E4632', dot: '#A9531C' } },
   off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2', card: { bg: '#EFE6DA', on: '#4E4036', sub: '#5E4E42', dot: '#8A7A6C' } },
 };
 
@@ -626,6 +629,7 @@ const servicesNight: ServicePalette = {
     glow: '#000000',
     card: { bg: '#3A2A12', top: '#48361A', on: '#FFF3E2', sub: '#EBD2A0', dot: '#FFC155' },
   },
+  parcel: { fill: '#E0915E', on: '#1A0A04', glow: '#000000', kraft: '#5A4430', card: { bg: '#3A2216', top: '#48291A', on: '#FFF3E2', sub: '#EBCDB4', dot: '#E0915E' } },
   off: { fill: '#2E241C', on: '#BFA892', glow: '#000000', card: { bg: '#2E241C', on: '#D9C6B2', sub: '#BFA892', dot: '#8A7560' } },
 };
 

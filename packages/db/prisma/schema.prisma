@@ -3954,6 +3954,9 @@ model ParcelSend {
   doorDueAt         DateTime? @map("door_due_at")
   doorSetAt         DateTime? @map("door_set_at")
   orderId           String?   @map("order_id")
+  pinFails          Int       @default(0) @map("pin_fails")
+  pinVerifiedAt     DateTime? @map("pin_verified_at")
+  refusedAt         DateTime? @map("refused_at")
   /// waiting_door | placed | cancelled
   stage             String
   cancelledAt       DateTime? @map("cancelled_at")

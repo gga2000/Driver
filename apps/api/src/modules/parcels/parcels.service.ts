@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DriverError,
@@ -8,6 +8,10 @@ import {
   type LatLng,
   type Order,
   type OrderState,
+  type CourierParcelInput,
+  type CourierParcelPinInput,
+  type CourierParcelRefusal,
+  type CourierParcelView,
   type ParcelDoorPage,
   type ParcelDoorPageInput,
   type ParcelIdInput,
@@ -23,6 +27,7 @@ import {
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { newStartCode, type OrdersRidersPort, type ResolvedRider } from '../orders/index.js';
+import { distanceM } from '../places/index.js';
 import { PARCELS_REPOSITORY, type ParcelRecord, type ParcelsRepository } from './parcels.repository.js';
 import {
   PARCEL_DOOR_PURPOSE,
@@ -122,6 +127,9 @@ export class ParcelsService implements ParcelsPort {
       doorDueAt: token ? new Date(now.getTime() + PARCEL_RULES.doorWaitHours * HOUR) : null,
       doorSetAt: token ? null : now,
       orderId: null,
+      pinFails: 0,
+      pinVerifiedAt: null,
+      refusedAt: null,
       stage: 'waiting_door',
       cancelledAt: null,
       createdAt: now,
@@ -194,6 +202,43 @@ export class ParcelsService implements ParcelsPort {
     return this.view(next, actor.personId, token);
   }
 
+  // ── the courier's side ──────────────────────────────────────────────────────────────────────
+
+  async courierJob(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView> {
+    return this.courierView(await this.carried(actor, input.orderId), actor.personId);
+  }
+
+  /** The receipt code the receiver reads out. Right: the hand-over may complete. Wrong `pinTries` times: locked. */
+  async checkPin(actor: Actor, input: CourierParcelPinInput): Promise<CourierParcelView> {
+    const rec = await this.carried(actor, input.orderId);
+    if (rec.pinVerifiedAt) return this.courierView(rec, actor.personId);
+    if (rec.pinFails >= PARCEL_RULES.pinTries) throw new DriverError('parcel_pin_locked');
+    const ok = timingSafeEqual(Buffer.from(input.pin.padEnd(8)), Buffer.from(rec.pin.padEnd(8)));
+    const next = await this.repo.update(rec.id, 'placed', ok ? { pinVerifiedAt: this.clock.now() } : { pinFails: rec.pinFails + 1 });
+    return this.courierView(next ?? rec, actor.personId);
+  }
+
+  async refusalPreview(actor: Actor, input: CourierParcelInput): Promise<CourierParcelRefusal> {
+    const rec = await this.carried(actor, input.orderId);
+    const back = await this.returnFare(rec);
+    return { returnFareIqd: back, totalForSenderIqd: rec.fareIqd + back, payer: 'sender' };
+  }
+
+  /**
+   * «رفضت تستلم»: only at the door (the courier's last fix within `refuseWithinM` of the drop pin).
+   * Recorded here; the trip back and its money (the sender pays both trips) are the orders module's.
+   */
+  async refuse(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView> {
+    const rec = await this.carried(actor, input.orderId);
+    if (rec.refusedAt) return this.courierView(rec, actor.personId);
+    const carried = await this.orders.courierOf(input.orderId);
+    const fix = carried ? await this.orders.lastFix(carried.tripId) : null;
+    const door = rec.dropoff?.pin ?? null;
+    if (!fix || !door || distanceM(fix, door) > PARCEL_RULES.refuseWithinM) throw new DriverError('parcel_refuse_too_far');
+    const next = await this.repo.update(rec.id, 'placed', { refusedAt: this.clock.now() });
+    return this.courierView(next ?? rec, actor.personId);
+  }
+
   // ── internals ─────────────────────────────────────────────────────────────────────────────────
 
   private async receiver(senderId: string, input: Exclude<z.output<typeof SendParcelInput>['recipient'], { from: 'recent' }>): Promise<ResolvedRider> {
@@ -212,6 +257,34 @@ export class ParcelsService implements ParcelsPort {
     if (next) return next;
     await this.orders.cancel(rec.senderId, order.id).catch(() => undefined);
     throw new DriverError('parcel_door_closed');
+  }
+
+  /** The parcel on an order this courier is carrying now; anyone else: not found. */
+  private async carried(actor: Actor, orderId: string): Promise<ParcelRecord> {
+    const [rec, carrier] = await Promise.all([this.repo.byOrder(orderId), this.orders.courierOf(orderId)]);
+    if (!rec || !carrier || carrier.courierId !== actor.personId) throw new DriverError('parcel_not_found');
+    return rec;
+  }
+
+  private returnFare(rec: ParcelRecord): Promise<number> {
+    return this.orders.fare(rec.senderId, { cityId: rec.cityId, pickup: rec.dropoff ?? { zoneKey: rec.zoneKey }, dropoff: rec.pickup });
+  }
+
+  private async courierView(rec: ParcelRecord, courierId: string): Promise<CourierParcelView> {
+    const names = await this.riders.names([participantKey(rec.id)], courierId, 'parcel_courier');
+    return {
+      parcelId: rec.id,
+      what: rec.what,
+      size: rec.size,
+      declaredValueIqd: rec.declaredValueIqd,
+      photoUrl: rec.photoUploadId ? this.places.photoUrl(rec.photoUploadId) : null,
+      receiverName: shortName(names[participantKey(rec.id)] ?? null),
+      payer: rec.payer,
+      collectAtDoorIqd: rec.payer === 'receiver' ? rec.fareIqd : 0,
+      pinVerified: rec.pinVerifiedAt !== null,
+      pinTriesLeft: Math.max(0, PARCEL_RULES.pinTries - rec.pinFails),
+      refused: rec.refusedAt !== null,
+    };
   }
 
   private async mineOrThrow(actor: Actor, parcelId: string): Promise<ParcelRecord> {
@@ -241,6 +314,7 @@ export class ParcelsService implements ParcelsPort {
 
   private async state(rec: ParcelRecord, order: Order | null): Promise<ParcelState> {
     if (rec.stage === 'cancelled') return 'cancelled';
+    if (rec.refusedAt) return 'returning';
     if (rec.stage === 'waiting_door') return this.lapsedAt(rec, this.clock.now()) ? 'cancelled' : 'waiting_door';
     if (!order) return 'finding_courier';
     if (DELIVERED.has(order.state)) return 'delivered';

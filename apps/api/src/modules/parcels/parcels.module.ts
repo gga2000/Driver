@@ -32,6 +32,11 @@ const photoOf = (proof: Record<string, unknown> | undefined): string | null => (
         place: (senderId, input) => orders.place(senderId, input),
         order: (orderId) => orders.get(orderId).catch(() => null),
         cancel: (senderId, orderId) => orders.cancel(senderId, { orderId, reason: 'parcel_cancelled' }),
+        courierOf: async (orderId) => {
+          const c = await trips.courierOf(orderId);
+          return c ? { tripId: c.tripId, courierId: c.courierId } : null;
+        },
+        lastFix: async (tripId) => (await trips.lastPosition(tripId))?.pin ?? null,
         proofs: async (orderId) => {
           const carried = await trips.courierOf(orderId);
           if (!carried) return { pickup: null, dropoff: null };

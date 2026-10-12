@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ParcelDoorPage, ParcelDoorPageInput, ParcelIdInput, ParcelQuote, ParcelQuoteInput, ParcelView, SendParcelInput, SetParcelDoorInput } from '../parcels-io.js';
+import { CourierParcelInput, CourierParcelPinInput, CourierParcelRefusal, CourierParcelView, ParcelDoorPage, ParcelDoorPageInput, ParcelIdInput, ParcelQuote, ParcelQuoteInput, ParcelView, SendParcelInput, SetParcelDoorInput } from '../parcels-io.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 
 /**
@@ -14,6 +14,13 @@ export const parcelsRouter = router({
   mine: protectedProcedure().output(z.array(ParcelView)).query(({ ctx }) => ctx.parcels.mine(ctx.actor)),
   cancel: protectedProcedure().input(ParcelIdInput).output(ParcelView).mutation(({ ctx, input }) => ctx.parcels.cancel(ctx.actor, input)),
   newDoorLink: protectedProcedure().input(ParcelIdInput).output(ParcelView).mutation(({ ctx, input }) => ctx.parcels.newDoorLink(ctx.actor, input)),
+  /** The courier's side: only the courier carrying that order (checked in the module). */
+  courier: router({
+    job: protectedProcedure().input(CourierParcelInput).output(CourierParcelView).query(({ ctx, input }) => ctx.parcels.courierJob(ctx.actor, input)),
+    checkPin: protectedProcedure().input(CourierParcelPinInput).output(CourierParcelView).mutation(({ ctx, input }) => ctx.parcels.checkPin(ctx.actor, input)),
+    refusalPreview: protectedProcedure().input(CourierParcelInput).output(CourierParcelRefusal).query(({ ctx, input }) => ctx.parcels.refusalPreview(ctx.actor, input)),
+    refuse: protectedProcedure().input(CourierParcelInput).output(CourierParcelView).mutation(({ ctx, input }) => ctx.parcels.refuse(ctx.actor, input)),
+  }),
   door: router({
     get: publicProcedure.input(ParcelDoorPageInput).output(ParcelDoorPage).query(({ ctx, input }) => ctx.parcels.doorPage(input)),
     set: publicProcedure.input(SetParcelDoorInput).output(ParcelDoorPage).mutation(({ ctx, input }) => ctx.parcels.setDoor(input)),

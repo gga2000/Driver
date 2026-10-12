@@ -33,19 +33,25 @@ export interface ParcelRecord {
   doorSetAt: Date | null;
   /** The courier order, placed once the door is set. */
   orderId: string | null;
+  /** Wrong receipt codes the courier typed; `pinVerifiedAt` once the right one was. */
+  pinFails: number;
+  pinVerifiedAt: Date | null;
+  /** «رفضت تستلم»: the courier marked it refused at the door. */
+  refusedAt: Date | null;
   /** `waiting_door` until the order is placed; `cancelled` if it never is. The rest follows the order. */
   stage: 'waiting_door' | 'placed' | 'cancelled';
   cancelledAt: Date | null;
   createdAt: Date;
 }
 
-export type ParcelPatch = Partial<Pick<ParcelRecord, 'dropoff' | 'doorSetAt' | 'orderId' | 'stage' | 'cancelledAt' | 'doorTokenHash' | 'fareIqd'>>;
+export type ParcelPatch = Partial<Pick<ParcelRecord, 'dropoff' | 'doorSetAt' | 'orderId' | 'stage' | 'cancelledAt' | 'doorTokenHash' | 'fareIqd' | 'pinFails' | 'pinVerifiedAt' | 'refusedAt'>>;
 
 export interface ParcelsRepository {
   create(input: Omit<ParcelRecord, 'id' | 'createdAt'> & { createdAt: Date }): Promise<ParcelRecord>;
   get(id: string): Promise<ParcelRecord | null>;
   byRequest(senderId: string, clientRequestId: string): Promise<ParcelRecord | null>;
   byDoorToken(tokenHash: string): Promise<ParcelRecord | null>;
+  byOrder(orderId: string): Promise<ParcelRecord | null>;
   bySender(senderId: string, limit: number): Promise<ParcelRecord[]>;
   /** Parcels still waiting for a door whose time ran out by `now`. */
   lapsed(now: Date): Promise<ParcelRecord[]>;
@@ -76,6 +82,10 @@ export class InMemoryParcelsRepository implements ParcelsRepository {
   }
   async byDoorToken(tokenHash: string): Promise<ParcelRecord | null> {
     const r = this.rows.find((p) => p.doorTokenHash === tokenHash);
+    return r ? copy(r) : null;
+  }
+  async byOrder(orderId: string): Promise<ParcelRecord | null> {
+    const r = this.rows.find((p) => p.orderId === orderId);
     return r ? copy(r) : null;
   }
   async bySender(senderId: string, limit: number): Promise<ParcelRecord[]> {
@@ -120,6 +130,9 @@ const fromRow = (r: Row): ParcelRecord => ({
   doorDueAt: r.doorDueAt,
   doorSetAt: r.doorSetAt,
   orderId: r.orderId,
+  pinFails: r.pinFails,
+  pinVerifiedAt: r.pinVerifiedAt,
+  refusedAt: r.refusedAt,
   stage: r.stage as ParcelRecord['stage'],
   cancelledAt: r.cancelledAt,
   createdAt: r.createdAt,
@@ -152,6 +165,10 @@ export class PrismaParcelsRepository implements ParcelsRepository {
   }
   async byDoorToken(tokenHash: string): Promise<ParcelRecord | null> {
     const r = await this.db.parcelSend.findUnique({ where: { doorTokenHash: tokenHash } });
+    return r ? fromRow(r) : null;
+  }
+  async byOrder(orderId: string): Promise<ParcelRecord | null> {
+    const r = await this.db.parcelSend.findFirst({ where: { orderId } });
     return r ? fromRow(r) : null;
   }
   async bySender(senderId: string, limit: number): Promise<ParcelRecord[]> {

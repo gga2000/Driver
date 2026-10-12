@@ -9296,5 +9296,7 @@
   "error.parcel_door_outside_zone": "هذا المكان بره المنطقة اللي انحسبت عليها الأجرة. ثبّت الباب بنفس المنطقة أو گول للمرسل",
   "error.parcel_photo_unknown": "الصورة ما وصلت. صوّرها مرة ثانية",
   "error.parcel_not_cancellable": "الدليفري أخذ الطرد، ما ينلغي هسه",
-  "error.parcel_receiver_is_you": "هذا رقمك. اختار الشخص اللي يستلم الطرد"
+  "error.parcel_receiver_is_you": "هذا رقمك. اختار الشخص اللي يستلم الطرد",
+  "error.parcel_pin_locked": "الرمز انگفل بعد كم محاولة غلط. اتصل بالدعم حتى نكمل التسليم",
+  "error.parcel_refuse_too_far": "لازم تكون يم باب المستلم حتى تسجل إنه رفض"
 }

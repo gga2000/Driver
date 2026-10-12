@@ -22,6 +22,10 @@ export const PARCEL_RULES = {
   doorWaitHours: 2,
   /** The receipt code: digits, read out to the courier at the door. */
   pinLength: 4,
+  /** Wrong codes before the code locks (the sender is then asked to release the parcel). */
+  pinTries: 5,
+  /** «رفضت تستلم» counts only at the door: the courier's last fix within this of the drop pin (as a no-show). */
+  refuseWithinM: 150,
 } as const;
 
 export const ParcelSize = z.enum(['small', 'medium', 'large']);
@@ -165,6 +169,35 @@ export const SetParcelDoorInput = ParcelDoorPageInput.extend({
 });
 export type SetParcelDoorInput = z.infer<typeof SetParcelDoorInput>;
 
+/** The courier's side of a parcel job (their order id): what it is, who pays, the receipt code check, refusal. */
+export const CourierParcelInput = z.object({ orderId: z.string().min(1) });
+export type CourierParcelInput = z.infer<typeof CourierParcelInput>;
+
+export const CourierParcelView = z.object({
+  parcelId: z.string(),
+  what: z.string(),
+  size: ParcelSize,
+  declaredValueIqd: Iqd,
+  photoUrl: z.string().nullable(),
+  /** The receiver's first name as the sender gave it. */
+  receiverName: z.string(),
+  payer: ParcelPayer,
+  /** Cash to take at the door when the receiver pays, else 0 (the sender paid at pickup). */
+  collectAtDoorIqd: Iqd,
+  pinVerified: z.boolean(),
+  /** Wrong codes left before the code is locked (then the sender is asked to release it). */
+  pinTriesLeft: z.number().int().min(0),
+  refused: z.boolean(),
+});
+export type CourierParcelView = z.infer<typeof CourierParcelView>;
+
+export const CourierParcelPinInput = CourierParcelInput.extend({ pin: z.string().regex(/^\d{4}$/) });
+export type CourierParcelPinInput = z.infer<typeof CourierParcelPinInput>;
+
+/** «رفضت تستلم» before the second tap: what the trip back costs and who pays it (always the sender). */
+export const CourierParcelRefusal = z.object({ returnFareIqd: Iqd.positive(), totalForSenderIqd: Iqd.positive(), payer: z.literal('sender') });
+export type CourierParcelRefusal = z.infer<typeof CourierParcelRefusal>;
+
 export interface ParcelsPort {
   quote(actor: Actor, input: z.output<typeof ParcelQuoteInput>): Promise<ParcelQuote>;
   send(actor: Actor, input: z.output<typeof SendParcelInput>): Promise<ParcelView>;
@@ -175,4 +208,8 @@ export interface ParcelsPort {
   newDoorLink(actor: Actor, input: ParcelIdInput): Promise<ParcelView>;
   doorPage(input: ParcelDoorPageInput): Promise<ParcelDoorPage>;
   setDoor(input: SetParcelDoorInput): Promise<ParcelDoorPage>;
+  courierJob(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView>;
+  checkPin(actor: Actor, input: CourierParcelPinInput): Promise<CourierParcelView>;
+  refusalPreview(actor: Actor, input: CourierParcelInput): Promise<CourierParcelRefusal>;
+  refuse(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView>;
 }
