@@ -17,10 +17,20 @@ Cart storefronts (and shops, `shop`) stay out of the restaurant lists: `CatalogS
 skips `NOT_RESTAURANT_TAGS`; by-id reads (menu, order, reorder) still see them.
 
 ## Launch switch
-Off until Ali opens carts: the city file's `foodCarts.launched` (absent = closed;
-`ConfigService.foodCartsOpen`). Closed, `list` returns empty lists with `launched: false` (the app shows
-«العربانات جاية قريب») and `get`, `follow` and `walkups.place` are `service_paused`. The owner's side
-works either way, so carts can be set up before they open. Demo APIs open them (`setFoodCartsOpen`).
+Open in Aziziyah (Ali, 2026-10-12: "open them, and add an option to open and close them in the
+consol"). The Console's control page has a «الخدمات الجديدة» card: `ops.controls.setLaunch({ key:
+'food_carts', open, reason })` writes a `launch` row in the kill-switch table (admin opens, any
+controller closes; audit row `launch.set` and event `ops.launch_switch_set`); `ops.controls.launches`
+lists it. With no row the city file's `foodCarts.launched` decides (`ConfigService.foodCartsOpen`); a
+failed read uses the last rows read, else the city file, never open by error. Reads go through the
+controls switch cache (2 s); the apps re-read the list each minute.
+
+Closed, `list` returns empty lists with `launched: false` (the app shows «العربانات جاية قريب»), `get`,
+`follow` and `walkups.place` are `service_paused`, and a cart's delivery order is refused by orders'
+controls check (`quote` and `place`) after the kill switches (`ControlsService.assertOrderAllowed`, the
+carts module binds which orgs are carts). A food or cart kill switch still stops carts while they are
+open. The owner's side works either way, so carts can be set up before they open. Customers reach
+carts from a chip on the food page and a card at the end of home, shown while at least one is open.
 
 ## Procedures (`foodCarts.*`)
 - Customer: `list({ near? })`, `get({ cartId, near? })` (public); `follow({ cartId, on })`;

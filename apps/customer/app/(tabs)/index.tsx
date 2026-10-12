@@ -13,6 +13,7 @@ import { CartBar } from '@/features/food/CartBar';
 import { artOf } from '@/features/food/FoodArt';
 import { stackThumbs } from '@/features/food/fly';
 import { FlyToCart, type FlyHandle } from '@/features/food/FlyToCart';
+import { HomeCartsDoor } from '@/features/food-carts/HomeCartsDoor';
 import { ActiveOrderPill } from '@/features/home/ActiveOrderPill';
 import { CollapsedBar } from '@/features/home/CollapsedBar';
 import { ComingSoonSheet } from '@/features/home/ComingSoonSheet';
@@ -323,6 +324,8 @@ export default function Home() {
         {list?.some((r) => !!r.deal) ? (
           <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list.filter((r) => !!r.deal)} showDeal seeAll="deals" loading={false} error={false} onRetry={retry} />
         ) : null}
+
+        <HomeCartsDoor />
 
         {/* The ending (concept C): «جاي قريب» as one quiet line, then «بالعافية». */}
         <QuietEnd onSoon={onService} bye={open.length > 0} />
