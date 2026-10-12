@@ -203,6 +203,11 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
         <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        {/* Food carts «عربانات» (2026-10-11): the list, a cart, a walk-over ticket, the carts on the map. */}
+        <Stack.Screen name="food-carts/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/ticket/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/map" options={{ headerShown: false }} />
         <Stack.Screen name="drivers" options={{ title: t('habits.fav_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
