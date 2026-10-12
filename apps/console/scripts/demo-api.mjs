@@ -27,7 +27,8 @@
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
 // → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
-// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat. Five riders' lines
+// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat. POST /demo/stuck-posting
+// → a money posting failed for good in the outbox (the money strip, the System page's requeue). Five riders' lines
 // about two الرجعة drivers wait in «كلام الركاب» (/reviews), one of them already hidden.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -114,6 +115,32 @@ app.use('/demo/pin-alert', async (req, res) => {
     if (!raiseDemoPinAlert) throw new Error('still seeding');
     const kind = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('kind') === 'wrong' ? 'wrong' : 'cross';
     res.end(JSON.stringify(await raiseDemoPinAlert(kind)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/stuck-posting → {outboxId}: a money posting the ledger refused ten times, failed for good —
+// the red money strip for finance and admin on every page, and the failed row with «رجّعه للطابور» on
+// the System page. The demo's posting keeps refusing, so a requeued row fails again on its next try.
+let stuckSubscribed = false;
+app.use('/demo/stuck-posting', async (_req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    const events = app.get(EventsService);
+    if (!stuckSubscribed) {
+      stuckSubscribed = true;
+      events.subscribe('ledger:demo.posting', ['demo.posting'], async () => {
+        throw new Error('demo: the ledger refused this posting');
+      });
+    }
+    const ev = await events.emit(undefined, { type: 'demo.posting', actorId: 'system:demo', occurredAt: new Date(), payload: {} }, { name: 'order', id: 'demo_stuck' });
+    await events.drain();
+    // Its ten tries spread over 17 minutes: the demo marks it failed at once.
+    const repo = events['repo'];
+    const row = (await repo.outbox({ eventId: ev.id }))[0];
+    await repo.updateOutbox(row.id, { status: 'failed', attempts: 10, lastError: 'ledger:demo.posting: demo: the ledger refused this posting' });
+    res.end(JSON.stringify({ outboxId: row.id }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
