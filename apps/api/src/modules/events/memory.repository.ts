@@ -3,6 +3,7 @@ import type { EventFilter, EventsRepository, OutboxFilter, OutboxRequeueSelect }
 import { assertKeyedFilter, newId } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
 import { OUTBOX_LEASE_MS } from './timestamps.js';
+import { matchesType } from './subscriber.registry.js';
 
 interface Delivery {
   outboxId: string;
@@ -287,14 +288,14 @@ export class InMemoryEventsRepository implements EventsRepository {
     return picked.map((r) => r.id);
   }
 
-  async stuckFor(subscriberPrefix: string): Promise<{ failed: number; oldestPendingAt: Date | null }> {
+  async stuckFor(subscriberPrefix: string, pendingTypes: readonly string[] | '*'): Promise<{ failed: number; oldestPendingAt: Date | null }> {
     let failed = 0;
     for (const r of this.rows) {
       if (r.status !== 'failed') continue;
       if ([...(this.deliveriesByRow.get(r.id)?.values() ?? [])].some((d) => d.subscriber.startsWith(subscriberPrefix) && !d.deliveredAt)) failed += 1;
     }
     let oldest: Date | null = null;
-    for (const r of this.pendingRows.values()) if (!oldest || r.createdAt < oldest) oldest = r.createdAt;
+    for (const r of this.pendingRows.values()) if (matchesType(pendingTypes, r.type) && (!oldest || r.createdAt < oldest)) oldest = r.createdAt;
     return { failed, oldestPendingAt: oldest };
   }
 

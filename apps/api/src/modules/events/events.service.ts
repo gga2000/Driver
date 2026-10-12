@@ -185,10 +185,10 @@ export class EventsService {
 
   /**
    * Money stuck in the outbox: failed rows a ledger subscriber never posted, and how long the oldest
-   * pending row has waited. Either one (any failed, or older than 2 min) is the money alarm.
+   * pending row of a type a ledger subscriber takes has waited (a slow push or SMS row is not money). Either one (any failed, or older than 2 min) is the money alarm.
    */
   async moneyAlarm(): Promise<{ ledgerFailed: number; oldestPendingSec: number; alarm: boolean }> {
-    const stuck = await this.repo.stuckFor(LEDGER_SUBSCRIBER_PREFIX);
+    const stuck = await this.repo.stuckFor(LEDGER_SUBSCRIBER_PREFIX, this.registry.typesFor(LEDGER_SUBSCRIBER_PREFIX));
     const oldestPendingSec = stuck.oldestPendingAt ? Math.max(0, Math.floor((this.clock.now().getTime() - stuck.oldestPendingAt.getTime()) / 1000)) : 0;
     return { ledgerFailed: stuck.failed, oldestPendingSec, alarm: stuck.failed > 0 || oldestPendingSec > MONEY_ALARM_PENDING_SEC };
   }

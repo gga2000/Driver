@@ -88,7 +88,7 @@ export interface EventsRepository {
    */
   requeueFailed(select: OutboxRequeueSelect, now: Date, limit: number, tx?: Tx): Promise<string[]>;
   /** Failed rows a subscriber named `<prefix>…` has not delivered, and when the oldest pending row was written. */
-  stuckFor(subscriberPrefix: string): Promise<{ failed: number; oldestPendingAt: Date | null }>;
+  stuckFor(subscriberPrefix: string, pendingTypes: readonly string[] | '*'): Promise<{ failed: number; oldestPendingAt: Date | null }>;
 }
 
 export type OutboxRequeueSelect = { ids: readonly string[] } | { type: string; from: Date; to: Date };
@@ -318,18 +318,18 @@ export class PrismaEventsRepository implements EventsRepository {
     const db = this.db(tx);
     const where = 'ids' in select ? { status: 'failed' as const, id: { in: [...select.ids] } } : { status: 'failed' as const, type: select.type, createdAt: { gte: select.from, lt: select.to } };
     const rows = await db.outbox.findMany({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit, select: { id: true } });
-    const ids = rows.map((r) => r.id);
-    if (ids.length === 0) return [];
-    // Only rows still failed move (a concurrent requeue moves each once).
-    await db.outbox.updateMany({ where: { id: { in: ids }, status: 'failed' }, data: { status: 'pending', attempts: 0, lastError: null, nextAttemptAt: now } });
-    return ids;
+    if (rows.length === 0) return [];
+    // Only rows still failed move (a concurrent requeue moves each once), and only those are returned.
+    const moved = await db.outbox.updateManyAndReturn({ where: { id: { in: rows.map((r) => r.id) }, status: 'failed' }, data: { status: 'pending', attempts: 0, lastError: null, nextAttemptAt: now }, select: { id: true } });
+    return moved.map((r) => r.id);
   }
 
-  async stuckFor(subscriberPrefix: string): Promise<{ failed: number; oldestPendingAt: Date | null }> {
+  async stuckFor(subscriberPrefix: string, pendingTypes: readonly string[] | '*'): Promise<{ failed: number; oldestPendingAt: Date | null }> {
     const db = this.prisma.prisma;
+    const typeWhere = pendingTypes === '*' ? {} : { OR: pendingTypes.map((t) => (t.endsWith('.*') ? { type: { startsWith: t.slice(0, -1) } } : { type: t })) };
     const [failed, oldest] = await Promise.all([
       db.outbox.count({ where: { status: 'failed', deliveries: { some: { subscriber: { startsWith: subscriberPrefix }, deliveredAt: null } } } }),
-      db.outbox.findFirst({ where: { status: 'pending' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      pendingTypes !== '*' && pendingTypes.length === 0 ? null : db.outbox.findFirst({ where: { status: 'pending', ...typeWhere }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
     ]);
     return { failed, oldestPendingAt: oldest?.createdAt ?? null };
   }

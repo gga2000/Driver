@@ -399,6 +399,18 @@ describe('requeue of failed rows and the money alarm', () => {
     expect(await p.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 121, alarm: true });
   });
 
+  it('a slow row no ledger subscriber takes (a push, an SMS) is not the money alarm', async () => {
+    const p = queued();
+    p.events.subscribe('ledger:order.closed', ['order.closed'], async () => undefined);
+    p.events.subscribe('notify:order.placed', ['order.placed'], async () => {
+      throw new Error('push provider away');
+    });
+    await p.events.emit(undefined, order('o4', 'order.placed'), { name: 'order', id: 'o4' });
+    await p.publisher.drainOnce();
+    p.clock.advanceSeconds(600);
+    expect(await p.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 0, alarm: false });
+  });
+
   it('a requeued row goes back to pending with its attempts reset; only the subscriber that failed runs again', async () => {
     const { h, broken, calls } = withLedger();
     await failedLedgerRow(h);
