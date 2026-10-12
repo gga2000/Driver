@@ -101,6 +101,12 @@ describe('weekly statement', () => {
     ]);
   });
 
+  it('a cart walk-over ticket is a row of the day (its commission in the net) but not an order', () => {
+    const walkup = { ...line('w1', '2026-10-01T11:00:00Z', 0, 500), commissionTier: 'pickup' as const, commissionPct: 5, walkup: true };
+    const days = statementDays([line('a', '2026-10-01T10:00:00Z', 10_000, 1_200), walkup]);
+    expect(days.map((d) => [d.lines.map((l) => l.orderId), d.orders, d.commissionIqd, d.netIqd])).toEqual([[['w1', 'a'], 1, 1_700, 8_300]]);
+  });
+
   it('week anchors step back whole weeks', () => {
     const now = new Date('2026-10-03T18:36:00Z').getTime();
     expect(localDayKey(weekAnchor(now, 0))).toBe('2026-09-27');

@@ -399,6 +399,8 @@
   "merchant.statement.share_failed": "Couldn't share right now, try again later",
   "merchant.statement.pdf_note": "A PDF copy reaches you on WhatsApp every Sunday",
   "merchant.statement.order_ref": "#{ref}",
+  "merchant.statement.walkup_ref": "Cart walk-up",
+  "merchant.statement.walkup_paid": "Paid to you in hand",
   "merchant.statement.commission_line": "{pct}% commission",
   "merchant.statement.rate": "Your commission now: {rate}",
   "merchant.statement.rate_starter": "Your commission now: {rate} · starter rate since {date}",

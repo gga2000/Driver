@@ -398,6 +398,11 @@ export const StatementOrderLine = z.object({
   /** Courier-waiting / cancellation fees paid to the merchant on this order. */
   feesIqd: Iqd,
   netIqd: Iqd,
+  /**
+   * A cart («عربانة») walk-over ticket, not an order: `orderId` is the ticket id; the customer paid
+   * the cart in hand, so only the pickup commission he owes on it is in the ledger (`itemsIqd` 0).
+   */
+  walkup: z.boolean().optional(),
 });
 export type StatementOrderLine = z.infer<typeof StatementOrderLine>;
 

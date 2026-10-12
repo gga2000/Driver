@@ -56,6 +56,10 @@ export function ledgerSubscribers(posting: PostingService, merchantCash: Merchan
     'subscription.prorated': async (payload) => {
       await posting.subscription(decodeDomainEvent('subscription.prorated', { ...payload, prorated: true }));
     },
+    /** A cart owner collected a walk-over ticket (cash in his hand): he owes the pickup commission on it. */
+    'food_cart.walkup_collected': async (payload) => {
+      await posting.foodCartWalkup(decodeDomainEvent('food_cart.walkup_collected', payload));
+    },
     /** A request from any origin (Merchant app, exposure cap, mode schedule) gets routed and announced. */
     'merchant.settlement_requested': async (payload) => {
       const p = decodeDomainEvent('merchant.settlement_requested', payload);
