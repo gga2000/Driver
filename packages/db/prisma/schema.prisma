@@ -3931,7 +3931,8 @@ model RefundApproval {
 
 /// Shopping «السوق» (2026-10-11): how a stall's or bakery's catalog item sells.
 model ShopItem {
-  itemId     String   @id @map("item_id")
+  id         String   @id @default(cuid())
+  itemId     String   @unique @map("item_id")
   orgId      String   @map("org_id")
   /// 'kg' | 'piece' | 'lot'
   soldBy     String   @map("sold_by")
@@ -3959,6 +3960,8 @@ model ShopDayPost {
   fromYesterday Boolean  @default(false) @map("from_yesterday")
   available     Boolean  @default(true)
   postedAt      DateTime @map("posted_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@unique([itemId, localDate])
   @@index([orgId, localDate])

@@ -6,6 +6,7 @@
 -- shopper's item card. No names or phones here. Additive only.
 
 CREATE TABLE "public"."shop_items" (
+    "id" TEXT NOT NULL,
     "item_id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "sold_by" TEXT NOT NULL,
@@ -16,7 +17,7 @@ CREATE TABLE "public"."shop_items" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "shop_items_pkey" PRIMARY KEY ("item_id")
+    CONSTRAINT "shop_items_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "public"."shop_day_posts" (
@@ -29,6 +30,8 @@ CREATE TABLE "public"."shop_day_posts" (
     "from_yesterday" BOOLEAN NOT NULL DEFAULT false,
     "available" BOOLEAN NOT NULL DEFAULT true,
     "posted_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "shop_day_posts_pkey" PRIMARY KEY ("id")
 );
@@ -56,6 +59,9 @@ CREATE TABLE "public"."shop_daily_bread" (
 ALTER TABLE "public"."order_lines" ADD COLUMN "weight_g" INTEGER,
 ADD COLUMN "per_kg_iqd" INTEGER,
 ADD COLUMN "errand_item" JSONB;
+
+-- CreateIndex
+CREATE UNIQUE INDEX "shop_items_item_id_key" ON "public"."shop_items"("item_id");
 
 -- CreateIndex
 CREATE INDEX "shop_items_org_id_idx" ON "public"."shop_items"("org_id");

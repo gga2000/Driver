@@ -130,7 +130,7 @@ export class ShoppingService implements ShoppingPort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
-    @Optional() private readonly config: ConfigService | null = null,
+    @Optional() private readonly config?: ConfigService,
   ) {
     this.photo = photoLink(photos);
   }
