@@ -47,6 +47,10 @@
     "./pieces/my-trips": {
       "types": "./dist/golden/my-trips.d.ts",
       "default": "./dist/golden/my-trips.js"
+    },
+    "./pieces/road": {
+      "types": "./dist/golden/road.d.ts",
+      "default": "./dist/golden/road.js"
     }
   },
   "scripts": {
