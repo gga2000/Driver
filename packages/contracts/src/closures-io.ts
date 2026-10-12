@@ -124,7 +124,8 @@ export type ConfirmClosureInput = z.infer<typeof ConfirmClosureInput>;
  * «الشارع مسدود قدامي», from the courier's job. Only why: the server takes where from his own live job
  * road (his last fix toward his next stop), never from a point the app sends.
  */
-export const ReportClosureInput = z.object({ cityId: CityId, reason: ClosureReason });
+/** `cityId` is ignored: the server takes the city from his job (kept optional for older apps). */
+export const ReportClosureInput = z.object({ cityId: CityId.optional(), reason: ClosureReason });
 export type ReportClosureInput = z.infer<typeof ReportClosureInput>;
 
 /** What the courier sees after reporting: thanks, and whether it now counts (his was the second report). */

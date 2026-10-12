@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModu
 import { CLOSURE_LIMITS, CLOSURE_REPORT_RULES, CloseStreetInput, DriverError, haversineM, type Actor, type ConfirmClosureInput, type ReportClosureInput, type ReportClosureResult, type ClosuresInput, type ClosuresPort, type ClosureView, type LatLng, type OpenStreetInput, type SnapClosureInput, type SnappedClosure } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { nextLocalMidnight, startOfLocalDay } from '../../shared/local-time.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
@@ -9,9 +10,9 @@ import { EventsService } from '../events/index.js';
 import { decodePolyline, EtaService, RouteClosures, samplePath } from '../routing/index.js';
 import { CLOSURES_REPOSITORY, type ClosureRecord, type ClosuresRepository } from './closures.repository.js';
 
-/** Where a courier is on his job and the stops ahead (bound to the partner module); null off a job. */
+/** Where a courier is on his job, its city and the stops ahead (bound to the partner module); null off a job. */
 export interface CourierWayPort {
-  jobWay(personId: string): Promise<{ from: LatLng; ahead: LatLng[] } | null>;
+  jobWay(personId: string): Promise<{ cityId: string; from: LatLng; ahead: LatLng[] } | null>;
 }
 
 export const CLOSURES_COURIER_WAY = Symbol('CLOSURES_COURIER_WAY');
@@ -73,7 +74,12 @@ export class ClosuresService implements ClosuresPort, OnModuleInit, OnModuleDest
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() @Inject(CLOSURES_COURIER_WAY) private readonly way: CourierWayPort | null = null,
-  ) {}
+  ) {
+    this.stateLock = new DistributedKeyedLock(uow, 'closures.state');
+  }
+
+  /** One confirm or open at a time per closure, on every API machine. */
+  private readonly stateLock: DistributedKeyedLock;
 
   async onModuleInit(): Promise<void> {
     await this.reload();
@@ -143,9 +149,10 @@ export class ClosuresService implements ClosuresPort, OnModuleInit, OnModuleDest
 
   async open(actor: Actor, input: OpenStreetInput): Promise<ClosureView> {
     const now = this.clock.now();
-    const found = await this.repo.get(input.id);
-    if (!found) throw new DriverError('not_found');
-    const row = await this.uow.run(async (tx) => {
+    // Read and written under one lock per closure, so two taps at once leave one event and one audit row.
+    const row = await this.stateLock.run(input.id, async (tx) => {
+      const found = await this.repo.get(input.id, tx);
+      if (!found) throw new DriverError('not_found');
       const opened = await this.repo.open(found.id, actor.personId, now, tx);
       if (found.openedAt === null) {
         await this.events.emit(tx, { actorId: actor.personId, type: 'ops.street_opened', occurredAt: now, payload: { cityId: found.cityId, closureId: found.id } }, { name: 'street_closure', id: found.id });
@@ -163,10 +170,7 @@ export class ClosuresService implements ClosuresPort, OnModuleInit, OnModuleDest
   /** Ops confirm a courier's report: every route goes around it until midnight. */
   async confirm(actor: Actor, input: ConfirmClosureInput): Promise<ClosureView> {
     const now = this.clock.now();
-    const found = await this.repo.get(input.id);
-    if (!found) throw new DriverError('not_found');
-    if (found.source !== 'courier' || found.openedAt !== null || found.endsAt.getTime() <= now.getTime()) throw new DriverError('invalid_input');
-    const row = await this.confirmed(found, actor.personId, now, 'ops');
+    const row = await this.confirmed(input.id, actor.personId, now, 'ops');
     return (await this.views([row], now))[0]!;
   }
 
@@ -197,11 +201,12 @@ export class ClosuresService implements ClosuresPort, OnModuleInit, OnModuleDest
     const again = mine.find((c) => now.getTime() - c.startsAt.getTime() < CLOSURE_REPORT_RULES.againMs && near(c.path, path, CLOSURE_REPORT_RULES.sameStreetM));
     if (again) return { id: again.id, confirmed: again.confirmedAt !== null };
     if (mine.length >= CLOSURE_REPORT_RULES.perDay) throw new DriverError('rate_limited');
-    const cityId = input.cityId;
+    // The city is his job's, never the app's word.
+    const cityId = way.cityId;
     // Someone else reported this street and it is still waiting: his report confirms it.
     const other = (await this.repo.waiting(cityId, now)).find((c) => c.closedById !== actor.personId && near(c.path, path, CLOSURE_REPORT_RULES.sameStreetM));
     if (other) {
-      const row = await this.confirmed(other, actor.personId, now, 'second_report');
+      const row = await this.confirmed(other.id, actor.personId, now, 'second_report');
       return { id: row.id, confirmed: true };
     }
     const midnight = nextLocalMidnight(now);
@@ -218,9 +223,13 @@ export class ClosuresService implements ClosuresPort, OnModuleInit, OnModuleDest
     return { id: saved.id, confirmed: false };
   }
 
-  private async confirmed(found: ClosureRecord, by: string, now: Date, how: 'ops' | 'second_report'): Promise<ClosureRecord> {
+  /** Confirms a waiting courier report, read and written under the closure's lock (one event, one audit row). */
+  private async confirmed(id: string, by: string, now: Date, how: 'ops' | 'second_report'): Promise<ClosureRecord> {
     const midnight = nextLocalMidnight(now);
-    const row = await this.uow.run(async (tx) => {
+    const row = await this.stateLock.run(id, async (tx) => {
+      const found = await this.repo.get(id, tx);
+      if (!found) throw new DriverError('not_found');
+      if (found.source !== 'courier' || found.openedAt !== null || found.endsAt.getTime() <= now.getTime()) throw new DriverError('invalid_input');
       const done = await this.repo.confirm(found.id, by, now, midnight, tx);
       if (found.confirmedAt === null) {
         await this.events.emit(tx, { actorId: by, type: 'ops.street_closed', occurredAt: now, payload: { cityId: found.cityId, closureId: found.id, reason: found.reason, lengthM: found.lengthM, endsAt: midnight.toISOString(), source: 'courier', how } }, { name: 'street_closure', id: found.id });

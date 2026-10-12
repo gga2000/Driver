@@ -344,7 +344,7 @@ export class PartnerService implements PartnerPort {
    * Where he is on his job (his last fix on the trip, else his live position) and the stops still ahead;
    * null off a job. Also N20's «الشارع مسدود قدامي»: the report is taken from here, never from the app.
    */
-  async jobWay(personId: string): Promise<{ from: LatLng; ahead: LatLng[] } | null> {
+  async jobWay(personId: string): Promise<{ cityId: string; from: LatLng; ahead: LatLng[] } | null> {
     const trip = await this.jobTrip(personId);
     if (!trip) return null;
     const ahead = [...trip.stops]
@@ -354,7 +354,7 @@ export class PartnerService implements PartnerPort {
     const fix = await this.deps.trips.lastPosition?.(trip.id);
     const presence = fix && fix.driverId === personId ? null : await this.deps.presence.get(personId);
     const from = fix && fix.driverId === personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
-    return from && ahead.length > 0 ? { from, ahead } : null;
+    return from && ahead.length > 0 ? { cityId: trip.cityId, from, ahead } : null;
   }
 
   /**

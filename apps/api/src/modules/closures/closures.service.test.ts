@@ -49,7 +49,7 @@ function harness() {
   const book = new RouteClosures();
   const eta = new EtaService(new ClosureAwareRouter(new StraightLineRouter(), book, clock));
   /** Each courier's job road: where he is and the stops ahead (null = off a job). */
-  const ways = new Map<string, { from: LatLng; ahead: LatLng[] } | null>();
+  const ways = new Map<string, { cityId: string; from: LatLng; ahead: LatLng[] } | null>();
   const wayCalls: string[] = [];
   const way: CourierWayPort = {
     jobWay: async (personId) => {
@@ -59,7 +59,7 @@ function harness() {
   };
   const svc = new ClosuresService(repo, book, eta, audits, names, ev.events, ev.uow, clock, way);
   /** A job heading north from `e` metres east of A, 1 km to the door. */
-  const onJob = (actor: Actor, e = 0, n = 0) => ways.set(actor.personId, { from: at(n, e), ahead: [at(n + 1_000, e)] });
+  const onJob = (actor: Actor, e = 0, n = 0) => ways.set(actor.personId, { cityId: CITY, from: at(n, e), ahead: [at(n + 1_000, e)] });
   const eventsOf = async (id: string) => (await ev.events.forAggregate('street_closure', id)).map((e) => ({ type: e.type, payload: e.payload as Record<string, unknown> }));
   return { clock, ev, auditRepo, repo, book, eta, ways, wayCalls, svc, onJob, eventsOf };
 }
@@ -144,6 +144,21 @@ describe('ClosuresService: a courier reports «الشارع مسدود قدام�
     expect((await h.eta.path(through)).avoided).toBeUndefined();
     await h.svc.confirm(OPS, { id });
     expect((await h.eta.path(through)).avoided?.map((a) => a.id)).toEqual([id]);
+  });
+
+  it('the report lands in his job\'s city whatever city the app sends', async () => {
+    const h = harness();
+    h.onJob(HAIDER);
+    const { id } = await h.svc.report(HAIDER, { cityId: 'kut', reason: 'works' });
+    expect((await h.repo.get(id))?.cityId).toBe(CITY);
+  });
+
+  it('two confirms at once: one confirm event and one audit row', async () => {
+    const h = harness();
+    h.onJob(HAIDER);
+    const { id } = await h.svc.report(HAIDER, { cityId: CITY, reason: 'works' });
+    await Promise.all([h.svc.confirm(OPS, { id }), h.svc.confirm(OPS, { id })]);
+    expect(h.auditRepo.auditRows.filter((a) => a.action === 'closure.confirm')).toHaveLength(1);
   });
 
   it('an unconfirmed report drops after 2 hours', async () => {
@@ -258,7 +273,7 @@ describe('ClosuresService: a courier reports «الشارع مسدود قدام�
   it('off a job there is no road to report on (trip_not_found → «no road» in the app); at the door, nothing ahead', async () => {
     const h = harness();
     expect(await code(h.svc.report(HAIDER, { cityId: CITY, reason: 'works' }))).toBe('trip_not_found');
-    h.ways.set(HAIDER.personId, { from: A, ahead: [at(30)] });
+    h.ways.set(HAIDER.personId, { cityId: CITY, from: A, ahead: [at(30)] });
     expect(await code(h.svc.report(HAIDER, { cityId: CITY, reason: 'works' }))).toBe('invalid_input');
     expect(await h.repo.reportsBy(HAIDER.personId, new Date(0))).toEqual([]);
     // Without the partner port wired at all: the same answer.
@@ -269,7 +284,7 @@ describe('ClosuresService: a courier reports «الشارع مسدود قدام�
   it('the stretch is measured along the road the router gives, not a straight line to the door', async () => {
     const h = harness();
     // The job's road turns east after 100 m: the reported stretch follows the turn.
-    h.ways.set(HAIDER.personId, { from: A, ahead: [at(100), at(100, 1_000)] });
+    h.ways.set(HAIDER.personId, { cityId: CITY, from: A, ahead: [at(100), at(100, 1_000)] });
     const { id } = await h.svc.report(HAIDER, { cityId: CITY, reason: 'works' });
     const row = (await h.repo.get(id))!;
     expect(haversineM(row.path.at(-1)!, at(100, 90))).toBeLessThan(15);
