@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PICKUP_SPOT_RULES, pickupDraft, type ConsolePickupSpotView, type PickupDraft, type PickupStoreRow } from '@driver/contracts';
+import { COMMISSION_TIER_ROLES, PICKUP_SPOT_RULES, pickupDraft, type ConsolePickupSpotView, type PickupDraft, type PickupStoreRow } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { fileUrl } from '@/lib/control-room';
@@ -10,8 +10,10 @@ import { formatDayClock } from '@/lib/format';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { errorText, useConsoleNetwork } from '@/lib/network';
 import { filterStores, parsePin, photoProblem, storeGaps, toFinish, uploadPhoto, type StoreGap } from '@/lib/pickup-spots';
+import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { API_URL, useTRPC, useTRPCClient } from '@/lib/trpc';
+import { CommissionCard } from './commission-card';
 import { Button, buttonCls, Card, Chip, cx, EmptyState, Field, IconClose, IconPlus, IconSearch, IconStore, Input, Meter, NeedLogin, PageHeader, QueryError, Segmented, Skeleton, Spinner, Textarea, useToast } from './ui';
 
 /**
@@ -235,8 +237,15 @@ function PickupSpotEditor({ storeId }: { storeId: string }) {
     <div className="space-y-5">
       <SpotForm view={spot.data} />
       <KitchenPlace view={spot.data} />
+      <StoreCommission storeId={storeId} />
     </div>
   );
+}
+
+/** The store's commission tier: only finance and admins see it and change it (`COMMISSION_TIER_ROLES`). */
+function StoreCommission({ storeId }: { storeId: string }) {
+  const { roles } = useMyRoles();
+  return hasAny(roles, COMMISSION_TIER_ROLES) ? <CommissionCard merchantOrgId={storeId} /> : null;
 }
 
 // ───────────────────────── «حرّك مكان المطعم» ─────────────────────────

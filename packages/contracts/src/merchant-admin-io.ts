@@ -423,6 +423,11 @@ export const WeeklyStatement = z.object({
      */
     adjustmentsIqd: Iqd.default(0),
   }),
+  /**
+   * The restaurant's commission now (money §1): its tier, the rate in percent and, on `starter`, the day
+   * its starter period began (its onboarding). Null from an older server.
+   */
+  rate: z.object({ tier: CommissionTier, pct: z.number(), starterSince: z.coerce.date().nullable() }).nullable().default(null),
 });
 export type WeeklyStatement = z.infer<typeof WeeklyStatement>;
 

@@ -57,7 +57,7 @@ export class OrgsService {
   create(input: { type: OrgType; name: string; cityId: string; ownerId: string }): Promise<Org> {
     const ownerRole: OrgMemberRole = input.type === 'household' ? 'payer' : 'member';
     return this.uow.run(async (tx) => {
-      const org = await this.repo.create({ type: input.type, name: input.name, cityId: input.cityId, members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }] }, tx);
+      const org = await this.repo.create({ type: input.type, name: input.name, cityId: input.cityId, members: [{ personId: input.ownerId, role: ownerRole, spendingLimitIqd: null }], createdAt: this.clock.now() }, tx);
       await this.emit(tx, 'org.created', input.ownerId, { orgId: org.id, type: org.type, cityId: org.cityId }, org.id);
       return org;
     });

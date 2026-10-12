@@ -144,11 +144,19 @@ export class IdentityScoringCapProfiles implements DriverCapProfileResolver {
   }
 }
 
-/** What dispatch asks before offering (plan Step 5: over-cap drivers excluded after the current job). */
+/**
+ * What dispatch asks before offering (plan Step 5: over-cap drivers excluded after the current job).
+ *
+ * `unpostedIqd`: cash dispatch knows he took on a job that has just finished but that the ledger
+ * has not posted yet (the posting follows the trip's completion through the outbox). It counts
+ * toward his exposure exactly like posted cash, so the gap between "free again" and "cash posted"
+ * never lets an over-cap driver through. `cashPosted` tells dispatch when that posting has landed.
+ */
 export interface CapsPort {
-  isOverCap(driverId: string): Promise<boolean>;
-  canOffer(driverId: string, job?: JobExposure): Promise<boolean>;
+  isOverCap(driverId: string, unpostedIqd?: number): Promise<boolean>;
+  canOffer(driverId: string, job?: JobExposure, unpostedIqd?: number): Promise<boolean>;
   status(driverId: string): Promise<CapStatus>;
+  cashPosted(driverId: string, tripId: string): Promise<boolean>;
 }
 
 /** What orders asks before accepting a cash order from a new account. */
@@ -214,13 +222,20 @@ export class CapsService implements CapsPort, CashRiskPort {
     return profile;
   }
 
-  async isOverCap(driverId: string): Promise<boolean> {
-    return (await this.status(driverId)).overCap;
+  async isOverCap(driverId: string, unpostedIqd = 0): Promise<boolean> {
+    const s = await this.status(driverId);
+    return isOverCapAmount(s.owedIqd + Math.max(0, unpostedIqd), s.capIqd);
   }
 
-  async canOffer(driverId: string, job?: JobExposure): Promise<boolean> {
+  async canOffer(driverId: string, job?: JobExposure, unpostedIqd = 0): Promise<boolean> {
     const s = await this.status(driverId);
-    return canOfferJob(s.owedIqd, s.capIqd, job, this.rules);
+    return canOfferJob(s.owedIqd + Math.max(0, unpostedIqd), s.capIqd, job, this.rules);
+  }
+
+  /** Whether the money for this trip has reached his `cash:` account (any line of the trip on it). */
+  async cashPosted(driverId: string, tripId: string): Promise<boolean> {
+    const cash = Accounts.cash(driverId);
+    return (await this.ledger.eventsForTrip(tripId)).some((e) => e.fromAccount === cash || e.toAccount === cash);
   }
 
   async newCustomerCash(customerId: string, orderTotalIqd: number) {

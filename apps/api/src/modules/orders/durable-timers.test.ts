@@ -70,9 +70,8 @@ describe('order timers survive Redis', () => {
     const o = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 10 });
     const t = await h.tripFor(o.id);
-    // The jobs run but their copies stay pending (the database blipped right after), so the sweeper
-    // runs every one of them again.
-    vi.spyOn(h.timerStore, 'markFired').mockRejectedValue(new Error('database timeout'));
+    // The jobs run without finding their copies, which stay pending, so the sweeper runs every one of them again.
+    vi.spyOn(h.timerStore, 'take').mockResolvedValue('missing');
     await h.advance(20 * MIN);
     await h.advance(5 * MIN);
     expect(h.events.ofType('order.merchant_unresponsive')).toHaveLength(1);
@@ -88,7 +87,7 @@ describe('order timers survive Redis', () => {
   it('a second auto-reject run finds the order already rejected and does nothing', async () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput());
-    vi.spyOn(h.timerStore, 'markFired').mockRejectedValue(new Error('database timeout'));
+    vi.spyOn(h.timerStore, 'take').mockResolvedValue('missing');
     await h.advance(90_000);
     const rejected = h.events.ofType('order.rejected').length;
     await h.advance(GRACE);
@@ -126,7 +125,7 @@ describe('trip timers survive Redis', () => {
   it('a double run of the unreachable timers announces each step once', async () => {
     const { h, t, dropoff } = await atDoor();
     await h.trips.startUnreachable(t.id, dropoff.id, 'd1');
-    vi.spyOn(h.timerStore, 'markFired').mockRejectedValue(new Error('database timeout'));
+    vi.spyOn(h.timerStore, 'take').mockResolvedValue('missing');
     await h.advance(5 * MIN);
     expect(h.tripEvents.ofType('trip.unreachable_escalated')).toHaveLength(1);
     expect(h.tripEvents.ofType('trip.unreachable_fail_allowed')).toHaveLength(1);
