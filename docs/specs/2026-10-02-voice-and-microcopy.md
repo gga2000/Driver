@@ -38,6 +38,7 @@ Four audiences, one voice:
 | Meaning | Use | Avoid |
 |---|---|---|
 | now | هسة | الآن |
+| piece (count) | قطعة، قطعتين، قطع | حبة، حبتين، حبات (Ali, 2026-10-12) |
 | where | وين | أين |
 | what | شنو / شـ | ماذا |
 | how | شلون | كيف |
