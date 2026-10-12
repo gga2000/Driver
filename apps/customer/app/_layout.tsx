@@ -208,6 +208,10 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* SOS: the emergency contact's live-location page (public, signed token). */}
         <Stack.Screen name="sos/[token]" options={{ headerShown: false }} />
+        {/* طرود: the send sheet, the parcel's page, and the receiver's door page (public, by the link's token). */}
+        <Stack.Screen name="parcel/index" options={{ headerShown: false }} />
+        <Stack.Screen name="parcel/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="p/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
         {/* Opened from a push with no history, every الرجعة screen still has a way back (C-26, A-02). */}
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />

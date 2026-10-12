@@ -9452,5 +9452,6 @@
   "parcel.c_door_on_the_way": "The parcel is on its way to you",
   "parcel.c_door_closed_title": "This link has ended",
   "parcel.c_door_privacy": "Only the courier bringing it sees your door, and your number is shown to no one",
-  "parcel.c_door_no_app": "No app needed"
+  "parcel.c_door_no_app": "No app needed",
+  "parcel.c_door_closed_body": "Ask the sender for a new link"
 }

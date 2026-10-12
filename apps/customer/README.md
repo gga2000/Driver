@@ -166,7 +166,9 @@ EXPO_OFFLINE=1 CI=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:3200/trpc EXPO_PUBLIC_D
 PORT=3200 node scripts/demo-api.mjs &                 # in-memory API, dev OTPs, demo hooks: /demo/active-order,
                                                       # /demo/kitchen, /demo/seed, /demo/track, /demo/rajaa/*,
                                                       # /demo/account (also two خطوط children, one with
-                                                      # a photo: الحساب → أطفال الخطوط)
+                                                      # a photo: الحساب → أطفال الخطوط), /demo/parcels?personId=
+                                                      # (طرود: one waiting for its door — link in the log —,
+                                                      # one on the way, one delivered)
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs CHROMIUM_PATH=/path/to/chrome \
   node scripts/web-shots.mjs <out-dir>                # 390×844 @2x, every group: app-*, acct-*, food-*,
                                                       # track-*, rajaa-*  (SHOTS=food,track runs only those;

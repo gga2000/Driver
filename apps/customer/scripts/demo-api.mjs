@@ -40,6 +40,8 @@
 //   - POST /demo/booked-ride?personId=…[&state=looking|confirmed]    review #28: a ride booked for tomorrow 7:30,
 //                                                                     drivers asked until 22:00 or حسين confirmed
 //   - POST /demo/khat-bus?personId=…[&state=coming|away|…]           N14 «وين الباص»: a خطوط run for the first child
+//   - POST /demo/parcels?personId=…                                  طرود: a parcel waiting for its door (link in the log),
+//                                                                     one on the way, one delivered with its photos
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -58,6 +60,8 @@ const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js
 const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
+// طرود: the receiver's door link (`<base>/p/<token>`) points at the studio's customer web app in the demo.
+process.env.SHARE_LINK_BASE_URL ??= 'http://localhost:8081';
 const KITCHEN_MS = Number(process.env.DEMO_KITCHEN_MS ?? 20_000);
 const app = await createApp();
 // The studio opens every service so all screens stay reviewable; launch day itself is the city file's
@@ -3015,6 +3019,118 @@ const rajaa = await (async () => {
         friends.push(id);
       }
       json(res, 200, { code, friends });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── طرود (parcels, 2026-10-12) ─────────────────────────
+//
+//   POST /demo/parcels?personId=<id>   → {waiting: {parcelId, link}, onTheWay: {parcelId, orderId}, delivered: {parcelId, orderId}}
+//
+// Three parcels from the person's home (or the town centre) to «أم حيدر»: one waiting for her to mark her
+// door (its link is printed to the log: open it to see the receiver's page), one a courier picked up and
+// is bringing (the sender marked the door), and one delivered with the receipt code, with the pickup and
+// door photos. The photos are read from DEMO_PARCEL_PHOTOS (default /mnt/project-files/parcels/photos)
+// when that folder is there; otherwise the parcels have none.
+{
+  const { existsSync: parcelPhotosThere, readFileSync: readParcelPhoto } = await import('node:fs');
+  const { ParcelsService } = await load('modules/parcels/index.js');
+  const { SavedPlacesService: ParcelPlaces } = await load('modules/places/index.js');
+  const parcels = app.get(ParcelsService);
+  const parcelPlaces = app.get(ParcelPlaces);
+  const photoDir = process.env.DEMO_PARCEL_PHOTOS ?? '/mnt/project-files/parcels/photos';
+  const parcelPhoto = async (ownerId, file) => {
+    const path = join(photoDir, file);
+    if (!parcelPhotosThere(path)) return null;
+    const bytes = readParcelPhoto(path);
+    const store = app.get(PHOTO_STORE);
+    const ticket = await store.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/jpeg', bytes });
+    return ticket.uploadId;
+  };
+  const RECEIVER = { from: 'typed', name: 'أم حيدر', phone: '07703452210' };
+  /** Near the big mosque in Zakur: where «أم حيدر» marked her door on the parcels already on their way. */
+  const HER_DOOR = { lat: 32.8893, lng: 45.0731 };
+  let parcelSeq = 0;
+  const tripFor = async (orderId, from, to) => {
+    for (let i = 0; i < 5; i++) {
+      const trip = await trips.activeForOrder(orderId);
+      if (trip) return trip;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Dispatch does not build parcel trips yet: the demo builds the courier trip itself (pickup → the door).
+    const trip = await trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'parcel',
+      orders: [{ orderId, minVehicleClass: null }],
+      stops: [
+        { orderId, type: 'pickup', zoneKey: from.zoneKey, target: from.pin },
+        { orderId, type: 'dropoff', zoneKey: to.zoneKey, target: to.pin },
+      ],
+    });
+    await dispatch.orchestrator.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'parcel', zoneId: from.zoneKey, pickup: from.pin, dropoffZoneId: to.zoneKey, minVehicleClass: null, cashIqd: 0 });
+    return trip;
+  };
+
+  app.use('/demo/parcels', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/parcels?personId=…' });
+      const as = { personId, sessionId: 'demo' };
+      if (!(await identity.me(as)).name) await identity.setName(as, 'علي');
+      const home = (await parcelPlaces.mine(personId)).find((p) => p.label === 'home') ?? null;
+      const pickup = home?.pin ? { zoneKey: home.zoneId, pin: home.pin } : { zoneKey: 'centre', pin: { lat: 32.9051, lng: 45.0607 } };
+      const what = ['ملابس العيد', 'مفاتيح البيت', 'دوا لبيبي'];
+      const send = async (n, door, extra = {}) => {
+        parcelSeq += 1;
+        const dropZoneKey = door.by === 'receiver' ? door.zoneKey : 'zakur';
+        const { fareIqd } = await parcels.quote(as, { cityId: 'aziziyah', pickup, dropZoneKey, size: 'small' });
+        const photoUploadId = await parcelPhoto(personId, 'received.jpg');
+        return parcels.send(as, {
+          cityId: 'aziziyah',
+          clientRequestId: `demo-parcel-${parcelSeq}-${Date.now()}`,
+          what: what[n],
+          size: n === 1 ? 'small' : 'medium',
+          declaredValueIqd: [40_000, 5_000, 15_000][n],
+          ...(photoUploadId ? { photoUploadId } : {}),
+          recipient: RECEIVER,
+          pickup,
+          door,
+          payer: 'sender',
+          fareIqd,
+          ...extra,
+        });
+      };
+      const carry = async (sent, { deliver }) => {
+        const orderId = sent.orderId;
+        const trip = await tripFor(orderId, pickup, { zoneKey: 'zakur', pin: HER_DOOR });
+        const courierId = await newCourier(pickup.pin, { photo: true });
+        await assign(orderId, courierId);
+        const up = await stopOf(trip.id, 'pickup');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: pickup.pin, at: new Date(), bearing: 160, speedKmh: 0 });
+        await trips.arrive(trip.id, up.id, courierId, { pin: pickup.pin });
+        const upPhoto = await parcelPhoto(courierId, 'trunk.jpg');
+        await trips.completeStop(trip.id, up.id, courierId, upPhoto ? { handover: { photoUploadId: upPhoto } } : {});
+        if (!deliver) {
+          await startMover(trip.id, courierId, [pickup.pin, { lat: (pickup.pin.lat + HER_DOOR.lat) / 2, lng: (pickup.pin.lng + HER_DOOR.lng) / 2 }, HER_DOOR], 20);
+          return { parcelId: sent.id, orderId };
+        }
+        const drop = await stopOf(trip.id, 'dropoff');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: HER_DOOR, at: new Date(), bearing: 135, speedKmh: 0 });
+        await trips.arrive(trip.id, drop.id, courierId, { pin: HER_DOOR });
+        await parcels.checkPin({ personId: courierId, sessionId: 'demo' }, { orderId, pin: sent.pin });
+        const dropPhoto = await parcelPhoto(courierId, 'door-handover.jpg');
+        await trips.completeStop(trip.id, drop.id, courierId, { handover: { ...(dropPhoto ? { photoUploadId: dropPhoto } : {}) } });
+        return { parcelId: sent.id, orderId };
+      };
+      const waiting = await send(0, { by: 'receiver', zoneKey: 'zakur' });
+      const onTheWay = await carry(await send(1, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: false });
+      const delivered = await carry(await send(2, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: true });
+      console.log(`DEMO_API parcel waiting for the door: ${waiting.doorLink ?? '(no SHARE_LINK_BASE_URL)'}`);
+      json(res, 200, { waiting: { parcelId: waiting.id, link: waiting.doorLink }, onTheWay, delivered });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

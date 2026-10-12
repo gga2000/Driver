@@ -9452,5 +9452,6 @@
   "parcel.c_door_on_the_way": "الأمانة بالطريق إلك",
   "parcel.c_door_closed_title": "هذا الرابط خلص",
   "parcel.c_door_privacy": "مكان بابك يشوفه بس الدليفري اللي يجيب الطرد، ورقمك ما يطلع لأحد",
-  "parcel.c_door_no_app": "ما تحتاج تنزّل التطبيق"
+  "parcel.c_door_no_app": "ما تحتاج تنزّل التطبيق",
+  "parcel.c_door_closed_body": "اطلب من المرسل يدزلك رابط جديد"
 }
