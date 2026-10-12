@@ -24,3 +24,11 @@ describe('partner route guard', () => {
     expect(resolveGuard({ status: 'signedIn', gate: 'allowed', segments: ['job'] })).toBeNull();
   });
 });
+
+describe('partner route guard: staff alerts', () => {
+  it('lets a signed-in staff member stay on the staff-alert screen, partner or not', () => {
+    expect(resolveGuard({ status: 'signedIn', gate: 'denied', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedIn', gate: 'unknown', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedOut', gate: 'unknown', segments: ['staff-alert'] })).toBe('/welcome');
+  });
+});

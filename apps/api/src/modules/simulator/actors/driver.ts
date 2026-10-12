@@ -258,7 +258,11 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       const order = await ctx.call('driver.order', () => ctx.s.orders.get(stop.orderId!));
       const promised = order?.promisedReadyAt?.getTime() ?? ctx.t;
       const actual = order?.readyAt?.getTime() ?? ctx.t;
-      d.bag.set(stop.orderId, { readyAtMs: Math.max(promised, actual), lateMs: Math.max(0, actual - promised), batched: trip.batched || d.trips.size > 1, pickedUpT: ctx.t, offline: false, departed: false });
+      const lateMs = Math.max(0, actual - promised);
+      // A late kitchen holds him from the later of his arrival and its promise until the bag is handed over.
+      const heldFromMs = Math.max(arrivedT, promised);
+      const heldMs = lateMs > 0 ? Math.min(lateMs, Math.max(0, ctx.t - heldFromMs)) : 0;
+      d.bag.set(stop.orderId, { readyAtMs: Math.max(promised, actual), lateMs, heldMs, heldFromMs, batched: trip.batched || d.trips.size > 1, pickedUpT: ctx.t, offline: false, departed: false });
     }
     return;
   }
@@ -312,15 +316,21 @@ function stableBucket(id: string, n: number): number {
 
 /**
  * The batch leaves the last kitchen: how long each hot item waited since it was ready (the later of
- * promised and actual). Lateness of a kitchen picked up after it is the kitchen's, not the batching
- * plan's, and is taken off (and reported).
+ * promised and actual). Batching plans against promised ready times, so what late kitchens cost an
+ * item is the kitchens', not the plan's, and is taken off (and reported): the lateness of a kitchen
+ * picked up after it, and the time a late kitchen picked up before it held the courier once the
+ * item was ready (he reached its counter that much later).
  */
-function recordDepartures(ctx: SimContext, d: DriverRun): void {
+export function recordDepartures(ctx: Pick<SimContext, 't' | 'hotWaits'>, d: Pick<DriverRun, 'personId' | 'bag'>): void {
   const bag = [...d.bag.entries()].filter(([, b]) => !b.departed);
   for (const [orderId, b] of bag) {
     b.departed = true;
     if (!b.batched) continue;
-    const lateMs = Math.max(0, ...bag.filter(([, x]) => x.pickedUpT > b.pickedUpT).map(([, x]) => x.lateMs));
+    const laterMs = Math.max(0, ...bag.filter(([, x]) => x.pickedUpT > b.pickedUpT).map(([, x]) => x.lateMs));
+    const earlierHeldMs = bag
+      .filter(([id, x]) => id !== orderId && x.pickedUpT <= b.pickedUpT && x.heldMs > 0)
+      .reduce((n, [, x]) => n + Math.min(x.heldMs, Math.max(0, x.pickedUpT - Math.max(x.heldFromMs, b.readyAtMs))), 0);
+    const lateMs = laterMs + earlierHeldMs;
     const round = (ms: number) => Math.round(ms / 6000) / 10;
     ctx.hotWaits.push({
       orderId,
@@ -458,5 +468,11 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
   if (after && after.owedIqd > 0) {
     d.seq += 1;
     await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: after.owedIqd, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
+  }
+  // G-86: once the company owes him more than the payout line, finance pays him (ZainCash).
+  const owedToHim = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
+  if (owedToHim && owedToHim.payoutDueIqd > 0) {
+    d.seq += 1;
+    await ctx.call('finance.pay_driver', () => ctx.s.merchantCash.recordDriverPayout({ driverId: d.personId, amountIqd: owedToHim.payoutDueIqd, channel: 'zaincash', reference: `PO-${d.def.key}-${d.seq}` }));
   }
 }

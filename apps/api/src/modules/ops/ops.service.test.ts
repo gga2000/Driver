@@ -223,6 +223,7 @@ describe('ops.merchantOnboarding and tasks', () => {
       contact: { name: 'أبو حسن', phone: '07800000123' },
       location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } },
       menuPhotoUploadIds: menu,
+      commissionTier: 'starter',
     });
     expect(v).toMatchObject({ state: 'draft', menuPhotos: 2 });
     const org = await h.orgs.get(v.merchantOrgId);
@@ -242,7 +243,7 @@ describe('ops.merchantOnboarding and tasks', () => {
 
   it('the kitchen’s zone is read from its pin, never the tapped zone; no pin or a pin outside town is refused', async () => {
     const h = await setup();
-    const input = { cityId: 'aziziyah', name: 'مطعم الريف', type: 'restaurant' as const, contact: { name: 'أبو حسن', phone: '07800000126' }, menuPhotoUploadIds: [] };
+    const input = { cityId: 'aziziyah', name: 'مطعم الريف', type: 'restaurant' as const, contact: { name: 'أبو حسن', phone: '07800000126' }, menuPhotoUploadIds: [], commissionTier: 'starter' as const };
     // Pinned in Zakur while the chip said centre: the store sits in Zakur.
     const v = await h.ops.merchantOnboarding(h.staff, { ...input, location: { zoneKey: 'centre', pin: { lat: 32.887, lng: 45.0765 } } });
     expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
@@ -254,7 +255,7 @@ describe('ops.merchantOnboarding and tasks', () => {
   it('refuses photos that are not the caller’s uploads', async () => {
     const h = await setup();
     await expect(
-      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } }, menuPhotoUploadIds: ['up_nope'] }),
+      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } }, menuPhotoUploadIds: ['up_nope'], commissionTier: 'starter' }),
     ).rejects.toMatchObject({ code: 'upload_invalid' });
   });
 
@@ -350,7 +351,27 @@ describe('ops.merchantOnboarding settlement mode', () => {
       location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
       menuPhotoUploadIds: [],
       settlementMode: 'daily_zaincash',
+      commissionTier: 'starter',
     });
     expect((await h.lh.merchantCash.settings(v.merchantOrgId)).mode).toBe('daily_zaincash');
+  });
+});
+
+describe('ops.merchantOnboarding commission tier (Ali 2026-10-11)', () => {
+  const visit = { cityId: 'aziziyah', name: 'كباب الزهراء', type: 'restaurant' as const, contact: { name: 'أبو علي', phone: '07800000131' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } } };
+
+  it('a new restaurant starts on starter (5 %) when the visit names no tier, and the audit log says so', async () => {
+    const h = await setup();
+    const v = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse(visit));
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).commissionTier).toBe('starter');
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'store.commission_tier_set', actorId: h.staff.personId, subjectId: v.merchantOrgId, detail: expect.objectContaining({ from: null, to: 'starter' }) })]);
+  });
+
+  it('the visit may name another tier; pickup is not a store tier', async () => {
+    const h = await setup();
+    const v = await h.ops.merchantOnboarding(h.staff, MerchantOnboardingInput.parse({ ...visit, commissionTier: 'featured' }));
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).commissionTier).toBe('featured');
+    expect(h.audits.at(-1)).toMatchObject({ action: 'store.commission_tier_set', detail: { to: 'featured' } });
+    expect(MerchantOnboardingInput.safeParse({ ...visit, commissionTier: 'pickup' }).success).toBe(false);
   });
 });

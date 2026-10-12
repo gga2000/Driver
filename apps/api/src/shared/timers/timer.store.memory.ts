@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { Tx } from '@driver/db';
+import { onRollback } from '../db/unit-of-work.js';
 import {
   TIMER_DEFAULT_MAX_ATTEMPTS,
   TIMER_KEEP_FAILED_MS,
@@ -7,6 +9,7 @@ import {
   type ClaimedTimer,
   type TimerSpec,
   type TimerStats,
+  type TakeResult,
   type TimerStore,
 } from './timer.store.js';
 
@@ -28,8 +31,8 @@ interface Row {
 }
 
 /**
- * Same contract as the Postgres store, in process. The transaction argument is ignored: the in-memory
- * unit of work has nothing to roll back. Used where there is no DATABASE_URL (unit tests, the
+ * Same contract as the Postgres store, in process. The transaction argument is ignored (the in-memory
+ * unit of work has nothing to roll back), except that a rolled-back `take` puts its timer back. Used where there is no DATABASE_URL (unit tests, the
  * simulator, the demo APIs).
  */
 export class InMemoryTimerStore implements TimerStore {
@@ -70,9 +73,19 @@ export class InMemoryTimerStore implements TimerStore {
     });
   }
 
+  async take(queue: string, jobId: string, now: Date, tx: Tx): Promise<TakeResult> {
+    const r = this.rows.find((x) => x.queue === queue && x.jobId === jobId);
+    if (!r) return 'missing';
+    if (r.status !== 'pending') return 'done';
+    const before = { ...r };
+    Object.assign(r, { status: 'fired', firedAt: now, claimedUntil: null, updatedAt: now });
+    onRollback(tx, () => void Object.assign(r, before));
+    return 'taken';
+  }
+
   async complete(id: string, now: Date): Promise<void> {
     const r = this.rows.find((x) => x.id === id);
-    if (!r || r.status !== 'pending') return;
+    if (!r || r.status !== 'pending' || !r.claimedUntil) return;
     Object.assign(r, { status: 'fired', firedAt: now, claimedUntil: null, updatedAt: now });
   }
 

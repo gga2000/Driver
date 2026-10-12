@@ -402,6 +402,28 @@ export const INVARIANTS: readonly Definition[] = [
     },
   },
   {
+    name: 'driver_payout_within_owed',
+    description: 'a payout to a driver never leaves him owing the company (cash + earnings ≥ 0 right after each driver_payout line)',
+    run: (s) => {
+      const bad: string[] = [];
+      const payees = new Set(s.ledger.filter((e) => e.type === 'driver_payout').map((e) => e.fromAccount.slice('driver:'.length)));
+      for (const id of payees) {
+        const mine = s.ledger
+          .filter((e) => [e.fromAccount, e.toAccount].some((a) => a === `driver:${id}` || a === `cash:${id}`))
+          .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+        let net = 0;
+        for (const e of mine) {
+          for (const acct of [`driver:${id}`, `cash:${id}`]) {
+            if (e.toAccount === acct) net += e.amount;
+            if (e.fromAccount === acct) net -= e.amount;
+          }
+          if (e.type === 'driver_payout' && net < 0) bad.push(`${id}: paid ${e.amount} and now owes ${-net}`);
+        }
+      }
+      return { checked: payees.size, bad };
+    },
+  },
+  {
     name: 'points_per_food_order_capped',
     description: 'points earned ≤ 50 per food order',
     run: (s) => {

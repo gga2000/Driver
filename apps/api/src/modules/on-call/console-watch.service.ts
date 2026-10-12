@@ -8,6 +8,7 @@ import {
 } from '@driver/contracts';
 import { CITY_UTC_OFFSET_MIN } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { IdentityService } from '../identity/index.js';
 import { NotifyService } from '../notify/index.js';
@@ -21,8 +22,8 @@ import { ON_CALL_REPOSITORY, type OnCallRepository } from './on-call.repository.
 export interface ConsoleWatchConfig {
   /** The cities whose Console is watched. */
   cities: readonly string[];
-  /** The Console origin, for the link in the message. */
-  consoleBase: string;
+  /** The Console origin, for the link in the message; null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
 }
 export const CONSOLE_WATCH_CONFIG = Symbol('CONSOLE_WATCH_CONFIG');
 
@@ -145,7 +146,7 @@ export class ConsoleWatchService {
     if (open.has(kind)) return false;
     const to = await this.whoToTell(cityId, now);
     const minutes = `${Math.max(1, Math.floor(forMs / 60_000))} دقيقة`;
-    const link = this.config.consoleBase.replace(/\/$/, '');
+    const link = consoleLinkParam(this.config.consoleBase, '');
     return this.uow.run(async (tx) => {
       const alert = await this.repo.open(cityId, kind, now, tx);
       if (!alert) return false;

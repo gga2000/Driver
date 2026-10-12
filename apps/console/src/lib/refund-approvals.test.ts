@@ -14,6 +14,13 @@ describe('refund second OK (Ali, 2026-10-08)', () => {
     expect(refundRole(asked('p1'), { personId: null, roles: new Set<RoleKind>() })).toBe('watcher');
   });
 
+  it('a ledger correction is approved by another finance person only, never by admin alone', () => {
+    const adj = { ...asked('p1'), kind: 'adjustment' as const };
+    expect(refundRole(adj, me('p2', ['finance']))).toBe('approver');
+    expect(refundRole(adj, me('p2', ['admin']))).toBe('watcher');
+    expect(refundRole(adj, me('p1', ['finance']))).toBe('asker');
+  });
+
   it('links to the case, else the order', () => {
     expect(refundHref({ ticketId: 'tk 1', orderId: 'o1' })).toBe('/support/tk%201');
     expect(refundHref({ ticketId: null, orderId: 'o1' })).toBe('/orders/o1');

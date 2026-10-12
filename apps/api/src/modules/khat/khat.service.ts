@@ -31,6 +31,7 @@ import {
 import { formatMinuteCount, t } from '@driver/i18n';
 import type { CallBridgePort } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { nearestLandmark } from '../../shared/landmarks.js';
 import { localDateKey } from '../../shared/local-time.js';
@@ -67,11 +68,11 @@ export interface KhatPhotosPort {
 export interface KhatConfig {
   /** Minutes after the run's last child stop before a missing sweep alerts ops (`KHAT_RULES`). */
   sweepAlertAfterMin: number;
-  /** The Console origin, for the dispatchers' WhatsApp page ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The Console origin, for the dispatchers' WhatsApp page ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
 }
 
-export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin, consoleBase: 'https://console.driver.iq' };
+export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin, consoleBase: null };
 
 export interface SweepCheckJob {
   tripId: string;
@@ -295,7 +296,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     /** Launch scope: خطوط takes no new pickups or absences until the city lists it. Absent in narrow harnesses. */
     @Optional() private readonly controls?: ControlsService,
   ) {
-    this.timers = queue ? new DurableTimers(queue, clock, () => uow.current()) : null;
+    this.timers = queue ? new DurableTimers(queue, clock, uow) : null;
   }
 
   /** FLW-22: the sweep check has a durable copy, so a lost Redis job or a failed run only delays it. */
@@ -676,7 +677,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     if (to.length === 0) return;
     const name = (await this.identity.displayNamesFor([alert.driverId], 'system:khat', 'khat_sweep_page'))[alert.driverId]?.displayName ?? t('console.safety.role_driver');
     const n = Math.max(1, Math.floor((alert.raisedAt.getTime() - alert.runEndedAt.getTime()) / 60_000));
-    const params = { name, route: `#${orderTicketNumber(alert.tripId)}`, n, minutes: formatMinuteCount(n), link: `${this.config.consoleBase.replace(/\/$/, '')}/safety`, alertId: alert.id };
+    const params = { name, route: `#${orderTicketNumber(alert.tripId)}`, n, minutes: formatMinuteCount(n), link: consoleLinkParam(this.config.consoleBase, '/safety', alert.id), alertId: alert.id };
     for (const personId of to) {
       await this.notify.dispatch({ eventId: e.id, template: 'khat_sweep_dispatch_alert', to: personId, params, data: { alertId: alert.id, tripId: alert.tripId } }, tx);
     }
