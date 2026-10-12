@@ -6836,6 +6836,7 @@
   "console.adj_send_plain": "صحّح",
   "console.adj_posted": "انسجل التصحيح: {amount} دينار",
   "console.adj_waiting": "التصحيح ({amount} دينار) ينتظر موافقة ثانية",
+  "console.adj_daily_cap": "تصحيحاتك اليوم بدون موافقة ثانية وصلت حد {amount} دينار، فهذا التصحيح ينتظر موافقة شخص ثاني من الحسابات",
   "console.adj_failed": "ما انسجل التصحيح",
   "console.fin_collect_due_hint": "عليه {due} دينار للشركة. {pay} دينار بيده أجوره وتبقى إله",
   "console.wall_vs_yesterday_up": "صاعد عن أمس",

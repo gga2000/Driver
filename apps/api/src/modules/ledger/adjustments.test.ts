@@ -7,6 +7,8 @@ const finance = (personId: string) => ({ personId, roles: ['finance'] as const }
 /** A test queue standing in for the Console's persisted second-OK queue. */
 const parked: Adjustment[] = [];
 const park = async (adj: Adjustment) => (parked.push(adj), adj);
+const parkedWhy: string[] = [];
+const parkWhy = async (adj: Adjustment, why: string) => (parkedWhy.push(why), adj);
 
 describe('adjustments (G-85)', () => {
   it('need the finance role, a reason and a linked incident', async () => {
@@ -42,6 +44,37 @@ describe('adjustments (G-85)', () => {
     expect((await h.ledger.balance('merchant_cash:m1')).amount).toBe(-30000);
     // exactly 25,000 needs no second approver
     expect((await h.adjustments.request(finance('f1'), { ...req, amountIqd: 25000 }, park)).status).toBe('posted');
+  });
+
+  it('one person posts at most 50,000 alone in a Baghdad day; over it waits for a second OK', async () => {
+    const h = ledgerHarness();
+    h.incidents.register('inc_cap');
+    const req = { amountIqd: 20_000, fromAccount: 'platform', toAccount: 'cash:k9', reason: 'counted stack short', incidentId: 'inc_cap' };
+    let solo = 0;
+    const days: Array<{ from: Date; to: Date }> = [];
+    const opts = {
+      soloPostedToday: async (day: { from: Date; to: Date }) => (days.push(day), solo),
+    };
+    const send = async (amountIqd: number) => {
+      const adj = await h.adjustments.request(finance('f1'), { ...req, amountIqd }, parkWhy, opts);
+      if (adj.status === 'posted') solo += amountIqd;
+      return adj.status;
+    };
+    expect(await send(20_000)).toBe('posted');
+    expect(await send(20_000)).toBe('posted');
+    expect(await send(20_000)).toBe('pending_second_approval');
+    expect(parkedWhy.at(-1)).toBe('daily_cap');
+    expect(await send(10_000)).toBe('posted'); // exactly 50,000
+    expect(await send(30_000)).toBe('pending_second_approval');
+    expect(parkedWhy.at(-1)).toBe('above_line');
+    // The day asked about is the Baghdad calendar day (UTC+3).
+    const now = h.clock.now();
+    const day = days.at(-1)!;
+    expect(day.to.getTime() - day.from.getTime()).toBe(86_400_000);
+    expect(day.from.getTime()).toBeLessThanOrEqual(now.getTime());
+    expect(day.to.getTime()).toBeGreaterThan(now.getTime());
+    expect((day.from.getUTCHours() + 3) % 24).toBe(0);
+    expect((await h.ledger.balance('cash:k9')).amount).toBe(50_000);
   });
 
   it('may link an incident from another source (a support ticket), and never moves money to the same account', async () => {
