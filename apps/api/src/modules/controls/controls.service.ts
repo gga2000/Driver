@@ -256,6 +256,8 @@ export class ControlsService implements ControlsPort {
    * switch's own customer message when set) or `zone_at_capacity` (honest wait, `retryAfterSec`).
    */
   async assertOrderAllowed(gate: OrderGate): Promise<void> {
+    // Launch scope first: a service the city has not opened takes no new order ("not open yet").
+    this.assertLaunched(gate.cityId, gate.vertical);
     const s = await this.blockingSwitch(gate);
     if (s) throw new DriverError('service_paused', { messageAr: await this.refusalFor(s, gate.cityId) });
     // A cart's order (food, already past assertLaunched) also needs carts open in the city.

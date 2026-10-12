@@ -55,6 +55,10 @@
     "./pieces/carts": {
       "types": "./dist/golden/carts.d.ts",
       "default": "./dist/golden/carts.js"
+    },
+    "./pieces/windows": {
+      "types": "./dist/golden/windows.d.ts",
+      "default": "./dist/golden/windows.js"
     }
   },
   "scripts": {

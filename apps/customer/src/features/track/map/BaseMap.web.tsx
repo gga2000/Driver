@@ -10,6 +10,7 @@ import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
 import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
 import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
+import { bindHouseWindows } from './house-windows-web';
 import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
@@ -54,8 +55,8 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     let lightTimer: ReturnType<typeof setInterval> | undefined;
     let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    Promise.all([import('maplibre-gl'), GOLDEN_MAP ? import('@driver/map/golden') : null])
-      .then(async ([mod, golden]) => {
+    Promise.all([import('maplibre-gl'), GOLDEN_MAP ? import('@driver/map/golden') : null, GOLDEN_MAP ? import('@driver/map/pieces/windows') : null])
+      .then(async ([mod, golden, win]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         if (golden) await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
@@ -83,6 +84,8 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         }
         mapRef.current = map;
         const m = map;
+        // Windows, doors and roof walls on the houses up close (our map only).
+        const windows = golden && win ? bindHouseWindows(m, golden, win) : null;
         // Every style load (first, fallback, new light): zones on the original map, palm pattern on ours.
         m.on('style.load', () => {
           if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
@@ -91,6 +94,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
               if (m.hasImage(id)) m.updateImage(id, img);
               else m.addImage(id, img);
             }
+            windows?.add(light);
           }
         });
         if (golden) {

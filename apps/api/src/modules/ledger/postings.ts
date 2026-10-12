@@ -7,7 +7,9 @@ import {
   OrderCancelledPayload,
   OrderRejectedPayload,
   ErrandMoneyPayload,
+  FoodCartWalkupCollectedPayload,
   LateMeterPayload,
+  WALKUP_COMMISSION_MEMO,
   OrderMoneyPayload,
   RideMoneyPayload,
   SeatMoneyPayload,
@@ -264,6 +266,29 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
     revenueIqd: Math.max(0, commission + serviceFee + o.smallOrderFeeIqd - promo - red.valueIqd),
     totalIqd: total,
   };
+}
+
+// ───────────────────────── food cart walk-over ticket ─────────────────────────
+
+/**
+ * A cart («عربانة») walk-over ticket collected: the customer paid the cart owner cash in person, so
+ * the sale itself never passes through the platform; the platform's share — the restaurants' pickup
+ * commission tier on the ticket total, computed and saved on the ticket by the food-carts module — is
+ * posted the way `postOrderClosed` posts a cash pickup order's commission: `commission_accrued` from
+ * the merchant's cash account to the platform, memo `commission:pickup`, here followed by the ticket
+ * (`:walkup:<id>`) so the statement can show it. The merchant account goes negative by it (he owes it,
+ * taken off his next money). One group per ticket (`food_cart_walkup:<id>:commission`): a redelivered
+ * event posts nothing twice. A ticket without commission posts nothing.
+ */
+export function postFoodCartWalkupCommission(input: FoodCartWalkupCollectedPayload): PostingGroup | null {
+  const w = FoodCartWalkupCollectedPayload.parse(input);
+  if (w.commissionIqd > w.totalIqd) throw new RangeError(`walk-up ${w.walkupId} commission ${w.commissionIqd} is more than its total ${w.totalIqd}`);
+  if (w.commissionIqd === 0) return null;
+  const merchant = Accounts.merchantCash(w.merchantOrgId);
+  return new GroupBuilder(`food_cart_walkup:${w.walkupId}:commission`, 'money', w.occurredAt, {})
+    .add('commission_accrued', w.commissionIqd, merchant, Accounts.platform, `${WALKUP_COMMISSION_MEMO}${w.walkupId}`)
+    .control(merchant, -w.commissionIqd)
+    .build();
 }
 
 function redeemGroup(id: string, personId: string, points: number, at: Date, refs: PostingRefs): PostingGroup {

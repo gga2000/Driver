@@ -10,6 +10,7 @@ import {
   type DrainableQueue,
   type DriverRun,
   type DoorCashRecord,
+  type ErrandReceiptRecord,
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
@@ -74,6 +75,7 @@ export class Simulation implements SimContext {
   readonly hotWaits: HotWaitRecord[] = [];
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
+  readonly errandReceipts = new Map<string, ErrandReceiptRecord>();
   readonly acceptedOffers: AcceptedOfferRecord[] = [];
   readonly offers: ObservedOffer[] = [];
 
@@ -340,6 +342,7 @@ export class Simulation implements SimContext {
       freeCancelSeen: false,
       answersAt: null,
       lastCourierId: null,
+      shoppedT: null,
     };
   }
 
@@ -497,6 +500,7 @@ export class Simulation implements SimContext {
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
+      errandReceipts: [...this.errandReceipts.values()],
       acceptedOffers: [...this.acceptedOffers],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },

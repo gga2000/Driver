@@ -119,7 +119,7 @@ export function statementDays(lines: readonly StatementOrderLine[]): StatementDa
     const key = localDayKey(l.at);
     const d = byDay.get(key) ?? { key, at: l.at, lines: [], orders: 0, itemsIqd: 0, commissionIqd: 0, netIqd: 0 };
     d.lines.push(l);
-    d.orders += 1;
+    if (!l.walkup) d.orders += 1;
     d.itemsIqd += l.itemsIqd;
     d.commissionIqd += l.commissionIqd;
     d.netIqd += l.netIqd;

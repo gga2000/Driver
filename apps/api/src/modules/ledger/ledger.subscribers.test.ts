@@ -18,6 +18,7 @@ describe('ledger subscribers', () => {
       [
         'order.cash_collected',
         'departure.cancelled',
+        'food_cart.walkup_collected',
         'merchant.settlement_requested',
         'order.cancelled',
         'order.closed',
@@ -173,6 +174,21 @@ describe('ledger subscribers', () => {
     expect((await h.ledger.balance('merchant_cash:m5')).amount).toBe(-500);
     expect((await h.ledger.balance('customer:c6')).amount).toBe(0);
     expect((await h.ledger.eventsFor('customer:c5')).map((e) => [e.type, e.memo])).toEqual([['cancellation_fee', 'merchant_late_reject']]);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
+  });
+
+  it('food cart walk-over: food_cart.walkup_collected bills the cart owner the pickup commission once, even if the event repeats', async () => {
+    const h = ledgerHarness();
+    // As the food-carts module emits it, with the envelope's occurredAt underneath (`ledgerPayload`).
+    const ev = wire({ occurredAt: at, cartId: 'cart1', merchantOrgId: 'm9', cartName: 'عربانة أبو علي', walkupId: 'w9', totalIqd: 10000, commissionIqd: 500 });
+    await h.bus.publish('food_cart.walkup_collected', ev);
+    await h.bus.publish('food_cart.walkup_collected', ev);
+    expect((await h.ledger.balance('merchant_cash:m9')).amount).toBe(-500);
+    expect((await h.ledger.balance('platform')).amount).toBe(500);
+    expect((await h.ledger.eventsFor('merchant_cash:m9')).map((e) => [e.type, e.memo])).toEqual([['commission_accrued', 'commission:pickup:walkup:w9']]);
+    // The ledger statement labels it like any commission line.
+    const st = await h.ledger.statement('merchant_cash:m9');
+    expect(st.lines.map((l) => [l.label_ar, l.amountIqd])).toEqual([['عمولة المنصة', -500]]);
     expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 

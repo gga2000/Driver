@@ -13,6 +13,7 @@ import { OpsModule } from './modules/ops/index.js';
 import { PromotionsModule } from './modules/promotions/index.js';
 import { MerchantAdminModule } from './modules/merchant-admin/index.js';
 import { MenuPhotosModule } from './modules/menu-photos/index.js';
+import { ShoppingModule } from './modules/shopping/index.js';
 import { FoodCartsModule } from './modules/food-carts/index.js';
 import { LedgerModule } from './modules/ledger/index.js';
 import { NotifyModule } from './modules/notify/index.js';
@@ -53,6 +54,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     TopUpsModule,
     MerchantAdminModule,
     MenuPhotosModule,
+    ShoppingModule,
     FoodCartsModule,
     OrgsModule,
     ConfigModule,
