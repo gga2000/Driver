@@ -745,6 +745,8 @@ await demoPot('haj_kareem', 'rice_bamia', 'ويا لحم غنم');
 await demoPot('musafir', 'dolma', null, '22:00');
 await catalog.setStory(byKey('khalid').orgId, { text: 'نشوي على الفحم من أيام أبوي، ونفس الخلطة.\nالكباب ينگطع بالساطور كل صبح.', sinceYear: 2009, shown: true });
 await catalog.setStory(byKey('haj_kareem').orgId, { text: 'الحاج كريم بدأ بمنقلة وحدة بالسوق. هسة ولده واقف على نفس المنقلة.', sinceYear: 1998, shown: true });
+// «مميّز» (Ali, 2026-10-12): الحاج كريم is on the featured tier in the demo, so the stamp shows and he sits first.
+await orgs.setMerchantSettings(byKey('haj_kareem').orgId, { commissionTier: 'featured' });
 
 app.use('/demo/pot', async (req, res) => {
   try {
