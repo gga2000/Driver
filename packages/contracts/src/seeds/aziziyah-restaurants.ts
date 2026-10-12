@@ -331,7 +331,7 @@ export const AZIZIYAH_RESTAURANTS: readonly SeedRestaurant[] = [
               { nameAr: 'إضافات', nameEn: 'Extras', required: false, max: 3, options: [{ nameAr: 'عمبة', nameEn: 'Amba', priceIqd: 0 }, { nameAr: 'بيض', nameEn: 'Egg', priceIqd: 250 }, { nameAr: 'باذنجان مقلي', nameEn: 'Fried eggplant', priceIqd: 250 }] },
             ],
           },
-          { key: 'falafel_plate', nameAr: 'صحن فلافل', nameEn: 'Falafel plate', descriptionAr: '8 قطع، حمص، طحينة وخبز', priceIqd: 3000, prepTimeMin: 7, taxonomy: 'fast_food' },
+          { key: 'falafel_plate', nameAr: 'صحن فلافل', nameEn: 'Falafel plate', descriptionAr: '8 حبات، حمص، طحينة وخبز', priceIqd: 3000, prepTimeMin: 7, taxonomy: 'fast_food' },
         ],
       },
       {

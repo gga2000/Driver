@@ -28,8 +28,6 @@ export const BANNED_TERMS: Readonly<Record<string, BannedTerm>> = {
   'درايفر ماركت': { use: 'درايفر للمطاعم', pattern: /درايفر ماركت/ },
   'هسه': { use: 'هسة', pattern: word('هسه', '') },
   'الآن': { use: 'هسة', pattern: /الآن/ },
-  /** Ali, 2026-10-12: a piece is قطعة (قطعتين، قطع), never حبة. */
-  'حبة': { use: 'قطعة', pattern: word('حب(?:ة|ات|تين)') },
   'يرجى': { use: 'a direct verb', pattern: /يرجى/ },
   'سوف': { use: 'راح / دـ', pattern: word('سوف', '') },
   'لقد': { use: '—', pattern: word('لقد', '') },
