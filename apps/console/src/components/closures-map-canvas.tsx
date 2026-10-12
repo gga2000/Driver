@@ -10,6 +10,7 @@ import { GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 import { closedStreetsGeoJSON, closedStreetsLayers, type ClosedStreetLike } from '@driver/map/pieces/closed-streets';
 import { useEffect, useRef, useState } from 'react';
 import { openConsoleMapStyle, watchGoldenMap } from '@/lib/map-runtime';
+import { palettes } from '@/theme/palette';
 
 const SRC_ALL = 'closures-all';
 const SRC_ACTIVE = 'closures-active';
@@ -17,6 +18,8 @@ const SRC_PREVIEW = 'closures-preview';
 const LAYERS = {
   selected: 'closures-selected',
   faded: 'closures-faded',
+  waitingWash: 'closures-waiting-wash',
+  waiting: 'closures-waiting',
   hit: 'closures-hit',
   previewHalo: 'closures-preview-halo',
 } as const;
@@ -32,11 +35,13 @@ const ORIGINAL_MAP_FONT = ['Noto Sans Regular'];
 /**
  * The closed stretch itself is the shared map piece (rust and cream stripes, a barrier across each
  * end, the label), the same drawing the customer's track map uses. This page adds only the faded grey
- * for streets opened or ended today, the selection glow and the accent glow around the preview.
+ * for streets opened or ended today, the selection glow, the accent glow around the preview, and a
+ * courier's report still waiting for ops: a dashed warning line on a pale wash, never the stripes
+ * (it routes nothing yet).
  */
 const PAGE_COLORS = {
-  light: { faded: MAP_COLORS_LIGHT.muted, accent: MAP_COLORS_LIGHT.accent },
-  dark: { faded: MAP_COLORS.muted, accent: MAP_COLORS.accent },
+  light: { faded: MAP_COLORS_LIGHT.muted, accent: MAP_COLORS_LIGHT.accent, waiting: palettes.light['warn-solid'] },
+  dark: { faded: MAP_COLORS.muted, accent: MAP_COLORS.accent, waiting: palettes.dark['warn-solid'] },
 } as const;
 
 export interface ClosuresMapCanvasProps {
@@ -99,8 +104,8 @@ function fit(map: MlMap, path: readonly LatLng[]) {
 }
 
 /**
- * The closed-streets map: today's closures (the shared N20 drawing while closed, faded grey once
- * opened or ended; click one to open its sheet) and, in mark mode, the two taps and the street between.
+ * The closed-streets map: today's closures (the shared N20 drawing while closed, dashed while a
+ * courier's report waits for ops, faded grey once opened or ended; click one to open its sheet) and, in mark mode, the two taps and the street between.
  */
 export default function ClosuresMapCanvas(props: ClosuresMapCanvasProps) {
   const { theme, closures, selectedId, marking, from, to, preview } = props;
@@ -159,6 +164,8 @@ export default function ClosuresMapCanvas(props: ClosuresMapCanvasProps) {
       map.addSource(SRC_PREVIEW, { type: 'geojson', data: EMPTY });
       map.addLayer({ id: LAYERS.selected, type: 'line', source: SRC_ALL, filter: ['==', ['get', 'selected'], true], layout: round, paint: { 'line-color': c.accent, 'line-width': 24, 'line-opacity': 0.4 } }, under);
       map.addLayer({ id: LAYERS.faded, type: 'line', source: SRC_ALL, filter: ['==', ['get', 'active'], false], layout: round, paint: { 'line-color': c.faded, 'line-width': 6, 'line-opacity': 0.6, 'line-dasharray': [1.2, 1] } }, under);
+      map.addLayer({ id: LAYERS.waitingWash, type: 'line', source: SRC_ALL, filter: ['==', ['get', 'waiting'], true], layout: round, paint: { 'line-color': c.waiting, 'line-width': 14, 'line-opacity': 0.22 } }, under);
+      map.addLayer({ id: LAYERS.waiting, type: 'line', source: SRC_ALL, filter: ['==', ['get', 'waiting'], true], layout: { 'line-join': 'round' }, paint: { 'line-color': c.waiting, 'line-width': 5, 'line-dasharray': [1.6, 1.1] } }, under);
       map.addLayer({ id: LAYERS.previewHalo, type: 'line', source: SRC_PREVIEW, filter: ['==', ['get', 'part'], 'closed'], layout: round, paint: { 'line-color': c.accent, 'line-width': 26, 'line-opacity': 0.35 } }, under);
       for (const l of pieceLayers(SRC_PREVIEW, theme, golden, 'closures-preview')) map.addLayer(l, under);
       // The closed streets go over the preview, as the piece asks (after route-like layers).
@@ -197,15 +204,16 @@ export default function ClosuresMapCanvas(props: ClosuresMapCanvasProps) {
     map.getCanvas().style.cursor = marking ? 'crosshair' : '';
   }, [ready, marking]);
 
-  // Today's closures: the closed ones as the shared piece draws them, the rest faded grey.
+  // Today's closures: the closed ones as the shared piece draws them, couriers' reports still waiting
+  // for ops dashed, the rest faded grey.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     map.getSource<GeoJSONSource>(SRC_ALL)?.setData({
       type: 'FeatureCollection',
-      features: closures.map((c) => line(c.path, { id: c.id, active: c.active, selected: c.id === selectedId })),
+      features: closures.map((c) => line(c.path, { id: c.id, active: c.active, waiting: c.active && !c.confirmed, selected: c.id === selectedId })),
     });
-    map.getSource<GeoJSONSource>(SRC_ACTIVE)?.setData(closedStreetsGeoJSON(closures.filter((c) => c.active), labelOf) as FeatureCollection);
+    map.getSource<GeoJSONSource>(SRC_ACTIVE)?.setData(closedStreetsGeoJSON(closures.filter((c) => c.active && c.confirmed), labelOf) as FeatureCollection);
   }, [ready, closures, selectedId]);
 
   // The street between the two taps (drawn as it will look once closed), or the taps on their own.

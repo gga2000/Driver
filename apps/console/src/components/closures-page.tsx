@@ -33,6 +33,9 @@ const ORIGIN: LatLng = { lat: 0, lng: 0 };
 type ClosureState = 'active' | 'opened' | 'ended';
 const STATE_TONE: Record<ClosureState, ChipTone> = { active: 'bad', opened: 'done', ended: 'neutral' };
 
+/** A courier's report still waiting for ops: it routes nothing until confirmed (or a second report). */
+const isWaiting = (c: ClosureView): boolean => c.active && c.source === 'courier' && !c.confirmed;
+
 function stateOf(c: ClosureView): ClosureState {
   if (c.active) return 'active';
   return c.openedAt ? 'opened' : 'ended';
@@ -100,8 +103,8 @@ export function ClosuresPage() {
   const list = useQuery(trpc.ops.closures.list.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: queryRetry, refetchInterval: LIST_REFRESH_MS }));
   const closures = useMemo(() => {
     const rows = [...(list.data ?? [])];
-    // Closed ones first, newest first inside each group.
-    return rows.sort((a, b) => Number(b.active) - Number(a.active) || b.startsAt.getTime() - a.startsAt.getTime());
+    // Couriers' reports waiting for ops on top, then closed ones, newest first inside each group.
+    return rows.sort((a, b) => Number(isWaiting(b)) - Number(isWaiting(a)) || Number(b.active) - Number(a.active) || b.startsAt.getTime() - a.startsAt.getTime());
   }, [list.data]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -143,6 +146,15 @@ export function ClosuresPage() {
       onSuccess: (c) => {
         refresh();
         toast({ title: t('console.closures_opened_toast', { name: nameOf(c) }), tone: 'ok' });
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
+  const confirmReport = useMutation(
+    trpc.ops.closures.confirm.mutationOptions({
+      onSuccess: () => {
+        refresh();
+        toast({ title: t('console.closures_confirmed_toast'), tone: 'ok' });
       },
       onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
     }),
@@ -225,7 +237,8 @@ export function ClosuresPage() {
     );
   }
 
-  const activeCount = closures.filter((c) => c.active).length;
+  // Only what routes go around counts as closed; a report waiting for ops does not yet.
+  const activeCount = closures.filter((c) => c.active && c.confirmed).length;
   const formOpen = marking && from !== null && to !== null;
 
   let sheet: ReactNode = null;
@@ -251,7 +264,14 @@ export function ClosuresPage() {
   } else if (selected && !marking) {
     sheet = (
       <Drawer open title={nameOf(selected)} onClose={() => setSelectedId(null)}>
-        <ClosureDetail closure={selected} canEdit={canEdit} opening={open.isPending} onOpen={() => openStreet(selected)} />
+        <ClosureDetail
+          closure={selected}
+          canEdit={canEdit}
+          opening={open.isPending}
+          onOpen={() => openStreet(selected)}
+          confirming={confirmReport.isPending}
+          onConfirm={() => confirmReport.mutate({ id: selected.id })}
+        />
       </Drawer>
     );
   }
@@ -370,23 +390,27 @@ export function ClosureList(p: ClosureListProps) {
     <ul className="divide-y divide-line">
       {p.closures.map((c) => {
         const state = stateOf(c);
+        const waiting = isWaiting(c);
         return (
           <li key={c.id}>
             <button
               type="button"
               onClick={() => p.onPick(c.id)}
               aria-current={c.id === p.selectedId ? 'true' : undefined}
-              className={cx('flex min-h-[56px] w-full items-center justify-between gap-3 px-5 py-2.5 text-start hover:bg-surface-2', c.id === p.selectedId && 'bg-accent-tint', state !== 'active' && 'text-muted')}
+              className={cx(
+                'flex min-h-[56px] w-full items-center justify-between gap-3 px-5 py-2.5 text-start',
+                c.id === p.selectedId ? 'bg-accent-tint' : waiting ? 'bg-warn-tint hover:bg-warn-tint/70' : 'hover:bg-surface-2',
+                state !== 'active' && 'text-muted',
+              )}
             >
               <span className="min-w-0">
                 <span className={cx('block truncate text-sm font-semibold', state === 'active' && 'text-text')}>{nameOf(c)}</span>
                 <span className="block truncate text-xs text-muted">
-                  {reasonLabel(c.reason)} · {untilText(c)} · <span className="num">{metres(c.lengthM)}</span>
+                  {reasonLabel(c.reason)} · {waiting ? null : <>{untilText(c)} · </>}
+                  <span className="num">{metres(c.lengthM)}</span>
                 </span>
               </span>
-              <Chip size="sm" tone={STATE_TONE[state]} dot={state === 'active'}>
-                {t(`console.closures_state_${state}`)}
-              </Chip>
+              <StateChip closure={c} />
             </button>
           </li>
         );
@@ -395,20 +419,77 @@ export function ClosureList(p: ClosureListProps) {
   );
 }
 
-function ClosureDetail({ closure: c, canEdit, opening, onOpen }: { closure: ClosureView; canEdit: boolean; opening: boolean; onOpen: () => void }) {
+/** «مسدود» / «انفتح» / «خلص», or «بلّغ عنه دليفري» in the warning tone while a report waits for ops. */
+function StateChip({ closure: c }: { closure: ClosureView }) {
+  if (isWaiting(c)) {
+    return (
+      <Chip size="sm" tone="warn" dot>
+        {t('console.closures_from_courier')}
+      </Chip>
+    );
+  }
   const state = stateOf(c);
   return (
+    <Chip size="sm" tone={STATE_TONE[state]} dot={state === 'active'}>
+      {t(`console.closures_state_${state}`)}
+    </Chip>
+  );
+}
+
+interface ClosureDetailProps {
+  closure: ClosureView;
+  canEdit: boolean;
+  opening: boolean;
+  onOpen: () => void;
+  confirming: boolean;
+  onConfirm: () => void;
+}
+
+function ClosureDetail({ closure: c, canEdit, opening, onOpen, confirming, onConfirm }: ClosureDetailProps) {
+  const waiting = isWaiting(c);
+  const byCourier = c.source === 'courier';
+  return (
     <div className="space-y-4">
+      {waiting ? (
+        <div className="space-y-3">
+          <p role="status" className="rounded-md bg-warn-tint px-3 py-2 text-sm font-medium text-warn">
+            {t('console.closures_waiting')}
+          </p>
+          {/* The decision comes first: on a phone the sheet is short and the rows can scroll under it. */}
+          {canEdit ? (
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <Button variant="primary" size="lg" className="w-full" onClick={onConfirm} loading={confirming} disabled={opening} needsNet>
+                {t('console.closures_confirm_report')}
+              </Button>
+              <Button variant="danger-soft" size="lg" className="w-full" onClick={onOpen} loading={opening} disabled={confirming} needsNet>
+                {t('console.closures_open_street')}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <dl>
-        <Row k={t('console.closures_state')} v={<Chip size="sm" tone={STATE_TONE[state]} dot={state === 'active'}>{t(`console.closures_state_${state}`)}</Chip>} />
+        <Row k={t('console.closures_state')} v={<StateChip closure={c} />} />
         <Row k={t('console.closures_reason')} v={reasonLabel(c.reason)} />
         <Row k={t('console.closures_length')} v={<span className="num">{metres(c.lengthM)}</span>} />
         <Row k={t('console.closures_until')} v={untilText(c)} />
         <Row k={t('console.closures_closed_at')} v={<span className="num">{formatClock(c.startsAt)}</span>} />
-        <Row k={t('console.closures_closed_by')} v={c.closedByName ?? t('console.closures_someone')} />
+        <Row
+          k={t('console.closures_closed_by')}
+          v={
+            byCourier ? (
+              <span>
+                {c.closedByName ?? t('console.closures_someone')} <span className="text-muted">· {t('console.closures_from_courier')}</span>
+              </span>
+            ) : (
+              (c.closedByName ?? t('console.closures_someone'))
+            )
+          }
+        />
         {c.openedAt ? <Row k={t('console.closures_opened_by')} v={`${c.openedByName ?? t('console.closures_someone')} · ${formatClock(c.openedAt)}`} /> : null}
       </dl>
-      {canEdit && c.active ? (
+      {byCourier && c.confirmed && c.confirmedByName ? <p className="text-sm text-muted">{t('console.closures_confirmed_by', { name: c.confirmedByName })}</p> : null}
+      {canEdit && c.active && !waiting ? (
         <Button variant="danger-soft" size="lg" className="w-full" onClick={onOpen} loading={opening} needsNet>
           {t('console.closures_open_street')}
         </Button>
