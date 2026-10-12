@@ -76,6 +76,11 @@ export const TRIP_JOBS = { ...UNREACHABLE_JOBS, rideAutoComplete: 'ride.autoComp
 /** Vehicle classes ranked by what they can carry (edge-case review A.16). Intercity cars carry like a car. */
 const VEHICLE_RANK: Record<VehicleClass, number> = { bike: 0, tuktuk: 1, car: 2, intercity: 2, suv: 3, van: 4 };
 
+/** The trip rode along one its courier took first (money §2: he earns the batch share of its delivery fee). */
+export function isBatchedSecond(trip: Pick<TripRecord, 'id' | 'batchId'>): boolean {
+  return trip.batchId !== null && trip.batchId !== trip.id;
+}
+
 export function vehicleFits(vehicle: VehicleClass, required: VehicleClass | null): boolean {
   return required === null || VEHICLE_RANK[vehicle] >= VEHICLE_RANK[required];
 }
@@ -300,12 +305,16 @@ export class TripsService implements OnModuleInit {
       // the order he works them in is the order dispatch's batching check planned.
       const latest = Math.max(0, ...holding.map((t) => t.acceptedAt?.getTime() ?? 0));
       const now = new Date(Math.max(this.clock.now().getTime(), latest + 1));
+      // Money §2: a trip taken while he holds another rides along it — the batched second. It joins
+      // the batch of the job he took first; the courier's offer showed (and the ledger pays) the batch rate.
+      const first = [...holding].sort((a, b) => (a.acceptedAt?.getTime() ?? 0) - (b.acceptedAt?.getTime() ?? 0))[0];
+      const batchId = first ? (first.batchId ?? first.id) : null;
       const accepted = await this.move(
         trip,
         'accepted',
         driverId,
         tx,
-        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now },
+        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now, batchId },
         { driverId, vehicleClass: input.vehicleClass, orderIds: links.map((l) => l.orderId) },
         false,
         input,
@@ -964,12 +973,12 @@ export class TripsService implements OnModuleInit {
    * Who carried (or is carrying) an order: the most recent trip it is still attached to that has a
    * driver. Orders uses it to settle money on `closed` (the courier's delivery fee, the ride's driver).
    */
-  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null> {
+  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical; batchedSecond: boolean } | null> {
     return this.uow.run(async (tx) => {
       const links = (await this.repo.linksForOrder(orderId, tx)).filter((l) => l.detachedAt === null).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime());
       for (const l of links) {
         const trip = await this.repo.findTrip(l.tripId, tx);
-        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical };
+        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical, batchedSecond: isBatchedSecond(trip) };
       }
       return null;
     });

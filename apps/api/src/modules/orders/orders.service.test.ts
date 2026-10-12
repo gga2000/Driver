@@ -229,6 +229,36 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     expect(tips).toEqual([expect.objectContaining({ amount: 2000, toAccount: 'driver:d1' })]);
   });
 
+  it('money §2: a batched second pays the courier the batch share his offer showed, at cash collection and on close', async () => {
+    const h = ordersHarness();
+    const a = await h.orders.place('c1', h.foodInput());
+    const b = await h.orders.place('c2', h.foodInput());
+    for (const o of [a, b]) await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    await h.tripFor(a.id);
+    // Dispatch hands him the second job while he still carries the first.
+    const t2 = await h.trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'food',
+      orders: [{ orderId: b.id }],
+      stops: [
+        { orderId: b.id, type: 'pickup', zoneKey: 'centre', target: KITCHEN },
+        { orderId: b.id, type: 'dropoff', zoneKey: 'zakur', target: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } },
+      ],
+    });
+    await h.trips.offer(t2.id);
+    await h.trips.accept(t2.id, 'd1', { vehicleClass: 'tuktuk' }, { assignedByDispatch: true });
+    await h.deliver();
+    await h.pickup(t2.id);
+    await h.dropoff(t2.id, { cashCollectedIqd: b.totalIqd });
+    const collected = h.events.ofType('order.cash_collected').find((e) => e.orderId === b.id)!.payload['order'] as OrderMoneyPayload;
+    expect(collected.batchedSecond).toBe(true);
+    const pay = postOrderClosed(collected, AZIZIYAH_MONEY_RULES).money.lines.filter((l) => l.type === 'delivery_fee');
+    expect(pay).toEqual([expect.objectContaining({ amount: 700, toAccount: 'driver:d1' }), expect.objectContaining({ amount: 300, toAccount: 'platform', memo: 'batched_margin' })]);
+    await h.advance(2 * 60 * 60_000 + 1000);
+    const closed = h.events.ofType('order.closed').find((e) => e.orderId === b.id)!.payload['order'] as OrderMoneyPayload;
+    expect(closed.batchedSecond).toBe(true);
+  });
+
   it('the 25,000 new-customer cash cap applies to the server-computed total, not to client fees', async () => {
     const h = ordersHarness();
     // 25,000 of food; the client "forgets" the fees, the server adds 1,500 → 26,500 is over the cap.
