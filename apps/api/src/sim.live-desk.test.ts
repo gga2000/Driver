@@ -61,7 +61,9 @@ describe('simulator live mode: the ops desk works the red cards', () => {
     const takenByChosen = async () =>
       (await Promise.all(sim.liveDeskOverrides().map(async (o) => (await trips.get(o.tripId)).courierId === o.driverId))).some(Boolean);
     let taken = false;
-    const deadline = Date.now() + 60_000;
+    // Red cards are few in this small town (a handful in half an hour), so give the desk up to 90 s (45
+    // sim-minutes) to get one taken.
+    const deadline = Date.now() + 90_000;
     for (let i = 0; i < 12 || (!taken && Date.now() < deadline); i += 1) {
       await sleep(2000);
       if (i < 12) {

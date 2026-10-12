@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { assertBootConfig, bootConfigProblems, deployEnvironmentFromEnv } from './boot-check.js';
+import { assertBootConfig, bootConfigProblems, bootConfigWarnings, deployEnvironmentFromEnv } from './boot-check.js';
 import { testLaunchedVerticals } from './config.service.js';
 
 const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
-const live = { ...base, SMS_PROVIDER: 'http' };
+const LINKS = {
+  CONSOLE_BASE_URL: 'https://console.example.com',
+  SAFETY_LINK_BASE_URL: 'https://app.example.com/sos/',
+  SHARE_LINK_BASE_URL: 'https://app.example.com',
+  NOTIFY_RECEIPT_BASE_URL: 'https://app.example.com/r/',
+};
+const LINK_NAMES = Object.keys(LINKS) as Array<keyof typeof LINKS>;
+const REQUIRED_LINKS = LINK_NAMES.filter((n) => n !== 'NOTIFY_RECEIPT_BASE_URL');
+const live = { ...base, ...LINKS, SMS_PROVIDER: 'http' };
+/** The address warnings alone: these envs run the timer sweeper, so its own warning stays out. */
+const linkWarnings = (env: NodeJS.ProcessEnv) => bootConfigWarnings({ TIMERS_SWEEPER: 'on', ...env });
 
 describe('boot configuration (SEC-16)', () => {
   it('asks nothing of a laptop or a test run', () => {
@@ -24,11 +34,55 @@ describe('boot configuration (SEC-16)', () => {
 
   it('needs real SMS in production, and no staging test code', () => {
     expect(bootConfigProblems(live)).toEqual([]);
-    expect(bootConfigProblems({ ...base, SMS_PROVIDER: 'twilio' })).toEqual([]);
-    const problems = bootConfigProblems({ ...base, SMS_PROVIDER: 'dev', STAGING_TEST_OTP: '123456' });
+    expect(bootConfigProblems({ ...base, ...LINKS, SMS_PROVIDER: 'twilio' })).toEqual([]);
+    const problems = bootConfigProblems({ ...base, ...LINKS, SMS_PROVIDER: 'dev', STAGING_TEST_OTP: '123456' });
     expect(problems).toHaveLength(2);
     expect(problems.join(' ')).toMatch(/SMS_PROVIDER.*STAGING_TEST_OTP/);
-    expect(bootConfigProblems({ ...base })).toHaveLength(1);
+    expect(bootConfigProblems({ ...base, ...LINKS })).toHaveLength(1);
+  });
+
+  it('refuses production without each required address we put in messages; staging only warns', () => {
+    for (const name of REQUIRED_LINKS) {
+      const others = Object.fromEntries(Object.entries(LINKS).filter(([k]) => k !== name));
+      const prod = { ...base, ...others, SMS_PROVIDER: 'http' };
+      expect(bootConfigProblems(prod), name).toEqual([expect.stringMatching(new RegExp(`^${name} is not set`))]);
+      expect(() => assertBootConfig(prod)).toThrow(new RegExp(`refusing to boot \\(production\\): ${name} is not set`));
+      expect(linkWarnings(prod)).toEqual([]);
+      const staging = { ...base, ...others, DEPLOY_ENVIRONMENT: 'staging' };
+      expect(bootConfigProblems(staging)).toEqual([]);
+      expect(linkWarnings(staging)).toEqual([expect.stringMatching(new RegExp(`^${name} is not set`))]);
+    }
+    expect(linkWarnings({ ...base, DEPLOY_ENVIRONMENT: 'staging' })).toHaveLength(4);
+    expect(linkWarnings({ ...base, SMS_PROVIDER: 'http' })).toEqual([expect.stringMatching(/^NOTIFY_RECEIPT_BASE_URL is not set/)]);
+    expect(linkWarnings({ ...base, ...LINKS, DEPLOY_ENVIRONMENT: 'staging' })).toEqual([]);
+    expect(linkWarnings({})).toEqual([]);
+  });
+
+  it('never requires the receipt address (no page serves receipts yet): production and staging only warn', () => {
+    const { NOTIFY_RECEIPT_BASE_URL: receipt, ...others } = LINKS;
+    expect(receipt).toBeTruthy();
+    for (const env of [{ ...base, ...others, SMS_PROVIDER: 'http' }, { ...base, ...others, DEPLOY_ENVIRONMENT: 'staging' }]) {
+      expect(bootConfigProblems(env)).toEqual([]);
+      expect(() => assertBootConfig(env)).not.toThrow();
+      expect(linkWarnings(env)).toEqual([expect.stringMatching(/^NOTIFY_RECEIPT_BASE_URL is not set/)]);
+    }
+    expect(linkWarnings(live)).toEqual([]);
+  });
+
+  it('refuses an address that is not public https, on staging and production, without echoing it', () => {
+    const bad = ['http://app.example.com', 'https://localhost:3100', 'https://127.0.0.1', 'https://10.0.0.5', 'https://192.168.1.20', 'https://172.20.0.1', 'https://169.254.169.254', 'https://[::1]', 'https://driver-console.internal', 'https://console.local', 'not a url', 'https://user:pw@app.example.com'];
+    for (const name of LINK_NAMES) {
+      for (const value of bad) {
+        for (const env of [live, { ...base, ...LINKS, DEPLOY_ENVIRONMENT: 'staging' }]) {
+          const problems = bootConfigProblems({ ...env, [name]: value });
+          expect(problems, `${name}=${value}`).toHaveLength(1);
+          expect(problems[0]).toMatch(new RegExp(`^${name} `));
+          expect(problems[0]).not.toContain(value);
+        }
+      }
+    }
+    expect(bootConfigProblems({ ...live, CONSOLE_BASE_URL: 'https://console.example.com/' })).toEqual([]);
+    expect(bootConfigProblems({ ...live, SHARE_LINK_BASE_URL: 'https://172.32.0.1' })).toEqual([]);
   });
 
   it('keeps the launch scope on every deployed server: the test override is local only', () => {
@@ -49,5 +103,16 @@ describe('boot configuration (SEC-16)', () => {
       expect((err as Error).message).not.toContain('987654');
     }
     expect(() => assertBootConfig(live)).not.toThrow();
+  });
+
+  it('warns when a job machine runs without the timer sweeper, on staging and production only', () => {
+    expect(bootConfigWarnings({})).toEqual([]);
+    expect(bootConfigWarnings({ ...live, TIMERS_SWEEPER: 'on' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'worker', TIMERS_SWEEPER: ' ON ' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'web' })).toEqual([]);
+    expect(bootConfigWarnings({ ...live })).toEqual([expect.stringMatching(/TIMERS_SWEEPER is not on/)]);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'worker', TIMERS_SWEEPER: 'off' })).toHaveLength(1);
+    expect(bootConfigWarnings({ ...base, ...LINKS, DEPLOY_ENVIRONMENT: 'staging', DRIVER_ROLE: 'worker' })).toHaveLength(1);
+    expect(bootConfigWarnings({ ...live, DRIVER_ROLE: 'bogus' })).toHaveLength(1);
   });
 });

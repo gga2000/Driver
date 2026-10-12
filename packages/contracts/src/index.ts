@@ -79,6 +79,7 @@ export * from './live-io.js';
 export * from './notify-io.js';
 export * from './control-room-io.js';
 export * from './support-io.js';
+export * from './account-close-io.js';
 export * from './errors.js';
 export * from './request-limits.js';
 export { transformer } from './transformer.js';

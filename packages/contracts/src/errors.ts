@@ -85,6 +85,8 @@ export const ERROR_TABLE = {
   handover_code_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   handover_code_locked: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   cash_receipt_exceeds_held: { retryHint: 'never', status: 'CONFLICT' },
+  // ops.recordCashReceipt: more than he owes the company (the rest of his cash is his own pay)
+  cash_receipt_exceeds_owed: { retryHint: 'never', status: 'CONFLICT' },
   task_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   menu_item_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   import_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -329,7 +331,14 @@ export const ERROR_TABLE = {
   override_reason_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   // ledger (M2 Step 6)
   payout_exceeds_balance: { retryHint: 'never', status: 'CONFLICT' },
+  // finance.payDriver: more than the platform owes him right now
+  payout_exceeds_due: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
+  // a payout or hand-over retried under the same key but with a different amount, channel or person
+  idempotency_key_reused: { retryHint: 'never', status: 'CONFLICT' },
+  // account close (docs/api/account-close.md): something still stands in the way; not an account closed there
+  account_close_blocked: { retryHint: 'never', status: 'CONFLICT' },
+  account_close_not_work: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },

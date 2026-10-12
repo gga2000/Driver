@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Actor } from './identity-io.js';
+import type { RequestDeletionInput, RequestDeletionOutput } from './account-close-io.js';
 import { CityId, Iqd } from './common.js';
 import { EventLogEntry } from './console-io.js';
 import { ChatThreadKind, ChatThreadView } from './chat-io.js';
@@ -10,7 +11,8 @@ import { ChatThreadKind, ChatThreadView } from './chat-io.js';
  * an order dispute opens one by itself. Served by `apps/api/src/modules/support`.
  */
 
-export const TicketKind = z.enum(['dispute', 'complaint', 'incident', 'question']);
+/** `deletion`: a partner or merchant asked to delete his account (`identity.requestDeletion`). */
+export const TicketKind = z.enum(['dispute', 'complaint', 'incident', 'question', 'deletion']);
 export type TicketKind = z.infer<typeof TicketKind>;
 
 export const TicketStatus = z.enum(['open', 'waiting', 'escalated', 'resolved']);
@@ -241,7 +243,7 @@ export const TicketResolveInput = z.object({ ticketId: z.string().min(1), resolu
  * Which limit sent a refund for a second OK: one refund above 25,000 (everyone, admins too), the
  * agent's 10,000 a day, the customer's 25,000 a month, or a complaint refund above 25,000.
  */
-export const RefundApprovalLimit = z.enum(['per_refund', 'agent_daily', 'customer_month', 'dispute']);
+export const RefundApprovalLimit = z.enum(['per_refund', 'agent_daily', 'customer_month', 'dispute', 'adjustment']);
 export type RefundApprovalLimit = z.infer<typeof RefundApprovalLimit>;
 export const RefundApprovalState = z.enum(['pending', 'approved', 'declined', 'cancelled']);
 export type RefundApprovalState = z.infer<typeof RefundApprovalState>;
@@ -249,8 +251,11 @@ export type RefundApprovalState = z.infer<typeof RefundApprovalState>;
 /** A refund over a limit: nothing posts until someone else in finance or admin approves it. */
 export const RefundApproval = z.object({
   id: z.string(),
-  /** `ticket`: `support.refund`; `dispute`: `orders.staff.resolveDispute` (refund_full / refund_partial). */
-  kind: z.enum(['ticket', 'dispute']),
+  /**
+   * `ticket`: `support.refund`; `dispute`: `orders.staff.resolveDispute` (refund_full / refund_partial);
+   * `adjustment`: `finance.adjust` above 25,000 (a ledger correction; only finance may approve it).
+   */
+  kind: z.enum(['ticket', 'dispute', 'adjustment']),
   cityId: CityId,
   ticketId: z.string().nullable(),
   orderId: z.string().nullable(),
@@ -267,6 +272,8 @@ export const RefundApproval = z.object({
   decidedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
   decidedAt: z.coerce.date().nullable(),
   declineNote: z.string().nullable(),
+  /** `adjustment` only: which account pays which, and the linked ticket or incident. */
+  adjustment: z.object({ fromAccount: z.string(), toAccount: z.string(), incidentId: z.string() }).nullable().optional(),
 });
 export type RefundApproval = z.infer<typeof RefundApproval>;
 
@@ -299,4 +306,6 @@ export interface SupportPort {
   declineRefund(actor: Actor, input: RefundApprovalDeclineInput): Promise<RefundApproval>;
   /** The requester takes it back. */
   cancelRefund(actor: Actor, input: RefundApprovalIdInput): Promise<RefundApproval>;
+  /** «احذف حسابي» from the partner or merchant app: one open `deletion` case per person. */
+  requestDeletion(actor: Actor, input: RequestDeletionInput): Promise<RequestDeletionOutput>;
 }

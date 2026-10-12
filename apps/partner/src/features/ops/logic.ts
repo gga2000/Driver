@@ -39,22 +39,30 @@ export function amountInput(raw: string): string {
 
 export type AmountProblem = 'empty' | 'over' | null;
 
-/** The receipt can't exceed what the courier holds (`cash_receipt_exceeds_held` server side too). */
-export function amountProblem(amountIqd: number, heldIqd: number): AmountProblem {
+/**
+ * What field ops take from him: what he owes the company, never more than he holds. The rest of the
+ * cash in his hand is his own pay and stays with him (`cash_receipt_exceeds_owed` server side).
+ */
+export function receiptDue(h: { heldIqd: number; owedIqd: number }): number {
+  return Math.max(0, Math.min(h.heldIqd, h.owedIqd));
+}
+
+/** The receipt can't exceed what he owes the company (`cash_receipt_exceeds_owed` / `_held` server side too). */
+export function amountProblem(amountIqd: number, dueIqd: number): AmountProblem {
   if (amountIqd <= 0) return 'empty';
-  if (amountIqd > heldIqd) return 'over';
+  if (amountIqd > dueIqd) return 'over';
   return null;
 }
 
 /** Ready to confirm: a valid amount and all four code digits. */
-export function canConfirmCash(amountIqd: number, heldIqd: number, code: string): boolean {
-  return amountProblem(amountIqd, heldIqd) === null && code.length === CODE_LENGTH && /^\d{4}$/.test(code);
+export function canConfirmCash(amountIqd: number, dueIqd: number, code: string): boolean {
+  return amountProblem(amountIqd, dueIqd) === null && code.length === CODE_LENGTH && /^\d{4}$/.test(code);
 }
 
-/** Quick amounts: everything he holds, then round sums below it. */
-export function quickAmounts(heldIqd: number): number[] {
-  const out = [heldIqd];
-  for (const v of [100_000, 50_000, 25_000, 10_000]) if (v < heldIqd && out.length < 3) out.push(v);
+/** Quick amounts: all he owes the company, then round sums below it. */
+export function quickAmounts(dueIqd: number): number[] {
+  const out = [dueIqd];
+  for (const v of [100_000, 50_000, 25_000, 10_000]) if (v < dueIqd && out.length < 3) out.push(v);
   return out.filter((v) => v > 0);
 }
 

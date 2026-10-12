@@ -2,8 +2,10 @@ import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleIn
 import { KHAT_RULES } from '@driver/contracts';
 import { callBridgeFor } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleBaseFromEnv } from '../../shared/console-link.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { DispatchModule } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
@@ -13,7 +15,7 @@ import { BLOB_STORE, ownsStoredUpload, PlacesModule, type BlobStore } from '../p
 import { RoutingModule } from '../routing/index.js';
 import { TripsModule } from '../trips/index.js';
 import { InMemoryKhatRepository, KHAT_REPOSITORY, PrismaKhatRepository, type KhatRepository } from './khat.repository.js';
-import { DEFAULT_KHAT_CONFIG, KHAT_CALLS, KHAT_CONFIG, KHAT_PHOTOS, KHAT_QUEUE, KhatService, type KhatConfig, type KhatPhotosPort, type SweepCheckJob } from './khat.service.js';
+import { KHAT_CALLS, KHAT_CONFIG, KHAT_PHOTOS, KHAT_QUEUE, KhatService, type KhatConfig, type KhatPhotosPort, type SweepCheckJob } from './khat.service.js';
 
 /** A whole number of minutes from the environment, else the rule's default. */
 function envMinutes(name: string, fallback: number): number {
@@ -29,7 +31,7 @@ function envMinutes(name: string, fallback: number): number {
  * pages the on-shift dispatchers through notify (as SOS does); a dispatcher's close is audited.
  *
  * Env: KHAT_SWEEP_ALERT_AFTER_MIN (default `KHAT_RULES.sweepAlertAfterMin`, 5), CONSOLE_BASE_URL
- * (the dispatchers' WhatsApp link, as SOS).
+ * (the dispatchers' WhatsApp link, as SOS; unset: no link).
  */
 @Module({
   imports: [ControlsModule, TripsModule, DispatchModule, IdentityModule, EventsModule, NotifyModule, PlacesModule, RoutingModule],
@@ -50,7 +52,7 @@ function envMinutes(name: string, fallback: number): number {
       provide: KHAT_CONFIG,
       useFactory: (): KhatConfig => ({
         sweepAlertAfterMin: envMinutes('KHAT_SWEEP_ALERT_AFTER_MIN', KHAT_RULES.sweepAlertAfterMin),
-        consoleBase: process.env['CONSOLE_BASE_URL'] ?? DEFAULT_KHAT_CONFIG.consoleBase,
+        consoleBase: consoleBaseFromEnv(),
       }),
     },
     // Child photos (Ali, 2026-10-06): uploads in the places blob store, signed short-lived for the run's driver.
@@ -72,9 +74,16 @@ export class KhatModule implements OnModuleInit, OnModuleDestroy {
 
   private poller: NodeJS.Timeout | undefined;
 
-  constructor(@Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null) {}
+  constructor(
+    @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null,
+    private readonly khat: KhatService,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
+  ) {}
 
   onModuleInit(): void {
+    // FLW-22: the sweep check survives a lost Redis job or a failed run (the sweeper fires its durable copy).
+    this.khat.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {

@@ -3,6 +3,8 @@ import type { MessageKey } from '@driver/i18n';
 
 /** Who may give the second OK (contracts REFUND_APPROVER_ROLES): finance and admin, never the asker. */
 export const REFUND_APPROVERS: readonly RoleKind[] = ['finance', 'admin'];
+/** A ledger correction (`finance.adjust`) is approved by a second finance person only. */
+export const ADJUSTMENT_APPROVERS: readonly RoleKind[] = ['finance'];
 
 /** Why a refund waits, in the agent's words. */
 export const LIMIT_KEY: Record<RefundApprovalLimit, MessageKey> = {
@@ -10,6 +12,7 @@ export const LIMIT_KEY: Record<RefundApprovalLimit, MessageKey> = {
   agent_daily: 'console.ra_limit_agent_daily',
   customer_month: 'console.ra_limit_customer_month',
   dispute: 'console.ra_limit_dispute',
+  adjustment: 'console.ra_limit_adjustment',
 };
 
 export const STATE_TONE: Record<RefundApproval['state'], 'warn' | 'done' | 'bad' | 'neutral'> = {
@@ -25,9 +28,11 @@ export type RefundRole = 'approver' | 'asker' | 'watcher';
  * What this staff member can do with a request: approve or decline it (finance / admin who did not ask
  * for it), take it back (the person who asked), or only see it. The API checks the same rules.
  */
-export function refundRole(a: Pick<RefundApproval, 'requestedBy'>, me: { personId: string | null; roles: ReadonlySet<RoleKind> }): RefundRole {
+export function refundRole(a: Pick<RefundApproval, 'requestedBy'> & { kind?: RefundApproval['kind'] }, me: { personId: string | null; roles: ReadonlySet<RoleKind> }): RefundRole {
   if (me.personId && a.requestedBy.id === me.personId) return 'asker';
-  return REFUND_APPROVERS.some((r) => me.roles.has(r)) ? 'approver' : 'watcher';
+  // A ledger correction moves company money between accounts: only finance gives its second OK.
+  const approvers = a.kind === 'adjustment' ? ADJUSTMENT_APPROVERS : REFUND_APPROVERS;
+  return approvers.some((r) => me.roles.has(r)) ? 'approver' : 'watcher';
 }
 
 /** Where the request came from: the support case, else the order's page. */
