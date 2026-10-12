@@ -332,9 +332,12 @@ export class FoodCartsService implements FoodCartsPort {
     if (w.code !== input.code) throw new DriverError('walkup_code_wrong');
     // The restaurants' pickup tier (Ali's pick: carts pay what restaurants pay), on the cash total.
     const commissionIqd = Math.round(w.totalIqd * AZIZIYAH_MONEY_RULES.commission.pickup);
-    const done = await this.repo.updateWalkup(w.id, OPEN_WALKUP_STATES, { state: 'collected', collectedAt: this.clock.now(), commissionIqd });
-    if (!done) throw new DriverError('walkup_state_conflict');
-    await this.emit(actor.personId, 'food_cart.walkup_collected', c, { walkupId: w.id, totalIqd: w.totalIqd, commissionIqd });
+    // One transaction: the commission is posted off `walkup_collected`, so a ticket never ends collected without it.
+    await this.uow.run(async (tx) => {
+      const done = await this.repo.updateWalkup(w.id, OPEN_WALKUP_STATES, { state: 'collected', collectedAt: this.clock.now(), commissionIqd }, tx);
+      if (!done) throw new DriverError('walkup_state_conflict');
+      await this.emit(actor.personId, 'food_cart.walkup_collected', c, { walkupId: w.id, totalIqd: w.totalIqd, commissionIqd });
+    });
     return this.ownerView(c);
   }
 
