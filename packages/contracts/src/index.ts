@@ -76,6 +76,7 @@ export * from './share-io.js';
 export * from './referral-io.js';
 export * from './live-io.js';
 export * from './notify-io.js';
+export * from './android-channels.js';
 export * from './control-room-io.js';
 export * from './support-io.js';
 export * from './account-close-io.js';

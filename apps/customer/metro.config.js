@@ -53,6 +53,15 @@ const CONTRACTS_DIR = path.join(workspaceRoot, 'packages/contracts') + path.sep;
 
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Speed: @trpc ships ESM and CJS builds, and Metro picked the CJS one for some `@trpc/server/*`
+  // subpaths, so the bundle carried @trpc/server twice. Every @trpc import takes the ESM file (as merchant, #254).
+  const trpc = /^(@trpc\/[^/]+)(\/.*)?$/.exec(moduleName);
+  if (trpc) {
+    const pkgJson = require.resolve(`${trpc[1]}/package.json`, { paths: [path.dirname(context.originModulePath)] });
+    const entry = require(pkgJson).exports?.[`.${trpc[2] ?? ''}`]?.import;
+    const file = typeof entry === 'string' ? entry : entry?.default;
+    if (file) return { type: 'sourceFile', filePath: path.join(path.dirname(pkgJson), file) };
+  }
   if (CONTRACTS_SUBSET && moduleName === '@driver/contracts' && !context.originModulePath.startsWith(CONTRACTS_DIR)) return { type: 'sourceFile', filePath: CONTRACTS_SUBSET };
   const production = process.env.NODE_ENV === 'production';
   if (moduleName === EN_WORDS) return { type: 'sourceFile', filePath: production ? subsetLocales().en : path.join(workspaceRoot, 'packages/i18n/src/locales/en.json') };
