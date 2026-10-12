@@ -88,8 +88,8 @@ export function CollectionRound({ desk }: { desk: FinanceDeskView }) {
         )}
       </Card>
       {/* The dialog follows the desk as it refreshes: what he holds can change while it is open (he
-          hands a restaurant its cash, pays at an agent). Gone from the round means he holds nothing. */}
-      <CollectDialog courier={collecting ? (r.stops.flatMap((st) => st.couriers).find((c) => c.driverId === collecting.driverId) ?? { ...collecting, heldIqd: 0 }) : null} onClose={() => setCollecting(null)} />
+          hands a restaurant its cash, pays at an agent). Gone from the round means he owes nothing. */}
+      <CollectDialog courier={collecting ? (r.stops.flatMap((st) => st.couriers).find((c) => c.driverId === collecting.driverId) ?? { ...collecting, heldIqd: 0, dueIqd: 0 }) : null} onClose={() => setCollecting(null)} />
       <RoundPrint desk={desk} />
     </section>
   );
@@ -113,7 +113,7 @@ export function RoundProgressBar({ progress: p }: { progress: ReturnType<typeof 
 
 function StopRow({ stop: s, last, canCollect, onCollect }: { stop: RoundStop; last: boolean; canCollect: boolean; onCollect: (c: RoundCourier) => void }) {
   const done = stopDone(s);
-  const over = s.couriers.filter((c) => c.overCap && c.heldIqd > 0).length;
+  const over = s.couriers.filter((c) => c.overCap && c.dueIqd > 0).length;
   return (
     <li className="relative flex gap-4 pb-5 last:pb-0" data-testid={`round-stop-${s.seq}`}>
       {!last && <span aria-hidden className="absolute start-[13px] top-8 h-[calc(100%-28px)] w-0.5 rounded-pill bg-line" />}
@@ -147,9 +147,9 @@ export function CourierRow({ c, canCollect, onCollect }: { c: RoundCourier; canC
         </span>
         <span className="num block text-xs text-muted">
           {state === 'holding'
-            ? formatMoney(c.heldIqd)
+            ? formatMoney(c.dueIqd)
             : state === 'partial'
-              ? `${t('console.fin_collected', { amount: formatIqd(c.collected!.amountIqd), time: formatClock(c.collected!.at) })} · ${t('console.fin_still_holds', { amount: formatIqd(c.heldIqd) })}`
+              ? `${t('console.fin_collected', { amount: formatIqd(c.collected!.amountIqd), time: formatClock(c.collected!.at) })} · ${t('console.fin_still_owes', { amount: formatIqd(c.dueIqd) })}`
               : t('console.fin_collected', { amount: formatIqd(c.collected!.amountIqd), time: formatClock(c.collected!.at) })}
         </span>
       </span>
@@ -175,7 +175,7 @@ export function CourierRow({ c, canCollect, onCollect }: { c: RoundCourier; canC
   );
 }
 
-/** "استلمت": the amount (defaults to what he holds) and the code he reads from his app. */
+/** "استلمت": the amount (defaults to what he owes the company; his own pay stays with him) and the code he reads from his app. */
 function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onClose: () => void }) {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -187,12 +187,13 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
   const [key, setKey] = useState('');
   const driverId = courier?.driverId ?? null;
   const held = courier?.heldIqd ?? 0;
-  const heldRef = useRef(held);
-  heldRef.current = held;
+  const due = courier?.dueIqd ?? 0;
+  const dueRef = useRef(due);
+  dueRef.current = due;
   // A fresh form per courier opened — not on every desk refresh, which would wipe what was typed.
   useEffect(() => {
     if (!driverId) return;
-    setAmount(formatIqd(heldRef.current));
+    setAmount(formatIqd(dueRef.current));
     setCode('');
     setKey(receiptKey(driverId, Date.now()));
   }, [driverId]);
@@ -205,14 +206,14 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
       },
       onError: (e) => {
         // He handed some cash on (or the desk was a poll behind) since the dialog opened: refresh what
-        // he holds, so the field shows "أكثر من اللي بيده" against today's number.
-        if (e.data?.code === 'cash_receipt_exceeds_held') void qc.invalidateQueries(trpc.finance.desk.pathFilter());
+        // he owes, so the field shows "أكثر من اللي عليه" against today's number.
+        if (e.data?.code === 'cash_receipt_exceeds_held' || e.data?.code === 'cash_receipt_exceeds_owed') void qc.invalidateQueries(trpc.finance.desk.pathFilter());
         toast({ title: t('console.fin_collect_failed'), body: e.message, tone: 'bad' });
       },
     }),
   );
   const value = parseAmount(amount);
-  const problem = collectAmountProblem(value, held);
+  const problem = collectAmountProblem(value, due);
   const ready = problem === null && codeValid(code);
   const submit = () => {
     if (!courier || !ready || record.isPending) return;
@@ -239,7 +240,7 @@ function CollectDialog({ courier, onClose }: { courier: RoundCourier | null; onC
           submit();
         }}
       >
-        <Field label={t('console.fin_collect_amount')} htmlFor={amountId} hint={t('console.fin_collect_amount_hint', { amount: formatIqd(held) })} error={problem === 'too_much' ? t('console.fin_collect_too_much') : undefined}>
+        <Field label={t('console.fin_collect_amount')} htmlFor={amountId} hint={held > due ? t('console.fin_collect_due_hint', { due: formatIqd(due), pay: formatIqd(held - due) }) : t('console.fin_collect_amount_hint', { amount: formatIqd(held) })} error={problem === 'too_much' ? t('console.fin_collect_too_much') : undefined}>
           <Input id={amountId} inputMode="numeric" dir="ltr" className="num text-end text-base" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={problem === 'too_much'} />
         </Field>
         <Field label={t('console.fin_collect_code')} htmlFor={codeId} hint={t('console.fin_collect_code_hint')}>
@@ -290,7 +291,7 @@ function RoundPrint({ desk }: { desk: FinanceDeskView }) {
                 {r.name ?? r.driverId}
                 {r.overCap && !r.collected ? ` · ${t('console.fin_over_cap_short')}` : ''}
               </td>
-              <td className="num px-2 py-2">{r.collected ? t('console.fin_collected_short') : formatIqd(r.heldIqd)}</td>
+              <td className="num px-2 py-2">{r.collected ? t('console.fin_collected_short') : formatIqd(r.dueIqd)}</td>
               <td className="px-2 py-2">
                 <span className="inline-block h-6 w-20 border border-black" />
               </td>

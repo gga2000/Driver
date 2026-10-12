@@ -77,6 +77,22 @@ export function useRequestMoney() {
   });
 }
 
+/**
+ * «استلمت منه»: the owner takes the cash a courier holds for the restaurant at the counter, with the
+ * courier's daily code read aloud. Refreshes the cash account and the header balance.
+ */
+export function useReceiveCourierCash() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.merchantAdmin.money.receiveCourierCash.mutationOptions(),
+    onSettled: () => {
+      void qc.invalidateQueries(api.merchantAdmin.money.cash.pathFilter());
+      void qc.invalidateQueries(api.ledger.merchantBalance.pathFilter());
+    },
+  });
+}
+
 /** Signed upload ticket for an evidence photo (`places.photoUpload`). */
 export function usePhotoTicket() {
   const api = useApi();

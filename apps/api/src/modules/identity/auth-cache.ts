@@ -233,6 +233,11 @@ export function cachedIdentityRepository(inner: IdentityRepository, cache: AuthC
       await dropAfter(tx, { person: personId });
       return n;
     },
+    closeAccount: async (personId, now, tx) => {
+      const closed = await inner.closeAccount(personId, now, tx);
+      await dropAfter(tx, { person: personId });
+      return closed;
+    },
   };
   return new Proxy(inner, {
     get(target, prop, receiver) {

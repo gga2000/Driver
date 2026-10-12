@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { updateArgs } from '../deploy/eas-update.mjs';
 
 const require = createRequire(import.meta.url);
-const { releaseEnvProblems, assertReleaseEnv, webBuildProblems } = require('../deploy/release-env.cjs');
+const { releaseEnvProblems, releaseEnvWarnings, assertReleaseEnv, webBuildProblems } = require('../deploy/release-env.cjs');
 
 const API = 'https://driver-api.fly.dev/trpc';
 const SHARE = 'https://driver.iq';
@@ -53,6 +53,24 @@ test('a customer release also needs the share link address', () => {
 test('assertReleaseEnv throws with every problem listed, and passes a good release', () => {
   assert.throws(() => assertReleaseEnv('customer', { DRIVER_RELEASE: '1' }), /CORE-04[\s\S]*API_URL[\s\S]*SHARE_BASE_URL/);
   assert.doesNotThrow(() => assertReleaseEnv('customer', { DRIVER_RELEASE: '1', EXPO_PUBLIC_API_URL: API, EXPO_PUBLIC_SHARE_BASE_URL: SHARE }));
+});
+
+test('the staff Console link is optional: a release without it warns, a set one must be public https', () => {
+  const env = { EAS_BUILD: 'true', EXPO_PUBLIC_API_URL: API };
+  for (const app of ['partner', 'merchant']) {
+    assert.deepEqual(releaseEnvProblems(app, env), []);
+    assert.match(releaseEnvWarnings(app, env)[0], /EXPO_PUBLIC_CONSOLE_URL is not set/);
+    const warnings = [];
+    assert.doesNotThrow(() => assertReleaseEnv(app, env, (m) => warnings.push(m)));
+    assert.equal(warnings.length, 1);
+    const set = { ...env, EXPO_PUBLIC_CONSOLE_URL: 'https://console.example.org' };
+    assert.deepEqual(releaseEnvProblems(app, set), []);
+    assert.deepEqual(releaseEnvWarnings(app, set), []);
+    assert.match(releaseEnvProblems(app, { ...env, EXPO_PUBLIC_CONSOLE_URL: 'http://localhost:3100' })[0], /CONSOLE_URL points at a computer/);
+    assert.match(releaseEnvProblems(app, { ...env, EXPO_PUBLIC_CONSOLE_URL: 'http://console.example.org' })[0], /CONSOLE_URL must start with https/);
+  }
+  assert.deepEqual(releaseEnvWarnings('customer', { ...env, EXPO_PUBLIC_SHARE_BASE_URL: SHARE }), []);
+  assert.deepEqual(releaseEnvWarnings('partner', {}), []);
 });
 
 test('every app config runs the check, and app.json carries no stale server address', async () => {

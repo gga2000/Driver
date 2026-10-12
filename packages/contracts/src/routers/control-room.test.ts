@@ -93,6 +93,9 @@ function ports() {
       totals: { cashInFieldIqd: 0, merchantsPayableIqd: 0, collectedTodayIqd: 0, couriersOverCap: 0 },
     })),
     exportSettlement: vi.fn(async () => ({ filename: 'driver-couriers-2026-10-04.csv', csv: 'a\r\n', rows: 0 })),
+    payMerchant: vi.fn(async () => ({ reference: 'M-AAAA-BBBB', amountIqd: 10_000, leftIqd: 0 })),
+    payDriver: vi.fn(async () => ({ reference: 'D-AAAA-BBBB', amountIqd: 10_000, leftIqd: 0 })),
+    adjust: vi.fn(async () => ({ adjustmentId: 'adj_1', status: 'posted' as const, amountIqd: 1_000, approvalId: null })),
     metrics: vi.fn(async () => ({ cityId: 'aziziyah', at: AT, since: AT, day: 1, metrics: [], ordersByDay: [], deliverySamples: 0, offers: { accepted: 0, answered: 0 }, openTickets: 0 })),
   };
   const support: SupportPort = {
@@ -168,6 +171,9 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['support.resolve', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.resolve({ ticketId: 'tk_1', resolution: 'تعوّض' })],
   ['finance.desk', ['finance', 'admin', 'dispatcher', 'field_ops'], (c) => c.finance.desk({})],
   ['finance.exportSettlement', ['finance', 'admin'], (c) => c.finance.exportSettlement({ kind: 'couriers' })],
+  ['finance.payMerchant', ['finance'], (c) => c.finance.payMerchant({ merchantId: 'm1', amountIqd: 10_000, channel: 'zaincash', idempotencyKey: 'pay-m1-0001' })],
+  ['finance.payDriver', ['finance'], (c) => c.finance.payDriver({ driverId: 'k1', amountIqd: 10_000, channel: 'agent', idempotencyKey: 'pay-k1-0001' })],
+  ['finance.adjust', ['finance'], (c) => c.finance.adjust({ fromAccount: 'platform', toAccount: 'driver:k1', amountIqd: 1_000, reason: 'missed tip', incidentId: 'tk_1' })],
   ['metrics.wall', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.metrics.wall({})],
 ];
 
@@ -228,6 +234,12 @@ describe('launch control room routers: role gates', () => {
     expect(await codeOf(admin.call.ops.controls.setSwitch({ scope: 'zone', key: 'zakur', active: true, reason: 'x' }))).toBe('BAD_REQUEST');
     expect(await codeOf(admin.call.system.setBanner({ severity: 'info', audiences: [], message_ar: 'هلا بيكم', expiresAt: LATER }))).toBe('BAD_REQUEST');
     expect(admin.controlRoom.decide).not.toHaveBeenCalled();
+    const fin = caller(['finance']);
+    // A correction never touches points, and every payout carries its retry key.
+    expect(await codeOf(fin.call.finance.adjust({ fromAccount: 'points_pool', toAccount: 'points:c1', amountIqd: 1_000, reason: 'points fix', incidentId: 'tk_1' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(fin.call.finance.payMerchant({ merchantId: 'm1', amountIqd: 10_000, channel: 'agent' as never, idempotencyKey: 'pay-m1-0001' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(fin.call.finance.payDriver({ driverId: 'k1', amountIqd: 0, channel: 'agent', idempotencyKey: 'pay-k1-0001' }))).toBe('BAD_REQUEST');
+    expect(fin.controlRoom.adjust).not.toHaveBeenCalled();
     expect(admin.support.refund).not.toHaveBeenCalled();
   });
 
