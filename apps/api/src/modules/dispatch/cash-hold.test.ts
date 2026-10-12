@@ -65,4 +65,31 @@ describe('cash of a finished job counts toward the cap until the ledger posts it
     await h.orchestrator.jobFinished('p1');
     expect(await h.store.cashHolds('k1')).toEqual([]);
   });
+
+  it('every offer path sees the hold, not only the retry on jobFinished (supersedes the narrower wouldBeOverCap guard)', async () => {
+    // The same case as the retry-only guard's test, with fake caps: room 20,000 → the red ride is his; 12,000 → it is not.
+    for (const [room, expected] of [[20_000, ['a1']], [12_000, []]] as const) {
+      const h = dispatchHarness();
+      await h.online('a1', 0.2);
+      h.keepAlive.add('a1');
+      await h.service.request({ tripId: 't1', cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: north(0), cashIqd: 12_000 });
+      const offer = await h.openOffer('t1', 'a1');
+      await h.service.respond(h.actor('a1'), { offerId: offer!.id, accept: true });
+      await h.service.request({ tripId: 't2', cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: north(0) });
+      await h.advance(15 * 60);
+      expect(h.trips.offeredTo('t2')).toEqual([]);
+      h.caps.remaining.set('a1', room);
+      await h.service.jobFinished('t1');
+      expect(h.trips.offeredTo('t2')).toEqual(expected);
+      if (room === 12_000) {
+        // A brand-new ride in the same instant, before the posting: not his either.
+        await h.service.request({ tripId: 't3', cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: north(0) });
+        expect(h.trips.offeredTo('t3')).toEqual([]);
+        // The posting lands (room now reflects it): the hold goes and nothing is counted twice.
+        h.caps.posted.add('a1:t1');
+        h.caps.remaining.set('a1', 8_000);
+        expect(await h.orchestrator.isOverCap('a1')).toBe(false);
+      }
+    }
+  });
 });
