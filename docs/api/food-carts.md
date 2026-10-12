@@ -30,7 +30,7 @@ Closed, `list` returns empty lists with `launched: false` (the app shows «ال�
 controls check (`quote` and `place`) after the kill switches (`ControlsService.assertOrderAllowed`, the
 carts module binds which orgs are carts). A food or cart kill switch still stops carts while they are
 open. The owner's side works either way, so carts can be set up before they open. Customers reach
-carts from a chip on the food page and a card at the end of home, shown while at least one is open.
+carts from a chip on the food page and a card in home's «وعدنا هم» group, shown while at least one is open.
 
 ## Procedures (`foodCarts.*`)
 - Customer: `list({ near? })`, `get({ cartId, near? })` (public); `follow({ cartId, on })`;

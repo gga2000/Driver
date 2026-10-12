@@ -9558,6 +9558,5 @@
   "console.launch_reason_close_ph": "e.g. a problem with cart orders",
   "console.launch_timing": "Takes effect within a minute.",
   "console.launch_saved_open": "{name}: now open to customers",
-  "console.launch_saved_closed": "{name}: now closed",
-  "carts.home_live": "{n} open now, including {name}"
+  "console.launch_saved_closed": "{name}: now closed"
 }
