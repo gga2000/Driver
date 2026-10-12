@@ -152,7 +152,17 @@ export function closedStretch(
   if (path.points.length < 2 || closed.length < 2 || extraMinutes < rules.minExtraMin) return null;
   let closedLen = 0;
   for (let i = 1; i < closed.length; i++) closedLen += haversineM(closed[i - 1]!, closed[i]!);
-  const mid = closed[Math.floor(closed.length / 2)]!;
+  // Halfway along the closed street (a two-point stretch has no middle point of its own).
+  let mid = closed[closed.length - 1]!;
+  for (let i = 1, run = 0; i < closed.length; i++) {
+    const len = haversineM(closed[i - 1]!, closed[i]!);
+    if (run + len >= closedLen / 2) {
+      const f = len === 0 ? 0 : (closedLen / 2 - run) / len;
+      mid = { lat: closed[i - 1]!.lat + (closed[i]!.lat - closed[i - 1]!.lat) * f, lng: closed[i - 1]!.lng + (closed[i]!.lng - closed[i - 1]!.lng) * f };
+      break;
+    }
+    run += len;
+  }
   const reach = closedLen / 2 + rules.closedAroundM;
   let fromM: number | null = null;
   let toM: number | null = null;
