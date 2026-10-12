@@ -1112,6 +1112,9 @@ model Order {
   /// The honest-delay promise's kitchen → door ride, locked at placement (Ali, 2026-10-07): the one ETA's learned
   /// minutes (router × the clamped correction); promise = promisedReadyAt + this. Null = no promise, or placed before it.
   promisedRideMin    Int?          @map("promised_ride_min")
+  /// طرود (Ali, 2026-10-12): the fare of a refused parcel's trip back to the sender, priced by the server at the
+  /// refusal and already in totalIqd (the sender pays both trips). Null = no trip back.
+  returnFareIqd      Int?          @map("return_fare_iqd")
   /// s1 «رمز المشوار» (ride step 3): the 4 digits a ride placed for the night needs before it starts; null otherwise.
   startCode          String?       @map("start_code")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.

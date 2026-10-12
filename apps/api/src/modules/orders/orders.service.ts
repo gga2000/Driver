@@ -58,7 +58,7 @@ import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { DistributedKeyedLock, advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
@@ -121,7 +121,12 @@ export interface OrdersTripsPort {
   courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
   /** A trip as it stands (a dropped ride's pickup and drop-off for its new search). */
   get?(tripId: string): Promise<Trip>;
+  /** طرود «رفضت تستلم»: the hand-back stop at the sender's, then the receiver's door skipped (idempotent). */
+  returnStop?(tripId: string, orderId: string, courierId: string, back: { target: LatLng | null; zoneKey: string; placeId?: string | null }, reason?: string): Promise<Trip>;
 }
+
+/** A parcel's courier order is quoted with the door pickup (parcels' `orderInput`); its trip back the same way. */
+const PARCEL_LEG_OPTIONS = { doorPickup: true } as const;
 
 /**
  * Ledger's new-customer cash rule (decisions §4): the first three cash orders of an account are
@@ -263,6 +268,7 @@ export class OrdersService implements OnModuleInit {
     @Optional() private readonly eta?: EtaService,
   ) {
     this.promotions = promotions ?? new NoPromotions();
+    this.parcelReturnLock = new DistributedKeyedLock(uow, 'orders.parcel_return');
     this.timers = new DurableTimers(queue, clock, uow);
   }
 
@@ -293,6 +299,8 @@ export class OrdersService implements OnModuleInit {
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
+  /** طرود: one refusal at a time per order, across instances (the trip back is priced and added once). */
+  private readonly parcelReturnLock: DistributedKeyedLock;
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
   /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
@@ -1412,6 +1420,62 @@ export class OrdersService implements OnModuleInit {
     return { order, to: from === 'taxi' ? 'tuktuk' : 'taxi', pickup, dropoff, availableAt, rider };
   }
 
+  /**
+   * طرود «رفضت تستلم» (Ali, 2026-10-12): the receiver refused the parcel at the door, so the courier
+   * brings it back to the sender and the SENDER pays both trips (the receiver is never charged). The
+   * trip back is priced here on the server, exactly as the parcels preview quotes it (door → sender,
+   * `parcelLeg`), and added to the order's total, delivery fee and service fee so the breakdown still
+   * sums; `returnFareIqd` keeps it. Nothing posts now: at the hand-back the ordinary drop-off
+   * (delivered → cash collected → closed) posts one parcel fee for both trips from the sender, with
+   * the parcel take, to the courier who carried both. One order, one trip: trips adds the hand-back stop
+   * and skips the door. Only the trip's courier, only a picked-up parcel. Idempotent: once priced, a
+   * repeat only makes sure the trip has its hand-back stop.
+   */
+  async returnParcel(courierId: string, orderId: string): Promise<void> {
+    if (!this.trips.returnStop) throw new DriverError('order_type_not_supported');
+    const returnStop = this.trips.returnStop.bind(this.trips);
+    await this.parcelReturnLock.run(orderId, async (tx) => {
+      const order = (await this.load(orderId, tx)).order;
+      if (order.type !== 'parcel') throw new DriverError('parcel_not_found');
+      const trip = await this.trips.activeForOrder(orderId);
+      if (trip && trip.courierId !== courierId) throw new DriverError('not_trip_courier');
+      if (order.returnFareIqd != null) {
+        // Already priced: the trip back exists (make sure of its stop), or is over (no active trip); nothing else changes.
+        if (trip) await returnStop(trip.id, orderId, courierId, backOf(trip, orderId));
+        return;
+      }
+      if (order.state !== 'picked_up' || !trip) throw new DriverError('order_state_conflict');
+      const back = backOf(trip, orderId);
+      const leg = this.parcelLeg(order.cityId, order.dropoff, { zoneKey: back.zoneKey, ...(back.target ? { pin: back.target } : {}) }, order.paymentMethod, this.clock.now());
+      const next = await this.repo.updateIf(
+        order.id,
+        'picked_up',
+        {
+          returnFareIqd: leg.totalIqd,
+          totalIqd: order.totalIqd + leg.totalIqd,
+          deliveryFeeIqd: order.deliveryFeeIqd + leg.fees.deliveryFeeIqd,
+          serviceFeeIqd: order.serviceFeeIqd + leg.fees.serviceFeeIqd,
+        },
+        tx,
+      );
+      if (!next) throw new DriverError('order_state_conflict');
+      // Ids and amounts only: no names or numbers.
+      await this.emit(tx, 'order.parcel_returning', courierId, next, { tripId: trip.id, courierId, outFareIqd: order.totalIqd, returnFareIqd: leg.totalIqd });
+      await returnStop(trip.id, orderId, courierId, back);
+    });
+  }
+
+  /**
+   * One parcel leg as the server charges it: the quote's fees for the parcel vertical with the door
+   * pickup, and what that costs paid this way (cash rounds up to 250). Parcels take no discount, points
+   * or tip, so this is exactly the `quote` total of a parcel from `pickup` to `dropoff` — the preview
+   * parcels shows the courier before the refusal (`orders.quote`, door → sender) and the charge agree.
+   */
+  private parcelLeg(cityId: string, pickup: DeliveryPoint | null, dropoff: DeliveryPoint | null, paymentMethod: OrderRecord['paymentMethod'], at: Date): { fees: ServerFees; totalIqd: number } {
+    const fees = serverFees(this.pricing, { cityId, type: 'parcel', pickup, dropoff, options: PARCEL_LEG_OPTIONS, at });
+    return { fees, totalIqd: payable('parcel', paymentMethod, fees.deliveryFeeIqd + fees.serviceFeeIqd).totalIqd };
+  }
+
   /** `orders.rideSwitchQuote`: the other vehicle's fare for the same journey, now (nothing stored). */
   async rideSwitchQuote(actorId: string, input: { orderId: string; doorPickup: boolean }): Promise<RideSwitchQuote> {
     const s = await this.switchable(actorId, input.orderId);
@@ -2319,6 +2383,13 @@ export class OrdersService implements OnModuleInit {
 
 // ───────────────────────── helpers ─────────────────────────
 
+/** Where a refused parcel goes back to: the sender's door, as the courier's completed pickup stop has it. */
+function backOf(trip: Trip, orderId: string): { target: LatLng | null; zoneKey: string; placeId: string | null } {
+  const pickup = trip.stops.find((s) => s.orderId === orderId && s.type === 'pickup' && s.state === 'completed');
+  if (!pickup) throw new DriverError('order_state_conflict');
+  return { target: pickup.target, zoneKey: pickup.zoneKey, placeId: pickup.placeId };
+}
+
 /** The receipt line of a platform promo code (money §5 launch package). */
 const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' } as const;
 
@@ -2664,6 +2735,7 @@ export function toOrderView(agg: OrderAggregate): Order {
     statedTenderIqd: order.statedTenderIqd ?? null,
     ...((order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     changeToWalletIqd: order.changeToWalletIqd ?? null,
+    ...(order.returnFareIqd != null ? { returnFareIqd: order.returnFareIqd } : {}),
     gift: giftView(order),
   };
 }

@@ -29,9 +29,14 @@ export interface PlannedOrder {
   key: string;
   /** Minutes after the day opens. */
   atMin: number;
-  kind: 'food' | 'ride';
+  kind: 'food' | 'ride' | 'parcel';
   customer: number;
   payment: 'cash' | 'wallet';
+  /**
+   * طرود (2026-10-12): a parcel from the customer's home to `dropoffPin`. The receiver refuses it at the
+   * door («رفضت تستلم») when true: the courier brings it back and the sender pays both trips.
+   */
+  parcelRefused?: boolean;
   /** Food: restaurant index and lines. */
   restaurant: number | null;
   lines: PlannedLine[];
@@ -58,6 +63,10 @@ export interface ScenarioOptions {
   rideShare?: number;
   /** Share of the rides not cancelled that are booked ahead; default 0.1. */
   bookedShare?: number;
+  /** Share of the cash rides placed now that become parcels instead (طرود); default 0.04. */
+  parcelShare?: number;
+  /** Share of the parcels the receiver refuses at the door; default 0.35. */
+  parcelRefusedShare?: number;
 }
 
 /** Rides booked ahead are booked 30–90 minutes ahead (some get the half-hour reminder, some do not). */
@@ -183,6 +192,19 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
     if (p.kind !== 'ride' || p.cancel || !later.chance(bookedShare)) continue;
     const ahead = later.int(BOOK_AHEAD_MIN.from / 5, BOOK_AHEAD_MIN.to / 5) * 5;
     if (p.atMin + ahead + 5 <= DAY_MINUTES - 20) p.bookAheadMin = ahead;
+  }
+
+  // طرود (2026-10-12): from their own stream, so the rest of the plan is the same as before. A cash ride
+  // placed now becomes the customer's parcel to the same place; some receivers refuse it at the door.
+  const parcels = createRand(world.seed).fork('scenario:parcel');
+  const parcelShare = opts.parcelShare ?? 0.04;
+  const refusedShare = opts.parcelRefusedShare ?? 0.35;
+  for (const p of planned) {
+    if (p.kind !== 'ride' || p.cancel || p.bookAheadMin !== null || p.payment !== 'cash' || !parcels.chance(parcelShare)) continue;
+    p.kind = 'parcel';
+    p.rideVertical = null;
+    p.unreachableSec = 0;
+    p.parcelRefused = parcels.chance(refusedShare);
   }
 
   // Kitchen behaviour (plan Step 7): exactly 3 % of food orders rejected, 2 % partially accepted
