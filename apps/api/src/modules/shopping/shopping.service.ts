@@ -354,6 +354,12 @@ export class ShoppingService implements ShoppingPort {
       if (!shopItems.has(i.itemId)) throw new DriverError('menu_item_not_found');
       if (i.photoUrl && !i.photoUrl.startsWith(UPLOAD_PHOTO_PREFIX))
         throw new DriverError('invalid_input');
+      // Today's photo is the owner's own finished upload, like a menu photo.
+      if (i.photoUrl) {
+        const blob = await this.blobs.get(i.photoUrl.slice(UPLOAD_PHOTO_PREFIX.length));
+        if (!blob || blob.ownerId !== actor.personId || blob.state !== 'stored')
+          throw new DriverError('upload_invalid');
+      }
     }
     await this.uow.run(async (tx) => {
       const posts: DayPostRecord[] = [];
