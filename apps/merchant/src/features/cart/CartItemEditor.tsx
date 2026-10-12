@@ -50,7 +50,7 @@ export function CartItemEditor({ storeId, item }: { storeId: string; item: Admin
   const save = async () => {
     setTried(true);
     if (draftProblems(d).length > 0) return;
-    const out = toSave(d, { sizes: t('merchant.cart.group_sizes'), extras: t('merchant.cart.group_extras') });
+    const out = toSave(d, { sizes: t('merchant.cart.group_sizes'), extras: t('merchant.cart.group_extras') }, item ?? undefined);
     setSaving(true);
     try {
       const saved = await actions.upsertItem.mutateAsync({ merchantOrgId: storeId, ...(item ? { itemId: item.id } : { available: true }), nameAr: out.nameAr, description: out.description, priceIqd: out.priceIqd });

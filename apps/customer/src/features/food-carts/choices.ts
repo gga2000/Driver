@@ -79,5 +79,7 @@ export function priceFrom(dish: CartDish): { from: boolean; priceIqd: number } {
     const ps = g.options.filter((o) => o.available).map((o) => o.priceIqd);
     return s + (ps.length ? Math.min(...ps) : 0);
   }, 0);
-  return { from: sizes.some((g) => g.options.some((o) => o.priceIqd !== 0)), priceIqd: dish.priceIqd + lowest };
+  // «من» only when the sizes on sale cost different amounts.
+  const from = sizes.some((g) => new Set(g.options.filter((o) => o.available).map((o) => o.priceIqd)).size > 1);
+  return { from, priceIqd: dish.priceIqd + lowest };
 }

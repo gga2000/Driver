@@ -61,21 +61,45 @@ export function draftProblems(d: CartDraft): DraftProblem[] {
   return out;
 }
 
+type SaveModifier = { nameAr: string; nameEn?: string | null; priceIqd: number; available: boolean; servesMin?: number | null; servesMax?: number | null };
+type SaveGroup = { nameAr: string; nameEn?: string | null; minSelect: number; maxSelect: number; required: boolean; modifiers: SaveModifier[] };
+
 export interface CartItemSave {
   nameAr: string;
   description: string | null;
   priceIqd: number;
-  groups: Array<{ nameAr: string; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; priceIqd: number; available: boolean }> }>;
+  groups: SaveGroup[];
 }
 
-/** The menu calls for a draft with no problems. `names` are the groups' names in the owner's language. */
-export function toSave(d: CartDraft, names: { sizes: string; extras: string }): CartItemSave {
+type AdminGroup = AdminMenuItem['modifierGroups'][number];
+
+/** An option he switched off stays off when the dish is saved again (matched by its name in that group). */
+const wasOn = (g: AdminGroup | undefined, name: string) => g?.modifiers.find((m) => m.nameAr === name)?.available ?? true;
+
+/** A group the cart editor doesn't show (set up on the full menu screen) is saved back as it was. */
+const keep = (g: AdminGroup): SaveGroup => ({
+  nameAr: g.nameAr,
+  nameEn: g.nameEn,
+  minSelect: g.minSelect,
+  maxSelect: g.maxSelect,
+  required: g.required,
+  modifiers: g.modifiers.map((m) => ({ nameAr: m.nameAr, nameEn: m.nameEn, priceIqd: m.priceIqd, available: m.available, servesMin: m.servesMin ?? null, servesMax: m.servesMax ?? null })),
+});
+
+/**
+ * The menu calls for a draft with no problems. `names` are the groups' names in the owner's language;
+ * `prev` is the dish as it was, so switched-off options and groups this editor doesn't show survive.
+ */
+export function toSave(d: CartDraft, names: { sizes: string; extras: string }, prev?: Pick<AdminMenuItem, 'modifierGroups'>): CartItemSave {
+  const prevSizes = prev?.modifierGroups.find(isSizes);
+  const prevExtras = prev?.modifierGroups.find((g) => !isSizes(g));
   const sizes = filled(d.sizes).map((r) => ({ name: r.name.trim(), price: parsePrice(r.price)! }));
   const extras = filled(d.extras).map((r) => ({ name: r.name.trim(), price: parseDelta(r.price) ?? 0 }));
   const base = sizes.length > 1 ? Math.min(...sizes.map((s) => s.price)) : parsePrice(d.price)!;
-  const groups: CartItemSave['groups'] = [];
-  if (sizes.length > 1) groups.push({ nameAr: names.sizes, minSelect: 1, maxSelect: 1, required: true, modifiers: sizes.map((s) => ({ nameAr: s.name, priceIqd: s.price - base, available: true })) });
-  if (extras.length > 0) groups.push({ nameAr: names.extras, minSelect: 0, maxSelect: extras.length, required: false, modifiers: extras.map((e) => ({ nameAr: e.name, priceIqd: e.price, available: true })) });
+  const groups: SaveGroup[] = [];
+  if (sizes.length > 1) groups.push({ nameAr: names.sizes, minSelect: 1, maxSelect: 1, required: true, modifiers: sizes.map((s) => ({ nameAr: s.name, priceIqd: s.price - base, available: wasOn(prevSizes, s.name) })) });
+  if (extras.length > 0) groups.push({ nameAr: names.extras, minSelect: 0, maxSelect: extras.length, required: false, modifiers: extras.map((e) => ({ nameAr: e.name, priceIqd: e.price, available: wasOn(prevExtras, e.name) })) });
+  for (const g of prev?.modifierGroups ?? []) if (g !== prevSizes && g !== prevExtras) groups.push(keep(g));
   return { nameAr: d.name.trim(), description: d.about.trim() || null, priceIqd: base, groups };
 }
 
