@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AnswerClimateCheckInput } from '../climate-check.js';
-import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandGlow, PartnerGoOnlineInput, PartnerGoOnlineResult, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
+import { AnswerBookedJobInput, PARTNER_DRIVING_ROLES, PartnerErrandReceipt, PartnerErrandReceiptInput, PARTNER_ROLES, PartnerBookedJobs, PartnerDemandGlow, PartnerGoOnlineInput, PartnerGoOnlineResult, PartnerJob, PartnerOffer, PartnerOfferRouteInput, PartnerStatus } from '../partner-io.js';
 import { OrderRoute } from '../tracking.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -28,6 +28,11 @@ export const partnerRouter = router({
     .input(AnswerClimateCheckInput)
     .output(PartnerStatus)
     .mutation(({ ctx, input }) => ctx.partner.answerClimateCheck(ctx.actor, input)),
+  /** «دوّرلي»: the receipt total and photo from the shops, before he leaves them (replaceable until then). */
+  errandReceipt: protectedProcedure(PARTNER_DRIVING_ROLES)
+    .input(PartnerErrandReceiptInput)
+    .output(PartnerErrandReceipt)
+    .mutation(({ ctx, input }) => ctx.partner.errandReceipt(ctx.actor, input)),
   /** The open offer for this driver (pay components, ring deadline, batch), or null. */
   currentOffer: protectedProcedure(PARTNER_DRIVING_ROLES)
     .output(PartnerOffer.nullable())

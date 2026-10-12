@@ -5,9 +5,10 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
-import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffErrandReceiptInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
+import { ErrandItemSpec, WeightG } from './shop-lines.js';
 import { VehicleClass } from './trip.js';
 
 /** Mirrors the Prisma `OrderType` enum. Seat and subscription orders belong to routes (Steps 5–7). */
@@ -74,8 +75,17 @@ export const OrderLineInput = z
     pointsEligible: z.boolean().default(true),
     /** Merchant the item came from; every line must match the order's merchant (edge-case review A.11). */
     merchantOrgId: z.string().optional(),
+    /**
+     * A kilo-sold shop item (2026-10-11): the grams on the scale, with `qty` 1. The server prices it
+     * from the item's kilo price (`priceForWeight`); only items the shop sells by the kilo take it.
+     */
+    weightG: WeightG.optional(),
+    /** A «دوّرلي» item's details beside its words in `freeText`; errand orders only. */
+    errandItem: ErrandItemSpec.optional(),
   })
-  .refine((l) => Boolean(l.catalogItemId ?? l.freeText), { message: 'a line needs a catalog item or free text' });
+  .refine((l) => Boolean(l.catalogItemId ?? l.freeText), { message: 'a line needs a catalog item or free text' })
+  .refine((l) => l.weightG === undefined || (l.catalogItemId !== undefined && l.qty === 1), { message: 'a weighed line is one catalog item' })
+  .refine((l) => l.errandItem === undefined || (l.catalogItemId === undefined && l.freeText !== undefined), { message: 'an errand item is a free-text line' });
 export type OrderLineInput = z.input<typeof OrderLineInput>;
 
 /** The longest name a booker gives the person he books a ride for (a first name or «أم علي»). */
@@ -264,6 +274,10 @@ export const OrderLine = z.object({
   pointsEligible: z.boolean(),
   /** `unavailable` while a partial-accept proposal is open; `removed` once the customer approved it. */
   availability: z.enum(['available', 'unavailable', 'removed']),
+  /** A weighed line: the grams and the kilo price it was sold at (`unitPriceIqd` is the line's price). */
+  weightG: z.number().int().nullable().optional(),
+  perKgIqd: Iqd.nullable().optional(),
+  errandItem: ErrandItemSpec.nullable().optional(),
 });
 export type OrderLine = z.infer<typeof OrderLine>;
 
@@ -623,6 +637,8 @@ export interface OrdersPort {
   /** W3 staff way-out (docs/api/staff-ops.md): audited, with a reason; money outcomes behind their switches. */
   opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult>;
   opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult>;
+  /** «دوّرلي»: ops record the shopper's receipt when his photo would not send (audited; same rules as his own entry). */
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult>;
   opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult>;
   opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult>;
   opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;

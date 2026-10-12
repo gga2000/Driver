@@ -112,6 +112,8 @@ export interface PartnerDeps {
     recipientName?(orderId: string, driverId: string): Promise<string | null>;
     /** o10: rides the ride's orderer finished before this one (a count, no names). Optional for fakes. */
     riderTrips?(orderId: string): Promise<number | null>;
+    /** «دوّرلي»: `OrdersService.recordErrandReceipt` (it checks the courier, the stop and the photo). Optional for fakes. */
+    errandReceipt?(courierId: string, input: { orderId: string; totalIqd: number; photoUploadId: string }): Promise<{ receiptIqd: number; cashDueIqd: number; overCeiling: boolean }>;
   };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
@@ -138,6 +140,11 @@ export interface PartnerDeps {
   pickupSpots?: {
     forCourier(merchantOrgId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null; cancelled?: boolean }; now: Date }): Promise<PartnerPickupSpot | null>;
   };
+  /**
+   * «الليستة» (دوّرلي): signed read links for the customer's item photos and voice notes, minted per
+   * request for the assigned courier's job, each valid 15 minutes. Absent in fakes = items show their words only.
+   */
+  errandMedia?: { readUrl(uploadId: string): string };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
   /**

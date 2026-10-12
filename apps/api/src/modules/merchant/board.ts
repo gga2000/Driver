@@ -85,6 +85,7 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
       menuItemId: l.catalogItemId ?? null,
       // k4/j6: the owner's own ticket kind for the dish; without one the app guesses from the name.
       ...(kind ? { kind } : {}),
+      ...(l.weightG ? { weightG: l.weightG } : {}),
     };
   };
   const count = (lines: BoardLine[]) => lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);

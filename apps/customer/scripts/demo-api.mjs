@@ -14,6 +14,7 @@
 //   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
+//   - GET /demo/market lists the seeded stalls and bakeries «السوق» with their org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
@@ -77,6 +78,10 @@ const controls = app.get(ControlsService);
 // door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
 const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
 const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
+// The shopping side «السوق» (2026-10-11): two produce stalls with today's and yesterday's prices, two
+// bakeries (one paused for 30 minutes), all demo-only (never in `pnpm db:seed`).
+const { ShoppingService, seedDemoShops } = await load('modules/shopping/index.js');
+const marketShops = await seedDemoShops(orgs, catalog, app.get(ShoppingService), { ownerId: 'demo-owner' });
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -141,6 +146,7 @@ app.use('/demo/active-order', async (req, res) => {
   }
 });
 
+app.use('/demo/market', (_req, res) => json(res, 200, marketShops));
 app.use('/demo/seed', (_req, res) => json(res, 200, seeded.map((s) => ({ key: s.seed.key, orgId: s.orgId, name: s.seed.nameAr }))));
 
 // Joy o8 «الأكثر طلباً بالعزيزية»: 24 town orders at مطعم خالد (scheduled for tomorrow, so they wait and
@@ -401,7 +407,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false } = {}) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false, accept = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -425,6 +431,7 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     statedTenderIqd = tender >= totalIqd ? tender : tenderOptions(totalIqd)[1];
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
+  if (!accept) return placed.id;
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
@@ -544,6 +551,10 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'placed') {
+    // Sent and not yet accepted: the kitchen-waiting screen (/kitchen/[id]) with its ring.
+    return { orderId: await placeAccepted(personId, 20, undefined, null, { accept: false }) };
+  }
   if (name === 'kitchen') {
     // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
     // the kitchen on, /demo/track/assign brings the courier (the reveal plays on an open screen).
@@ -600,7 +611,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
