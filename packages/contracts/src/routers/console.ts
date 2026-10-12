@@ -8,6 +8,11 @@ import {
   DriversPage,
   MerchantList,
   MerchantsListInput,
+  MONEY_ALARM_ROLES,
+  MoneyAlarm,
+  OUTBOX_REQUEUE_ROLES,
+  OutboxRequeueInput,
+  OutboxRequeueResult,
   OutboxView,
   RightNow,
   RightNowInput,
@@ -56,11 +61,18 @@ export const merchantsRouter = router({
     .query(({ ctx, input }) => ctx.console.merchants(input.cityId)),
 });
 
-/** `system.*`: outbox health, the day's SMS count and simulator controls. */
+/** `system.*`: outbox health (and the admin's requeue of failed rows), the money alarm, the day's SMS count and simulator controls. */
 export const systemRouter = router({
   outbox: protectedProcedure(CONSOLE_READ_ROLES)
     .output(OutboxView)
     .query(({ ctx }) => ctx.console.outbox()),
+  requeueOutbox: protectedProcedure(OUTBOX_REQUEUE_ROLES)
+    .input(OutboxRequeueInput)
+    .output(OutboxRequeueResult)
+    .mutation(({ ctx, input }) => ctx.console.requeueOutbox(input, ctx.actor.personId)),
+  moneyAlarm: protectedProcedure(MONEY_ALARM_ROLES)
+    .output(MoneyAlarm)
+    .query(({ ctx }) => ctx.console.moneyAlarm()),
   smsDay: protectedProcedure(CONSOLE_READ_ROLES)
     .output(SmsDayView)
     .query(({ ctx }) => ctx.console.smsDay()),

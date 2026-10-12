@@ -115,4 +115,36 @@ describe('cash of a finished job counts toward the cap until the ledger posts it
     await ride(h, 'r3');
     expect(h.trips.offeredTo('r3')).not.toContain('k1');
   });
+
+  it('a trip with two cash drop-offs: the first order posting does not release the second order hold', async () => {
+    // Review of #302: keyed per trip, the first order's posting cleared the whole trip's hold and the
+    // second order's cash (still in the outbox) stopped counting. Each order's hold now waits for its own.
+    const ledger = ledgerHarness({ start: '2026-10-03T09:00:00Z' });
+    const h = dispatchHarness('2026-10-03T09:00:00Z', undefined, { caps: ledger.caps });
+    for (let i = 0; i < 3; i++) await ledger.posting.orderMoney(order(i)); // owes 46,500 of 75,000
+    await h.online('k1', 0.2, { vehicle: 'tuktuk' });
+    await h.service.request({ tripId: 'b1', cityId: 'aziziyah', vertical: 'food', zoneId: 'centre', pickup: north(0), dropoffZoneId: 'centre', readyAt: h.clock.now(), hot: true, cashIqd: 16_500 });
+    const offer = await h.openOffer('b1', 'k1');
+    await h.service.respond(h.actor('k1'), { offerId: offer!.id, accept: true });
+
+    await h.orchestrator.cashCollected('b1', 'drop-a', 16_500, 'oa'); // stop.completed of order A
+    await h.orchestrator.cashCollected('b1', 'drop-b', 16_500, 'ob'); // stop.completed of order B
+    await h.orchestrator.jobFinished('b1'); // trip.completed: the request's 16,500 is already held by the orders
+    expect((await h.store.cashHolds('k1')).map((x) => [x.orderId, x.amountIqd]).sort()).toEqual([
+      ['oa', 16_500],
+      ['ob', 16_500],
+    ]);
+
+    await ledger.posting.orderMoney(workedExample({ orderId: 'oa', tripId: 'b1', courierId: 'k1' })); // order A posts
+    expect((await ledger.caps.status('k1')).owedIqd).toBe(62_000); // under his cap by the ledger alone
+    expect(await h.orchestrator.isOverCap('k1')).toBe(true); // 78,500 with order B's cash still in his hand
+    expect((await h.store.cashHolds('k1')).map((x) => x.orderId)).toEqual(['ob']);
+    await ride(h, 'r4');
+    expect(h.trips.offeredTo('r4')).not.toContain('k1');
+
+    await ledger.posting.orderMoney(workedExample({ orderId: 'ob', tripId: 'b1', courierId: 'k1' })); // order B posts
+    expect((await ledger.caps.status('k1')).owedIqd).toBe(77_500);
+    expect(await h.orchestrator.isOverCap('k1')).toBe(true);
+    expect(await h.store.cashHolds('k1')).toEqual([]); // both posted: nothing held, nothing counted twice
+  });
 });

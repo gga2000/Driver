@@ -62,6 +62,7 @@ export * from './khat-io.js';
 export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './menu-photos-io.js';
+export * from './food-carts-io.js';
 export * from './dish-photos-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';
@@ -116,4 +117,5 @@ export * from './food-doors.js';
 export * from './home-kitchens.js';
 // Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
 export type * from './home-kitchen-admin-io.js';
+export * from './featured.js';
 export * from './weights.js';

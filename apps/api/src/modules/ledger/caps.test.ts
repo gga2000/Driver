@@ -75,6 +75,9 @@ describe('CapsService (CapsPort for dispatch)', () => {
     await h.posting.orderMoney(workedExample({ orderId: 'o4', tripId: 't4' }));
     expect(await h.caps.cashPosted('k1', 't4')).toBe(true);
     expect(await h.caps.cashPosted('k2', 't4')).toBe(false); // another driver's cash account
+    // Per order: a trip with two cash drop-offs releases each order's hold on its own posting.
+    expect(await h.caps.cashPosted('k1', 't4', 'o4')).toBe(true);
+    expect(await h.caps.cashPosted('k1', 't4', 'o5')).toBe(false);
   });
 
   it('role and tier come from the profile resolver; prepaid rides only add earnings', async () => {

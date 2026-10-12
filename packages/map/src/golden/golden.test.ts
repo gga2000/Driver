@@ -62,15 +62,24 @@ describe('buildGoldenStyle', () => {
     expect([...sourceLayers].sort()).toEqual(['buildings', 'landmarks', 'landuse', 'lanterns', 'localities', 'palms', 'places', 'roads', 'water']);
     const night = buildGoldenStyle({ ...base, light: 'night', mode: 'customer' });
     expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lights').map((l) => l.id)).toEqual(['golden-window-glow']);
-    // the lantern strings: lit glass and a warm pool on the street at night, painted glass with no pool by day
-    expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lantern-glow', 'golden-lanterns']);
-    expect(style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lanterns']);
+    // the lantern strings and the lamp posts: lit glass and warm pools on the street at night, no pools by day; palms always
+    expect(night.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lantern-glow', 'golden-lanterns', 'golden-street-lamp-glow', 'golden-street-furniture']);
+    expect(style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'lanterns').map((l) => l.id)).toEqual(['golden-lanterns', 'golden-street-furniture']);
     const flat = buildGoldenStyle({ ...base, light: 'night', mode: 'console' });
     expect(flat.layers.some((l) => 'source-layer' in l && l['source-layer'] === 'lanterns')).toBe(false);
     const fonts = new Set<string>(Object.values(GOLDEN_FONTS).flat());
     for (const l of style.layers) {
       if (l.type === 'symbol') for (const f of (l.layout?.['text-font'] as string[]) ?? []) expect(fonts.has(f)).toBe(true);
     }
+  });
+  it('widens streets past z18 and turns them to tarmac at street level', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden' });
+    const minor = style.layers.find((l) => l.id === 'golden-minor') as { paint: Record<string, unknown[]> };
+    const width = minor.paint['line-width']!;
+    expect(width.slice(-2)).toEqual([20, 72]); // a 6–8 m side street up close, not a hairline
+    const colour = minor.paint['line-color']!;
+    expect(colour.at(-1)).toBe(GOLDEN_PALETTES.golden.asphalt.minor);
+    expect(colour[4]).toBe(GOLDEN_PALETTES.golden.minor); // the cream town view Ali picked stays when zoomed out
   });
   it('keeps labels on top, so routes added before GOLDEN_FIRST_LABEL never hide a street name', () => {
     const style = buildGoldenStyle({ ...base, light: 'day' });

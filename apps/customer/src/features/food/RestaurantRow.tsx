@@ -5,6 +5,7 @@ import { View } from 'react-native';
 import { Card, Icon, Skeleton, StatusPill, stageOf, Text, useTheme } from '@driver/ui';
 import { formatRange } from '@driver/i18n';
 import { DealSticker } from '@/features/food/DealBadge';
+import { FeaturedStamp } from '@/features/food/FeaturedStamp';
 import { FoodArt, kitchenLook, motifForDish, motifForKitchen } from '@/features/food/FoodArt';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { useLocale, useT } from '@/lib/i18n';
@@ -47,6 +48,7 @@ export function RestaurantRow({
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
+  const featured = r.open && r.featured === true;
   const free = r.deliveryFeeIqd !== null && r.deliveryFeeIqd <= 0;
   const time = r.etaMinMinutes !== null && r.etaMaxMinutes !== null ? formatRange(r.etaMinMinutes, r.etaMaxMinutes, locale) : formatRange(r.prepMinMinutes, r.prepMaxMinutes, locale);
   const closedLabel = r.opensAt ? t('list.closed_opens_at', { time: r.opensAt }) : t('list.closed');
@@ -64,7 +66,7 @@ export function RestaurantRow({
         onOpen?.();
         router.push({ pathname: '/restaurant/[id]', params: dish ? { id: r.id, item: dish.id } : { id: r.id } });
       }}
-      accessibilityLabel={[r.name, reason, dishLine ?? r.cuisine, r.open ? null : closedLabel].filter(Boolean).join('، ')}
+      accessibilityLabel={[r.name, featured ? t('list.featured') : null, reason, dishLine ?? r.cuisine, r.open ? null : closedLabel].filter(Boolean).join('، ')}
     >
       <View style={{ flexDirection: 'row', gap: theme.space[3], alignItems: 'center' }}>
         {/* The kitchen's dish, the same drawing as its menu hero (joy S2-13): food, not a letter. */}
@@ -81,6 +83,7 @@ export function RestaurantRow({
             <Text variant="bodyStrong" weight={700} numberOfLines={1} style={{ flexShrink: 1 }}>
               {r.name}
             </Text>
+            {featured ? <FeaturedStamp testID={`${testID ?? `restaurant-row-${r.id}`}-featured`} /> : null}
             {r.open && r.dealCount > 0 ? <DealSticker label={t('list.deal')} /> : null}
           </View>
           {reason ? (

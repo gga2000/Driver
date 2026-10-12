@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { baghdadHour, ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, QUIET_HOURS, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
@@ -119,6 +119,10 @@ export const NOTIFY_EVENT_TYPES = [
   'dispatch.offer_nudged',
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
+  // Food carts: a followed cart opened; a walk-over ticket is ready or called off.
+  'food_cart.opened',
+  'food_cart.walkup_ready',
+  'food_cart.walkup_rejected',
   'session.signed_out',
   // A staff account on a device it was never seen on: every admin hears of it.
   'staff.new_device',
@@ -266,6 +270,17 @@ async function riderArrived(deps: NotifySubscriberDeps, e: PublishedEvent, order
 /** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
 export function dishPotEventId(localDate: string): string {
   return `dish_pot:${localDate}`;
+}
+
+/** The dedupe event id of «{cart} فتح»: one per cart per Baghdad day, however often it opens. */
+export function foodCartOpenEventId(cartId: string, localDate: string): string {
+  return `food_cart_open:${cartId}:${localDate}`;
+}
+
+/** Quiet hours by the event's own Baghdad clock (an opening at 23:30 is not news at 08:00). */
+function inQuietHours(at: Date): boolean {
+  const h = baghdadHour(at);
+  return h >= QUIET_HOURS.startHour || h < QUIET_HOURS.endHour;
 }
 
 /** Turns one event into the notifications it implies. Exported for tests. */
@@ -824,6 +839,27 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         params: { restaurant: str(p['restaurantName']) ?? '', dish: str(p['dishName']) ?? '', merchantOrgId },
         data: { merchantOrgId, itemId: str(p['itemId']) ?? '' },
       }));
+    }
+    case 'food_cart.opened': {
+      // «أبو حيدر فتح»: each follower, once per cart per Baghdad day (the request's event id is the
+      // cart and the day, so a close and re-open dedupes away). Nothing for an opening in quiet hours.
+      const ids = Array.isArray(p['followerIds']) ? p['followerIds'].filter((x): x is string => typeof x === 'string') : [];
+      const cartId = str(p['cartId']);
+      const day = str(p['localDate']);
+      if (!cartId || !day || inQuietHours(e.occurredAt)) return [];
+      const zone = str(p['zoneName_ar']);
+      const place = str(p['spotLabel']) ?? (zone ? t('push.food_cart_opened.place_zone', { zone }) : '');
+      const cart = str(p['cartName']) ?? '';
+      return [...new Set(ids)].map((to) => ({ eventId: foodCartOpenEventId(cartId, day), template: 'food_cart_opened' as const, to, params: { cart, place, cartId }, data: { cartId } }));
+    }
+    case 'food_cart.walkup_ready':
+    case 'food_cart.walkup_rejected': {
+      // The person waiting on a walk-over ticket: ready («تعال گله رقمك»), or called off before it was started.
+      const to = str(p['personId']);
+      const walkupId = str(p['walkupId']);
+      if (!to || !walkupId) return [];
+      const template = e.type === 'food_cart.walkup_ready' ? ('food_cart_walkup_ready' as const) : str(p['why']) === 'closed' ? ('food_cart_walkup_closed' as const) : ('food_cart_walkup_rejected' as const);
+      return [{ ...base, template, to, params: { cart: str(p['cartName']) ?? '', code: str(p['code']) ?? '', walkupId }, data: { walkupId, cartId: str(p['cartId']) ?? '' } }];
     }
     case 'staff.new_device': {
       // «جهاز جديد بحساب موظف»: each admin the event names; the staff member's first name (logged read).

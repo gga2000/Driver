@@ -405,6 +405,15 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Food carts «عربانات» (2026-10-11).
+  cart_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  cart_closed: { retryHint: 'later', status: 'CONFLICT' },
+  cart_dish_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  cart_follow_limit: { retryHint: 'never', status: 'CONFLICT' },
+  walkup_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  walkup_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  walkup_code_wrong: { retryHint: 'never', status: 'BAD_REQUEST' },
+  walkup_too_many: { retryHint: 'later', status: 'CONFLICT' },
   // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
   money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },

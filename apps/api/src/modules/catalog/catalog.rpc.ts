@@ -12,6 +12,7 @@ import {
   POPULAR_RULES,
   SMALL_ORDER_FEE_IQD,
   carryModifierPicks,
+  featuredFirst,
   cashToHand,
   kiloPriceOf,
   matchDish,
@@ -124,6 +125,8 @@ export interface StorefrontMerchants {
     reopensAt?: Date;
     /** One of the store's holiday closures (Merchant app hours): closed for the day, shown as hours. */
     holiday?: boolean;
+    /** On the featured commission tier: «مميّز» in the lists, and one sits first (`featuredFirst`). */
+    featured?: boolean;
   }>;
   /** Live merchant deals as badges (bound by orders over the promotions module); none when absent. */
   deals?(orgId: string, at: Date): Promise<DealBadge[]>;
@@ -264,13 +267,15 @@ export class CatalogRpc implements CustomerCatalogPort {
       if (f.freeDelivery && card.deliveryFeeIqd !== 0) continue;
       cards.push(card);
     }
-    // Open kitchens first, then the quickest to the door, then by name.
-    return cards.sort(
+    // Open kitchens first, then the quickest to the door, then by name; one open «مميّز» kitchen sits
+    // first (Ali, 2026-10-12), but not in a search: what the customer typed decides there.
+    cards.sort(
       (a, b) =>
         Number(b.open) - Number(a.open) ||
         (a.etaMinMinutes ?? a.prepMinMinutes) - (b.etaMinMinutes ?? b.prepMinMinutes) ||
         a.name.localeCompare(b.name, 'ar'),
     );
+    return q ? cards : featuredFirst(cards, now);
   }
 
   async menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu> {
@@ -720,7 +725,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const fresh = hit !== undefined && now - hit.builtAt < (settling ? TOWN_SETTLE_MS : TOWN_SNAPSHOT_MS) && now < (hit.until ?? Infinity);
     if (hit && hit.stamp === stamp && fresh) return hit.kitchens;
     const at = new Date(now);
-    const kitchens = this.catalog.storefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
+    const kitchens = this.catalog.listedStorefronts(cityId).then((fronts) => mapBounded(fronts, CARD_CONCURRENCY, (s) => this.kitchen(s, at)));
     const entry: { builtAt: number; stamp: string; kitchens: Promise<Kitchen[]>; until?: number } = { builtAt: now, stamp, kitchens };
     this.towns.set(cityId, entry);
     // A quick pause that ends inside the snapshot's life reopens the kitchen on the minute: the
@@ -803,6 +808,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       opensInMin: holiday || stoppedNote || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, s.hours, pauses, state.closedReason),
       ...(stoppedNote ? { stoppedNote } : {}),
       busy,
+      ...(k.profile.featured ? { featured: true } : {}),
       hours: s.hours.map((h) => ({ dow: h.dow, start: h.start, end: h.end })),
       pauses: pauses.map((p) => ({ dow: p.dow, start: p.start, end: p.end })),
       deals: k.deals,

@@ -233,6 +233,11 @@ export class PrismaRoutesRepository implements RoutesRepository {
     return rows.map(toBooking);
   }
 
+  async settledBetween(from: Date, to: Date, tx?: Tx): Promise<BookingRecord[]> {
+    const rows = await this.db(tx).seatBooking.findMany({ where: { OR: [{ completedAt: { gte: from, lt: to } }, { noShowAt: { gte: from, lt: to } }] } });
+    return rows.map(toBooking);
+  }
+
   async riderStats(riderId: string, tx?: Tx): Promise<RiderRecordStats> {
     const db = this.db(tx);
     const [completedBookings, cashStrikes] = await Promise.all([

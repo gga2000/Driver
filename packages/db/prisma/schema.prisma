@@ -3336,6 +3336,8 @@ model NotifyPreference {
   regularTrips     Boolean  @default(true) @map("regular_trips")
   /// Step 4 (o4): «نفس مشوار البارحة؟» for a ride he takes most working days. On by default, one a day.
   sameRide         Boolean  @default(true) @map("same_ride")
+  /// Food carts: «{cart} فتح» when a followed cart opens. On by default (following is the opt-in), once a cart a day.
+  foodCarts        Boolean  @default(true) @map("food_carts")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -3923,5 +3925,71 @@ model RefundApproval {
   @@index([ticketId])
   @@index([orderId])
   @@map("refund_approvals")
+  @@schema("public")
+}
+
+/// A food cart «عربانة» (2026-10-11): a restaurant org that moves. Where it opened tonight, its usual
+/// hours and its away note; delivery orders go to the org like any kitchen.
+model FoodCart {
+  id        String    @id @default(cuid())
+  orgId     String    @unique @map("org_id")
+  cityId    String    @map("city_id")
+  kind      String
+  spotLat   Float?    @map("spot_lat")
+  spotLng   Float?    @map("spot_lng")
+  spotLabel String?   @map("spot_label")
+  facing    Int       @default(180)
+  openedAt  DateTime? @map("opened_at")
+  closesAt  DateTime? @map("closes_at")
+  closedAt  DateTime? @map("closed_at")
+  usualFrom String?   @map("usual_from")
+  usualTo   String?   @map("usual_to")
+  awayNote  String?   @map("away_note")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId])
+  @@map("food_carts")
+  @@schema("public")
+}
+
+/// «تابع»: a customer follows a cart and hears when it opens.
+model FoodCartFollow {
+  id        String   @id @default(cuid())
+  personId  String   @map("person_id")
+  cartId    String   @map("cart_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([personId, cartId])
+  @@index([cartId])
+  @@map("food_cart_follows")
+  @@schema("public")
+}
+
+/// A walk-over ticket: the customer collects at the cart with a 3-digit code and pays cash there.
+/// `commission_iqd` is the restaurants' pickup tier on the total, recorded when collected.
+model FoodCartWalkup {
+  id            String    @id @default(cuid())
+  cartId        String    @map("cart_id")
+  orgId         String    @map("org_id")
+  personId      String    @map("person_id")
+  code          String
+  state         String    @default("placed")
+  lines         Json
+  note          String?
+  totalIqd      Int       @map("total_iqd")
+  commissionIqd Int       @default(0) @map("commission_iqd")
+  readyBy       DateTime  @map("ready_by")
+  /// When it was placed (the row's created_at).
+  placedAt      DateTime  @default(now()) @map("created_at")
+  readyAt       DateTime? @map("ready_at")
+  collectedAt   DateTime? @map("collected_at")
+  cancelledAt   DateTime? @map("cancelled_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([cartId, state])
+  @@index([personId, state])
+  @@map("food_cart_walkups")
   @@schema("public")
 }

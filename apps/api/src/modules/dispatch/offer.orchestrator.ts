@@ -1326,18 +1326,23 @@ export class OfferOrchestrator {
 
   /**
    * Trips tells us cash was taken at a drop-off (`stop.completed`, before `trip.completed`): it is in
-   * his hand from now on, and counts toward his cap until the ledger posts it (a cash hold). Idempotent
-   * per stop, so a redelivered event changes nothing.
+   * his hand from now on, and counts toward his cap until the ledger posts it (a cash hold). The hold is
+   * the drop-off's order's (`orderId`), so on a trip with two cash drop-offs each order's cash stays held
+   * until that order's posting lands. Idempotent per stop, so a redelivered event changes nothing.
    */
-  async cashCollected(tripId: string, stopId: string, amountIqd: number): Promise<void> {
+  async cashCollected(tripId: string, stopId: string, amountIqd: number, orderId?: string): Promise<void> {
     if (amountIqd <= 0) return;
     const r = await this.store.getRequest(tripId);
     const driverId = r?.assignedDriverId;
     if (!driverId) return;
-    const held = (await this.store.cashHolds(driverId)).find((h) => h.tripId === tripId);
+    const held = (await this.store.cashHolds(driverId)).find((h) => h.tripId === tripId && h.orderId === orderId);
     const collected = { ...held?.collected, [stopId]: amountIqd };
     const sum = Object.values(collected).reduce((n, v) => n + v, 0);
-    await this.store.addCashHold(driverId, { tripId, amountIqd: Math.max(held?.amountIqd ?? 0, sum), collected, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
+    await this.store.addCashHold(
+      driverId,
+      { tripId, ...(orderId ? { orderId } : {}), amountIqd: Math.max(held?.amountIqd ?? 0, sum), collected, until: this.now() + CASH_HOLD_MS },
+      CASH_HOLD_MS,
+    );
   }
 
   /** Trips tells us the courier has the order in the bag (batching skips its pickup from now on). */
@@ -1357,9 +1362,14 @@ export class OfferOrchestrator {
       // Until it does it still counts toward his cap, or the gap would let an over-cap driver be offered.
       // The cash recorded at the door when trips told us (a whole note with change to the wallet, owed
       // fees) can be more than the order's total; never count less than either.
-      const held = (await this.store.cashHolds(r.assignedDriverId)).find((h) => h.tripId === tripId);
-      const cash = Math.max(r.cashIqd ?? 0, held?.amountIqd ?? 0);
-      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { ...held, tripId, amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
+      // Drop-offs that told us their cash hold it per order; the request's cash is its order's when the
+      // request names one, else it is the trip's and only what no order's hold already covers is added.
+      const orderId = r.orderId ?? undefined;
+      const holds = (await this.store.cashHolds(r.assignedDriverId)).filter((h) => h.tripId === tripId);
+      const held = holds.find((h) => h.orderId === orderId);
+      const heldByOrders = orderId ? 0 : holds.reduce((n, h) => n + (h.orderId ? h.amountIqd : 0), 0);
+      const cash = Math.max((r.cashIqd ?? 0) - heldByOrders, held?.amountIqd ?? 0);
+      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { ...held, tripId, ...(orderId ? { orderId } : {}), amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
@@ -1788,7 +1798,7 @@ export class OfferOrchestrator {
   private async unpostedCash(driverId: string): Promise<number> {
     let total = 0;
     for (const h of await this.store.cashHolds(driverId)) {
-      if (h.until <= this.now() || (await this.caps.cashPosted(driverId, h.tripId))) await this.store.removeCashHold(driverId, h.tripId);
+      if (h.until <= this.now() || (await this.caps.cashPosted(driverId, h.tripId, h.orderId))) await this.store.removeCashHold(driverId, h.tripId, h.orderId);
       else total += h.amountIqd;
     }
     return total;
