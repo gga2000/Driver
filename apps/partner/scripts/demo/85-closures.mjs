@@ -5,6 +5,8 @@
 //   POST /demo/closure?who=courier&on=offer    … of the road to the kitchen on the offer ringing for him
 //        …&name=شارع المستشفى                  what ops called it (the line names it); none = «شارع مسدود»
 //   POST /demo/closure-clear                    opens every street closed in the demo again
+//   POST /demo/closure-report?who=courier&reason=works   «الشارع مسدود قدامي» from his job (waits for ops)
+//   POST /demo/closure-confirm?id=…              ops confirm a courier's report from the Console
 //
 // The closure goes through the closures service exactly as the Console's «سد الشارع» does (audit log and
 // all), so routing, the arrival times and the maps see it the same way.
@@ -69,6 +71,22 @@ export default async function register(demo) {
     // The road as the app now reads it: it should go around (`closures` names this one).
     const after = query.on === 'offer' ? await partner.offerRoute(actor, { offerId: (await services.dispatch.openOffer(personId, CITY))?.offer.id ?? '' }) : await partner.jobRoute(actor);
     demo.json(res, 200, { closureId: view.id, lengthM: view.lengthM, endsAt: view.endsAt, path, before: line, after: after.polyline6 ? decodePolyline(after.polyline6) : null, closures: after.closures ?? [] });
+  });
+
+  demo.route('/demo/closure-report', async ({ res, query }) => {
+    const { personId } = demo.who(query);
+    try {
+      const r = await closures.report({ personId, sessionId: 'demo' }, { cityId: CITY, reason: query.reason ?? 'works' });
+      made.push(r.id);
+      demo.json(res, 200, r);
+    } catch (err) {
+      demo.json(res, 409, { error: err.code ?? err.message });
+    }
+  });
+
+  demo.route('/demo/closure-confirm', async ({ res, query }) => {
+    const view = await closures.confirm(ops, { id: String(query.id) });
+    demo.json(res, 200, view);
   });
 
   demo.route('/demo/closure-clear', async ({ res }) => {

@@ -3942,6 +3942,10 @@ model StreetClosure {
   closedById String    @map("closed_by_id")
   openedAt   DateTime? @map("opened_at")
   openedById String?   @map("opened_by_id")
+  /// ops | courier (CHECK in the migration). A courier's report routes nothing until confirmed.
+  source        String    @default("ops")
+  confirmedAt   DateTime? @map("confirmed_at")
+  confirmedById String?   @map("confirmed_by_id")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 

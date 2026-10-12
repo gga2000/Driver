@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   AZIZIYAH_ZONES,
+  type LatLng,
   DEMAND_GLOW_RULES,
   DEMAND_MAP_RULES,
   demandGlow,
@@ -332,18 +333,28 @@ export class PartnerService implements PartnerPort {
   async jobRoute(actor: Actor): Promise<OrderRoute> {
     const now = this.clock.now();
     const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
-    const trip = await this.jobTrip(actor.personId);
-    if (!trip || !this.deps.roads) return none;
+    const way = await this.jobWay(actor.personId);
+    if (!way || !this.deps.roads) return none;
+    const { from, ahead } = way;
+    const r = await this.deps.roads.path([from, ...ahead]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
+  }
+
+  /**
+   * Where he is on his job (his last fix on the trip, else his live position) and the stops still ahead;
+   * null off a job. Also N20's «الشارع مسدود قدامي»: the report is taken from here, never from the app.
+   */
+  async jobWay(personId: string): Promise<{ from: LatLng; ahead: LatLng[] } | null> {
+    const trip = await this.jobTrip(personId);
+    if (!trip) return null;
     const ahead = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .filter((s) => s.state !== 'completed' && s.state !== 'skipped' && s.target)
       .map((s) => s.target!);
     const fix = await this.deps.trips.lastPosition?.(trip.id);
-    const presence = fix && fix.driverId === actor.personId ? null : await this.deps.presence.get(actor.personId);
-    const from = fix && fix.driverId === actor.personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
-    if (!from || ahead.length === 0) return none;
-    const r = await this.deps.roads.path([from, ...ahead]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
+    const presence = fix && fix.driverId === personId ? null : await this.deps.presence.get(personId);
+    const from = fix && fix.driverId === personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
+    return from && ahead.length > 0 ? { from, ahead } : null;
   }
 
   /**

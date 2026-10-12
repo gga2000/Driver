@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { CityId, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
+import { PARTNER_DRIVING_ROLES } from './partner-io.js';
 
 /**
  * N20 «شارع مسدود» (Ali, 2026-10-11): field ops close a street for today on the Console map (two taps, the
@@ -14,6 +15,30 @@ import type { Actor } from './identity-io.js';
 export const CLOSURE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'finance', 'admin', 'field_ops'];
 /** Who closes and opens streets: field ops on the ground, dispatchers on shift, Ali. */
 export const CLOSURE_EDIT_ROLES: readonly RoleKind[] = ['admin', 'field_ops', 'dispatcher'];
+
+/** Who reports a closed street from the road (Ali, 2026-10-12: "or the courier points them out"). */
+export const CLOSURE_REPORT_ROLES: readonly RoleKind[] = PARTNER_DRIVING_ROLES;
+
+/**
+ * A courier's report routes nothing on its own: ops confirm it on the Console, or a second courier's
+ * report of the same stretch confirms it; unconfirmed, it drops after `reportLiveMs`.
+ */
+export const CLOSURE_REPORT_RULES = {
+  /** An unconfirmed report stays on the Console this long. */
+  reportLiveMs: 2 * 60 * 60_000,
+  /** The stretch reported, along his way: starting past the 30 m a trip may touch a closure at (so his own road bends too). */
+  aheadFromM: 40,
+  aheadToM: 190,
+  /** Two reports whose stretches come this close are the same street. */
+  sameStreetM: 40,
+  /** Reports one person can make in a day (Baghdad). */
+  perDay: 5,
+  /** The same person reporting the same street again within this changes nothing. */
+  againMs: 60 * 60_000,
+} as const;
+
+export const ClosureSource = z.enum(['ops', 'courier']);
+export type ClosureSource = z.infer<typeof ClosureSource>;
 
 export const CLOSURE_LIMITS = {
   /** Points in a closed stretch (the road between two taps, simplified). */
@@ -54,6 +79,12 @@ export const ClosureView = ClosedStreet.extend({
   openedByName: z.string().nullable(),
   /** Still closed now (not opened early, not past its end). */
   active: z.boolean(),
+  /** ops = closed on the Console; courier = reported from the road. */
+  source: ClosureSource,
+  /** A courier's report: false while it waits for ops (routes nothing); ops closures are always true. */
+  confirmed: z.boolean(),
+  /** Who confirmed a courier's report (ops, or the second courier who reported it); null otherwise. */
+  confirmedByName: z.string().nullable(),
 });
 export type ClosureView = z.infer<typeof ClosureView>;
 
@@ -85,9 +116,26 @@ export type CloseStreetInput = z.input<typeof CloseStreetInput>;
 export const OpenStreetInput = z.object({ id: z.string().min(1) });
 export type OpenStreetInput = z.infer<typeof OpenStreetInput>;
 
+/** Ops confirm a courier's report: every route goes around it until midnight. */
+export const ConfirmClosureInput = z.object({ id: z.string().min(1) });
+export type ConfirmClosureInput = z.infer<typeof ConfirmClosureInput>;
+
+/**
+ * «الشارع مسدود قدامي», from the courier's job. Only why: the server takes where from his own live job
+ * road (his last fix toward his next stop), never from a point the app sends.
+ */
+export const ReportClosureInput = z.object({ cityId: CityId, reason: ClosureReason });
+export type ReportClosureInput = z.infer<typeof ReportClosureInput>;
+
+/** What the courier sees after reporting: thanks, and whether it now counts (his was the second report). */
+export const ReportClosureResult = z.object({ id: z.string(), confirmed: z.boolean() });
+export type ReportClosureResult = z.infer<typeof ReportClosureResult>;
+
 export interface ClosuresPort {
   list(input: ClosuresInput): Promise<ClosureView[]>;
   snap(input: SnapClosureInput): Promise<SnappedClosure>;
   close(actor: Actor, input: z.infer<typeof CloseStreetInput>): Promise<ClosureView>;
   open(actor: Actor, input: OpenStreetInput): Promise<ClosureView>;
+  confirm(actor: Actor, input: ConfirmClosureInput): Promise<ClosureView>;
+  report(actor: Actor, input: ReportClosureInput): Promise<ReportClosureResult>;
 }

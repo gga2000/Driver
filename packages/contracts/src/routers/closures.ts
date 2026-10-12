@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CLOSURE_EDIT_ROLES, CLOSURE_READ_ROLES, CloseStreetInput, ClosuresInput, ClosureView, OpenStreetInput, SnapClosureInput, SnappedClosure } from '../closures-io.js';
+import { CLOSURE_EDIT_ROLES, CLOSURE_READ_ROLES, CLOSURE_REPORT_ROLES, CloseStreetInput, ConfirmClosureInput, ReportClosureInput, ReportClosureResult, ClosuresInput, ClosureView, OpenStreetInput, SnapClosureInput, SnappedClosure } from '../closures-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** `ops.closures.*` — N20 «شارع مسدود»: streets closed for today, drawn on the Console map. */
@@ -24,4 +24,17 @@ export const opsClosuresRouter = router({
     .input(OpenStreetInput)
     .output(ClosureView)
     .mutation(({ ctx, input }) => ctx.closures.open(ctx.actor, input)),
+  /** Confirm a courier's report: from now every route goes around it, until midnight. */
+  confirm: protectedProcedure(CLOSURE_EDIT_ROLES)
+    .input(ConfirmClosureInput)
+    .output(ClosureView)
+    .mutation(({ ctx, input }) => ctx.closures.confirm(ctx.actor, input)),
+});
+
+/** `closures.*` — a courier reports a closed street from the road (waits for ops, or a second report). */
+export const closuresRouter = router({
+  report: protectedProcedure(CLOSURE_REPORT_ROLES)
+    .input(ReportClosureInput)
+    .output(ReportClosureResult)
+    .mutation(({ ctx, input }) => ctx.closures.report(ctx.actor, input)),
 });

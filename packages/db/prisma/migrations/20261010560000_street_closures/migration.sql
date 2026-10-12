@@ -1,5 +1,7 @@
 -- N20 «شارع مسدود» (Ali, 2026-10-11): field ops close a street for today and every route goes around it.
--- Places, a reason and staff person ids only; no personal data. Additive only.
+-- Couriers can report one too (Ali, 2026-10-12): a report waits for ops to confirm it (or a second
+-- courier's report of the same stretch) before any route goes around it.
+-- Places, a reason and person ids only; no personal data. Additive only.
 
 -- CreateTable
 CREATE TABLE "public"."street_closures" (
@@ -14,11 +16,15 @@ CREATE TABLE "public"."street_closures" (
     "closed_by_id" TEXT NOT NULL,
     "opened_at" TIMESTAMP(3),
     "opened_by_id" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'ops',
+    "confirmed_at" TIMESTAMP(3),
+    "confirmed_by_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "street_closures_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "street_closures_reason_check" CHECK ("reason" IN ('works', 'funeral', 'water', 'other')),
+    CONSTRAINT "street_closures_source_check" CHECK ("source" IN ('ops', 'courier')),
     CONSTRAINT "street_closures_ends_after_start_check" CHECK ("ends_at" > "starts_at")
 );
 
