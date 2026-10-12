@@ -44,8 +44,8 @@ then point a MapLibre page at `pmtiles://http://127.0.0.1:8765/wasit.pmtiles` an
 | `landmarks` | 3D models of the main mosque, the hospital and the garages (`landmarks.py`): `lm` mosque / hospital / garage, `part` (stone, dome, gold, red, canopy, bus…), `hm`, `base`; the houses on their lots are dropped | z14 |
 | `lights` | night window lights (points on about 3 homes in 10) | z15 |
 | `buildings` | `hm` height m (3.6 / 6.8 / 10 by storeys; schools 2, clinics and hospitals 3, shops on main streets 1), `base`, `kind` house / mosque / tankW / tankB / hut (stair hut) / dish / deck, rail, pier (river bridges ≥ 80 m), `use` home / shop / school / civic / mosque, `tone` 0–5 roof finish, `lit` 1 when its lights are on at night | houses z14, roof pieces z15 |
-| `places` | `name`, `kind`, `rank` 1–3 | z14–z15 |
-| `localities` | `name`, `kind` city / town / village / hamlet / neighbourhood kinds, `rank`, `pop` | city z7 … hamlet z12 |
+| `places` | `name`, `kind`, `rank` 1–3; `icon` mosque / school / health / pharmacy / bakery / fuel on the places drawn as signposts | z14–z15 |
+| `localities` | `name`, `kind` city / town / village / hamlet / neighbourhood kinds / `area` (our own neighbourhood names, painted on the ground), `rank`, `pop` | city z7 … hamlet z12, areas z13 |
 
 ## What the data does not have (field work, not code)
 - Building heights: `hm` is a guess (1–3 storeys from footprint area + a stable hash); roof tanks are drawn
@@ -53,5 +53,9 @@ then point a MapLibre page at `pmtiles://http://127.0.0.1:8765/wasit.pmtiles` an
 - Street names: only about 11 named streets in town.
 - Aziziyah neighbourhood names, mosques and garages: not in Overture. The landmark list in
   `packages/map/src/landmarks.ts` and field ops' walk fill these.
+- Our own names and places: put `data/our-places.json` (not in the repo) before building, a list of
+  `{kind, name, lng, lat}` with `kind` area / mosque / school / health / pharmacy / bakery / fuel, exported from
+  the names-and-places page Ali fills in. Areas become painted neighbourhood names; places become signposts and
+  replace the Overture places of the same kind. Without the file the build tags Overture's own places.
 
 Map data © OpenStreetMap contributors and Overture Maps Foundation (ODbL / CDLA); show the attribution.

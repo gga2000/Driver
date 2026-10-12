@@ -1,6 +1,7 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
 import { GOLDEN_FONTS } from './fonts.js';
+import { SIGN_COLOURS, SIGN_KINDS, SIGN_MINZOOM, signImages } from './signs.js';
 import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
 import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
@@ -47,7 +48,7 @@ export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {
 
 /** Images the style uses; add each with `map.addImage(id, image)` (or on `styleimagemissing`). */
 export function goldenImages(light: GoldenLight): Record<string, PatternImage> {
-  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]) };
+  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]), ...signImages(light === 'night') };
 }
 
 type Stops = number[];
@@ -216,6 +217,19 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
   });
+  // neighbourhood names painted big and soft on the ground (Ali's pick, 2026-10-12): they tilt with the town, the
+  // houses stand over them, and they fade as the camera comes down to the streets
+  L.push({
+    id: 'golden-area-names', type: 'symbol', ...src, 'source-layer': 'localities', minzoom: 13.8, maxzoom: 17.6, filter: kindIn('area'),
+    layout: {
+      'text-field': ['get', 'name'] as never, 'text-font': [...GOLDEN_FONTS.bold], 'text-pitch-alignment': 'map', 'text-rotation-alignment': 'map',
+      'text-size': ['interpolate', ['exponential', 2], ['zoom'], 14, 14, 15, 24, 16, 44, 17, 80] as never, 'text-allow-overlap': true, 'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color': p.area, 'text-halo-color': p.labelHalo, 'text-halo-width': 1, 'text-halo-blur': 2,
+      'text-opacity': fade(13.8, 0, 14.4, p.windowGlow ? 0.55 : 0.5, 16.4, p.windowGlow ? 0.45 : 0.42, 17.4, 0),
+    },
+  });
   if (rich) {
     const rise = riseAt ?? (mode === 'courier' ? 15.4 : 16.4);
     // a soft dark line where walls meet the ground, so houses sit on the street instead of floating
@@ -338,9 +352,26 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
     },
     {
       id: 'golden-places', type: 'symbol', ...src, 'source-layer': 'places', minzoom: 15.5,
-      filter: ['any', ['==', ['get', 'rank'], 1], ['>=', ['zoom'], 16.5]] as never,
+      filter: ['all', ['!', ['has', 'icon']], ['any', ['==', ['get', 'rank'], 1], ['>=', ['zoom'], 16.5]]] as never,
       layout: { 'text-field': ['get', 'name'] as never, 'text-font': [...GOLDEN_FONTS.regular], 'text-size': 11.5, 'text-max-width': 8, 'text-padding': 6, 'symbol-sort-key': ['get', 'rank'] as never },
       paint: { 'text-color': p.area, ...halo },
+    },
+    {
+      // signposts: mosques, schools, hospitals, pharmacies, bakeries and fuel stations as standing pins in their colour,
+      // the big ones first, the rest from z15; names come in at street level (rank 1 a little earlier)
+      id: 'golden-signposts', type: 'symbol', ...src, 'source-layer': 'places', minzoom: SIGN_MINZOOM,
+      filter: ['all', ['has', 'icon'], ['any', ['==', ['get', 'rank'], 1], ['>=', ['zoom'], 15]]] as never,
+      layout: {
+        'icon-image': ['concat', 'golden-sign-', ['get', 'icon']] as never, 'icon-anchor': 'bottom', 'icon-allow-overlap': true,
+        'icon-size': fade(15, 0.35, 17, 0.48), 'symbol-sort-key': ['get', 'rank'] as never, 'symbol-z-order': 'source',
+        'text-field': ['step', ['zoom'], ['case', ['==', ['get', 'rank'], 1], ['get', 'name'], ''], 16, ['get', 'name']] as never,
+        'text-font': [...GOLDEN_FONTS.medium], 'text-size': fade(15, 12, 17, 13.5), 'text-max-width': 8, 'text-optional': true,
+        'text-anchor': 'top', 'text-offset': [0, 0.3],
+      },
+      paint: {
+        'text-color': p.windowGlow ? p.label : ['match', ['get', 'icon'], ...SIGN_KINDS.flatMap((k) => [k, SIGN_COLOURS[k]]), p.label] as never,
+        ...halo, 'text-halo-width': 1.6,
+      },
     },
     {
       id: 'golden-localities', type: 'symbol', ...src, 'source-layer': 'localities',

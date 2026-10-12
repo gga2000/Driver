@@ -86,7 +86,8 @@ describe('buildGoldenStyle', () => {
     const first = ids(style).indexOf(GOLDEN_FIRST_LABEL);
     expect(first).toBeGreaterThan(0);
     expect(style.layers.slice(first).every((l) => l.type === 'symbol')).toBe(true);
-    expect(style.layers.slice(0, first).some((l) => l.type === 'symbol')).toBe(false);
+    // the one exception is paint on the ground: neighbourhood names lie under the houses (and under a route)
+    expect(style.layers.slice(0, first).filter((l) => l.type === 'symbol').map((l) => l.id)).toEqual(['golden-area-names']);
   });
   it('draws less where less is needed: no 3D, shadows or patterns on the Console and cheap phones', () => {
     for (const mode of ['console', 'lite'] as const) {
@@ -180,6 +181,6 @@ describe('palm pattern', () => {
     }
     expect([...alphas]).toEqual([255]);
     expect(colours.size).toBeGreaterThan(5);
-    expect(Object.keys(goldenImages('night'))).toEqual([PALM_PATTERN, FURROW_PATTERN]);
+    expect(Object.keys(goldenImages('night')).slice(0, 2)).toEqual([PALM_PATTERN, FURROW_PATTERN]);
   });
 });
