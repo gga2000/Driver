@@ -30,13 +30,24 @@ call.
   (`catalog_item_unavailable`), and a reservation outside the dish's own times or over `maxPerSlot`
   (`order_schedule_invalid`).
 
-## Reservation no-show (Ali, 22:51Z 10-11)
+## Reservation no-show (Ali, 22:51Z 10-11; courier pay 21:58Z 10-12)
 When the courier can't reach the customer on a home reservation (`unreachableDispute`), the order becomes
-`failed` and the cook is paid in full. The ledger posts one `cancellation_fee` line from the payer to
-`merchant_cash:<org>`, for `itemsTotalIqd`, with memo `home_no_show` and group
-`order:<id>:home_no_show`. A replay posts nothing. The customer's own wallet then reads below 0, the
-amount is added to the next order (M-3 style), and a new reservation is refused with
-`home_reservation_owed` until it is paid.
+`failed` and the cook is paid in full. The courier who made the trip is paid too, and the customer owes
+both («Customer pays»). One ledger group `order:<id>:home_no_show` (a replay posts nothing):
+- `cancellation_fee` payer → `merchant_cash:<org>` for `itemsTotalIqd`, memo `home_no_show`.
+- When a courier was on the trip that gave up (the order's courier link for that trip): the delivery fee,
+  split exactly as at order close (`courierDeliveryIqd` in `ledger/postings.ts`): his part payer →
+  `driver:<id>` (his earnings, never `cash:`, since no cash changed hands), memo `home_no_show`; a batched
+  second trip's 30 % margin payer → `platform`, memo `batched_margin`.
+- Free delivery from the kitchen (a merchant delivery deal): the customer owes only what checkout showed
+  (fee − deal). The courier still gets his full part; the gap is one line `platform` → `driver:<id>`,
+  memo `home_no_show:delivery_deal`, paid by Driver.
+
+Example: 2 plates for 16,000 دينار with a 2,000 دينار delivery fee: the cook gets 16,000, the courier
+2,000, and the customer owes 18,000. The payer is the account the order used (his wallet or his
+household's). It reads below 0, the amount is added to the next order (M-3 style), and a new reservation
+is refused with `home_reservation_owed` while his own wallet, or the household wallet the new order would
+pay from, is below 0.
 
 ## Cook procedures (Merchant app, «أكلاتي»)
 - `merchantAdmin.home.get({ merchantOrgId })` → her dishes, today's plates and the reservations coming.

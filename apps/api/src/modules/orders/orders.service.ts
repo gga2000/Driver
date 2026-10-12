@@ -451,7 +451,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
-    const homeKitchen = merchantType && input.merchantOrgId ? await this.assertHomePlates(ordererId, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now) : false;
+    const homeKitchen = merchantType && input.merchantOrgId ? await this.assertHomePlates(ordererId, input.householdOrgId ?? null, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now) : false;
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -865,12 +865,16 @@ export class OrdersService implements OnModuleInit {
    * reserved plates within what she takes at that pickup time (`homeOrderProblem`). Other kitchens pass
    * untouched; true when the kitchen is a home kitchen.
    */
-  private async assertHomePlates(ordererId: string, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
+  private async assertHomePlates(ordererId: string, householdId: string | null, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
     if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return false;
     // A home kitchen takes no orders until أكل بيت opens in the city, even by a direct link.
     if (this.homeOpen && !this.homeOpen.open(cityId)) throw new DriverError('service_paused');
     // A reservation he never took is owed first (Ali, 2026-10-11): no new one until his wallet is back at 0.
-    if (scheduledFor && this.wallet && (await this.wallet.balanceIqd({ customerId: ordererId, householdId: null })) < 0) throw new DriverError('home_reservation_owed');
+    // A no-show paid from a household is owed by that household: its own reservations wait on it too.
+    if (scheduledFor && this.wallet) {
+      const owing = [{ customerId: ordererId, householdId: null }, ...(householdId ? [{ customerId: ordererId, householdId }] : [])];
+      for (const p of owing) if ((await this.wallet.balanceIqd(p)) < 0) throw new DriverError('home_reservation_owed');
+    }
     const problem = await this.homePlatesProblem(merchantOrgId, lines, scheduledFor, now);
     if (problem) throw new DriverError(problem);
     return true;
@@ -2187,9 +2191,13 @@ export class OrdersService implements OnModuleInit {
   private async unreachableDispute(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
     if (order.state !== 'picked_up' && order.state !== 'matched') return;
     if (await this.isHomeReservation(order)) {
-      // أكل بيت: nothing to dispute — the cook is paid and he owes the dish (Ali, 2026-10-11).
-      const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd: order.itemsTotalIqd });
-      await this.platformFailure!.homeNoShow!(failed, tx);
+      // أكل بيت: nothing to dispute — the cook and the courier are paid and he owes both (Ali, 2026-10-11/12).
+      // The courier is the one this order's trip is linked to, and only for the trip that gave up.
+      const carrier = await this.trips.courierOf(order.id);
+      const courier = carrier && carrier.tripId === e.tripId ? { courierId: carrier.courierId, ...(carrier.batchedSecond ? { batchedSecond: true } : {}) } : null;
+      const owedIqd = homeNoShowOwedIqd(order, courier !== null);
+      const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd });
+      await this.platformFailure!.homeNoShow!(failed, tx, courier);
       return failed;
     }
     // Domain §2/§9: food — the customer owes the cost; ride — the cancellation fee. Support may override.
@@ -2433,6 +2441,12 @@ function dealQuery(merchantOrgId: string, lines: ReadonlyArray<Pick<NewLine, 'ca
 }
 
 /** The merchant-funded part of an order's discount by what it comes off (G-87 commission base, ledger lines). */
+/** What a home no-show leaves him owing: the dishes, plus the delivery fee he saw at checkout when a courier made the trip. */
+export function homeNoShowOwedIqd(order: Pick<OrderRecord, 'itemsTotalIqd' | 'deliveryFeeIqd' | 'discountIqd' | 'promotionId' | 'discountMeta'>, carried: boolean): number {
+  const deal = merchantDealOf(order);
+  return order.itemsTotalIqd + (carried ? Math.max(0, order.deliveryFeeIqd - (deal?.target === 'delivery' ? deal.amountIqd : 0)) : 0);
+}
+
 export function merchantDealOf(order: Pick<OrderRecord, 'discountIqd' | 'promotionId' | 'discountMeta'>): { promotionId: string; target: 'items' | 'delivery'; amountIqd: number } | null {
   if (!order.promotionId || order.discountIqd <= 0 || order.discountMeta?.funder !== 'merchant') return null;
   return { promotionId: order.promotionId, target: order.discountMeta.target === 'delivery' ? 'delivery' : 'items', amountIqd: order.discountIqd };

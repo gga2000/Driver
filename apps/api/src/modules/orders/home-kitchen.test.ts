@@ -146,6 +146,15 @@ describe('orders.place at a home kitchen', () => {
     expect((await h.orders.place('c1', reserveInput(h))).state).toBe('placed');
   });
 
+  it('a no-show owed by a household stops a reservation paid from that household', async () => {
+    const h = ordersHarness();
+    await homeKitchen(h);
+    h.wallets.set('household:hh1', -20_000);
+    expect(await code(h.orders.place('c1', { ...reserveInput(h), householdOrgId: 'hh1' }))).toBe('home_reservation_owed');
+    // His own wallet is clear: a reservation he pays himself goes in.
+    expect((await h.orders.place('c1', reserveInput(h, 1))).state).toBe('placed');
+  });
+
   it('a negative wallet does not stop a pre-order at an ordinary restaurant', async () => {
     const h = ordersHarness();
     h.wallets.set('customer:c1', -16_000);
@@ -189,7 +198,7 @@ describe('home reservation no-show (unreachable at the door)', () => {
     return t;
   }
 
-  it('the order fails and the cook is paid in full: one cancellation_fee line payer → her cash account; a replay posts nothing', async () => {
+  it('the order fails, the cook is paid in full and the courier gets the delivery fee; he owes both; a replay posts nothing', async () => {
     const h = make();
     await homeKitchen(h);
     const o = await h.orders.place('c1', reserveInput(h));
@@ -202,9 +211,15 @@ describe('home reservation no-show (unreachable at the door)', () => {
     expect(after.state).toBe('failed');
     expect(h.events.last('order.disputed')).toBeUndefined();
     const lines = (await h.ledger.eventsForOrder(o.id)).filter((e) => e.postingGroupId === `order:${o.id}:home_no_show`);
-    expect(lines).toHaveLength(1);
+    const fee = o.deliveryFeeIqd;
+    expect(fee).toBeGreaterThan(0);
+    expect(lines).toHaveLength(2);
     expect(lines[0]).toMatchObject({ type: 'cancellation_fee', amount: 16_000, fromAccount: 'customer:c1', toAccount: 'merchant_cash:rest_1', memo: 'home_no_show' });
-    expect(await h.balance('customer:c1')).toBe(-16_000);
+    // The courier on the trip that gave up: his earnings, never his cash account.
+    expect(lines[1]).toMatchObject({ type: 'delivery_fee', amount: fee, fromAccount: 'customer:c1', toAccount: 'driver:d1', memo: 'home_no_show' });
+    expect(h.events.last('order.failed')?.payload).toMatchObject({ kind: 'home_no_show', owedIqd: 16_000 + fee });
+    expect(await h.balance('customer:c1')).toBe(-(16_000 + fee));
+    expect(await h.balance('cash:d1')).toBe(0);
     const total = (await h.ledger.eventsForOrder(o.id)).length;
 
     // A replayed failure event: the order is already failed, nothing moves.
@@ -215,8 +230,51 @@ describe('home reservation no-show (unreachable at the door)', () => {
     expect(await h.uow.run((tx) => h.staff.homeNoShow(after as never, tx))).toBe(0);
     await h.settle();
     expect(await h.ledger.eventsForOrder(o.id)).toHaveLength(total);
-    expect(await h.balance('customer:c1')).toBe(-16_000);
+    expect(await h.balance('customer:c1')).toBe(-(16_000 + fee));
     expect((await h.orders.get(o.id)).state).toBe('failed');
+  });
+
+  /** A failed home reservation as homeNoShow sees it: 16,000 of dishes, a 2,000 delivery fee. */
+  const noShowOrder = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, type: 'food', merchantOrgId: 'rest_1', ordererId: 'c1', householdOrgId: null, itemsTotalIqd: 16_000, deliveryFeeIqd: 2000, discountIqd: 0, promotionId: null, discountMeta: null, ...extra }) as never;
+  const noShowLines = async (h: ReturnType<typeof make>, id: string) => (await h.ledger.eventsForOrder(id)).filter((e) => e.postingGroupId === `order:${id}:home_no_show`);
+
+  it('a batched second trip: the courier gets 70 % of the fee and the platform its 30 % margin; he owes the whole fee', async () => {
+    const h = make();
+    expect(await h.uow.run((tx) => h.staff.homeNoShow(noShowOrder('ord_b'), tx, { courierId: 'd7', batchedSecond: true }))).toBe(18_000);
+    await h.settle();
+    const lines = await noShowLines(h, 'ord_b');
+    expect(lines.map((l) => [l.type, l.amount, l.fromAccount, l.toAccount, l.memo])).toEqual([
+      ['cancellation_fee', 16_000, 'customer:c1', 'merchant_cash:rest_1', 'home_no_show'],
+      ['delivery_fee', 1400, 'customer:c1', 'driver:d7', 'home_no_show'],
+      ['delivery_fee', 600, 'customer:c1', 'platform', 'batched_margin'],
+    ]);
+    expect(await h.balance('customer:c1')).toBe(-18_000);
+    expect(await h.balance('driver:d7')).toBe(1400);
+  });
+
+  it('free delivery from the kitchen: he owes only what checkout showed; the courier still gets his fee, the gap from the platform', async () => {
+    const h = make();
+    const order = noShowOrder('ord_f', { discountIqd: 2000, promotionId: 'promo_free', discountMeta: { funder: 'merchant', target: 'delivery' } });
+    expect(await h.uow.run((tx) => h.staff.homeNoShow(order, tx, { courierId: 'd7' }))).toBe(16_000);
+    await h.settle();
+    const lines = await noShowLines(h, 'ord_f');
+    expect(lines.map((l) => [l.type, l.amount, l.fromAccount, l.toAccount, l.memo])).toEqual([
+      ['cancellation_fee', 16_000, 'customer:c1', 'merchant_cash:rest_1', 'home_no_show'],
+      ['delivery_fee', 2000, 'platform', 'driver:d7', 'home_no_show:delivery_deal'],
+    ]);
+    expect(await h.balance('customer:c1')).toBe(-16_000);
+    expect(await h.balance('driver:d7')).toBe(2000);
+  });
+
+  it('a household order: the household owes it; with no courier on the trip, only the dishes are owed', async () => {
+    const h = make();
+    expect(await h.uow.run((tx) => h.staff.homeNoShow(noShowOrder('ord_h', { householdOrgId: 'hh1' }), tx, null))).toBe(16_000);
+    await h.settle();
+    const lines = await noShowLines(h, 'ord_h');
+    expect(lines.map((l) => [l.type, l.amount, l.fromAccount, l.toAccount])).toEqual([['cancellation_fee', 16_000, 'household:hh1', 'merchant_cash:rest_1']]);
+    expect(await h.balance('household:hh1')).toBe(-16_000);
+    expect(await h.balance('customer:c1')).toBe(0);
   });
 
   it('a non-home pre-order at the door: unchanged — disputed, customer owes the cost, no home_no_show posting', async () => {
