@@ -47,6 +47,8 @@ export interface ParcelRecord {
   textTokenHash: string | null;
   /** Over a daily text limit (or the day's SMS budget): no text for this parcel, the sender shares the link. */
   textCapped: boolean;
+  /** The courier's photo at pickup (their own upload). */
+  pickupPhotoUploadId: string | null;
   /** Trusted contact, household member or an earlier receiver of this sender: outside the sender's daily cap. */
   receiverKnown: boolean;
   /** `waiting_door` until the order is placed; `cancelled` if it never is. The rest follows the order. */
@@ -55,7 +57,7 @@ export interface ParcelRecord {
   createdAt: Date;
 }
 
-export type ParcelPatch = Partial<Pick<ParcelRecord, 'dropoff' | 'doorSetAt' | 'orderId' | 'stage' | 'cancelledAt' | 'doorTokenHash' | 'fareIqd' | 'pinFails' | 'pinVerifiedAt' | 'refusedAt' | 'doorTextedAt' | 'pinTextedAt' | 'textTokenHash' | 'textCapped'>>;
+export type ParcelPatch = Partial<Pick<ParcelRecord, 'dropoff' | 'doorSetAt' | 'orderId' | 'stage' | 'cancelledAt' | 'doorTokenHash' | 'fareIqd' | 'pinFails' | 'pinVerifiedAt' | 'refusedAt' | 'doorTextedAt' | 'pinTextedAt' | 'textTokenHash' | 'textCapped' | 'pickupPhotoUploadId'>>;
 
 /** A text field an update may require to be still unset (claiming a text so it goes once). */
 export type ParcelTextField = 'doorTextedAt' | 'pinTextedAt';
@@ -187,6 +189,7 @@ const fromRow = (r: Row): ParcelRecord => ({
   pinTextedAt: r.pinTextedAt,
   textTokenHash: r.textTokenHash,
   textCapped: r.textCapped,
+  pickupPhotoUploadId: r.pickupPhotoUploadId,
   receiverKnown: r.receiverKnown,
   stage: r.stage as ParcelRecord['stage'],
   cancelledAt: r.cancelledAt,

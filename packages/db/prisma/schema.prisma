@@ -3966,6 +3966,8 @@ model ParcelSend {
   textTokenHash     String?   @unique @map("text_token_hash")
   /// Over a daily text limit: no text for this parcel, the sender shares the link.
   textCapped        Boolean   @default(false) @map("text_capped")
+  /// The courier's photo of the parcel at the sender's door (their own upload).
+  pickupPhotoUploadId String? @map("pickup_photo_upload_id")
   /// The receiver is the sender's trusted contact, household member or an earlier receiver (outside the sender cap).
   receiverKnown     Boolean   @default(false) @map("receiver_known")
   /// waiting_door | placed | cancelled

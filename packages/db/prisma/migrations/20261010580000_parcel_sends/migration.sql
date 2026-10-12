@@ -33,6 +33,7 @@ CREATE TABLE "public"."parcel_sends" (
     "pin_texted_at" TIMESTAMP(3),
     "text_token_hash" TEXT,
     "text_capped" BOOLEAN NOT NULL DEFAULT false,
+    "pickup_photo_upload_id" TEXT,
     "receiver_known" BOOLEAN NOT NULL DEFAULT false,
     "stage" TEXT NOT NULL,
     "cancelled_at" TIMESTAMP(3),

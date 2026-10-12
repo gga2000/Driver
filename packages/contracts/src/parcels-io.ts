@@ -201,6 +201,8 @@ export const CourierParcelView = z.object({
   /** Cash to take at the door when the receiver pays, else 0 (the sender paid at pickup). */
   collectAtDoorIqd: Iqd,
   pinVerified: z.boolean(),
+  /** The courier's pickup photo is saved. */
+  pickupPhoto: z.boolean().optional(),
   /** Wrong codes left before the code is locked (then the sender is asked to release it). */
   pinTriesLeft: z.number().int().min(0),
   refused: z.boolean(),
@@ -209,6 +211,10 @@ export type CourierParcelView = z.infer<typeof CourierParcelView>;
 
 export const CourierParcelPinInput = CourierParcelInput.extend({ pin: z.string().regex(/^\d{4}$/) });
 export type CourierParcelPinInput = z.infer<typeof CourierParcelPinInput>;
+
+/** The courier's photo of the parcel at the sender's door (`account.photoUpload`, their own upload). */
+export const CourierParcelPhotoInput = CourierParcelInput.extend({ uploadId: z.string().min(1).max(100) });
+export type CourierParcelPhotoInput = z.infer<typeof CourierParcelPhotoInput>;
 
 /** «رفضت تستلم» before the second tap: what the trip back costs and who pays it (always the sender). */
 export const CourierParcelRefusal = z.object({ returnFareIqd: Iqd.positive(), totalForSenderIqd: Iqd.positive(), payer: z.literal('sender') });
@@ -228,4 +234,5 @@ export interface ParcelsPort {
   checkPin(actor: Actor, input: CourierParcelPinInput): Promise<CourierParcelView>;
   refusalPreview(actor: Actor, input: CourierParcelInput): Promise<CourierParcelRefusal>;
   refuse(actor: Actor, input: CourierParcelInput): Promise<CourierParcelView>;
+  pickupPhoto(actor: Actor, input: CourierParcelPhotoInput): Promise<CourierParcelView>;
 }

@@ -9,6 +9,7 @@ import {
   type Order,
   type OrderState,
   type CourierParcelInput,
+  type CourierParcelPhotoInput,
   type CourierParcelPinInput,
   type CourierParcelRefusal,
   type CourierParcelView,
@@ -145,6 +146,7 @@ export class ParcelsService implements ParcelsPort {
       doorSetAt: token ? null : now,
       orderId: null,
       pinFails: 0,
+      pickupPhotoUploadId: null,
       pinVerifiedAt: null,
       refusedAt: null,
       // The door-link text: now, or 08:00 for a link made 23:00–08:00. No link address set: no text.
@@ -326,6 +328,14 @@ export class ParcelsService implements ParcelsPort {
     return this.courierView(next ?? rec, actor.personId);
   }
 
+  /** The courier's photo at the sender's door: their own stored upload, kept on the parcel (the tag shows it). */
+  async pickupPhoto(actor: Actor, input: CourierParcelPhotoInput): Promise<CourierParcelView> {
+    const rec = await this.carried(actor, input.orderId);
+    if (!(await this.places.photoOwned(input.uploadId, actor.personId))) throw new DriverError('parcel_photo_unknown');
+    const next = await this.repo.update(rec.id, 'placed', { pickupPhotoUploadId: input.uploadId });
+    return this.courierView(next ?? rec, actor.personId);
+  }
+
   async refusalPreview(actor: Actor, input: CourierParcelInput): Promise<CourierParcelRefusal> {
     const rec = await this.carried(actor, input.orderId);
     const back = await this.returnFare(rec);
@@ -406,6 +416,7 @@ export class ParcelsService implements ParcelsPort {
       payer: rec.payer,
       collectAtDoorIqd: rec.payer === 'receiver' ? rec.fareIqd : 0,
       pinVerified: rec.pinVerifiedAt !== null,
+      pickupPhoto: rec.pickupPhotoUploadId !== null,
       pinTriesLeft: Math.max(0, PARCEL_RULES.pinTries - rec.pinFails),
       refused: rec.refusedAt !== null,
     };
@@ -503,7 +514,7 @@ export class ParcelsService implements ParcelsPort {
         { key: 'delivered', at: order?.deliveredAt ?? null },
       ],
       orderId: rec.orderId,
-      pickupPhotoUrl: proofs.pickup ? this.places.photoUrl(proofs.pickup) : null,
+      pickupPhotoUrl: (rec.pickupPhotoUploadId ?? proofs.pickup) ? this.places.photoUrl((rec.pickupPhotoUploadId ?? proofs.pickup)!) : null,
       dropoffPhotoUrl: proofs.dropoff ? this.places.photoUrl(proofs.dropoff) : null,
       placedAt: rec.createdAt,
     };

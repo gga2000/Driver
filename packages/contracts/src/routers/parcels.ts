@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CourierParcelInput, CourierParcelPinInput, CourierParcelRefusal, CourierParcelView, ParcelDoorPage, ParcelDoorPageInput, ParcelIdInput, ParcelQuote, ParcelQuoteInput, ParcelView, SendParcelInput, SetParcelDoorInput } from '../parcels-io.js';
+import { CourierParcelInput, CourierParcelPhotoInput, CourierParcelPinInput, CourierParcelRefusal, CourierParcelView, ParcelDoorPage, ParcelDoorPageInput, ParcelIdInput, ParcelQuote, ParcelQuoteInput, ParcelView, SendParcelInput, SetParcelDoorInput } from '../parcels-io.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 
 /**
@@ -19,6 +19,7 @@ export const parcelsRouter = router({
     job: protectedProcedure().input(CourierParcelInput).output(CourierParcelView).query(({ ctx, input }) => ctx.parcels.courierJob(ctx.actor, input)),
     checkPin: protectedProcedure().input(CourierParcelPinInput).output(CourierParcelView).mutation(({ ctx, input }) => ctx.parcels.checkPin(ctx.actor, input)),
     refusalPreview: protectedProcedure().input(CourierParcelInput).output(CourierParcelRefusal).query(({ ctx, input }) => ctx.parcels.refusalPreview(ctx.actor, input)),
+    pickupPhoto: protectedProcedure().input(CourierParcelPhotoInput).output(CourierParcelView).mutation(({ ctx, input }) => ctx.parcels.pickupPhoto(ctx.actor, input)),
     refuse: protectedProcedure().input(CourierParcelInput).output(CourierParcelView).mutation(({ ctx, input }) => ctx.parcels.refuse(ctx.actor, input)),
   }),
   door: router({
