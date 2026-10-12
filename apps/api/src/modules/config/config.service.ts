@@ -64,4 +64,15 @@ export class ConfigService {
   dispatchFor(cityId: string, vertical: Vertical): DispatchConfig | undefined {
     return this.city(cityId)?.dispatch[vertical];
   }
+
+  /** Food carts are open to customers in this city (`foodCarts.launched`, off when absent). */
+  foodCartsOpen(cityId: string): boolean {
+    return this.city(cityId)?.foodCarts?.launched === true;
+  }
+
+  /** Demo APIs and end-to-end tests only: open or close food carts. Production never calls it. */
+  setFoodCartsOpen(cityId: string, launched: boolean): void {
+    const c = this.city(cityId);
+    if (c) this.cities.set(cityId, { ...c, foodCarts: { launched } });
+  }
 }

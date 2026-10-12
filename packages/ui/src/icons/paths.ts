@@ -81,6 +81,8 @@ export const ICONS = {
   'chevron-back': [{ d: 'M14.5 5.5 8 12l6.5 6.5' }],
   'chevron-down': [{ d: 'M5.5 9.5 12 16l6.5-6.5' }],
   'arrow-forward': [{ d: 'M4 12h15M13.5 6l6 6-6 6' }],
+  /** Someone walking (food carts: the walk-over minutes, «أجي آخذه»); faces the reading direction. */
+  walk: [{ circle: [13.5, 4.5, 1.75] }, { d: 'M12.75 8 11 13.5' }, { d: 'M11 13.5 8.75 17 7.5 21' }, { d: 'M11 13.5l2.75 3.25.75 4.25' }, { d: 'M8.5 12l1.75-3.25 2.5-.75 1.75 2.75 2.5 1' }],
   'arrow-back': [{ d: 'M20 12H5M10.5 6l-6 6 6 6' }],
   // Top-down car seat (matches the seat map): cushion, backrest along the rear edge.
   seat: [
@@ -215,6 +217,7 @@ export const MIRRORED: ReadonlySet<IconName> = new Set<IconName>([
   'arrow-forward',
   'arrow-back',
   'send',
+  'walk',
 ]);
 
 export const ICON_NAMES = Object.keys(ICONS) as IconName[];
