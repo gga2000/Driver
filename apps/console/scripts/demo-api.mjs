@@ -68,6 +68,13 @@ const { SimulatorService } = await load('modules/simulator/index.js');
 const { AZIZIYAH_RESTAURANTS } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts/seeds')).href);
 
 const app = await createApp();
+// The studio opens every service so all screens stay reviewable; launch day itself is the city file's
+// `launchedVerticals` (food, taxi, tuktuk). DEMO_LAUNCH_SCOPE=1 keeps the launch-day scope instead.
+if (process.env.DEMO_LAUNCH_SCOPE !== '1') {
+  const { ConfigService } = await load('modules/config/index.js');
+  const config = app.get(ConfigService);
+  config.setLaunchedVerticals('aziziyah', config.city('aziziyah').verticals.map((v) => v.vertical));
+}
 const people = {};
 app.use('/demo/seed', (_req, res) => {
   res.setHeader('content-type', 'application/json');
@@ -440,7 +447,7 @@ await ops.merchantOnboarding(actor(haider), {
   name: 'فلافل أبو علي',
   type: 'restaurant',
   contact: { name: 'أبو علي', phone: '07730000001' },
-  location: { zoneKey: 'hashimi' },
+  location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
   menuPhotoUploadIds: [await upload(haider, await render(menu('فلافل أبو علي', [['لفة فلافل', '1,000'], ['صمونة فلافل', '750'], ['صحن فلافل', '3,000'], ['عمبة إضافية', '250']])))],
   shopPhotoUploadId: await upload(haider, await render(scene('فلافل أبو علي', 'شارع المحدود · الهاشمي', '#e9a65b', '#d9c7a8'))),
   notes: 'يفتح من 4 العصر لحد 12 بالليل',

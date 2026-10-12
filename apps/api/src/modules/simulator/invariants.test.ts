@@ -94,3 +94,36 @@ describe('booked_ride_waits_for_its_search (step 4, c10)', () => {
     expect(r.examples[0]).toMatch(/r1: 1 offer\(s\) from 2026-10-06T10:20:00.000Z, search starts 2026-10-06T10:30:00.000Z/);
   });
 });
+
+describe('merchant_cash_held_within_courier_cash', () => {
+  const line = (type: LedgerEvent['type'], amount: number, fromAccount: string, toAccount: string): LedgerEvent => ({ id: `le_${type}_${amount}_${fromAccount}`, kind: 'money', type, amount, currency: 'IQD', fromAccount, toAccount, occurredAt: AT, recordedAt: AT });
+  const check = (s: SimSnapshot) => checkInvariants(s).find((r) => r.name === 'merchant_cash_held_within_courier_cash')!;
+
+  it('passes while the restaurants show no more with a courier than he holds, fails once they do', () => {
+    // He collected 16,500 and handed 15,500 in to the company: he holds 1,000.
+    const ledger = [line('cash_collected', 16_500, 'cash:k1', 'customer:c1'), line('driver_settlement', 15_500, 'bank', 'cash:k1')];
+    const ok = { ...snapshot([], ledger), merchants: [{ merchantId: 'm1', balanceIqd: 12_750, holders: [{ courierId: 'k1', amountIqd: 1_000 }] }] };
+    expect(check(ok)).toMatchObject({ checked: 1, violations: 0 });
+    const stale = { ...snapshot([], ledger), merchants: [{ merchantId: 'm1', balanceIqd: 12_750, holders: [{ courierId: 'k1', amountIqd: 12_750 }] }] };
+    expect(check(stale)).toMatchObject({ violations: 1 });
+  });
+
+  it('fails when one hand-in is taken off every restaurant he carried for (cash shown with the company that is still in his hand)', () => {
+    const g = (id: string, type: LedgerEvent['type'], amount: number, fromAccount: string, toAccount: string, postingGroupId?: string): LedgerEvent => ({ id, kind: 'money', type, amount, currency: 'IQD', fromAccount, toAccount, occurredAt: AT, recordedAt: AT, ...(postingGroupId ? { postingGroupId } : {}) });
+    // Two cash orders, one for m1 and one for m2 (12,750 net each), then 12,750 handed in to the company.
+    const ledger = [
+      g('a1', 'cash_collected', 16_500, 'cash:k1', 'customer:c1', 'order:o1:money'),
+      g('a2', 'merchant_payable', 12_750, 'platform', 'merchant_cash:m1', 'order:o1:money'),
+      g('b1', 'cash_collected', 16_500, 'cash:k1', 'customer:c2', 'order:o2:money'),
+      g('b2', 'merchant_payable', 12_750, 'platform', 'merchant_cash:m2', 'order:o2:money'),
+      g('h1', 'driver_settlement', 12_750, 'bank', 'cash:k1'),
+    ];
+    const merchants = (m1: number, m2: number) => [
+      { merchantId: 'm1', balanceIqd: 12_750, holders: m1 ? [{ courierId: 'k1', amountIqd: m1 }] : [] },
+      { merchantId: 'm2', balanceIqd: 12_750, holders: m2 ? [{ courierId: 'k1', amountIqd: m2 }] : [] },
+    ];
+    expect(check({ ...snapshot([], ledger), merchants: merchants(5_500, 12_750) })).toMatchObject({ violations: 0 });
+    // The hand-in counted against both restaurants: neither shows him holding anything.
+    expect(check({ ...snapshot([], ledger), merchants: merchants(0, 0) })).toMatchObject({ violations: 1 });
+  });
+});

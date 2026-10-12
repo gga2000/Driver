@@ -13,7 +13,7 @@ import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/peri
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
-import { useLinkedFilters } from '@/lib/url-state';
+import { readParams, useLinkedFilters, type LinkParams } from '@/lib/url-state';
 import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
 import { useNames } from '@/lib/names';
@@ -22,6 +22,7 @@ import { OrdersExportButton } from './orders-export';
 import { OrderRef, OrgName, PersonName } from './named';
 import { OrderStatus } from './order-status';
 import { PeriodPicker } from './period-picker';
+import { SavedViewsBar } from './saved-views';
 import {
   Button,
   CountBadge,
@@ -53,6 +54,19 @@ const LINK_ALLOWED = {
   sort: ['newest', 'late'],
 };
 
+/** The list setup a link (or a saved view) asks for, already checked against LINK_ALLOWED. */
+function fromLink(got: LinkParams): Partial<ListFilter> {
+  const preset = (got['period'] ?? EMPTY_FILTER.period.preset) as PeriodPreset;
+  return {
+    ...(got['view'] ? { view: got['view'] as OrderView } : {}),
+    ...(got['period'] ? { period: { preset, ...(preset === 'custom' ? { fromDay: DAY.test(got['from'] ?? '') ? got['from'] : undefined, toDay: DAY.test(got['to'] ?? '') ? got['to'] : undefined } : {}) } } : {}),
+    ...(got['type'] ? { type: got['type'] as OrderType } : {}),
+    ...(got['shop'] ? { merchantOrgId: got['shop'] } : {}),
+    ...(got['zone'] ? { zoneKey: got['zone'] } : {}),
+    ...(got['pay'] ? { payment: got['pay'] as PaymentMethod } : {}),
+  };
+}
+
 /**
  * Order history (`orders.search`): saved views (الكل، شغّالة، متأخرة، ملغية، نزاعات) over every state,
  * a period on the city's clock, and the narrowing filters, all on the server; newest first or the
@@ -73,34 +87,45 @@ export function OrdersPage() {
   const set = (patch: Partial<ListFilter>) => setFilter((f) => ({ ...f, ...patch }));
 
   // The view, period and filters live in the link, so a teammate opening it sees the same list.
+  const linked: LinkParams = {
+    view: filter.view,
+    period: filter.period.preset,
+    from: filter.period.preset === 'custom' ? (filter.period.fromDay ?? '') : '',
+    to: filter.period.preset === 'custom' ? (filter.period.toDay ?? '') : '',
+    type: filter.type,
+    shop: filter.merchantOrgId,
+    zone: filter.zoneKey,
+    pay: filter.payment,
+    sort: sort ?? '',
+  };
   useLinkedFilters(
-    {
-      view: filter.view,
-      period: filter.period.preset,
-      from: filter.period.preset === 'custom' ? (filter.period.fromDay ?? '') : '',
-      to: filter.period.preset === 'custom' ? (filter.period.toDay ?? '') : '',
-      type: filter.type,
-      shop: filter.merchantOrgId,
-      zone: filter.zoneKey,
-      pay: filter.payment,
-      sort: sort ?? '',
-    },
+    linked,
     LINK_DEFAULTS,
     (got) => {
-      const preset = (got['period'] ?? EMPTY_FILTER.period.preset) as PeriodPreset;
-      setFilter((f) => ({
-        ...f,
-        ...(got['view'] ? { view: got['view'] as OrderView } : {}),
-        ...(got['period'] ? { period: { preset, ...(preset === 'custom' ? { fromDay: DAY.test(got['from'] ?? '') ? got['from'] : undefined, toDay: DAY.test(got['to'] ?? '') ? got['to'] : undefined } : {}) } } : {}),
-        ...(got['type'] ? { type: got['type'] as OrderType } : {}),
-        ...(got['shop'] ? { merchantOrgId: got['shop'] } : {}),
-        ...(got['zone'] ? { zoneKey: got['zone'] } : {}),
-        ...(got['pay'] ? { payment: got['pay'] as PaymentMethod } : {}),
-      }));
+      setFilter((f) => ({ ...f, ...fromLink(got) }));
       if (got['sort']) setSort(got['sort'] as ListSort);
     },
     LINK_ALLOWED,
   );
+  // A saved view (o5) replaces the whole list setup; the search box keeps what is typed.
+  const openSaved = (params: LinkParams) => {
+    const got = readParams(new URLSearchParams(params).toString(), LINK_DEFAULTS, LINK_ALLOWED);
+    setFilter((f) => ({ ...EMPTY_FILTER, q: f.q, ...fromLink(got) }));
+    setSort((got['sort'] as ListSort | undefined) ?? null);
+  };
+  const merchants = useMerchants();
+  const suggestName = () =>
+    [
+      filter.view !== 'all' ? t(`console.orders_view_${filter.view}` as MessageKey) : null,
+      filter.type !== 'all' ? orderTypeLabel(filter.type) : null,
+      filter.merchantOrgId ? (merchants.data?.find((m) => m.merchantId === filter.merchantOrgId)?.name ?? null) : null,
+      filter.zoneKey ? zoneName(filter.zoneKey) : null,
+      filter.payment !== 'all' ? paymentLabel(filter.payment) : null,
+      filter.period.preset !== EMPTY_FILTER.period.preset && !ORDER_VIEWS[filter.view].now ? rangeWords(filter.period, now) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+      .slice(0, 40) || t('console.orders_saved_label');
   const setView = (view: OrderView) => {
     set({ view });
     setSort(null);
@@ -283,6 +308,8 @@ export function OrdersPage() {
           <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
             <OrdersExportButton input={input} fileTag={`${filter.view}-${filter.period.preset}-${now.toISOString().slice(0, 10)}`} />
           </FilterBar>
+
+          <SavedViewsBar current={linked} defaults={LINK_DEFAULTS} suggest={suggestName} onOpen={openSaved} />
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">
             {lookup ? (

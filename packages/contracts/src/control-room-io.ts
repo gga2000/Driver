@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Actor } from './identity-io.js';
+import type { Actor, EndAllSessionsInput, EndAllSessionsOutput } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
 import { HhMm, LocalDate } from './store-hours.js';
 import { VehicleFeature } from './vehicle-features.js';
@@ -319,6 +319,8 @@ export const PublicSeason = z.object({
   /** Present on every day of a Ramadan period, quiet or not (iftar is service, not celebration). */
   ramadan: RamadanToday.nullable(),
   homeCard: SeasonHomeCard.nullable(),
+  /** The services launched in the asked city (city config); apps hide the tiles of the rest. Absent from older servers. */
+  launched: z.array(Vertical).optional(),
 });
 export type PublicSeason = z.infer<typeof PublicSeason>;
 
@@ -535,6 +537,8 @@ export const RoundStop = z.object({
       name: z.string().nullable(),
       /** Still in his hand. */
       heldIqd: Iqd,
+      /** What the round takes from him now: what he owes the company, never more than he holds (the rest is his own pay). */
+      dueIqd: Iqd,
       overCap: z.boolean(),
       /** What field ops took from him on tonight's round (sum), the last time and reference; null = not yet. */
       collected: RoundCollection.nullable().optional(),
@@ -592,6 +596,66 @@ export type SettlementExportInput = z.input<typeof SettlementExportInput>;
 
 export const SettlementExport = z.object({ filename: z.string(), csv: z.string(), rows: z.number().int() });
 export type SettlementExport = z.infer<typeof SettlementExport>;
+
+// ───────────────────────── money out (finance) ─────────────────────────
+
+/** How the company pays out (ZainCash wallet, at an agent, by the ops round, bank transfer). */
+export const PayoutChannel = z.enum(['zaincash', 'agent', 'ops_round', 'bank']);
+export type PayoutChannel = z.infer<typeof PayoutChannel>;
+
+/** `finance.payMerchant`: the company pays a restaurant what it is owed (all of it, or part). */
+export const PayMerchantInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  merchantId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  channel: PayoutChannel.exclude(['agent']),
+  /** One per opened form: a double click or a retry posts once (it fixes the settlement reference). */
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type PayMerchantInput = z.input<typeof PayMerchantInput>;
+
+/** `finance.payDriver`: the company pays a driver what it owes him beyond the cash he holds (G-86). */
+export const PayDriverInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  driverId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  channel: PayoutChannel,
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type PayDriverInput = z.input<typeof PayDriverInput>;
+
+export const PayoutResult = z.object({
+  /** The settlement reference (G-82) to type into the transfer note. */
+  reference: z.string(),
+  amountIqd: Iqd,
+  /** Restaurant: what it is still owed. Driver: what the company still owes him. */
+  leftIqd: z.number().int(),
+});
+export type PayoutResult = z.infer<typeof PayoutResult>;
+
+/** Money accounts a correction may touch (never points). */
+export const AdjustmentAccount = z.string().regex(/^(platform|bank|rounding|driver:[^:]+|cash:[^:]+|merchant_cash:[^:]+|customer:[^:]+|household:[^:]+|promo:[^:]+)$/);
+
+/** `finance.adjust`: a hand-written ledger correction (G-85) with a reason and a linked support ticket or incident. */
+export const AdjustInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  fromAccount: AdjustmentAccount,
+  toAccount: AdjustmentAccount,
+  amountIqd: Iqd.positive(),
+  reason: z.string().trim().min(5).max(500),
+  /** A support ticket (`tk_…`) or a ledger incident id. */
+  incidentId: z.string().min(1).max(64),
+});
+export type AdjustInput = z.input<typeof AdjustInput>;
+
+export const AdjustResult = z.object({
+  adjustmentId: z.string(),
+  status: z.enum(['posted', 'pending_second_approval']),
+  amountIqd: Iqd,
+  /** Above the second-approver line: the request waiting in the second-OK queue (`support.refundApprovals`). */
+  approvalId: z.string().nullable(),
+});
+export type AdjustResult = z.infer<typeof AdjustResult>;
 
 // ───────────────────────── launch metrics wall ─────────────────────────
 
@@ -652,6 +716,8 @@ export interface ControlsPort {
   screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens>;
   screenSwitches(cityId: string): Promise<ScreenSwitchView[]>;
   setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView>;
+  /** Admins: every session of a staff member ends on every device (`identity.endAllSessions`), audited. */
+  endAllSessions(actor: Actor, input: z.output<typeof EndAllSessionsInput>): Promise<z.output<typeof EndAllSessionsOutput>>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */
@@ -660,5 +726,8 @@ export interface ControlRoomPort {
   decide(actor: Actor, input: DecideApprovalInput): Promise<DecideApprovalOutput>;
   finance(actor: Actor, input: z.output<typeof FinanceInput>): Promise<FinanceDeskView>;
   exportSettlement(actor: Actor, input: z.output<typeof SettlementExportInput>): Promise<SettlementExport>;
+  payMerchant(actor: Actor, input: z.output<typeof PayMerchantInput>): Promise<PayoutResult>;
+  payDriver(actor: Actor, input: z.output<typeof PayDriverInput>): Promise<PayoutResult>;
+  adjust(actor: Actor, input: z.output<typeof AdjustInput>): Promise<AdjustResult>;
   metrics(input: z.output<typeof MetricsInput>): Promise<LaunchMetricsView>;
 }

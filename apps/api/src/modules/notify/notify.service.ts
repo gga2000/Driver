@@ -205,6 +205,11 @@ export class NotifyService implements NotifyPort {
     return this.wired().repo.deleteSessionTokens(sessionId);
   }
 
+  /** A closed account: every push token he registered goes, in the closing transaction. */
+  removePersonTokens(personId: string, tx?: Tx): Promise<number> {
+    return this.wired().repo.deletePersonTokens(personId, tx);
+  }
+
   whatsAppStatus(messageId: string, status: 'sent' | 'delivered' | 'read' | 'failed', at: Date, error: string | null): Promise<boolean> {
     return this.wired().engine.whatsAppStatus(messageId, status, at, error);
   }

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { ControlsModule } from '../controls/index.js';
 import { DispatchModule, DispatchService } from '../dispatch/index.js';
 import { EventsModule } from '../events/index.js';
@@ -29,7 +30,7 @@ async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
  * and his vehicle from trips/tracking/dispatch; names and numbers through identity (logged vault
  * reads); texts the caller through notify; audits through controls.
  *
- * Env: SHARE_LINK_BASE_URL (the trip link in the SMS, default https://driver.iq).
+ * Env: SHARE_LINK_BASE_URL (the trip link in the SMS; unset: the SMS goes without the link).
  */
 @Module({
   imports: [ControlsModule, DispatchModule, EventsModule, IdentityModule, NotifyModule, OrdersModule, PlacesModule, PricingModule, RoutingModule, TrackingModule, TripsModule],
@@ -69,8 +70,10 @@ async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
         // The caller's own «شارك» link (made for him, as the night auto-share does).
         shareLink: (personId, orderId) =>
           orNull(async () => {
+            const base = baseUrlFromEnv('SHARE_LINK_BASE_URL');
+            if (!base) return null; // unset: the SMS goes without «تابعه»
             const link = await shares.createShareLink({ personId, sessionId: 'system:phone_booking' }, { orderId });
-            return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
+            return `${base}${link.path}`;
           }),
       }),
       inject: [SavedPlacesService, PricingService, EtaService, TripsService, COURIER_VEHICLES, DispatchService, ShareLinksService],

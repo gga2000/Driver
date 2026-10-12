@@ -34,6 +34,7 @@ import {
   ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
+  ReceiveCourierCashInput,
   SetAvailabilityInput,
   SetDealActiveInput,
   SetModifiersInput,
@@ -102,6 +103,8 @@ export const merchantAdminRouter = router({
     statement: p.input(StatementInput).output(WeeklyStatement).query(({ ctx, input }) => ctx.merchantAdmin.moneyStatement(ctx.actor, input)),
     disputes: p.input(MerchantScope).output(z.array(MerchantDispute)).query(({ ctx, input }) => ctx.merchantAdmin.moneyDisputes(ctx.actor, input)),
     respondDispute: p.input(RespondDisputeInput).output(MerchantDispute).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyRespondDispute(ctx.actor, input)),
+    /** The restaurant takes its cash from a courier (owner; the courier's daily code confirms). */
+    receiveCourierCash: p.input(ReceiveCourierCashInput).output(MerchantCashAccount).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyReceiveCourierCash(ctx.actor, input)),
   }),
   insights: p.input(InsightsInput).output(MerchantInsights).query(({ ctx, input }) => ctx.merchantAdmin.insights(ctx.actor, input)),
   /** S-M6: the day's summary card (at close, or from 00:30 for the day before); owner and staff. */

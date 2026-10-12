@@ -55,3 +55,11 @@ describe('sections', () => {
     expect(isSectionRoot(['delivery-area'])).toBe(false); // a screen under المزيد: back button, no tab bar
   });
 });
+
+describe('route guard: staff alerts', () => {
+  it('lets a signed-in staff member stay on the staff-alert screen, with or without a store', () => {
+    expect(resolveGuard({ status: 'signedIn', access: 'none', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedIn', access: 'pick', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedOut', access: 'loading', segments: ['staff-alert'] })).toBe('/welcome');
+  });
+});

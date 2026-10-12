@@ -135,6 +135,7 @@ export const NotifyTemplateId = z.enum([
   'phone_ride_matched',
   'phone_driver_arrived',
   'merchant_new_order',
+  'merchant_order_cancelled',
   'partner_new_job',
   'partner_zone_nudge',
   'ride_nudge',
@@ -158,6 +159,7 @@ export const NotifyTemplateId = z.enum([
   'sos_desk_ring',
   'console_unwatched_alert',
   'console_live_down_alert',
+  'staff_new_device',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -252,10 +254,11 @@ export interface NotifyTemplateDef {
   /**
    * The SMS's own words (`sms.*` with `{name}` params) when SMS is a primary channel and says more than
    * the push (a link, a code), or when the person has no app at all (a ride booked by phone, step 4).
-   * `withCode` is used instead when the `code` param is set. Absent: the SMS is the WhatsApp text,
-   * else "title — body".
+   * `withCode` is used instead when the `code` param is set; `noLink` / `withCodeNoLink` when the
+   * message has no `link` param (the link's address is not configured). Absent: the SMS is the
+   * WhatsApp text, else "title — body".
    */
-  sms?: { key: MessageKey; withCode?: MessageKey };
+  sms?: { key: MessageKey; withCode?: MessageKey; noLink?: MessageKey; withCodeNoLink?: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -477,7 +480,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.order_delivered.title', body: 'push.order_delivered.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -487,7 +490,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.ride_completed.title', body: 'push.ride_completed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -554,6 +557,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     // Domain §8: "push + loud alert + optional SMS" — the SMS goes when the push is not confirmed in 30 s.
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  merchant_order_cancelled: {
+    id: 'merchant_order_cancelled',
+    category: 'work',
+    app: 'merchant',
+    // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
+    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   partner_new_job: {
@@ -734,7 +746,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.khat_sweep_dispatch.title', body: 'push.khat_sweep_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.driver.iq/safety']),
+    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.example.com/safety']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -745,7 +757,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.sos_dispatch.title', body: 'push.sos_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
-    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.driver.iq/safety/sos_123']),
+    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.example.com/safety/sos_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -768,7 +780,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.console_unwatched.title', body: 'push.console_unwatched.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.driver.iq']),
+    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.example.com']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -778,9 +790,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.console_live_down.title', body: 'push.console_live_down.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.driver.iq']),
+    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.example.com']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // A staff account signed in from a device never seen on it: every admin, push only, at any hour.
+  staff_new_device: {
+    id: 'staff_new_device',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
@@ -788,7 +809,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_emergency_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://driver.iq/sos/abc.def']),
+    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://app.example.com/sos/abc.def']),
     primary: ['whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -809,7 +830,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'trip_shared_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://driver.iq/share/shr_abc']),
+    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://app.example.com/share/shr_abc']),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -822,7 +843,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'customer',
     push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code' },
+    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code', noLink: 'sms.ride_for_rider_nolink', withCodeNoLink: 'sms.ride_for_rider_code_nolink' },
     primary: ['push', 'sms'],
     quietHours: 'send',
   },

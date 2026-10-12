@@ -4,9 +4,9 @@ import { t } from '@driver/i18n';
 import { codeValid, spreadBadges, collectAmountProblem, courierRoundState, normalizeCode, parseAmount, printRows, receiptKey, roundProgress, stopDone } from './round';
 
 const at = new Date('2026-10-05T20:10:00Z');
-const stop = (seq: number, zone: string, couriers: RoundStop['couriers']): RoundStop => ({ seq, zoneKey: zone, zone_ar: zone, couriers, totalIqd: couriers.reduce((a, c) => a + c.heldIqd, 0), collectedIqd: couriers.reduce((a, c) => a + (c.collected?.amountIqd ?? 0), 0) });
-const holding = (id: string, held: number, overCap = false) => ({ driverId: id, name: id, heldIqd: held, overCap, collected: null });
-const taken = (id: string, amount: number, left = 0) => ({ driverId: id, name: id, heldIqd: left, overCap: false, collected: { amountIqd: amount, at, reference: 'D-AAAA-0001' } });
+const stop = (seq: number, zone: string, couriers: RoundStop['couriers']): RoundStop => ({ seq, zoneKey: zone, zone_ar: zone, couriers, totalIqd: couriers.reduce((a, c) => a + c.dueIqd, 0), collectedIqd: couriers.reduce((a, c) => a + (c.collected?.amountIqd ?? 0), 0) });
+const holding = (id: string, due: number, overCap = false, pay = 0) => ({ driverId: id, name: id, heldIqd: due + pay, dueIqd: due, overCap, collected: null });
+const taken = (id: string, amount: number, left = 0, pay = 0) => ({ driverId: id, name: id, heldIqd: left + pay, dueIqd: left, overCap: false, collected: { amountIqd: amount, at, reference: 'D-AAAA-0001' } });
 
 describe('cash round mode (S-K5)', () => {
   it('progress: "جمعنا 612,000 من 746,710" from the desk numbers, couriers still holding, done', () => {
@@ -23,6 +23,9 @@ describe('cash round mode (S-K5)', () => {
     expect(courierRoundState(taken('a', 1))).toBe('collected');
     expect(courierRoundState(taken('a', 1, 500))).toBe('partial');
     expect(courierRoundState(holding('a', 500))).toBe('holding');
+    // What is left in his hand after the round took what he owed is his own pay: he is done.
+    expect(courierRoundState(taken('a', 1, 0, 6_000))).toBe('collected');
+    expect(stopDone(stop(1, 'x', [taken('a', 1, 0, 6_000)]))).toBe(true);
     expect(stopDone(stop(1, 'x', [taken('a', 1), taken('b', 2)]))).toBe(true);
     expect(stopDone(stop(1, 'x', [taken('a', 1), holding('b', 2)]))).toBe(false);
     expect(stopDone(stop(1, 'x', []))).toBe(false);
@@ -43,7 +46,9 @@ describe('cash round mode (S-K5)', () => {
   });
 
   it('the printed route: stop by stop, the ones still holding first, the stop named once', () => {
-    const rows = printRows({ stops: [stop(1, 'المركز', [taken('a', 400_000), holding('b', 84_710, true)]), stop(2, 'زاكور', [holding('c', 50_000)])] });
+    const rows = printRows({ stops: [stop(1, 'المركز', [taken('a', 400_000), holding('b', 84_710, true, 3_000)]), stop(2, 'زاكور', [holding('c', 50_000)])] });
+    // The sheet says what to take from him, not what he holds.
+    expect(rows.find((r) => r.driverId === 'b')?.dueIqd).toBe(84_710);
     expect(rows.map((r) => [r.seq, r.firstOfStop, r.driverId, r.collected])).toEqual([
       [1, true, 'b', false],
       [1, false, 'a', true],

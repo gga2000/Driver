@@ -13,6 +13,7 @@ import type { SimulatorService } from '../simulator/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { CONSOLE_DRIVER_SEARCH_PURPOSE, CONSOLE_NAMES_PURPOSE, CONSOLE_ORDER_SEARCH_PURPOSE, ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
+import { SMS_DAY_KEY, SMS_DAY_MS } from '../../shared/sms-budget.js';
 
 const START = '2026-10-03T09:00:00Z';
 const SYSTEM = { personId: 'system' };
@@ -37,7 +38,8 @@ async function world() {
   const fleetRepo = new InMemoryFleetRepository();
   const fleet = new FleetService(fleetRepo, id.service, undefined as never, d.service, undefined as never, ev.events, undefined as never, d.clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository());
-  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator, fleet, catalog);
+  // The identity harness's window counter: its sign-in codes are the day's SMS.
+  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator, fleet, catalog, undefined, undefined, id.counter);
 
   // Three couriers and a khat driver; a customer who never drives.
   const people: Record<string, string> = {};
@@ -284,6 +286,14 @@ describe('ConsoleReadService', () => {
     expect(m).toMatchObject({ merchantId: kebab.id, name: 'كباب', type: 'restaurant', mode: 'daily_zaincash', overExposure: false });
     expect(m!.balanceIqd).toBe((await w.l.merchantCash.balance(kebab.id)).balanceIqd);
     expect(m!.balanceIqd).toBeGreaterThan(0);
+  });
+
+  it('smsDay: the last 24 h of SMS from the shared counter, against the daily budget', async () => {
+    const w = await world();
+    // Five people signed in: five sign-in codes by SMS.
+    expect(await w.reads.smsDay()).toEqual({ sent: 5, budget: 4500 });
+    await w.id.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER); // a notification text
+    expect((await w.reads.smsDay()).sent).toBe(6);
   });
 
   it('simulator controls delegate to the live simulator (status, start, stop)', async () => {

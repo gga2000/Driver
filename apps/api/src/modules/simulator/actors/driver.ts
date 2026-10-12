@@ -435,7 +435,17 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
   const status = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
   if (!status) return;
   if (!opts.force && status.owedIqd < status.capIqd * DRIVER_BEHAVIOUR.settleAtShareOfCap) return;
-  const route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+  let route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+  // Every other time, he meets field ops / an agent before the restaurants and hands in only the
+  // company's own part: the restaurants' cash stays with him and his return route must still show it.
+  if (!opts.merchantsOnly && d.seq % 2 === 0) {
+    const companyPart = status.owedIqd - route.reduce((n, r) => n + r.amountIqd, 0);
+    if (route.length > 0 && companyPart > 0) {
+      d.seq += 1;
+      await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: companyPart, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
+      route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+    }
+  }
   for (const stop of route) {
     d.seq += 1;
     const done = await ctx.call('driver.handover', () =>
@@ -448,5 +458,11 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
   if (after && after.owedIqd > 0) {
     d.seq += 1;
     await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: after.owedIqd, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
+  }
+  // G-86: once the company owes him more than the payout line, finance pays him (ZainCash).
+  const owedToHim = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
+  if (owedToHim && owedToHim.payoutDueIqd > 0) {
+    d.seq += 1;
+    await ctx.call('finance.pay_driver', () => ctx.s.merchantCash.recordDriverPayout({ driverId: d.personId, amountIqd: owedToHim.payoutDueIqd, channel: 'zaincash', reference: `PO-${d.def.key}-${d.seq}` }));
   }
 }

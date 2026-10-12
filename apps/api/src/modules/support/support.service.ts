@@ -7,6 +7,7 @@ import {
   DriverError,
   TERMINAL_ORDER_STATES,
   type Actor,
+  type RequestDeletionOutput,
   type CannedResponse,
   type ChatMessage,
   type ChatThreadKind,
@@ -96,6 +97,12 @@ const NAME_TTL_MS = 5 * 60_000;
 const ACTIVE: readonly TicketStatus[] = ['open', 'waiting', 'escalated'];
 /** Unresolved tickets read when listing trips whose trail must be kept (a busy week stays far below it). */
 const OPEN_INCIDENTS_SCAN = 1_000;
+
+/** One open account-deletion request per person (`requestDeletion`). */
+export function deletionKey(personId: string): string {
+  return `deletion:${personId}`;
+}
+const DELETION_SUBJECT_AR = 'طلب حذف الحساب';
 
 /** One pay objection per driver and job (`openDriverPayQuery`). */
 export function driverPayKey(driverId: string, jobKey: string): string {
@@ -456,6 +463,51 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
       return { t, created: true };
     });
     return { ticketId: ticket.t.id, openedAt: ticket.t.openedAt, alreadyOpen: !ticket.created };
+  }
+
+  /**
+   * «احذف حسابي» from the partner or merchant app (docs/api/account-close.md): a `deletion` case with
+   * him on it, one per person — asking again while it is open returns it, after it was resolved
+   * reopens it. An admin closes the account from the case once nothing stands in the way.
+   */
+  async requestDeletion(actor: Actor, input: { note?: string | undefined }): Promise<RequestDeletionOutput> {
+    const sourceKey = deletionKey(actor.personId);
+    const note = input.note?.trim() ? `${DELETION_SUBJECT_AR}: ${input.note.trim()}` : DELETION_SUBJECT_AR;
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const prior = await this.repo.bySourceKey(sourceKey, tx);
+      if (prior && prior.status !== 'resolved') return { ticketId: prior.id, openedAt: prior.openedAt, alreadyOpen: true };
+      if (prior) {
+        await this.repo.addEntry({ ticketId: prior.id, actorId: actor.personId, kind: 'reopen', text: note, amountIqd: null, meta: {}, idempotencyKey: null, at: now }, tx);
+        await this.repo.update(prior.id, { status: 'open', resolvedAt: null, resolution: null, reopenCount: prior.reopenCount + 1, slaDueAt: slaDueAt(now), lastActivityAt: now }, tx);
+        return { ticketId: prior.id, openedAt: now, alreadyOpen: false };
+      }
+      const t = await this.create(
+        { cityId: 'aziziyah', kind: 'deletion', channel: 'in_app', subject: DELETION_SUBJECT_AR, note, orderId: null, tripId: null, customerId: actor.personId, openedById: actor.personId, sourceKey },
+        tx,
+      );
+      return { ticketId: t.id, openedAt: t.openedAt, alreadyOpen: false };
+    });
+  }
+
+  /** The open `deletion` case of this person (what the account close resolves); false for any other ticket. */
+  async deletionCaseOpen(ticketId: string, personId: string): Promise<boolean> {
+    const t = await this.repo.get(ticketId);
+    return t !== null && t.kind === 'deletion' && t.customerId === personId && t.status !== 'resolved';
+  }
+
+  /**
+   * The account close resolves his deletion case, in its transaction. No «هل انحلت مشكلتك؟» survey: the
+   * account it would go to no longer exists. The close writes the audit row.
+   */
+  async resolveDeletion(actor: Actor, input: { ticketId: string; personId: string; resolution: string }): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const t = await this.repo.get(input.ticketId, tx);
+      if (!t || t.kind !== 'deletion' || t.customerId !== input.personId || t.status === 'resolved') throw new DriverError('invalid_input');
+      const now = this.clock.now();
+      await this.repo.addEntry({ ticketId: t.id, actorId: actor.personId, kind: 'resolve', text: input.resolution, amountIqd: null, meta: {}, idempotencyKey: null, at: now }, tx);
+      await this.touch(t, actor, { status: 'resolved', resolvedAt: now, resolution: input.resolution, firstResponseAt: t.firstResponseAt ?? now }, tx);
+    });
   }
 
   /** Whether the driver already sent an objection for this job (the receipt says "وصل اعتراضك"). */
@@ -973,9 +1025,9 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     const money = row.amountIqd.toLocaleString('en-US');
     const verb = { approved: 'انوافق على', declined: 'انرفض', cancelled: 'انلغى', pending: '' }[row.state];
     await this.approvalEvent(tx, row, actorId, now);
-    const subject = row.kind === 'ticket' ? { subjectKind: 'ticket', subjectId: row.ticketId! } : { subjectKind: 'order', subjectId: row.orderId! };
+    const subject = row.kind === 'ticket' ? { subjectKind: 'ticket', subjectId: row.ticketId! } : row.kind === 'adjustment' ? { subjectKind: 'ledger_adjustment', subjectId: String(row.payload['id'] ?? row.id) } : { subjectKind: 'order', subjectId: row.orderId! };
     await this.audits.record(
-      { cityId: row.cityId, actorId, action: `refund_approval.${row.state}`, ...subject, summaryAr: `${verb} تعويض ${money} دينار${row.declineNote ? ` — ${row.declineNote}` : ''}`, detail: { refundApprovalId: row.id, kind: row.kind, amountIqd: row.amountIqd, requestedBy: row.requestedBy, limit: row.limitKind } },
+      { cityId: row.cityId, actorId, action: `refund_approval.${row.state}`, ...subject, summaryAr: `${verb} ${row.kind === 'adjustment' ? 'تصحيح دفتر' : 'تعويض'} ${money} دينار${row.declineNote ? ` — ${row.declineNote}` : ''}`, detail: { refundApprovalId: row.id, kind: row.kind, amountIqd: row.amountIqd, requestedBy: row.requestedBy, limit: row.limitKind } },
       tx,
     );
     if (row.kind === 'ticket' && row.ticketId && row.state !== 'approved') {
@@ -994,7 +1046,7 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
   private async approvalViews(rows: RefundApprovalRecord[]): Promise<RefundApproval[]> {
     const names = await this.staff.of([...new Set(rows.flatMap((r) => [r.requestedBy, ...(r.decidedBy ? [r.decidedBy] : [])]))]);
     return rows.map((r) => {
-      const p = r.payload as { method?: 'wallet' | 'points'; faultParty?: FaultParty; note?: string | null; reason?: string };
+      const p = r.payload as { method?: 'wallet' | 'points'; faultParty?: FaultParty; note?: string | null; reason?: string; fromAccount?: string; toAccount?: string; incidentId?: string };
       return {
         id: r.id,
         kind: r.kind,
@@ -1012,8 +1064,14 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
         decidedBy: r.decidedBy ? { id: r.decidedBy, name: names[r.decidedBy] ?? null } : null,
         decidedAt: r.decidedAt,
         declineNote: r.declineNote,
+        adjustment: r.kind === 'adjustment' ? { fromAccount: p.fromAccount ?? '', toAccount: p.toAccount ?? '', incidentId: p.incidentId ?? '' } : null,
       };
     });
+  }
+
+  /** Whether a support ticket exists (a ledger correction may link one as its incident, G-85). */
+  async ticketExists(ticketId: string): Promise<boolean> {
+    return Boolean(await this.repo.get(ticketId).catch(() => null));
   }
 
   /** Wallet refunds are funded by the party at fault (the courier's earnings, the merchant's cash account); points always by the platform. */
@@ -1093,6 +1151,7 @@ const LIMIT_AR: Record<RefundApprovalLimit, string> = {
   agent_daily: 'فوق حدّك اليومي 10,000',
   customer_month: 'فوق 25,000 للزبون بالشهر',
   dispute: 'فوق 25,000 للشكوى',
+  adjustment: 'تصحيح دفتر فوق 25,000',
 };
 
 function faultAr(f: FaultParty): string {

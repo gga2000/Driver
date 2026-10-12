@@ -31,11 +31,13 @@ import {
 import { formatMinuteCount, t } from '@driver/i18n';
 import type { CallBridgePort } from '../../shared/call-bridge.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { nearestLandmark } from '../../shared/landmarks.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
-import { AuditLogService } from '../controls/index.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
+import { AuditLogService, ControlsService } from '../controls/index.js';
 import { DispatchService } from '../dispatch/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService, shortDisplayName } from '../identity/index.js';
@@ -66,11 +68,11 @@ export interface KhatPhotosPort {
 export interface KhatConfig {
   /** Minutes after the run's last child stop before a missing sweep alerts ops (`KHAT_RULES`). */
   sweepAlertAfterMin: number;
-  /** The Console origin, for the dispatchers' WhatsApp page ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The Console origin, for the dispatchers' WhatsApp page ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
 }
 
-export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin, consoleBase: 'https://console.driver.iq' };
+export const DEFAULT_KHAT_CONFIG: KhatConfig = { sweepAlertAfterMin: KHAT_RULES.sweepAlertAfterMin, consoleBase: null };
 
 export interface SweepCheckJob {
   tripId: string;
@@ -282,7 +284,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() @Inject(KHAT_CALLS) private readonly calls: CallBridgePort | null = null,
-    @Optional() @Inject(KHAT_QUEUE) private readonly queue: Queue<SweepCheckJob> | null = null,
+    @Optional() @Inject(KHAT_QUEUE) queue: Queue<SweepCheckJob> | null = null,
     @Optional() @Inject(KHAT_CONFIG) private readonly config: KhatConfig = DEFAULT_KHAT_CONFIG,
     // Both always bound by `KhatModule`; optional only so narrow harnesses can leave them out.
     @Optional() private readonly notify?: NotifyService,
@@ -290,8 +292,20 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     /** Child photos (Ali, 2026-10-06); absent in harnesses that don't need them (no photos then). */
     @Optional() @Inject(KHAT_PHOTOS) private readonly photos: KhatPhotosPort | null = null,
     /** The guardian's bus map road (N14); absent in harnesses (straight lines then). */
-    @Optional() private readonly eta: EtaService | null = null,
-  ) {}
+    @Optional() @Inject(EtaService) private readonly eta: EtaService | null = null,
+    /** Launch scope: خطوط takes no new pickups or absences until the city lists it. Absent in narrow harnesses. */
+    @Optional() private readonly controls?: ControlsService,
+  ) {
+    this.timers = queue ? new DurableTimers(queue, clock, () => uow.current()) : null;
+  }
+
+  /** FLW-22: the sweep check has a durable copy, so a lost Redis job or a failed run only delays it. */
+  private readonly timers: DurableTimers<SweepCheckJob> | null;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers?.bind(store, sweeper);
+  }
 
   /**
    * The children on runs this driver drives, by childRef: first name and the guardian's photo (signed).
@@ -380,7 +394,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    * that taps or settles a run another way (a stop completed through trips, a redelivered event).
    */
   onModuleInit(): void {
-    this.queue?.process(async (job) => {
+    this.timers?.process(async (job) => {
       if (job.name === SWEEP_CHECK_JOB) await this.checkSweep(job.data.tripId);
     });
     this.offs.push(
@@ -470,13 +484,13 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    * Idempotent (one job id per due time); a no-op without a child on board or once swept.
    */
   async armSweepTimer(tripId: string): Promise<void> {
-    if (!this.queue) return;
+    if (!this.timers) return;
     const trip = await this.trips.get(tripId);
     if (trip.vertical !== 'khat') return;
     const base = sweepBase(trip, await this.repo.absencesForTrips([trip.id]));
     if (!base || (await this.emptyCarCheckedAt(trip.id))) return;
     const dueAt = base.at.getTime() + this.config.sweepAlertAfterMin * 60_000;
-    await this.queue.add(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
+    await this.timers.schedule(SWEEP_CHECK_JOB, { tripId: trip.id }, { delayMs: Math.max(0, dueAt - this.clock.now().getTime()), jobId: jobKey('khat', 'sweep', trip.id, dueAt) });
   }
 
   /**
@@ -663,7 +677,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     if (to.length === 0) return;
     const name = (await this.identity.displayNamesFor([alert.driverId], 'system:khat', 'khat_sweep_page'))[alert.driverId]?.displayName ?? t('console.safety.role_driver');
     const n = Math.max(1, Math.floor((alert.raisedAt.getTime() - alert.runEndedAt.getTime()) / 60_000));
-    const params = { name, route: `#${orderTicketNumber(alert.tripId)}`, n, minutes: formatMinuteCount(n), link: `${this.config.consoleBase.replace(/\/$/, '')}/safety`, alertId: alert.id };
+    const params = { name, route: `#${orderTicketNumber(alert.tripId)}`, n, minutes: formatMinuteCount(n), link: consoleLinkParam(this.config.consoleBase, '/safety', alert.id), alertId: alert.id };
     for (const personId of to) {
       await this.notify.dispatch({ eventId: e.id, template: 'khat_sweep_dispatch_alert', to: personId, params, data: { alertId: alert.id, tripId: alert.tripId } }, tx);
     }
@@ -690,7 +704,10 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
     return { callId, mode: session.mode, dial: session.dial, counterpart: 'customer', expiresAt: session.expiresAt };
   }
 
-  tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip> {
+  async tapIn(actor: Actor, input: KhatTapInput): Promise<KhatRunTrip> {
+    // Only new boardings stop while خطوط is not launched: tap-outs, the empty-car check and calls
+    // always work, so a child already in the car is never stuck in it.
+    this.controls?.assertLaunched((await this.ownRun(actor, input.tripId)).cityId, 'khat');
     return this.tap(actor, input, 'in');
   }
 
@@ -737,6 +754,7 @@ export class KhatService implements KhatPort, OnModuleInit, OnModuleDestroy {
    */
   async reportAbsence(actor: Actor, input: ReportAbsenceInput): Promise<AbsenceView> {
     const trip = await this.ownRun(actor, input.tripId);
+    this.controls?.assertLaunched(trip.cityId, 'khat');
     const stops = trip.stops.filter((s) => s.childRef === input.childRef);
     if (stops.length === 0) throw new DriverError('khat_child_not_on_trip');
     const existing = await this.repo.absence(trip.id, input.childRef);

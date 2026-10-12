@@ -3,6 +3,7 @@ import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import { decodeRajaaPassPush } from '@driver/contracts';
 import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor, twinStillWanted } from './notify.subscribers.js';
+import { render } from './render.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -60,6 +61,10 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ord_1' }))).toEqual([]);
+    // No receipt address set: the receipt still goes, with «تلگاه بالتطبيق» and no link.
+    const noReceiptUrl = await requestsFor(event('order.delivered', {}, { orderId: 'ord_1' }), { ...d, receiptBaseUrl: null });
+    expect(noReceiptUrl.find((r) => r.template === 'order_receipt')?.params).toMatchObject({ receiptUrl: 'تلگاه بالتطبيق' });
+    expect(render('order_receipt', noReceiptUrl.find((r) => r.template === 'order_receipt')!.params as Record<string, string>, 'ar-IQ').whatsapp?.text).toBe('وصل طلبك من مطعم خالد. المجموع 12,500 دينار. الوصل: تلگاه بالتطبيق');
     // Maps program SP5b: "الدليفري يوصل بعد دقيقتين" with the cash to have ready; rides never get it.
     expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 480 }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([
       { template: 'courier_arriving', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', amount: '12,500', orderId: 'ord_1' } },
@@ -376,8 +381,13 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
     expect(out[1]).toMatchObject({ template: 'ride_for_rider', to: 'mum', params: { code: '4821' } });
   });
 
-  it('no link, no message; an unknown car or booker name still says who is coming', async () => {
-    expect((await run(matched, forMum({ shareLink: async () => null }))).map((r) => r.template)).toEqual(['ride_matched']);
+  it('no link (no share address set): the rider still hears who is coming, without the link; an unknown car or booker name still says who is coming', async () => {
+    const noLink = await run(matched, forMum({ shareLink: async () => null }));
+    expect(noLink.map((r) => r.template)).toEqual(['ride_matched', 'ride_for_rider']);
+    expect(noLink[1]!.params).toEqual({ booker: 'علي', driver: 'حيدر', car: 'تويوتا كورولا · أبيض', plate: 'بغداد 12345', orderId: 'ride_2' });
+    const sms = render('ride_for_rider', noLink[1]!.params as Record<string, string>, 'ar-IQ').sms;
+    expect(sms).toBe('درايفر: علي حجزلك مشوار. السايق حيدر جاي بـتويوتا كورولا · أبيض، اللوحة بغداد 12345.');
+    expect(render('ride_for_rider', { ...(noLink[1]!.params as Record<string, string>), code: '4821' }, 'ar-IQ').sms).toContain('رمز المشوار 4821');
     const out = await run(matched, forMum({ driverCar: async () => null, firstName: async (p) => (p === 'drv' ? 'حيدر' : null) }));
     expect(out[1]!.params).toMatchObject({ booker: 'واحد من أهلك', car: 'تكسي', plate: '—' });
   });
@@ -423,6 +433,22 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect(await run(cancel('payer_no_answer'))).toEqual([{ template: 'order_payer_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
+  });
+
+  it('an order the kitchen had accepted is cancelled: everyone at the store hears «انلغى طلب #…», once, whoever cancelled', async () => {
+    const cancel = (from: string, cancelledState: string, reason: string) => event('order.cancelled', { from, to: cancelledState, cancelledState, by: cancelledState === 'customer_cancelled' ? 'customer' : 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    const kitchen = [
+      { template: 'merchant_order_cancelled', to: 'staff', params: { id: '1284', orderId: 'ord_1' } },
+      { template: 'merchant_order_cancelled', to: 'owner', params: { id: '1284', orderId: 'ord_1' } },
+    ];
+    expect(await run(cancel('preparing', 'customer_cancelled', 'changed_mind'))).toEqual(kitchen);
+    expect(await run(cancel('merchant_accepted', 'customer_cancelled', 'staff_on_behalf'))).toEqual(kitchen);
+    // Staff ended it: the customer hears it from `order.ops_cancelled`, the kitchen from this event.
+    expect(await run(cancel('ready', 'platform_cancelled', 'staff_cancelled'))).toEqual(kitchen);
+    expect(await run(cancel('preparing', 'platform_cancelled', 'ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }, ...kitchen]);
+    // Not yet accepted: nothing was being cooked, so the kitchen's board just updates.
+    expect(await run(cancel('placed', 'customer_cancelled', 'changed_mind'))).toEqual([]);
+    expect(await run(event('order.ops_cancelled', { customerId: 'cust', from: 'preparing' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params: { id: '1284', orderId: 'ord_1' } }]);
   });
 
   it('picked up: the order screen’s own arrival time, or no time at all when none can be read', async () => {
@@ -527,5 +553,21 @@ describe('SMS twin still wanted', () => {
     expect(await twinStillWanted({ order: async () => Promise.reject(new Error('db down')) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
     // A lookup that does not say (an older binding without the field) is not "answered" either.
     expect(await twinStillWanted({ order: async (id) => ({ id, type: 'food', customerId: 'c', merchantOrgId: 'm', totalIqd: 0, itemCount: 1 }) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+  });
+});
+
+describe('staff.new_device', () => {
+  it('pushes every admin the event names, never the staff member himself', async () => {
+    const h = notifyHarness();
+    const d = { ...deps(h), lookups: { ...lookups, firstName: async (id: string) => (id === 'p_zainab' ? 'زينب' : null) } };
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    expect(NOTIFY_EVENT_TYPES).toContain('staff.new_device');
+    expect(await one(event('staff.new_device', { personId: 'p_zainab', platform: 'web', adminIds: ['p_ali', 'p_zainab'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'زينب', device: 'متصفح جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'android', adminIds: ['p_ali'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'موظف', device: 'موبايل جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'web', adminIds: [] }))).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  CLOSABLE_ROLES,
   DEFAULT_SAFETY_PREFS,
   DriverError,
   RIDE_RIDER_NAME_MAX,
@@ -10,6 +11,7 @@ import {
   searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
   SHARED_PHONE_FORBIDDEN_ROLES,
+  STAFF_SESSION_MAX_SEC,
   type Actor,
   type ChangePhoneConfirmInput,
   type ChangePhoneStartInput,
@@ -112,11 +114,11 @@ export class IdentityService implements IdentityPort {
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
-    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
+    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
     @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
-    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp, stagingTest);
+    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
@@ -139,7 +141,7 @@ export class IdentityService implements IdentityPort {
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
       const res = await this.otp.request(e164, hash, 'login', tx, input.channel, { ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
-      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel };
+      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel, whatsapp: res.whatsappAvailable };
     });
   }
 
@@ -170,7 +172,8 @@ export class IdentityService implements IdentityPort {
       const deviceId = input.device ? (await this.registerDevice(person.id, input.device, now, true, tx)).id : null;
       if (!isNew && this.isStagingTest(e164) && (await this.holdsStaffRole(person.id, tx))) throw new DriverError('forbidden');
       await this.markVerified(person.id, now, tx, isNew ? 'person.verified' : 'person.reverified', person.lastVerifiedAt === null);
-      const { tokens } = await this.sessions.open(person.id, deviceId, tx);
+      const staff = !isNew && (await this.holdsStaffRole(person.id, tx));
+      const { tokens } = await this.sessions.open(person.id, deviceId, tx, staff ? STAFF_SESSION_MAX_SEC : undefined);
       return { personId: person.id, isNew, tokens };
     });
   }
@@ -182,7 +185,19 @@ export class IdentityService implements IdentityPort {
     }
     const created = await this.repo.createDevice({ personId, fingerprint: device.fingerprint, platform: device.platform, appVersion: device.appVersion ?? null, verifiedAt: verified ? now : null, now }, tx);
     await this.events.emit(tx, { actorId: personId, type: 'device.registered', occurredAt: now, payload: { personId, deviceId: created.id, platform: device.platform, verified } }, { name: 'person', id: personId });
+    if (await this.holdsStaffRole(personId, tx)) await this.alertStaffDevice(personId, created.id, device.platform, now, tx);
     return created;
+  }
+
+  /**
+   * A staff member signed in from a device never seen on this account: every admin hears of it (the
+   * notify subscriber pushes `staff_new_device`), so a stranger on a staff account is noticed and
+   * can be cut off from the Console's «الموظفين» page.
+   */
+  private async alertStaffDevice(personId: string, deviceId: string, platform: string, now: Date, tx: Tx) {
+    const { people } = await this.repo.peopleWithRoles(['admin'], { limit: 50 }, tx);
+    const adminIds = people.filter(({ roles }) => roles.some((r) => r.kind === 'admin' && r.frozenAt === null)).map(({ person }) => person.id);
+    await this.events.emit(tx, { actorId: personId, type: 'staff.new_device', occurredAt: now, payload: { personId, deviceId, platform, adminIds } }, { name: 'person', id: personId });
   }
 
   /** Sets lastVerifiedAt, thaws frozen roles and emits person.verified (first time) or person.reverified. */
@@ -212,7 +227,9 @@ export class IdentityService implements IdentityPort {
         const d = await this.registerDevice(s.personId, device, now, false, tx);
         await this.freezeForReverification(s.personId, now, 'new_device', tx);
         return { deviceId: d.id };
-      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null));
+      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null),
+      // Staff sessions end 12 h after they opened, refreshes or not.
+      async (s) => ((await this.holdsStaffRole(s.personId, tx)) ? new Date(s.createdAt.getTime() + STAFF_SESSION_MAX_SEC * 1000) : null));
       await this.checkIdle(session.personId, now, tx);
       return tokens;
     });
@@ -224,6 +241,25 @@ export class IdentityService implements IdentityPort {
       if (refreshToken) await this.sessions.revokeByRefreshToken(refreshToken, tx);
       // Notify drops the push tokens this session registered (a signed-out phone gets nothing).
       await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: this.clock.now(), payload: { personId: actor.personId, sessionId: actor.sessionId } }, { name: 'person', id: actor.personId });
+    });
+  }
+
+  /**
+   * Ends every live session of a person on every device (their next call or refresh is refused, the
+   * auth cache drops them on every API machine) and drops each session's push tokens. Joins the
+   * caller's unit of work, so a role revoke or an audited admin action commits it with its own rows.
+   */
+  async endAllSessions(actor: Actor | { personId: string }, personId: string, reason: 'admin' | 'role_revoked'): Promise<{ ended: number }> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person) throw new DriverError('person_not_found');
+      const now = this.clock.now();
+      const ids = await this.repo.revokeSessionsOf(personId, now, tx);
+      for (const sessionId of ids) {
+        await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
+      await this.events.emit(tx, { actorId: actor.personId, type: 'session.all_ended', occurredAt: now, payload: { personId, endedBy: actor.personId, reason, sessions: ids.length } }, { name: 'person', id: personId });
+      return { ended: ids.length };
     });
   }
 
@@ -349,6 +385,9 @@ export class IdentityService implements IdentityPort {
       const now = this.clock.now();
       await this.repo.revokeRole(role.id, now, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'role.revoked', occurredAt: now, payload: { personId: input.personId, kind: input.kind, orgId, revokedBy: actor.personId } }, { name: 'person', id: input.personId });
+      // A staff role taken away ends every session the person has, in this same transaction: a device
+      // signed in before (a lost phone) can never pick the role up again when it is granted back.
+      if (STAFF_ROLES.includes(input.kind)) await this.endAllSessions(actor, input.personId, 'role_revoked');
     });
   }
 
@@ -962,6 +1001,56 @@ export class IdentityService implements IdentityPort {
       const refs = await this.repo.vaultRefs(personId, field, tx);
       await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: [field === 'documentRefs' ? 'document_refs' : 'selfie_refs'], now: this.clock.now() }, tx);
       return refs.map((r) => ({ ref: String(r['ref'] ?? ''), kind: String(r['kind'] ?? ''), recordId: String(r['recordId'] ?? ''), at: String(r['at'] ?? '') }));
+    });
+  }
+
+  // ───────────────────────── account close (docs/api/account-close.md) ─────────────────────────
+
+  /** Whether the Console closes this account (he holds or held a partner or merchant role) and when it was closed. */
+  async accountCloseState(personId: string): Promise<{ closable: boolean; closedAt: Date | null; roles: RoleKind[] }> {
+    const person = await this.repo.findPersonById(personId);
+    if (!person) throw new DriverError('person_not_found');
+    const roles = await this.repo.roleKindsEver(personId);
+    return { closable: roles.some((k) => (CLOSABLE_ROLES as readonly RoleKind[]).includes(k)), closedAt: person.deletedAt, roles };
+  }
+
+  /**
+   * Every storage file the vault points at for this person (document photos, check-in selfies, his
+   * main photo, the photos of children he enrolled), so the account close can delete the bytes before
+   * the refs go. A staff read: logged, and refused if the log row can't be written.
+   */
+  async storedFileRefs(personId: string, accessorId: string): Promise<string[]> {
+    return this.uow.run(async (tx) => {
+      const identity = await this.repo.readIdentity(personId, tx);
+      const refs = new Set<string>();
+      for (const field of ['documentRefs', 'selfieRefs'] as const) for (const r of await this.repo.vaultRefs(personId, field, tx)) if (typeof r['ref'] === 'string') refs.add(r['ref']);
+      if (identity?.mainPhotoRef) refs.add(identity.mainPhotoRef);
+      for (const c of await this.repo.childIdentitiesOf(personId, tx)) if (c.photoRef) refs.add(c.photoRef);
+      if (identity) await this.repo.logVaultAccess({ personId, accessorId, purpose: 'account_close', fieldsRead: ['document_refs', 'selfie_refs', 'main_photo_ref'], now: this.clock.now() }, tx);
+      return [...refs];
+    });
+  }
+
+  /**
+   * Closes the account (admin, from the Console): his identity, the children he enrolled, the names he
+   * gave or was given, his devices, sessions and sign-in codes are deleted and every role revoked, in
+   * the caller's transaction when there is one. His number is free again: signing in with it later
+   * makes a new account. False when he was already closed.
+   */
+  async closeAccount(personId: string, actorId: string): Promise<boolean> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const roles = await this.repo.rolesOf(personId, tx);
+      const closed = await this.repo.closeAccount(personId, now, tx);
+      if (!closed) return false;
+      // Each deleted session is announced as signed out, as a logout is: notify drops its push tokens.
+      for (const sessionId of closed.sessionIds) {
+        await this.events.emit(tx, { actorId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
+      for (const r of roles) {
+        await this.events.emit(tx, { actorId, type: 'role.revoked', occurredAt: now, payload: { personId, kind: r.kind, orgId: r.orgId, revokedBy: actorId } }, { name: 'person', id: personId });
+      }
+      return true;
     });
   }
 

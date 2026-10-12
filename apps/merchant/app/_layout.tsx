@@ -162,6 +162,7 @@ function RootNavigator() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: chrome.colors.bg } }} unstable_screenErrorBoundary={ScreenTrouble}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="not-activated" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="staff-alert" />
           <Stack.Screen name="stores" />
           <Stack.Screen name="index" options={{ animation: 'none' }} />
           <Stack.Screen name="menu/index" options={{ animation: 'none' }} />

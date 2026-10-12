@@ -27,9 +27,12 @@ describe('the restaurant map cards on home', () => {
     expect(night[3]?.line).toBe('home.map_card_sun_line_night');
   });
 
-  it('every picture is on the website', () => {
+  it('every picture is one the API serves (apps/api/media/food, a name its photo route accepts)', () => {
     for (const c of [...mapCards(false), ...mapCards(true)]) {
-      if (c.picture) expect(existsSync(resolve(__dirname, '../../../public', c.picture.slice(1)))).toBe(true);
+      if (!c.picture) continue;
+      const name = c.picture.replace('/media/food/', '');
+      expect(name).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/);
+      expect(existsSync(resolve(__dirname, '../../../../api/media/food', name))).toBe(true);
     }
   });
 

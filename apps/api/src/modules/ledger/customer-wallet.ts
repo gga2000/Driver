@@ -110,9 +110,8 @@ export function baghdadYearStart(now: Date): Date {
 }
 
 /**
- * «وفّرت هالسنة» (w10): what came back into the customer's account since 1 January — points spent on
- * fees and deals or promotions (`promo_funded`), the late-delivery credit and change kept in the wallet
- * (`cash_change_to_wallet`). Pure: the caller passes the account's events.
+ * «وفّرت هالسنة» (w10): what came off the customer's bills since 1 January (`savedBetween`).
+ * Pure: the caller passes the account's events.
  */
 export function savedThisYear(account: string, events: readonly LedgerEvent[], now: Date): number {
   return savedBetween(account, events, baghdadYearStart(now), new Date(now.getTime() + 1));
@@ -120,13 +119,16 @@ export function savedThisYear(account: string, events: readonly LedgerEvent[], n
 
 /**
  * «وفّرت» over `[from, to)`: the one definition behind the account header's year (w10) and the
- * month page «شهرك» (w6) — points spent on fees, deals and promotions (`promo_funded`), the
- * late-delivery credit and change kept in the wallet. Pure: the caller passes the account's events.
+ * month page «شهرك» (w6) — only what came off his bills (Ali, 2026-10-11): `promo_funded` paid into
+ * his account (deals, promotions, points used against fees, the الرجعة return discount). The change he
+ * kept in the wallet is his own money and the late-delivery credit is a make-good shown on its own
+ * («رجّعنالك …» in «دفترك»), so neither counts. The same total as the stats page's `savedOffBills`.
+ * Pure: the caller passes the account's events.
  */
 export function savedBetween(account: string, events: readonly LedgerEvent[], from: Date, to: Date): number {
   return events
     .filter((e) => e.kind === 'money' && e.toAccount === account && e.occurredAt.getTime() >= from.getTime() && e.occurredAt.getTime() < to.getTime())
-    .filter((e) => e.type === 'promo_funded' || e.type === 'cash_change_to_wallet' || (e.type === 'credit_issued' && e.memo === LATE_PROMISE_MEMO))
+    .filter((e) => e.type === 'promo_funded')
     .reduce((s, e) => s + e.amount, 0);
 }
 

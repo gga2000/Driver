@@ -16,7 +16,7 @@ export interface RoundProgress {
   leftIqd: number;
   /** 0–100 for the bar. */
   pct: number;
-  /** Couriers still holding cash. */
+  /** Couriers who still owe the round cash. */
   couriersLeft: number;
   done: boolean;
 }
@@ -24,7 +24,7 @@ export interface RoundProgress {
 export function roundProgress(r: Pick<Round, 'stops' | 'totalIqd' | 'collectedIqd' | 'targetIqd'>): RoundProgress {
   const collectedIqd = r.collectedIqd ?? 0;
   const targetIqd = r.targetIqd ?? r.totalIqd + collectedIqd;
-  const couriersLeft = r.stops.reduce((n, s) => n + s.couriers.filter((c) => c.heldIqd > 0).length, 0);
+  const couriersLeft = r.stops.reduce((n, s) => n + s.couriers.filter((c) => c.dueIqd > 0).length, 0);
   return {
     collectedIqd,
     targetIqd,
@@ -35,16 +35,19 @@ export function roundProgress(r: Pick<Round, 'stops' | 'totalIqd' | 'collectedIq
   };
 }
 
-/** `collected` — taken and nothing left on him; `partial` — taken, still holds some; `holding` — not yet. */
-export function courierRoundState(c: Pick<RoundCourier, 'heldIqd' | 'collected'>): 'collected' | 'partial' | 'holding' {
-  if (c.collected && c.heldIqd <= 0) return 'collected';
+/**
+ * `collected` — taken and he owes the company nothing more (what is left in his hand is his own pay);
+ * `partial` — taken, still owes some; `holding` — not yet.
+ */
+export function courierRoundState(c: Pick<RoundCourier, 'dueIqd' | 'collected'>): 'collected' | 'partial' | 'holding' {
+  if (c.collected && c.dueIqd <= 0) return 'collected';
   if (c.collected) return 'partial';
   return 'holding';
 }
 
-/** A stop is done when nobody on it holds cash any more (and someone was collected there). */
+/** A stop is done when nobody on it owes the round cash any more (and someone was collected there). */
 export function stopDone(s: Pick<RoundStop, 'couriers'>): boolean {
-  return s.couriers.length > 0 && s.couriers.every((c) => c.heldIqd <= 0);
+  return s.couriers.length > 0 && s.couriers.every((c) => c.dueIqd <= 0);
 }
 
 /** The courier's daily code: 4 Western digits (Eastern digits typed on an Arabic keyboard are folded). */
@@ -56,10 +59,10 @@ export function codeValid(code: string): boolean {
   return /^\d{4}$/.test(code);
 }
 
-/** The amount field: whole dinars, more than 0, not more than he holds (the server checks it too). */
-export function collectAmountProblem(amountIqd: number, heldIqd: number): 'empty' | 'too_much' | null {
+/** The amount field: whole dinars, more than 0, not more than he owes the company (the server checks it too). */
+export function collectAmountProblem(amountIqd: number, dueIqd: number): 'empty' | 'too_much' | null {
   if (!Number.isFinite(amountIqd) || amountIqd <= 0) return 'empty';
-  if (amountIqd > heldIqd) return 'too_much';
+  if (amountIqd > dueIqd) return 'too_much';
   return null;
 }
 
@@ -76,17 +79,18 @@ export interface PrintRow {
   firstOfStop: boolean;
   driverId: string;
   name: string | null;
-  heldIqd: number;
+  /** What the round takes from him. */
+  dueIqd: number;
   overCap: boolean;
   collected: boolean;
 }
 
-/** The printed route: one line per courier in stop order, still-holding first inside each stop. */
+/** The printed route: one line per courier in stop order, still-owing first inside each stop. */
 export function printRows(r: Pick<Round, 'stops'>): PrintRow[] {
   const out: PrintRow[] = [];
   for (const s of r.stops) {
-    const list = [...s.couriers].sort((a, b) => Number(b.heldIqd > 0) - Number(a.heldIqd > 0) || b.heldIqd - a.heldIqd);
-    list.forEach((c, i) => out.push({ seq: s.seq, zone: s.zone_ar, firstOfStop: i === 0, driverId: c.driverId, name: c.name, heldIqd: c.heldIqd, overCap: c.overCap, collected: courierRoundState(c) === 'collected' }));
+    const list = [...s.couriers].sort((a, b) => Number(b.dueIqd > 0) - Number(a.dueIqd > 0) || b.dueIqd - a.dueIqd);
+    list.forEach((c, i) => out.push({ seq: s.seq, zone: s.zone_ar, firstOfStop: i === 0, driverId: c.driverId, name: c.name, dueIqd: c.dueIqd, overCap: c.overCap, collected: courierRoundState(c) === 'collected' }));
   }
   return out;
 }

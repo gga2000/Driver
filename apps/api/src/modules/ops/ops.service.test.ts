@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MerchantOnboardingInput } from '@driver/contracts';
 import type { AuditLogService } from '../controls/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { HandoverCodes } from '../driver-account/index.js';
@@ -96,6 +97,36 @@ describe('ops.recordCashReceipt', () => {
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1000, code: bad })).rejects.toMatchObject({ code: 'handover_code_invalid' });
     await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 1_000_000, code: good })).rejects.toMatchObject({ code: 'cash_receipt_exceeds_held' });
   });
+
+  it('takes only what he owes the company: the rest of the cash in his hand is his own pay', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const s = await h.lh.caps.status('k1');
+    const held = -s.cashIqd;
+    expect(s.owedIqd).toBeGreaterThan(0);
+    expect(s.owedIqd).toBeLessThan(held);
+    const code = h.codes.code('k1', h.clock.now()).code;
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: held, code })).rejects.toMatchObject({ code: 'cash_receipt_exceeds_owed' });
+    expect(h.audits).toEqual([]);
+    const r = await h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: s.owedIqd, code, idempotencyKey: 'receipt-owed' });
+    expect(r.courierOwedIqd).toBe(0);
+    // His pay stays in his hand and on his book: nothing more is owed, nothing more can be taken.
+    expect(-(await h.lh.caps.status('k1')).cashIqd).toBe(held - s.owedIqd);
+    await expect(h.ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: 250, code })).rejects.toMatchObject({ code: 'cash_receipt_exceeds_owed' });
+    // One audit row, for the one receipt that posted, at what he owed.
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'cash.receipt', subjectId: 'k1', detail: expect.objectContaining({ amountIqd: s.owedIqd, reference: r.reference }) })]);
+  });
+
+  it('a staff member who also delivers is refused his own hand-in whatever the amount, before the owed check', async () => {
+    const h = await setup();
+    await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: h.staff.personId }));
+    const s = await h.lh.caps.status(h.staff.personId);
+    const code = h.codes.code(h.staff.personId, h.clock.now()).code;
+    for (const amountIqd of [s.owedIqd, -s.cashIqd]) {
+      await expect(h.ops.recordCashReceipt(h.staff, { courierId: h.staff.personId, amountIqd, code })).rejects.toMatchObject({ code: 'staff_own_account' });
+    }
+    expect(h.audits).toEqual([]);
+  });
 });
 
 describe('ops.recordCashReceipt under concurrency (review 2026-10-04 #1)', () => {
@@ -114,11 +145,12 @@ describe('ops.recordCashReceipt under concurrency (review 2026-10-04 #1)', () =>
     expect(h.repo.receipts).toHaveLength(2);
   });
 
-  it('never takes more than the courier holds when two receipts race past the check', async () => {
+  it('never takes more than the courier owes when two receipts race past the check', async () => {
     const h = await setup();
     await h.lh.posting.orderMoney(workedExample({ orderId: 'o1', courierId: 'k1' }));
+    const due = (await h.lh.caps.status('k1')).owedIqd;
     const held = -(await h.lh.caps.status('k1')).cashIqd;
-    expect(held).toBeGreaterThan(0);
+    expect(due).toBeGreaterThan(0);
     // The first receipt's held-cash read is slow (a busy ledger): the second lands meanwhile.
     let slowOnce = true;
     let secondDone: () => void = () => {};
@@ -138,15 +170,15 @@ describe('ops.recordCashReceipt under concurrency (review 2026-10-04 #1)', () =>
     });
     const ops = new OpsService(h.repo, { verifyHandoverCode: () => true } as unknown as DriverAccountService, h.lh.merchantCash, caps, h.lh.ledger, h.orgs, h.id.service, h.ev.events, h.blobs, h.ev.uow, h.clock, h.places);
     const other = (await h.id.login('07700000002')).actor;
-    const first = ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: held, code: '0000', idempotencyKey: 'rc-1' });
+    const first = ops.recordCashReceipt(h.staff, { courierId: 'k1', amountIqd: due, code: '0000', idempotencyKey: 'rc-1' });
     await new Promise((r) => setTimeout(r, 0));
-    const second = ops.recordCashReceipt(other, { courierId: 'k1', amountIqd: held, code: '0000', idempotencyKey: 'rc-2' }).finally(() => secondDone());
+    const second = ops.recordCashReceipt(other, { courierId: 'k1', amountIqd: due, code: '0000', idempotencyKey: 'rc-2' }).finally(() => secondDone());
     const results = await Promise.allSettled([first, second]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
-    expect(rejected.reason).toMatchObject({ code: 'cash_receipt_exceeds_held' });
-    // The courier's cash account never flips positive (the platform never "owes" him cash he did not hand in).
-    expect((await h.lh.caps.status('k1')).cashIqd).toBe(0);
+    expect(rejected.reason).toMatchObject({ code: expect.stringMatching(/^cash_receipt_exceeds_(owed|held)$/) });
+    // Taken once: what is left in his hand is exactly his own pay.
+    expect((await h.lh.caps.status('k1')).cashIqd).toBe(-(held - due));
   });
 });
 
@@ -189,13 +221,13 @@ describe('ops.merchantOnboarding and tasks', () => {
       name: 'مطعم الريف',
       type: 'restaurant',
       contact: { name: 'أبو حسن', phone: '07800000123' },
-      location: { zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } },
+      location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } },
       menuPhotoUploadIds: menu,
     });
     expect(v).toMatchObject({ state: 'draft', menuPhotos: 2 });
     const org = await h.orgs.get(v.merchantOrgId);
     expect(org).toMatchObject({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah' });
-    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } });
     const ownerId = h.repo.onboardings[0]!.contactPersonId;
     expect((await h.id.repo.readIdentity(ownerId))?.name).toBe('أبو حسن');
     expect(JSON.stringify(h.repo.onboardings[0])).not.toContain('07800000123');
@@ -208,10 +240,21 @@ describe('ops.merchantOnboarding and tasks', () => {
     await expect(h.ops.completeTask(h.staff, { taskId: 'otk_nope' })).rejects.toMatchObject({ code: 'task_not_found' });
   });
 
+  it('the kitchen’s zone is read from its pin, never the tapped zone; no pin or a pin outside town is refused', async () => {
+    const h = await setup();
+    const input = { cityId: 'aziziyah', name: 'مطعم الريف', type: 'restaurant' as const, contact: { name: 'أبو حسن', phone: '07800000126' }, menuPhotoUploadIds: [] };
+    // Pinned in Zakur while the chip said centre: the store sits in Zakur.
+    const v = await h.ops.merchantOnboarding(h.staff, { ...input, location: { zoneKey: 'centre', pin: { lat: 32.887, lng: 45.0765 } } });
+    expect((await h.orgs.merchantSettings(v.merchantOrgId)).location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    expect(h.repo.onboardings.at(-1)!.location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    await expect(h.ops.merchantOnboarding(h.staff, { ...input, contact: { name: 'x', phone: '07800000127' }, location: { zoneKey: 'centre', pin: { lat: 33.3, lng: 44.4 } } })).rejects.toMatchObject({ code: 'outside_zone' });
+    expect(MerchantOnboardingInput.safeParse({ ...input, location: { zoneKey: 'centre' } }).success).toBe(false);
+  });
+
   it('refuses photos that are not the caller’s uploads', async () => {
     const h = await setup();
     await expect(
-      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre' }, menuPhotoUploadIds: ['up_nope'] }),
+      h.ops.merchantOnboarding(h.staff, { cityId: 'aziziyah', name: 'x محل', type: 'grocer', contact: { name: 'a', phone: '07800000124' }, location: { zoneKey: 'centre', pin: { lat: 32.905, lng: 45.06 } }, menuPhotoUploadIds: ['up_nope'] }),
     ).rejects.toMatchObject({ code: 'upload_invalid' });
   });
 
@@ -304,7 +347,7 @@ describe('ops.merchantOnboarding settlement mode', () => {
       name: 'أسواق النور',
       type: 'grocer',
       contact: { name: 'أبو نور', phone: '07800000125' },
-      location: { zoneKey: 'hashimi' },
+      location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
       menuPhotoUploadIds: [],
       settlementMode: 'daily_zaincash',
     });

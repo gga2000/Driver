@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
@@ -120,6 +120,8 @@ export const NOTIFY_EVENT_TYPES = [
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
   'session.signed_out',
+  // A staff account on a device it was never seen on: every admin hears of it.
+  'staff.new_device',
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
@@ -143,8 +145,8 @@ export interface NotifySubscriberDeps {
   engine: Pick<NotifyEngine, 'dispatch'>;
   repo: Pick<NotifyRepository, 'deleteSessionTokens'>;
   lookups: NotifyLookups;
-  /** Public base of the receipt links in WhatsApp receipts (`https://driver.iq/r/`). */
-  receiptBaseUrl: string;
+  /** Public base of the receipt links in WhatsApp receipts (`NOTIFY_RECEIPT_BASE_URL`); null: unset, no link («تلگاه بالتطبيق»). */
+  receiptBaseUrl: string | null;
   /** The merchant app's web address (`MERCHANT_APP_URL`); the activation SMS links to its `/setup`. Unset = no link. */
   merchantAppUrl?: string | null;
 }
@@ -240,16 +242,16 @@ async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order:
 async function rideForRider(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts, driver: string): Promise<NotifyRequest[]> {
   const L = deps.lookups;
   const riderId = order.riderId;
-  if (!riderId || !L.shareLink) return [];
+  if (!riderId) return [];
   const tripId = str(e.payload['tripId']);
   const [link, booker, car, code] = await Promise.all([
-    L.shareLink(riderId, { orderId: order.id }),
+    L.shareLink ? L.shareLink(riderId, { orderId: order.id }) : null,
     L.firstName(order.customerId, 'notify_ride_for_rider'),
     tripId && L.driverCar ? L.driverCar(tripId, e.actorId) : null,
     L.startCode ? L.startCode(order.id) : null,
   ]);
-  if (!link) return [];
-  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', link, orderId: order.id, ...(code ? { code } : {}) };
+  // No link (no SHARE_LINK_BASE_URL, or the page could not be made): the same message without «تابع المشوار».
+  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', orderId: order.id, ...(link ? { link } : {}), ...(code ? { code } : {}) };
   return [{ eventId: e.id, template: 'ride_for_rider', to: riderId, orderId: order.id, params, data: { orderId: order.id } }];
 }
 
@@ -333,11 +335,19 @@ export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookup
   }
 }
 
+/** «انلغى طلب #4821» to the store's people when the cancelled order was one the kitchen had accepted. */
+async function kitchenCancelled(order: OrderFacts, from: unknown, base: { eventId: string }, L: NotifyLookups): Promise<NotifyRequest[]> {
+  const orgId = order.merchantOrgId;
+  if (!orgId || order.type === 'ride' || typeof from !== 'string' || !kitchenHeld(from)) return [];
+  const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
+  return staff.map((to) => ({ ...base, template: 'merchant_order_cancelled' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
+}
+
 async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const p = e.payload;
   const base = { eventId: e.id };
   const L = deps.lookups;
-  const receipt = (orderId: string) => `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}`;
+  const receipt = (orderId: string) => (deps.receiptBaseUrl ? `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}` : t('notify.receipt_in_app'));
   switch (e.type) {
     case 'order.accepted':
     case 'order.auto_accepted': {
@@ -368,12 +378,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       return [{ ...base, template: 'order_partial_ask', to: order.customerId, orderId: order.id, params: { items: missingItemsAr(names, lineIds.length), merchant: merchant ?? 'المطعم', amount: iqd(reduced), orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.cancelled': {
+      // The kitchen first: an order it already accepted (cooking, or bagged on the pass) is cancelled —
+      // «انلغى طلب #4821» to everyone at the store, whoever cancelled (staff cancels included: their
+      // `order.ops_cancelled` rides on this same `order.cancelled`, so the kitchen hears it once).
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      const kitchen = order ? await kitchenCancelled(order, p['from'], base, L) : [];
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
-      if (p['cancelledState'] !== 'platform_cancelled') return [];
+      if (p['cancelledState'] !== 'platform_cancelled') return kitchen;
       // Staff ending an order (W3) is told by its own `order.ops_cancelled` «آسفين، ألغينا طلبك»: never twice.
-      if (p['reason'] === 'staff_cancelled') return [];
-      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (p['reason'] === 'staff_cancelled') return kitchen;
       if (!order) return [];
       const template =
         p['reason'] === 'payer_declined'
@@ -383,7 +397,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
             : p['reason'] === 'partial_timeout'
               ? ('order_partial_no_answer' as const)
               : ('order_cancelled' as const);
-      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }, ...kitchen];
     }
     case 'order.picked_up': {
       // «حيدر استلم طلبك ويوصلك الساعة 8:40» — the order screen's own ETA; without one, no time at all.
@@ -804,6 +818,15 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         params: { restaurant: str(p['restaurantName']) ?? '', dish: str(p['dishName']) ?? '', merchantOrgId },
         data: { merchantOrgId, itemId: str(p['itemId']) ?? '' },
       }));
+    }
+    case 'staff.new_device': {
+      // «جهاز جديد بحساب موظف»: each admin the event names; the staff member's first name (logged read).
+      const personId = str(p['personId']);
+      const ids = Array.isArray(p['adminIds']) ? p['adminIds'].filter((x): x is string => typeof x === 'string' && x !== personId) : [];
+      if (!personId || ids.length === 0) return [];
+      const name = (await L.firstName(personId, 'notify_staff_new_device')) ?? t('push.staff_new_device.someone');
+      const device = t(str(p['platform']) === 'web' ? 'push.staff_new_device.web' : 'push.staff_new_device.phone');
+      return ids.map((to) => ({ ...base, template: 'staff_new_device' as const, to, params: { name, device }, data: { personId } }));
     }
     case 'dispatch.zone_nudged': {
       // "Send drivers here" (maps program o5): one push per free driver around the busy zone.

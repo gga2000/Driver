@@ -78,12 +78,22 @@ export interface CheckoutTotals {
 export function checkoutTotals(
   cart: Pick<CartState, 'lines'>,
   quote: Pick<Quote, 'components'>,
-  order?: (Pick<OrderQuote, 'discountIqd' | 'discount'> & Partial<Pick<OrderQuote, 'smallOrderFeeIqd' | 'smallOrder' | 'pointsIqd'>>) | null,
+  order?: (Pick<OrderQuote, 'discountIqd' | 'discount'> & Partial<Pick<OrderQuote, 'smallOrderFeeIqd' | 'smallOrder' | 'pointsIqd' | 'deliveryFeeIqd' | 'serviceFeeIqd'>>) | null,
   paymentMethod: 'cash' | 'wallet' = 'cash',
 ): CheckoutTotals {
   const items = itemsTotal(cart);
-  const fees = deliveryFeesOf(quote);
-  const parts = quote.components.filter((c) => c.key !== 'promo');
+  const shown = deliveryFeesOf(quote);
+  // FOOD-01/19: `orders.quote` prices the fees on the server's clock at the order's slot, as place
+  // will; the engine's lines (asked with the phone's clock) only explain them.
+  const fees = {
+    deliveryFeeIqd: order?.deliveryFeeIqd ?? shown.deliveryFeeIqd,
+    serviceFeeIqd: order?.serviceFeeIqd ?? shown.serviceFeeIqd,
+  };
+  const parts = settleLines(
+    quote.components.filter((c) => c.key !== 'promo'),
+    fees.deliveryFeeIqd - shown.deliveryFeeIqd,
+    fees.serviceFeeIqd - shown.serviceFeeIqd,
+  );
   const components = [...parts.filter((c) => c.key !== 'service_fee'), ...parts.filter((c) => c.key === 'service_fee')];
   const discountIqd = order?.discountIqd ?? 0;
   const smallOrderFeeIqd = order?.smallOrderFeeIqd ?? 0;
@@ -105,6 +115,18 @@ export function checkoutTotals(
     changeIqd: cash.changeIqd,
     components,
   };
+}
+
+/**
+ * When the engine's lines and the order's fees differ (the phone's clock across a night or peak
+ * edge), the difference lands on the delivery base and the service fee so the lines still add up to
+ * the total placed.
+ */
+function settleLines(parts: Quote['components'], deliveryDiff: number, serviceDiff: number): Quote['components'] {
+  if (deliveryDiff === 0 && serviceDiff === 0) return parts;
+  const firstDelivery = parts.findIndex((c) => c.key === 'base');
+  const at = firstDelivery >= 0 ? firstDelivery : parts.findIndex((c) => c.key !== 'service_fee');
+  return parts.map((c, i) => (i === at ? { ...c, amount: c.amount + deliveryDiff } : c.key === 'service_fee' ? { ...c, amount: c.amount + serviceDiff } : c));
 }
 
 /**
@@ -144,6 +166,11 @@ export interface CheckoutChoices {
   /** «استخدم نقاطك» (W-02) and the points value `orders.quote` showed (the server refuses another: `price_changed`). */
   usePoints?: boolean;
   pointsIqd?: number;
+  /**
+   * M-3: the earlier unpaid amount `orders.quote` showed (`debtCollectIqd`, 0 when none), sent back so a
+   * different figure is `price_changed`. Sent on a cash order only; omit without a quote.
+   */
+  debtCollectIqd?: number;
   /** Joy w4: pay from the household wallet (a wallet order); over a limit it waits for the payer. */
   householdOrgId?: string | null;
   /** «عزيمة» (joy g1): the order is a gift for its recipient (ignored when I receive it myself). */
@@ -165,6 +192,15 @@ const OTHER_RECIPIENT_REF = 'recipient';
 export function validTender(tenderIqd: number | null, totalIqd: number | null, paymentMethod: 'cash' | 'wallet'): number | null {
   if (tenderIqd === null || totalIqd === null || paymentMethod !== 'cash') return null;
   return tenderProblem(tenderIqd, totalIqd) === null ? tenderIqd : null;
+}
+
+/**
+ * M-3 «ينضاف لطلبك الجاي»: what he still owes from an earlier order (a cancellation fee, or cash that
+ * came up short), handed over with this cash order on top of its total. The quote prices it for a cash
+ * order on his own account, so a wallet or household order carries nothing.
+ */
+export function owedOnOrder(debtCollectIqd: number | undefined, paymentMethod: 'cash' | 'wallet', household: boolean): number {
+  return paymentMethod === 'cash' && !household ? (debtCollectIqd ?? 0) : 0;
 }
 
 export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
@@ -209,6 +245,7 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
     ...(c.courierNote?.trim() ? { courierNote: c.courierNote.trim().slice(0, 300) } : {}),
     ...(c.clientRequestId ? { clientRequestId: c.clientRequestId } : {}),
     ...(c.paymentMethod === 'cash' && c.statedTenderIqd ? { statedTenderIqd: c.statedTenderIqd } : {}),
+    ...(c.paymentMethod === 'cash' && c.debtCollectIqd !== undefined ? { debtCollectIqd: c.debtCollectIqd } : {}),
     ...(c.usePoints ? { usePoints: true, ...(c.pointsIqd !== undefined ? { pointsIqd: c.pointsIqd } : {}) } : {}),
     ...(c.householdOrgId && c.paymentMethod === 'wallet' ? { householdOrgId: c.householdOrgId } : {}),
     // J5a «للسفرة»: the household hub lists the order on the family table (joy w4).
@@ -221,8 +258,8 @@ export function buildPlaceOrderInput(c: CheckoutChoices): PlaceOrderInput {
  * The `orders.quote` input for a cart: the same lines and drop-off `place` will get, without the fee
  * and discount expectations (the quote is what sets them).
  */
-export function orderQuoteInput(cart: CartState, dropoff: DeliveryPoint, streetHandover: boolean, usePoints = false): PlaceOrderInput {
-  const full = buildPlaceOrderInput({ cart, dropoff, streetHandover, recipient: { kind: 'me' }, scheduledFor: null, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 }, usePoints });
+export function orderQuoteInput(cart: CartState, dropoff: DeliveryPoint, streetHandover: boolean, usePoints = false, scheduledFor: Date | null = null): PlaceOrderInput {
+  const full = buildPlaceOrderInput({ cart, dropoff, streetHandover, recipient: { kind: 'me' }, scheduledFor, paymentMethod: 'cash', fees: { deliveryFeeIqd: 0, serviceFeeIqd: 0 }, usePoints });
   const { deliveryFeeIqd: _d, serviceFeeIqd: _s, participants: _p, ...rest } = full;
   return { ...rest, lines: (rest.lines ?? []).map(({ participantRef: _r, ...l }) => l) };
 }

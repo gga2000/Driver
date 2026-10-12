@@ -187,7 +187,7 @@ export class RoutesRpc implements RoutesPort {
   async holdSeat(actor: Actor, input: In<'holdSeat'>): Promise<BookingView> {
     if (this.controls) {
       const dep = await this.repo.getDeparture(input.departureId);
-      // Launch kill switch: a switched-off corridor (or الرجعة as a whole) takes no new holds.
+      // الرجعة not launched in the city, or a switched-off corridor (or الرجعة as a whole): no new holds.
       if (dep) await this.controls.assertCorridorOpen({ cityId: HOME_CITY, corridorId: dep.corridorId });
     }
     return this.view(await this.departures.hold(actor.personId, input), true);
@@ -279,7 +279,7 @@ export class RoutesRpc implements RoutesPort {
   }
 
   async postRequest(actor: Actor, input: In<'postRequest'>): Promise<RequestPostView> {
-    // The request board has no corridor: only a switch on الرجعة as a whole stops it.
+    // The request board has no corridor: الرجعة not launched, or a switch on it as a whole, stops it.
     await this.controls?.assertCorridorOpen({ cityId: HOME_CITY, corridorId: '*' });
     return this.riderRequestView(await this.requests.post(actor.personId, input), actor.personId);
   }
