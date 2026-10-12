@@ -25,6 +25,8 @@ import {
   type PartnerJob,
   type PartnerDoor,
   type PartnerPickupSpot,
+  type PartnerShopItem,
+  type PartnerShopList,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerClimateCheck,
@@ -415,6 +417,7 @@ export class PartnerService implements PartnerPort {
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
     const recipients = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.recipientOf(o, actor.personId)] as const)));
+    const lists = await this.shopListsOf(trip, byId);
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -456,6 +459,8 @@ export class PartnerService implements PartnerPort {
           recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
           // j2: the public landmark it is near, for the headline and the spoken prompt.
           landmark: s.target ? nearestLandmark(s.target) : null,
+          // «الليستة»: a دوّرلي pickup still to do.
+          shopList: lists.get(s.id) ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -550,6 +555,46 @@ export class PartnerService implements PartnerPort {
   }
 
   /** Orders currently on the trip (detached ones are someone else's now). */
+  /**
+   * «الليستة» on دوّرلي pickups still to do of the job on his screen (activeJob reads only his own trip).
+   * Gone once the pickup is done or the trip ends; photo and voice links are minted per read.
+   */
+  private async shopListsOf(trip: Trip, orders: ReadonlyMap<string, Order>): Promise<Map<string, PartnerShopList>> {
+    const out = new Map<string, PartnerShopList>();
+    if (trip.cancelledAt !== null || trip.completedAt !== null) return out;
+    const media = this.deps.errandMedia;
+    for (const s of trip.stops) {
+      if (s.type !== 'pickup' || s.state === 'completed' || s.state === 'skipped' || !s.orderId) continue;
+      const order = orders.get(s.orderId);
+      if (order?.type !== 'errand') continue;
+      const items: PartnerShopItem[] = [];
+      let listMaxIqd: number | null = null;
+      for (const l of order.lines) {
+        const e = l.errandItem;
+        if (!e) continue;
+        listMaxIqd ??= e.listMaxIqd ?? null;
+        const where = e.where;
+        items.push({
+          what: l.freeText ?? '',
+          qty: l.qty,
+          unit: e.unit,
+          where:
+            where.kind === 'app'
+              ? { kind: 'app', name: (await this.deps.merchants.name(where.shopId)) ?? null, pin: null }
+              : where.kind === 'known'
+                ? { kind: 'known', name: where.name, pin: where.pin }
+                : { kind: 'near', name: null, pin: null },
+          ifMissing: e.ifMissing,
+          maxIqd: e.maxIqd,
+          photoUrl: media && e.photoUploadId ? media.readUrl(e.photoUploadId) : null,
+          voice: media && e.voiceUploadId && e.voiceSec ? { url: media.readUrl(e.voiceUploadId), sec: e.voiceSec } : null,
+        });
+      }
+      if (items.length) out.set(s.id, { items, listMaxIqd });
+    }
+    return out;
+  }
+
   private async ordersOf(trip: Trip): Promise<Order[]> {
     const ids = trip.orders.filter((o) => o.detachedAt === null).map((o) => o.orderId);
     const found = await Promise.all(ids.map((oid) => this.deps.orders.get(oid)));

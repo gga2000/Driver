@@ -4,6 +4,7 @@ import { AnswerClimateCheckInput, ClimateFeature, PartnerClimateCheck } from './
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 import { RideCargo } from './ride-cargo.js';
+import { ErrandUnit, IfMissing } from './shop-lines.js';
 import type { OrderRoute } from './tracking.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass } from './trip.js';
 
@@ -350,6 +351,31 @@ export const PartnerPickupSpot = z.object({
 });
 export type PartnerPickupSpot = z.infer<typeof PartnerPickupSpot>;
 
+/**
+ * «الليستة» (دوّرلي, 2026-10-11): one item the shopper buys — the customer's words, how many and in
+ * what, where (near the customer, a shop in the app or a shop he named and pinned; never a person or an
+ * address), what to do if there is none, the top price as the customer gave it, and his photo or voice
+ * note as links signed for minutes. The bill is the server's; the app does no price maths.
+ */
+export const PartnerShopItem = z.object({
+  what: z.string(),
+  qty: z.number().int().positive(),
+  unit: ErrandUnit,
+  where: z.object({ kind: z.enum(['near', 'app', 'known']), name: z.string().nullable(), pin: LatLng.nullable() }),
+  ifMissing: IfMissing,
+  maxIqd: Iqd.nullable(),
+  photoUrl: z.string().nullable(),
+  voice: z.object({ url: z.string(), sec: z.number().int().positive() }).nullable(),
+});
+export type PartnerShopItem = z.infer<typeof PartnerShopItem>;
+
+export const PartnerShopList = z.object({
+  items: z.array(PartnerShopItem),
+  /** The whole list's ceiling as the customer gave it: over it the shopper calls first. */
+  listMaxIqd: Iqd.nullable(),
+});
+export type PartnerShopList = z.infer<typeof PartnerShopList>;
+
 export const PartnerJobStop = z.object({
   stopId: z.string(),
   seq: z.number().int(),
@@ -407,6 +433,11 @@ export const PartnerJobStop = z.object({
    * directions — a town place from the landmark list, never a person's door; null when none is close.
    */
   landmark: z.string().nullable().default(null),
+  /**
+   * «الليستة»: a دوّرلي pickup not yet done, for the assigned courier only (never in offers or history).
+   * Null/absent otherwise.
+   */
+  shopList: PartnerShopList.nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 

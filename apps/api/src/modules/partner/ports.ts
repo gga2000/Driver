@@ -138,6 +138,11 @@ export interface PartnerDeps {
   pickupSpots?: {
     forCourier(merchantOrgId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null; cancelled?: boolean }; now: Date }): Promise<PartnerPickupSpot | null>;
   };
+  /**
+   * «الليستة» (دوّرلي): signed read links for the customer's item photos and voice notes, minted per
+   * request for the assigned courier's job, each valid 15 minutes. Absent in fakes = items show their words only.
+   */
+  errandMedia?: { readUrl(uploadId: string): string };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
   /**

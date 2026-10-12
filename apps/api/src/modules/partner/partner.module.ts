@@ -14,8 +14,11 @@ import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '
 import { TripsModule, TripsService } from '../trips/index.js';
 import { WAITING_STATUSES, type TakeRule } from './logic.js';
 import { PartnerService } from './partner.service.js';
-import { PlacesModule, SavedPlacesService } from '../places/index.js';
+import { BLOB_STORE, PlacesModule, SavedPlacesService, type BlobStore } from '../places/index.js';
 import { PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps } from './ports.js';
+
+/** «الليستة» photo and voice links last 15 minutes from each fetch of the job (lane A). */
+const ERRAND_MEDIA_VALID_MS = 15 * 60_000;
 
 /** Take rules by vertical (money & ops §3): rides and parcels; food, grocery and errand fees pass through. */
 function takeFor(vertical: Vertical): TakeRule | null {
@@ -54,6 +57,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         places: SavedPlacesService,
         merchant: MerchantService,
         climate: ClimateChecks,
+        blobs: BlobStore,
       ): PartnerDeps => ({
         roads: { path: (points) => eta.path(points) },
         presence: {
@@ -123,6 +127,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         // Maps program SP3d: the customer's door (note, photos, first visit) on drop-offs at saved places.
         places: { courierDoor: (placeId, input) => places.courierDoor(placeId, input), dropoffsAt: (placeId, tripId) => trips.dropoffsAt(placeId, tripId) },
         // Maps program r7: the kitchen's pickup spot (note, photos) on pickups still to do.
+        errandMedia: { readUrl: (id) => blobs.readUrl(id, ERRAND_MEDIA_VALID_MS, { exact: true }) },
         pickupSpots: { forCourier: (merchantOrgId, input) => merchant.courierPickupSpot(merchantOrgId, input) },
         // Ride idea x1: the shift's AC / heating question, on what the car check confirmed for his car.
         climate: {
@@ -136,7 +141,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks, BLOB_STORE],
     },
     PartnerService,
   ],
